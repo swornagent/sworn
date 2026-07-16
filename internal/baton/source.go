@@ -74,6 +74,7 @@ var batonFileMappings = []FileMapping{
 	{Source: "schemas/proof-v1.json", Dest: "internal/baton/schemas/proof-v1.json"},
 	{Source: "schemas/slice-status-v1.json", Dest: "internal/baton/schemas/slice-status-v1.json"},
 	{Source: "schemas/spec-v1.json", Dest: "internal/baton/schemas/spec-v1.json"},
+	{Source: "schemas/spec-ambiguity-report-v1.json", Dest: "internal/baton/schemas/spec-ambiguity-report-v1.json"},
 	{Source: "schemas/verifier-verdict-v1.json", Dest: "internal/baton/schemas/verifier-verdict-v1.json"},
 
 	// Baton protocol documents (embedded under internal/prompt/baton/)

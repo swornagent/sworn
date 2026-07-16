@@ -183,6 +183,9 @@ func extractBatonArchiveForReachability(t *testing.T, archiveBytes []byte) strin
 		if err != nil {
 			t.Fatalf("read installer archive: %v", err)
 		}
+		if header.Typeflag == tar.TypeXGlobalHeader && header.Name == "pax_global_header" {
+			continue
+		}
 		if !strings.HasPrefix(header.Name, prefix) {
 			t.Fatalf("installer archive entry %q lacks %q prefix", header.Name, prefix)
 		}

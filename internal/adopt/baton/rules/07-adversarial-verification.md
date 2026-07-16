@@ -76,12 +76,24 @@ Rule 7 introduces a small state machine that lives in `status.json` per slice:
 planned -> in_progress -> implemented -> [verifier] -> verified | failed_verification
                                                   \-> deferred (per Rule 2)
 verified -> [human] -> shipped
+verified -> [track integrator: deterministic post-sync invalidation only] -> failed_verification
 ```
 
 State transitions:
 
 - **Implementer can move**: `planned` → `in_progress`, `in_progress` → `implemented`, anything → `deferred` (with Rule 2 surfacing).
 - **Verifier can move**: `implemented` → `verified` or `failed_verification`.
+- **Track Integrator can invalidate**: `verified` → `failed_verification` only when canonical
+  track-integration freshness composition proves that a recognized synchronization merge contributed
+  an intersecting path after its latest authoritative frontier, supplies an exact trustworthy
+  parent-2 rollback baseline, and the invalidated slice's complete candidate set is disjoint from
+  every later authoritative slice. It
+  preserves the append-only report ledger, clears the stale pinned head, sets
+  `maintainability.state: re_slice_required`, records the deterministic violation, commits locally,
+  and stops for `/replan-release`. It cannot append a Verifier report, repair code, push, or
+  invalidate human-terminal `shipped` state. Unowned semantic commits, custom merges, or invalid
+  provenance, or a later-slice candidate overlap BLOCK without a lifecycle mutation because bounded
+  rollback cannot preserve the trustworthy baseline and later verified bytes simultaneously.
 - **Human can move**: `verified` → `shipped`.
 - **No agent can move directly to `verified` from `in_progress`.** The `implemented` checkpoint exists to mark "implementer believes done; awaiting fresh-context verification."
 

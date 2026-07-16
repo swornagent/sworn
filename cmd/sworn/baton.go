@@ -98,6 +98,13 @@ func cmdBatonVendor(args []string) int {
 			RepoRoot:  repoRoot,
 			CheckOnly: parsed.check,
 		}
+		if inputs, pinned, err := baton.PinnedInstallerVendorInputs(context.Background(), sourceDir, time.Now().UTC()); err != nil {
+			fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+			return 2
+		} else if pinned {
+			opts.VersionCandidate = &inputs.Version
+			opts.InstallerArchiveCandidate = inputs.Archive
+		}
 
 		result, err := baton.Vendor(opts)
 		if err != nil {

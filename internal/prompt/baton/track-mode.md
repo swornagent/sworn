@@ -32,7 +32,7 @@ A track of one slice is normal and fine. A track is the unit of parallelism; a s
   ▲   /merge-release   gate: every track merged
   │
 release-wt/<release>                     the release assembly branch — ONE worktree
-  ▲   /merge-track     gate: every slice in the track verified
+  ▲   /merge-track     gate: every slice integration-ready
   │
   ├── track/<release>/T1-<name>          worktree A ┐
   ├── track/<release>/T2-<name>          worktree B ├─ run in parallel
@@ -57,10 +57,30 @@ Both worktree levels are materialised **lazily** — the planner creates no work
 Parallelism is safe **only** while all five hold. Every command enforces one or more of them.
 
 1. **One worktree per track; one implementer at a time; slices sequential.** A track worktree has its own working tree and its own git index, so concurrent implementers in *different* tracks cannot race. Within a track, slices are done one after another — never two implementers in one track worktree.
-2. **Tracks are touchpoint-disjoint.** No file is written by two tracks — with one narrow, documented exception. The planner proves disjointness with the **touchpoint matrix** (below). **Documented region-split exception:** a large, append-mostly module (a shared types file, a registry, a barrel export) MAY appear in two tracks IF the touchpoint matrix row records the specific, well-separated region/symbol each track edits and they do not overlap. Such a row is a *documented shared file*. This exception is for genuinely additive, region-separable modules only — never a component, a hook, or a logic file.
-3. **A track branch is linear and contiguous.** Because a track's slices are sequential, the track branch carries only that track's commits, in order. A slice's diff is therefore exactly `start_commit..HEAD` — no commit-range archaeology.
-4. **A conflict at `/merge-track` is a planner error — except on a documented shared file.** Invariant 2 means track branches never touch the same file *except documented shared files*, so `track → release-wt` merges are conflict-free on every other file. A conflict on `index.md` or a **documented shared file** is expected reconciliation, and `/merge-track` resolves it. A conflict on **any other file** means the touchpoint matrix was wrong: `/merge-track` BLOCKs and the release returns to `/plan-release` (or `/replan-release`) to re-group.
-5. **`release-wt/<release>` is written only by `/merge-track` and the planner.** Two writers, and only two: `/merge-track` lands verified track branches (integration), and the planner (`/plan-release` / `/replan-release`) commits the plan itself — `board.json`, specs, intake. **An implementer never commits to `release-wt`** — not to register a worktree, not to flip a track to `in_progress`, not for anything. A track worktree is materialised by `git worktree add -b track/<release>/<track-id> release-wt/<release>` (which creates a branch, not a commit on `release-wt`); its path is **conventional** (`$HOME/projects/<REPO_BASENAME>-worktrees/release-<release>-<track-id>`) and its live state is **derived** by the oracle from the track branch — neither is persisted to `release-wt`. Why load-bearing: every implementer write to `release-wt` advances it under the sibling tracks' feet, forcing needless forward-merges and blurring the one branch whose history should read as a clean sequence of integrated tracks. The materialisation record is the `track/<release>/<track-id>` **branch ref**, discoverable by enumerating `track/<release>/*` refs — not a board mutation.
+2. **Tracks are touchpoint-disjoint.** No file is written by two tracks — with one narrow, documented exception. The planner records the exception in `board.json.shared_touchpoints` and renders it in the **touchpoint matrix** (below). **Documented region-split exception:** a large, append-mostly module (a shared types file, a registry, a barrel export) MAY appear in two tracks IF one exact path key maps every contributing track id to the specific, distinct region/symbol it edits, and Baton's canonical blob-level three-way composition merges them without conflict. Such a member is a *documented shared file*. This exception is for genuinely additive, mechanically region-separable modules only — never a component, a hook, or a logic file.
+3. **A track branch is linear and contiguous on its first-parent chain.** Because a track's slices are sequential, slice-authored commits remain ordered even when `release-wt` synchronization merges add sibling-track history. A slice's semantic diff is derived from first-parent non-merge commits between its immutable `start_commit` and pinned `maintainability.implementation_head`; merge-only contributions are not slice scope.
+4. **An undeclared production conflict at `/merge-track` is a planner error.** Invariant 2 means track branches never touch the same file *except documented shared files*. A documented shared file is legal only when `git merge-file --object-id` composes its declared regions without conflict; its composed third blob is then mechanically reproducible without consulting merge drivers or local configuration. During forward-sync, `/merge-track` installs that exact blob in both the worktree and index even if ordinary `git merge` reports a driver-dependent conflict. It resolves release-record conflicts and this canonical shared composition only. Any other production conflict means the touchpoint matrix was wrong: `/merge-track` BLOCKs and the release returns to `/plan-release` (or `/replan-release`) to re-group.
+5. **`release-wt/<release>` is written only by `/merge-track` and the planner.** Two writers, and only two: `/merge-track` lands verified track branches as two-parent integrations whose second parent is the retained board-declared track ref, and the planner (`/plan-release` / `/replan-release`) commits release-record paths only — `board.json`, specs, intake. This history shape is protocol provenance and is validated before merge contributions can be excluded from maintainability scope. **An implementer never commits to `release-wt`** — not to register a worktree, not to flip a track to `in_progress`, not for anything. A track worktree is materialised by `git worktree add -b track/<release>/<track-id> release-wt/<release>` (which creates a branch, not a commit on `release-wt`); its path is **conventional** (`$HOME/projects/<REPO_BASENAME>-worktrees/release-<release>-<track-id>`) and its live state is **derived** by the oracle from the track branch — neither is persisted to `release-wt`. Why load-bearing: every implementer write to `release-wt` advances it under the sibling tracks' feet, forcing needless forward-merges and blurring the one branch whose history should read as a clean sequence of integrated tracks. The materialisation record is the `track/<release>/<track-id>` **branch ref**, discoverable by enumerating `track/<release>/*` refs — not a board mutation.
+
+A `deferred` slice whose maintainability lifecycle is `re_slice_required` is not sufficient evidence
+for integration by itself. Its mandatory `rollback_slice_id` must be verified and must prove the
+failed slice's authored paths were restored before replacement functionality was added. For an
+ordinary maintainability failure, the target is the original `start_commit` tree. For a deterministic
+post-sync Track Integrator invalidation, the target is the invalidating recognized synchronization
+merge's exact parent-2 tree, so rollback removes the track's invalidated bytes without deleting
+already-integrated sibling bytes. This automatic path is legal only when the invalidated slice's
+complete candidate set is disjoint from every later authoritative slice; otherwise track
+reconstruction is required. If later disjoint slices were already started when integration invalidated
+an earlier slice, append the rollback after the started prefix and before its functional
+replacements; never rewrite committed board/first-parent order. `/merge-track` enforces this
+exception to the ordinary terminal-state rule.
+
+**Integration-ready, canonical:** a slice is ready for track/release integration only when it is
+`verified` / `shipped`; or it is an unstarted Rule-2-complete `deferred` slice with null
+`start_commit`, the empty pending cycle-0 maintainability record, and a non-empty valid deferral; or
+it is a `deferred` terminal `re_slice_required` original whose recorded rollback is `verified` /
+`shipped` and passes the applicable tree-equality gate. A displayed `deferred` value alone is never
+authority, and `superseded` is not a slice-status state.
 
 ## The touchpoint matrix — the planner's load-bearing artefact
 
@@ -76,7 +96,7 @@ After decomposing a release into slices, the planner groups slices into tracks a
 
 **No row may have a `✓` in more than one column** — except a *documented shared file* (invariant 2). If decomposition cannot achieve single-column rows, the colliding slices belong in the **same track** (serialised), or one track is declared **dependent** on another (see below). The matrix is a contract: the implementer surfaces any touch outside its track's rows as a collision (not a silent addition), and `/merge-track`'s conflict check is the mechanical backstop.
 
-**Documented shared files.** A large, append-mostly module may carry a `✓` in two columns *if the row names the distinct region/symbol each track edits* and they are well-separated and non-overlapping. Write the row as, e.g. `| lib/types.ts (DOCUMENTED SHARED) | ✓ InvoiceFormState | ✓ CheckoutPlan |`. `/merge-track` reconciles a conflict on such a row instead of BLOCKing. Use it only for genuinely additive, region-separable modules (a types file, a registry) — never a component, hook, or logic file. If the regions turn out to overlap at merge time, that is still a planner error and `/merge-track` BLOCKs.
+**Documented shared files.** A large, append-mostly module may carry a `✓` in two columns only when `board.json.shared_touchpoints` contains one exact repository-relative path key whose value maps every contributing track id to a unique non-empty region/symbol. For example: `"lib/types.ts": {"T1-invoice": "InvoiceFormState", "T2-checkout": "CheckoutPlan"}`. The rendered row is `| lib/types.ts (DOCUMENTED SHARED) | ✓ InvoiceFormState | ✓ CheckoutPlan |`. Duplicate region strings, unknown tracks, absolute or dot-segment paths, and a named track whose slices do not claim the path all fail plan validation; JSON object identity makes duplicate paths and track ids impossible. The exception is executable rather than judgement-based: all three base/parent entries must be regular blobs with one mode, Baton's `git merge-file --object-id` operation must compose the file without a conflict, and the committed blob must equal that object id exactly. This may be a third blob containing both regions. The operation consumes committed blobs directly and ignores attributes, union/custom drivers, filters, and local merge configuration. During forward-sync, the canonical tuple overwrites any driver-produced index result, including a driver-dependent conflict. Use the exception only for genuinely additive, region-separable modules (a types file, a registry) — never a component, hook, or logic file. A canonical blob conflict or a hand-resolved blob is a planner error and `/merge-track` BLOCKs. The Markdown matrix is a view; only the validated board member grants authority.
 
 ## Cross-track dependencies
 
@@ -93,10 +113,10 @@ Independent tracks are the common case; dependencies are the exception and must 
 2. **`/implement-slice <slice>`** — discovers the slice's track from `index.md`; materialises the release worktree (if first slice in the release) and the track worktree (if first slice in the track); implements one slice; terminal state `implemented`.
 3. **`/verify-slice <slice>`** — fresh context; discovers and operates inside the track worktree; adversarial verification; terminal state `verified` or `failed_verification`.
 4. Repeat 2-3 for each slice of the track, **in order**, in the **same track worktree**.
-5. **`/merge-track <track-id>`** — gate: every slice in the track is `verified`. Merges `track/<release>/<track-id>` → `release-wt/<release>` with `--no-ff`. Conflict ⇒ BLOCK (invariant 4).
-6. **`/merge-release`** — gate: every track is merged into `release-wt/<release>` (which implies every slice verified). Merges `release-wt/<release>` → version branch with `--no-ff`.
+5. **`/merge-track <track-id>`** — gate: every slice satisfies the canonical integration-ready predicate above. Merges `track/<release>/<track-id>` → `release-wt/<release>` with `--no-ff`. Conflict ⇒ BLOCK (invariant 4).
+6. **`/merge-release`** — gate: every track is merged into `release-wt/<release>` (which implies every slice is integration-ready). Merges `release-wt/<release>` → version branch with `--no-ff`.
 
-`/replan-release` revises a release that is already in flight — adding unplanned scope, re-scoping or dropping slices, re-grouping tracks. It reconciles true board state from both the integration branch and the track worktrees before proposing changes.
+`/replan-release` revises a release that is already in flight — adding unplanned scope, re-scoping or dropping slices, re-grouping tracks. It reconciles true lifecycle state from authoritative `status.json` records on the release and track refs while retaining `board.json` as the pure plan.
 
 ## Naming, locked
 
@@ -153,4 +173,4 @@ tracks:
 
 Because neither is persisted, there is no field for a stale value to live in — the class of "board says `planned`, the branch says `verified`" bugs is gone by construction, not by discipline.
 
-The **Tracks table** and **touchpoint matrix** in the body of `index.md` are the human-readable mirror, kept in sync the same way the slice table mirrors each `status.json`. Each slice's `status.json` carries its `track` id and, once implementation starts, its `start_commit` (the SHA of the `docs(...): start implementation` commit) — the verifier diffs `start_commit..HEAD`.
+The **Tracks table** and **touchpoint matrix** in the body of `index.md` are the human-readable mirror, kept in sync the same way the slice table mirrors each `status.json`. Each slice's `status.json` carries its `track` id, immutable `start_commit`, and, after the final Implementer maintainability PASS, `maintainability.implementation_head`. The verifier derives slice-authored paths from first-parent non-merge commits in that pinned range rather than diffing the post-synchronization track `HEAD`.

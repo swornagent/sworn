@@ -45,7 +45,7 @@ A deterministic, fail-closed gate reads the journeys artefact and returns:
 - **Exit 1** — artefact is missing (elicitation not run) or exists but is unratified.
 - **Exit 2** — unrecoverable error (parse failure, I/O error).
 
-The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices are verified but before the release merges. It does not replace any existing gate.
+The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices satisfy track-mode's canonical integration-ready predicate but before the release merges. It does not replace any existing gate.
 
 ## No-mock boundary — the enforcement that makes a journey count
 
@@ -130,7 +130,7 @@ Rendered into one targeted walk grouped by touched journey: what changed, how to
 ## When this rule applies
 
 - Any release that changes a user-visible surface (UI, API, CLI command, form, route).
-- Pre-release cutover — the journeys gate runs after all slices are verified but before the release merges.
+- Pre-release cutover — the journeys gate runs after all slices are integration-ready but before the release merges.
 
 ## When this rule does NOT apply
 

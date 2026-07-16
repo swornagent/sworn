@@ -30,6 +30,11 @@ type VendorOpts struct {
 	// check and write mode; local vendoring leaves it nil.
 	VersionCandidate *UpstreamVersionCandidate
 
+	// InstallerArchiveCandidate, when non-nil, adds the validated complete
+	// offline installer input to the same repository transaction as mapped bytes
+	// and VERSION. A nil value preserves the destination exactly.
+	InstallerArchiveCandidate []byte
+
 	// fileOps is an injected, per-invocation filesystem seam used by the
 	// transaction fault matrix. Production callers leave it nil.
 	fileOps *vendorFileOps
@@ -136,8 +141,8 @@ func materialiseVendorPlan(opts VendorOpts, repo vendorRepository) (*vendorPlan,
 		return nil, newVendorError("invalid-source", "preflight", "", "", err)
 	}
 
-	materialised := make(map[string]vendorCandidate, len(batonFileMappings)+1)
-	seen := make(map[string]struct{}, len(batonFileMappings)+1)
+	materialised := make(map[string]vendorCandidate, len(batonFileMappings)+2)
+	seen := make(map[string]struct{}, len(batonFileMappings)+2)
 	for _, mapping := range batonFileMappings {
 		if err := validateVendorRelativePath(mapping.Dest); err != nil {
 			return nil, newVendorError("invalid-mapping", "preflight", mapping.Dest, "", err)
@@ -181,6 +186,21 @@ func materialiseVendorPlan(opts VendorOpts, repo vendorRepository) (*vendorPlan,
 		desiredMode: 0o644,
 		preserve:    opts.VersionCandidate == nil,
 	}
+	if _, duplicate := seen[installerArchivePath]; duplicate || installerArchivePath == upstreamVersionPath {
+		return nil, newVendorError("invalid-mapping", "preflight", installerArchivePath, "", fmt.Errorf("installer archive duplicates a vendor destination"))
+	}
+	archiveCandidate := vendorCandidate{
+		path:        installerArchivePath,
+		desiredMode: 0o644,
+		preserve:    opts.InstallerArchiveCandidate == nil,
+	}
+	if opts.InstallerArchiveCandidate != nil {
+		if _, err := ValidateInstallerArchive(opts.InstallerArchiveCandidate); err != nil {
+			return nil, newVendorError("installer-archive-invalid", "preflight", installerArchivePath, "", err)
+		}
+		archiveCandidate.desired = append([]byte(nil), opts.InstallerArchiveCandidate...)
+	}
+	materialised[installerArchivePath] = archiveCandidate
 
 	candidates := make([]vendorCandidate, 0, len(materialised))
 	for _, candidate := range materialised {
@@ -214,6 +234,9 @@ func materialiseVendorPlan(opts VendorOpts, repo vendorRepository) (*vendorPlan,
 				return nil, newVendorError("version-invalid", "preflight", candidates[i].path, "", err)
 			}
 			candidates[i].desired = replacement
+		} else if candidates[i].path == installerArchivePath && candidates[i].preserve {
+			candidates[i].desired = append([]byte(nil), original.bytes...)
+			candidates[i].desiredMode = original.mode
 		}
 	}
 

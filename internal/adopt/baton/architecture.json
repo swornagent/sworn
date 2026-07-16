@@ -71,11 +71,11 @@
     },
     {
       "id": "maintainability-review",
-      "description": "Code shall be understandable to a new team member 12 months from now",
+      "description": "Discover the role-owned maintainability check; role prompts define its authority and bounded lifecycle",
       "check": "external",
-      "command": "echo 'Run: sworn llm-check --check maintainability-review'",
+      "command": "echo 'Run LLM check: maintainability-review (role prompts own timing and authority)'",
       "severity": "warning",
-      "note": "LLM check for naming clarity, separation of concerns, extension surface, duplication, god objects."
+      "note": "Discovery hint only. Implementer runs a bounded readiness preflight; fresh Verifier owns the authoritative gate."
     }
   ]
 }

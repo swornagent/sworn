@@ -25,12 +25,12 @@ This session starts fresh. Your only inputs are the artefacts on disk (spec, jou
 
 ## Track worktree precondition (Step 0, auto-discovery)
 
-Release work runs under **track mode** — read `docs/baton/track-mode.md` first. Each track has its own worktree and branch `track/<release-name>/<track-id>`, cut from the release assembly branch `release-wt/<release-name>`. Slices in a track are implemented **sequentially in that one worktree**; the track branch merges to `release-wt` via `/merge-track` once every slice in it is verified.
+Release work runs under **track mode** — read `docs/baton/track-mode.md` first. Each track has its own worktree and branch `track/<release-name>/<track-id>`, cut from the release assembly branch `release-wt/<release-name>`. Slices in a track are implemented **sequentially in that one worktree**; the track branch merges to `release-wt` once every slice is integration-ready under track-mode's rollback-backed deferred exception.
 
 **Launch-directory discipline.** This session is launched from wherever the human's terminal sits — almost always the primary repo on the integration branch. **That is not where this slice's work belongs.** Do not build, test, edit, or `git`-write in the launch directory. You auto-discover (or materialise) the **track** worktree and operate silently against it via `git -C <worktree_path>` and absolute paths. If you ever run a mutating command without a `<worktree_path>` anchor, stop — you are in the wrong tree. **You do not ask the human to `cd`.**
 
-1. **Find the slice's track.** Read `docs/release/<release-name>/board.json`. In the `tracks` array, find the entry whose `slices` array contains `<slice-id>`. If no track contains it, BLOCK: "Slice `<slice-id>` is not assigned to a track in `board.json`. Re-run `/plan-release <release-name>` to group it." Capture `<track-id>`, `worktree.branch`, `worktree.path`, `depends_on`, and the ordered `slices` list.
-2. **Enforce sequential order within the track.** For every slice listed *before* `<slice-id>` in this track's `slices`, read its `status.json` `state`. If any is not `verified`, BLOCK: "Slice `<earlier-slice>` precedes `<slice-id>` in track `<track-id>` and is in state `<state>`. Slices in a track are implemented in order — finish and verify `<earlier-slice>` first." (If an earlier slice is `failed_verification`, the human re-opens *that* slice, not this one.)
+1. **Find the slice's track.** Run the board oracle (`sworn board --json`) and find `<slice-id>` in `.releases["<release-name>"].tracks[]`. If no track contains it, BLOCK: "Slice `<slice-id>` is not assigned to a track in `board.json`. Re-run `/plan-release <release-name>` to group it." Capture `<track-id>`, oracle-derived `dependsOn` / track state, and the ordered `slices` list. Never read `tracks[].worktree`; `board-v1` forbids it and worktree identity is conventional.
+2. **Enforce sequential order within the track.** For every slice listed *before* `<slice-id>` in this track's `slices`, read its complete status from the oracle-identified owner ref with `git show <worktree_branch>:docs/release/<release-name>/<earlier-slice>/status.json`, never from the launch directory. Accept `verified` / `shipped` and a legal unstarted Rule-2 deferral. Accept a `deferred` terminal `re_slice_required` original when `<slice-id>` is its recorded rollback; for any other later slice, require that rollback already to be `verified` / `shipped` and ordered before `<slice-id>`. Otherwise BLOCK: "Slice `<earlier-slice>` precedes `<slice-id>` in track `<track-id>` and is not integration-ready (state `<state>`). Finish its verification or mandatory rollback first." (If an earlier slice is `failed_verification`, route through its bounded lifecycle rather than skipping it.)
 The track worktree path and branch are **conventional, not a board field an implementer wrote** (track-mode.md invariant 5 — an implementer never commits to `release-wt`): `<worktree_branch>` = `track/<release-name>/<track-id>` and `<worktree_path>` = `$HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name>-<track-id>`.
 
 3. **Track worktree already materialised** — `git worktree list` shows a worktree at the conventional `<worktree_path>` on `<worktree_branch>`: capture `<worktree_path>`; for the rest of this session every Bash command runs as `cd <worktree_path> && <cmd>` (or `git -C <worktree_path>` for git ops), every Read/Write/Edit uses an absolute path anchored at `<worktree_path>`. Skip to "Required reading".
@@ -55,6 +55,36 @@ Before any code edit, read in this order:
 
 If `spec.json` is missing or ambiguous, stop and ask the human. Do not infer scope.
 
+### Maintainability resume gate
+
+Validate the complete `status.json` against `slice-status-v1` and read its required
+`maintainability` object before editing. A missing object is a hard stop and must be migrated by the
+Planner from the current status template; the Implementer must never recreate it because doing so
+could erase an exhausted cycle. Apply the committed-history integrity check in
+`llm-checks/README.md`: every earlier report array must remain an exact prefix, cycle cannot
+decrease, `start_commit` cannot be erased or changed once set, and a prior `re_slice_required` state
+is terminal for this slice id. Once non-null, the complete Coach adjudication is immutable. Any
+regression is a hard stop, not a legacy migration. Then enforce these transitions:
+
+- schema-valid `pending` with `cycle: 0` and `implementation_head: null`: an empty report ledger
+  starts the normal preflight; exactly one Implementer preflight FAIL resumes only its bounded
+  remediation and closure review. Do not run another preflight. Any other `pending` record is a
+  hard stop; in particular, `pending` cycle 1 cannot reopen implementation.
+- `passed`: continue only when no included semantic bytes have changed since its final report and
+  `implementation_head` matches that report's `review_scope.head`. If semantic remediation is
+  required after any final PASS, set `re_slice_required` with `implementation_head: null` and STOP
+  before editing. A passed semantic boundary cannot be reopened under the same slice id.
+- `needs_coach`: STOP. The Coach must record `resume_in_scope` or `re_slice` in this object.
+- `re_slice_required`: STOP and route to `/replan-release`; implementation cannot continue.
+- `resume_approved`: continue only when the object is schema-valid, `cycle` is `1`, the adjudication
+  decision is `resume_in_scope`, its two unique invocation ids and corresponding fingerprints match
+  the two cited cycle-0 reports (the fingerprints may be equal), and every proposed edit is within
+  `permitted_touchpoints`. Require those paths to be a non-empty subset of the
+  ratified spec touchpoints; any new path or ownership boundary requires re-slicing. This is the
+  only resumed maintainability cycle. With no cycle-1 reports, start its preflight; with exactly one
+  cycle-1 Implementer preflight FAIL, resume only bounded remediation and closure. Do not rerun the
+  preflight. Any other incomplete suffix is invalid. A second resume is forbidden.
+
 ## Project extensions
 
 If `docs/baton/extensions/implementer.md` exists in this repo, read it at session start and follow it. Projects use this file to add repo-specific steps the universal role contract can't know about — e.g. booting a real server or fixture before tests/screenshots, allocating ports, seeding data — plus the matching teardown to run before the session ends (any terminal state). An extension may **add** steps; it may not relax this role's hard constraints. On any conflict, this prompt wins.
@@ -77,7 +107,7 @@ Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Re
 
 ## Workflow
 
-1. Update `status.json` → `in_progress`. Commit `docs(release/<release-name>/<slice-id>): start implementation`. Then capture that commit's SHA (`git rev-parse HEAD`) and write it to `status.json` `start_commit` — it lands with your first implementation commit and gives the verifier an exact, no-archaeology diff base (`start_commit..HEAD`).
+1. If `status.json` `start_commit` is null, update `status.json` → `in_progress`, commit `docs(release/<release-name>/<slice-id>): start implementation`, capture that commit's SHA (`git rev-parse HEAD`), and write it to `start_commit` with the first implementation commit. If `start_commit` is already set, require it to resolve to a commit and preserve it byte-for-byte. It is the immutable base for the slice's entire lifetime, including failed-verification remediation and a Coach-approved maintainability resume; never overwrite it with a later session's starting point.
 1a. Push the track branch to its remote so the work is durable:
 
     ```
@@ -90,11 +120,32 @@ Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Re
 4. Maintain `journal.md` as you go — decisions, trade-offs, anything a verifier might need context on.
 5. When you believe the slice is done:
    - Run the **coverage gate** (reference implementation: `sworn coverage`) — every AC must have a matching test. Fix uncovered ACs before proceeding.
+   - Run all relevant deterministic checks first: targeted tests, required mutation proofs, lint, typecheck, and any contract-required full suite. The implementation diff must be stable and green before any LLM readiness check runs. Do not use maintainability review as an implementation-time design assistant.
    - Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`; prompt body: `llm-checks/ac-satisfaction.md`) — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
    - If the project has security rules in `docs/baton/architecture.json`, run the **security-review LLM check** (`sworn llm-check --check security-review`; prompt body: `llm-checks/security-review.md`) — address any findings.
-   - Run all relevant test commands and capture output.
-   - Run the **proof-bundle verification gate** (reference implementation: `sworn verify`) and address any failures.
-   - Emit `proof.json` from live repo state, valid against `proof-v1` (files changed, test results, reachability artefact, delivered, not_delivered, divergence). The human-readable `proof.md` is rendered from it.
+   - Capture the final test output, emit `proof.json` from live repo state, and run the **proof-bundle verification gate** (reference implementation: `sworn verify`). Fix every deterministic, proof, AC, or security failure before maintainability review. Commit and push the stable implementation and proof checkpoint, then require a clean worktree and index; the canonical review scope is commit-to-commit.
+   - Invoke the engine's **maintainability-review operation** defined by `llm-checks/maintainability-review.md` once as a readiness preflight. Require a valid `llm-check-report-v1` carrying `check: maintainability-review`, `input_fingerprint`, and `review_scope`. Reuse an existing report for the same fingerprint rather than invoking the model again. This is Implementer feedback, not certification — the fresh Verifier owns the authoritative gate.
+     - Append each run to `status.json` `maintainability.reports` with its role, phase, current
+       cycle, invocation id, durable full-report path and Git blob id, `review_scope.head`,
+       fingerprint, verdict, and blocking finding ids. The report path is unique and immutable.
+       Validate the blob-pinned full report and require every identity field to match the ledger
+       entry; reject a second entry for the same role/phase/cycle. On an initial PASS, set
+       `maintainability.state: passed` and pin
+       `maintainability.implementation_head` to that entry's `review_scope_head`.
+     - On FAIL, allow exactly one bounded remediation pass. Re-run affected targeted checks and the contract-required full suite, regenerate and verify the proof bundle, and resolve any AC or security regressions. Commit and push the remediation checkpoint and require a clean worktree and index. Only then may the engine run exactly one closure review.
+       If the preflight's blocking disposition already requires a new touchpoint or ownership-boundary change, no in-scope remediation is legal: set `needs_coach`, clear the pinned head, append that one report, and STOP. The Coach's only legal decision is `re_slice`.
+     - The closure review applies the same canonical prompt to the complete final semantic diff. It
+       receives no hidden prior-report input. On PASS, append the report and set
+       `maintainability.state: passed`, pinning `maintainability.implementation_head` to that
+       report's `review_scope.head`.
+     - If closure FAILs, append the report, remain `in_progress`, and STOP. Do not run a third review
+       or mark the slice `implemented`. In cycle 0 set `maintainability.state: needs_coach`; the Coach
+       may approve the one cycle-1 `resume_in_scope` or require `re_slice`. In cycle 1 set
+       `maintainability.state: re_slice_required`; no further resume is legal. In either failure
+       state keep `maintainability.implementation_head: null`. Before STOP, mirror
+       the handoff in `journal.md`, commit the status/journal transition, and push the track branch
+       so the next fresh context starts clean. There is no waiver.
+   - After the final maintainability PASS — initial or closure — do not edit authored source, tests, or configuration. Only proof/journal/status rendering may follow. If any later step requires semantic edits, remain `in_progress`, clear `implementation_head`, set `re_slice_required`, record the stale fingerprint and reason in `journal.md`, and STOP for `/replan-release`. A final PASS is a frozen boundary in either cycle.
    - Update `status.json` → `implemented`.
    - **Stop.** Do not run a verifier prompt in this session. Do not declare PASS.
 
