@@ -74,3 +74,33 @@
   companion built-binary doctor/sync reachability proof. The planned-file/AC
   table now covers the exact 41-file high/high `beast` boundary, which the
   Implementer confirmed in `status.json`.
+
+## 2026-07-16 — Implementer design revision after VERSION/recovery ratification
+
+- Re-ran the explicitly authorised pre-cutover oracle as
+  `/home/brad/go/bin/sworn board --release
+  2026-07-15-baton-v0.15-conformance --json`, confirmed S01 remains `verified`
+  before S02, and matched the clean conventional T1 worktree/branch at merged
+  Coach correction `1ee6c319505b7dd466485bff406f11828cf0507f`.
+- Revised only S02 design/status/journal planning artefacts. S02 remains
+  `design_review`, owner `implementer`, with null `start_commit`, pending
+  maintainability/verification, and no production, test, vendored, archive,
+  proof, or real-home installation write.
+- Captain pin 1 now has one exact two-identity design: `5f1dd...` names only the
+  upstream root `VERSION` bytes `v0.15.1` plus LF, while every participating ref
+  separately resolves and compares Sworn's committed multi-line manifest blob
+  and parsed tag/SHA/digest against the marker and binary.
+- Captain pin 2 now fixes both exact script oracles to explicit umask `0022`,
+  makes native generation explicitly enforce directories `0755` and files
+  `0644`, and requires a hostile inherited-umask fixture.
+- Captain pin 3 now physically resolves and rejects equal, nested, aliased,
+  symlinked, special-file, and recovery-overlapping target/recovery roots before
+  mutation; complete owner-only snapshots/manifest/sentinel authority is durable
+  before replacement, sentinel presence is recovery-only, and kill/fault tests
+  cover every publish, replace, verify, rollback/recovery, and retire boundary.
+- Preserved the ratified archive embed/public-diff/expanded-repository-
+  transaction owners, bounded archive/install helpers, exact eight-command
+  inventory including `design-review.md`, normative JSON and dual-oracle parity,
+  thin CLI adapters, and built-binary first-red/reachability boundary. Confirmed
+  the high/high 41-file `beast` effort in `status.json`; fresh Captain review is
+  still required before implementation.

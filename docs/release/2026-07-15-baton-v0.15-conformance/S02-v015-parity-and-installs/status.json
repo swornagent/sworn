@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "design_review",
   "owner": "implementer",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T13:53:56+10:00",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-16T14:00:00+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -57,7 +57,7 @@
   ],
   "actual_files": [],
   "test_commands": ["go test ./internal/baton -run TestBatonV015CodexAndClaudeMirrorParity", "go test ./internal/baton", "go test ./...", "go vet ./...", "bin/sworn doctor --sync-baton"],
-  "reachability_artifacts": ["built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability plus isolated Codex/Claude installer parity prove the public v0.15 pin and managed-tree boundary"],
+  "reachability_artifacts": ["built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability plus isolated fixed-umask Codex/Claude installer parity and publish/replace/verify/retire crash fixtures prove the public v0.15 pin, managed-tree modes, root topology, and recovery-only boundary"],
   "design_decisions": [
     {
       "choice": "Treat the exact pinned upstream installers as canonical managed-tree generators and make doctor repair both supported installations in one transaction.",
@@ -100,7 +100,7 @@
       "architecturally_significant": true
     },
     {
-      "choice": "Name 5f1dd0af59642311ee04e018a0023562d4dde008 only as the upstream root VERSION blob and separately derive, compare, and parse Sworn's committed internal/adopt/baton/VERSION manifest on each participating ref.",
+      "choice": "Name 5f1dd0af59642311ee04e018a0023562d4dde008 only as the upstream root VERSION blob whose exact bytes are v0.15.1 plus LF, while separately resolving and comparing Sworn's committed internal/adopt/baton/VERSION manifest blob and parsed tag/SHA/digest on every participating ref.",
       "stake_class": "Type-1",
       "options": ["separate upstream source identity from adopting-manifest evidence", "treat the upstream blob as Sworn manifest identity", "store a time-dependent Sworn manifest blob in protocol.json"],
       "human_decision": "Coach selected the explicit two-identity contract under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
@@ -108,15 +108,15 @@
       "architecturally_significant": true
     },
     {
-      "choice": "Require physically resolved pairwise-disjoint install and recovery roots and durably publish complete recovery authority before the first target replacement.",
+      "choice": "Physically resolve agents_home, codex_home, claude_home, and recovery roots; reject equal, nested, aliased, symlinked, special-file, or recovery-overlapping topology before mutation; and durably publish complete owner-only snapshots, manifest, and sentinel before the first target replacement.",
       "stake_class": "Type-1",
       "options": ["disjoint roots plus pre-write restart authority", "best-effort rollback authority created after failure", "permit aliased or nested logical roots"],
       "human_decision": "Coach selected fail-closed root topology and crash authority under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
-      "rationale": "Aliased roots can overwrite one another, and recovery material created only after a failure cannot restore a process killed between replacements.",
+      "rationale": "Aliased or overlapping roots can overwrite one another, and recovery material created only after failure cannot restore a process killed at a publish, replace, verify, or retire boundary; sentinel presence must therefore force recovery-only execution.",
       "architecturally_significant": true
     },
     {
-      "choice": "Run isolated installer oracles under umask 0022 and make 0755 directories plus 0644 regular files the only canonical managed-tree modes.",
+      "choice": "Run both isolated installer script oracles under explicit umask 0022, make native output explicitly fix directories to 0755 and regular files to 0644, and prove a hostile inherited umask cannot change the canonical tree.",
       "stake_class": "Type-2",
       "options": ["fixed umask 0022", "inherit caller umask", "ignore file modes"],
       "human_decision": "Implementer deterministic default accepted by Coach during the 2026-07-16 replan.",
@@ -134,7 +134,7 @@
   ],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
-  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-one-file bootstrap exception: exact embedded parity, archive publication inside repository recovery, complete offline installer input, both installer-generated managed trees, and bounded whole-root repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": false},
+  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-one-file bootstrap exception: exact embedded parity, separate upstream/adopting VERSION evidence, archive publication inside repository recovery, fixed-mode dual-installer trees, and bounded disjoint-root whole-tree repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": true},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Pins the binary, repository and supported agent installations to one exact Baton v0.15 authority.",
