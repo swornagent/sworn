@@ -227,6 +227,18 @@
       ],
       "live_test": "cmd/sworn/maintainability_cutover_test.go:TestMaintainabilityCutoverBinaryReachability",
       "rationale": "The self-hosting release needs one explicit, auditable boundary between manual v0.15 bootstrap evidence and automated current authority."
+    },
+    {
+      "id": "C-14",
+      "kind": "schema-version",
+      "surface": "openai-llm-check-strict-envelope-v1",
+      "shape": "Only when the structured input is exactly Baton llm-check-report-v1 at $id https://baton.sawy3r.net/schemas/llm-check-report-v1.json with SHA-256 ed38b77823af1b329c1dc7d8427b08849f15690d5afa9625e196505bdfa5b65b may openai/ Responses text.format or openai-completions/ response_format send the deterministic strict schema named llm-check-report-v1-openai-envelope. It requires check, verdict, findings and each canonical required finding field id, severity, blocking, title, detail; seals every emitted object; and contains no allOf, if, then, else, or not. It is an outbound transport envelope only: the canonical source bytes, local llm-check-report-v1 validation, and S04 requested/emitted check equality remain authoritative after emission. Exact spec-ambiguity-report-v1, digest mismatch, and unknown generic-report-family identities reject before HTTP with no schema mutation, synthetic report, map/array reconstruction, retry, raw Verify, or text fallback. xAI, tool-call, and unprofiled/non-OpenAI paths retain their existing supplied-schema behavior.",
+      "owner": "S21-openai-structured-envelope",
+      "consumers": [
+        "S20-v015-parity-portable-fixture"
+      ],
+      "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability",
+      "rationale": "The consumer needs a real accepted ac-satisfaction emission only after the transport constraint is proven without weakening or re-owning S04 semantics."
     }
   ]
 }
