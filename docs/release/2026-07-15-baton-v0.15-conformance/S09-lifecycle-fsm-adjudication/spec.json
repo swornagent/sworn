@@ -28,13 +28,17 @@
     {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
     {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations-v2.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/replacement-closure-claim-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/replacement-closure-dispatch-receipt-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
-    "Enumerate every committed version of the physical status.json path along first-parent history, validate each exact schema and C-05 report identity, and require every later reports array to retain each earlier array as an exact prefix.",
+    "Enumerate every committed version of the physical status.json path along first-parent history, validate each exact schema and C-05 report identity, and require every later authoritative reports array to retain each earlier authoritative array as an exact prefix. Under planning authority only, enumerate and classify the sealed v2 exact f4ef orphan report/lifecycle commit and 3ac42c01 hold as an invalid pre-C06 attempt plus one prefix-restoration correction; exclude that invalid append from authoritative-prefix succession only after every pinned commit/blob/path/invocation fact matches, and reject every other removed, reordered, rewritten, recomputed, or caller-selected prefix.",
     "Keep start_commit immutable after first non-null value; keep cycle monotonic and bounded to 0 or 1; keep adjudication immutable once present; and preserve implementation_head according to the newest valid PASS/FAIL transition without reconstructing missing history.",
-    "Enforce cycle-0 Implementer preflight exactly once; a PASS ends Implementer review, while a FAIL permits one bounded remediation followed by exactly one closure review. Closure PASS permits the one fresh Verifier; closure FAIL transitions to needs_coach. No closure is legal without the earlier preflight FAIL.",
+    "Enforce cycle-0 Implementer preflight exactly once; a PASS ends Implementer review, while a FAIL permits one bounded remediation followed by exactly one authoritative closure review. The sealed invalid orphan consumes no C-06 slot; its separately ratified replacement claim commit consumes the exceptional dispatch and issues a non-resumable permit, while the ordinary closure slot is consumed only when the report invocation equals that claim and a co-committed schema-valid receipt reveals a continuity token whose SHA-256 matches the claim. Closure PASS permits the one fresh Verifier; closure FAIL transitions to needs_coach. No closure is legal without the earlier preflight FAIL.",
     "Permit exactly one fresh Verifier authoritative review only after the current-cycle Implementer PASS, over the same pinned implementation head; Verifier PASS preserves passed authority and Verifier FAIL follows C-06's cycle-specific transition without self-repair or rerun.",
     "Classify each preflight FAIL from C-05's structured blocker dispositions and sorted unique required-touchpoint union: remediate_in_scope is legal only for an exact spec-touchpoint subset, while any re_slice action or outside member is boundary-expanding, with malformed overlay evidence rejected before lifecycle evaluation.",
     "Permit the human Coach to adjudicate a terminal cycle-0 closure or Verifier failure exactly once as resume_in_scope or re_slice; the Coach supplies decision, non-empty rationale and approved_by plus resume-only permitted touchpoints, while committed reports derive the chronological citation identities and byte-sorted unique blocking-ID union and the command alone captures approved_at. A boundary-expanding cycle-0 preflight permits only re_slice; resume cites the exact eligible report pair, permits a non-empty inclusive subset of ratified spec touchpoints, and advances to cycle 1.",
@@ -59,7 +63,7 @@
   },
   "risks": [
     {"id": "R-01", "description": "Validation checks only the latest status and accepts a reset, removed report, changed start, or rewritten adjudication hidden in history.", "mitigation": "Read every first-parent status version and compare immutable fields plus exact report prefixes before evaluating the newest state."},
-    {"id": "R-02", "description": "A role adapter can obtain another dispatch by relabeling phase, cycle, or state.", "mitigation": "Derive AllowedNext and DispatchBudget solely from validated history/C-05 tuples; caller-supplied phase is a requested transition that must equal the single legal next edge."},
+    {"id": "R-02", "description": "A role adapter can obtain another dispatch by relabeling phase, cycle, state, or an interrupted bootstrap replacement.", "mitigation": "Derive AllowedNext and DispatchBudget solely from validated history/C-05 tuples; for the exact planning replacement let one immutable claim commit consume the slot and issue a non-resumable permit, retain the continuity-token preimage only in memory, require its compare-and-swap push before dispatch, and accept a result only with a receipt whose revealed token hashes to the claim."},
     {"id": "R-03", "description": "Coach resume expands the ratified boundary or cycle 1 receives another waiver.", "mitigation": "Validate permitted touchpoints as a non-empty subset of spec.touchpoints, freeze adjudication, and make every second resume or post-cycle-1 failure transition deterministically to re_slice_required."}
   ],
   "acceptance_criteria": [
@@ -71,7 +75,7 @@
     },
     {
       "id": "AC-02",
-      "text": "IF committed history changes or clears start_commit, removes/reorders/rewrites a report prefix, lowers cycle, mutates adjudication, skips/repeats/reorders a phase, appends after a terminal entry, or disagrees with C-05 identity THEN THE SYSTEM SHALL fail history validation without proposing an authoritative transition.",
+      "text": "IF committed history changes or clears start_commit, removes/reorders/rewrites an authoritative report prefix, lowers cycle, mutates adjudication, skips/repeats/reorders a phase, appends after a terminal entry, or disagrees with C-05 identity THEN THE SYSTEM SHALL fail history validation without proposing an authoritative transition; only under planning authority may the exact digest-pinned f4ef orphan/lifecycle/3ac42c01 hold sequence be recognized as an invalid pre-C06 version followed by prefix restoration, and any mismatch or second correction SHALL fail closed.",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/maintainability/ledger/history_test.go:TestLifecycleHistoryImmutabilityFailureMatrix", "internal/maintainability/ledger/transition_test.go:TestIllegalTransitionMatrixFailsClosed"]
     },
@@ -83,13 +87,13 @@
     },
     {
       "id": "AC-04",
-      "text": "WHILE a lifecycle is in cycle 0 or cycle 1 THE SYSTEM SHALL allow at most one Implementer preflight, one closure only after preflight FAIL, and one fresh Verifier authoritative dispatch only after Implementer PASS; Coach decisions consume no model dispatch and cycle 1 exposes no further resume budget.",
+      "text": "WHILE a lifecycle is in cycle 0 or cycle 1 THE SYSTEM SHALL allow at most one Implementer preflight, one authoritative closure only after preflight FAIL, and one fresh Verifier authoritative dispatch only after Implementer PASS; under the exact planning-only v2 exception the physically observed but non-authoritative f4ef dispatch consumes no C-06 slot and the replacement claim commit consumes the sole exceptional dispatch and issues a non-resumable permit, while only a matching claim-token receipt plus valid report consumes the ordinary closure row; a local-only, claimed-but-unreported, receiptless, token-mismatched, deleted/reintroduced, or second claim exposes zero redispatch and needs_coach_no_redispatch; Coach decisions consume no model dispatch and cycle 1 exposes no further resume budget.",
       "ears_pattern": "state-driven",
       "test_refs": ["internal/maintainability/ledger/budget_test.go:TestExactRolePhaseDispatchBudgets"]
     },
     {
       "id": "AC-05",
-      "text": "IF the Coach chooses re_slice in cycle 0, a cycle-1 preflight carries structured re_slice or any required_touchpoint/authored resumed path outside the exact immutable permitted boundary, or cycle 1 ends in closure FAIL or Verifier FAIL THEN THE SYSTEM SHALL return re_slice_required with implementation_head null, preserve the immutable cycle-1 resume adjudication, every historical review_scope_head, and the full append-only history, perform zero boundary-expanding remediation/closure/Verifier/second-Coach dispatches, and expose no waiver, reset, or synthetic PASS transition.",
+      "text": "IF the Coach chooses re_slice in cycle 0, a cycle-1 preflight carries structured re_slice or any required_touchpoint/authored resumed path outside the exact immutable permitted boundary, or cycle 1 ends in closure FAIL or Verifier FAIL THEN THE SYSTEM SHALL return re_slice_required with implementation_head null, preserve the immutable cycle-1 resume adjudication, every historical review_scope_head, and the full append-only authoritative history plus any exact declared forensic orphan/claim records, perform zero boundary-expanding remediation/closure/Verifier/second-Coach dispatches, and expose no waiver, reset, or synthetic PASS transition.",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/maintainability/ledger/transition_test.go:TestReSliceTerminalAuthorityCannotReset"]
     },

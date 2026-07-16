@@ -335,8 +335,40 @@ commits exist, a missing remote update permits only the compare-and-swap push.
 Any other parent/tree/provenance/projection/ref shape blocks and the integration
 is rebuilt from the retained clean refs. S13's cutover validator
 owns recognition of these two bootstrap integrations and refuses activation
-unless all are exact. After C-13 activation, every T5/T6/T7 integration uses
-the current-authority native Sworn handler.
+unless all are exact. Its pre-activation equality gate also requires the sealed
+v2 declaration to match every S01/S02 live or historical consumption, the
+authoritative report ledger, the one exact non-authoritative orphan, the
+one-shot replacement disposition, the schema digest, the manifest digest, and
+the exact `7696c9bf…` actual-versus-expected projection tuple. Cutover cannot
+promote the stale historical index or orphan PASS; successful activation retires
+all v2 recognition and replacement authority. After C-13 activation, every
+T5/T6/T7 integration uses the current-authority native Sworn handler.
+
+The sole S02 replacement closure is governed by the same bootstrap boundary.
+It is executed only by a fresh manual Implementer role adapter following the
+pinned Baton v0.15.1 prompt and the sealed v2 authorization; it is not an
+invocation of the current-only native `sworn maintainability review` handler.
+Before any model request, the orchestrator creates the exact claim record at
+`S02-v015-parity-and-installs/replacement-closure-claim.json`, validates it
+against the digest-pinned
+`planning/replacement-closure-claim-v1.schema.json`, commits it as the only
+changed path, and pushes that exact one-parent commit to the clean,
+local/remote-equal T1 ref. The claim's new invocation ID is the invocation ID
+of the only report the adapter may accept. Its four digest members must equal
+the live SHA-256 values of the manifest, v2 schema, claim schema, and dispatch-
+receipt schema bytes; a schema-valid pattern alone is insufficient. The adapter
+also generates a random 32-byte continuity token, commits only its SHA-256 in
+the claim, and retains the preimage solely in process memory until a response
+is received. Creating the claim commit consumes the sole dispatch slot and
+issues one non-resumable permit; remote durability is an additional prerequisite
+before the request is sent. The permit expires on first submission or when the
+claiming adapter ends. After a response, the same live adapter writes the
+authoritative report together with
+`S02-v015-parity-and-installs/replacement-closure-dispatch-receipt.json`, which
+reveals the token and binds its matching hash, claim commit, invocation, report
+path/blob, verdict, and all four live digests. Any later observer of a claim
+without that matching receipt/report routes to the Coach with zero automatic
+redispatch, even if the process crashed before the request left the host.
 
 Every registered CLI spelling and alias carries exactly one policy enum. An
 unregistered spelling exits 64 before a handler. A newly registered spelling
@@ -606,54 +638,147 @@ manual-merge waiver. Neither is permitted.
 For this release only, while `protocol.json.authority` is exactly `planning`,
 the schema-valid sealed manifest
 `planning/bootstrap-sync-reconciliations.json` at exact SHA-256
-`23ca47fe790e5f8d4e9022b5b0df819de9972938d581e014a7ffd9c0dc16227e`
+`3d0e0da7fa57a0d754b8e0b6a0faae90f47bea72c100ea2dbf0ba4c68c486dc1`
 is historical recognition evidence. Its only entries are exact merges
 `36d1bd56cdc12ddc824533e24d385ef9e8cc550a`,
 `d062d055cdbe90e8290f0bf47574be660cd9a675`,
 `b8df1857ab8c7d2acf4b91c4c37df3cf07f80832`, and
 `7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a`.
 
-Each entry also carries one exact authorization envelope: owning consumer
-slice, immutable `start_commit`, exact `review_head`, interval semantics, and
-permitted purpose. `first-parent-start-exclusive-head-inclusive` means the
-merge must appear in the first-parent ancestry path `start_commit..review_head`:
-the start is excluded and the exact review head is included. The consumer must
-present that same slice, status start, requested review head, and one of the
-entry's exact purposes (`semantic_scope`, `freshness_revalidation`, or
-`bootstrap_cutover_revalidation`). A descendant or ancestor review head, the
-same merge requested by another slice, or another purpose is not authorized.
-Cutover uses the owning S01/S02 envelope to reproduce that slice's evidence; it
-does not substitute S13 as the consumer.
+The manifest is record version 2 and validates only against
+`planning/bootstrap-sync-reconciliations-v2.schema.json`, whose exact bytes are
+bound by manifest member `schema_sha256` to SHA-256
+`daa13bd5cb8dd3d5c0f7473ee132b9d15d083405a1e89bfeedc7f8e298bbbbad`.
+The retained v1 schema is historical documentation only and cannot validate or
+authorize the v2 manifest.
+
+The replacement claim validates only against
+`planning/replacement-closure-claim-v1.schema.json`, whose exact bytes are
+bound at SHA-256
+`32023df8e953640b266d9113c9055b9cd601cceb26e842def080dc1491563746`. The post-response continuity receipt validates only
+against
+`planning/replacement-closure-dispatch-receipt-v1.schema.json`, whose exact
+bytes are bound at SHA-256
+`3678f1ac208e0d9a04a3bc01ad9d9e61fa8bc5472402a05ae376f21ca8022a52`.
+The claim and receipt digest members are runtime equalities against these live
+sealed bytes, not caller-selected strings.
+
+Each S01 entry retains one exact `live_review` authorization: owning S01
+consumer, immutable start, exact `d062d055…` review head, interval semantics,
+and the three existing purposes. Each S02 entry carries two distinct envelopes.
+The non-dispatch `historical_report` envelope binds exact head `60097cfa…` only
+to invocation `ff6145c0…`, its preflight/0/FAIL identity, report path, blob
+`6f95a34a…`, fingerprint `sha256:4d58ca…`, and only
+`historical_report_revalidation` or `bootstrap_cutover_revalidation`. The
+separate `live_review` envelope binds exact head `2a17443…` to ordinary
+`semantic_scope`, `freshness_revalidation`, and
+`bootstrap_cutover_revalidation`. A historical envelope can reconstruct its
+named committed report but can never authorize dispatch, report reuse, a new
+report, or a lifecycle transition.
+
+`first-parent-start-exclusive-head-inclusive` means the merge must appear in
+the first-parent ancestry path `start_commit..review_head`: the start is
+excluded and the exact review head is included. The consumer must present the
+same slice, status start, exact requested head, envelope kind, and one exact
+purpose. An ancestor or descendant head, the same merge requested by another
+slice, a purpose borrowed between envelope kinds, or S13 substituted as the
+consumer is not authorized.
+
+Merge `7696c9bf…` alone also carries one `index_projection_defect`. Its
+committed `index.md` tuple is mode `100644`, blob `998b44c0…`; an exact replay
+using source and renderer commit `7696c9bf…`, release-wt head `dcd6386f…`, T1
+head `7696c9bf…`, and absent T2/T5/T6/T7 refs produces mode `100644`, blob
+`9bf11cda0fb35ef8bb1995ab3ba3087e9b5e056e`, SHA-256
+`7c06230ba73add2f99ce3982931092c30253ba8be1e007540f118bfb4a5c319d`,
+and 22,468 bytes. The stale committed blob omitted T1 ownership of
+`internal/run/slice_test.go`; it is observed noncanonical historical evidence,
+never the authoritative projection. Recognition permits traversal of that one
+exact defect under an otherwise-valid S02 envelope; it does not accept the
+stale bytes as current board authority. Every other historical, current, or
+future `index.md` must satisfy the ordinary deterministic render rule.
+
+The v2 manifest separately declares one permanent forensic orphan: S02
+Implementer closure invocation `f4ef4f75…`, report commit `1c46bccc…`, report
+blob `31172c04…`, lifecycle commit `0d593202…`, and hold commit `3ac42c01…` at
+head `2a17443…`, fingerprint `sha256:c72341fa…`, PASS. Its disposition is
+`provenance_gate_failure`: the file remains in Git but is non-authoritative,
+and cannot supply response, report, verdict, lifecycle, Verifier, or cutover
+authority. The physical model dispatch and temporary ledger append are retained
+as forensic facts: `0d593202…` historically ledgered the report before
+`3ac42c01…` removed it from the current authoritative prefix. The lifecycle
+commit is itself invalid because dispatch
+occurred after a provenance gate that required zero dispatch. The exact hold
+commit is a planning-authority correction that restores the last valid
+authoritative report prefix; recognition of that one declared sequence is not
+a general permission to delete, rewrite, or reset a lifecycle ledger. The
+orphan model call does not consume C-06's authoritative closure slot because it
+never entered C-06 authority.
+
+One exact replacement closure is human-ratified. It is bound to S02 start
+`e61cb190…`, live head `2a17443…`, Implementer/closure/cycle 0, hold
+`3ac42c01…`, and orphan invocation `f4ef4f75…`. It permits at most one fresh
+manual-adapter dispatch with a new invocation ID after v2
+schema/manifest/digest validation, ordinary release-wt-to-T1 synchronization,
+clean local/remote-equal T1, and a fresh Git scope reconstruction. The adapter
+then commits the immutable claim described in section 4 as the only changed
+path. The claim commit consumes the one dispatch authorization and issues a
+non-resumable permit that requires the compare-and-swap push before use and
+expires on first submission or adapter termination. Only a report whose
+invocation equals the claim and whose co-committed receipt reveals a token
+matching the claim hash may later occupy the ordinary C-06 cycle-0 closure row.
+No orphan response, report, verdict, scope, fingerprint, or continuity token
+may be reused or assumed. Report-persistence authority expires when that one
+authoritative replacement report plus receipt is committed; it does not
+authorize a Verifier. Any missing, invalid, interrupted, claimed-but-unreported,
+receiptless, token-mismatched, or exhausted replacement returns to the Coach
+without another automatic dispatch.
 
 Recognition requires all of the following, fail-closed:
 
-1. the manifest validates against
-   `planning/bootstrap-sync-reconciliations-v1.schema.json`, has no duplicate
-   JSON keys, and its committed bytes reproduce the pinned digest;
-2. release, planning authority, consumer slice, status `start_commit`, exact
-   requested `review_head`, first-parent interval membership, permitted purpose,
-   merge OID, ordered parents, unique merge base, every exceptional path, and
-   every base/parent-1/parent-2/result mode-and-blob tuple equal the manifest
-   exactly;
-3. the observed exceptional path set equals the listed set exactly, while
-   topology, release-wt structural ancestry, every non-record path, every
-   unlisted release-record path, and deterministic `index.md` rendering still
-   satisfy the ordinary rules in this section; and
-4. the consumer uses the entry only for the exact authorized slice interval and
-   purpose. It cannot create or recompute a merge, accept another result, widen
-   either endpoint, select a caller-supplied exception, authorize another slice,
-   or authorize any future reconciliation.
+1. the manifest, v2 schema, claim schema, and receipt schema have no duplicate JSON keys, the
+   v2 schema bytes reproduce `schema_sha256`, the instance validates under
+   Draft 2020-12, and the manifest, claim-schema, and receipt-schema bytes
+   reproduce their separately pinned digests; when a claim or receipt exists,
+   its four digest members equal the live manifest, v2-schema, claim-schema,
+   and receipt-schema SHA-256 values exactly;
+2. release, planning authority, ordered entry identity, envelope kind, consumer,
+   status start, exact requested head, first-parent membership, purpose, merge,
+   ordered parents, unique base, every exceptional path, and every
+   base/parent-1/parent-2/result tuple equal the manifest exactly;
+3. the four ordered entries and eight exceptional release-record paths equal the
+   declaration set exactly; topology, structural ancestry, every non-record
+   path, every unlisted release-record path, and deterministic index rendering
+   satisfy the ordinary rules except for the exact independently reproduced
+   `7696c9bf…` projection defect above;
+4. historical-report evidence matches its exact committed invocation/path/blob/
+   fingerprint/verdict and never dispatches; live-review evidence uses only its
+   exact live endpoint and purpose;
+5. the orphan file, its three commits, status exclusion, and every false
+   authority/reuse flag equal the declaration; no ledger or consumer treats it
+   as a report; and
+6. any replacement closure satisfies every exact one-shot precondition, writes
+   and pushes the sole schema-valid claim before dispatch, consumes the budget
+   and issues one non-resumable permit at the claim commit, retains the token
+   preimage only in the live adapter, and binds the report plus receipt to the
+   claim commit, invocation, token hash, report blob and verdict. No caller can create or
+   recompute a merge, accept another result or projection, widen an endpoint,
+   select an exception, authorize another slice, convert the orphan into
+   authority, or authorize a future reconciliation or replacement.
 
 The separately audited pre-start merges `9f1d499c595b098e14b329e377f901bd55dfecaf`,
 `5e4a7b3410e975ce7507a13291d3411749bd680e`, and
 `1ee6c319505b7dd466485bff406f11828cf0507f` remain unrecognized because they
 are below the relevant immutable review starts. If a later operation proves it
 must traverse one, that operation blocks and returns to the Planner; the sealed
-manifest is not extended in place. Any S01/S02 review-head change likewise
-blocks until a new human-ratified planning amendment and digest replace the
-authorization; consumers never widen it dynamically. C-13 revalidates every
-consumed entry, authorization envelope, interval, and the manifest digest before
-cutover, after which the exception is unavailable.
+manifest is not extended in place. Any S01/S02 review-head or report-consumption
+change likewise blocks until a new human-ratified planning amendment and digest
+replace the exact declaration; consumers never widen it dynamically. C-13
+requires exact equality between the four entries, every live and historical
+envelope actually consumed, the authoritative report ledger, the declared
+orphan file, the replacement authorization and its single disposition, plus
+schema and manifest digests. It revalidates all of them before cutover, after
+which every v2 historical exception, orphan declaration, and replacement
+permission is unavailable.
 
 ## 7. Lifecycle transition table
 
@@ -716,6 +841,29 @@ only by the newest Implementer PASS and is retained through a Verifier PASS. It
 is set to null on any transition to `needs_coach` or `re_slice_required`; the
 historical reviewed heads remain immutable in the full reports and compact
 ledger.
+
+The sole v2 S02 replacement closure is not a generic retry and does not make the
+orphan a lifecycle report. Hold commit `3ac42c01…` restored the exact ordinary
+pre-closure state: overall `in_progress`, maintainability `pending`, cycle 0,
+null `implementation_head`, pending verification, and only preflight invocation
+`ff6145c0…` in the authoritative ledger. Under planning authority, C-06 treats
+the exact `1c46bccc…`/`0d593202…`/`3ac42c01…` sequence as a sealed invalid
+orphan plus prefix-restoration correction before evaluating ordinary lifecycle
+history; no other removed or rewritten prefix is legal. After the v2 authority
+is ordinarily synchronized, the manual bootstrap adapter revalidates that
+state and the sealed one-shot authorization, reconstructs the same immutable
+start/live-head scope from Git, creates a new invocation and memory-only random
+continuity token, commits and pushes the immutable pre-dispatch claim containing
+only the token hash, and only then dispatches a fresh Implementer closure under
+the non-resumable permit. A valid response is persisted only with the receipt
+that reveals the token and binds the claim commit and report identity.
+The resulting valid report, not the orphan, occupies the ordinary cycle-0
+closure row below. The orphan's prior model call does not satisfy that row
+because its provenance precondition required zero dispatch. A missing hold,
+extra ledger entry, reused orphan identity/content, changed semantic head,
+missing or mismatched claim/receipt/token, claimed-but-unreported attempt, second claim or
+replacement attempt, or failed v2 gate blocks before dispatch and routes to the
+Coach. The native current-policy command has no planning replacement edge.
 
 | Cycle | New report/result | Required next state | Next authority |
 |---:|---|---|---|
@@ -889,7 +1037,12 @@ human has pushed it, provided fetched origin is not ahead or divergent.
 
 | Durable point observed on restart | Required outcome | Model/Planner redispatch |
 |---|---|---:|
-| no report or transaction write | validate current budget and start a normal authorized attempt | one only if budget permits |
+| no report or transaction write and no S02 replacement claim | validate current ordinary lifecycle budget and start a normal current-authority attempt; the planning-only S02 adapter must first satisfy its separate claim transaction | one only if the applicable ordinary budget permits |
+| exact S02 replacement authorization is eligible and no claim path or claim commit exists | the manual bootstrap adapter revalidates v2, ordinary sync, hold and scope, creates a new invocation plus memory-only random token, commits the sole claim/hash as the only changed path (consuming the slot and issuing one non-resumable permit), pushes it, then may send exactly one model request before the adapter ends | 1 after the claim push only |
+| exact S02 replacement claim commit exists locally but the remote remains at its exact parent | validate the claim path, one-parent/only-path shape, all live digest equalities and expected ref; push only the claim, then return `needs_coach_no_redispatch` because the non-resumable permit and unpersisted token preimage cannot be recovered | 0 |
+| exact pushed S02 replacement claim exists but no authoritative matching receipt/report commit exists | treat the dispatch slot as consumed and permit expired, preserve the claim and all refs, return `needs_coach_no_redispatch`, and do not infer whether a request was sent | 0 |
+| exact pushed S02 replacement claim and matching coherent receipt/report/lifecycle commit exist locally while the remote lacks only that descendant commit | validate token SHA-256, claim commit, invocation, report path/blob/verdict, all four digests and lifecycle identities, then push only the exact descendant commit | 0 |
+| a claim or receipt is deleted/reintroduced, a second claim exists, its commit changes another path, any digest/invocation/token differs, or receipt/report/claim disagree | fail non-zero, preserve every byte and ref, and route to the Coach | 0 |
 | standalone `maintainability review`/`adjudicate` sees report-only or any coherent-looking but uncommitted dirty report/status/journal set | fail non-zero, preserve bytes, name partial-local-evidence; the stateful command does not infer that it owns an interrupted loop | 0 |
 | resumed `sworn loop` sees any uncommitted tracked or untracked debris | assert the expected owner-track path and branch, select the validated committed local owner-track head, run `git reset --hard` to that head and `git clean` for untracked debris, prove the worktree clean, then reconstruct the next legal committed phase | 0 for completed phases; one only for a genuinely missing legal phase when budget permits |
 | exact coherent report/lifecycle transition commit whose C-10 operation authorizes push exists locally, remote lacks it | validate report/blob/history/commit identity and push only that commit | 0 |
