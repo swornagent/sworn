@@ -1,0 +1,21 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-17-ref-aware-board-discovery",
+    "target_version": "v0.2.0",
+    "integration_branch": "release/v0.2.0",
+    "vertical_trace": {
+      "benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board without checking out each ref or knowing its release name in advance."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-ref-aware-board",
+      "slices": [
+        "S01-all-ref-board-catalog",
+        "S02-tui-ref-aware-release-navigation"
+      ],
+      "depends_on": []
+    }
+  ]
+}

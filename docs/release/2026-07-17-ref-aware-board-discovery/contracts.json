@@ -1,0 +1,19 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "version": 1,
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "contracts": [
+    {
+      "id": "C-01",
+      "kind": "schema-version",
+      "surface": "project board catalog v1",
+      "shape": "When `sworn board` omits `--release`, JSON is `{\"releases\":{\"<release-name>\":{\"release\":\"<release-name>\",\"sourceRef\":\"<fully-qualified-ref>\",\"tracks\":[...]}}}` with release-name keys in bytewise lexical order. Each record is derived by the shared all-ref catalog and contains the existing BoardState track projection selected from its stated sourceRef. Named `sworn board --release <name> --json` retains its pre-release `{release,tracks}` shape.",
+      "owner": "S01-all-ref-board-catalog",
+      "consumers": [
+        "S02-tui-ref-aware-release-navigation"
+      ],
+      "live_test": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReachability",
+      "rationale": "The CLI aggregate and the TUI must not independently rediscover or rank refs. One catalog contract makes source selection observable and prevents divergent release lists."
+    }
+  ]
+}
