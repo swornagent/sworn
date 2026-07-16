@@ -2,9 +2,13 @@ package baton
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -292,6 +296,419 @@ func TestBatonSyncRejectsSymlinkSpecialAndTamperedRecovery(t *testing.T) {
 	})
 }
 
+func TestBatonSyncImmutableCaptureRejectsConcurrentChange(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	for _, point := range []string{"snapshot-after:agents_home", "publish-before"} {
+		t.Run(strings.ReplaceAll(point, ":", "-"), func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			mutated := false
+			opts.Fault = func(got string) error {
+				if got == point && !mutated {
+					mutated = true
+					return os.WriteFile(filepath.Join(opts.Roots.AgentsHome, "unrelated", "concurrent.txt"), []byte("external\n"), 0o640)
+				}
+				return nil
+			}
+			_, err := SyncBatonInstall(opts)
+			assertInstallErrorClass(t, err, "source-changed")
+			if _, statErr := os.Lstat(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel)); !os.IsNotExist(statErr) {
+				t.Fatalf("concurrent mutation published sentinel: %v", statErr)
+			}
+			if contents, readErr := os.ReadFile(filepath.Join(opts.Roots.AgentsHome, "unrelated", "concurrent.txt")); readErr != nil || string(contents) != "external\n" {
+				t.Fatalf("external mutation was overwritten: %q %v", contents, readErr)
+			}
+		})
+	}
+}
+
+func TestBatonSyncRejectsDerivedPathCollisionsWithoutDeletion(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	id := strings.Repeat("a", 64)
+	tests := []struct {
+		name string
+		path func(InstallRoots) string
+		file bool
+	}{
+		{"stage", func(r InstallRoots) string {
+			return filepath.Join(filepath.Dir(r.AgentsHome), ".sworn-baton-stage-"+id+"-agents_home")
+		}, false},
+		{"retired", func(r InstallRoots) string {
+			return filepath.Join(filepath.Dir(r.RecoveryRoot), ".baton-sync-retired-"+id)
+		}, false},
+		{"recovery staging", func(r InstallRoots) string { return filepath.Join(r.RecoveryRoot, ".staging-"+id) }, false},
+		{"transaction", func(r InstallRoots) string { return filepath.Join(r.RecoveryRoot, id) }, false},
+		{"sentinel temp", func(r InstallRoots) string { return filepath.Join(r.RecoveryRoot, installRecoverySentinel+".tmp-"+id) }, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			opts.TransactionIDForTest = id
+			writeInstallTestOriginals(t, opts.Roots)
+			path := test.path(opts.Roots)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if filepath.Dir(path) == opts.Roots.RecoveryRoot {
+				if err := os.Chmod(opts.Roots.RecoveryRoot, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			canary := filepath.Join(path, "canary")
+			if test.file {
+				if err := os.WriteFile(path, []byte("foreign\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				canary = path
+			} else {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(canary, []byte("foreign\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := SyncBatonInstall(opts); err == nil {
+				t.Fatal("derived-path collision unexpectedly succeeded")
+			}
+			if contents, err := os.ReadFile(canary); err != nil || string(contents) != "foreign\n" {
+				t.Fatalf("collision canary changed: %q %v", contents, err)
+			}
+		})
+	}
+}
+
+func TestBatonSyncReassertsPhysicalAncestorIdentity(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	opts := newInstallTestOpts(t, trees, version)
+	writeInstallTestOriginals(t, opts.Roots)
+	original := opts.Roots.AgentsHome
+	moved := original + ".moved"
+	opts.Fault = func(point string) error {
+		if point != "paths-ready" {
+			return nil
+		}
+		if err := os.Rename(original, moved); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Join(original, "unrelated"), 0o750); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(original, "unrelated", "keep.txt"), []byte("private original\n"), 0o640)
+	}
+	_, err := SyncBatonInstall(opts)
+	assertInstallErrorClass(t, err, "unsafe-root-identity")
+	if _, err := os.Lstat(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel)); !os.IsNotExist(err) {
+		t.Fatalf("identity swap reached publication: %v", err)
+	}
+}
+
+func TestBatonSyncCrashRecoveryMatrix(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	points := []string{
+		"replace-after:agents_home", "verify-after:agents_home",
+		"replace-after:claude_home", "verify-after:claude_home",
+		"replace-after:codex_home", "verify-after:codex_home",
+		"retire-before",
+	}
+	for _, point := range points {
+		t.Run(strings.ReplaceAll(point, ":", "-"), func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			opts.Fault = func(got string) error {
+				if got == point {
+					return errInstallCrash
+				}
+				return nil
+			}
+			if _, err := SyncBatonInstall(opts); err == nil {
+				t.Fatal("crash fault unexpectedly succeeded")
+			}
+			if _, err := os.Lstat(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel)); err != nil {
+				t.Fatalf("crash did not retain durable sentinel: %v", err)
+			}
+			opts.Fault = nil
+			result, err := SyncBatonInstall(opts)
+			if err != nil || result.State != InstallRecovered {
+				t.Fatalf("fresh recovery = %#v, %v", result, err)
+			}
+			assertInstallTestSnapshots(t, opts.Roots, before)
+		})
+	}
+}
+
+func TestBatonSyncRecoversOriginallyAbsentRoots(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	opts := newInstallTestOpts(t, trees, version)
+	opts.Fault = func(point string) error {
+		if point == "replace-after:agents_home" {
+			return errInstallCrash
+		}
+		return nil
+	}
+	if _, err := SyncBatonInstall(opts); err == nil {
+		t.Fatal("crash fault unexpectedly succeeded")
+	}
+	opts.Fault = nil
+	result, err := SyncBatonInstall(opts)
+	if err != nil || result.State != InstallRecovered {
+		t.Fatalf("absent-root recovery = %#v, %v", result, err)
+	}
+	for _, root := range []string{opts.Roots.AgentsHome, opts.Roots.ClaudeHome, opts.Roots.CodexHome} {
+		if _, err := os.Lstat(root); !os.IsNotExist(err) {
+			t.Fatalf("originally absent root restored as present: %s: %v", root, err)
+		}
+	}
+}
+
+func TestBatonSyncRecoveryTamperMatrixFailsBeforeTargets(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	tests := []struct {
+		name   string
+		tamper func(*testing.T, InstallOpts, installSentinel)
+	}{
+		{"missing snapshot root", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			if err := os.RemoveAll(filepath.Join(s.RecoveryDirectory, "snapshots", "agents_home")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"foreign inventory", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(s.RecoveryDirectory, "foreign"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"manifest kind", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			path := filepath.Join(s.RecoveryDirectory, installManifestName)
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"manifest mode", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			if err := os.Chmod(filepath.Join(s.RecoveryDirectory, installManifestName), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"snapshot hash", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			path := filepath.Join(s.RecoveryDirectory, "snapshots", "agents_home", "unrelated", "keep.txt")
+			if err := os.WriteFile(path, []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"snapshot symlink", func(t *testing.T, _ InstallOpts, s installSentinel) {
+			t.Helper()
+			path := filepath.Join(s.RecoveryDirectory, "snapshots", "agents_home", "unrelated", "keep.txt")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("elsewhere", path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"duplicate manifest", func(t *testing.T, opts InstallOpts, s installSentinel) {
+			t.Helper()
+			mutateInstallManifest(t, opts, s, func(entries []installManifestEntry) []installManifestEntry { return append(entries, entries[0]) })
+		}},
+		{"traversal manifest", func(t *testing.T, opts InstallOpts, s installSentinel) {
+			t.Helper()
+			mutateInstallManifest(t, opts, s, func(entries []installManifestEntry) []installManifestEntry {
+				return append(entries, installManifestEntry{Path: "agents_home/../escape", Kind: "file", Mode: 0o600, Digest: "sha256:" + strings.Repeat("0", 64)})
+			})
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			opts.Fault = func(point string) error {
+				if point == "publish-after" {
+					return errInstallCrash
+				}
+				return nil
+			}
+			_, _ = SyncBatonInstall(opts)
+			sentinel, _, err := loadInstallSentinel(opts.Roots.RecoveryRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.tamper(t, opts, sentinel)
+			opts.Fault = nil
+			_, err = SyncBatonInstall(opts)
+			assertInstallErrorClass(t, err, "recovery-invalid")
+			assertInstallTestSnapshots(t, opts.Roots, before)
+		})
+	}
+}
+
+func TestBatonSyncBlocksUnidentifiedStagingAndRetiredDebris(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	for _, retired := range []bool{false, true} {
+		name := "staging"
+		if retired {
+			name = "retired"
+		}
+		t.Run(name, func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			var debris string
+			if retired {
+				debris = filepath.Join(filepath.Dir(opts.Roots.RecoveryRoot), ".baton-sync-retired-"+strings.Repeat("b", 64))
+			} else {
+				debris = filepath.Join(opts.Roots.RecoveryRoot, ".staging-"+strings.Repeat("b", 64))
+			}
+			if err := os.MkdirAll(debris, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if !retired {
+				if err := os.Chmod(opts.Roots.RecoveryRoot, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			canary := filepath.Join(debris, "foreign")
+			if err := os.WriteFile(canary, []byte("keep\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := SyncBatonInstall(opts); err == nil {
+				t.Fatal("foreign debris unexpectedly accepted")
+			}
+			if contents, err := os.ReadFile(canary); err != nil || string(contents) != "keep\n" {
+				t.Fatalf("foreign debris changed: %q %v", contents, err)
+			}
+		})
+	}
+}
+
+func TestBatonSyncFsyncAndUnrestoredUpdateFaultsFailClosed(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	for _, point := range []string{
+		"stage-sync-before:agents_home", "stage-sync-after:agents_home",
+		"installed-sync-before:agents_home", "installed-sync-after:agents_home",
+	} {
+		t.Run(strings.ReplaceAll(point, ":", "-"), func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			opts.Fault = func(got string) error {
+				if got == point {
+					return errors.New("injected fsync boundary failure")
+				}
+				return nil
+			}
+			if _, err := SyncBatonInstall(opts); err == nil {
+				t.Fatal("fsync boundary fault unexpectedly succeeded")
+			}
+			assertInstallTestSnapshots(t, opts.Roots, before)
+		})
+	}
+
+	for _, point := range []string{"control-sync-before", "unrestored-update-after"} {
+		t.Run(point, func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			restoring := false
+			opts.Fault = func(got string) error {
+				switch got {
+				case "replace-after:agents_home":
+					return errors.New("force rollback")
+				case "restore-before:agents_home":
+					restoring = true
+					return errors.New("force incomplete rollback")
+				case point:
+					if restoring {
+						return errors.New("force durable unrestored update failure")
+					}
+				}
+				return nil
+			}
+			_, err := SyncBatonInstall(opts)
+			assertInstallErrorClass(t, err, "rollback-incomplete")
+			if _, err := os.Lstat(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel)); err != nil {
+				t.Fatalf("update failure discarded recovery authority: %v", err)
+			}
+			opts.Fault = nil
+			result, err := SyncBatonInstall(opts)
+			if err != nil || result.State != InstallRecovered {
+				t.Fatalf("recovery after update fault = %#v, %v", result, err)
+			}
+			assertInstallTestSnapshots(t, opts.Roots, before)
+		})
+	}
+}
+
+func TestBatonSyncRejectsCompleteUnsafePathMatrix(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	t.Run("equal roots", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "same")
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: root, CodexHome: root, ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root-topology")
+	})
+	t.Run("reverse nesting", func(t *testing.T) {
+		base := t.TempDir()
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: filepath.Join(base, "agents", "child"), CodexHome: filepath.Join(base, "agents"), ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root-topology")
+	})
+	t.Run("missing suffix lexical alias", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "missing", "home")
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: root, CodexHome: filepath.Join(base, "missing", "other", "..", "home"), ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root-topology")
+	})
+	t.Run("symlink path component", func(t *testing.T) {
+		base := t.TempDir()
+		real := filepath.Join(base, "real")
+		if err := os.Mkdir(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(base, "link")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: filepath.Join(link, "agents"), CodexHome: filepath.Join(base, "codex"), ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root")
+	})
+	t.Run("invalid utf8", func(t *testing.T) {
+		base := t.TempDir()
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: filepath.Join(base, string([]byte{0xff})), CodexHome: filepath.Join(base, "codex"), ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root")
+	})
+	t.Run("device root", func(t *testing.T) {
+		base := t.TempDir()
+		opts := InstallOpts{Roots: InstallRoots{AgentsHome: "/dev/null", CodexHome: filepath.Join(base, "codex"), ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "recovery")}, Trees: trees, Version: version}
+		_, err := SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-root")
+	})
+	t.Run("socket beneath target", func(t *testing.T) {
+		opts := newInstallTestOpts(t, trees, version)
+		if err := os.MkdirAll(opts.Roots.AgentsHome, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		socket := filepath.Join(opts.Roots.AgentsHome, "socket")
+		listener, err := net.Listen("unix", socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		_, err = SyncBatonInstall(opts)
+		assertInstallErrorClass(t, err, "unsafe-target")
+	})
+}
+
 func newInstallTestOpts(t *testing.T, trees InstallerManagedTrees, version []byte) InstallOpts {
 	t.Helper()
 	base := t.TempDir()
@@ -301,6 +718,55 @@ func newInstallTestOpts(t *testing.T, trees InstallerManagedTrees, version []byt
 			ClaudeHome: filepath.Join(base, "claude"), RecoveryRoot: filepath.Join(base, "config", "recovery", "baton-sync"),
 		},
 		Trees: trees, Version: append([]byte(nil), version...),
+	}
+}
+
+func installTestAuthority(t *testing.T) (InstallerManagedTrees, []byte) {
+	t.Helper()
+	trees, err := GenerateInstallerManagedTrees(adopt.BatonInstallerArchive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := adopt.BatonDocsFS().ReadFile("baton/VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return trees, version
+}
+
+func assertInstallErrorClass(t *testing.T, err error, want string) {
+	t.Helper()
+	var installErr *InstallError
+	if !errors.As(err, &installErr) || installErr.Class != want {
+		t.Fatalf("install error = %v, want class %s", err, want)
+	}
+}
+
+func mutateInstallManifest(t *testing.T, opts InstallOpts, sentinel installSentinel, mutate func([]installManifestEntry) []installManifestEntry) {
+	t.Helper()
+	path := filepath.Join(sentinel.RecoveryDirectory, installManifestName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := parseInstallManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries = mutate(entries)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	raw = marshalInstallManifest(entries)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(raw)
+	sentinel.ManifestSHA256 = "sha256:" + hex.EncodeToString(digest[:])
+	sentinelRaw, err := marshalInstallSentinel(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel), sentinelRaw, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
