@@ -110,3 +110,46 @@
   propagation is deliberately skipped. The release-wt planner commit is the
   handoff for the orchestrator to merge after confirming the dirty files do not
   overlap these release records.
+
+## 2026-07-16 — Implementation checkpoint
+
+- Transitioned `in_progress -> implemented` from immutable start commit
+  `5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18`. The stable implementation is
+  commit `309375f4475e899e5f19c72733577b642cfb34a1`, pushed to
+  `origin/track/2026-07-15-baton-v0.15-conformance/T1-foundation` before this
+  proof checkpoint.
+- Implemented complete candidate materialisation, exact schema compilation,
+  one-instant VERSION construction, ordered atomic replacement, reverse
+  rollback, verification, and sole Git-admin-confined recovery authority.
+  Check mode shares transform and schema materialisation but performs no
+  repository mutation; public outcomes are exactly exit 0, 1, or 2 and
+  diagnostics expose paths and typed phases rather than mapped payloads.
+- Security-driven trade-off: publish the complete recovery transaction before
+  the first primary replacement so process death is recoverable, then retire
+  verified authority with a whole-root atomic rename. A later write invocation
+  scrubs deterministic staging or retired debris and returns exit 2 before any
+  ordinary vendor work.
+- Complexity-driven trade-off: use a deterministic MSD byte-radix ordering over
+  mapped destination bytes rather than comparison sorting or another static path
+  authority, preserving O(total mapped bytes plus mapped file count) and S02's
+  mapping-only extension boundary.
+- Independent subagents challenged the stable diff from contract and security
+  perspectives. Their initial reviews surfaced real public-exit, byte-only drift,
+  crash-recovery, confinement, debris, payload-redaction, and exact-schema edge
+  gaps; those findings were remediated. Separate final passes both returned
+  `PASS-CANDIDATE` against the stable implementation; neither is treated as the
+  Baton fresh-context verifier verdict.
+- Live checks passed: `go test ./internal/baton ./cmd/sworn -count=1`,
+  `go test ./...`, `go vet ./...`, `make build`, and `git diff --check`.
+  `bin/sworn baton vendor /home/brad/projects/baton --check` reached the built
+  public command, returned exit 1, and printed a deterministic path-only list of
+  the seventeen v0.15.1 drift destinations.
+- The Coach-ratified self-hosting boundary is preserved. S02 owns executing the
+  exact content/pin/install update, and S13 owns mandatory maintainability-engine
+  revalidation before automated authority. This checkpoint claims neither.
+- Exact upstream Baton v0.15.1 `proof-v1`, `slice-status-v1`, and `spec-v1`
+  validation passed. The deterministic proof-bundle gate then returned
+  `{"verdict":"PASS","rationale":"","cost_usd":0}` with exit 0 when invoked
+  with the keyless `claude-cli/sonnet` construction. The default Anthropic
+  construction failed closed because no API key is configured; it produced no
+  verdict and is not claimed as evidence.

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-vendor-boundary-readiness",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "scope": "Repair the public Baton vendor boundary so exact v0.15.1 candidates are materialised and validated before mutation, VERSION participates in the same durable transaction, recovery fails closed, check mode is mutation-free, and valid results map only to public exits 0, 1, or 2.",
+  "files_changed": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/intake.md",
+    "internal/baton/diff_test.go",
+    "internal/baton/transform.go",
+    "internal/baton/transform_test.go",
+    "internal/baton/validate_schema.go",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_test.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/baton/version.go",
+    "internal/baton/version_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./internal/baton ./cmd/sworn -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go vet ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "make build",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "passed": true,
+      "exit_code": 0
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "bin/sworn baton vendor /home/brad/projects/baton --check exited 1 and printed only a deterministic 17-path changed list. This drives the built public command against the exact Baton v0.15.1 checkout while proving valid drift reaches exit 1 without exposing mapped payload bytes. cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability additionally drives clean, drift, invalid-source, apply-failure, incomplete-rollback, recovery-only, positional --check, upstream-before-network, VERSION-drift, and mode-only cases through the public command boundary."
+  },
+  "delivered": [
+    {
+      "item": "AC-01: lexical script detection accepts board.json.shared_touchpoints prose while rejecting exact unmapped shell, Python, and module-script tokens before write.",
+      "evidence": "internal/baton/transform.go; internal/baton/transform_test.go:TestTransformScriptReferenceLexicalBoundaries"
+    },
+    {
+      "item": "AC-02: the untouched v0.15 board schema compiles through the bounded ECMA-pattern adapter and preserves all required path and line-terminator semantics.",
+      "evidence": "internal/baton/validate_schema.go; internal/baton/validate_schema_test.go:TestCompileV015BoardSchemaWithoutSemanticWeakening"
+    },
+    {
+      "item": "AC-03: one invocation instant constructs VERSION before mutation; mapped files and VERSION share ordered snapshot, atomic replacement, rollback, verification, and Git-admin-confined recovery authority that rejects untrusted material before ordinary writes.",
+      "evidence": "internal/baton/vendor.go; internal/baton/vendor_transaction.go; internal/baton/vendor_transaction_test.go:TestVendorTransactionFailureRestoresPrimaryWorktree; internal/baton/vendor_transaction_test.go:TestVendorRecoveryRecordRejectsUntrustedMaterial; internal/baton/version_test.go:TestUpstreamPinReplacementUsesCapturedInstant"
+    },
+    {
+      "item": "AC-04: the built public command maps clean or successful write to 0, valid byte drift to 1, and all invalid or operational paths to 2; check mode performs full materialisation without worktree, VERSION, mode, or Git-admin mutation and diagnostics remain path-only.",
+      "evidence": "cmd/sworn/baton.go; cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability; live CLI reachability evidence in this proof"
+    },
+    {
+      "item": "The transaction orders destination paths with an O(total bytes plus files) byte-radix pass and discovers the complete candidate set from the mapping, so later S02 mapping additions do not require another vendor ordering authority.",
+      "evidence": "internal/baton/vendor.go; internal/baton/vendor_test.go"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "Execute the exact v0.15.1 content and VERSION pin update and refresh the local Codex and Claude Baton mirrors.",
+      "why": "The Coach-ratified boundary keeps S01 limited to transaction machinery and proof so content replacement occurs only after this bootstrap boundary is independently verified.",
+      "tracking": "S02-v015-parity-and-installs",
+      "acknowledged": true
+    },
+    {
+      "item": "Claim automated v0.15 maintainability authority for this bootstrap slice.",
+      "why": "The conformant maintainability engine does not exist until the self-hosting cutover; this slice is governed by the ratified manual bootstrap and must not fabricate a current engine PASS.",
+      "tracking": "S13-maintainability-engine-cutover",
+      "acknowledged": true
+    }
+  ],
+  "divergence": [
+    {
+      "description": "The implementation pre-publishes the complete owner-only recovery authority before the first replacement, rather than creating it only after an incomplete rollback, so a process crash during apply remains recoverable under the same normative authority."
+    },
+    {
+      "description": "Successful recovery authority is retired by atomically renaming the complete fixed root out of authority; a later write invocation scrubs deterministic retired or staging debris and returns exit 2 for a clean rerun after performing recovery maintenance only."
+    },
+    {
+      "description": "Deterministic destination order uses an MSD byte-radix pass instead of comparison sorting, preserving the slice's linear-complexity contract without introducing a second hardcoded path list."
+    }
+  ]
+}
