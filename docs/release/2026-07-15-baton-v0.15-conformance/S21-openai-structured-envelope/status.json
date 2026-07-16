@@ -8,10 +8,10 @@
     "N-10",
     "N-12"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T09:31:00+10:00",
+  "last_updated_at": "2026-07-17T09:09:47+10:00",
   "start_commit": "ed0badf68673f0af84834458f07be0792555484f",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.json",
@@ -30,13 +30,28 @@
     "internal/gate/llmcheck_test.go",
     "cmd/sworn/llmcheck_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/llmcheck_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/model/config.go",
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/openai_responses.go",
+    "internal/model/openai_responses_test.go",
+    "internal/model/provider.go",
+    "internal/model/structured_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model -run 'Test(CompileOpenAILLMCheckEnvelopeExactIdentity|OpenAIEnvelopeProfileRejectsUnsupportedCanonicalSchemasBeforeHTTP|OAIChatStructuredUsesLLMCheckEnvelopeOnlyForOpenAICompletions|OpenAIResponsesChatStructuredUsesLLMCheckEnvelope|XAIChatStructuredRetainsRawSchemaProfile|ToolCallChatStructuredRetainsRawSchema|StructuredProviderProfileDefaultsClosed)' -count=1",
     "go test ./internal/gate ./cmd/sworn -run 'Test(OpenAIEnvelopeStillFailsFullCanonicalReportViolations|LLMCheckOpenAI)' -count=1",
     "go test ./...",
     "go vet ./...",
-    "make build"
+    "make build",
+    "bin/sworn lint coverage --slice S21-openai-structured-envelope --release 2026-07-15-baton-v0.15-conformance --base ed0badf68673f0af84834458f07be0792555484f",
+    "bin/sworn lint mock --slice S21-openai-structured-envelope --release 2026-07-15-baton-v0.15-conformance --base ed0badf68673f0af84834458f07be0792555484f",
+    "git diff --check ed0badf68673f0af84834458f07be0792555484f..HEAD"
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability",

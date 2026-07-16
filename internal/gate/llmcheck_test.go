@@ -14,6 +14,10 @@ import (
 	"github.com/swornagent/sworn/internal/prompt"
 )
 
+// @mock-boundary
+// Deterministic local model endpoints exercise the generic gate without a
+// credentialed provider request.
+
 // --- mock model verifier ---
 
 // mockVerifier implements model.Verifier with canned responses.

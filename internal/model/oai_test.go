@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// @mock-boundary
+// This file's httptest servers are deterministic local transport fixtures, not
+// credentialed provider calls.
+
 func fakeServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(handler)

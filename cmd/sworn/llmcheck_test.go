@@ -17,6 +17,10 @@ import (
 	"github.com/swornagent/sworn/internal/config"
 )
 
+// @mock-boundary
+// Deterministic local model endpoints are intentional test transport only; no
+// credentialed provider request is made by these reachability tests.
+
 // isolateModelConfig points config.Load() at a path that does not exist and clears
 // the model env vars, so a test asserts against a genuinely unconfigured setup.
 //

@@ -111,3 +111,22 @@
 - Proceed to `in_progress` only in a fresh Implementer session. That session
   must stop at `implemented`; only a fresh S21 verifier PASS can permit S20 to
   resume its own readiness, maintainability, and credentialed exact-base smoke.
+
+## 2026-07-17T09:09:47+10:00 — Implemented proof checkpoint
+
+- The semantic implementation is committed at
+  `a58dbe498c52e60ad4fc3a6021e01b9c61589fd8`. The final slice diff adds only
+  the narrow OpenAI envelope/profile route, deterministic transport tests, and
+  release evidence; no canonical schema, prompt, generic gate source, S04, or
+  S20 lifecycle record changed.
+- A controlled independent clean clone at that implementation commit completed
+  the two required focused commands, `go test ./...`, `go vet ./...`, and
+  `make build` with explicit exit 0. Slice coverage reports six of six ACs;
+  mock lint passes after durable `@mock-boundary` declarations identify the
+  intentional local-only fake transport fixtures.
+- The deterministic proof-bundle first-pass returned `PASS` at zero cost under
+  an isolated synthetic configuration. It did not run an agentic verifier or
+  dispatch a provider request.
+- Generated `proof.json` and `proof.md` from this live scope and advanced only
+  to `implemented`. `verification` and `maintainability` remain pending: a
+  fresh artefact-only verifier must decide S21 before S20 can resume.
