@@ -10,7 +10,7 @@
   "state": "planned",
   "owner": "unassigned",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-17T05:41:37+10:00",
+  "last_updated_at": "2026-07-17T05:55:53+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
@@ -19,6 +19,8 @@
     "internal/tui/releases.go",
     "internal/tui/board.go",
     "internal/tui/model.go",
+    "internal/tui/status_authority.go",
+    "internal/tui/status_authority_test.go",
     "internal/tui/tui_test.go"
   ],
   "actual_files": [],
@@ -30,7 +32,8 @@
   ],
   "reachability_artifacts": [
     "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardReachability",
-    "internal/tui/tui_test.go:TestBoardViewRefOnlySelectedSourceIgnoresPrimaryFilesystem"
+    "internal/tui/tui_test.go:TestBoardViewUsesHigherLiveStatusAcrossSourceRefs",
+    "internal/tui/status_authority_test.go:TestSelectDisplayedStatusByLifecycleProgress"
   ],
   "maintainability": {
     "state": "pending",
@@ -45,7 +48,7 @@
     "effort": "low",
     "complexity": "high",
     "quadrant": "puzzle",
-    "rationale": "See spec.json; the four-file change is bounded, but source-ref identity and live-status precedence are subtle state boundaries.",
+    "rationale": "See spec.json; the six-file change is bounded, but lifecycle-first status election across committed and uncommitted candidates is a subtle state-authority boundary.",
     "confirmed_by_implementer": false
   },
   "verification": {
@@ -63,12 +66,27 @@
     "ratified_at": "2026-07-17T05:41:37+10:00",
     "positive_scenarios": [
       "The releases pane lists and opens a release whose plan is absent from HEAD but present on its selected release-worktree ref.",
-      "The TUI displays a newer owner-track slice state while retaining live-status preference only for the selected active checkout."
+      "The TUI displays a higher lifecycle state from a valid matching uncommitted checkout file even when sourceRef names another branch."
     ],
     "negative_scenarios": [
       "A catalog error cannot silently show a partial list or an unrelated filesystem board.",
+      "A lower, malformed, or identity-mismatched live status cannot regress the Oracle baseline, and a later attention state cannot be hidden by an older success.",
       "An asynchronous board result from a different source ref cannot replace the user's current selection."
     ],
-    "benefit_hypothesis": "The TUI becomes an accurate operational front end for release plans that Baton has materialised in sibling worktrees or remote-tracking refs."
-  }
+    "benefit_hypothesis": "The TUI becomes an accurate operational front end for release plans that Baton has materialised in sibling worktrees or remote-tracking refs, including progress not yet committed by the current operator."
+  },
+  "design_decisions": [
+    {
+      "choice": "Elect the farthest advanced valid current-checkout status over the committed Oracle baseline rather than treating selected source-ref identity as state authority.",
+      "stake_class": "Type-1",
+      "options": [
+        "selected-source-only committed state",
+        "lifecycle-first comparison of committed Oracle baseline and matching current checkout",
+        "unbounded timestamp-first scan of all refs and worktrees"
+      ],
+      "human_decision": "Repository owner chose lifecycle-first current-checkout arbitration on 2026-07-17.",
+      "rationale": "Uncommitted real progress must be visible, but the candidate set stays bounded and explicit newer attention states remain fail-closed visible.",
+      "architecturally_significant": true
+    }
+  ]
 }

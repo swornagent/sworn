@@ -24,7 +24,9 @@ queries retain their established result shape and behaviour.
   surfaces missing or malformed canonical records instead of silently omitting
   them or selecting a different plan.
 - N-03: **Ref-aware TUI navigation.** A TUI operator can see and open the same
-  ref-only release catalog, including its oracle-resolved slice state.
+  ref-only release catalog, with the selected ref owning plan topology and the
+  farthest advanced valid matching slice status visible even when it is an
+  uncommitted current-checkout record.
 - N-04: **Read-only compatibility.** Discovery does not fetch, create, update,
   check out, or otherwise mutate Git refs, the current worktree, or the current
   working directory; named board queries remain backward compatible.
@@ -47,8 +49,9 @@ queries retain their established result shape and behaviour.
   `sworn board --release <name> [--json]` with its existing single-release
   shape.
 - **TUI operator**: launches `sworn`, selects a release that exists only on a
-  non-HEAD ref, and opens its board with the same ref-aware plan and current
-  oracle slice state as the CLI.
+  non-HEAD ref, and opens its board with the same ref-aware plan as the CLI
+  plus the farthest advanced valid matching slice status available to that
+  checkout.
 
 ## What's currently broken or missing
 
@@ -77,7 +80,9 @@ queries retain their established result shape and behaviour.
 - Discover only refs already available locally, including remote-tracking refs;
   never fetch or mutate Git state as a side effect of discovery.
 - Make the TUI list and open the same catalog using the same source-selection
-  rules and existing slice-state oracle priority.
+  rules. Use the committed slice-state oracle as its baseline, but let a
+  farther advanced, valid matching live status win even when that file is
+  uncommitted or the selected source ref is not the active checkout.
 
 ## Constraints and non-negotiables
 
@@ -94,6 +99,11 @@ queries retain their established result shape and behaviour.
   in lexical ref order.
 - A valid named query keeps its existing single-release output shape; the new
   aggregate shape applies only when `--release` is omitted.
+- The selected source ref owns the TUI's plan topology. It is not a blanket
+  veto over a valid current-checkout status for the same release, track, and
+  slice; only that checkout and the committed Oracle baseline participate in
+  live-status arbitration. Arbitrary sibling worktrees and unrelated refs do
+  not become candidates.
 - No API, network, credential, personal-data, persistence, compliance, or
   browser-facing surface is introduced. Accessibility is not applicable because
   the TUI uses its existing keyboard-operable release list and board views.
@@ -147,6 +157,35 @@ queries retain their established result shape and behaviour.
   lexical ordering removes implementation-dependent selection; failing closed
   preserves the existing skew guard.
 
+### 2026-07-17 — elect the farthest advanced valid TUI status, not the most convenient ref
+
+- **Context**: the first S02 remediation made an uncommitted status file
+  ineligible whenever the catalog-selected source ref differed from the active
+  checkout. That treats source location as a proxy for lifecycle freshness and
+  can hide real progress from the operator.
+- **Options considered**: use only the selected source's committed Oracle
+  result; compare all available refs and worktrees by timestamp; compare the
+  committed Oracle baseline with the current checkout's matching live status by
+  lifecycle progress.
+- **Decision**: the selected `sourceRef` remains authoritative for board-plan
+  topology. For each displayed slice, compare the committed Oracle baseline
+  with only the current checkout's readable, parseable, identity-matching
+  `status.json`; a valid live file participates whether or not `sourceRef`
+  names the active branch. Use the explicit normal-progress order `planned <
+  design_review < in_progress < implemented < verified < shipped`; the higher
+  normal stage wins. `blocked`, `failed_verification`, and `deferred` are
+  attention states at rank 4 for this display. A later RFC3339
+  `last_updated_at` attention record wins over a higher normal stage, and an
+  attention record wins an equal or missing-timestamp safety tie. For equal
+  normal stages, a later valid `last_updated_at` wins; otherwise retain the
+  committed Oracle result. A malformed, unknown-state, or identity-mismatched
+  live file never overrides the baseline.
+- **Why**: progress must not disappear simply because it has not yet been
+  committed, while an explicit newer block, failure, or deferral must not be
+  hidden by an older successful copy. Restricting the candidate set preserves
+  deterministic, read-only discovery rather than turning the TUI into an
+  unbounded cross-worktree scan.
+
 ## Schema-vs-spec audit notes
 
 - The current `spec-v1` record has no typed `references` field in this branch,
@@ -154,7 +193,13 @@ queries retain their established result shape and behaviour.
   schema-invalid field. The catalog contract is a logical schema-version
   contract, not a new wire protocol.
 - `BoardState` is already the canonical slice-state projection. This release
-  adds a catalog around it and must not create a competing status resolver.
+  adds a catalog around it and must not create a competing cross-ref status
+  resolver. S02 applies a display-only two-candidate arbitration above that
+  committed projection; it does not change the CLI oracle or mutate records.
+- `slice-status-v1` has no monotonic status-revision field. Lifecycle stage is
+  therefore primary; `last_updated_at` is a deterministic tie and
+  safety-attention discriminator, not a claim that independently authored
+  branch timestamps establish a global history.
 
 ## Proposed slice decomposition (approved)
 
@@ -182,7 +227,7 @@ run in parallel with it.
 |---|-----------|---------|------------|
 | A-01 | Which duplicate ref wins when one release has several valid board copies? | N-02, S01 AC-02 | Resolved by the ratified four-level ranking above. |
 | A-02 | What happens when a canonical release-worktree ref exists but its board is missing or malformed? | N-02, S01 AC-03 | Resolved: report a deterministic error and return non-zero; never omit or retarget silently. |
-| A-03 | Whether the TUI can load a ref-only plan after listing it. | N-03, S02 AC-01 | Resolved: consume the shared catalog/sourceRef and invoke the existing Git-ref oracle, with live-working-tree preference retained only when the selected ref is the active checkout. |
+| A-03 | Whether the TUI can load a ref-only plan after listing it, while showing uncommitted progress. | N-03, S02 AC-01, AC-02 | Resolved: consume the shared catalog/sourceRef for plan topology, then elect the farthest advanced valid matching status between the committed Oracle baseline and the current checkout regardless of source-ref identity. |
 
 ## Planning-gate triage
 
@@ -203,6 +248,12 @@ run in parallel with it.
   `git rev-parse HEAD` viability check and the named filesystem fallback test.
   Neither changes source selection, state authority, exit behaviour, or the
   ref-only user outcome, so no further recheck is warranted.
+- **S02 planning amendment, human-directed**: the repository owner corrected
+  the source-identity rule after the recheck: lifecycle progress, rather than
+  committed-versus-uncommitted location, determines which valid matching status
+  the TUI shows. The amendment defines a bounded two-candidate, lifecycle-first
+  election with a newer-attention safety exception. It reopens the S02
+  spec-ambiguity check once only; no independent review fan-out is authorised.
 
 ## Screenshots / references
 
