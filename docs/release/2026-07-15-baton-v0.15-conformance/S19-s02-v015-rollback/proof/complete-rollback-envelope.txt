@@ -1,5 +1,5 @@
-Command (2026-07-17T00:28:29+10:00):
-  proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability
+Repair live command (2026-07-17T02:25:25+10:00):
+  proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle
 Exit: 0
 
 ENVELOPE cmd/sworn/baton.go baseline=100644/f098a4c275222714fc89794fd6a7243ce80d51a7 head=100644/f098a4c275222714fc89794fd6a7243ce80d51a7
@@ -48,11 +48,15 @@ ENVELOPE internal/state/record_reconciliation_test.go baseline=100644/da41d81144
 ENVELOPE internal/state/state.go baseline=100644/31d8eac423a83d69647f5e1546d42842d65ab38c head=100644/31d8eac423a83d69647f5e1546d42842d65ab38c
 ENVELOPE internal/state/state_test.go baseline=100644/083f92e8621a028b907feda903bbc5dcb1356a13 head=100644/083f92e8621a028b907feda903bbc5dcb1356a13
 
+CONTRACT_AMENDMENT PASS schema=b62d48f698059fc0151ea0a3b9da18dfe1e507f5 record=9e298676129ee628714ffa80caa8c02bcea244f7
+S19_SPEC_HISTORY PASS first=c0d7d672fe14090655fea7db3f5bf0e22dfd29f9 second=2c25021305b62d4b1e1f75bf1c7e0e6db504651b
+RENDERED_INDEX PASS head=c6842d8db3404843fdc8441a8cfefa41c03bd917
 ROLLBACK_CHECK PASS
 BASE e61cb190736ee7483fb4ed1a993442b26ce3574c tree=c57285e3f652e5f49aa8bb15e3ba65249b4a3db8
 IMPLEMENTATION_HEAD 4b38887e666f7e4ab664bac4780535b080ad54eb
 ORDINARY_COMMITS 35
 RECORD_ONLY_MERGES 7
 ENVELOPE_PATHS 45 baseline-present=37 baseline-absent=8
-RELEASE_RECORD_CHANGES_AFTER_S19_START 3
+RELEASE_RECORD_CHANGES_AFTER_S19_START 14
 MAINTAINABILITY_BINDING PASS head=4b38887e666f7e4ab664bac4780535b080ad54eb report=docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/implementer-cycle-0-73909151-0ead-4f0b-8cca-c1b4e78e6fdf.json
+PROOF_BUNDLE_BINDING PASS path=docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json

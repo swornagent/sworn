@@ -2,7 +2,7 @@
   "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
   "slice_id": "S19-s02-v015-rollback",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "scope": "Restore the complete S02-authored semantic envelope to S02's immutable start tree, without rewriting its release evidence, and bind the rollback's final Implementer maintainability PASS to its sole semantic implementation head.",
+  "scope": "Preserve the complete S02 rollback proof while repairing its planner-ratified executable-proof boundary: validate the immutable amendment record and schema, admit only its two exact S19 spec transitions, and admit the rendered index only when an isolated current-head render byte-matches it.",
   "files_changed": [
     "cmd/sworn/baton.go",
     "cmd/sworn/baton_test.go",
@@ -13,11 +13,15 @@
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/fail-closed-checks.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/llm-checks.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/implementer-cycle-0-73909151-0ead-4f0b-8cca-c1b4e78e6fdf.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
     "internal/adopt/baton/README.md",
     "internal/adopt/baton/VERSION",
     "internal/adopt/baton/architecture.json",
@@ -98,7 +102,7 @@
       "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md#proofbundleverificationgate"
     },
     {
-      "command": "git diff --no-ext-diff 640396fa8cc319229d6f96dedfdbef65dbe317fe..HEAD | sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
+      "command": "git diff --no-ext-diff 640396fa8cc319229d6f96dedfdbef65dbe317fe | sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
       "passed": true,
       "exit_code": 0,
       "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md#proofbundleverificationgate"
@@ -107,7 +111,7 @@
       "command": "sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/llm-checks.md#final-ac-recheck-third-pass"
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/llm-checks.md#deterministic-repair-ac-satisfaction-recheck"
     },
     {
       "command": "./bin/sworn capabilities",
@@ -118,7 +122,7 @@
   ],
   "reachability": {
     "type": "cli-run",
-    "evidence": "The executable proof/check-rollback.sh runs from the assigned T1 worktree against the pinned commit 4b38887e666f7e4ab664bac4780535b080ad54eb, derives its complete first-parent provenance envelope directly from Git, proves 37 exact baseline blobs and eight exact absences, and exits 0 only when the preserved S02/S20 lifecycle state is also valid. ./bin/sworn capabilities additionally exercised the built public CLI successfully; both outputs are captured under proof/."
+    "evidence": "The executable proof/check-rollback.sh runs from the assigned T1 worktree against the pinned commit 4b38887e666f7e4ab664bac4780535b080ad54eb, derives its complete first-parent provenance envelope directly from Git, proves 37 exact baseline blobs and eight exact absences, validates the pinned amendment record through its schema, and reproduces the committed index only from a disposable detached current-head render. It exits 0 only when preserved S02/S20 lifecycle state remains valid. ./bin/sworn capabilities additionally exercised the built public CLI successfully."
   },
   "delivered": [
     {
@@ -126,12 +130,12 @@
       "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt; check-rollback.sh"
     },
     {
-      "item": "AC-03: provenance ambiguity fails closed for a pre-rollback head, later ordinary authority, authored/merge overlap, semantic merge drift, or any mode/blob/absence mismatch.",
+      "item": "AC-03: live disposable Git objects fail closed for arbitrary index render drift, an arbitrary post-start S19 spec blob, amendment-record tamper, mode/blob drift, a surviving S02-added path, later ordinary authority, parent-two merge drift, authored/merge overlap, a weakened S20 record, and absent fresh-verifier evidence.",
       "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/fail-closed-checks.md; check-rollback.sh"
     },
     {
-      "item": "AC-04: kept S02's release records byte-identical after the S19 start checkpoint, restricted changed release records to the S19 lifecycle/proof root, and proved no non-release semantic difference remains from S02 start.",
-      "evidence": "check-rollback.sh; docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#vet-and-whole-tree-equality-backstop"
+      "item": "AC-04: kept S02's release records byte-identical after the S19 start checkpoint, retained the original S19 lifecycle/proof allowlist, admitted only the two planner-declared S19 spec transitions with exact provenance, and admitted index.md only after a detached current-head sworn render byte comparison.",
+      "evidence": "check-rollback.sh; proof/contract-amendment.json; docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#deterministic-repair-revalidation"
     },
     {
       "item": "Captain pin 1: persisted one schema-valid Implementer maintainability PASS whose report blob, review scope, status ledger, and implementation_head all bind to 4b38887e666f7e4ab664bac4780535b080ad54eb.",
@@ -157,6 +161,9 @@
   "divergence": [
     {
       "description": "The role prompt's positional proof-gate form, `sworn verify <slice-id> <release>`, is not supported by the installed CLI: it ignores positional values and blocks on a missing spec path. The same deterministic first pass was run through the installed flag interface with the S19 spec, proof, and non-empty live diff, and returned PASS. No agentic verifier was invoked or self-certified."
+    },
+    {
+      "description": "`sworn lint coverage --slice S19-s02-v015-rollback --release 2026-07-15-baton-v0.15-conformance --base 640396fa8cc319229d6f96dedfdbef65dbe317fe --json` exited 2 because its generic scanner tried to open the intentionally absent `internal/baton/install_transaction_test.go`. AC-02 and AC-04, the ratified contract amendment, and its explicit prohibition on persistent non-release harnesses make restoring or replacing that path impermissible. The contract-owned executable integration proof is check-rollback.sh; this is recorded as a tool-boundary divergence, not bypassed or weakened."
     }
   ]
 }

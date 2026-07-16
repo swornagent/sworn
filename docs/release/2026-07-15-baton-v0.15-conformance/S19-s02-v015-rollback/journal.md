@@ -230,3 +230,26 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
 - This is a code/evidence checkpoint, not an Implementer completion claim.
   `bash -n` and `git diff --check` pass; live history and adversarial-object
   validation remain to be recorded before the slice can return to `implemented`.
+
+## 2026-07-17T02:41:13+10:00 — Deterministic repair implemented
+
+- Transitioned S19 from `in_progress` to `implemented` without changing its
+  immutable `start_commit` (`640396fa8cc319229d6f96dedfdbef65dbe317fe`),
+  45-path `actual_files` inventory, or the existing exact-head
+  maintainability binding at `4b38887e666f7e4ab664bac4780535b080ad54eb`.
+- The repaired checker schema-validates the planner-pinned amendment record,
+  accepts exactly its two direct S19 `spec.json` transitions and declared
+  propagations, and admits the release index only when a disposable detached
+  current-head `sworn render` byte-compares equal. Live history validation
+  passed, as did build, uncached tests, vet, non-release whole-tree equality,
+  and the required proof-bundle checker.
+- Disposable adversarial objects rejected arbitrary rendered-index bytes,
+  arbitrary S19 spec bytes, record tamper, semantic equality drift, provenance
+  drift, S02 drift, a weakened S20 state, and absent fresh-verifier evidence.
+  The generic coverage scanner remains an explicit exit-2 tool-boundary
+  divergence because it targets the intentionally absent historical S02 test
+  path; AC-02/AC-04 and the amendment prohibit restoring or replacing it with
+  a persistent non-release harness.
+- Fresh verification remains pending for a separate context. S20 is still
+  planned/pending and no verifier result, fresh-context assertion, or release
+  unlock is claimed by this Implementer session.

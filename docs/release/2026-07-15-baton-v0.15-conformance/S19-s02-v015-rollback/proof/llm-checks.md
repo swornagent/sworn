@@ -84,3 +84,14 @@ The committed role-bound record is
 Its `review_scope.head` and the S19 `maintainability.implementation_head` are
 both `4b38887e666f7e4ab664bac4780535b080ad54eb`; its canonical manifest
 fingerprint is `sha256:fb4c8849e66b1507b6dc19b353b104ae69f3df2c4e07a899b1fb881d99482214`.
+
+## Deterministic repair AC satisfaction recheck
+
+```text
+$ sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json
+exit: 0
+```
+
+The recheck completed without a new finding. Its evidence is bounded by the
+ratified contract: the executable checker, not a persistent non-release test or
+CI harness, owns AC-01 through AC-05 coverage for this historical rollback.

@@ -106,3 +106,42 @@ oai-responses-inprocess
   provider availability: omitted to avoid recording local configuration state
 exit: 0
 ```
+
+## Deterministic repair revalidation
+
+All repair commands ran from the assigned T1 worktree after checker checkpoint
+`c6842d8db3404843fdc8441a8cfefa41c03bd917`. No local Baton installation,
+production code, test harness, S20 record, or release ref was written.
+
+```text
+$ make build
+exit: 0
+
+$ go test ./... -count=1
+exit: 0
+
+$ go vet ./...
+exit: 0
+
+$ git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'
+exit: 0
+
+$ proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle
+CONTRACT_AMENDMENT PASS schema=b62d48f698059fc0151ea0a3b9da18dfe1e507f5 record=9e298676129ee628714ffa80caa8c02bcea244f7
+S19_SPEC_HISTORY PASS first=c0d7d672fe14090655fea7db3f5bf0e22dfd29f9 second=2c25021305b62d4b1e1f75bf1c7e0e6db504651b
+RENDERED_INDEX PASS head=c6842d8db3404843fdc8441a8cfefa41c03bd917
+ROLLBACK_CHECK PASS
+ENVELOPE_PATHS 45 baseline-present=37 baseline-absent=8
+exit: 0
+
+$ sworn lint coverage --slice S19-s02-v015-rollback --release 2026-07-15-baton-v0.15-conformance --base 640396fa8cc319229d6f96dedfdbef65dbe317fe --json
+sworn lint coverage: coverage: scan internal/baton/install_transaction_test.go: open internal/baton/install_transaction_test.go: no such file or directory
+exit: 2
+```
+
+The coverage scanner non-pass is deliberate and bounded: it assumes a
+persistent non-release test path that this rollback must leave absent. The
+planner-ratified `proof/contract-amendment.json` instead names the committed
+checker as the required executable integration proof and prohibits creating or
+restoring a persistent non-release harness. The result is recorded rather than
+treated as coverage success.
