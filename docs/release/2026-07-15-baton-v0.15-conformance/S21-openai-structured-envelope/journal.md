@@ -72,3 +72,23 @@
   semantic-authority, lifecycle, and reachability design. Run a fresh Captain
   `/design-review S21-openai-structured-envelope 2026-07-15-baton-v0.15-conformance`
   before any implementation.
+
+## 2026-07-17T08:29:21+10:00 — Automatic Coach acknowledgement and Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the
+  Captain's `PROCEED` verdict in `review.md` (commit `0bccd6e`) is
+  acknowledged. There are no `[escalate]` pins and no new Type-1 decision to
+  seek.
+- Apply pin 1 inline: make the generic-report-family matcher a closed-world
+  canonical `$id` plus exact-digest decision, never a broad `$id` heuristic.
+- Apply pin 2 inline: propagate explicit provider profile and wire mode through
+  both direct and proxy construction, including the deliberate deprecated
+  Responses alias behavior.
+- Apply pin 3 inline: make built-binary local-rejection tests hermetic, assert
+  exit `2`, and prove zero HTTP dispatch on every rejected schema path.
+- Apply pin 4 inline: preserve `spec-ambiguity-report-v1` as the dedicated map
+  contract; this slice rejects it locally for OpenAI response-format rather
+  than flattening or reconstructing it.
+- Proceed to `in_progress` only in a fresh Implementer session. That session
+  must stop at `implemented`; only a fresh S21 verifier PASS can permit S20 to
+  resume its own readiness, maintainability, and credentialed exact-base smoke.
