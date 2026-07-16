@@ -6,8 +6,8 @@
   "covers_needs": ["N-03", "N-06", "N-07", "N-08", "N-10"],
   "state": "planned",
   "owner": "unassigned",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T00:00:00+10:00",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T18:06:44+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S07-canonical-semantic-scope/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S07-canonical-semantic-scope/proof.json",
@@ -38,13 +38,16 @@
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Gives every maintainability and integration decision one reproducible semantic identity.",
-  "design_decisions": [{"choice": "Make C-04 the sole semantic-scope authority reached through the serial maintainability command after C-07 synchronization validation.", "stake_class": "Type-1", "options": ["adapter-local scope variants", "leaf-only scope package", "one C-04 authority on the public command path"], "human_decision": "Ratified under Brad's 2026-07-16 Coach instruction to follow the orchestrator recommendation: use one C-04 authority on the public command path.", "rationale": "The command cannot dispatch or reuse a report until exact committed scope and synchronization provenance agree.", "architecturally_significant": true}],
+  "design_decisions": [
+    {"choice": "Make C-04 the sole semantic-scope authority reached through the serial maintainability command after C-07 synchronization validation.", "stake_class": "Type-1", "options": ["adapter-local scope variants", "leaf-only scope package", "one C-04 authority on the public command path"], "human_decision": "Ratified under Brad's 2026-07-16 Coach instruction to follow the orchestrator recommendation: use one C-04 authority on the public command path.", "rationale": "The command cannot dispatch or reuse a report until exact committed scope and synchronization provenance agree.", "architecturally_significant": true},
+    {"choice": "Recognize only the exact digest-pinned sealed pre-C12 historical reconciliation entries inside their declared consumer slice, immutable start, exact review head, first-parent interval, and purpose while protocol authority is planning.", "stake_class": "Type-1", "options": ["rewrite immutable bootstrap history", "grant a generic manual merge waiver", "recognize exact interval-bound historical evidence only"], "human_decision": "Ratified under Brad's standing instruction to follow the orchestrator recommendation: preserve immutable S01/S02 evidence through exact interval-bound sealed historical recognition only.", "rationale": "The exact authorization envelope preserves already-consumed evidence without authorizing another slice, endpoint, purpose, or custom merge and without weakening ordinary section-6 provenance on the same merge.", "architecturally_significant": true}
+  ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:00:00+10:00",
-    "positive_scenarios": ["The same committed semantic inputs always produce the same C-04 output."],
-    "negative_scenarios": ["Stale, ambiguous, custom, dirty, or malformed provenance never produces a reusable identity."],
+    "ratified_at": "2026-07-16T18:06:44+10:00",
+    "positive_scenarios": ["The same committed semantic inputs always produce the same C-04 output.", "An exact interval-bound S01/S02 sealed bootstrap entry is recognized only while planning authority and every ordinary section-6 check on the same merge succeeds."],
+    "negative_scenarios": ["Stale, ambiguous, custom, dirty, or malformed provenance never produces a reusable identity.", "A consumer slice, start, exact review head, interval endpoint, purpose, digest, OID, path-set, tuple, authority, or unlisted/future exception mismatch blocks before scope or dispatch."],
     "benefit_hypothesis": "Canonical scope eliminates adapter-local diffs and makes safe evidence reuse mechanically decidable."
   }
 }

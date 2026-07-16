@@ -594,6 +594,67 @@ marker to remain byte-identical through T2 integration. The separate C-13
 post-T2 cutover is the only operation permitted to change that marker from
 planning to current.
 
+#### Sealed pre-C12 historical reconciliation evidence
+
+Before C-12 existed, manual planning authority created four synchronization
+merges that are already inside the immutable S01 and S02 maintainability
+intervals but do not satisfy the release-record paragraph above. Rewriting them
+would invalidate S01's committed report heads/blob identities and S02's
+immutable `start_commit`; silently accepting their shape would create a generic
+manual-merge waiver. Neither is permitted.
+
+For this release only, while `protocol.json.authority` is exactly `planning`,
+the schema-valid sealed manifest
+`planning/bootstrap-sync-reconciliations.json` at exact SHA-256
+`f9e0de63c0a5ecf15cdb6058a52166ff0a609fa0d0cf2ecdf81d7955030b1943`
+is historical recognition evidence. Its only entries are exact merges
+`36d1bd56cdc12ddc824533e24d385ef9e8cc550a`,
+`d062d055cdbe90e8290f0bf47574be660cd9a675`,
+`b8df1857ab8c7d2acf4b91c4c37df3cf07f80832`, and
+`7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a`.
+
+Each entry also carries one exact authorization envelope: owning consumer
+slice, immutable `start_commit`, exact `review_head`, interval semantics, and
+permitted purpose. `first-parent-start-exclusive-head-inclusive` means the
+merge must appear in the first-parent ancestry path `start_commit..review_head`:
+the start is excluded and the exact review head is included. The consumer must
+present that same slice, status start, requested review head, and one of the
+entry's exact purposes (`semantic_scope`, `freshness_revalidation`, or
+`bootstrap_cutover_revalidation`). A descendant or ancestor review head, the
+same merge requested by another slice, or another purpose is not authorized.
+Cutover uses the owning S01/S02 envelope to reproduce that slice's evidence; it
+does not substitute S13 as the consumer.
+
+Recognition requires all of the following, fail-closed:
+
+1. the manifest validates against
+   `planning/bootstrap-sync-reconciliations-v1.schema.json`, has no duplicate
+   JSON keys, and its committed bytes reproduce the pinned digest;
+2. release, planning authority, consumer slice, status `start_commit`, exact
+   requested `review_head`, first-parent interval membership, permitted purpose,
+   merge OID, ordered parents, unique merge base, every exceptional path, and
+   every base/parent-1/parent-2/result mode-and-blob tuple equal the manifest
+   exactly;
+3. the observed exceptional path set equals the listed set exactly, while
+   topology, release-wt structural ancestry, every non-record path, every
+   unlisted release-record path, and deterministic `index.md` rendering still
+   satisfy the ordinary rules in this section; and
+4. the consumer uses the entry only for the exact authorized slice interval and
+   purpose. It cannot create or recompute a merge, accept another result, widen
+   either endpoint, select a caller-supplied exception, authorize another slice,
+   or authorize any future reconciliation.
+
+The separately audited pre-start merges `9f1d499c595b098e14b329e377f901bd55dfecaf`,
+`5e4a7b3410e975ce7507a13291d3411749bd680e`, and
+`1ee6c319505b7dd466485bff406f11828cf0507f` remain unrecognized because they
+are below the relevant immutable review starts. If a later operation proves it
+must traverse one, that operation blocks and returns to the Planner; the sealed
+manifest is not extended in place. Any S01/S02 review-head change likewise
+blocks until a new human-ratified planning amendment and digest replace the
+authorization; consumers never widen it dynamically. C-13 revalidates every
+consumed entry, authorization envelope, interval, and the manifest digest before
+cutover, after which the exception is unavailable.
+
 ## 7. Lifecycle transition table
 
 Before lifecycle evaluation, C-05 treats every full-report finding `id` as its

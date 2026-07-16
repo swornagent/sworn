@@ -30,11 +30,14 @@
     {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
     {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
     "Require git status --porcelain=v1 -z --untracked-files=all to emit zero bytes; accept immutable full commit IDs for start/base and requested review head plus release, slice, and physical status path as semantic identity; accept current track/release-wt refs and heads only as a separately moving freshness frontier and verify all required first-parent relationships.",
     "Derive authored candidates from reverse first-parent non-merge commits in base..head using NUL-delimited no-rename path changes; separately derive merge contributions, reject authored/merge overlap, and exclude a merge only after exact two-parent release-wt synchronization provenance succeeds, invoking C-07 canonical composition for every both-parents-changed declared shared path before recognizing that synchronization.",
+    "While protocol authority is planning only, recognize a historical bootstrap reconciliation solely when the sealed manifest validates without duplicate keys, its committed bytes reproduce the pinned digest, the authorization exactly matches the consumer slice, immutable start, exact requested review head, start-exclusive/head-inclusive first-parent interval, and semantic_scope purpose, and the exact release, ordered parents, unique base, complete exceptional path set, and every B/P1/P2/result mode-and-blob tuple match. The manifest substitutes only that complete exceptional release-record mismatch set: apply ordinary section-6 topology, structural ancestry, non-record/shared, unlisted release-record, and deterministic index-render provenance to the same merge, and reject wrong-slice, outside-endpoint, pre-start, future, recomputed, pattern-matched, or caller-supplied exceptions.",
     "Reject unrecognized synchronization, ambiguous merge-base, custom merge trees, post-pin authored semantic changes, invalid UTF-8 paths, and post-pin merge contributions overlapping the reviewed candidate set; record each recognized merge-only path once in excluded_paths.",
     "Exclude only net-zero paths, the physical release record/evidence tree, head-tree paths explicitly marked baton-generated or linguist-generated as set/true, and the exact Baton lockfile basename list; undeclared generated output remains included.",
     "Sort included and excluded paths by unsigned UTF-8 bytes and emit every exclusion once; diagnostic reason codes may exist internally but are non-authoritative and absent from exact Baton identity.",
@@ -59,7 +62,8 @@
   "risks": [
     {"id": "R-01", "description": "A merge-only contribution is excluded without proving it is a canonical release-wt synchronization, hiding authored product bytes from review.", "mitigation": "Require the exact two-parent, second-parent reachability, unique merge-base, canonical tree, and release-branch structural provenance tests before classifying any merge contribution as excluded."},
     {"id": "R-02", "description": "Generated or lockfile heuristics become broad local ignore rules and omit semantic changes.", "mitigation": "Implement only the exact attribute values and basename allowlist in C-04, record every excluded path once, and mutation-test near-miss names and unset/false attributes as included."},
-    {"id": "R-03", "description": "Ambient Git diff configuration changes prompt bytes without changing the fingerprint, allowing unsafe report reuse.", "mitigation": "Pin every diff flag and locale, compare under hostile config/attributes/drivers, and require the committed manifest identity plus normalized diff fixture to remain invariant."}
+    {"id": "R-03", "description": "Ambient Git diff configuration changes prompt bytes without changing the fingerprint, allowing unsafe report reuse.", "mitigation": "Pin every diff flag and locale, compare under hostile config/attributes/drivers, and require the committed manifest identity plus normalized diff fixture to remain invariant."},
+    {"id": "R-04", "description": "The sealed historical reconciliation manifest becomes a generic waiver for custom or future release-record merges.", "mitigation": "Require exact schema, digest, consumer slice, immutable start, exact review head, first-parent interval, permitted purpose, full OIDs, complete exceptional path-set equality, and B/P1/P2/result tuples under planning authority only; ordinary section-6 validation remains mandatory for the same listed merge and everywhere else, and C-13 retires recognition."}
   ],
   "acceptance_criteria": [
     {
@@ -82,9 +86,9 @@
     },
     {
       "id": "AC-04",
-      "text": "IF commits, first-parent ancestry, synchronization provenance, C-07 shared composition, merge tree, UTF-8, cleanliness, pinned head, post-pin changes, authored-versus-merge ownership, or normalized diff output is ambiguous or invalid THEN THE SYSTEM SHALL fail scope construction with no partial scope, report, or model dispatch.",
+      "text": "IF commits, first-parent ancestry, synchronization provenance, C-07 shared composition, merge tree, UTF-8, cleanliness, pinned head, post-pin changes, authored-versus-merge ownership, normalized diff output, or a consumed sealed reconciliation manifest's schema, duplicate-key check, pinned digest, planning authority, consumer slice, immutable start, exact requested review head, start-exclusive/head-inclusive interval membership, semantic_scope purpose, merge/parent/base identity, exact exceptional path set, or B/P1/P2/result tuple is ambiguous or invalid—or the same merge fails any ordinary section-6 topology, structural ancestry, non-record/shared, unlisted release-record, or deterministic index-render check, or any unlisted, wrong-slice, outside-endpoint, pre-start, future, recomputed, pattern-matched, or caller-supplied exception is requested—THEN THE SYSTEM SHALL fail scope construction with no partial scope, report, or model dispatch.",
       "ears_pattern": "unwanted-behaviour",
-      "test_refs": ["internal/maintainability/scope/provenance_test.go:TestScopeProvenanceFailureMatrix", "internal/maintainability/scope/builder_test.go:TestScopeFailureHasNoPartialAuthority"]
+      "test_refs": ["internal/maintainability/scope/provenance_test.go:TestScopeProvenanceFailureMatrix", "internal/maintainability/scope/provenance_test.go:TestSealedBootstrapReconciliationManifestRejectsMismatch", "internal/maintainability/scope/builder_test.go:TestScopeFailureHasNoPartialAuthority"]
     },
     {
       "id": "AC-05",
@@ -97,6 +101,12 @@
       "text": "WHEN the built sworn binary runs maintainability review against a clean temporary history with authored, excluded, and recognized synchronization paths THE SYSTEM SHALL reach C-04 through the public command, construct the exact manifest/fingerprint/diff, then exit non-zero with redacted reason ledger_authority_unavailable and zero model dispatch or report mutation; any C-04 provenance or scope failure SHALL stop at that earlier gate (C-04, C-07, N-03, N-06, N-07, N-08, N-10).",
       "ears_pattern": "complex",
       "test_refs": ["cmd/sworn/maintainability_scope_test.go:TestMaintainabilityScopeBinaryReachability"]
+    },
+    {
+      "id": "AC-07",
+      "text": "WHEN an exact manifest-authorized S01 or S02 merge is requested under planning authority by its exact consumer slice, immutable start, exact review head, start-exclusive/head-inclusive first-parent interval, and semantic_scope purpose, and that merge also passes every ordinary section-6 topology, structural ancestry, non-record/shared path, unlisted release-record path, and deterministic index-render check THE SYSTEM SHALL recognize exactly the listed exceptional release-record path set and continue canonical C-04 scope construction; the same merge for another slice or outside either endpoint SHALL fail before scope or dispatch.",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/maintainability/scope/provenance_test.go:TestSealedBootstrapReconciliationExactBoundEntryRecognized"]
     }
   ]
 }
