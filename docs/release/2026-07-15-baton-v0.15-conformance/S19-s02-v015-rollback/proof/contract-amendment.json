@@ -1,0 +1,74 @@
+{
+  "$schema": "https://swornagent.dev/schemas/s19-executable-proof-contract-amendment-v1.json",
+  "record_version": 1,
+  "amendment_id": "s19-executable-proof-contract-20260717",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "slice_id": "S19-s02-v015-rollback",
+  "authority": "planner",
+  "source": {
+    "blocked_verdict_commit": "d6bfd4578d367aa6bac2ed3243a6f2c909c183ce",
+    "track_ref": "track/2026-07-15-baton-v0.15-conformance/T1-foundation",
+    "track_head": "d6bfd4578d367aa6bac2ed3243a6f2c909c183ce",
+    "status_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json",
+    "status_blob_oid": "7cabfb67504458dc2f6f92fc966c2d84b7bfd8f3",
+    "verification_result": "blocked",
+    "gate": "Gate 4b - semantic coverage"
+  },
+  "baseline": {
+    "s19_start_commit": "640396fa8cc319229d6f96dedfdbef65dbe317fe",
+    "implementation_head": "4b38887e666f7e4ab664bac4780535b080ad54eb",
+    "s02_start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+    "s02_start_tree": "c57285e3f652e5f49aa8bb15e3ba65249b4a3db8",
+    "frozen_s02_head": "2a17443d67d39cf681dba117a57673714a916d7f"
+  },
+  "allowed_post_start_spec_transition": {
+    "path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
+    "before_blob_oid": "1e2f7a3ee70164320fa7dd30d6aba749fc5de47d",
+    "after_blob_oid": "ae05d118cbb0eb47c6ad7595c25f93df5c14417e",
+    "allowed_transition_count": 1,
+    "evidence_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment.json",
+    "evidence_schema_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json"
+  },
+  "checker_repair": {
+    "checker_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh",
+    "checker_blob_before_repair": "ba1ef2323418ffd9e019ef2602ec1a1149b743b1",
+    "required_live_invocation": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle",
+    "required_fresh_verifier_invocation": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-fresh-verifier",
+    "preserved_allowlist": [
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/journal.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/"
+    ],
+    "required_history_rule": "Retain the original allowlist and admit the S19 spec path only when every reachable post-start content transition is the one before-to-after blob transition declared here, the evidence record validates, and the introducing planner commit has the recorded parent and subject; reject every other post-start S19 spec blob, path, transition, or provenance."
+  },
+  "fresh_verifier_protocol": {
+    "run_from_live_t1_history": true,
+    "adversarial_objects_disposable": true,
+    "must_not_mutate_release_refs": true,
+    "required_adversarial_cases": [
+      "mode_or_blob_drift",
+      "surviving_s02_added_path",
+      "unrecognized_merge_or_parent_two_drift",
+      "authored_merge_overlap",
+      "unexpected_later_ordinary_authority",
+      "absent_fresh_verifier_evidence"
+    ]
+  },
+  "prohibitions": [
+    "No persistent non-release test file, CI workflow, CI hook, source package, or harness may be added or relied on for S19 historical rollback proof.",
+    "No S02 release record may be changed, and no arbitrary post-start S19 spec edit may be admitted.",
+    "Disposable adversarial Git objects may not mutate a release ref or become a committed harness."
+  ],
+  "ratification": {
+    "ratified_by": "Captain/Coach standing orchestration authority",
+    "ratified_at": "2026-07-17T01:25:52+10:00",
+    "pre_ratification_release_wt_ref": "release-wt/2026-07-15-baton-v0.15-conformance",
+    "pre_ratification_release_wt_head": "deb090fcef736ca2e61b2c2136283beec4743e45",
+    "required_planner_commit_subject": "docs(release): ratify S19 executable rollback proof contract",
+    "decision_statement": "S19 executable rollback proof contract amendment: allow exactly the planner-ratified post-start spec blob that binds the committed checker as the sole integration proof; prohibit any persistent non-release CI harness.",
+    "decision_digest": "sha256:0fe68cee70fd44f3336cdb9a16d4ec23bd361cb0dcc85eb114e45edcab4ddbed"
+  }
+}
