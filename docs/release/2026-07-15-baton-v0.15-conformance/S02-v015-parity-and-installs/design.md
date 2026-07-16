@@ -2,7 +2,7 @@
 
 **Slice:** `S02-v015-parity-and-installs` · **Track:** `T1-foundation` · **Release:** `2026-07-15-baton-v0.15-conformance`
 **State:** `design_review` — no production code, tests, vendored bytes, archive, or Codex/Claude installation has been changed
-**Covers:** `N-01`, `N-02`, `N-10` · **Effort/complexity:** high / high (`beast`) · **Boundary:** ratified 41-file bootstrap exception
+**Covers:** `N-01`, `N-02`, `N-10` · **Effort/complexity:** high / high (`beast`) · **Boundary:** ratified 42-file bootstrap exception
 
 ## User outcome
 
@@ -229,6 +229,7 @@ All structural choices below mirror the durable `status.json` records.
 | `internal/baton/schemas/board-v1.json`, `llm-check-report-v1.json`, `slice-status-v1.json`, `spec-v1.json`, `spec-ambiguity-report-v1.json` | Byte-exact schemas with ambiguity output independently embedded and classified. | AC-01, AC-02, AC-04 |
 | `internal/baton/source.go`, `schemas/embed.go`, `manifest.go` | Add only the ambiguity-schema mapping/embed/classification. | AC-01, AC-02, AC-04 |
 | `internal/baton/manifest_test.go`, `testdata/fixture/schemas/spec-ambiguity-report-v1.json` | Complete classification plus exact independent schema fixture. | AC-01, AC-02, AC-04 |
+| `internal/baton/validate_schema_test.go` | Align only the two static positive slice-status literals with v0.15.1-required `start_commit` and `maintainability` members; no active-record migration or schema weakening. | AC-01 |
 | `internal/baton/diff.go`, `diff_test.go` | Public mapped/archive parity, distinct upstream/adopting VERSION checks, deterministic drift, and operational failure coverage; `content.go` excluded. | AC-01, AC-02, AC-04 |
 | `internal/baton/vendor.go`, `vendor_test.go`, `vendor_transaction.go`, `vendor_transaction_test.go` | Add validated archive candidate to the one repository plan and every transaction/recovery fault point. | AC-01, AC-02, AC-04 |
 | `internal/baton/installer_archive.go`, `installer_archive_test.go` | Archive construction/safety, native fixed-mode complete-tree generation, fixed-0022 dual-script parity, and hostile-umask proof. | AC-01, AC-03, AC-04 |
@@ -237,7 +238,7 @@ All structural choices below mirror the durable `status.json` records.
 | `cmd/sworn/baton.go`, `cmd/sworn/baton_test.go` | Thin public vendor/diff mapping and first binary reachability red, including exact 0/1/2 exits. | AC-02, AC-04 |
 | `cmd/sworn/doctor.go`, `cmd/sworn/doctor_test.go` | Thin doctor parity/sync routing and built-binary three-root repair/recovery reachability. | AC-02, AC-03, AC-04 |
 
-The table covers the exact 41 paths in `spec.json` and `status.json`; there is
+The table covers the exact 42 paths in `spec.json` and `status.json`; there is
 no planned write to `internal/adopt/adopt.go` or `internal/baton/content.go`.
 
 ## First red, reachability, and proof

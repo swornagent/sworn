@@ -72,7 +72,7 @@
   `cmd/sworn/baton_test.go:TestBatonDiffV015BinaryReachability`, with
   `cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability` as the
   companion built-binary doctor/sync reachability proof. The planned-file/AC
-  table now covers the exact 41-file high/high `beast` boundary, which the
+  table now covers the exact 42-file high/high `beast` boundary, which the
   Implementer confirmed in `status.json`.
 
 ## 2026-07-16 — Implementer design revision after VERSION/recovery ratification
@@ -102,7 +102,7 @@
   transaction owners, bounded archive/install helpers, exact eight-command
   inventory including `design-review.md`, normative JSON and dual-oracle parity,
   thin CLI adapters, and built-binary first-red/reachability boundary. Confirmed
-  the high/high 41-file `beast` effort in `status.json`; fresh Captain review is
+  the high/high 42-file `beast` effort in `status.json`; fresh Captain review is
   still required before implementation.
 
 ## 2026-07-16 — Coach acknowledgement and implementation start
@@ -112,3 +112,18 @@ TL;DR The twice-replanned C-01 design is implementation-ready. 0 pins + 9 flags.
 Flags (not pins): (a) the archive embed, public parity, repository transaction, bounded helper, thin-adapter, eight-command, and binary-reachability owners are explicit; (b) the upstream commit, VERSION blob, 78-entry archive SHA/blob, and command inventory reproduce exactly; (c) upstream VERSION and Sworn adopting-manifest identities remain distinct; (d) script and native modes are fixed under `umask 0022` with hostile-umask coverage; (e) four-root topology fails closed before mutation; (f) complete owner-only recovery authority is durable before replacement; (g) publish/replace/verify/rollback/recovery/retire crash states are recovery-only; (h) no active sibling collision exists; (i) no project memory or real installation state entered this review.
 
 All nine Rule-9 decisions are acknowledged. No open design question remains. Proceed to `in_progress` and implement the design exactly as written; the fresh Verifier remains the certification backstop.
+
+## 2026-07-16 — Coach reconciliation of v0.15 positive validator fixtures
+
+- Paused at clean pushed implementation checkpoint
+  `7b57f64fbfe9d0540737034d1794100b80aeec3b` after exact schema parity made two
+  pre-v0.15 positive `slice-status-v1` test literals fail on newly required
+  `start_commit` and `maintainability` members.
+- Coach added only `internal/baton/validate_schema_test.go` as S02's 42nd path
+  with AC-01 trace. The permitted edit is limited to the two named conforming
+  literals; schema weakening and active-record migration/interpretation remain
+  prohibited and assigned to later slices.
+- Implementer reconfirmed the high/high `beast` rating against the live code.
+  S02 remains `in_progress`; immutable `start_commit`
+  `e61cb190736ee7483fb4ed1a993442b26ce3574c`, pending cycle-0 maintainability,
+  and pending fresh verification are preserved.
