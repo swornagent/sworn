@@ -349,7 +349,7 @@ func cmdBatonDiff(args []string) int {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton diff: %v\n", err)
-		return 1
+		return 2
 	}
 
 	divs, err := baton.Diff(baton.DiffOpts{
@@ -358,7 +358,7 @@ func cmdBatonDiff(args []string) int {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton diff: %v\n", err)
-		return 1
+		return 2
 	}
 
 	if len(divs) == 0 {
