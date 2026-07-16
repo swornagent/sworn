@@ -42,6 +42,25 @@
   begin from the propagated track branch, use deterministic fake endpoints for
   both OpenAI paths, and leave S20 untouched.
 
+## 2026-07-17T09:31:00+10:00 — Implementation in progress
+
+- Recorded the implementation anchor `ed0badf68673f0af84834458f07be0792555484f`.
+  It is the exact `start_commit` for the S21 verifier diff; all product work is
+  confined to the planned model, gate-test, and CLI-test surfaces after it.
+- Added a closed-world source compiler selected only by the canonical generic
+  report `$id` and pinned SHA-256 digest. It emits one sealed
+  `llm-check-report-v1-openai-envelope` for explicit OpenAI Responses and
+  chat/completions profiles, while mismatched/future generic identities and the
+  dedicated ambiguity map reject before HTTP.
+- Direct and proxy construction now carry the same explicit profile and wire
+  mode. xAI, forced tool calls, and unprofiled OAI-compatible values retain
+  their supplied-schema paths. `internal/gate/llmcheck.go`, canonical protocol
+  bytes, S04, and S20 are not modified.
+- Focused compiler/wire/gate/built-binary fakes and the full repository suite,
+  vet, and build pass with `GOFLAGS=-buildvcs=false`. The shared worktree's
+  normal Go VCS stamp lookup fails before compilation; a clean independent
+  clone will provide the normal stamped validation after this durable commit.
+
 ## 2026-07-17T08:13:39+10:00 — Implementer design checkpoint
 
 - Read C-02, C-14, the S21 contract, verified S04 artefacts, blocked S20

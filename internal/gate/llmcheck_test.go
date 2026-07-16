@@ -2,7 +2,10 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -360,6 +363,85 @@ func TestGenericReportCanonicalCheckIdentity(t *testing.T) {
 			}
 			if mock.structuredCalls != 1 || mock.verifyCalls != 0 {
 				t.Fatalf("structured/raw calls = %d/%d, want 1/0", mock.structuredCalls, mock.verifyCalls)
+			}
+		})
+	}
+}
+
+// TestOpenAIEnvelopeStillFailsFullCanonicalReportViolations proves the smaller
+// OpenAI wire envelope does not replace the exact Baton semantic gate. Each
+// model object is expressible by the envelope, but only the unchanged canonical
+// validator and requested/emitted check equality decide whether it can pass.
+func TestOpenAIEnvelopeStillFailsFullCanonicalReportViolations(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"S01-test/spec.md": "# Slice: S01-test\n\n## Acceptance checks\n\n- [ ] THE SYSTEM SHALL retain canonical report semantics.\n",
+	})
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "PASS with blocking finding",
+			raw:  `{"check":"ac-satisfaction","verdict":"PASS","findings":[{"id":"F-01","severity":"high","blocking":true,"title":"blocked","detail":"canonical validator must reject"}]}`,
+		},
+		{
+			name: "FAIL without blocking finding",
+			raw:  `{"check":"ac-satisfaction","verdict":"FAIL","findings":[{"id":"F-01","severity":"low","blocking":false,"title":"not blocked","detail":"canonical validator must reject"}]}`,
+		},
+		{
+			name: "missing check",
+			raw:  `{"verdict":"PASS","findings":[]}`,
+		},
+		{
+			name: "different emitted check",
+			raw:  `{"check":"design-review","verdict":"PASS","findings":[]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var request struct {
+					ResponseFormat *struct {
+						JSONSchema *struct {
+							Name string `json:"name"`
+						} `json:"json_schema"`
+					} `json:"response_format"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode model request: %v", err)
+				}
+				if request.ResponseFormat == nil || request.ResponseFormat.JSONSchema == nil || request.ResponseFormat.JSONSchema.Name != "llm-check-report-v1-openai-envelope" {
+					t.Errorf("generic gate did not use the OpenAI envelope: %+v", request.ResponseFormat)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{
+						"message": map[string]any{"content": tt.raw},
+					}},
+				})
+			}))
+			defer server.Close()
+
+			verifier, err := model.NewClient("openai-completions/test-model", model.ProviderConfig{OpenAIKey: "synthetic-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			verifier.(*model.OAI).BaseURL = server.URL
+			report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, dir+"/S01-test", "", verifier)
+			if err != nil {
+				t.Fatalf("RunLLMCheck: %v", err)
+			}
+			if calls != 1 {
+				t.Fatalf("model calls = %d, want 1", calls)
+			}
+			if report.Verdict != "FAIL" || !report.HasViolations() {
+				t.Fatalf("canonical violation was accepted: %+v", report)
+			}
+			if report.RawResponse != tt.raw {
+				t.Fatalf("raw response was repaired or replaced\nwant: %s\n got: %s", tt.raw, report.RawResponse)
 			}
 		})
 	}

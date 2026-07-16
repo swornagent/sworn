@@ -119,13 +119,22 @@ func FromEnv(modelID string) (Verifier, error) {
 		return nil, fmt.Errorf("model: %w", err)
 	}
 
-	// Apply SWORN_*_BASE_URL override for OAI clients (backward compat).
-	if oai, ok := verifier.(*OAI); ok {
-		if baseURL := os.Getenv("SWORN_" + prefix + "_BASE_URL"); baseURL != "" {
-			if _, err := url.Parse(baseURL); err != nil {
-				return nil, fmt.Errorf("model: invalid SWORN_%s_BASE_URL: %w", prefix, err)
-			}
-			oai.BaseURL = baseURL
+	// Apply SWORN_*_BASE_URL overrides to both native OpenAI wire formats.
+	// The deprecated responses alias deliberately shares openai/'s override:
+	// its provider semantics are an alias, not a separate endpoint profile.
+	baseURLPrefix := prefix
+	if provider == "openai-responses" {
+		baseURLPrefix = "OPENAI"
+	}
+	if baseURL := os.Getenv("SWORN_" + baseURLPrefix + "_BASE_URL"); baseURL != "" {
+		if _, err := url.Parse(baseURL); err != nil {
+			return nil, fmt.Errorf("model: invalid SWORN_%s_BASE_URL: %w", baseURLPrefix, err)
+		}
+		switch client := verifier.(type) {
+		case *OAI:
+			client.BaseURL = baseURL
+		case *OpenAIResponses:
+			client.BaseURL = baseURL
 		}
 	}
 
@@ -165,18 +174,24 @@ func ProxyRoute(modelID string) (baseURL, token string, ok bool) {
 // legacy chat/completions wire format. The proxy URL + token are identical;
 // only the struct type differs so /v1/responses is called.
 func proxyClient(provider, model, baseURL, token string) Verifier {
-	if provider == "openai" || provider == "openai-responses" {
+	route := structuredRouteForProvider(provider)
+	if route.wire == structuredWireResponsesTextFormat {
 		return &OpenAIResponses{
-			BaseURL:         baseURL,
-			Model:           model,
-			APIKey:          token,
-			ReasoningEffort: "medium",
+			BaseURL:           baseURL,
+			Model:             model,
+			APIKey:            token,
+			ReasoningEffort:   "medium",
+			structuredProfile: route.profile,
+			structuredWire:    route.wire,
 		}
 	}
 	return &OAI{
-		BaseURL: baseURL,
-		Model:   model,
-		APIKey:  token,
+		BaseURL:           baseURL,
+		Model:             model,
+		APIKey:            token,
+		Structured:        route.oaiMode,
+		structuredProfile: route.profile,
+		structuredWire:    route.wire,
 	}
 }
 

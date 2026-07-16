@@ -1,11 +1,14 @@
 package model
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/baton/schemas"
 )
 
 // sampleSchema is a lenient canonical-style schema: additionalProperties:true
@@ -201,6 +204,128 @@ func TestXAI_ChatStructured_ResponseFormat(t *testing.T) {
 	}
 }
 
+// TestOAIChatStructuredUsesLLMCheckEnvelopeOnlyForOpenAICompletions proves
+// the profile is carried by both direct and proxy construction; no concrete
+// OAI type or endpoint resemblance is enough to select the envelope.
+func TestOAIChatStructuredUsesLLMCheckEnvelopeOnlyForOpenAICompletions(t *testing.T) {
+	tests := []struct {
+		name string
+		new  func(t *testing.T, baseURL string) *OAI
+	}{
+		{
+			name: "direct factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				v, err := NewClient("openai-completions/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := v.(*OAI)
+				client.BaseURL = baseURL
+				return client
+			},
+		},
+		{
+			name: "proxy factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				client, ok := proxyClient("openai-completions", "test-model", baseURL, "proxy-token").(*OAI)
+				if !ok {
+					t.Fatalf("proxy client = %T, want *OAI", proxyClient("openai-completions", "test-model", baseURL, "proxy-token"))
+				}
+				return client
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured chatRequest
+			srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				if err := json.Unmarshal(body, &captured); err != nil {
+					t.Errorf("unmarshal request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(oaiResp([]struct{ content string }{{`{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`}}, nil))
+			})
+			client := tt.new(t, srv.URL)
+
+			if _, err := client.ChatStructured(context.Background(), []ChatMessage{{Role: "user", Content: "verify"}}, schemas.LLMCheckReportV1); err != nil {
+				t.Fatalf("ChatStructured: %v", err)
+			}
+			if captured.ResponseFormat == nil || captured.ResponseFormat.JSONSchema == nil {
+				t.Fatal("response_format.json_schema not sent")
+			}
+			if got := captured.ResponseFormat.JSONSchema.Name; got != openAILLMCheckEnvelopeName {
+				t.Errorf("schema name = %q, want %q", got, openAILLMCheckEnvelopeName)
+			}
+			if !captured.ResponseFormat.JSONSchema.Strict {
+				t.Error("response_format strict = false, want true")
+			}
+			assertModelEnvelopeShape(t, captured.ResponseFormat.JSONSchema.Schema)
+		})
+	}
+}
+
+func TestXAIChatStructuredRetainsRawSchemaProfile(t *testing.T) {
+	tests := []struct {
+		name string
+		new  func(t *testing.T, baseURL string) *OAI
+	}{
+		{
+			name: "direct factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				v, err := NewClient("xai/test-model", ProviderConfig{XAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := v.(*OAI)
+				client.BaseURL = baseURL
+				return client
+			},
+		},
+		{
+			name: "proxy factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				client, ok := proxyClient("xai", "test-model", baseURL, "proxy-token").(*OAI)
+				if !ok {
+					t.Fatal("xAI proxy did not return OAI")
+				}
+				return client
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured chatRequest
+			srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				if err := json.Unmarshal(body, &captured); err != nil {
+					t.Errorf("unmarshal request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(oaiResp([]struct{ content string }{{`{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`}}, nil))
+			})
+			client := tt.new(t, srv.URL)
+
+			if _, err := client.ChatStructured(context.Background(), []ChatMessage{{Role: "user", Content: "verify"}}, schemas.LLMCheckReportV1); err != nil {
+				t.Fatalf("ChatStructured: %v", err)
+			}
+			if captured.ResponseFormat == nil || captured.ResponseFormat.JSONSchema == nil {
+				t.Fatal("xAI response_format.json_schema not sent")
+			}
+			if got := captured.ResponseFormat.JSONSchema.Name; got != "llm-check-report-v1" {
+				t.Errorf("xAI schema name = %q, want original schema name", got)
+			}
+			if bytes.Contains(captured.ResponseFormat.JSONSchema.Schema, []byte(openAILLMCheckEnvelopeName)) || !bytes.Contains(captured.ResponseFormat.JSONSchema.Schema, []byte(`"allOf"`)) {
+				t.Fatalf("xAI schema was transformed into an OpenAI envelope: %s", captured.ResponseFormat.JSONSchema.Schema)
+			}
+		})
+	}
+}
+
 // --- OAI ChatStructured: tool-call fallback path -----------------------------
 
 func TestOAI_ChatStructured_ToolCall(t *testing.T) {
@@ -242,6 +367,72 @@ func TestOAI_ChatStructured_ToolCall(t *testing.T) {
 	// The tool arguments were lifted into Content.
 	if got := cr.Choices[0].Message.Content; got != `{"verdict":"FAIL"}` {
 		t.Errorf("content = %q, want the tool arguments JSON", got)
+	}
+}
+
+func TestToolCallChatStructuredRetainsRawSchema(t *testing.T) {
+	tests := []struct {
+		name string
+		new  func(t *testing.T, baseURL string) *OAI
+	}{
+		{
+			name: "direct factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				v, err := NewClient("deepseek/test-model", ProviderConfig{DeepSeekKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := v.(*OAI)
+				client.BaseURL = baseURL
+				return client
+			},
+		},
+		{
+			name: "proxy factory",
+			new: func(t *testing.T, baseURL string) *OAI {
+				t.Helper()
+				client, ok := proxyClient("deepseek", "test-model", baseURL, "proxy-token").(*OAI)
+				if !ok {
+					t.Fatal("DeepSeek proxy did not return OAI")
+				}
+				return client
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request struct {
+				Tools []struct {
+					Function struct {
+						Parameters json.RawMessage `json:"parameters"`
+					} `json:"function"`
+				} `json:"tools"`
+				ResponseFormat json.RawMessage `json:"response_format"`
+			}
+			srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				if err := json.Unmarshal(body, &request); err != nil {
+					t.Errorf("unmarshal request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"choices":[{"message":{"content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"emit_structured_output","arguments":"{\"check\":\"ac-satisfaction\",\"verdict\":\"PASS\",\"findings\":[]}"}}]}}]}`))
+			})
+			client := tt.new(t, srv.URL)
+
+			if _, err := client.ChatStructured(context.Background(), []ChatMessage{{Role: "user", Content: "verify"}}, schemas.LLMCheckReportV1); err != nil {
+				t.Fatalf("ChatStructured: %v", err)
+			}
+			if len(request.Tools) != 1 {
+				t.Fatalf("tool count = %d, want 1", len(request.Tools))
+			}
+			if len(request.ResponseFormat) != 0 {
+				t.Fatalf("tool-call path emitted response_format: %s", request.ResponseFormat)
+			}
+			if bytes.Contains(request.Tools[0].Function.Parameters, []byte(openAILLMCheckEnvelopeName)) || !bytes.Contains(request.Tools[0].Function.Parameters, []byte(`"allOf"`)) {
+				t.Fatalf("tool parameters were transformed into an envelope: %s", request.Tools[0].Function.Parameters)
+			}
+		})
 	}
 }
 

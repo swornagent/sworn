@@ -37,6 +37,11 @@ type OpenAIResponses struct {
 	Client          *http.Client // nil means http.DefaultClient
 	ReasoningEffort string       // "low", "medium", "high" (default "medium")
 	UseWebSearch    bool         // include built-in web_search tool
+	// structuredProfile and structuredWire are set by explicit direct/proxy
+	// construction. A manual/unprofiled value still supports ordinary strict
+	// projection but cannot select the generic report envelope by type alone.
+	structuredProfile structuredProviderProfile
+	structuredWire    structuredWireMode
 }
 
 // Capabilities returns CapVerify | CapChat | CapStructuredOutput — the
@@ -51,6 +56,10 @@ func (o *OpenAIResponses) Capabilities() Capability {
 // UseWebSearch defaults to false unless SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH
 // is set.
 func NewOpenAIResponses(modelID, apiKey string) (*OpenAIResponses, error) {
+	return newOpenAIResponsesForRoute(modelID, apiKey, structuredRouteForProvider("openai"))
+}
+
+func newOpenAIResponsesForRoute(modelID, apiKey string, route structuredProviderRoute) (*OpenAIResponses, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("model: missing OpenAI API key for responses provider")
 	}
@@ -60,11 +69,13 @@ func NewOpenAIResponses(modelID, apiKey string) (*OpenAIResponses, error) {
 	}
 	useWebSearch := os.Getenv("SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH") == "1"
 	return &OpenAIResponses{
-		BaseURL:         "https://api.openai.com/v1",
-		Model:           modelID,
-		APIKey:          apiKey,
-		ReasoningEffort: effort,
-		UseWebSearch:    useWebSearch,
+		BaseURL:           "https://api.openai.com/v1",
+		Model:             modelID,
+		APIKey:            apiKey,
+		ReasoningEffort:   effort,
+		UseWebSearch:      useWebSearch,
+		structuredProfile: route.profile,
+		structuredWire:    route.wire,
 	}, nil
 }
 
@@ -243,7 +254,7 @@ func (c *OpenAIResponses) Chat(ctx context.Context, messages []ChatMessage, tool
 // Choices[0].Message.Content with the wire-level fail-closed guard; semantic
 // validation by schema name is the caller's (ADR-0011).
 func (c *OpenAIResponses) ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error) {
-	strict, err := strictProjection(schema)
+	name, strict, err := strictSchemaForWire(c.structuredProfile, c.structuredWire, schema)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +262,7 @@ func (c *OpenAIResponses) ChatStructured(ctx context.Context, messages []ChatMes
 	reqBody := c.buildRequest(instructions, input, nil)
 	reqBody.Text = &responsesText{Format: &responsesTextFormat{
 		Type:   "json_schema",
-		Name:   schemaName(schema),
+		Name:   name,
 		Schema: json.RawMessage(strict),
 		Strict: true,
 	}}

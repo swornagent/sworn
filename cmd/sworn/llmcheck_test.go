@@ -213,6 +213,354 @@ func TestGenericCheckIdentityBinaryReachability(t *testing.T) {
 	}
 }
 
+// TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability drives the
+// built public binary through the OpenAI Responses structured-output boundary.
+// The child environment is deliberately scrubbed: a future loss of the fake
+// endpoint override cannot fall through to a developer credential, proxy, or
+// live provider.
+func TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/responses" {
+			t.Errorf("Responses path = %q, want /responses", r.URL.Path)
+		}
+		var request struct {
+			Instructions string `json:"instructions"`
+			Input        []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"input"`
+			Text *struct {
+				Format *struct {
+					Type   string          `json:"type"`
+					Name   string          `json:"name"`
+					Schema json.RawMessage `json:"schema"`
+					Strict bool            `json:"strict"`
+				} `json:"format"`
+			} `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode Responses request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if request.Instructions == "" || len(request.Input) != 1 || request.Input[0].Role != "user" || request.Input[0].Content == "" {
+			t.Errorf("Responses prompt/payload was not preserved: %+v", request)
+		}
+		if request.Text == nil || request.Text.Format == nil {
+			t.Error("Responses request omitted text.format")
+		} else {
+			if request.Text.Format.Type != "json_schema" || !request.Text.Format.Strict {
+				t.Errorf("Responses text.format = %+v, want strict json_schema", request.Text.Format)
+			}
+			if request.Text.Format.Name != "llm-check-report-v1-openai-envelope" {
+				t.Errorf("Responses schema name = %q, want llm-check-report-v1-openai-envelope", request.Text.Format.Name)
+			}
+			assertLLMCheckOpenAIEnvelope(t, request.Text.Format.Schema)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"output": []any{map[string]any{
+				"type": "message",
+				"content": []any{map[string]any{
+					"type": "output_text",
+					"text": `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`,
+				}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	root := llmCheckRepoFixture(t)
+	configPath := llmCheckConfig(t, "openai/test-model")
+	cmd := exec.Command(buildSworn(t), "llm-check", "--type", "ac-satisfaction", "--slice", "S01-test", "--release", "test-release", "--base", "HEAD", "--json")
+	cmd.Dir = root
+	cmd.Env = hermeticLLMCheckEnv(t, configPath, "SWORN_OPENAI_BASE_URL", server.URL)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Responses llm-check failed: %v\n%s", err, output)
+	}
+	if got := cmd.ProcessState.ExitCode(); got != 0 {
+		t.Fatalf("Responses llm-check exit = %d, want 0. output:\n%s", got, output)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("Responses endpoint hits = %d, want 1", hits.Load())
+	}
+}
+
+// TestLLMCheckOpenAICompletionsStructuredEnvelopeBinaryReachability drives the
+// same public generic check through the legacy chat/completions wire format.
+func TestLLMCheckOpenAICompletionsStructuredEnvelopeBinaryReachability(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("completions path = %q, want /chat/completions", r.URL.Path)
+		}
+		var request struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+			ResponseFormat *struct {
+				Type       string `json:"type"`
+				JSONSchema *struct {
+					Name   string          `json:"name"`
+					Schema json.RawMessage `json:"schema"`
+					Strict bool            `json:"strict"`
+				} `json:"json_schema"`
+			} `json:"response_format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode completions request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[0].Content == "" || request.Messages[1].Role != "user" || request.Messages[1].Content == "" {
+			t.Errorf("completions prompt/payload was not preserved: %+v", request.Messages)
+		}
+		if request.ResponseFormat == nil || request.ResponseFormat.JSONSchema == nil {
+			t.Error("completions request omitted response_format.json_schema")
+		} else {
+			if request.ResponseFormat.Type != "json_schema" || !request.ResponseFormat.JSONSchema.Strict {
+				t.Errorf("completions response_format = %+v, want strict json_schema", request.ResponseFormat)
+			}
+			if request.ResponseFormat.JSONSchema.Name != "llm-check-report-v1-openai-envelope" {
+				t.Errorf("completions schema name = %q, want llm-check-report-v1-openai-envelope", request.ResponseFormat.JSONSchema.Name)
+			}
+			assertLLMCheckOpenAIEnvelope(t, request.ResponseFormat.JSONSchema.Schema)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"content": `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	root := llmCheckRepoFixture(t)
+	configPath := llmCheckConfig(t, "openai-completions/test-model")
+	cmd := exec.Command(buildSworn(t), "llm-check", "--type", "ac-satisfaction", "--slice", "S01-test", "--release", "test-release", "--base", "HEAD", "--json")
+	cmd.Dir = root
+	cmd.Env = hermeticLLMCheckEnv(t, configPath, "SWORN_OPENAI_COMPLETIONS_BASE_URL", server.URL)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("completions llm-check failed: %v\n%s", err, output)
+	}
+	if got := cmd.ProcessState.ExitCode(); got != 0 {
+		t.Fatalf("completions llm-check exit = %d, want 0. output:\n%s", got, output)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("completions endpoint hits = %d, want 1", hits.Load())
+	}
+}
+
+// TestLLMCheckOpenAIEnvelopeBinaryRejectsInvalidCanonicalResponse proves a
+// provider-accepted envelope is not semantic acceptance. The built binary must
+// retain gate's canonical allOf validation and requested/emitted check equality.
+func TestLLMCheckOpenAIEnvelopeBinaryRejectsInvalidCanonicalResponse(t *testing.T) {
+	var hits atomic.Int32
+	var response string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/responses" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []any{map[string]any{
+					"type": "message",
+					"content": []any{map[string]any{
+						"type": "output_text",
+						"text": response,
+					}},
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"content": response},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	root := llmCheckRepoFixture(t)
+	binary := buildSworn(t)
+	for _, route := range []struct {
+		name       string
+		modelID    string
+		baseURLKey string
+	}{
+		{name: "Responses", modelID: "openai/test-model", baseURLKey: "SWORN_OPENAI_BASE_URL"},
+		{name: "chat completions", modelID: "openai-completions/test-model", baseURLKey: "SWORN_OPENAI_COMPLETIONS_BASE_URL"},
+	} {
+		for _, invalid := range []struct {
+			name string
+			raw  string
+		}{
+			{name: "PASS with blocking finding", raw: `{"check":"ac-satisfaction","verdict":"PASS","findings":[{"id":"F-01","severity":"high","blocking":true,"title":"blocked","detail":"must fail locally"}]}`},
+			{name: "FAIL without blocking finding", raw: `{"check":"ac-satisfaction","verdict":"FAIL","findings":[{"id":"F-01","severity":"low","blocking":false,"title":"not blocked","detail":"must fail locally"}]}`},
+			{name: "missing check", raw: `{"verdict":"PASS","findings":[]}`},
+			{name: "different check", raw: `{"check":"design-review","verdict":"PASS","findings":[]}`},
+		} {
+			t.Run(route.name+"/"+invalid.name, func(t *testing.T) {
+				hits.Store(0)
+				response = invalid.raw
+				configPath := llmCheckConfig(t, route.modelID)
+				cmd := exec.Command(binary, "llm-check", "--type", "ac-satisfaction", "--slice", "S01-test", "--release", "test-release", "--base", "HEAD", "--json")
+				cmd.Dir = root
+				cmd.Env = hermeticLLMCheckEnv(t, configPath, route.baseURLKey, server.URL)
+				output, err := cmd.CombinedOutput()
+				if err == nil {
+					t.Fatalf("invalid canonical response exited 0: %s", output)
+				}
+				if got := cmd.ProcessState.ExitCode(); got != 1 {
+					t.Fatalf("invalid canonical response exit = %d, want 1. output:\n%s", got, output)
+				}
+				if hits.Load() != 1 {
+					t.Fatalf("endpoint hits = %d, want 1", hits.Load())
+				}
+			})
+		}
+	}
+}
+
+func llmCheckRepoFixture(t *testing.T) string {
+	t.Helper()
+	root := llmCheckFixture(t)
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "tests@example.invalid"},
+		{"config", "user.name", "Sworn tests"},
+		{"add", "."},
+		{"commit", "-qm", "fixture"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+	}
+	return root
+}
+
+func llmCheckConfig(t *testing.T, modelID string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.json")
+	contents := `{"version":1,"verifier":{"model":"` + modelID + `"}}`
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// hermeticLLMCheckEnv intentionally does not derive from os.Environ(). It
+// prevents the binary reachability tests from reading login state, inherited
+// provider credentials, or a user-configured proxy. The dead proxy protects
+// against a regression that ignores the local fake endpoint override.
+func hermeticLLMCheckEnv(t *testing.T, configPath, baseURLKey, baseURL string) []string {
+	t.Helper()
+	home := t.TempDir()
+	xdgConfig := t.TempDir()
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + home,
+		"XDG_CONFIG_HOME=" + xdgConfig,
+		"XDG_CACHE_HOME=" + filepath.Join(home, "cache"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"SWORN_CONFIG_PATH=" + configPath,
+		"SWORN_DIRECT=1",
+		"OPENAI_API_KEY=synthetic-openai-key",
+		"XAI_API_KEY=synthetic-xai-key",
+		"HTTP_PROXY=http://127.0.0.1:1",
+		"HTTPS_PROXY=http://127.0.0.1:1",
+		"ALL_PROXY=http://127.0.0.1:1",
+		"NO_PROXY=127.0.0.1,localhost",
+		"no_proxy=127.0.0.1,localhost",
+		baseURLKey + "=" + baseURL,
+	}
+}
+
+func assertLLMCheckOpenAIEnvelope(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("envelope schema is not JSON: %v", err)
+	}
+	if schema["type"] != "object" || schema["additionalProperties"] != false {
+		t.Errorf("envelope root = %#v, want sealed object", schema)
+	}
+	assertJSONRequired(t, schema, "check", "verdict", "findings")
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope properties = %#v, want object", schema["properties"])
+	}
+	check, ok := properties["check"].(map[string]any)
+	if !ok || !jsonStringSetContainsAll(check["enum"], "spec-ambiguity", "design-review", "ac-satisfaction", "security-review", "semantic-coverage", "maintainability-review") {
+		t.Errorf("envelope check vocabulary = %#v, want canonical enum", check)
+	}
+	findings, ok := properties["findings"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope findings = %#v, want schema object", properties["findings"])
+	}
+	items, ok := findings["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope findings.items = %#v, want object", findings["items"])
+	}
+	if items["type"] != "object" || items["additionalProperties"] != false {
+		t.Errorf("envelope findings.items = %#v, want sealed object", items)
+	}
+	assertJSONRequired(t, items, "id", "severity", "blocking", "title", "detail")
+	assertNoOpenAIStrictForbiddenKeywords(t, schema)
+}
+
+func assertJSONRequired(t *testing.T, schema map[string]any, want ...string) {
+	t.Helper()
+	if !jsonStringSetContainsAll(schema["required"], want...) {
+		t.Errorf("required = %#v, want %v", schema["required"], want)
+	}
+}
+
+func jsonStringSetContainsAll(value any, wants ...string) bool {
+	got := map[string]bool{}
+	values, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			got[text] = true
+		}
+	}
+	for _, want := range wants {
+		if !got[want] {
+			return false
+		}
+	}
+	return true
+}
+
+func assertNoOpenAIStrictForbiddenKeywords(t *testing.T, value any) {
+	t.Helper()
+	switch node := value.(type) {
+	case map[string]any:
+		for key, child := range node {
+			switch key {
+			case "allOf", "if", "then", "else", "not":
+				t.Errorf("envelope contains forbidden strict-schema keyword %q", key)
+			}
+			assertNoOpenAIStrictForbiddenKeywords(t, child)
+		}
+	case []any:
+		for _, child := range node {
+			assertNoOpenAIStrictForbiddenKeywords(t, child)
+		}
+	}
+}
+
 // TestSpecAmbiguityTypedReferencesBinaryReachability proves the public command
 // reaches the dedicated C-02 resolver and model schema boundary. The handler
 // receives exactly the explicit typed artifacts, never an unreferenced canary.
@@ -299,18 +647,12 @@ func TestSpecAmbiguityTypedReferencesBinaryReachability(t *testing.T) {
 	defer server.Close()
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"version":1,"verifier":{"model":"openai-completions/test-model"}}`), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"version":1,"verifier":{"model":"xai/test-model"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(buildSworn(t), "llm-check", "--type", "spec-ambiguity", "--slice", "S01-test", "--release", "test-release", "--base", "HEAD", "--json")
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(),
-		"HOME="+t.TempDir(),
-		"SWORN_CONFIG_PATH="+configPath,
-		"SWORN_DIRECT=1",
-		"OPENAI_API_KEY=test-key",
-		"SWORN_OPENAI_COMPLETIONS_BASE_URL="+server.URL,
-	)
+	cmd.Env = hermeticLLMCheckEnv(t, configPath, "SWORN_XAI_BASE_URL", server.URL)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("spec-ambiguity command failed: %v\n%s", err, output)
@@ -335,6 +677,73 @@ func TestSpecAmbiguityTypedReferencesBinaryReachability(t *testing.T) {
 	}
 	if strings.Contains(payload, "MUST-NOT-LEAK") || strings.Contains(payload, "private-canary") {
 		t.Fatalf("model payload leaked an unreferenced canary:\n%s", payload)
+	}
+}
+
+// TestLLMCheckOpenAIUnsupportedCanonicalSchemaMakesZeroRequests proves the
+// dedicated C-02 map report never gets flattened, retried, or sent through the
+// generic OpenAI envelope. Both native OpenAI wire formats must reject it in
+// the built binary before the fake endpoint observes any request.
+func TestLLMCheckOpenAIUnsupportedCanonicalSchemaMakesZeroRequests(t *testing.T) {
+	root := llmCheckRepoFixture(t)
+	releaseDir := filepath.Join(root, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test")
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(`{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-test",
+  "release": "test-release",
+  "user_outcome": "CANARY-SPEC-MUST-NOT-LEAK",
+  "covers_needs": ["N-01"],
+  "acceptance_criteria": [{"id":"AC-01","text":"THE SYSTEM SHALL retain the dedicated map report.","ears_pattern":"ubiquitous"}],
+  "in_scope": [],
+  "out_of_scope": [],
+  "references": []
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	for _, tt := range []struct {
+		name       string
+		modelID    string
+		baseURLKey string
+	}{
+		{name: "Responses", modelID: "openai/test-model", baseURLKey: "SWORN_OPENAI_BASE_URL"},
+		{name: "chat completions", modelID: "openai-completions/test-model", baseURLKey: "SWORN_OPENAI_COMPLETIONS_BASE_URL"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			hits.Store(0)
+			configPath := llmCheckConfig(t, tt.modelID)
+			cmd := exec.Command(buildSworn(t), "llm-check", "--type", "spec-ambiguity", "--slice", "S01-test", "--release", "test-release", "--base", "HEAD", "--json")
+			cmd.Dir = root
+			cmd.Env = hermeticLLMCheckEnv(t, configPath, tt.baseURLKey, server.URL)
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatalf("unsupported spec-ambiguity report exited 0: %s", output)
+			}
+			if got := cmd.ProcessState.ExitCode(); got != 2 {
+				t.Fatalf("unsupported spec-ambiguity exit = %d, want 2. output:\n%s", got, output)
+			}
+			if hits.Load() != 0 {
+				t.Fatalf("unsupported spec-ambiguity endpoint hits = %d, want 0", hits.Load())
+			}
+			text := string(output)
+			if !strings.Contains(text, "rejected dedicated spec-ambiguity report") {
+				t.Fatalf("missing stable local rejection: %s", text)
+			}
+			for _, leaked := range []string{"CANARY-SPEC", "synthetic-openai-key"} {
+				if strings.Contains(text, leaked) {
+					t.Fatalf("local rejection leaked %q: %s", leaked, text)
+				}
+			}
+		})
 	}
 }
 

@@ -635,3 +635,157 @@ func TestFromEnvNoCredsUnchanged(t *testing.T) {
 		t.Errorf("expected provider API key, got %q", oai.APIKey)
 	}
 }
+
+// TestStructuredProviderProfileDefaultsClosed checks construction authority,
+// rather than endpoint URL or concrete OAI type. Both direct and proxy routes
+// must preserve their explicit mode/profile pair; all non-OpenAI routes remain
+// default-deny for the generic envelope.
+func TestStructuredProviderProfileDefaultsClosed(t *testing.T) {
+	type expectation struct {
+		profile structuredProviderProfile
+		wire    structuredWireMode
+		oaiMode StructuredMode
+	}
+	tests := []struct {
+		name string
+		new  func(t *testing.T) Verifier
+		want expectation
+	}{
+		{
+			name: "direct Responses",
+			new: func(t *testing.T) Verifier {
+				t.Helper()
+				v, err := NewClient("openai/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			},
+			want: expectation{profile: structuredProfileOpenAIResponses, wire: structuredWireResponsesTextFormat},
+		},
+		{
+			name: "direct deprecated Responses alias",
+			new: func(t *testing.T) Verifier {
+				t.Helper()
+				v, err := NewClient("openai-responses/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			},
+			want: expectation{profile: structuredProfileOpenAIResponses, wire: structuredWireResponsesTextFormat},
+		},
+		{
+			name: "direct completions",
+			new: func(t *testing.T) Verifier {
+				t.Helper()
+				v, err := NewClient("openai-completions/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			},
+			want: expectation{profile: structuredProfileOpenAICompletions, wire: structuredWireChatResponseFormat, oaiMode: StructuredResponseFormat},
+		},
+		{
+			name: "direct xAI remains unprofiled",
+			new: func(t *testing.T) Verifier {
+				t.Helper()
+				v, err := NewClient("xai/test-model", ProviderConfig{XAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			},
+			want: expectation{wire: structuredWireChatResponseFormat, oaiMode: StructuredResponseFormat},
+		},
+		{
+			name: "direct tool path remains unprofiled",
+			new: func(t *testing.T) Verifier {
+				t.Helper()
+				v, err := NewClient("deepseek/test-model", ProviderConfig{DeepSeekKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			},
+			want: expectation{wire: structuredWireToolCall, oaiMode: StructuredToolCall},
+		},
+		{
+			name: "proxy completions",
+			new: func(t *testing.T) Verifier {
+				return proxyClient("openai-completions", "test-model", "http://proxy.invalid/v1", "proxy-token")
+			},
+			want: expectation{profile: structuredProfileOpenAICompletions, wire: structuredWireChatResponseFormat, oaiMode: StructuredResponseFormat},
+		},
+		{
+			name: "proxy xAI remains unprofiled",
+			new: func(t *testing.T) Verifier {
+				return proxyClient("xai", "test-model", "http://proxy.invalid/v1", "proxy-token")
+			},
+			want: expectation{wire: structuredWireChatResponseFormat, oaiMode: StructuredResponseFormat},
+		},
+		{
+			name: "proxy tool path remains unprofiled",
+			new: func(t *testing.T) Verifier {
+				return proxyClient("deepseek", "test-model", "http://proxy.invalid/v1", "proxy-token")
+			},
+			want: expectation{wire: structuredWireToolCall, oaiMode: StructuredToolCall},
+		},
+		{
+			name: "proxy unknown defaults closed",
+			new: func(t *testing.T) Verifier {
+				return proxyClient("unprofiled", "test-model", "http://proxy.invalid/v1", "proxy-token")
+			},
+			want: expectation{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := tt.new(t)
+			switch client := v.(type) {
+			case *OpenAIResponses:
+				if client.structuredProfile != tt.want.profile || client.structuredWire != tt.want.wire {
+					t.Errorf("Responses profile/wire = %s/%s, want %s/%s", client.structuredProfile, client.structuredWire, tt.want.profile, tt.want.wire)
+				}
+			case *OAI:
+				if client.structuredProfile != tt.want.profile || client.structuredWire != tt.want.wire || client.Structured != tt.want.oaiMode {
+					t.Errorf("OAI profile/wire/mode = %s/%s/%v, want %s/%s/%v", client.structuredProfile, client.structuredWire, client.Structured, tt.want.profile, tt.want.wire, tt.want.oaiMode)
+				}
+			default:
+				t.Fatalf("client = %T, want explicit OAI route", v)
+			}
+		})
+	}
+
+	manual := &OAI{BaseURL: "https://api.openai.com/v1", Model: "test-model", APIKey: "synthetic-key", Structured: StructuredResponseFormat}
+	if manual.structuredProfile != structuredProfileNone || manual.structuredWire != structuredWireNone {
+		t.Fatalf("manual OAI inherited an envelope profile: %s/%s", manual.structuredProfile, manual.structuredWire)
+	}
+}
+
+func TestFromEnvOpenAIResponsesBaseURLOverride(t *testing.T) {
+	for _, modelID := range []string{"openai/test-model", "openai-responses/test-model"} {
+		t.Run(modelID, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("SWORN_DIRECT", "1")
+			t.Setenv("OPENAI_API_KEY", "synthetic-key")
+			t.Setenv("SWORN_OPENAI_BASE_URL", "http://127.0.0.1:19091/v1")
+			v, err := FromEnv(modelID)
+			if err != nil {
+				t.Fatalf("FromEnv(%q): %v", modelID, err)
+			}
+			client, ok := v.(*OpenAIResponses)
+			if !ok {
+				t.Fatalf("FromEnv(%q) = %T, want *OpenAIResponses", modelID, v)
+			}
+			if got := client.BaseURL; got != "http://127.0.0.1:19091/v1" {
+				t.Errorf("BaseURL = %q, want direct fake override", got)
+			}
+			if client.structuredProfile != structuredProfileOpenAIResponses || client.structuredWire != structuredWireResponsesTextFormat {
+				t.Errorf("profile/wire = %s/%s, want Responses explicit route", client.structuredProfile, client.structuredWire)
+			}
+		})
+	}
+}

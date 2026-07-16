@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/baton/schemas"
 )
 
 // responsesRoundTripHandler mimics /v1/responses for a reasoning model
@@ -331,6 +333,102 @@ func TestOpenAIResponses_Chat_MultiTurnConversion(t *testing.T) {
 	// Item 2: function_call_output
 	if capturedReq.Input[2].Type != "function_call_output" || capturedReq.Input[2].Output != "file.txt" {
 		t.Errorf("input[2]: %+v", capturedReq.Input[2])
+	}
+}
+
+func TestOpenAIResponsesChatStructuredUsesLLMCheckEnvelope(t *testing.T) {
+	tests := []struct {
+		name string
+		new  func(t *testing.T, baseURL string) *OpenAIResponses
+	}{
+		{
+			name: "direct openai prefix",
+			new: func(t *testing.T, baseURL string) *OpenAIResponses {
+				t.Helper()
+				v, err := NewClient("openai/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := v.(*OpenAIResponses)
+				client.BaseURL = baseURL
+				return client
+			},
+		},
+		{
+			name: "direct deprecated responses alias",
+			new: func(t *testing.T, baseURL string) *OpenAIResponses {
+				t.Helper()
+				v, err := NewClient("openai-responses/test-model", ProviderConfig{OpenAIKey: "synthetic-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := v.(*OpenAIResponses)
+				client.BaseURL = baseURL
+				return client
+			},
+		},
+		{
+			name: "proxy openai prefix",
+			new: func(t *testing.T, baseURL string) *OpenAIResponses {
+				t.Helper()
+				client, ok := proxyClient("openai", "test-model", baseURL, "proxy-token").(*OpenAIResponses)
+				if !ok {
+					t.Fatal("openai proxy did not return Responses client")
+				}
+				return client
+			},
+		},
+		{
+			name: "proxy deprecated responses alias",
+			new: func(t *testing.T, baseURL string) *OpenAIResponses {
+				t.Helper()
+				client, ok := proxyClient("openai-responses", "test-model", baseURL, "proxy-token").(*OpenAIResponses)
+				if !ok {
+					t.Fatal("responses alias proxy did not return Responses client")
+				}
+				return client
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured responsesRequest
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(responsesAPIResponse{
+					Output: []responsesOutput{{
+						Type: "message",
+						Content: []responsesContentItem{{
+							Type: "output_text",
+							Text: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`,
+						}},
+					}},
+				})
+			}))
+			defer srv.Close()
+			client := tt.new(t, srv.URL)
+
+			if _, err := client.ChatStructured(context.Background(), []ChatMessage{{Role: "system", Content: "system"}, {Role: "user", Content: "payload"}}, schemas.LLMCheckReportV1); err != nil {
+				t.Fatalf("ChatStructured: %v", err)
+			}
+			if captured.Instructions != "system" || len(captured.Input) != 1 || captured.Input[0].Content != "payload" {
+				t.Errorf("messages changed at Responses boundary: %+v", captured)
+			}
+			if captured.Text == nil || captured.Text.Format == nil {
+				t.Fatal("text.format was not sent")
+			}
+			if got := captured.Text.Format.Name; got != openAILLMCheckEnvelopeName {
+				t.Errorf("format name = %q, want %q", got, openAILLMCheckEnvelopeName)
+			}
+			if !captured.Text.Format.Strict {
+				t.Error("text.format.strict = false, want true")
+			}
+			assertModelEnvelopeShape(t, captured.Text.Format.Schema)
+		})
 	}
 }
 

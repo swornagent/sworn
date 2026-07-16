@@ -110,27 +110,32 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	if err != nil {
 		return nil, err
 	}
+	route := structuredRouteForProvider(provider)
 
 	switch provider {
 	case "openai":
 		// sworn#31: openai/ now routes to the Responses API.
-		return NewOpenAIResponses(model, pcfg.OpenAIKey)
+		return newOpenAIResponsesForRoute(model, pcfg.OpenAIKey, route)
 
 	case "openai-completions":
 		// The legacy chat/completions wire format under its explicit name.
 		return &OAI{
-			BaseURL:    "https://api.openai.com/v1",
-			Model:      model,
-			APIKey:     pcfg.OpenAIKey,
-			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
+			BaseURL:           "https://api.openai.com/v1",
+			Model:             model,
+			APIKey:            pcfg.OpenAIKey,
+			Structured:        route.oaiMode, // native strict json_schema (ADR-0011)
+			structuredProfile: route.profile,
+			structuredWire:    route.wire,
 		}, nil
 
 	case "deepseek":
 		return &OAI{
-			BaseURL:    "https://api.deepseek.com/v1",
-			Model:      model,
-			APIKey:     pcfg.DeepSeekKey,
-			Structured: StructuredToolCall, // no strict response_format; forced-tool fallback
+			BaseURL:           "https://api.deepseek.com/v1",
+			Model:             model,
+			APIKey:            pcfg.DeepSeekKey,
+			Structured:        route.oaiMode, // no strict response_format; forced-tool fallback
+			structuredProfile: route.profile,
+			structuredWire:    route.wire,
 		}, nil
 
 	case "groq":
@@ -165,10 +170,12 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// native structured output — no bespoke SDK (ADR-0007). This is the
 		// native xai/ path; openrouter/x-ai/grok-* stays as an alternate route.
 		return &OAI{
-			BaseURL:    "https://api.x.ai/v1",
-			Model:      model,
-			APIKey:     pcfg.XAIKey,
-			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
+			BaseURL:           "https://api.x.ai/v1",
+			Model:             model,
+			APIKey:            pcfg.XAIKey,
+			Structured:        route.oaiMode, // native strict json_schema (ADR-0011)
+			structuredProfile: route.profile,
+			structuredWire:    route.wire,
 		}, nil
 
 	case "ollama":
@@ -194,7 +201,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// Deprecated alias of "openai" (sworn#31), kept for one release.
 		fmt.Fprintf(os.Stderr,
 			"warning: model prefix \"openai-responses/\" is deprecated — use \"openai/\" instead (sworn#31; the alias is kept for one release)\n")
-		return NewOpenAIResponses(model, pcfg.OpenAIKey)
+		return newOpenAIResponsesForRoute(model, pcfg.OpenAIKey, route)
 
 	// Native drivers.
 	case "anthropic":

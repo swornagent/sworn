@@ -31,6 +31,12 @@ type OAI struct {
 	// by the factory per provider: openai → StructuredResponseFormat,
 	// deepseek → StructuredToolCall.
 	Structured StructuredMode
+	// structuredProfile and structuredWire are construction-time authority for
+	// provider-specific structured envelopes. A zero-value/manual OAI remains
+	// deliberately unprofiled and therefore retains the existing supplied
+	// schema behavior even when its BaseURL resembles OpenAI.
+	structuredProfile structuredProviderProfile
+	structuredWire    structuredWireMode
 }
 
 // ToolDef describes a tool the model may call. Name, Description, and the
@@ -320,14 +326,14 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 
 	switch c.Structured {
 	case StructuredResponseFormat:
-		strict, err := strictProjection(schema)
+		name, strict, err := strictSchemaForWire(c.structuredProfile, c.structuredWire, schema)
 		if err != nil {
 			return nil, err
 		}
 		reqBody.ResponseFormat = &responseFormat{
 			Type: "json_schema",
 			JSONSchema: &jsonSchemaSpec{
-				Name:   schemaName(schema),
+				Name:   name,
 				Schema: json.RawMessage(strict),
 				Strict: true,
 			},
