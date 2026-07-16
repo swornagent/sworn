@@ -104,3 +104,11 @@
   thin CLI adapters, and built-binary first-red/reachability boundary. Confirmed
   the high/high 41-file `beast` effort in `status.json`; fresh Captain review is
   still required before implementation.
+
+## 2026-07-16 — Coach acknowledgement and implementation start
+
+TL;DR The twice-replanned C-01 design is implementation-ready. 0 pins + 9 flags.
+
+Flags (not pins): (a) the archive embed, public parity, repository transaction, bounded helper, thin-adapter, eight-command, and binary-reachability owners are explicit; (b) the upstream commit, VERSION blob, 78-entry archive SHA/blob, and command inventory reproduce exactly; (c) upstream VERSION and Sworn adopting-manifest identities remain distinct; (d) script and native modes are fixed under `umask 0022` with hostile-umask coverage; (e) four-root topology fails closed before mutation; (f) complete owner-only recovery authority is durable before replacement; (g) publish/replace/verify/rollback/recovery/retire crash states are recovery-only; (h) no active sibling collision exists; (i) no project memory or real installation state entered this review.
+
+All nine Rule-9 decisions are acknowledged. No open design question remains. Proceed to `in_progress` and implement the design exactly as written; the fresh Verifier remains the certification backstop.
