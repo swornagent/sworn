@@ -12,8 +12,26 @@ Commit `e6fc8b8` corrected both: it recognizes only a two-parent
 `release-wt`-ancestral merge whose non-record result equals parent two
 mode/blob/absence exactly, rejects authored overlap, and offers a
 `--require-fresh-verifier` gate that a fresh verifier—not this Implementer—must
-run after its independent PASS. The final AC recheck is recorded below after the
-proof candidate is committed.
+run after its independent PASS.
+
+## Final AC recheck, first pass
+
+```text
+$ sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json
+verdict: FAIL
+F-01 (blocking): independent fresh Verifier PASS is correctly still pending;
+                  Rule 7 requires it to be supplied by /verify-slice, not this
+                  Implementer session.
+F-02 (blocking): the checker made S20 remain planned unconditionally, even
+                  after fresh verifier evidence existed.
+exit: 1
+```
+
+F-02 is remediated in the next committed checker revision: S20 may leave its
+planned/pending state only if the live S19 record is verified and contains a
+fresh-context PASS timestamp bound to the same implementation head. The recheck
+after that correction is recorded below. F-01 remains a deliberate, tracked
+handoff rather than an Implementer self-certification.
 
 ## Maintainability preflight
 

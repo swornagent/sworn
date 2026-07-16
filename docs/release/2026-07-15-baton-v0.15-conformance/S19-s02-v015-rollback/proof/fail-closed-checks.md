@@ -17,4 +17,7 @@ exit: 1
 The positive inventory is in `complete-rollback-envelope.txt`. The checker also
 fails on any non-parent-two-exact semantic merge contribution, authored/merge
 overlap, baseline mode/blob/absence mismatch, S02 record rewrite, or premature
-S20 state transition.
+S20 state transition. A successor S20 state is permitted only when the live S19
+record has `state: verified`, the same pinned implementation head, a `pass`
+verdict, a fresh-context flag, and a verdict timestamp; otherwise it fails
+closed as premature.

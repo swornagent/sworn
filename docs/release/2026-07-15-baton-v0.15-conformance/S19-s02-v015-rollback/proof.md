@@ -99,7 +99,9 @@ acknowledgement is recorded in `journal.md`.
 Fresh verification remains pending. The checker contains a strict
 `--require-fresh-verifier` option that requires `state: verified`, a PASS verdict,
 a fresh-context flag, and a verdict timestamp bound to the same implementation
-head. It is deliberately not run as a passing condition by this Implementer.
+head. It also allows S20 to leave planned/pending only after the same evidence
+is present; otherwise it fails closed. It is deliberately not run as a passing
+condition by this Implementer.
 
 ## Divergence from plan
 

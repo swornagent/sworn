@@ -183,14 +183,28 @@ git show "${current_track_head}:${S02_STATUS}" | jq -e --arg rollback "$S19_ID" 
   .maintainability.rollback_slice_id == $rollback
 ' >/dev/null || fail 'S02 is not retained as the rollback-backed terminal deferral'
 
-git show "${current_track_head}:${S20_STATUS}" | jq -e '
+s19_status_json=$(git show "${current_track_head}:${S19_STATUS}")
+s20_status_json=$(git show "${current_track_head}:${S20_STATUS}")
+status_json=$s19_status_json
+if ! printf '%s' "$s20_status_json" | jq -e '
   .state == "planned" and
   .start_commit == null and
   .maintainability.state == "pending"
-' >/dev/null || fail 'S20 started before S19 fresh verification'
+' >/dev/null; then
+  # S20 is allowed to leave its planned/pending state only after an independently
+  # recorded fresh verifier PASS. This makes the gate a genuine permission,
+  # rather than an unconditional prohibition that would reject valid successor
+  # work after S19 has been verified.
+  printf '%s' "$s19_status_json" | jq -e --arg h "$head" '
+    .state == "verified" and
+    .maintainability.implementation_head == $h and
+    .verification.result == "pass" and
+    .verification.verifier_was_fresh_context == true and
+    (.verification.verifier_verdict_at | type == "string" and length > 0)
+  ' >/dev/null || fail 'S20 started before S19 fresh verification'
+fi
 
 if (( require_maintainability == 1 )); then
-  status_json=$(git show "${current_track_head}:${S19_STATUS}")
   report_count=$(printf '%s' "$status_json" | jq -r --arg h "$head" '
     [.maintainability.reports[] |
       select(.role == "implementer" and .phase == "preflight" and .cycle == 0 and .verdict == "PASS" and .review_scope_head == $h)
