@@ -185,3 +185,18 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   pending verification, and the clean semantic checkpoint are preserved.
   Effort confirmation is reset until the Implementer accepts the 47-path beast
   boundary, and a fresh Captain must review this delta before edits resume.
+
+## 2026-07-16 — Captain acknowledgement of the five-path delta
+
+- Fresh no-history Captain review at track head `7696c9b` returned `PROCEED`
+  with zero pins. The review classified the amendment as constitutional for the
+  slice and required no further Coach escalation.
+- The permitted implementation is exact: optional opaque supplied
+  `json.RawMessage` maintainability carrier with `omitempty`; preservation and
+  absence tests; canonical `check` only in canned valid reports; and explicit
+  valid start/maintainability facts in state/run fixtures.
+- Production check matching, typed/null semantics, lifecycle transitions,
+  defaults, migrations, `state.Write` validation/atomicity, post-write JSON
+  surgery, and any install-transaction refactor remain outside this delta.
+- The Implementer may resume only after reconfirming high/high `beast`. The
+  semantic implementation outside the five added paths remains frozen.

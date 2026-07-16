@@ -37,6 +37,29 @@ Flags (not pins): (a) the archive embed, public parity, repository transaction, 
 
 All nine Rule-9 decisions are acknowledged. No open design question remains. Proceed to `in_progress` and implement the design exactly as written; the fresh Verifier remains the certification backstop.
 
+## 2026-07-16 — Fresh Captain review of repository-gate carrier replan
+
+**Verdict:** `PROCEED` — 0 pins. Constitutional slice-wide review; no Coach
+escalation is required for this bounded delta.
+
+- Add only an optional opaque carrier, preferably `json.RawMessage` with
+  `omitempty`, and prove supplied-object preservation plus absent-field
+  behavior. Do not type or interpret maintainability.
+- Update only canned generic responses with their correct canonical `check`
+  identities. Production parsing and requested/emitted equality remain S04.
+- Supply valid 40-hex `start_commit` values and complete maintainability objects
+  in the RunSlice/state fixtures. Do not change `StartCommit`, transitions,
+  defaults, migrations, validation authority, or post-write JSON.
+- Do not rewire `state.Write` validation/atomicity; S03 retains typed/null/
+  additive semantics and exact-schema atomic-writer authority.
+- The reproduced ten failures match the amended five-path design exactly. The
+  2,645-line install transaction owner is orthogonal and needs no change for
+  this delta.
+- Preserve immutable `start_commit` and the existing semantic implementation;
+  the Implementer must reconfirm the high/high `beast` rating before resuming.
+
+Critical pins: none.
+
 ## Triage verdict
 
 <!-- CAPTAIN-VERDICT
