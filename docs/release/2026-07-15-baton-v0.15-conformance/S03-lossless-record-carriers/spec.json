@@ -4,7 +4,7 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "user_outcome": "An operator running sworn doctor can prove that v0.15 state, board, and spec records read, write, render, and round-trip without losing maintainability, shared-touchpoint, typed-reference, or explicit-null authority.",
-  "rationale": "Existing carriers silently omit v0.15 fields, so every later domain authority would otherwise receive corrupted input. This slice adds lossless data carriers and exact-schema boundaries only; it does not infer lifecycle meaning. Records are public technical metadata with no PII or secrets, CLI/rendered output remains textual and screen-reader compatible, and parsing/writing must be linear in record size with bounded nesting supplied by the exact schemas.",
+  "rationale": "S02 pulls forward only the opaque maintainability carrier required to keep exact-schema consumers honest; complete v0.15 status/null semantics plus board and spec carriers still do not exist, so every later domain authority would otherwise receive corrupted input. This slice completes lossless typed data carriers and exact-schema boundaries only; it does not infer lifecycle meaning. Records are public technical metadata with no PII or secrets, CLI/rendered output remains textual and screen-reader compatible, and parsing/writing must be linear in record size with bounded nesting supplied by the exact schemas.",
   "touchpoints": [
     "internal/state/state.go",
     "internal/state/state_test.go",
@@ -25,7 +25,7 @@
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
-    "Represent the complete slice-status-v1 maintainability object, including explicit null start_commit, implementation_head, rollback_slice_id, adjudication, report identity tuple, invalidation fields, permitted touchpoints, and append-only arrays, without applying transition rules.",
+    "Replace S02's bounded opaque maintainability bootstrap with the complete typed slice-status-v1 carrier, including absent-versus-explicit-null start_commit, implementation_head, rollback_slice_id, adjudication, report identity tuple, invalidation fields, permitted touchpoints, additive fields, and append-only arrays, without applying transition rules.",
     "Represent board-v1 shared_touchpoints as exact path to track-to-region maps and preserve release metadata, ordered tracks, dependency arrays, and an intentionally empty shared-touchpoint object across read/write/render cycles.",
     "Represent spec-v1 track, rationale, touchpoints, typed references, risks, effort/complexity, EARS pattern, and test references without scanning prose for normative inputs.",
     "Make the canonical filesystem carrier writers validate emitted JSON against the exact C-01 schemas before atomic replacement; invalid or incomplete output is rejected without modifying the prior record.",

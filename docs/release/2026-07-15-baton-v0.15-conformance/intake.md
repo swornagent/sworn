@@ -846,6 +846,40 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   paused at clean pushed checkpoint `7b57f64fbfe9d0540737034d1794100b80aeec3b`
   until the amended planner gates pass and the delta is merged into T1.
 
+### 2026-07-16 — Pull forward the status carrier needed by the repository gate
+
+- **Context**: At clean pushed S02 checkpoint
+  `60dcd6291ddbe3491e16a05d2ed98d896d714165`, the S02-owned packages, build,
+  vet, formatting, and public parity checks passed, but `go test ./...` exposed
+  ten stale positive tests in `internal/gate`, `internal/run`, and
+  `internal/state`. Five generic-check fixtures omitted v0.15's required
+  `check` identity. More importantly, two exact-schema reachability tests could
+  not pass honestly because `state.Status` had no carrier for a supplied
+  `maintainability` object, so `Read` dropped it and `Write` could not emit it.
+- **Independent scope audit**: A read-only fresh subagent reproduced the failures
+  and returned `BLOCKED` for a fixture-only repair. Weakening validation,
+  patching bytes after `Write`, or deleting the exact-schema assertions would
+  conceal a real production carrier gap.
+- **Coach decision**: Expand S02 by exactly five paths: the three affected test
+  owners plus `internal/state/state.go` and its focused test. Pull forward only
+  an optional opaque/lossless maintainability carrier that preserves a supplied
+  object through read/write. Tests must supply their own valid `start_commit`
+  and maintainability facts. S02 may not default, infer, transition, migrate, or
+  rewrite lifecycle state.
+- **Ownership boundary**: S03 retains complete absent-versus-null start-commit
+  semantics, typed maintainability fields, additive-field preservation,
+  exact-schema atomic writers, record sweeps, board/spec carriers, rendering,
+  and doctor coverage. S04 retains requested/emitted check matching, mismatch
+  rejection, ambiguity separation, and retirement of generic maintainability
+  dispatch; S02 changes only its canned schema-valid responses. S05 and S17
+  retain protocol-selection and active-record migration authority.
+- **Ratification**: This is the orchestrator's recommended fail-closed sequencing
+  repair under Brad's standing 2026-07-16 instruction to follow that
+  recommendation. The S02 bootstrap exception is now 47 files. Implementation,
+  maintainability review, and real-home installation remain paused until the
+  amended planner gates pass, the release record is synchronized into T1, the
+  Implementer reconfirms effort, and a fresh Captain returns `PROCEED`.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`

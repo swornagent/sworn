@@ -4,7 +4,7 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "user_outcome": "A Planner can run the dedicated ambiguity check over typed, workspace-confined references, while every generic quality check emits the canonical check identity and the retired generic maintainability path cannot dispatch.",
-  "rationale": "This slice owns C-02. The ambiguity model may see only the reviewed public spec and explicitly referenced public technical artefacts; resolution is local, one-level, deterministic, path-confined, and completed before dispatch. It must never read credentials, follow a symlink outside the workspace, fetch the network, or expose file bytes in errors. Output is stable JSON or plain text with no interactive UI, and resolution/sorting is O(reference count plus referenced bytes).",
+  "rationale": "This slice owns C-02. S02 updates only canned generic-check responses so they satisfy the exact v0.15 schema; this slice still owns production requested/emitted check matching, mismatch rejection, ambiguity separation, and retired-maintainability dispatch suppression. The ambiguity model may see only the reviewed public spec and explicitly referenced public technical artefacts; resolution is local, one-level, deterministic, path-confined, and completed before dispatch. It must never read credentials, follow a symlink outside the workspace, fetch the network, or expose file bytes in errors. Output is stable JSON or plain text with no interactive UI, and resolution/sorting is O(reference count plus referenced bytes).",
   "touchpoints": [
     "internal/spec/references.go",
     "internal/spec/references_test.go",
