@@ -966,9 +966,12 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - **Ratification**: Brad's standing instruction continues to select the
   orchestrator's recommendation. The replacement manifest is pinned at
   SHA-256 `23ca47fe790e5f8d4e9022b5b0df819de9972938d581e014a7ffd9c0dc16227e`.
-  Closure dispatch remains prohibited until fresh ambiguity review,
-  deterministic planning gates, and ordinary section-6 synchronization into
-  T1 pass.
+- **Review and gates**: A fresh no-history authority review returned PASS.
+  Draft 2020-12 schema validation, digest reproduction, first-parent ancestry,
+  one-production-file delta checks, all 109 ACs, trace, requirements
+  validation, design-fit, spec-quality, board oracle, and diff checks passed.
+  Closure dispatch remains prohibited until ordinary section-6 synchronization
+  into T1 passes.
 
 ## Schema-vs-spec audit notes
 
