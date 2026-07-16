@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://swornagent.dev/schemas/s19-executable-proof-contract-amendment-v1.json",
   "title": "S19 executable rollback proof contract amendment v1",
-  "description": "The sole planner-ratified exception for S19's post-start spec record. It grants no general mutable-spec authority.",
+  "description": "The planner-ratified S19 post-start record exceptions. They grant neither general mutable-spec authority nor an index blob allowlist.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,6 +15,7 @@
     "source",
     "baseline",
     "allowed_post_start_spec_transition",
+    "allowed_rendered_index_validation",
     "checker_repair",
     "fresh_verifier_protocol",
     "prohibitions",
@@ -30,13 +31,14 @@
     "source": {"$ref": "#/$defs/source"},
     "baseline": {"$ref": "#/$defs/baseline"},
     "allowed_post_start_spec_transition": {"$ref": "#/$defs/transition"},
+    "allowed_rendered_index_validation": {"$ref": "#/$defs/renderedIndexValidation"},
     "checker_repair": {"$ref": "#/$defs/checkerRepair"},
     "fresh_verifier_protocol": {"$ref": "#/$defs/freshVerifierProtocol"},
     "prohibitions": {
       "type": "array",
       "prefixItems": [
         {"const": "No persistent non-release test file, CI workflow, CI hook, source package, or harness may be added or relied on for S19 historical rollback proof."},
-        {"const": "No S02 release record may be changed, and no arbitrary post-start S19 spec edit may be admitted."},
+        {"const": "No S02 release record may be changed, and no arbitrary post-start S19 spec or rendered-index edit may be admitted."},
         {"const": "Disposable adversarial Git objects may not mutate a release ref or become a committed harness."}
       ],
       "items": false,
@@ -88,6 +90,102 @@
         "evidence_schema_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json"}
       }
     },
+    "renderedIndexValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "correction_ratification", "correction_spec_transition", "current_render_rule", "observed_lineage_audit"],
+      "properties": {
+        "trigger": {"$ref": "#/$defs/renderedIndexTrigger"},
+        "correction_ratification": {"$ref": "#/$defs/renderedIndexCorrectionRatification"},
+        "correction_spec_transition": {"$ref": "#/$defs/correctionSpecTransition"},
+        "current_render_rule": {"$ref": "#/$defs/currentRenderRule"},
+        "observed_lineage_audit": {"$ref": "#/$defs/observedIndexLineageAudit"}
+      }
+    },
+    "renderedIndexTrigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocked_track_head", "blocked_status_blob_oid", "blocked_reason"],
+      "properties": {
+        "blocked_track_head": {"const": "07c8d65d50e0400c8efa1cac61947d0aca215a08"},
+        "blocked_status_blob_oid": {"const": "9f618893f58ed1e47b6e09bee43ee83a6402d02b"},
+        "blocked_reason": {"const": "planner-ratified executable-proof contract completeness"}
+      }
+    },
+    "renderedIndexCorrectionRatification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratified_by", "ratified_at", "decision_statement", "decision_digest"],
+      "properties": {
+        "ratified_by": {"const": "Captain/Coach standing orchestration authority"},
+        "ratified_at": {"const": "2026-07-17T01:59:17+10:00"},
+        "decision_statement": {"const": "S19 deterministic rendered-index correction: permit index.md only when an isolated current-head board render byte-matches it; preserve c0/c7 blobs as audit-only and prohibit arbitrary index edits."},
+        "decision_digest": {"const": "sha256:38dd7eb69ae0874a893881692bbe9ee372b06cdfa809b967ba3c78e88397cdee"}
+      }
+    },
+    "correctionSpecTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "before_blob_oid", "after_blob_oid", "allowed_transition_count", "pre_ratification_release_wt_head", "required_planner_commit_subject", "evidence_path", "evidence_schema_path"],
+      "properties": {
+        "path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json"},
+        "before_blob_oid": {"const": "ae05d118cbb0eb47c6ad7595c25f93df5c14417e"},
+        "after_blob_oid": {"const": "7b63aad583c15de2db189c63990cc909c1269f6b"},
+        "allowed_transition_count": {"const": 1},
+        "pre_ratification_release_wt_head": {"const": "c0d7d672fe14090655fea7db3f5bf0e22dfd29f9"},
+        "required_planner_commit_subject": {"const": "docs(release): ratify S19 deterministic index render contract"},
+        "evidence_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment.json"},
+        "evidence_schema_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json"}
+      }
+    },
+    "currentRenderRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index_path", "worktree_kind", "checkout_target", "render_command", "comparison", "cleanup_required", "must_not_mutate_validated_checkout", "must_not_mutate_release_refs", "historical_blobs_are_audit_only", "rejection_rule"],
+      "properties": {
+        "index_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/index.md"},
+        "worktree_kind": {"const": "disposable detached Git worktree"},
+        "checkout_target": {"const": "current T1 track HEAD"},
+        "render_command": {"const": "sworn render 2026-07-15-baton-v0.15-conformance <ephemeral-project-root>"},
+        "comparison": {"const": "byte-for-byte rendered index equals the current track HEAD committed index"},
+        "cleanup_required": {"const": true},
+        "must_not_mutate_validated_checkout": {"const": true},
+        "must_not_mutate_release_refs": {"const": true},
+        "historical_blobs_are_audit_only": {"const": true},
+        "rejection_rule": {"const": "Permit index.md only on the current-render comparison; reject arbitrary index bytes and every other non-S19/non-lifecycle release record."}
+      }
+    },
+    "observedIndexLineageAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direct_c0_transition", "propagated_c7_merge"],
+      "properties": {
+        "direct_c0_transition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["parent_commit", "planner_commit", "before_blob_oid", "after_blob_oid"],
+          "properties": {
+            "parent_commit": {"const": "deb090fcef736ca2e61b2c2136283beec4743e45"},
+            "planner_commit": {"const": "c0d7d672fe14090655fea7db3f5bf0e22dfd29f9"},
+            "before_blob_oid": {"const": "8aeef3849541106b6cb5503daed1874b0fb4d31f"},
+            "after_blob_oid": {"const": "b3ba13ef1b9d958e67b035f662e39dd0175a82a7"}
+          }
+        },
+        "propagated_c7_merge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["merge_commit", "parent_one_commit", "parent_one_blob_oid", "parent_two_commit", "parent_two_blob_oid", "after_blob_oid"],
+          "properties": {
+            "merge_commit": {"const": "c7d56c10f62c5583b5aeb27fda5aa9c8de50b81d"},
+            "parent_one_commit": {"const": "d6bfd4578d367aa6bac2ed3243a6f2c909c183ce"},
+            "parent_one_blob_oid": {"const": "37b0d6ebb72445802eab1ab336e3b4f5b7a8e7d5"},
+            "parent_two_commit": {"const": "c0d7d672fe14090655fea7db3f5bf0e22dfd29f9"},
+            "parent_two_blob_oid": {"const": "b3ba13ef1b9d958e67b035f662e39dd0175a82a7"},
+            "after_blob_oid": {"const": "1614b35035b685d7d9d3f9451c98fa350a91033f"}
+          }
+        }
+      }
+    },
     "checkerRepair": {
       "type": "object",
       "additionalProperties": false,
@@ -111,7 +209,7 @@
           "minItems": 6,
           "maxItems": 6
         },
-        "required_history_rule": {"const": "Retain the original allowlist and admit the S19 spec path only when every reachable post-start content transition is the one before-to-after blob transition declared here, the evidence record validates, and the introducing planner commit has the recorded parent and subject; reject every other post-start S19 spec blob, path, transition, or provenance."}
+        "required_history_rule": {"const": "Retain the original allowlist; admit only the original and correction S19 spec transitions when their exact declared blobs and provenance validate, and admit index.md only through the disposable current-head deterministic render comparison; reject arbitrary index bytes and every other post-start S19 spec blob, path, transition, provenance, or non-S19/non-lifecycle release record."}
       }
     },
     "freshVerifierProtocol": {
@@ -130,11 +228,12 @@
             {"const": "unrecognized_merge_or_parent_two_drift"},
             {"const": "authored_merge_overlap"},
             {"const": "unexpected_later_ordinary_authority"},
-            {"const": "absent_fresh_verifier_evidence"}
+            {"const": "absent_fresh_verifier_evidence"},
+            {"const": "arbitrary_index_render_drift"}
           ],
           "items": false,
-          "minItems": 6,
-          "maxItems": 6
+          "minItems": 7,
+          "maxItems": 7
         }
       }
     },
