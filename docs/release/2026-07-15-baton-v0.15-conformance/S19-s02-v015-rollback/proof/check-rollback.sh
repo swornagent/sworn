@@ -22,7 +22,7 @@ readonly EXPECTED_CONTROL_PATHS=45
 readonly EXPECTED_CONTROL_ABSENCES=8
 
 usage() {
-  printf 'usage: %s --head <implementation-commit> [--require-maintainability]\n' "$0" >&2
+  printf 'usage: %s --head <implementation-commit> [--require-maintainability] [--require-proof-bundle] [--require-fresh-verifier]\n' "$0" >&2
   exit 64
 }
 
@@ -62,6 +62,8 @@ tree_tuple() {
 
 head_arg=''
 require_maintainability=0
+require_proof_bundle=0
+require_fresh_verifier=0
 while (( $# > 0 )); do
   case "$1" in
     --head)
@@ -71,6 +73,16 @@ while (( $# > 0 )); do
       ;;
     --require-maintainability)
       require_maintainability=1
+      shift
+      ;;
+    --require-proof-bundle)
+      require_proof_bundle=1
+      shift
+      ;;
+    --require-fresh-verifier)
+      require_fresh_verifier=1
+      require_maintainability=1
+      require_proof_bundle=1
       shift
       ;;
     *)
@@ -111,17 +123,23 @@ done < <(git rev-list --first-parent --reverse --no-merges "${BASE_COMMIT}..${he
 
 while IFS= read -r merge; do
   ((merge_commit_count += 1))
-  parent_count=$(git show -s --format='%P' "$merge" | awk '{print NF}')
-  [[ "$parent_count" == '2' ]] || fail "unrecognized merge ${merge}: expected exactly two parents"
+  parent_one=''
+  parent_two=''
+  extra_parent=''
+  read -r parent_one parent_two extra_parent < <(git show -s --format='%P' "$merge")
+  [[ -n "$parent_one" && -n "$parent_two" && -z "$extra_parent" ]] || fail "unrecognized merge ${merge}: expected exactly two parents"
+  git merge-base --is-ancestor "$parent_two" "release-wt/${RELEASE}" || fail "unrecognized merge ${merge}: parent two is not release-wt ancestry"
   while IFS= read -r -d '' file_path; do
     is_release_record_path "$file_path" && continue
+    IFS=$'\t' read -r parent_two_mode parent_two_oid < <(tree_tuple "$parent_two" "$file_path")
+    IFS=$'\t' read -r merge_mode merge_oid < <(tree_tuple "$merge" "$file_path")
+    [[ "$parent_two_mode" == "$merge_mode" && "$parent_two_oid" == "$merge_oid" ]] || fail "unrecognized semantic merge ${merge} at ${file_path}: merge result is not parent-two exact"
     merge_paths["$file_path"]=1
   done < <(git diff-tree --no-commit-id --name-only -r -z --no-renames "${merge}^1" "$merge")
 done < <(git rev-list --first-parent --reverse --merges "${BASE_COMMIT}..${head}")
 
 for file_path in "${!merge_paths[@]}"; do
   [[ -z ${ordinary_paths["$file_path"]+present} ]] || fail "authored/merge overlap at ${file_path}"
-  fail "unrecognized semantic merge contribution at ${file_path}"
 done
 
 [[ ${#later_semantic_commits[@]} -eq 1 ]] || fail 'rollback must contain exactly one post-frozen ordinary semantic restoration commit'
@@ -205,6 +223,39 @@ if (( require_maintainability == 1 )); then
   ' >/dev/null || fail 'maintainability report does not bind its review scope to the implementation head'
 fi
 
+if (( require_proof_bundle == 1 )); then
+  proof_path="${S19_ROOT}proof.json"
+  proof_markdown_path="${S19_ROOT}proof.md"
+  git cat-file -e "${current_track_head}:${proof_path}" || fail 'proof.json is missing from the committed release record'
+  git cat-file -e "${current_track_head}:${proof_markdown_path}" || fail 'proof.md is missing from the committed release record'
+  proof_json=$(git show "${current_track_head}:${proof_path}")
+  printf '%s' "$proof_json" | jq -e --arg slice "$S19_ID" --arg release "$RELEASE" '
+    .slice_id == $slice and
+    .release == $release and
+    (.files_changed | type == "array") and
+    (.reachability.type | type == "string") and
+    (.reachability.evidence | type == "string" and length > 0) and
+    (.delivered | type == "array" and length > 0) and
+    (.not_delivered | type == "array") and
+    (.divergence | type == "array")
+  ' >/dev/null || fail 'proof bundle does not satisfy the required S19 Rule-6 shape'
+  while IFS= read -r test_command; do
+    printf '%s' "$proof_json" | jq -e --arg command "$test_command" '
+      [.test_results[] | select(.command == $command and .passed == true)] | length > 0
+    ' >/dev/null || fail "proof bundle lacks a passing required test: ${test_command}"
+  done < <(printf '%s' "$status_json" | jq -r '.test_commands[]')
+fi
+
+if (( require_fresh_verifier == 1 )); then
+  printf '%s' "$status_json" | jq -e --arg h "$head" '
+    .state == "verified" and
+    .maintainability.implementation_head == $h and
+    .verification.result == "pass" and
+    .verification.verifier_was_fresh_context == true and
+    (.verification.verifier_verdict_at | type == "string" and length > 0)
+  ' >/dev/null || fail 'fresh verifier evidence is absent or not bound to the implementation head'
+fi
+
 printf 'ROLLBACK_CHECK PASS\n'
 printf 'BASE %s tree=%s\n' "$BASE_COMMIT" "$BASE_TREE"
 printf 'IMPLEMENTATION_HEAD %s\n' "$head"
@@ -214,4 +265,10 @@ printf 'ENVELOPE_PATHS %s baseline-present=%s baseline-absent=%s\n' "${#envelope
 printf 'RELEASE_RECORD_CHANGES_AFTER_S19_START %s\n' "$changed_release_records"
 if (( require_maintainability == 1 )); then
   printf 'MAINTAINABILITY_BINDING PASS head=%s report=%s\n' "$head" "$report_path"
+fi
+if (( require_proof_bundle == 1 )); then
+  printf 'PROOF_BUNDLE_BINDING PASS path=%s\n' "$proof_path"
+fi
+if (( require_fresh_verifier == 1 )); then
+  printf 'FRESH_VERIFIER_GATE PASS head=%s\n' "$head"
 fi
