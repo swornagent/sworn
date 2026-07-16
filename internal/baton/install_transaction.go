@@ -176,6 +176,17 @@ type installPreflight struct {
 	targets []installPreflightTarget
 }
 
+// installCaptureStartError marks the pre-capture boundary where no recovery
+// authority or staged material exists yet. SyncBatonInstall returns its cause
+// unchanged so the paths-ready fault keeps its established disposition.
+type installCaptureStartError struct {
+	cause error
+}
+
+func (e *installCaptureStartError) Error() string { return e.cause.Error() }
+
+func (e *installCaptureStartError) Unwrap() error { return e.cause }
+
 type capturedInstall struct {
 	scope           installScope
 	targets         []capturedInstallTarget
@@ -294,6 +305,10 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 
 	captured, err := captureInstallSources(preflight, opts.OperationIDForTest)
 	if err != nil {
+		var startErr *installCaptureStartError
+		if errors.As(err, &startErr) {
+			return nil, startErr.cause
+		}
 		if errors.Is(err, errInstallCrash) {
 			return nil, newInstallError("process-crashed", nil, recoveryRoot, err)
 		}
@@ -1239,7 +1254,7 @@ func captureInstallSources(preflight *installPreflight, forcedOperation string) 
 		return nil, err
 	}
 	if err := callInstallFault(preflight.scope.fault, "paths-ready"); err != nil {
-		return nil, err
+		return nil, &installCaptureStartError{cause: err}
 	}
 	if err := reassertInstallIdentities(&preflight.scope, true); err != nil {
 		return nil, err
