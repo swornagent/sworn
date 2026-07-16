@@ -940,6 +940,36 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   deterministic planner gates, and ordinary section-6 synchronization into T1
   all pass.
 
+### 2026-07-16 — Preserve pre-capture crash disposition and repin S02 again
+
+- **Trigger**: Independent final-byte review of the authorized typestate
+  remediation found one behavioral regression at the existing `paths-ready`
+  fault point: the synthetic process-crash error had moved into the captured
+  phase and would have been converted into `process-crashed`, unlike the
+  established direct pre-capture result.
+- **Bounded correction**: Commit
+  `2a17443d67d39cf681dba117a57673714a916d7f` authors only
+  `internal/baton/install_transaction.go`. It marks the pre-capture boundary
+  explicitly and returns the original `paths-ready` cause unchanged, while
+  retaining the four phase-specific private values and the existing
+  post-capture crash disposition. A direct injected-crash check, the targeted
+  fault/identity suite (132.644s), full `internal/baton` suite (403.226s),
+  repository suite (including `internal/baton` at 411.401s), `go vet ./...`,
+  `make build`, formatting/diff checks, and public binary reachability all
+  passed. A repeat independent audit returned PASS.
+- **Coach decision**: Replace only the same two S02 authorization
+  `review_head` values from `4377d71…` to exact final head `2a17443…`.
+  The S01 envelopes, S02 starts, four merge OIDs, exceptional paths, Git
+  tuples, interval semantics, purposes, schema, and prohibitions remain
+  unchanged. This is a second endpoint-only replacement after a verified
+  in-scope preservation correction, not a scope extension.
+- **Ratification**: Brad's standing instruction continues to select the
+  orchestrator's recommendation. The replacement manifest is pinned at
+  SHA-256 `23ca47fe790e5f8d4e9022b5b0df819de9972938d581e014a7ffd9c0dc16227e`.
+  Closure dispatch remains prohibited until fresh ambiguity review,
+  deterministic planning gates, and ordinary section-6 synchronization into
+  T1 pass.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
