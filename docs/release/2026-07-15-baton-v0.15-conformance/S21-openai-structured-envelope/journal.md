@@ -1,5 +1,14 @@
 # Journal — S21-openai-structured-envelope
 
+## 2026-07-17T09:32:45+10:00 — Fresh verifier PASS
+
+Verdict: PASS at `299b00386750f59180cf0bd3c9020ebfcc27687a`.
+
+- The canonical generic schema, vendored prompt, and local semantic gate were byte-identical to `ed0badf68673f0af84834458f07be0792555484f`; requested/emitted check authority remains local.
+- An independent clean clone at the exact head, with empty `GOFLAGS` and temporary HOME/cache, passed the focused S21 tests, `go test ./...`, `go vet ./...`, `make build`, coverage/mock lint, and diff check.
+- Independent adversarial probes passed for both OpenAI wire formats, direct/proxy/deprecated profile routing, default-deny non-OpenAI paths, zero-HTTP source-free rejections, hermetic built-binary reachability, exit 2 dedicated-ambiguity rejection, and no synthetic credential leak.
+- S04 remains verified. S20 remains blocked and was neither modified nor exercised.
+
 ## 2026-07-17T07:57:25+10:00 — Planner replan
 
 - Added as a planned T1 prerequisite immediately after verified
