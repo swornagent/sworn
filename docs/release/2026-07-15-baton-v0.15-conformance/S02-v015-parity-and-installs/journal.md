@@ -42,3 +42,35 @@
   but the fixed touchpoint list provides no dedicated production helper. The
   Captain should reject hiding them in unrelated mapping/manifest files and ask
   the Coach whether bounded new internal files are required.
+
+## 2026-07-16 — Implementer design revision after Coach replan
+
+- Re-read the exact Baton v0.15.1 Implementer contract, used the explicitly
+  authorised pre-cutover board adapter, normalized its legacy top-level result,
+  and confirmed S01 remains `verified` before S02 in `T1-foundation`. The
+  conventional worktree and branch matched `git worktree list`; the worktree
+  started clean at authoritative Coach replan merge `5e4a7b3410e975ce7507a13291d3411749bd680e`.
+- Revised `design.md` against the amended spec, intake, normative
+  clarifications, prior Captain `NEEDS_COACH` review, S01 live proof/status, and
+  current code. No production code, test, vendored byte, archive, VERSION pin,
+  or Codex/Claude installation was changed; S02 remains `design_review` with
+  null `start_commit` and pending cycle-0 maintainability authority.
+- Captain pins 1–4 now trace to the Coach-ratified owners:
+  `internal/adopt/baton_archive.go` is the sole compile-time archive embed with
+  no filesystem fallback; `internal/baton/diff.go` owns public archive parity
+  while `content.go` remains excluded; `vendor.go` and
+  `vendor_transaction.go` add validated archive bytes to mapped bytes plus
+  VERSION in one repository transaction/recovery set; and focused
+  `installer_archive.go` / `install_transaction.go` own native generation and
+  three-root rollback/recovery while `cmd/sworn` stays thin.
+- Captain pins 5–7 now trace explicitly: both native trees derive and assert
+  all eight tagged commands including `design-review.md`; design.md mirrors all
+  five Type-1 status decisions plus the path-only Type-2 default; exact
+  normative JSON bytes and independent complete Codex and Claude script-oracle
+  parity are mandatory, fail-closed prerequisites.
+- Corrected the first public TDD red to
+  `cmd/sworn/baton_test.go:TestBatonDiffV015BinaryReachability`, with
+  `cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability` as the
+  companion built-binary doctor/sync reachability proof. The planned-file/AC
+  table now covers the exact 41-file high/high `beast` boundary, which the
+  Implementer confirmed in `status.json`.
