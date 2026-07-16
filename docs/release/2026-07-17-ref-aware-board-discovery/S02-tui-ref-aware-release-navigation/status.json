@@ -1,0 +1,74 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-tui-ref-aware-release-navigation",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "track": "T1-ref-aware-board",
+  "covers_needs": [
+    "N-03",
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-17T05:41:37+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
+  "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
+  "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md",
+  "planned_files": [
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/tui ./internal/board ./cmd/sworn",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\""
+  ],
+  "reachability_artifacts": [
+    "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardReachability",
+    "internal/tui/tui_test.go:TestBoardViewRefOnlySelectedSourceIgnoresPrimaryFilesystem"
+  ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "See spec.json; the four-file change is bounded, but source-ref identity and live-status precedence are subtle state boundaries.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board without checking out each ref or knowing its release name in advance.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-17T05:41:37+10:00",
+    "positive_scenarios": [
+      "The releases pane lists and opens a release whose plan is absent from HEAD but present on its selected release-worktree ref.",
+      "The TUI displays a newer owner-track slice state while retaining live-status preference only for the selected active checkout."
+    ],
+    "negative_scenarios": [
+      "A catalog error cannot silently show a partial list or an unrelated filesystem board.",
+      "An asynchronous board result from a different source ref cannot replace the user's current selection."
+    ],
+    "benefit_hypothesis": "The TUI becomes an accurate operational front end for release plans that Baton has materialised in sibling worktrees or remote-tracking refs."
+  }
+}

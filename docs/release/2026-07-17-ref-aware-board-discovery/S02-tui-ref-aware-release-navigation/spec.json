@@ -1,0 +1,96 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-tui-ref-aware-release-navigation",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "track": "T1-ref-aware-board",
+  "user_outcome": "A SwornAgent TUI operator can launch `sworn`, select a release that exists only on a non-HEAD Git ref, and open its complete board with the same deterministic source ref and authoritative slice state as the all-ref CLI catalog.",
+  "rationale": "The TUI currently has two filesystem-only boundaries: its release list glob and BoardView.LoadBoard's board/status reads. S01 owns catalog discovery and C-01; this slice makes the TUI consume the catalog end to end, preserving its asynchronous loading and live-working-tree status preference only where that preference is actually valid.",
+  "touchpoints": [
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go"
+  ],
+  "in_scope": [
+    "Replace the Git-repository TUI release-list discovery path with the S01 board catalog. Each ReleaseInfo retained by the list must carry the selected source ref needed to open the same plan; list ordering remains bytewise lexical by release ID and existing keyboard navigation, labels, truncation, and loading feedback remain intact.",
+    "When the user presses Enter on a catalog release, propagate that exact source ref through the existing asynchronous board-load command and its stale-result guard. A board-loaded result for the same release name but a different source ref must not overwrite the currently selected board.",
+    "Load a selected board plan and its slice IDs through the Git-ref oracle using the catalog-selected source ref instead of `board.ReadBoard`, `os.ReadDir`, or status paths rooted in the primary checkout. Ref-only boards must therefore render tracks and slices even when `docs/release/<release>` does not exist in the checked-out filesystem.",
+    "Preserve the existing state precedence: owner track branch first, then the selected release source ref, then the active checkout only where the selected source ref is the actual checkout. A dirty or stale primary-worktree status file must not override a non-HEAD selected ref; a selected active checkout may still expose its live status between commits.",
+    "On a repository catalog failure, surface the deterministic catalog error through the existing TUI error path and do not populate a partial release list or silently fall back to a different board. Retain the existing filesystem-only release-list fallback for non-Git test/initialisation directories where no Git HEAD is available.",
+    "Add an integration-level TUI fixture that starts from a real temporary Git repository with no release board on HEAD, a valid `refs/heads/release-wt/<release>` board, and a newer owner-track status. Drive the Model release-list entry point and its returned asynchronous command, then assert the release is listed, selected, and loaded with the selected source ref, tracks, and authoritative state."
+  ],
+  "out_of_scope": [
+    "All-ref enumeration, aggregate CLI JSON/text formatting, canonical skew handling, and mutation proof are S01-all-ref-board-catalog.",
+    "TUI redesign, new keyboard bindings, live-view/log-view/blocked-view ref routing, and changes to unrelated release-mode commands remain out of scope for #123.",
+    "Making the TUI fetch remote refs or mutate local Git state is forbidden; it consumes only S01's locally available catalog."
+  ],
+  "covers_needs": [
+    "N-03",
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "The changed file surface is small and follows the catalog produced by S01, but the boundary is subtle: a ref-only plan must never be replaced by a stale filesystem board while the active-checkout live-status exception still works."
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The list and board view independently resolve the same release and can choose different source refs.",
+      "mitigation": "Persist sourceRef in the selected ReleaseInfo and thread it through the Enter command, BoardView, reload path, and async stale-result identity. The TUI must consume S01's catalog rather than call a separate resolver."
+    },
+    {
+      "id": "R-02",
+      "description": "A dirty primary checkout overwrites the selected ref-only board's committed status, or live progress disappears when the selected ref is the current checkout.",
+      "mitigation": "Gate filesystem preference on exact selected-source/current-checkout identity and cover both ref-only and active-checkout cases in TUI tests."
+    },
+    {
+      "id": "R-03",
+      "description": "A catalog failure leaves a stale or incomplete releases pane that looks successful to an operator.",
+      "mitigation": "Treat discovery errors as TUI errors, clear/avoid partial list population, and retain filesystem fallback only for an explicitly non-Git directory."
+    },
+    {
+      "id": "R-04",
+      "description": "Ref-aware loading blocks Bubble Tea's update loop or regresses keyboard navigation.",
+      "mitigation": "Keep Git reads inside the existing asynchronous load command and verify Enter returns a command before the board is populated, with existing j/k/up/down/Enter behaviour retained."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the TUI starts from a temporary Git repository whose checked-out HEAD contains no release board but `refs/heads/release-wt/ref-only-release` contains a valid board and `refs/heads/track/ref-only-release/T1-core` contains a newer `S01-alpha` status, THE SYSTEM SHALL list `ref-only-release` in the releases pane. WHEN the operator selects it and presses Enter, the returned asynchronous load command SHALL populate the board with the ref-only plan's tracks and show `S01-alpha` at the newer track-owned state; the loaded board and selected ReleaseInfo SHALL identify `refs/heads/release-wt/ref-only-release` as sourceRef (C-01, N-03, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardReachability"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN a selected catalog source ref differs from the active checkout and the active checkout has an absent, stale, or malformed same-release status file, THE SYSTEM SHALL render the selected ref/oracle state and shall not read that filesystem file as an override. WHEN the selected source ref is the active checkout, an uncommitted readable status file SHALL retain the existing live-working-tree override. Both cases SHALL preserve track-branch precedence over the selected release source (N-03, N-04).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestBoardViewRefOnlySelectedSourceIgnoresPrimaryFilesystem",
+        "internal/tui/tui_test.go:TestBoardViewSelectedCheckoutUsesLiveStatus"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN the catalog resolver returns a missing, malformed, or identity-mismatched canonical-board error during TUI initialisation, THE SYSTEM SHALL expose that error through the existing TUI error message and SHALL not render a partial successful release list or substitute a lower-priority board. WHEN the supplied directory has no usable Git HEAD, the existing filesystem fixture path SHALL continue to list valid local release records (N-03, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestReleasesListCatalogFailureIsVisible",
+        "internal/tui/tui_test.go:TestReleasesListNonGitFilesystemFallback"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a catalog release is selected, the TUI SHALL retain existing j/k/up/down navigation, Enter-triggered asynchronous loading, loading feedback, lexical release ordering, and stale-result protection; a board-load result whose sourceRef differs from the current selection SHALL be discarded even when its release name matches. `go test ./internal/tui ./internal/board ./cmd/sworn`, `go test ./...`, and `go vet ./...` SHALL exit 0, and `gofmt -l .` SHALL produce empty output (C-01, N-03, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestEnterDispatchesAsyncBoardLoad",
+        "internal/tui/tui_test.go:TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef"
+      ]
+    }
+  ]
+}
