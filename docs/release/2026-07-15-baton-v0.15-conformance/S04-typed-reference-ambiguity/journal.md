@@ -98,3 +98,16 @@
   this slice to `implemented`. No verifier verdict is asserted here: a fresh
   S04 verifier must evaluate the artefacts and live source before any
   `verified` transition or S20 unblock.
+
+## 2026-07-17T07:24:50+10:00 — Fresh verifier verdict
+
+PASS
+
+Slice: `S04-typed-reference-ambiguity`
+Verified against: `bd3c2a11234f82f2ed1ef15d863041298a6b82ec`
+Verifier session: `fresh, artefact-only`
+
+Independent verification reran the focused and full Go suites, vet, and build
+from a clean bundle clone with empty `GOFLAGS`; mutation probes confirmed the
+identity, confinement, ambiguity-map, and prompt/payload guards fail when
+disabled. S20 remains byte-identical and blocked.
