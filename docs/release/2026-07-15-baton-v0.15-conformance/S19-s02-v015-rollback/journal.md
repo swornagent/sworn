@@ -274,3 +274,27 @@ provenance, detached current-head index render, and S20 planned/pending state
 all passed. The two fail-open adversarial outcomes prevent certification.
 Required next step: `/implement-slice S19-s02-v015-rollback
 2026-07-15-baton-v0.15-conformance` in a fresh session.
+
+## 2026-07-17T03:29:01+10:00 — Captain adjudication: PROCEED
+
+- `CAPTAIN-VERDICT: PROCEED`. The authorized repair is limited to the committed
+  rollback checker and S19 lifecycle/proof evidence; S19's immutable
+  `start_commit` remains `640396fa8cc319229d6f96dedfdbef65dbe317fe`, S02
+  records and the planner-ratified amendment remain unchanged, and no S20,
+  product, test, CI, release-wt, or main work is permitted.
+- The first historical verifier violation is preserved above but is not an
+  AC-03/AC-04 contract failure: it invoked the checker from an adversarial
+  descendant while pinning `--head` to `4b38887e666f7e4ab664bac4780535b080ad54eb`.
+  AC-03 explicitly requires `--head <adversarial-descendant>`; the required
+  disposable invocation at descendant `bdef578b3fce9e7327dad448704531c870724c91`
+  exits non-zero, so later ordinary authority is already fail-closed in the
+  contract-owned path.
+- The second historical violation remains a real AC-04 defect: final-tree
+  equality lets a transient S02-record mutation followed by byte restoration
+  escape. The repair retains the final-tree backstop and adds a fail-closed
+  first-parent transition comparison from S19 start through current T1 HEAD.
+  It deliberately does not compare every merge parent: propagation merges may
+  differ from parent two while preserving the T1 parent-one S02 bytes.
+- S19 is reopened to `in_progress` for this bounded repair. The historical
+  fresh-verifier FAIL remains in `status.json` and is not rewritten or cleared;
+  a future fresh verifier must independently assess the repaired evidence.

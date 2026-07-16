@@ -250,6 +250,25 @@ validate_s19_spec_history() {
   printf 'S19_SPEC_HISTORY PASS first=%s second=%s\n' "$first_commit" "$second_commit"
 }
 
+validate_s02_record_history() {
+  local commit parent changed_paths checked_commits=0
+
+  # S02 records are append-only from S19's start. Compare only each T1
+  # first-parent transition: a propagation merge may legitimately differ from
+  # parent two while retaining the exact S02 bytes already present on parent one.
+  git merge-base --is-ancestor "$S19_START" "$current_track_head" || fail 'S19 start checkpoint is not an ancestor of the current T1 track head'
+  while IFS= read -r commit; do
+    parent=$(git rev-parse --verify "${commit}^1") || fail "S02 record history contains a parentless post-start commit ${commit}"
+    ((checked_commits += 1))
+    if ! git diff --quiet --no-ext-diff "$parent" "$commit" -- "$S02_ROOT"; then
+      changed_paths=$(git diff --name-status --no-ext-diff "$parent" "$commit" -- "$S02_ROOT" | tr '\n' ';')
+      fail "S02 release record transition on T1 first-parent history at ${commit}: ${changed_paths}"
+    fi
+  done < <(git rev-list --first-parent --reverse "${S19_START}..${current_track_head}")
+
+  printf 'S02_RECORD_HISTORY PASS first-parent-commits=%s\n' "$checked_commits"
+}
+
 remove_disposable_worktree() {
   local worktree_path=$1
   [[ -n "$worktree_path" && -d "$worktree_path" ]] || return 0
@@ -393,6 +412,7 @@ done
 
 git diff --exit-code "$BASE_COMMIT" "$head" -- . ":(exclude)${RELEASE_ROOT}**" >/dev/null || fail 'whole-tree non-release backstop found a semantic difference'
 git diff --quiet "$S19_START" "$current_track_head" -- "$S02_ROOT" || fail 'S02 release evidence changed after S19 start'
+validate_s02_record_history
 
 changed_release_records=0
 s19_spec_record_changes=0
