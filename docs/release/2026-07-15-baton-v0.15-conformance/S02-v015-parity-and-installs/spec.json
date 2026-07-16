@@ -4,7 +4,7 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "user_outcome": "A protocol maintainer sees the binary, vendored normative content, and supported Codex and Claude installations report and byte-match the exact Baton v0.15 pin.",
-  "rationale": "This slice owns C-01 and performs the first permitted vendor/install activity after S01 makes that activity atomic. The mapped upstream delta, its generated offline archive, public parity surfaces, binary embed, and the two supported installer mirrors form one explicitly ratified forty-one-file bootstrap exception. Responsibilities remain separated into bounded archive and install-transaction helpers, while installer writes are limited to Baton's documented user-level targets, contain no credentials, and execute only after repository parity succeeds; there is no network, browser, PII, or accessibility contract beyond deterministic CLI output.",
+  "rationale": "This slice owns C-01 and performs the first permitted vendor/install activity after S01 makes that activity atomic. The mapped upstream delta, its generated offline archive, public parity surfaces, binary embed, exact-schema valid-fixture alignment, and the two supported installer mirrors form one explicitly ratified forty-two-file bootstrap exception. Responsibilities remain separated into bounded archive and install-transaction helpers, while installer writes are limited to Baton's documented user-level targets, contain no credentials, and execute only after repository parity succeeds; there is no network, browser, PII, or accessibility contract beyond deterministic CLI output.",
   "touchpoints": [
     "internal/adopt/baton/VERSION",
     "internal/adopt/baton/README.md",
@@ -41,6 +41,7 @@
     "internal/baton/schemas/embed.go",
     "internal/baton/manifest.go",
     "internal/baton/manifest_test.go",
+    "internal/baton/validate_schema_test.go",
     "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
     "internal/baton/records_conformance_test.go",
     "cmd/sworn/baton.go",
@@ -56,7 +57,7 @@
   ],
   "in_scope": [
     "Run the repaired vendor transaction from the exact v0.15.1 tag target 3fb4d275ae8a151f6287e7b9279d71628b12eea0 and record source digest sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f in VERSION.",
-    "Update the explicit mapping, schema embed, fixture, and grade manifest for spec-ambiguity-report-v1, replace only mapped files whose v0.13.1-to-v0.15.1 upstream content changed, and generate the complete deterministic 78-entry installer-input tar whose exact archive SHA-256, Git blob OID, path/mode/blob set and extraction safety are pinned in planning/normative-clarifications.md section 2; the tar joins mapped bytes and VERSION as one materialised, snapshotted, applied, rolled-back, and restart-recovered repository transaction member before any repository mutation.",
+    "Update the explicit mapping, schema embed, fixture, and grade manifest for spec-ambiguity-report-v1, align only the two static positive slice-status validator literals with v0.15.1-required start_commit and maintainability members, replace only mapped files whose v0.13.1-to-v0.15.1 upstream content changed, and generate the complete deterministic 78-entry installer-input tar whose exact archive SHA-256, Git blob OID, path/mode/blob set and extraction safety are pinned in planning/normative-clarifications.md section 2; the tar joins mapped bytes and VERSION as one materialised, snapshotted, applied, rolled-back, and restart-recovered repository transaction member before any repository mutation.",
     "Preserve normative JSON schema bytes exactly; only documented Sworn command-reference transformations may affect Markdown prompt/rule copies, and a second vendor --check plus sworn baton diff must report zero drift.",
     "After repository parity passes, run exact pinned install-codex.sh and install-claude.sh under an explicit umask 0022 in empty isolated proof homes and treat each complete generated managed tree—including all eight commands with design-review.md, Codex frontmatter, argument-resolution prelude, path transformations, 0755 directories, and 0644 regular files—as canonical; make the shipped binary consume the one complete embedded input tar through an explicit internal/adopt owner with Go stdlib only and prove its native staged output byte/mode-matches those independent script outputs regardless of inherited umask, without a runtime shell dependency.",
     "Build the binary and prove sworn doctor, sworn baton diff, the embedded schema manifest, complete offline installer bundle, and both supported local mirrors agree on C-01; cmd/sworn remains a thin adapter over bounded internal archive and install-transaction helpers, and doctor --sync-baton physically resolves and rejects equal, nested, aliased, symlinked, special-file, or recovery-overlapping agents_home, codex_home, claude_home and recovery roots before mutation, stages complete pre-run trees plus Sworn-owned VERSION sentinels, durably publishes owner-only snapshot/manifest/sentinel recovery authority before the first replacement, and repairs all roots as one whole-root rollback-protected transaction; process death or rollback failure forces later recovery-only exact restoration before another install."
@@ -72,7 +73,7 @@
     "effort": "high",
     "complexity": "high",
     "quadrant": "beast",
-    "rationale": "Ratified forty-one-file bootstrap exception: the exact mapped delta, generated offline archive in the repository transaction, public parity and embed owners, both canonical installer-generated mirrors, and one bounded whole-root repair/recovery boundary are indivisible under C-01.",
+    "rationale": "Ratified forty-two-file bootstrap exception: the exact mapped delta, generated offline archive in the repository transaction, public parity and embed owners, v0.15 valid-fixture alignment, both canonical installer-generated mirrors, and one bounded whole-root repair/recovery boundary are indivisible under C-01.",
     "confirmed_by_implementer": false
   },
   "risks": [
@@ -86,7 +87,7 @@
       "id": "AC-01",
       "text": "WHEN TestBatonV015ExactParity enumerates the live mapping, schema embed, manifest, upstream root VERSION, adopting-repository VERSION manifest, prompts, rules, fixtures, and offline installer archive THE SYSTEM SHALL prove C-01's exact tag, commit, source digest, upstream root VERSION bytes v0.15.1 plus LF and blob 5f1dd0af59642311ee04e018a0023562d4dde008, separately parse and match Sworn's committed multi-line manifest tag/SHA/digest, prove the complete mapped set, exact 78-entry archive path/mode/blob set, archive SHA-256 27d5021cb3ec258a7fd7a5feb6eed92968be0e6cb439e2951da7c6b368e0ca15, blob 39ae650dfe0282b0fa8bda14e1a01e7084077702, and byte-identical normative JSON with no unclassified schema (N-01, N-02, N-10).",
       "ears_pattern": "event-driven",
-      "test_refs": ["internal/baton/records_conformance_test.go:TestBatonV015ExactParity"]
+      "test_refs": ["internal/baton/records_conformance_test.go:TestBatonV015ExactParity", "internal/baton/validate_schema_test.go:TestValidateSchema_GoodAndBad", "internal/baton/validate_schema_test.go:TestValidateSchema_EffortComplexity"]
     },
     {
       "id": "AC-02",

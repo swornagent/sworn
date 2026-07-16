@@ -503,7 +503,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   slices; approximately 22 micro-slices.
 - **Decision**: Use the 18 slices below, each with one operator or maintainer
   outcome and one independent proof boundary. Keep every slice under the
-  15–25-file ceiling except the ratified 41-file S02 parity/install/doctor
+  15–25-file ceiling except the ratified 42-file S02 parity/install/doctor
   transaction: the normative mapped surface, complete offline installer input,
   and its one repair/recovery authority are indivisible.
 - **Why**: The decomposition separates deterministic primitives from lifecycle,
@@ -781,7 +781,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - **Mechanical correction**: The exact v0.15.1 tag installs eight commands,
   including `design-review.md`; both native trees derive that complete inventory
   from the validated archive.
-- **Boundary**: S02 is now an explicit forty-one-file bootstrap exception and a
+- **Boundary**: S02 is now an explicit forty-two-file bootstrap exception and a
   high-effort/high-complexity beast. It remains one slice because C-01 requires
   the binary embed, public parity, repository pin, and both supported installs
   to converge before any success claim. No vendoring or real-home mutation is
@@ -825,6 +825,26 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   Coach choices. Umask `0022` is the deterministic Type-2 default. Production,
   vendored, archive, and real-home writes remain blocked pending revised design
   and a fresh Captain `PROCEED`.
+
+### 2026-07-16 — Align embedded-schema valid fixtures inside S02
+
+- **Context**: After the Captain-approved implementation atomically vendored the
+  exact v0.15.1 `slice-status-v1` schema, the complete `internal/baton` package
+  exposed two stale literals in one existing test file. Both were labelled as
+  valid status examples but omitted the newly required `start_commit` and
+  `maintainability` members.
+- **Coach decision**: Add `internal/baton/validate_schema_test.go` to S02's
+  touchpoints and update only those two positive fixtures to the minimum valid
+  v0.15.1 shape. Do not weaken the embedded schema and do not migrate or
+  reinterpret active records; those authorities remain with S03–S05 and S17.
+- **Why now**: A red package suite caused by examples that falsely claim
+  conformance directly contradicts S02's exact-schema parity outcome. The same
+  file was already touched by verified S01 in this serial track, so S02 owns
+  only the schema-version alignment on top of that ancestry.
+- **Boundary**: This is a single-path mechanical scope correction, taking the
+  ratified bootstrap exception from 41 to 42 files. Implementation remains
+  paused at clean pushed checkpoint `7b57f64fbfe9d0540737034d1794100b80aeec3b`
+  until the amended planner gates pass and the delta is merged into T1.
 
 ## Schema-vs-spec audit notes
 
@@ -912,7 +932,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate; native `mark-shipped` performs exact Baton status/index bookkeeping while preserving the pure-plan board, hands push/cleanup to the human, and no-ops when nothing remains verified |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
-| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, normally under 25 files, with one explicit 41-file S02 complete-offline parity/install/doctor bootstrap exception after Captain review exposed its missing owners |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, normally under 25 files, with one explicit 42-file S02 complete-offline parity/install/doctor bootstrap exception after Captain review and exact-schema execution exposed its complete owners |
 | A-11 | How to group the 18 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; serial T2 command scaffold from S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
