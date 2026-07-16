@@ -275,3 +275,19 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
 - No remediation, closure review, Verifier dispatch, proof mutation,
   `implemented` transition, certification, real-home access, or
   `doctor --sync-baton` execution occurred in this checkpoint.
+
+## 2026-07-16 — Captain authorizes bounded transaction typestate remediation
+
+- A fresh read-only Captain reviewed formal blocker `F-01`, the live 2,645-line
+  transaction owner, existing fault/recovery tests, and the exact one-file
+  disposition boundary. Verdict: `PROCEED`; no Coach escalation or re-slice.
+- The five mechanical pins require complete `installPreflight`,
+  `capturedInstall`, `stagedInstall`, and `publishedInstall` private states;
+  recovery-only reconstruction from committed authority; preservation of every
+  contractual fault, durability, mode, topology, rollback, debris, diagnostic,
+  and error behavior; unchanged public APIs; removal of inert `needManifest`;
+  and authorship confined to `internal/baton/install_transaction.go`.
+- The Implementer may perform exactly one bounded remediation and run the
+  existing behavior suites. It must stop at the clean pushed semantic commit:
+  closure dispatch is prohibited until planning authority repins the sealed S02
+  authorization to that exact new review head.

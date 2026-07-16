@@ -67,3 +67,32 @@ DECISION: PROCEED
 CONSTITUTIONAL: yes
 REASON: The design now separates both VERSION identities and fully specifies deterministic installer modes, disjoint-root preflight, pre-replacement owner-only recovery authority, complete crash recovery, bounded ownership, and public fail-closed reachability.
 -->
+
+## 2026-07-16 — Fresh Captain review of cycle-0 maintainability remediation
+
+**Verdict:** `PROCEED` — five mechanical pins, no escalation.
+
+1. Replace `preparedInstall` with complete transition-produced
+   `installPreflight`, `capturedInstall`, `stagedInstall`, and
+   `publishedInstall` private values. Do not reintroduce optional phase fields
+   on a reusable bag or on `installTarget`.
+2. Fresh recovery reconstructs published authority only from the validated
+   sentinel, owner identity, manifest, and snapshots. It must not fabricate
+   captured/staged state or permit new installation work while a sentinel
+   exists.
+3. Preserve fault point names/order, transaction identity, fsync/rename
+   boundaries, modes, topology/inode checks, rollback, debris ownership,
+   path-only diagnostics, and `InstallError` behavior.
+4. Keep `InstallOpts`, `CheckBatonInstall`, and `SyncBatonInstall` unchanged;
+   remove the inert `prepareInstall` `needManifest` argument.
+5. Author only `internal/baton/install_transaction.go`; existing tests are the
+   public and crash-recovery behavior oracle.
+
+The owned-path map is the sole intentionally shared mutable ledger and transfers
+forward. Phase-specific helpers accept only the invariants they require.
+
+<!-- CAPTAIN-VERDICT
+DECISION: PROCEED
+CONSTITUTIONAL: yes
+REASON: The formal in-scope finding is satisfiable by a mechanical four-phase private typestate extraction in the single authorized file without changing public APIs or transaction semantics.
+-->

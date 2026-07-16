@@ -302,3 +302,40 @@ is an implementation action only after repository parity, fresh Captain
 - Confirm exact normative JSON and both independent installer oracles are
   mandatory on every success path; neither prose transformation nor a single
   matching mirror can establish parity.
+
+## Cycle-0 maintainability remediation — installer transaction typestate
+
+Formal preflight finding `F-01` supersedes the earlier no-refactor assumption
+for one bounded remediation in `internal/baton/install_transaction.go`. The
+public `InstallOpts`, `CheckBatonInstall`, and `SyncBatonInstall` APIs and every
+observable transaction/recovery behavior remain fixed.
+
+Replace the reusable `preparedInstall` state bag with four transition-produced
+private values:
+
+- `installPreflight`: resolved disjoint roots, logical targets, captured path
+  identities, and the fault seam; it owns no mutation state.
+- `capturedInstall`: complete owner-only snapshots, canonical sorted manifest
+  and bytes, operation/transaction identities, derived recovery paths, and the
+  transferred owned-path ledger.
+- `stagedInstall`: the captured authority plus complete verified desired stage
+  trees and their stage identities.
+- `publishedInstall`: validated durable recovery publication reconstructed from
+  the staged transition or, on sentinel recovery, solely from sentinel, owner
+  identity, manifest, and snapshots. Only replacement, restoration, unrestored
+  updates, retirement, and durable control writes accept this value.
+
+Targets become phase-specific wrappers rather than accumulating optional
+`snapshot` and `stage` fields. Each transition returns a complete value or an
+error; empty phase-required fields are invalid. The owned-path map is the sole
+intentionally shared mutable resource ledger and transfers forward. Existing
+algorithms, fault names/order, manifest-hash transaction identity, fsync/rename
+boundaries, modes, topology/inode revalidation, error classes/rendering,
+rollback, debris ownership, and recovery-only sentinel semantics remain
+byte-for-byte where contractual. Remove the inert `needManifest` parameter from
+`prepareInstall`; add no replacement option.
+
+The remediation authors only `internal/baton/install_transaction.go`. Existing
+tests remain the behavior oracle. After the tested semantic commit, the sealed
+S02 bootstrap authorization must be replanned to the exact new review head
+before the one permitted closure review can dispatch.
