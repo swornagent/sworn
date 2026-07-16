@@ -60,11 +60,6 @@
       "command": "git diff --check ed0badf68673f0af84834458f07be0792555484f..HEAD",
       "passed": true,
       "exit_code": 0
-    },
-    {
-      "command": "isolated deterministic first-pass: bin/sworn verify --verifier-model openai-completions/s21-proof-gate --spec docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.json",
-      "passed": true,
-      "exit_code": 0
     }
   ],
   "reachability": {
