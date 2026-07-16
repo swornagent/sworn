@@ -498,3 +498,20 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   No semantic edit followed the final closure PASS. No real Codex or Claude
   home was read or written; real-home synchronization remains prohibited until
   a fresh Verifier certifies this proof and all final gates pass.
+
+## Verifier verdicts received
+
+### 2026-07-16T22:39:04+10:00 — fresh artefact-only Verifier
+
+FAIL
+
+Slice: `S02-v015-parity-and-installs`
+
+Violations:
+1. Gate `3` — the public binary reachability test depends on a developer-specific host checkout.
+   Evidence: `cmd/sworn/doctor_test.go:61` passes `/home/brad/projects/baton`, but the test never creates that path. The current green run therefore relies on host state and the test will fail on a clean CI runner without Brad's sibling checkout.
+
+Required to address:
+1. Replace the absolute checkout path with a test-created exact v0.15.1 source derived from the committed installer archive or another repository-owned fixture, then rerun the focused reachability test and the full proof commands.
+
+Gate 8 did not run because Gate 3 failed. No authoritative Verifier maintainability report was created, and the pinned implementation head remains unchanged.
