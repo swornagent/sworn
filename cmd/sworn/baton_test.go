@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -143,6 +144,74 @@ func TestBatonDiffExitsZeroWhenInSync(t *testing.T) {
 	if exit != 0 {
 		t.Errorf("cmdBatonDiff clean exit = %d, want 0", exit)
 	}
+}
+
+// TestBatonDiffV015BinaryReachability is S02's Rule-1 red. It builds and
+// drives the registered public command against the exact repository-owned
+// offline input instead of importing a leaf parity helper directly.
+func TestBatonDiffV015BinaryReachability(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(repoRoot, "internal", "adopt", "baton", "installer-input-v0.15.1.tar")
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("read exact offline installer input: %v", err)
+	}
+
+	sourceRoot := extractBatonArchiveForReachability(t, archiveBytes)
+	bin := buildSworn(t)
+	cmd := exec.Command(bin, "baton", "diff", sourceRoot)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sworn baton diff exact v0.15.1 source: %v\n%s", err, output)
+	}
+}
+
+func extractBatonArchiveForReachability(t *testing.T, archiveBytes []byte) string {
+	t.Helper()
+	destination := t.TempDir()
+	reader := tar.NewReader(bytes.NewReader(archiveBytes))
+	const prefix = "baton-v0.15.1/"
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read installer archive: %v", err)
+		}
+		if !strings.HasPrefix(header.Name, prefix) {
+			t.Fatalf("installer archive entry %q lacks %q prefix", header.Name, prefix)
+		}
+		relative := strings.TrimPrefix(header.Name, prefix)
+		if relative == "" {
+			continue
+		}
+		target := filepath.Join(destination, filepath.FromSlash(relative))
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				t.Fatalf("create archive directory: %v", err)
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatalf("create archive parent: %v", err)
+			}
+			contents, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatalf("read archive file: %v", err)
+			}
+			if err := os.WriteFile(target, contents, 0o644); err != nil {
+				t.Fatalf("write archive file: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected archive type %d for %q", header.Typeflag, header.Name)
+		}
+	}
+	return destination
 }
 
 // -- upstream vendor integration tests (Rule 1: through the command) ---------
