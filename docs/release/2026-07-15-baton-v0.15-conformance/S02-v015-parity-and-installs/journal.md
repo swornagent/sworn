@@ -228,3 +228,50 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   remain candidates only. No report, status, proof, model, or real-home
   installation mutation occurred. Gate 8 must reconstruct the sealed entry and
   authorization from this clean pushed head before dispatch.
+
+## 2026-07-16 — Implementer Gate-8 cycle-0 preflight FAIL
+
+- Resumed from clean pushed track head
+  `8ca00899f8fa45a06c099d3e5a01095229e09fd8`, preserved immutable
+  `start_commit` `e61cb190736ee7483fb4ed1a993442b26ce3574c`, and kept semantic
+  review head `60097cfa65dc39d9a0ab174be7c627fde2d3f7d5` unchanged.
+- Reconstructed the sealed bootstrap manifest from live repository state. Its
+  SHA-256 is exactly
+  `f9e0de63c0a5ecf15cdb6058a52166ff0a609fa0d0cf2ecdf81d7955030b1943`;
+  Draft 2020-12 schema, duplicate-key rejection, exact S02 authorization, exact
+  `b8df1857` / `7696c9bf` tuples and exceptional path sets, and ordinary
+  section-6 validation for every other path all passed. Post-review
+  synchronization `d54c102f` also passed ordinary composition, and record-only
+  `8ca0089` introduced no semantic path.
+- Recomputed the canonical semantic scope from Git: 45 included paths, 9
+  excluded release-record paths, no generated or lockfile exclusion, exact
+  `baton-maintainability-v1` fingerprint
+  `sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7`,
+  789,223 canonical diff bytes, and presentation SHA-256
+  `1a6184fc611f1eaaa63468268fb9bfcbe8af0ebf6909ad6018b12d3a3091879f`.
+- Dispatched exactly one fresh no-history role-isolated Implementer preflight,
+  invocation `ff6145c0-2d33-46f7-af38-2ab742516425`. The reviewer consumed only
+  the untouched tagged prompt/schema, Sworn raw-response constraint, supplied
+  project context, and every path in the canonical diff. A fail-closed immutable
+  input-path correction occurred before diff inspection and did not change the
+  invocation, scope, or fingerprint.
+- The exact raw response passed duplicate-key rejection, tagged Baton schema,
+  Sworn raw-response overlay, identity/scope, unique-finding, structured-
+  disposition, and derived-verdict checks. It returned `FAIL`: blocking `F-01`
+  requires bounded phase-specific private state within
+  `internal/baton/install_transaction.go`; advisory `F-02` identifies the inert
+  `prepareInstall` `needManifest` parameter.
+- Persisted the complete engine-provenance report at
+  `reports/maintainability/implementer-cycle-0-ff6145c0-2d33-46f7-af38-2ab742516425.json`
+  in commit `bce66675862c18286dfee5d59f462ee50359abb1`; its committed blob is
+  `6f95a34a0273d95f8f9d2008b1f9355f4179f7c1`. Exact Baton plus persisted
+  overlay validation and all synchronization provenance checks passed.
+- Applied the mandatory cycle-0 in-scope FAIL transition only:
+  `maintainability.state` remains `pending`, `cycle` remains 0,
+  `implementation_head` remains null, the unique compact FAIL ledger entry
+  pins blocking ID `F-01`, and adjudication remains null. The next authority is
+  one bounded in-scope remediation followed by exactly one Implementer closure
+  review.
+- No remediation, closure review, Verifier dispatch, proof mutation,
+  `implemented` transition, certification, real-home access, or
+  `doctor --sync-baton` execution occurred in this checkpoint.
