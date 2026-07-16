@@ -10,10 +10,10 @@
     "N-04",
     "N-05"
   ],
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "codex-implementer",
   "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-17T07:37:52+10:00",
+  "last_updated_at": "2026-07-17T08:00:00+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
@@ -57,7 +57,7 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "See spec.json; one state-evidence authority crosses Git, board, CLI, lifecycle selection, provenance, and real-ref integration boundaries.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending",
