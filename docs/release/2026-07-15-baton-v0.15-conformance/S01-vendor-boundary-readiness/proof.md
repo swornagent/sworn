@@ -8,7 +8,9 @@ is `proof.json` (`proof-v1`).
 Repair the public Baton vendor boundary so exact v0.15.1 candidates are
 materialised and validated before mutation, VERSION participates in the same
 durable transaction, recovery fails closed, check mode is mutation-free, and
-valid results map only to public exits 0, 1, or 2.
+valid results map only to public exits 0, 1, or 2. Before handoff, run the exact
+planning-authority Implementer maintainability preflight over the stable
+committed semantic diff and pin its immutable evidence.
 
 ## Files changed
 
@@ -20,10 +22,14 @@ $ git diff --name-only 5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18..HEAD
 cmd/sworn/baton.go
 cmd/sworn/baton_test.go
 docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md
+docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json
+docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.md
+docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json
 docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json
 docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json
 docs/release/2026-07-15-baton-v0.15-conformance/index.md
 docs/release/2026-07-15-baton-v0.15-conformance/intake.md
+docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md
 internal/baton/diff_test.go
 internal/baton/transform.go
 internal/baton/transform_test.go
@@ -49,6 +55,13 @@ $ go test ./...                                  # exit 0
 $ go vet ./...                                   # exit 0
 $ make build                                     # exit 0; bin/sworn built
 $ git diff --check                               # exit 0
+$ bin/sworn lint ac 2026-07-15-baton-v0.15-conformance       # exit 0
+$ bin/sworn lint trace 2026-07-15-baton-v0.15-conformance    # exit 0
+$ bin/sworn lint coverage --slice S01-vendor-boundary-readiness \
+    --release 2026-07-15-baton-v0.15-conformance \
+    --base 5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18        # exit 0; 5/5 ACs
+$ bin/sworn reqvalidate 2026-07-15-baton-v0.15-conformance   # exit 0
+$ bin/sworn designfit 2026-07-15-baton-v0.15-conformance     # exit 0
 ```
 
 The targeted tests cover every apply and rollback position across mapped files
@@ -87,6 +100,24 @@ changed: internal/prompt/verifier.md
 drives the same public command boundary through clean, drift, invalid-source,
 apply-failure, incomplete-rollback, recovery-only, positional `--check`,
 upstream-before-network, VERSION-drift, and mode-only cases.
+
+## Maintainability Implementer preflight
+
+- **Operation:** exact Baton v0.15.1 `maintainability-review`, cycle 0,
+  Implementer `preflight`, temperature 0, fresh role-isolated judgement.
+- **Reviewed semantic head:**
+  `d062d055cdbe90e8290f0bf47574be660cd9a675` from immutable base
+  `5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18`.
+- **Canonical fingerprint:**
+  `sha256:6dccd1e4ddaa76e9622f86026fa62700dc935b6ac5b65df95191974829a8bbad`.
+- **Result:** `PASS`, zero findings.
+- **Durable report:**
+  `reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json`,
+  committed blob `19bfd61e8b82e616df3e657f5b783918948b25ca`.
+- **Lifecycle:** `status.json` appends the exact ledger identity, sets
+  `maintainability.state` to `passed`, and pins `implementation_head` to the
+  reviewed head. A distinct fresh Verifier authoritative report is still
+  required before `verified`.
 
 ## Proof-bundle first pass
 
@@ -128,6 +159,13 @@ that unavailable path.
 - **AC-04:** the public command exposes only exits 0, 1, and 2; check mode is
   mutation-free and diagnostics are path-only. Evidence:
   `TestBatonVendorAtomicPreflightReachability` and the live CLI run above.
+- **AC-05 Implementer half:** the planning-authority adapter constructed the
+  exact tagged v0.15.1 semantic scope across both recognized release-wt
+  synchronizations, ran one fresh role-isolated review, committed its
+  schema-valid cycle-0 preflight `PASS`, pinned the full-report blob and
+  fingerprint in the append-only ledger, and set `implementation_head` to the
+  reviewed semantic head. The fresh Verifier still owns the distinct
+  authoritative invocation required before `verified`.
 - Candidate order is deterministic and linear through an MSD byte-radix pass,
   with no second hardcoded mapping authority for S02 to update.
 
@@ -137,9 +175,11 @@ that unavailable path.
   Why: the Coach-ratified boundary confines S01 to machinery and proof.
   Tracking: `S02-v015-parity-and-installs`. Acknowledged by the Coach in the
   design review and replan.
-- **Automated v0.15 maintainability authority for this bootstrap slice.** Why:
-  the conformant engine does not exist until cutover, so a current PASS cannot
-  be manufactured. Tracking: `S13-maintainability-engine-cutover`.
+- **Generalized maintainability command, lifecycle coordination, track
+  composition/rollback handling, bootstrap-report revalidation, and
+  planning-to-current cutover.** Why: S01 runs only its exact per-slice
+  planning-authority adapter; it grants no reusable public command or current
+  protocol authority. Tracking: `S13-maintainability-engine-cutover`.
   Acknowledged by the Coach's staged-bootstrap decision.
 
 ## Divergence from plan

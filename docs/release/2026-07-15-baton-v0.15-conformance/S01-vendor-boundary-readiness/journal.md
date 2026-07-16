@@ -192,3 +192,55 @@ Proposed spec.json amendment: Add an in-scope item and acceptance criterion requ
 - Exact v0.15.1 schema validation, release-wide EARS/trace/requirements/design-fit
   gates, and a fresh tagged spec-ambiguity check all passed after the correction;
   the ambiguity report contained no blocking or advisory findings.
+
+## 2026-07-16 — Implementer planning-authority Gate-8 preflight
+
+- Resumed only S01 from clean, pushed track head
+  `d062d055cdbe90e8290f0bf47574be660cd9a675`; preserved immutable
+  `start_commit` `5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18` and the empty
+  pending cycle-0 report prefix.
+- Constructed the exact tagged v0.15.1 committed semantic scope. The two
+  first-parent release-wt synchronizations were recognized as
+  `36d1bd56cdc12ddc824533e24d385ef9e8cc550a`
+  (`dc9835e4` + `91565990`, unique base `05eefeb0`) and
+  `d062d055cdbe90e8290f0bf47574be660cd9a675`
+  (`190decb5` + `73afccd6`, unique base `91565990`). Both parent-2 commits
+  lie on release-wt first-parent history, introduce release-record-only
+  provenance, validate exact `board-v1`, and have no non-record composition
+  mismatch or slice/merge overlap.
+- The canonical scope contains thirteen included authored Go/test paths and
+  eight excluded release-record paths, with no generated or lockfile
+  exclusion. Its exact `baton-maintainability-v1` manifest fingerprint is
+  `sha256:6dccd1e4ddaa76e9622f86026fa62700dc935b6ac5b65df95191974829a8bbad`.
+  The canonical diff is 150,577 bytes; its presentation SHA-256 is
+  `7d3fdee073060f3d8863f17eea3d65bfb355809a490c1e2109f535877e45eac6`.
+- Dispatched one fresh no-history role-isolated subagent
+  `s01_maintainability_preflight`, invocation
+  `121966a1-0de7-43c5-bd65-fcb901f0ebe6`, loaded only with the untouched
+  tagged maintainability prompt, fail-closed inferred project context, exact
+  canonical diff, and structured-output schema identity. It returned the
+  cycle-0 Implementer `preflight` verdict `PASS` with zero findings. No
+  remediation or closure review was run.
+- Persisted the complete schema-valid report at
+  `reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json`
+  in commit `85ce9ed5698532ba7ff2bbc900991a4b63cb878f`; its committed blob is
+  `19bfd61e8b82e616df3e657f5b783918948b25ca`. Commit
+  `f6a48ad22cb5cdaff0d2867f40cdee194e95af0e` then appended the unique
+  matching ledger entry, set `maintainability.state: passed`, and pinned
+  `implementation_head` to the reviewed `d062d055` semantic head.
+- Corrected the proof to deliver AC-05's Implementer half and removed the
+  invalid S13 deferral for S01's own Gate-8 evidence. S13 retains its actual
+  generalized command, lifecycle, composition, rollback, bootstrap-report
+  revalidation, and planning-to-current cutover scope.
+- Live reruns passed: `go test ./internal/baton ./cmd/sworn -count=1`,
+  `go test ./...`, `go vet ./...`, `make build`, `git diff --check`, exact
+  tagged schema/overlay/duplicate-key and blob-ledger freshness validation,
+  release EARS/trace/requirements/design-fit gates, and S01 coverage (5/5).
+  The public `bin/sworn baton vendor /home/brad/projects/baton --check`
+  reachability rerun returned the expected valid-drift exit 1 and path-only
+  seventeen-file list. The proof-bundle first pass returned
+  `{"verdict":"PASS","rationale":"","cost_usd":0}` with exit 0.
+- Transitioned `in_progress -> implemented` only after the real preflight PASS
+  and proof gates. The fresh Verifier still owns the distinct authoritative
+  maintainability invocation and overall verification verdict; this session
+  ran neither and did not mark the slice `verified`.

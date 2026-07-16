@@ -2,17 +2,19 @@
   "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
   "slice_id": "S01-vendor-boundary-readiness",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "scope": "Repair the public Baton vendor boundary so exact v0.15.1 candidates are materialised and validated before mutation, VERSION participates in the same durable transaction, recovery fails closed, check mode is mutation-free, and valid results map only to public exits 0, 1, or 2.",
+  "scope": "Repair the public Baton vendor boundary so exact v0.15.1 candidates are materialised and validated before mutation, VERSION participates in the same durable transaction, recovery fails closed, check mode is mutation-free, valid results map only to public exits 0, 1, or 2, and the stable committed semantic diff receives its exact planning-authority Implementer maintainability preflight before handoff.",
   "files_changed": [
     "cmd/sworn/baton.go",
     "cmd/sworn/baton_test.go",
     "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json",
     "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
     "docs/release/2026-07-15-baton-v0.15-conformance/intake.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md",
     "internal/baton/diff_test.go",
     "internal/baton/transform.go",
     "internal/baton/transform_test.go",
@@ -50,6 +52,31 @@
       "command": "git diff --check",
       "passed": true,
       "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint ac 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint trace 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint coverage --slice S01-vendor-boundary-readiness --release 2026-07-15-baton-v0.15-conformance --base 5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn reqvalidate 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn designfit 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
     }
   ],
   "reachability": {
@@ -74,6 +101,10 @@
       "evidence": "cmd/sworn/baton.go; cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability; live CLI reachability evidence in this proof"
     },
     {
+      "item": "AC-05 Implementer half: the planning-authority adapter constructed the exact tagged v0.15.1 committed semantic scope across the recognized release-wt synchronizations, invoked one fresh temperature-0 role-isolated review, persisted its schema-valid cycle-0 preflight PASS, pinned the committed report blob and input fingerprint in the append-only ledger, and set maintainability.implementation_head to the reviewed semantic head. The distinct fresh Verifier authoritative review remains mandatory before verified.",
+      "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json at blob 19bfd61e8b82e616df3e657f5b783918948b25ca; status.json maintainability report ledger; review_scope.head d062d055cdbe90e8290f0bf47574be660cd9a675; input_fingerprint sha256:6dccd1e4ddaa76e9622f86026fa62700dc935b6ac5b65df95191974829a8bbad"
+    },
+    {
       "item": "The transaction orders destination paths with an O(total bytes plus files) byte-radix pass and discovers the complete candidate set from the mapping, so later S02 mapping additions do not require another vendor ordering authority.",
       "evidence": "internal/baton/vendor.go; internal/baton/vendor_test.go"
     }
@@ -86,8 +117,8 @@
       "acknowledged": true
     },
     {
-      "item": "Claim automated v0.15 maintainability authority for this bootstrap slice.",
-      "why": "The conformant maintainability engine does not exist until the self-hosting cutover; this slice is governed by the ratified manual bootstrap and must not fabricate a current engine PASS.",
+      "item": "Deliver the generalized public maintainability command, automated lifecycle coordinator, track-composition and rollback handling, bootstrap-report revalidation, and planning-to-current cutover.",
+      "why": "S01 executes only the exact per-slice planning-authority adapter required for its own Gate-8 evidence; it grants no reusable public command or current protocol authority.",
       "tracking": "S13-maintainability-engine-cutover",
       "acknowledged": true
     }
