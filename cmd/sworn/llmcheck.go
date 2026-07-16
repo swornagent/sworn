@@ -16,14 +16,16 @@ import (
 
 // cmdLLMCheck dispatches `sworn llm-check --type <check> --slice <id> --release <name>`.
 //
-// Six check types are available:
+// Five active check types are available; the historical generic
+// maintainability-review spelling is recognised only to return migration
+// guidance before any release, model, or diff work:
 //
 //	ac-satisfaction      — does the code actually satisfy each AC?
 //	spec-ambiguity        — are any ACs vague, incomplete, or underspecified?
 //	design-review         — does the design conflict with project memory?
 //	security-review       — does the change introduce vulnerabilities?
 //	semantic-coverage     — do tests genuinely verify their ACs?
-//	maintainability-review — is the code understandable 12 months from now?
+//	maintainability-review — retired; use sworn maintainability review
 //
 // Each check calls a configured LLM (model resolved from --model, then
 // $SWORN_VERIFIER_MODEL, then config.json — the same precedence as reqverify
@@ -34,7 +36,7 @@ import (
 // and are not run in the default lint path.
 func cmdLLMCheck(args []string) int {
 	fs := flag.NewFlagSet("llm-check", flag.ExitOnError)
-	checkType := fs.String("type", "", "check type (ac-satisfaction|spec-ambiguity|design-review|security-review|semantic-coverage|maintainability-review)")
+	checkType := fs.String("type", "", "check type (ac-satisfaction|spec-ambiguity|design-review|security-review|semantic-coverage; maintainability-review is retired: use sworn maintainability review)")
 	sliceID := fs.String("slice", "", "slice ID (e.g. S70-llm-check)")
 	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
 	modelID := fs.String("model", "", "model ID (provider/model); default: $SWORN_VERIFIER_MODEL or config.json verifier model")
@@ -52,7 +54,11 @@ func cmdLLMCheck(args []string) int {
 	ct := gate.CheckType(*checkType)
 	if !gate.ValidCheckTypes[ct] {
 		fmt.Fprintf(os.Stderr, "sworn llm-check: unknown check type %q\n", *checkType)
-		fmt.Fprintf(os.Stderr, "valid types: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage, maintainability-review\n")
+		fmt.Fprintf(os.Stderr, "valid types: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage; maintainability-review is retired (use sworn maintainability review)\n")
+		return 64
+	}
+	if gate.IsRetiredLLMCheck(ct) {
+		fmt.Fprintf(os.Stderr, "sworn llm-check: %s\n", gate.RetiredMaintainabilityGuidance)
 		return 64
 	}
 

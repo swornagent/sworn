@@ -338,7 +338,7 @@ func RegisterLintTools(s *Server, repoRoot string) {
 		"properties": {
 			"release":  {"type": "string", "description": "Release name"},
 			"slice_id": {"type": "string", "description": "Slice ID"},
-			"type":     {"type": "string", "description": "Check type: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage, maintainability-review"},
+			"type":     {"type": "string", "description": "Check type: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage; maintainability-review is retired (use sworn maintainability review)"},
 			"model":    {"type": "string", "description": "Optional model ID (provider/model); default: $SWORN_VERIFIER_MODEL or config.json verifier model"},
 			"base":     {"type": "string", "description": "Optional base ref for git diff"}
 		},
@@ -357,7 +357,13 @@ func RegisterLintTools(s *Server, repoRoot string) {
 
 		ct := gate.CheckType(p.Type)
 		if !gate.ValidCheckTypes[ct] {
-			return nil, fmt.Errorf("unknown check type %q (valid: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage, maintainability-review)", p.Type)
+			return nil, fmt.Errorf("unknown check type %q (valid: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage; maintainability-review is retired: use sworn maintainability review)", p.Type)
+		}
+		if gate.IsRetiredLLMCheck(ct) {
+			return &ToolResult{
+				IsError: true,
+				Content: []ContentItem{{Type: "text", Text: gate.RetiredMaintainabilityGuidance}},
+			}, nil
 		}
 
 		releaseDir := resolveMCPReleaseDir(repoRoot, p.Release)
@@ -411,7 +417,10 @@ func RegisterLintTools(s *Server, repoRoot string) {
 		}
 
 		b, _ := json.Marshal(report)
-		return &ToolResult{Content: []ContentItem{{Type: "text", Text: string(b)}}}, nil
+		return &ToolResult{
+			IsError: report.HasViolations(),
+			Content: []ContentItem{{Type: "text", Text: string(b)}},
+		}, nil
 	})
 }
 

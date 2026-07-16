@@ -1,6 +1,10 @@
 package gate
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func boolp(b bool) *bool { return &b }
 
@@ -125,5 +129,67 @@ func TestHasViolations_ModelFailVerdictAlwaysBlocks(t *testing.T) {
 	r := &LLMCheckReport{CheckType: CheckSpecAmbiguity, Verdict: "FAIL", Findings: nil}
 	if !r.HasViolations() {
 		t.Error("a FAIL verdict must block even with no findings")
+	}
+}
+
+// TestCheckIdentityMismatchFailsClosed keeps a model from borrowing the
+// requested label. Missing and unknown values fail schema validation; a wrong
+// known check reaches the explicit requested/emitted equality gate.
+func TestCheckIdentityMismatchFailsClosed(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"S01-test/spec.md": "# Slice: S01-test\n\n## Acceptance checks\n\n- [ ] THE SYSTEM SHALL fail closed.\n",
+	})
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "wrong known identity",
+			raw:  `{"check":"design-review","verdict":"PASS","findings":[]}`,
+			want: "identity mismatch",
+		},
+		{
+			name: "missing identity",
+			raw:  `{"verdict":"PASS","findings":[]}`,
+			want: "llm-check-report-v1",
+		},
+		{
+			name: "unknown identity",
+			raw:  `{"check":"unknown-check","verdict":"PASS","findings":[]}`,
+			want: "llm-check-report-v1",
+		},
+		{
+			name: "duplicate identity",
+			raw:  `{"check":"ac-satisfaction","check":"design-review","verdict":"PASS","findings":[]}`,
+			want: "Unparseable model response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockVerifier{text: tt.raw}
+			report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, dir+"/S01-test", "", mock)
+			if err != nil {
+				t.Fatalf("RunLLMCheck: %v", err)
+			}
+			if !report.HasViolations() || report.Verdict != "FAIL" {
+				t.Fatalf("identity failure must block, got %+v", report)
+			}
+			if !strings.Contains(report.RawResponse, `"verdict":"PASS"`) {
+				t.Fatalf("raw model response was lost: %q", report.RawResponse)
+			}
+			var details []string
+			for _, finding := range report.Findings {
+				details = append(details, finding.Title+" "+finding.Detail)
+			}
+			if !strings.Contains(strings.Join(details, "\n"), tt.want) {
+				t.Fatalf("failure detail = %q, want %q", strings.Join(details, "\n"), tt.want)
+			}
+			if mock.structuredCalls != 1 || mock.verifyCalls != 0 {
+				t.Fatalf("structured/raw calls = %d/%d, want 1/0", mock.structuredCalls, mock.verifyCalls)
+			}
+		})
 	}
 }

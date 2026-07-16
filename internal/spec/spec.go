@@ -7,7 +7,6 @@
 package spec
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,6 +34,16 @@ type AC struct {
 	TestRefs    []string `json:"test_refs,omitempty"`
 }
 
+// Reference is one typed, direct normative input to spec-ambiguity. Exactly
+// one identifier field is populated according to Kind; spec-v1 validates the
+// discriminated shape before the resolver reads it.
+type Reference struct {
+	Kind       string `json:"kind"`
+	ContractID string `json:"contract_id,omitempty"`
+	SliceID    string `json:"slice_id,omitempty"`
+	Path       string `json:"path,omitempty"`
+}
+
 // Record is the subset of a spec-v1 spec.json that read-side consumers use.
 //
 // in_scope/out_of_scope became required spec-v1 fields at baton v0.10.0
@@ -42,13 +51,14 @@ type AC struct {
 // reader parses and exposes them so gates and verifiers read one boundary
 // source instead of re-scraping markdown.
 type Record struct {
-	SliceID            string   `json:"slice_id"`
-	Release            string   `json:"release"`
-	UserOutcome        string   `json:"user_outcome"`
-	InScope            []string `json:"in_scope"`
-	OutOfScope         []string `json:"out_of_scope"`
-	CoversNeeds        []string `json:"covers_needs"`
-	AcceptanceCriteria []AC     `json:"acceptance_criteria"`
+	SliceID            string      `json:"slice_id"`
+	Release            string      `json:"release"`
+	UserOutcome        string      `json:"user_outcome"`
+	InScope            []string    `json:"in_scope"`
+	OutOfScope         []string    `json:"out_of_scope"`
+	CoversNeeds        []string    `json:"covers_needs"`
+	AcceptanceCriteria []AC        `json:"acceptance_criteria"`
+	References         []Reference `json:"references,omitempty"`
 }
 
 // ReadRecord loads spec.json from a slice directory.
@@ -67,7 +77,7 @@ func ReadRecord(sliceDir string) (*Record, error) {
 		return nil, fmt.Errorf("spec: read %s: %w", path, err)
 	}
 	var r Record
-	if err := json.Unmarshal(data, &r); err != nil {
+	if err := DecodeJSONNoDuplicate(data, &r); err != nil {
 		return nil, fmt.Errorf("spec: parse %s: %w", path, err)
 	}
 	return &r, nil

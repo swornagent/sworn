@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/board"
@@ -140,6 +143,148 @@ release_worktree_branch: release-wt/2026-06-19-test-release
 	if err != nil && !strings.Contains(err.Error(), "unknown check type") {
 		t.Errorf("expected 'unknown check type' error, got: %v", err)
 	}
+}
+
+// TestMCPGenericCheckIdentityReachability invokes the registered public MCP
+// handler, not the gate directly. A wrong, missing, or unknown identity must
+// remain observable in the raw response and produce MCP non-success.
+func TestMCPGenericCheckIdentityReachability(t *testing.T) {
+	fr := setupFixtureRelease(t, "2026-07-17-mcp-identity")
+	fr.writeSlice(t, "S01-test", `# Slice: S01-test
+
+## Acceptance checks
+
+- [ ] THE SYSTEM SHALL preserve a model-emitted check identity.
+`)
+
+	responses := []string{
+		`{"check":"design-review","verdict":"PASS","findings":[]}`,
+		`{"verdict":"PASS","findings":[]}`,
+		`{"check":"unknown-check","verdict":"PASS","findings":[]}`,
+	}
+	var structuredCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var request struct {
+			ResponseFormat json.RawMessage `json:"response_format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode model request: %v", err)
+		}
+		if len(request.ResponseFormat) == 0 {
+			t.Error("MCP generic check did not use schema-constrained output")
+		}
+		call := structuredCalls.Add(1) - 1
+		if int(call) >= len(responses) {
+			t.Errorf("unexpected model call %d", call+1)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": responses[call]}}},
+		})
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"version":1,"verifier":{"model":"openai-completions/test-model"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", server.URL)
+
+	s := New()
+	RegisterLintTools(s, fr.Root)
+	for _, tt := range []struct {
+		name          string
+		rawCheckMatch string
+	}{
+		{name: "wrong known identity", rawCheckMatch: `\"check\":\"design-review\"`},
+		{name: "missing identity", rawCheckMatch: `\"verdict\":\"PASS\"`},
+		{name: "unknown identity", rawCheckMatch: `\"check\":\"unknown-check\"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := callRegisteredTool(s, "sworn.llm_check", json.RawMessage(`{"release":"2026-07-17-mcp-identity","slice_id":"S01-test","type":"ac-satisfaction","base":"HEAD"}`))
+			if err != nil {
+				t.Fatalf("registered MCP handler: %v", err)
+			}
+			if result == nil || !result.IsError {
+				t.Fatalf("invalid identity must produce MCP non-success: %+v", result)
+			}
+			if len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, tt.rawCheckMatch) {
+				t.Fatalf("MCP handler lost or relabelled raw identity: %+v", result)
+			}
+		})
+	}
+	if structuredCalls.Load() != int32(len(responses)) {
+		t.Fatalf("structured output calls = %d, want %d", structuredCalls.Load(), len(responses))
+	}
+}
+
+// TestMCPGenericMaintainabilityReviewRetiredWithoutDispatch ensures the
+// registered public handler stops before release/model/diff work even when the
+// inputs would otherwise make those steps fail.
+func TestMCPGenericMaintainabilityReviewRetiredWithoutDispatch(t *testing.T) {
+	fr := setupFixtureRelease(t, "2026-07-17-mcp-retired")
+	fr.writeSlice(t, "S01-test", "# Slice: S01-test\n")
+	before := mcpFixtureTreeSnapshot(t, fr.Root)
+	var modelCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		modelCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	t.Setenv("SWORN_CONFIG_PATH", filepath.Join(t.TempDir(), "missing-config.json"))
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", server.URL)
+
+	s := New()
+	RegisterLintTools(s, fr.Root)
+	result, err := callRegisteredTool(s, "sworn.llm_check", json.RawMessage(`{"release":"2026-07-17-mcp-retired","slice_id":"S01-test","type":"maintainability-review","model":"openai-completions/test-model","base":"definitely-not-a-ref"}`))
+	if err != nil {
+		t.Fatalf("retired MCP check returned transport error: %v", err)
+	}
+	if result == nil || !result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "use sworn maintainability review") {
+		t.Fatalf("retired MCP check did not return dedicated non-success guidance: %+v", result)
+	}
+	if modelCalls.Load() != 0 {
+		t.Fatalf("retired MCP check dispatched %d model calls, want 0", modelCalls.Load())
+	}
+	if after := mcpFixtureTreeSnapshot(t, fr.Root); after != before {
+		t.Fatalf("retired MCP check mutated the fixture tree\nbefore: %q\nafter:  %q", before, after)
+	}
+}
+
+func mcpFixtureTreeSnapshot(t *testing.T, root string) string {
+	t.Helper()
+	var files []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel)+"\x00"+string(contents))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(files)
+	return strings.Join(files, "\n")
 }
 
 // TestLintTools_LintTraceWithFixture verifies that sworn.lint_trace runs against

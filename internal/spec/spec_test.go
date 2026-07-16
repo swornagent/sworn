@@ -23,6 +23,11 @@ func TestReadRecord_ParsesSpecV1(t *testing.T) {
   "acceptance_criteria": [
     {"id": "AC-1", "ears_pattern": "ubiquitous", "text": "THE SYSTEM SHALL do X."},
     {"id": "AC-2", "ears_pattern": "event-driven", "text": "WHEN Y THE SYSTEM SHALL do Z."}
+  ],
+  "references": [
+    {"kind":"contract","contract_id":"C-01"},
+    {"kind":"slice","slice_id":"S02-consumer"},
+    {"kind":"file","path":"docs/public-contract.md"}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(specJSON), 0o644); err != nil {
@@ -56,6 +61,9 @@ func TestReadRecord_ParsesSpecV1(t *testing.T) {
 	}
 	if rec.AcceptanceCriteria[0].Text != "THE SYSTEM SHALL do X." {
 		t.Errorf("unexpected AC text %q", rec.AcceptanceCriteria[0].Text)
+	}
+	if len(rec.References) != 3 || rec.References[0].ContractID != "C-01" || rec.References[1].SliceID != "S02-consumer" || rec.References[2].Path != "docs/public-contract.md" {
+		t.Errorf("typed references were not retained: %+v", rec.References)
 	}
 }
 

@@ -48,3 +48,32 @@
   must stop at `implemented`; a fresh S04 verifier PASS is the only event that
   may unblock S20, which must then rerun its own readiness and maintainability
   evidence.
+
+## 2026-07-17T06:44:31+10:00 — Implementation checkpoint
+
+- Applied Captain pin 1 through the existing `model.ChatStructuredJSON`
+  boundary only. Generic and dedicated calls retain the exact vendored system
+  prompt and common two-message payload; the unmodified embedded schema is a
+  separate output envelope. There is no prompt overlay, synthesized generic
+  `check`, or raw `Verify` fallback.
+- Added the C-02 resolver as the sole typed-reference authority. It validates
+  the reviewed spec before workspace discovery, uses the prescribed unsafe
+  failure precedence, confines physical targets, renders safe unresolved
+  vocabulary deterministically, and uses a byte-radix ordering pass to retain
+  the stated linear sorting bound. It never scans prose, touchpoints,
+  acceptance text, test refs, or referenced artifacts recursively.
+- Routed `spec-ambiguity` through a dedicated map-preserving
+  `spec-ambiguity-report-v1` parser/renderer. Generic report parsing cannot be
+  used for ambiguity, and an attempted flattened ambiguity wrapper renders as
+  a missing dedicated report rather than accepting generic findings.
+- Applied requested/emitted identity matching to every active generic check;
+  missing, unknown, duplicate, or wrong identities fail closed. CLI and MCP
+  public-path tests exercise wrong, missing, and unknown identities through
+  local schema-constrained model endpoints without relabelling raw output.
+- Retired generic `maintainability-review` at gate, CLI, and registered MCP
+  entry before release, configuration, model, or diff work. Public tests prove
+  exit/non-success guidance, zero model requests, and unchanged fixture trees.
+- Focused resolver, gate, MCP, and built-CLI reachability tests pass. The
+  ordinary host build needs `GOFLAGS=-buildvcs=false`: Go otherwise attempts
+  VCS stamping from the stale non-repository `/home/brad/.git`. This is a host
+  metadata condition, not a change to S04 or its release records.

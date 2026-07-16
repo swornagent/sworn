@@ -2,23 +2,67 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/project"
+	"github.com/swornagent/sworn/internal/prompt"
 )
 
 // --- mock model verifier ---
 
 // mockVerifier implements model.Verifier with canned responses.
 type mockVerifier struct {
-	text    string
-	costUSD float64
-	err     error
+	text             string
+	costUSD          float64
+	err              error
+	structuredCalls  int
+	verifyCalls      int
+	systemPrompt     string
+	userPayload      string
+	structuredSchema [][]byte
 }
 
 func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	m.verifyCalls++
 	return m.text, m.costUSD, 0, 0, m.err
+}
+
+func (m *mockVerifier) ChatStructured(_ context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
+	m.structuredCalls++
+	if len(messages) >= 2 {
+		m.systemPrompt = messages[0].Content
+		m.userPayload = messages[1].Content
+	}
+	m.structuredSchema = append(m.structuredSchema, append([]byte(nil), schema...))
+	if m.err != nil {
+		return nil, m.err
+	}
+	response := &model.ChatResponse{
+		Choices: []struct {
+			Message struct {
+				Content   string           `json:"content"`
+				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		}{{}},
+	}
+	response.Choices[0].Message.Content = m.text
+	return response, nil
+}
+
+// rawOnlyVerifier intentionally has no StructuredOutput implementation. It
+// prevents a future refactor from quietly falling back to Verify() when a
+// configured model cannot enforce the output schema.
+type rawOnlyVerifier struct {
+	verifyCalls int
+}
+
+func (v *rawOnlyVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	v.verifyCalls++
+	return `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`, 0, 0, 0, nil
 }
 
 // --- prompt building tests ---
@@ -173,6 +217,44 @@ Test outcome.
 	}
 }
 
+func TestGenericCheckPreservesVendoredPromptAndCommonPayload(t *testing.T) {
+	const specMD = "# Slice: S01-test\n\n## Acceptance checks\n\n- [ ] THE SYSTEM SHALL retain the exact prompt boundary.\n"
+	dir := fixture(t, map[string]string{"S01-test/spec.md": specMD})
+	sliceDir := dir + "/S01-test"
+	mock := &mockVerifier{text: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`}
+
+	report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, sliceDir, "diff --git a/a b/a", mock)
+	if err != nil {
+		t.Fatalf("RunLLMCheck: %v", err)
+	}
+	if report.HasViolations() {
+		t.Fatalf("matching structured response unexpectedly failed: %+v", report)
+	}
+	wantPrompt, err := prompt.LLMCheck(string(CheckACSatisfaction))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mock.systemPrompt != wantPrompt {
+		t.Fatal("generic system prompt bytes drifted from the vendored prompt")
+	}
+	wantPayload := buildUserPayload(project.Resolve(project.RepoRootFrom(sliceDir)), specMD, "diff --git a/a b/a")
+	if mock.userPayload != wantPayload {
+		t.Fatalf("generic common user payload drifted\nwant: %q\n got: %q", wantPayload, mock.userPayload)
+	}
+}
+
+func TestGenericCheckRequiresStructuredOutputWithoutRawFallback(t *testing.T) {
+	dir := fixture(t, map[string]string{"S01-test/spec.md": "# Slice\n"})
+	rawOnly := &rawOnlyVerifier{}
+	_, err := RunLLMCheck(context.Background(), CheckACSatisfaction, dir+"/S01-test", "", rawOnly)
+	if !errors.Is(err, model.ErrStructuredUnsupported) {
+		t.Fatalf("RunLLMCheck error = %v, want structured-output unsupported", err)
+	}
+	if rawOnly.verifyCalls != 0 {
+		t.Fatalf("generic check fell back to raw Verify %d time(s)", rawOnly.verifyCalls)
+	}
+}
+
 func TestRunLLMCheck_Fail(t *testing.T) {
 	dir := fixture(t, map[string]string{
 		"S01-test/spec.md": `---
@@ -224,11 +306,9 @@ title: S01-test
 
 	checkTypes := []CheckType{
 		CheckACSatisfaction,
-		CheckSpecAmbiguity,
 		CheckDesignReview,
 		CheckSecurityReview,
 		CheckSemanticCoverage,
-		CheckMaintainabilityReview,
 	}
 
 	for _, ct := range checkTypes {
@@ -244,6 +324,55 @@ title: S01-test
 				t.Errorf("expected check type %s, got %s", ct, report.CheckType)
 			}
 		})
+	}
+}
+
+// TestGenericReportCanonicalCheckIdentity proves every dispatchable generic
+// check preserves the model-emitted, schema-valid identity instead of
+// inferring it from the requested check.
+func TestGenericReportCanonicalCheckIdentity(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"S01-test/spec.md": `# Slice: S01-test
+
+## Acceptance checks
+
+- [ ] THE SYSTEM SHALL retain the emitted check identity.
+`,
+	})
+
+	for _, checkType := range []CheckType{
+		CheckACSatisfaction,
+		CheckDesignReview,
+		CheckSecurityReview,
+		CheckSemanticCoverage,
+	} {
+		t.Run(string(checkType), func(t *testing.T) {
+			mock := &mockVerifier{text: `{"check":"` + string(checkType) + `","verdict":"PASS","findings":[]}`}
+			report, err := RunLLMCheck(context.Background(), checkType, dir+"/S01-test", "", mock)
+			if err != nil {
+				t.Fatalf("RunLLMCheck: %v", err)
+			}
+			if report.HasViolations() || report.Verdict != "PASS" {
+				t.Fatalf("matching identity must pass, got %+v", report)
+			}
+			if report.EmittedCheck != checkType {
+				t.Fatalf("emitted check = %q, want %q", report.EmittedCheck, checkType)
+			}
+			if mock.structuredCalls != 1 || mock.verifyCalls != 0 {
+				t.Fatalf("structured/raw calls = %d/%d, want 1/0", mock.structuredCalls, mock.verifyCalls)
+			}
+		})
+	}
+}
+
+func TestRetiredMaintainabilityReviewStopsBeforeDispatch(t *testing.T) {
+	mock := &mockVerifier{}
+	_, err := RunLLMCheck(context.Background(), CheckMaintainabilityReview, "/not/a/release/slice", "unusable diff", mock)
+	if err == nil || !strings.Contains(err.Error(), RetiredMaintainabilityGuidance) {
+		t.Fatalf("RunLLMCheck error = %v, want retired-command guidance", err)
+	}
+	if mock.structuredCalls != 0 || mock.verifyCalls != 0 {
+		t.Fatalf("retired check dispatched structured/raw calls = %d/%d, want 0/0", mock.structuredCalls, mock.verifyCalls)
 	}
 }
 
@@ -356,7 +485,7 @@ func TestPrintLLMCheck_Pass(t *testing.T) {
 
 func TestPrintLLMCheck_Fail(t *testing.T) {
 	r := &LLMCheckReport{
-		CheckType: CheckSpecAmbiguity,
+		CheckType: CheckACSatisfaction,
 		Slice:     "S01-test",
 		Release:   "test-release",
 		Verdict:   "FAIL",

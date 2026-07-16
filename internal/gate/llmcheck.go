@@ -17,9 +17,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/project"
 	"github.com/swornagent/sworn/internal/prompt"
@@ -41,6 +43,11 @@ const (
 	CheckMaintainabilityReview CheckType = "maintainability-review"
 )
 
+// RetiredMaintainabilityGuidance is the sole public route for the historical
+// generic spelling. The dedicated command is owned by S13; this slice only
+// prevents the retired path from doing any generic-check work.
+const RetiredMaintainabilityGuidance = "generic maintainability-review is retired; use sworn maintainability review"
+
 // ValidCheckTypes is the set of recognised --type values.
 var ValidCheckTypes = map[CheckType]bool{
 	CheckACSatisfaction:        true,
@@ -51,16 +58,29 @@ var ValidCheckTypes = map[CheckType]bool{
 	CheckMaintainabilityReview: true,
 }
 
+// IsRetiredLLMCheck reports checks that are recognised solely to provide a
+// deterministic, no-dispatch migration message.
+func IsRetiredLLMCheck(checkType CheckType) bool {
+	return checkType == CheckMaintainabilityReview
+}
+
 // --- data model ---
 
 // LLMCheckReport holds the full structured result of an LLM check.
 type LLMCheckReport struct {
-	CheckType   CheckType    `json:"check_type"`
-	Slice       string       `json:"slice"`
-	Release     string       `json:"release"`
-	Verdict     string       `json:"verdict"` // "PASS" or "FAIL"
-	Findings    []LLMFinding `json:"findings"`
-	RawResponse string       `json:"raw_response,omitempty"`
+	CheckType    CheckType    `json:"check_type"`
+	EmittedCheck CheckType    `json:"emitted_check,omitempty"`
+	Slice        string       `json:"slice"`
+	Release      string       `json:"release"`
+	Verdict      string       `json:"verdict"` // "PASS" or "FAIL"
+	Findings     []LLMFinding `json:"findings"`
+	RawResponse  string       `json:"raw_response,omitempty"`
+
+	// Ambiguity remains a separately typed result. It is deliberately excluded
+	// from generic JSON marshaling; JSONLLMCheck and PrintLLMCheck delegate to
+	// its dedicated map-preserving renderers instead of flattening it into
+	// Findings.
+	Ambiguity *SpecAmbiguityReport `json:"-"`
 }
 
 // LLMFinding is one structured finding from the model's response.
@@ -112,6 +132,9 @@ func (f LLMFinding) IsBlocking() bool {
 // own verdict, so a critical RCE finding alongside a self-declared PASS shipped
 // the gate green (sworn#103).
 func (r *LLMCheckReport) HasViolations() bool {
+	if r.Ambiguity != nil {
+		return r.Ambiguity.HasViolations()
+	}
 	for _, f := range r.Findings {
 		if f.IsBlocking() {
 			return true
@@ -160,7 +183,10 @@ const userPromptDiffSeparator = `
 
 // RunLLMCheck executes an LLM-based quality check against a slice.
 //
-// checkType selects which of the six checks to run.
+// CheckSpecAmbiguity is dispatched to its dedicated typed-reference authority;
+// all other active checks use the generic report contract. The historical
+// generic maintainability spelling is rejected before any spec, prompt, model,
+// configuration, diff, or write work.
 // sliceDir is the path to the slice's directory (containing spec.md).
 // diffContent is the output of `git diff <base>..HEAD` for the slice.
 // verifier is the model client to use.
@@ -171,6 +197,16 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 	if !ValidCheckTypes[checkType] {
 		return nil, fmt.Errorf("llm-check: unknown check type %q (valid: %s)", checkType, validCheckTypeList())
 	}
+	if IsRetiredLLMCheck(checkType) {
+		return nil, fmt.Errorf("llm-check: %s", RetiredMaintainabilityGuidance)
+	}
+	if checkType == CheckSpecAmbiguity {
+		return runSpecAmbiguity(ctx, sliceDir, verifier)
+	}
+	return runGenericLLMCheck(ctx, checkType, sliceDir, diffContent, verifier)
+}
+
+func runGenericLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diffContent string, verifier model.Verifier) (*LLMCheckReport, error) {
 
 	// Read the machine contract — spec.json preferred (rendered to a readable
 	// markdown body for the model), spec.md legacy fallback (ADR-0009). Without
@@ -199,10 +235,12 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 	proj := project.Resolve(project.RepoRootFrom(sliceDir))
 	userPayload := buildUserPayload(proj, specContent, diffContent)
 
-	// Call the model.
-	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload)
+	// Keep the exact vendored system prompt and common user payload untouched.
+	// The schema is a separately labelled output envelope at the existing model
+	// boundary, never an overlay instruction and never a raw-Verify fallback.
+	rawResponse, err := model.ChatStructuredJSON(ctx, verifier, systemPrompt, userPayload, schemas.LLMCheckReportV1)
 	if err != nil {
-		return nil, fmt.Errorf("llm-check: model call failed: %w", err)
+		return nil, fmt.Errorf("llm-check: schema-constrained model call failed: %w", err)
 	}
 
 	// Parse the response.
@@ -219,18 +257,22 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 			}},
 		}
 	}
+	if result.schemaValid && result.Check != checkType {
+		result = genericIdentityFailure(result, checkType)
+	}
 
 	// Build the report.
 	sliceName := filepath.Base(sliceDir)
 	releaseName := filepath.Base(filepath.Dir(sliceDir))
 
 	return &LLMCheckReport{
-		CheckType:   checkType,
-		Slice:       sliceName,
-		Release:     releaseName,
-		Verdict:     result.Verdict,
-		Findings:    result.Findings,
-		RawResponse: rawResponse,
+		CheckType:    checkType,
+		EmittedCheck: result.Check,
+		Slice:        sliceName,
+		Release:      releaseName,
+		Verdict:      result.Verdict,
+		Findings:     result.Findings,
+		RawResponse:  rawResponse,
 	}, nil
 }
 
@@ -254,8 +296,10 @@ func buildUserPayload(proj project.Resolved, specContent, diffContent string) st
 
 // llmResponseJSON is the expected JSON shape from the model.
 type llmResponseJSON struct {
-	Verdict  string       `json:"verdict"`
-	Findings []LLMFinding `json:"findings"`
+	Check       CheckType    `json:"check"`
+	Verdict     string       `json:"verdict"`
+	Findings    []LLMFinding `json:"findings"`
+	schemaValid bool
 }
 
 // parseLLMResponse extracts and parses the JSON verdict from a model response,
@@ -266,7 +310,7 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 	cleaned := extractJSON(raw)
 
 	var result llmResponseJSON
-	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
+	if err := spec.DecodeJSONNoDuplicate([]byte(cleaned), &result); err != nil {
 		return nil, fmt.Errorf("parse LLM response: %w (raw: %.200s)", err, raw)
 	}
 
@@ -292,6 +336,7 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 		})
 		return &result, nil
 	}
+	result.schemaValid = true
 
 	// Normalise verdict.
 	result.Verdict = strings.ToUpper(strings.TrimSpace(result.Verdict))
@@ -309,6 +354,20 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 	}
 
 	return &result, nil
+}
+
+func genericIdentityFailure(result *llmResponseJSON, requested CheckType) *llmResponseJSON {
+	blocking := true
+	result.Verdict = "FAIL"
+	result.Findings = append(result.Findings, LLMFinding{
+		ID:       "F-00",
+		Severity: "high",
+		Blocking: &blocking,
+		Title:    "LLM check response identity mismatch",
+		Detail: fmt.Sprintf("The requested check is %q but the model emitted %q. The report cannot be relabelled or trusted.",
+			requested, result.Check),
+	})
+	return result
 }
 
 // extractJSON attempts to extract a JSON object from text that may be wrapped
@@ -377,6 +436,7 @@ func validCheckTypeList() string {
 	for ct := range ValidCheckTypes {
 		list = append(list, string(ct))
 	}
+	sort.Strings(list)
 	return strings.Join(list, ", ")
 }
 
@@ -384,6 +444,9 @@ func validCheckTypeList() string {
 
 // PrintLLMCheck renders the LLMCheckReport as human-readable text.
 func PrintLLMCheck(r *LLMCheckReport) string {
+	if r != nil && (r.Ambiguity != nil || r.CheckType == CheckSpecAmbiguity) {
+		return PrintSpecAmbiguity(r.Ambiguity)
+	}
 	var b strings.Builder
 
 	b.WriteString("\n")
@@ -436,6 +499,9 @@ func PrintLLMCheck(r *LLMCheckReport) string {
 
 // JSONLLMCheck returns the report as pretty-printed JSON.
 func JSONLLMCheck(r *LLMCheckReport) string {
+	if r != nil && (r.Ambiguity != nil || r.CheckType == CheckSpecAmbiguity) {
+		return JSONSpecAmbiguity(r.Ambiguity)
+	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, err.Error())
