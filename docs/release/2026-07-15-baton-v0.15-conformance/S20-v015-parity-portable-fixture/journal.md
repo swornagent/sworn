@@ -22,3 +22,26 @@
   authority and leaves broader state/lifecycle semantics to their owning slices.
 - All declared implementation touchpoints are T1-only. Awaiting a fresh Captain
   PROCEED decision before implementation.
+
+## 2026-07-17T04:26:26+10:00 — Automatic Coach acknowledgement and Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the
+  Captain's `PROCEED` verdict in `review.md` (commit `57157f8`) is
+  acknowledged. There are no `[escalate]` pins and no new Type-1 decision to
+  seek.
+- Apply pin 1 inline: preserve the public built-binary `baton diff` contract
+  with exact clean `0`, deterministic drift `1`, and malformed or missing
+  source `2` coverage, without mutation.
+- Apply pin 2 inline: keep `doctor --sync-baton` on the stdlib-only
+  installation and recovery path; prove isolated sync works with Go and a
+  shell unavailable on `PATH` after test-only setup.
+- Apply pin 3 inline: run every installer oracle and built-binary proof in
+  explicit, contained, pairwise-disjoint temporary roots, and fail if a real
+  home can be selected.
+- Apply pin 4 inline: treat the ambiguity-schema source mapping, embed,
+  fixture, and manifest as one byte-exact authority set. Compare the full
+  archive inventory directly against the verified temporary clone.
+- Proceed to `in_progress` only in a fresh Implementer session. That session
+  must stop at `implemented`; fresh adversarial verification remains the
+  certification backstop, and no real local Codex or Claude installation is
+  authorised yet.
