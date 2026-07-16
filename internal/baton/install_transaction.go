@@ -95,12 +95,31 @@ func newInstallError(class string, paths []string, recovery string, err error) e
 }
 
 type installTarget struct {
+	logical string
+	path    string
+	tree    ManagedTree
+}
+
+type installPreflightTarget struct {
+	installTarget
+	identity installPathIdentity
+}
+
+type capturedInstallTarget struct {
+	installTarget
+	snapshot string
+	absent   bool
+}
+
+type stagedInstallTarget struct {
+	capturedInstallTarget
+	stage string
+}
+
+type publishedInstallTarget struct {
 	logical  string
 	path     string
-	tree     ManagedTree
 	snapshot string
-	stage    string
-	absent   bool
 }
 
 type installPathIdentity struct {
@@ -146,80 +165,115 @@ type installSentinelTarget struct {
 	SnapshotPath string `json:"snapshot_path"`
 }
 
-type preparedInstall struct {
-	roots           InstallRoots
-	targets         []installTarget
+type installScope struct {
+	roots      InstallRoots
+	fault      InstallFault
+	identities map[string]installPathIdentity
+}
+
+type installPreflight struct {
+	scope   installScope
+	targets []installPreflightTarget
+}
+
+type capturedInstall struct {
+	scope           installScope
+	targets         []capturedInstallTarget
 	manifest        []installManifestEntry
 	manifestRaw     []byte
 	operation       string
 	transaction     string
-	fault           InstallFault
-	identities      map[string]installPathIdentity
 	recoveryStaging string
 	retiredPath     string
 	sentinelTemp    string
-	createdPaths    map[string]fs.FileInfo
+	ownedPaths      map[string]fs.FileInfo
+}
+
+type stagedInstall struct {
+	scope           installScope
+	targets         []stagedInstallTarget
+	manifest        []installManifestEntry
+	manifestRaw     []byte
+	operation       string
+	transaction     string
+	recoveryStaging string
+	retiredPath     string
+	sentinelTemp    string
+	ownedPaths      map[string]fs.FileInfo
+}
+
+type publishedInstall struct {
+	scope             installScope
+	targets           []publishedInstallTarget
+	manifest          []installManifestEntry
+	manifestRaw       []byte
+	transaction       string
+	recoveryDirectory string
+	retiredPath       string
+	sentinelTemp      string
+	ownedPaths        map[string]fs.FileInfo
 }
 
 // CheckBatonInstall validates topology, embedded source, sentinels, and every
 // managed byte/mode without writing. A pending recovery sentinel is an error.
 func CheckBatonInstall(opts InstallOpts) ([]string, error) {
-	prepared, err := prepareInstall(opts, false)
+	preflight, err := prepareInstall(opts)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel)); err == nil {
-		return nil, newInstallError("recovery-required", nil, prepared.roots.RecoveryRoot, errors.New("recovery sentinel present"))
+	if _, err := os.Lstat(filepath.Join(preflight.scope.roots.RecoveryRoot, installRecoverySentinel)); err == nil {
+		return nil, newInstallError("recovery-required", nil, preflight.scope.roots.RecoveryRoot, errors.New("recovery sentinel present"))
 	} else if !os.IsNotExist(err) {
-		return nil, newInstallError("recovery-unreadable", nil, prepared.roots.RecoveryRoot, err)
+		return nil, newInstallError("recovery-unreadable", nil, preflight.scope.roots.RecoveryRoot, err)
 	}
-	if err := reassertInstallIdentities(prepared, true); err != nil {
+	if err := reassertInstallIdentities(&preflight.scope, true); err != nil {
 		return nil, err
 	}
-	for _, target := range prepared.targets {
+	for _, target := range preflight.targets {
 		if err := scanInstallTarget(target.path); err != nil {
 			return nil, err
 		}
 	}
-	return installDrift(prepared.targets, opts.Version)
+	return installDrift(preflightInstallTargets(preflight), opts.Version)
 }
 
 // SyncBatonInstall repairs all three logical roots in one rollback-protected
 // transaction. Sentinel presence always routes to recovery-only restoration.
 func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
-	prepared, err := prepareInstall(opts, false)
+	preflight, err := prepareInstall(opts)
 	if err != nil {
 		return nil, err
 	}
-	sentinelPath := filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel)
+	recoveryRoot := preflight.scope.roots.RecoveryRoot
+	sentinelPath := filepath.Join(recoveryRoot, installRecoverySentinel)
 	if _, statErr := os.Lstat(sentinelPath); statErr == nil {
-		if err := recoverBatonInstall(prepared); err != nil {
+		if err := recoverBatonInstall(preflight); err != nil {
 			return nil, err
 		}
 		return &InstallResult{State: InstallRecovered}, nil
 	} else if !os.IsNotExist(statErr) {
-		return nil, newInstallError("recovery-unreadable", nil, prepared.roots.RecoveryRoot, statErr)
+		return nil, newInstallError("recovery-unreadable", nil, recoveryRoot, statErr)
 	}
-	if err := cleanupInstallStageDebris(prepared); err != nil {
+	if err := cleanupInstallStageDebris(preflight); err != nil {
 		return nil, err
 	}
-	if err := cleanupIncompleteInstallRecovery(prepared); err != nil {
+	if err := cleanupIncompleteInstallRecovery(preflight); err != nil {
 		return nil, err
 	}
-	if err := reassertInstallIdentities(prepared, true); err != nil {
+	if err := reassertInstallIdentities(&preflight.scope, true); err != nil {
 		return nil, err
 	}
-	for _, target := range prepared.targets {
+	for _, target := range preflight.targets {
 		if err := scanInstallTarget(target.path); err != nil {
 			return nil, err
 		}
 	}
 
-	drift, err := installDrift(prepared.targets, opts.Version)
+	drift, err := installDrift(preflightInstallTargets(preflight), opts.Version)
 	if err != nil {
 		return nil, err
 	}
-	retired, err := findRetiredInstallRecovery(prepared)
+	retired, err := findRetiredInstallRecovery(preflight)
 	if err != nil {
 		return nil, err
 	}
@@ -228,63 +282,65 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 	}
 	if len(drift) == 0 {
 		if retired != "" {
-			if err := cleanupRetiredInstallRecovery(prepared, retired); err != nil {
+			if err := cleanupRetiredInstallRecovery(preflight, retired); err != nil {
 				return nil, err
 			}
 		}
-		if err := reassertInstallIdentities(prepared, false); err != nil {
+		if err := reassertInstallIdentities(&preflight.scope, false); err != nil {
 			return nil, err
 		}
 		return &InstallResult{State: InstallAlreadyExact}, nil
 	}
 
-	if err := beginInstallTransaction(prepared, opts.OperationIDForTest); err != nil {
+	captured, err := captureInstallSources(preflight, opts.OperationIDForTest)
+	if err != nil {
+		if errors.Is(err, errInstallCrash) {
+			return nil, newInstallError("process-crashed", nil, recoveryRoot, err)
+		}
 		return nil, err
 	}
 	cleanupOnReturn := true
 	defer func() {
 		if cleanupOnReturn {
-			cleanupInstallStages(prepared)
+			cleanupInstallStages(captured)
 		}
 	}()
 	phaseError := func(err error) error {
 		if errors.Is(err, errInstallCrash) {
 			cleanupOnReturn = false
-			return newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, err)
+			return newInstallError("process-crashed", nil, recoveryRoot, err)
 		}
 		return err
 	}
-	if err := captureInstallSources(prepared); err != nil {
+	staged, err := stageDesiredInstall(captured, opts.Version)
+	if err != nil {
 		return nil, phaseError(err)
 	}
-	if err := stageDesiredInstall(prepared, opts.Version); err != nil {
-		return nil, phaseError(err)
-	}
-
-	if err := publishInstallRecovery(prepared); err != nil {
+	published, err := publishInstallRecovery(staged)
+	if err != nil {
 		return nil, phaseError(err)
 	}
 
 	var applyErr error
-	for i := range prepared.targets {
-		target := &prepared.targets[i]
-		if err := revalidateUnreplacedInstallTargets(prepared, i); err != nil {
+	for i := range staged.targets {
+		target := staged.targets[i]
+		if err := revalidateUnreplacedInstallTargets(&published.scope, published.targets, published.manifest, published.ownedPaths, i); err != nil {
 			applyErr = err
 			break
 		}
-		if err := callInstallFault(prepared.fault, "replace-before:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "replace-before:"+target.logical); err != nil {
 			applyErr = err
 			break
 		}
-		if err := replaceInstallRoot(prepared, *target); err != nil {
+		if err := replaceInstallRoot(published, target); err != nil {
 			applyErr = err
 			break
 		}
-		if err := callInstallFault(prepared.fault, "installed-sync-before:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "installed-sync-before:"+target.logical); err != nil {
 			applyErr = err
 			break
 		}
-		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+		if err := revalidateInstallTopology(&published.scope, published.targets, published.ownedPaths, i+1); err != nil {
 			applyErr = err
 			break
 		}
@@ -292,31 +348,31 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			applyErr = err
 			break
 		}
-		if err := callInstallFault(prepared.fault, "installed-sync-after:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "installed-sync-after:"+target.logical); err != nil {
 			applyErr = err
 			break
 		}
-		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+		if err := revalidateInstallTopology(&published.scope, published.targets, published.ownedPaths, i+1); err != nil {
 			applyErr = err
 			break
 		}
-		if err := callInstallFault(prepared.fault, "replace-after:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "replace-after:"+target.logical); err != nil {
 			applyErr = err
 			break
 		}
-		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+		if err := revalidateInstallTopology(&published.scope, published.targets, published.ownedPaths, i+1); err != nil {
 			applyErr = err
 			break
 		}
-		if err := verifyInstalledTarget(*target, opts.Version); err != nil {
+		if err := verifyInstalledTarget(target.installTarget, opts.Version); err != nil {
 			applyErr = err
 			break
 		}
-		if err := callInstallFault(prepared.fault, "verify-after:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "verify-after:"+target.logical); err != nil {
 			applyErr = err
 			break
 		}
-		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+		if err := revalidateInstallTopology(&published.scope, published.targets, published.ownedPaths, i+1); err != nil {
 			applyErr = err
 			break
 		}
@@ -324,46 +380,45 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 	if applyErr != nil {
 		if errors.Is(applyErr, errInstallCrash) {
 			cleanupOnReturn = false
-			return nil, newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, applyErr)
+			return nil, newInstallError("process-crashed", nil, recoveryRoot, applyErr)
 		}
-		unrestored := restoreInstallTargets(prepared, prepared.manifest)
+		unrestored := restoreInstallTargets(published)
 		if len(unrestored) != 0 {
-			if updateErr := updateInstallUnrestored(prepared, unrestored); updateErr != nil {
-				return nil, newInstallError("rollback-incomplete", append(unrestored, "recovery"), prepared.roots.RecoveryRoot, errors.Join(applyErr, updateErr))
+			if updateErr := updateInstallUnrestored(published, unrestored); updateErr != nil {
+				return nil, newInstallError("rollback-incomplete", append(unrestored, "recovery"), recoveryRoot, errors.Join(applyErr, updateErr))
 			}
-			return nil, newInstallError("rollback-incomplete", unrestored, prepared.roots.RecoveryRoot, applyErr)
+			return nil, newInstallError("rollback-incomplete", unrestored, recoveryRoot, applyErr)
 		}
-		if retireErr := retireInstallRecovery(prepared); retireErr != nil {
-			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, prepared.roots.RecoveryRoot, retireErr)
+		if retireErr := retireInstallRecovery(published); retireErr != nil {
+			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, recoveryRoot, retireErr)
 		}
 		return nil, newInstallError("repair-failed-restored", drift, "", applyErr)
 	}
-	if err := verifyAllInstalledAndTopology(prepared, opts.Version); err != nil {
-		unrestored := restoreInstallTargets(prepared, prepared.manifest)
+	if err := verifyAllInstalledAndTopology(published, staged, opts.Version); err != nil {
+		unrestored := restoreInstallTargets(published)
 		if len(unrestored) != 0 {
-			if updateErr := updateInstallUnrestored(prepared, unrestored); updateErr != nil {
-				return nil, newInstallError("rollback-incomplete", append(unrestored, "recovery"), prepared.roots.RecoveryRoot, errors.Join(err, updateErr))
+			if updateErr := updateInstallUnrestored(published, unrestored); updateErr != nil {
+				return nil, newInstallError("rollback-incomplete", append(unrestored, "recovery"), recoveryRoot, errors.Join(err, updateErr))
 			}
-			return nil, newInstallError("rollback-incomplete", unrestored, prepared.roots.RecoveryRoot, err)
+			return nil, newInstallError("rollback-incomplete", unrestored, recoveryRoot, err)
 		}
-		if retireErr := retireInstallRecovery(prepared); retireErr != nil {
-			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, prepared.roots.RecoveryRoot, retireErr)
+		if retireErr := retireInstallRecovery(published); retireErr != nil {
+			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, recoveryRoot, retireErr)
 		}
 		return nil, newInstallError("repair-failed-restored", nil, "", err)
 	}
 
-	if err := retireInstallRecovery(prepared); err != nil {
+	if err := retireInstallRecovery(published); err != nil {
 		if errors.Is(err, errInstallCrash) {
 			cleanupOnReturn = false
-			return nil, newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, err)
+			return nil, newInstallError("process-crashed", nil, recoveryRoot, err)
 		}
-		return nil, newInstallError("recovery-retire-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
+		return nil, newInstallError("recovery-retire-failed", []string{"recovery"}, recoveryRoot, err)
 	}
 	return &InstallResult{State: InstallRepaired, Changed: drift}, nil
 }
 
-func prepareInstall(opts InstallOpts, needManifest bool) (*preparedInstall, error) {
-	_ = needManifest
+func prepareInstall(opts InstallOpts) (*installPreflight, error) {
 	if len(opts.Version) == 0 {
 		return nil, newInstallError("version-invalid", nil, "", errors.New("empty VERSION sentinel"))
 	}
@@ -371,17 +426,197 @@ func prepareInstall(opts InstallOpts, needManifest bool) (*preparedInstall, erro
 	if err != nil {
 		return nil, err
 	}
-	targets := []installTarget{
-		{logical: "agents_home", path: roots.AgentsHome, tree: opts.Trees.AgentsHome},
-		{logical: "claude_home", path: roots.ClaudeHome, tree: opts.Trees.ClaudeHome},
-		{logical: "codex_home", path: roots.CodexHome, tree: opts.Trees.CodexHome},
+	targets := []installPreflightTarget{
+		{installTarget: installTarget{logical: "agents_home", path: roots.AgentsHome, tree: opts.Trees.AgentsHome}, identity: identities["agents_home"]},
+		{installTarget: installTarget{logical: "claude_home", path: roots.ClaudeHome, tree: opts.Trees.ClaudeHome}, identity: identities["claude_home"]},
+		{installTarget: installTarget{logical: "codex_home", path: roots.CodexHome, tree: opts.Trees.CodexHome}, identity: identities["codex_home"]},
 	}
 	for i := range targets {
 		if len(targets[i].tree.Entries) == 0 {
 			return nil, newInstallError("managed-tree-empty", []string{targets[i].logical}, "", errors.New("empty managed tree"))
 		}
 	}
-	return &preparedInstall{roots: roots, targets: targets, fault: opts.Fault, identities: identities, createdPaths: make(map[string]fs.FileInfo)}, nil
+	preflight := &installPreflight{
+		scope:   installScope{roots: roots, fault: opts.Fault, identities: identities},
+		targets: targets,
+	}
+	if err := validateInstallPreflight(preflight); err != nil {
+		return nil, err
+	}
+	return preflight, nil
+}
+
+func preflightInstallTargets(preflight *installPreflight) []installTarget {
+	targets := make([]installTarget, len(preflight.targets))
+	for i := range preflight.targets {
+		targets[i] = preflight.targets[i].installTarget
+	}
+	return targets
+}
+
+func capturedInstallTargets(captured *capturedInstall) []installTarget {
+	targets := make([]installTarget, len(captured.targets))
+	for i := range captured.targets {
+		targets[i] = captured.targets[i].installTarget
+	}
+	return targets
+}
+
+func stagedInstallTargets(staged *stagedInstall) []installTarget {
+	targets := make([]installTarget, len(staged.targets))
+	for i := range staged.targets {
+		targets[i] = staged.targets[i].installTarget
+	}
+	return targets
+}
+
+func publishedTargetsFromCaptured(targets []capturedInstallTarget) []publishedInstallTarget {
+	result := make([]publishedInstallTarget, len(targets))
+	for i, target := range targets {
+		result[i] = publishedInstallTarget{logical: target.logical, path: target.path, snapshot: target.snapshot}
+	}
+	return result
+}
+
+func publishedTargetsFromCapturedTargets(targets []stagedInstallTarget) []publishedInstallTarget {
+	result := make([]publishedInstallTarget, len(targets))
+	for i, target := range targets {
+		result[i] = publishedInstallTarget{logical: target.logical, path: target.path, snapshot: target.snapshot}
+	}
+	return result
+}
+
+func publishedTargetsFromInstall(targets []installTarget) []publishedInstallTarget {
+	result := make([]publishedInstallTarget, len(targets))
+	for i, target := range targets {
+		result[i] = publishedInstallTarget{logical: target.logical, path: target.path}
+	}
+	return result
+}
+
+func installTargetsFromPublished(targets []publishedInstallTarget) []installTarget {
+	result := make([]installTarget, len(targets))
+	for i, target := range targets {
+		result[i] = installTarget{logical: target.logical, path: target.path}
+	}
+	return result
+}
+
+func cloneInstallIdentities(source map[string]installPathIdentity) map[string]installPathIdentity {
+	result := make(map[string]installPathIdentity, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func revalidateCapturedTopology(scope *installScope, targets []installTarget, ownedPaths map[string]fs.FileInfo, start int) error {
+	return revalidateInstallTopology(scope, publishedTargetsFromInstall(targets), ownedPaths, start)
+}
+
+func validateInstallScope(scope *installScope) error {
+	if scope == nil || scope.roots.AgentsHome == "" || scope.roots.ClaudeHome == "" || scope.roots.CodexHome == "" || scope.roots.RecoveryRoot == "" {
+		return errors.New("install scope is incomplete")
+	}
+	for _, key := range []string{
+		"agents_home", "agents_home:parent",
+		"claude_home", "claude_home:parent",
+		"codex_home", "codex_home:parent",
+		"recovery", "recovery:parent",
+	} {
+		if _, ok := scope.identities[key]; !ok {
+			return errors.New("install scope identity is incomplete")
+		}
+	}
+	return nil
+}
+
+func validateInstallPreflight(preflight *installPreflight) error {
+	if preflight == nil || len(preflight.targets) != 3 {
+		return errors.New("install preflight target inventory is incomplete")
+	}
+	if err := validateInstallScope(&preflight.scope); err != nil {
+		return err
+	}
+	for _, target := range preflight.targets {
+		if target.logical == "" || target.path == "" || target.identity.path != target.path || len(target.tree.Entries) == 0 {
+			return errors.New("install preflight target is incomplete")
+		}
+	}
+	return nil
+}
+
+func validateCapturedInstall(captured *capturedInstall) error {
+	if captured == nil || len(captured.targets) != 3 || len(captured.manifest) == 0 || len(captured.manifestRaw) == 0 || captured.ownedPaths == nil {
+		return errors.New("captured install is incomplete")
+	}
+	if err := validateInstallScope(&captured.scope); err != nil {
+		return err
+	}
+	if !validInstallTransactionID(captured.operation) || !validInstallTransactionID(captured.transaction) {
+		return errors.New("captured install identity is incomplete")
+	}
+	digest := sha256.Sum256(captured.manifestRaw)
+	if captured.transaction != hex.EncodeToString(digest[:]) || !bytes.Equal(captured.manifestRaw, marshalInstallManifest(captured.manifest)) {
+		return errors.New("captured install manifest identity differs")
+	}
+	if captured.recoveryStaging != filepath.Join(captured.scope.roots.RecoveryRoot, ".staging-"+captured.operation) ||
+		captured.retiredPath != filepath.Join(filepath.Dir(captured.scope.roots.RecoveryRoot), ".baton-sync-retired-"+captured.transaction) ||
+		captured.sentinelTemp != filepath.Join(captured.scope.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+captured.transaction) {
+		return errors.New("captured install paths are incomplete")
+	}
+	for _, target := range captured.targets {
+		if target.logical == "" || target.path == "" || target.snapshot != filepath.Join(captured.recoveryStaging, "snapshots", target.logical) || len(target.tree.Entries) == 0 {
+			return errors.New("captured install target is incomplete")
+		}
+	}
+	return nil
+}
+
+func validateStagedInstall(staged *stagedInstall) error {
+	if staged == nil || len(staged.targets) != 3 || len(staged.manifest) == 0 || len(staged.manifestRaw) == 0 || staged.ownedPaths == nil {
+		return errors.New("staged install is incomplete")
+	}
+	if err := validateInstallScope(&staged.scope); err != nil {
+		return err
+	}
+	if !validInstallTransactionID(staged.operation) || !validInstallTransactionID(staged.transaction) {
+		return errors.New("staged install identity is incomplete")
+	}
+	for _, target := range staged.targets {
+		wantStage := filepath.Join(filepath.Dir(target.path), ".sworn-baton-stage-"+staged.transaction+"-"+target.logical)
+		if target.logical == "" || target.path == "" || target.snapshot == "" || target.stage != wantStage || len(target.tree.Entries) == 0 {
+			return errors.New("staged install target is incomplete")
+		}
+	}
+	return nil
+}
+
+func validatePublishedInstall(published *publishedInstall) error {
+	if published == nil || len(published.targets) != 3 || len(published.manifest) == 0 || len(published.manifestRaw) == 0 || published.ownedPaths == nil {
+		return errors.New("published install is incomplete")
+	}
+	if err := validateInstallScope(&published.scope); err != nil {
+		return err
+	}
+	if !validInstallTransactionID(published.transaction) {
+		return errors.New("published install identity is incomplete")
+	}
+	digest := sha256.Sum256(published.manifestRaw)
+	if published.transaction != hex.EncodeToString(digest[:]) || !bytes.Equal(published.manifestRaw, marshalInstallManifest(published.manifest)) {
+		return errors.New("published install manifest identity differs")
+	}
+	if published.recoveryDirectory != filepath.Join(published.scope.roots.RecoveryRoot, published.transaction) ||
+		published.retiredPath != filepath.Join(filepath.Dir(published.scope.roots.RecoveryRoot), ".baton-sync-retired-"+published.transaction) ||
+		published.sentinelTemp != filepath.Join(published.scope.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+published.transaction) {
+		return errors.New("published install paths are incomplete")
+	}
+	for _, target := range published.targets {
+		if target.logical == "" || target.path == "" || target.snapshot != filepath.Join(published.recoveryDirectory, "snapshots", target.logical) {
+			return errors.New("published install target is incomplete")
+		}
+	}
+	return nil
 }
 
 func resolveInstallRoots(input InstallRoots) (InstallRoots, map[string]installPathIdentity, error) {
@@ -509,13 +744,13 @@ func pathsOverlap(a, b string) bool {
 		(errBA == nil && relBA != ".." && !strings.HasPrefix(relBA, ".."+string(filepath.Separator)))
 }
 
-func reassertInstallIdentities(prepared *preparedInstall, strict bool) error {
+func reassertInstallIdentities(scope *installScope, strict bool) error {
 	for _, logical := range []string{"agents_home", "claude_home", "codex_home", "recovery"} {
 		key := logical
 		if !strict {
 			key += ":parent"
 		}
-		identity, ok := prepared.identities[key]
+		identity, ok := scope.identities[key]
 		if !ok {
 			return newInstallError("unsafe-root-identity", []string{logical}, "", errors.New("identity missing"))
 		}
@@ -544,78 +779,70 @@ func reassertInstallPathIdentity(identity installPathIdentity, requireMissing bo
 	return nil
 }
 
-func beginInstallTransaction(prepared *preparedInstall, forced string) error {
+func newInstallOperationID(forced string) (string, error) {
 	id := forced
 	if id == "" {
 		raw := make([]byte, 32)
 		if _, err := io.ReadFull(rand.Reader, raw); err != nil {
-			return newInstallError("transaction-id-failed", nil, "", err)
+			return "", newInstallError("transaction-id-failed", nil, "", err)
 		}
 		id = hex.EncodeToString(raw)
 	}
 	if len(id) != 64 {
-		return newInstallError("transaction-id-invalid", nil, "", errors.New("transaction id must be 32-byte lowercase hex"))
+		return "", newInstallError("transaction-id-invalid", nil, "", errors.New("transaction id must be 32-byte lowercase hex"))
 	}
 	decoded, err := hex.DecodeString(id)
 	if err != nil || hex.EncodeToString(decoded) != id {
-		return newInstallError("transaction-id-invalid", nil, "", errors.New("transaction id must be 32-byte lowercase hex"))
+		return "", newInstallError("transaction-id-invalid", nil, "", errors.New("transaction id must be 32-byte lowercase hex"))
 	}
-	prepared.operation = id
-	prepared.recoveryStaging = filepath.Join(prepared.roots.RecoveryRoot, ".staging-"+id)
-	for i := range prepared.targets {
-		target := &prepared.targets[i]
-		target.snapshot = filepath.Join(prepared.recoveryStaging, "snapshots", target.logical)
-	}
-	if err := validateInstallOperationalTopology(prepared); err != nil {
-		return err
-	}
-	if err := callInstallFault(prepared.fault, "paths-ready"); err != nil {
-		return err
-	}
-	if err := reassertInstallIdentities(prepared, true); err != nil {
-		return err
-	}
-	return validateInstallOperationalTopology(prepared)
+	return id, nil
 }
 
-func finalizeInstallTransaction(prepared *preparedInstall) error {
-	digest := sha256.Sum256(prepared.manifestRaw)
-	prepared.transaction = hex.EncodeToString(digest[:])
-	prepared.retiredPath = filepath.Join(filepath.Dir(prepared.roots.RecoveryRoot), ".baton-sync-retired-"+prepared.transaction)
-	prepared.sentinelTemp = filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+prepared.transaction)
-	for i := range prepared.targets {
-		target := &prepared.targets[i]
-		target.stage = filepath.Join(filepath.Dir(target.path), ".sworn-baton-stage-"+prepared.transaction+"-"+target.logical)
-	}
-	if err := validateInstallOperationalTopology(prepared); err != nil {
-		return err
-	}
-	if err := callInstallFault(prepared.fault, "transaction-paths-ready"); err != nil {
-		return err
-	}
-	return validateInstallOperationalTopology(prepared)
+type installOperationPath struct {
+	logical string
+	path    string
 }
 
-func validateInstallOperationalTopology(prepared *preparedInstall) error {
-	targetPaths := []string{prepared.roots.AgentsHome, prepared.roots.ClaudeHome, prepared.roots.CodexHome}
+func installStagePaths(targets []installTarget, transaction string) []installOperationPath {
+	paths := make([]installOperationPath, len(targets))
+	for i, target := range targets {
+		paths[i] = installOperationPath{
+			logical: "stage_" + target.logical,
+			path:    filepath.Join(filepath.Dir(target.path), ".sworn-baton-stage-"+transaction+"-"+target.logical),
+		}
+	}
+	return paths
+}
+
+func validateInstallOperationalTopology(
+	scope *installScope,
+	targets []installTarget,
+	ownedPaths map[string]fs.FileInfo,
+	recoveryStaging string,
+	transaction string,
+	retiredPath string,
+	sentinelTemp string,
+	stagePaths []installOperationPath,
+) error {
+	targetPaths := make([]string, len(targets))
+	for i := range targets {
+		targetPaths[i] = targets[i].path
+	}
 	standalone := []struct {
 		logical string
 		path    string
 	}{}
-	if prepared.retiredPath != "" {
+	if retiredPath != "" {
 		standalone = append(standalone, struct {
 			logical string
 			path    string
-		}{"retired", prepared.retiredPath})
+		}{"retired", retiredPath})
 	}
-	for _, target := range prepared.targets {
-		if target.stage == "" {
-			continue
-		}
+	for _, stage := range stagePaths {
 		standalone = append(standalone, struct {
 			logical string
 			path    string
-		}{"stage_" + target.logical, target.stage})
+		}{stage.logical, stage.path})
 	}
 	for i, candidate := range standalone {
 		identity, _, err := resolvePhysicalNoSymlink(candidate.logical, candidate.path)
@@ -625,7 +852,7 @@ func validateInstallOperationalTopology(prepared *preparedInstall) error {
 		if _, err := os.Lstat(identity.path); err == nil || !os.IsNotExist(err) {
 			return newInstallError("operation-path-collision", []string{candidate.logical}, identity.path, errors.New("derived path already exists"))
 		}
-		for _, root := range append(append([]string{}, targetPaths...), prepared.roots.RecoveryRoot) {
+		for _, root := range append(append([]string{}, targetPaths...), scope.roots.RecoveryRoot) {
 			if pathsOverlap(identity.path, root) {
 				return newInstallError("unsafe-operation-topology", []string{candidate.logical}, identity.path, errors.New("derived path overlaps a logical root"))
 			}
@@ -639,27 +866,30 @@ func validateInstallOperationalTopology(prepared *preparedInstall) error {
 	contained := []struct {
 		logical string
 		path    string
-	}{{"recovery_staging", prepared.recoveryStaging}}
-	if prepared.transaction != "" {
+	}{{"recovery_staging", recoveryStaging}}
+	if transaction != "" {
 		contained = append(contained, struct {
 			logical string
 			path    string
-		}{"transaction", filepath.Join(prepared.roots.RecoveryRoot, prepared.transaction)})
+		}{"transaction", filepath.Join(scope.roots.RecoveryRoot, transaction)})
 	}
-	if prepared.sentinelTemp != "" {
+	if sentinelTemp != "" {
 		contained = append(contained, struct {
 			logical string
 			path    string
-		}{"sentinel_temp", prepared.sentinelTemp})
+		}{"sentinel_temp", sentinelTemp})
 	}
 	for _, candidate := range contained {
-		rel, err := filepath.Rel(prepared.roots.RecoveryRoot, candidate.path)
+		if candidate.path == "" {
+			continue
+		}
+		rel, err := filepath.Rel(scope.roots.RecoveryRoot, candidate.path)
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return newInstallError("unsafe-operation-topology", []string{candidate.logical}, candidate.path, errors.New("control path escapes recovery root"))
 		}
 		if info, err := os.Lstat(candidate.path); err == nil {
-			owned, ok := prepared.createdPaths[candidate.path]
-			if candidate.path != prepared.recoveryStaging || !ok || validateOwnedInstallPath(candidate.path, owned, info.IsDir()) != nil {
+			owned, ok := ownedPaths[candidate.path]
+			if candidate.path != recoveryStaging || !ok || validateOwnedInstallPath(candidate.path, owned, info.IsDir()) != nil {
 				return newInstallError("operation-path-collision", []string{candidate.logical}, candidate.path, errors.New("derived path already exists"))
 			}
 		} else if !os.IsNotExist(err) {
@@ -704,7 +934,7 @@ func scanInstallTarget(root string) error {
 	})
 }
 
-func ensureInstallDirectory(prepared *preparedInstall, name string, finalMode os.FileMode) error {
+func ensureInstallDirectory(scope *installScope, ownedPaths map[string]fs.FileInfo, name string, finalMode os.FileMode) error {
 	identity, _, err := resolvePhysicalNoSymlink("operation_parent", name)
 	if err != nil {
 		return err
@@ -714,7 +944,7 @@ func ensureInstallDirectory(prepared *preparedInstall, name string, finalMode os
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return errors.New("operation parent is not a real directory")
 		}
-		if identity.path == prepared.roots.RecoveryRoot && info.Mode().Perm() != finalMode {
+		if identity.path == scope.roots.RecoveryRoot && info.Mode().Perm() != finalMode {
 			return newInstallError("recovery-mode-invalid", nil, identity.path, errors.New("pre-existing recovery root mode differs"))
 		}
 		return nil
@@ -736,12 +966,12 @@ func ensureInstallDirectory(prepared *preparedInstall, name string, finalMode os
 		if err != nil {
 			return err
 		}
-		prepared.createdPaths[current] = info
+		ownedPaths[current] = info
 	}
 	return syncDir(identity.ancestor)
 }
 
-func createOwnedInstallDir(prepared *preparedInstall, name string, mode os.FileMode) error {
+func createOwnedInstallDir(ownedPaths map[string]fs.FileInfo, name string, mode os.FileMode) error {
 	if err := os.Mkdir(name, mode); err != nil {
 		return err
 	}
@@ -752,7 +982,7 @@ func createOwnedInstallDir(prepared *preparedInstall, name string, mode os.FileM
 	if err != nil {
 		return err
 	}
-	prepared.createdPaths[name] = info
+	ownedPaths[name] = info
 	return nil
 }
 
@@ -784,13 +1014,19 @@ func writeExclusiveInstallFile(name string, data []byte, mode os.FileMode) error
 	return syncDir(filepath.Dir(name))
 }
 
-func revalidateUnreplacedInstallTargets(prepared *preparedInstall, start int) error {
-	if err := revalidateInstallTopology(prepared, start); err != nil {
+func revalidateUnreplacedInstallTargets(
+	scope *installScope,
+	targets []publishedInstallTarget,
+	manifest []installManifestEntry,
+	ownedPaths map[string]fs.FileInfo,
+	start int,
+) error {
+	if err := revalidateInstallTopology(scope, targets, ownedPaths, start); err != nil {
 		return err
 	}
-	want := manifestByRoot(prepared.manifest)
-	for i := start; i < len(prepared.targets); i++ {
-		target := prepared.targets[i]
+	want := manifestByRoot(manifest)
+	for i := start; i < len(targets); i++ {
+		target := targets[i]
 		if err := scanInstallTarget(target.path); err != nil {
 			return err
 		}
@@ -805,11 +1041,11 @@ func revalidateUnreplacedInstallTargets(prepared *preparedInstall, start int) er
 	return nil
 }
 
-func verifyAllInstalledAndTopology(prepared *preparedInstall, version []byte) error {
-	if err := revalidateInstallTopology(prepared, len(prepared.targets)); err != nil {
+func verifyAllInstalledAndTopology(published *publishedInstall, staged *stagedInstall, version []byte) error {
+	if err := revalidateInstallTopology(&published.scope, published.targets, published.ownedPaths, len(published.targets)); err != nil {
 		return err
 	}
-	drift, err := installDrift(prepared.targets, version)
+	drift, err := installDrift(stagedInstallTargets(staged), version)
 	if err != nil {
 		return err
 	}
@@ -819,26 +1055,26 @@ func verifyAllInstalledAndTopology(prepared *preparedInstall, version []byte) er
 	return nil
 }
 
-func revalidateInstallTopology(prepared *preparedInstall, unreplacedStart int) error {
-	_, current, err := resolveInstallRoots(prepared.roots)
+func revalidateInstallTopology(scope *installScope, targets []publishedInstallTarget, ownedPaths map[string]fs.FileInfo, unreplacedStart int) error {
+	_, current, err := resolveInstallRoots(scope.roots)
 	if err != nil {
 		return err
 	}
-	recovery := prepared.identities["recovery"]
+	recovery := scope.identities["recovery"]
 	currentRecovery := current["recovery"]
 	if recovery.ancestorInfo == nil || currentRecovery.ancestorInfo == nil || currentRecovery.ancestor != currentRecovery.path || !os.SameFile(recovery.ancestorInfo, currentRecovery.ancestorInfo) {
 		return newInstallError("unsafe-root-identity", []string{"recovery"}, "", errors.New("recovery root identity changed"))
 	}
-	for i := unreplacedStart; i < len(prepared.targets); i++ {
-		target := prepared.targets[i]
-		if err := reassertUnreplacedInstallTarget(prepared, prepared.identities[target.logical]); err != nil {
+	for i := unreplacedStart; i < len(targets); i++ {
+		target := targets[i]
+		if err := reassertUnreplacedInstallTarget(scope, ownedPaths, scope.identities[target.logical]); err != nil {
 			return newInstallError("unsafe-root-identity", []string{target.logical}, "", err)
 		}
 	}
 	return nil
 }
 
-func reassertUnreplacedInstallTarget(prepared *preparedInstall, identity installPathIdentity) error {
+func reassertUnreplacedInstallTarget(scope *installScope, ownedPaths map[string]fs.FileInfo, identity installPathIdentity) error {
 	current, _, err := resolvePhysicalNoSymlink(identity.logical, identity.path)
 	if err != nil {
 		return err
@@ -863,7 +1099,7 @@ func reassertUnreplacedInstallTarget(prepared *preparedInstall, identity install
 		if os.IsNotExist(err) {
 			break
 		}
-		owned, ok := prepared.createdPaths[walk]
+		owned, ok := ownedPaths[walk]
 		if err != nil || !ok || !info.IsDir() || !os.SameFile(owned, info) {
 			return errors.New("missing target suffix changed outside this operation")
 		}
@@ -871,12 +1107,12 @@ func reassertUnreplacedInstallTarget(prepared *preparedInstall, identity install
 	return nil
 }
 
-func recordInstallRecoveryIdentity(prepared *preparedInstall) error {
-	identity, _, err := resolvePhysicalNoSymlink("recovery", prepared.roots.RecoveryRoot)
+func recordInstallRecoveryIdentity(scope *installScope) error {
+	identity, _, err := resolvePhysicalNoSymlink("recovery", scope.roots.RecoveryRoot)
 	if err != nil || identity.ancestor != identity.path || identity.ancestorInfo == nil {
 		return newInstallError("unsafe-root-identity", []string{"recovery"}, "", errors.New("recovery root identity unavailable"))
 	}
-	prepared.identities["recovery"] = identity
+	scope.identities["recovery"] = identity
 	return nil
 }
 
@@ -991,84 +1227,129 @@ func managedExtras(target installTarget) ([]string, error) {
 	return extras, nil
 }
 
-func captureInstallSources(prepared *preparedInstall) error {
-	if err := ensureInstallDirectory(prepared, filepath.Dir(prepared.roots.RecoveryRoot), 0o755); err != nil {
-		return err
+func captureInstallSources(preflight *installPreflight, forcedOperation string) (*capturedInstall, error) {
+	operation, err := newInstallOperationID(forcedOperation)
+	if err != nil {
+		return nil, err
 	}
-	if err := ensureInstallDirectory(prepared, prepared.roots.RecoveryRoot, 0o700); err != nil {
-		return err
+	baseTargets := preflightInstallTargets(preflight)
+	recoveryStaging := filepath.Join(preflight.scope.roots.RecoveryRoot, ".staging-"+operation)
+	ownedPaths := make(map[string]fs.FileInfo)
+	if err := validateInstallOperationalTopology(&preflight.scope, baseTargets, ownedPaths, recoveryStaging, "", "", "", nil); err != nil {
+		return nil, err
 	}
-	if err := recordInstallRecoveryIdentity(prepared); err != nil {
-		return err
+	if err := callInstallFault(preflight.scope.fault, "paths-ready"); err != nil {
+		return nil, err
 	}
-	if err := createOwnedInstallDir(prepared, prepared.recoveryStaging, 0o700); err != nil {
-		return newInstallError("recovery-publication-failed", nil, prepared.recoveryStaging, err)
+	if err := reassertInstallIdentities(&preflight.scope, true); err != nil {
+		return nil, err
 	}
-	if err := createOwnedInstallDir(prepared, filepath.Join(prepared.recoveryStaging, "snapshots"), 0o700); err != nil {
-		return err
+	if err := validateInstallOperationalTopology(&preflight.scope, baseTargets, ownedPaths, recoveryStaging, "", "", "", nil); err != nil {
+		return nil, err
 	}
-	identity := installOwnerIdentity{RecordVersion: 1, OperationID: prepared.operation, RecoveryRoot: prepared.roots.RecoveryRoot}
-	for _, target := range prepared.targets {
+
+	scope := installScope{
+		roots:      preflight.scope.roots,
+		fault:      preflight.scope.fault,
+		identities: cloneInstallIdentities(preflight.scope.identities),
+	}
+	if err := ensureInstallDirectory(&scope, ownedPaths, filepath.Dir(scope.roots.RecoveryRoot), 0o755); err != nil {
+		return nil, err
+	}
+	if err := ensureInstallDirectory(&scope, ownedPaths, scope.roots.RecoveryRoot, 0o700); err != nil {
+		return nil, err
+	}
+	if err := recordInstallRecoveryIdentity(&scope); err != nil {
+		return nil, err
+	}
+	if err := createOwnedInstallDir(ownedPaths, recoveryStaging, 0o700); err != nil {
+		return nil, newInstallError("recovery-publication-failed", nil, recoveryStaging, err)
+	}
+	if err := createOwnedInstallDir(ownedPaths, filepath.Join(recoveryStaging, "snapshots"), 0o700); err != nil {
+		return nil, err
+	}
+	identity := installOwnerIdentity{RecordVersion: 1, OperationID: operation, RecoveryRoot: scope.roots.RecoveryRoot}
+	for _, target := range baseTargets {
 		identity.Targets = append(identity.Targets, installSentinelTarget{
 			LogicalRoot: target.logical, TargetPath: target.path,
 		})
 	}
 	identityRaw, err := marshalInstallOwnerIdentity(identity)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := writeExclusiveInstallFile(filepath.Join(prepared.recoveryStaging, installIdentityName), identityRaw, 0o600); err != nil {
-		return err
+	if err := writeExclusiveInstallFile(filepath.Join(recoveryStaging, installIdentityName), identityRaw, 0o600); err != nil {
+		return nil, err
 	}
 
 	var manifest []installManifestEntry
-	for i := range prepared.targets {
-		target := &prepared.targets[i]
-		if err := callInstallFault(prepared.fault, "snapshot-before:"+target.logical); err != nil {
-			return err
+	capturedTargets := make([]capturedInstallTarget, len(baseTargets))
+	for i, target := range baseTargets {
+		snapshot := filepath.Join(recoveryStaging, "snapshots", target.logical)
+		if err := callInstallFault(scope.fault, "snapshot-before:"+target.logical); err != nil {
+			return nil, err
 		}
-		if err := revalidateInstallTopology(prepared, 0); err != nil {
-			return err
+		if err := revalidateCapturedTopology(&scope, baseTargets, ownedPaths, 0); err != nil {
+			return nil, err
 		}
-		entries, absent, err := captureInstallTarget(*target)
+		entries, absent, err := captureInstallTarget(target, snapshot)
 		if err != nil {
-			return newInstallError("snapshot-failed", []string{target.logical}, "", err)
+			return nil, newInstallError("snapshot-failed", []string{target.logical}, "", err)
 		}
-		target.absent = absent
+		capturedTargets[i] = capturedInstallTarget{installTarget: target, snapshot: snapshot, absent: absent}
 		manifest = append(manifest, entries...)
-		if err := callInstallFault(prepared.fault, "snapshot-after:"+target.logical); err != nil {
-			return err
+		if err := callInstallFault(scope.fault, "snapshot-after:"+target.logical); err != nil {
+			return nil, err
 		}
-		if err := revalidateInstallTopology(prepared, 0); err != nil {
-			return err
+		if err := revalidateCapturedTopology(&scope, baseTargets, ownedPaths, 0); err != nil {
+			return nil, err
 		}
 	}
 	sort.Slice(manifest, func(i, j int) bool { return manifest[i].Path < manifest[j].Path })
-	prepared.manifest = manifest
-	prepared.manifestRaw = marshalInstallManifest(manifest)
-	if err := finalizeInstallTransaction(prepared); err != nil {
-		return err
+	manifestRaw := marshalInstallManifest(manifest)
+	digest := sha256.Sum256(manifestRaw)
+	transaction := hex.EncodeToString(digest[:])
+	retiredPath := filepath.Join(filepath.Dir(scope.roots.RecoveryRoot), ".baton-sync-retired-"+transaction)
+	sentinelTemp := filepath.Join(scope.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+transaction)
+	stagePaths := installStagePaths(baseTargets, transaction)
+	if err := validateInstallOperationalTopology(&scope, baseTargets, ownedPaths, recoveryStaging, transaction, retiredPath, sentinelTemp, stagePaths); err != nil {
+		return nil, err
 	}
-	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-		return err
+	if err := callInstallFault(scope.fault, "transaction-paths-ready"); err != nil {
+		return nil, err
 	}
-	manifestPath := filepath.Join(prepared.recoveryStaging, installManifestName)
-	if err := writeExclusiveInstallFile(manifestPath, prepared.manifestRaw, 0o600); err != nil {
-		return err
+	if err := validateInstallOperationalTopology(&scope, baseTargets, ownedPaths, recoveryStaging, transaction, retiredPath, sentinelTemp, stagePaths); err != nil {
+		return nil, err
 	}
-	if err := syncTree(prepared.recoveryStaging); err != nil {
-		return newInstallError("recovery-publication-failed", nil, prepared.recoveryStaging, err)
+	authorityTargets := publishedTargetsFromCaptured(capturedTargets)
+	if err := revalidateUnreplacedInstallTargets(&scope, authorityTargets, manifest, ownedPaths, 0); err != nil {
+		return nil, err
 	}
-	return nil
+	manifestPath := filepath.Join(recoveryStaging, installManifestName)
+	if err := writeExclusiveInstallFile(manifestPath, manifestRaw, 0o600); err != nil {
+		return nil, err
+	}
+	if err := syncTree(recoveryStaging); err != nil {
+		return nil, newInstallError("recovery-publication-failed", nil, recoveryStaging, err)
+	}
+	captured := &capturedInstall{
+		scope: scope, targets: capturedTargets, manifest: manifest, manifestRaw: manifestRaw,
+		operation: operation, transaction: transaction, recoveryStaging: recoveryStaging,
+		retiredPath: retiredPath, sentinelTemp: sentinelTemp, ownedPaths: ownedPaths,
+	}
+	if err := validateCapturedInstall(captured); err != nil {
+		return nil, err
+	}
+	return captured, nil
 }
 
-func captureInstallTarget(target installTarget) ([]installManifestEntry, bool, error) {
+func captureInstallTarget(target installTarget, snapshot string) ([]installManifestEntry, bool, error) {
 	rootInfo, err := os.Lstat(target.path)
 	if os.IsNotExist(err) {
-		if err := os.Mkdir(target.snapshot, 0o700); err != nil {
+		if err := os.Mkdir(snapshot, 0o700); err != nil {
 			return nil, false, err
 		}
-		if err := os.Chmod(target.snapshot, 0o700); err != nil {
+		if err := os.Chmod(snapshot, 0o700); err != nil {
 			return nil, false, err
 		}
 		return []installManifestEntry{{Path: target.logical + "/", Kind: "absent"}}, true, nil
@@ -1076,10 +1357,10 @@ func captureInstallTarget(target installTarget) ([]installManifestEntry, bool, e
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, false, errors.New("capture root is not a real directory")
 	}
-	if err := os.Mkdir(target.snapshot, 0o700); err != nil {
+	if err := os.Mkdir(snapshot, 0o700); err != nil {
 		return nil, false, err
 	}
-	if err := os.Chmod(target.snapshot, 0o700); err != nil {
+	if err := os.Chmod(snapshot, 0o700); err != nil {
 		return nil, false, err
 	}
 	entries := []installManifestEntry{{Path: target.logical + "/", Kind: "directory", Mode: rootInfo.Mode().Perm()}}
@@ -1095,7 +1376,7 @@ func captureInstallTarget(target installTarget) ([]installManifestEntry, bool, e
 			return err
 		}
 		logicalPath := target.logical + "/" + filepath.ToSlash(rel)
-		destination := filepath.Join(target.snapshot, rel)
+		destination := filepath.Join(snapshot, rel)
 		info, err := entry.Info()
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			return errors.New("capture entry invalid")
@@ -1135,81 +1416,95 @@ func captureInstallTarget(target installTarget) ([]installManifestEntry, bool, e
 	return entries, false, nil
 }
 
-func stageDesiredInstall(prepared *preparedInstall, version []byte) error {
-	manifest := manifestByRoot(prepared.manifest)
-	for i := range prepared.targets {
-		target := &prepared.targets[i]
-		if err := ensureInstallDirectory(prepared, filepath.Dir(target.stage), 0o755); err != nil {
-			return err
+func stageDesiredInstall(captured *capturedInstall, version []byte) (*stagedInstall, error) {
+	manifest := manifestByRoot(captured.manifest)
+	stagePaths := installStagePaths(capturedInstallTargets(captured), captured.transaction)
+	stagedTargets := make([]stagedInstallTarget, len(captured.targets))
+	authorityTargets := publishedTargetsFromCaptured(captured.targets)
+	for i, target := range captured.targets {
+		stage := stagePaths[i].path
+		if err := ensureInstallDirectory(&captured.scope, captured.ownedPaths, filepath.Dir(stage), 0o755); err != nil {
+			return nil, err
 		}
-		if err := createOwnedInstallDir(prepared, target.stage, 0o700); err != nil {
-			return newInstallError("stage-collision", []string{target.logical}, target.stage, err)
+		if err := createOwnedInstallDir(captured.ownedPaths, stage, 0o700); err != nil {
+			return nil, newInstallError("stage-collision", []string{target.logical}, stage, err)
 		}
-		if err := copyCompleteTree(target.snapshot, target.stage, false, manifest[target.logical]); err != nil {
-			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		if err := copyCompleteTree(target.snapshot, stage, false, manifest[target.logical]); err != nil {
+			return nil, newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
 		rootMode := os.FileMode(0o755)
-		for _, entry := range prepared.manifest {
+		for _, entry := range captured.manifest {
 			if entry.Path == target.logical+"/" && entry.Kind == "directory" {
 				rootMode = entry.Mode
 				break
 			}
 		}
-		if err := clearManagedInstall(target.logical, target.stage); err != nil {
-			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		if err := clearManagedInstall(target.logical, stage); err != nil {
+			return nil, newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
-		if err := WriteManagedTree(target.stage, target.tree); err != nil {
-			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		if err := WriteManagedTree(stage, target.tree); err != nil {
+			return nil, newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
-		versionPath := filepath.Join(target.stage, filepath.FromSlash(installVersionPath))
+		versionPath := filepath.Join(stage, filepath.FromSlash(installVersionPath))
 		if err := os.MkdirAll(filepath.Dir(versionPath), 0o755); err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.Chmod(filepath.Dir(versionPath), 0o755); err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(versionPath, version, 0o644); err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.Chmod(versionPath, 0o644); err != nil {
-			return err
+			return nil, err
 		}
-		if err := os.Chmod(target.stage, rootMode); err != nil {
-			return err
+		if err := os.Chmod(stage, rootMode); err != nil {
+			return nil, err
 		}
 		stageIdentity := installStageIdentity{
-			RecordVersion: 1, TransactionSHA256: "sha256:" + prepared.transaction,
+			RecordVersion: 1, TransactionSHA256: "sha256:" + captured.transaction,
 			LogicalRoot: target.logical, TargetPath: target.path,
 		}
 		identityRaw, err := marshalInstallStageIdentity(stageIdentity)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := writeExclusiveInstallFile(filepath.Join(target.stage, installStageIdentityName), identityRaw, 0o600); err != nil {
-			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		if err := writeExclusiveInstallFile(filepath.Join(stage, installStageIdentityName), identityRaw, 0o600); err != nil {
+			return nil, newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
-		stageTarget := *target
-		stageTarget.path = target.stage
+		stageTarget := target.installTarget
+		stageTarget.path = stage
 		if err := verifyInstalledTarget(stageTarget, version); err != nil {
-			return err
+			return nil, err
 		}
-		if err := callInstallFault(prepared.fault, "stage-sync-before:"+target.logical); err != nil {
-			return err
+		if err := callInstallFault(captured.scope.fault, "stage-sync-before:"+target.logical); err != nil {
+			return nil, err
 		}
-		if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-			return err
+		if err := revalidateUnreplacedInstallTargets(&captured.scope, authorityTargets, captured.manifest, captured.ownedPaths, 0); err != nil {
+			return nil, err
 		}
-		if err := syncTree(target.stage); err != nil {
-			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		if err := syncTree(stage); err != nil {
+			return nil, newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
-		if err := callInstallFault(prepared.fault, "stage-sync-after:"+target.logical); err != nil {
-			return err
+		if err := callInstallFault(captured.scope.fault, "stage-sync-after:"+target.logical); err != nil {
+			return nil, err
 		}
-		if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-			return err
+		if err := revalidateUnreplacedInstallTargets(&captured.scope, authorityTargets, captured.manifest, captured.ownedPaths, 0); err != nil {
+			return nil, err
 		}
+		stagedTargets[i] = stagedInstallTarget{capturedInstallTarget: target, stage: stage}
 	}
-	return nil
+	staged := &stagedInstall{
+		scope: captured.scope, targets: stagedTargets, manifest: captured.manifest,
+		manifestRaw: captured.manifestRaw, operation: captured.operation,
+		transaction: captured.transaction, recoveryStaging: captured.recoveryStaging,
+		retiredPath: captured.retiredPath, sentinelTemp: captured.sentinelTemp,
+		ownedPaths: captured.ownedPaths,
+	}
+	if err := validateStagedInstall(staged); err != nil {
+		return nil, err
+	}
+	return staged, nil
 }
 
 func clearManagedInstall(logical, root string) error {
@@ -1408,73 +1703,84 @@ func parseInstallManifest(raw []byte) ([]installManifestEntry, error) {
 	return entries, nil
 }
 
-func publishInstallRecovery(prepared *preparedInstall) error {
-	root := prepared.roots.RecoveryRoot
-	if err := callInstallFault(prepared.fault, "publish-before"); err != nil {
-		return err
+func publishInstallRecovery(staged *stagedInstall) (*publishedInstall, error) {
+	root := staged.scope.roots.RecoveryRoot
+	authorityTargets := publishedTargetsFromCapturedTargets(staged.targets)
+	if err := callInstallFault(staged.scope.fault, "publish-before"); err != nil {
+		return nil, err
 	}
-	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-		return err
+	if err := revalidateUnreplacedInstallTargets(&staged.scope, authorityTargets, staged.manifest, staged.ownedPaths, 0); err != nil {
+		return nil, err
 	}
-	if err := syncTree(prepared.recoveryStaging); err != nil {
-		return err
+	if err := syncTree(staged.recoveryStaging); err != nil {
+		return nil, err
 	}
-	transactionDir := filepath.Join(root, prepared.transaction)
+	transactionDir := filepath.Join(root, staged.transaction)
 	if _, err := os.Lstat(transactionDir); err == nil || !os.IsNotExist(err) {
-		return newInstallError("operation-path-collision", []string{"transaction"}, transactionDir, errors.New("transaction path appeared"))
+		return nil, newInstallError("operation-path-collision", []string{"transaction"}, transactionDir, errors.New("transaction path appeared"))
 	}
-	stagingInfo, ok := prepared.createdPaths[prepared.recoveryStaging]
+	stagingInfo, ok := staged.ownedPaths[staged.recoveryStaging]
 	if !ok {
-		return newInstallError("recovery-publication-failed", nil, prepared.recoveryStaging, errors.New("staging ownership missing"))
+		return nil, newInstallError("recovery-publication-failed", nil, staged.recoveryStaging, errors.New("staging ownership missing"))
 	}
-	if err := validateOwnedInstallPath(prepared.recoveryStaging, stagingInfo, true); err != nil {
-		return err
+	if err := validateOwnedInstallPath(staged.recoveryStaging, stagingInfo, true); err != nil {
+		return nil, err
 	}
-	if err := os.Rename(prepared.recoveryStaging, transactionDir); err != nil {
-		return err
+	if err := os.Rename(staged.recoveryStaging, transactionDir); err != nil {
+		return nil, err
 	}
-	delete(prepared.createdPaths, prepared.recoveryStaging)
-	prepared.createdPaths[transactionDir] = stagingInfo
-	for i := range prepared.targets {
-		prepared.targets[i].snapshot = filepath.Join(transactionDir, "snapshots", prepared.targets[i].logical)
+	delete(staged.ownedPaths, staged.recoveryStaging)
+	staged.ownedPaths[transactionDir] = stagingInfo
+	publishedTargets := make([]publishedInstallTarget, len(staged.targets))
+	for i, target := range staged.targets {
+		publishedTargets[i] = publishedInstallTarget{
+			logical: target.logical, path: target.path,
+			snapshot: filepath.Join(transactionDir, "snapshots", target.logical),
+		}
 	}
 	if err := syncDir(root); err != nil {
-		return err
+		return nil, err
 	}
-	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-		return err
+	if err := revalidateUnreplacedInstallTargets(&staged.scope, publishedTargets, staged.manifest, staged.ownedPaths, 0); err != nil {
+		return nil, err
 	}
 	sentinel := installSentinel{
-		RecordVersion: 1, TransactionSHA256: "sha256:" + prepared.transaction,
+		RecordVersion: 1, TransactionSHA256: "sha256:" + staged.transaction,
 		RecoveryDirectory: transactionDir,
 	}
-	for _, target := range prepared.targets {
+	for _, target := range publishedTargets {
 		sentinel.Targets = append(sentinel.Targets, installSentinelTarget{LogicalRoot: target.logical, TargetPath: target.path, SnapshotPath: filepath.Join(transactionDir, "snapshots", target.logical)})
 	}
 	raw, err := marshalInstallSentinel(sentinel)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := atomicWriteInstallControl(prepared, filepath.Join(root, installRecoverySentinel), raw); err != nil {
-		return err
+	if err := atomicWriteInstallControl(staged.scope.fault, staged.ownedPaths, staged.sentinelTemp, filepath.Join(root, installRecoverySentinel), raw); err != nil {
+		return nil, err
 	}
 	loaded, loadedRaw, err := loadInstallSentinel(root)
 	if err != nil || !bytes.Equal(raw, loadedRaw) {
-		return newInstallError("recovery-publication-failed", nil, root, errors.New("sentinel reread differs"))
+		return nil, newInstallError("recovery-publication-failed", nil, root, errors.New("sentinel reread differs"))
 	}
-	if _, err := validateInstallRecovery(prepared, loaded); err != nil {
-		return err
+	published, err := loadPublishedInstall(
+		&staged.scope,
+		publishedTargetsFromInstall(stagedInstallTargets(staged)),
+		staged.ownedPaths,
+		loaded,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-		return err
+	if err := revalidateUnreplacedInstallTargets(&published.scope, published.targets, published.manifest, published.ownedPaths, 0); err != nil {
+		return nil, err
 	}
-	if err := callInstallFault(prepared.fault, "publish-after"); err != nil {
-		return err
+	if err := callInstallFault(published.scope.fault, "publish-after"); err != nil {
+		return nil, err
 	}
-	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
-		return err
+	if err := revalidateUnreplacedInstallTargets(&published.scope, published.targets, published.manifest, published.ownedPaths, 0); err != nil {
+		return nil, err
 	}
-	return nil
+	return published, nil
 }
 
 func marshalInstallSentinel(s installSentinel) ([]byte, error) {
@@ -1582,98 +1888,117 @@ func loadInstallSentinel(root string) (installSentinel, []byte, error) {
 	return sentinel, raw, nil
 }
 
-func recoverBatonInstall(prepared *preparedInstall) error {
-	sentinel, _, err := loadInstallSentinel(prepared.roots.RecoveryRoot)
+func recoverBatonInstall(preflight *installPreflight) error {
+	root := preflight.scope.roots.RecoveryRoot
+	sentinel, _, err := loadInstallSentinel(root)
 	if err != nil {
-		return newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+		return newInstallError("recovery-invalid", nil, root, err)
 	}
-	manifest, err := validateInstallRecovery(prepared, sentinel)
+	published, err := loadPublishedInstall(
+		&preflight.scope,
+		publishedTargetsFromInstall(preflightInstallTargets(preflight)),
+		make(map[string]fs.FileInfo),
+		sentinel,
+	)
 	if err != nil {
 		return err
 	}
-	unrestored := restoreInstallTargets(prepared, manifest)
+	unrestored := restoreInstallTargets(published)
 	if len(unrestored) != 0 {
-		if updateErr := updateInstallUnrestored(prepared, unrestored); updateErr != nil {
-			return newInstallError("rollback-incomplete", append(unrestored, "recovery"), prepared.roots.RecoveryRoot, updateErr)
+		if updateErr := updateInstallUnrestored(published, unrestored); updateErr != nil {
+			return newInstallError("rollback-incomplete", append(unrestored, "recovery"), root, updateErr)
 		}
-		return newInstallError("rollback-incomplete", unrestored, prepared.roots.RecoveryRoot, errors.New("recovery incomplete"))
+		return newInstallError("rollback-incomplete", unrestored, root, errors.New("recovery incomplete"))
 	}
-	if err := cleanupInstallStageDebris(prepared); err != nil {
-		return newInstallError("recovery-stage-cleanup-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
+	if err := cleanupInstallStageDebris(preflight); err != nil {
+		return newInstallError("recovery-stage-cleanup-failed", []string{"recovery"}, root, err)
 	}
-	if err := retireInstallRecovery(prepared); err != nil {
-		return newInstallError("recovery-retire-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
+	if err := retireInstallRecovery(published); err != nil {
+		return newInstallError("recovery-retire-failed", []string{"recovery"}, root, err)
 	}
 	return nil
 }
 
-func validateInstallRecovery(prepared *preparedInstall, sentinel installSentinel) ([]installManifestEntry, error) {
-	if err := reassertInstallIdentities(prepared, false); err != nil {
+func loadPublishedInstall(
+	scope *installScope,
+	expectedTargets []publishedInstallTarget,
+	ownedPaths map[string]fs.FileInfo,
+	sentinel installSentinel,
+) (*publishedInstall, error) {
+	if err := reassertInstallIdentities(scope, false); err != nil {
 		return nil, err
 	}
 	if sentinel.RecordVersion != 1 || !strings.HasPrefix(sentinel.TransactionSHA256, "sha256:") {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("sentinel identity invalid"))
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("sentinel identity invalid"))
 	}
 	id := strings.TrimPrefix(sentinel.TransactionSHA256, "sha256:")
-	if len(id) != 64 || filepath.Base(sentinel.RecoveryDirectory) != id || filepath.Dir(sentinel.RecoveryDirectory) != prepared.roots.RecoveryRoot {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("recovery directory invalid"))
+	if len(id) != 64 || filepath.Base(sentinel.RecoveryDirectory) != id || filepath.Dir(sentinel.RecoveryDirectory) != scope.roots.RecoveryRoot {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("recovery directory invalid"))
 	}
 	decodedID, decodeErr := hex.DecodeString(id)
 	if decodeErr != nil || hex.EncodeToString(decodedID) != id {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("transaction id invalid"))
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("transaction id invalid"))
 	}
-	prepared.transaction = id
-	prepared.sentinelTemp = filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+id)
-	prepared.retiredPath = filepath.Join(filepath.Dir(prepared.roots.RecoveryRoot), ".baton-sync-retired-"+id)
-	if err := validateRecoveryOwnerModes(prepared.roots.RecoveryRoot, sentinel.RecoveryDirectory); err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+	sentinelTemp := filepath.Join(scope.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+id)
+	retiredPath := filepath.Join(filepath.Dir(scope.roots.RecoveryRoot), ".baton-sync-retired-"+id)
+	if err := validateRecoveryOwnerModes(scope.roots.RecoveryRoot, sentinel.RecoveryDirectory); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
-	if err := validateRecoveryControlInventory(prepared.roots.RecoveryRoot, sentinel.RecoveryDirectory); err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+	if err := validateRecoveryControlInventory(scope.roots.RecoveryRoot, sentinel.RecoveryDirectory); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
-	if len(sentinel.Targets) != len(prepared.targets) {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("target inventory invalid"))
+	if len(sentinel.Targets) != len(expectedTargets) {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("target inventory invalid"))
 	}
 	if !equalStrings(sentinel.UnrestoredPaths, uniqueSortedStrings(sentinel.UnrestoredPaths)) {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("unrestored paths are not unique byte-sorted"))
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("unrestored paths are not unique byte-sorted"))
 	}
-	for i, target := range prepared.targets {
+	publishedTargets := make([]publishedInstallTarget, len(expectedTargets))
+	for i, target := range expectedTargets {
 		record := sentinel.Targets[i]
 		wantSnapshot := filepath.Join(sentinel.RecoveryDirectory, "snapshots", target.logical)
 		if record.LogicalRoot != target.logical || record.TargetPath != target.path || record.SnapshotPath != wantSnapshot {
-			return nil, newInstallError("recovery-invalid", []string{target.logical}, prepared.roots.RecoveryRoot, errors.New("target identity invalid"))
+			return nil, newInstallError("recovery-invalid", []string{target.logical}, scope.roots.RecoveryRoot, errors.New("target identity invalid"))
 		}
-		prepared.targets[i].snapshot = record.SnapshotPath
+		publishedTargets[i] = publishedInstallTarget{logical: target.logical, path: target.path, snapshot: record.SnapshotPath}
 	}
 	manifestRaw, err := os.ReadFile(filepath.Join(sentinel.RecoveryDirectory, installManifestName))
 	if err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
 	digest := sha256.Sum256(manifestRaw)
 	if "sha256:"+hex.EncodeToString(digest[:]) != sentinel.TransactionSHA256 {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("manifest digest mismatch"))
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("manifest digest mismatch"))
 	}
 	manifest, err := parseInstallManifest(manifestRaw)
 	if err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
-	if err := validateInstallManifestPaths(manifest, prepared.targets); err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+	if err := validateInstallManifestPaths(manifest, installTargetsFromPublished(publishedTargets)); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(sentinel.RecoveryDirectory, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("owner identity invalid"))
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != scope.roots.RecoveryRoot {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, errors.New("owner identity invalid"))
 	}
-	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
-		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
+	if err := validateOwnerTargets(publishedTargets, owner.Targets); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
 	}
-	if err := validateSnapshotMaterial(prepared.targets, manifest); err != nil {
+	if err := validateSnapshotMaterial(publishedTargets, manifest); err != nil {
 		return nil, err
 	}
-	return manifest, nil
+	published := &publishedInstall{
+		scope: *scope, targets: publishedTargets, manifest: manifest, manifestRaw: manifestRaw,
+		transaction: id, recoveryDirectory: sentinel.RecoveryDirectory,
+		retiredPath: retiredPath, sentinelTemp: sentinelTemp, ownedPaths: ownedPaths,
+	}
+	if err := validatePublishedInstall(published); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, scope.roots.RecoveryRoot, err)
+	}
+	return published, nil
 }
 
-func validateSnapshotMaterial(targets []installTarget, manifest []installManifestEntry) error {
+func validateSnapshotMaterial(targets []publishedInstallTarget, manifest []installManifestEntry) error {
 	byRoot := manifestByRoot(manifest)
 	for _, target := range targets {
 		entries := byRoot[target.logical]
@@ -1753,11 +2078,11 @@ func validateSnapshotMaterial(targets []installTarget, manifest []installManifes
 	return nil
 }
 
-func restoreInstallTargets(prepared *preparedInstall, manifest []installManifestEntry) []string {
-	byRoot := manifestByRoot(manifest)
+func restoreInstallTargets(published *publishedInstall) []string {
+	byRoot := manifestByRoot(published.manifest)
 	var unrestored []string
-	for _, target := range prepared.targets {
-		if err := callInstallFault(prepared.fault, "restore-before:"+target.logical); err != nil {
+	for _, target := range published.targets {
+		if err := callInstallFault(published.scope.fault, "restore-before:"+target.logical); err != nil {
 			unrestored = append(unrestored, target.logical)
 			continue
 		}
@@ -1765,14 +2090,14 @@ func restoreInstallTargets(prepared *preparedInstall, manifest []installManifest
 			unrestored = append(unrestored, target.logical)
 			continue
 		}
-		if err := callInstallFault(prepared.fault, "restore-after:"+target.logical); err != nil {
+		if err := callInstallFault(published.scope.fault, "restore-after:"+target.logical); err != nil {
 			unrestored = append(unrestored, target.logical)
 		}
 	}
 	return uniqueSortedStrings(unrestored)
 }
 
-func restoreInstallTarget(target installTarget, entries []installManifestEntry) error {
+func restoreInstallTarget(target publishedInstallTarget, entries []installManifestEntry) error {
 	if len(entries) == 0 || entries[0].Path != target.logical+"/" {
 		return errors.New("manifest root missing")
 	}
@@ -1874,7 +2199,7 @@ func chooseMode(ownerOnly bool, original os.FileMode, directory bool) os.FileMod
 	return 0o600
 }
 
-func verifyRestoredTarget(target installTarget, entries []installManifestEntry) error {
+func verifyRestoredTarget(target publishedInstallTarget, entries []installManifestEntry) error {
 	actualTargets := []installTarget{{logical: target.logical, path: target.path}}
 	actual, err := snapshotManifestEntries(actualTargets)
 	if err != nil {
@@ -1886,8 +2211,9 @@ func verifyRestoredTarget(target installTarget, entries []installManifestEntry) 
 	return nil
 }
 
-func replaceInstallRoot(prepared *preparedInstall, target installTarget) error {
-	if err := validateInstallStage(target.stage, prepared.transaction, target); err != nil {
+func replaceInstallRoot(published *publishedInstall, target stagedInstallTarget) error {
+	baseTarget := target.installTarget
+	if err := validateInstallStage(target.stage, published.transaction, baseTarget); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(target.path); err != nil {
@@ -1896,7 +2222,7 @@ func replaceInstallRoot(prepared *preparedInstall, target installTarget) error {
 	if err := os.Rename(target.stage, target.path); err != nil {
 		return err
 	}
-	if err := validateInstallStage(target.path, prepared.transaction, target); err != nil {
+	if err := validateInstallStage(target.path, published.transaction, baseTarget); err != nil {
 		return err
 	}
 	if err := os.Remove(filepath.Join(target.path, installStageIdentityName)); err != nil {
@@ -1916,16 +2242,16 @@ func verifyInstalledTarget(target installTarget, version []byte) error {
 	return nil
 }
 
-func updateInstallUnrestored(prepared *preparedInstall, paths []string) error {
-	root := prepared.roots.RecoveryRoot
-	if err := callInstallFault(prepared.fault, "unrestored-update-before"); err != nil {
+func updateInstallUnrestored(published *publishedInstall, paths []string) error {
+	root := published.scope.roots.RecoveryRoot
+	if err := callInstallFault(published.scope.fault, "unrestored-update-before"); err != nil {
 		return err
 	}
 	sentinel, _, err := loadInstallSentinel(root)
 	if err != nil {
 		return err
 	}
-	if _, err := validateInstallRecovery(prepared, sentinel); err != nil {
+	if _, err := loadPublishedInstall(&published.scope, published.targets, published.ownedPaths, sentinel); err != nil {
 		return err
 	}
 	sentinel.UnrestoredPaths = uniqueSortedStrings(paths)
@@ -1933,34 +2259,34 @@ func updateInstallUnrestored(prepared *preparedInstall, paths []string) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicWriteInstallControl(prepared, filepath.Join(root, installRecoverySentinel), raw); err != nil {
+	if err := atomicWriteInstallControl(published.scope.fault, published.ownedPaths, published.sentinelTemp, filepath.Join(root, installRecoverySentinel), raw); err != nil {
 		return err
 	}
 	loaded, loadedRaw, err := loadInstallSentinel(root)
 	if err != nil || !bytes.Equal(raw, loadedRaw) || !equalStrings(loaded.UnrestoredPaths, sentinel.UnrestoredPaths) {
 		return errors.New("durable unrestored update differs")
 	}
-	if err := callInstallFault(prepared.fault, "unrestored-update-after"); err != nil {
+	if err := callInstallFault(published.scope.fault, "unrestored-update-after"); err != nil {
 		return err
 	}
 	return nil
 }
 
-func retireInstallRecovery(prepared *preparedInstall) error {
-	root := prepared.roots.RecoveryRoot
+func retireInstallRecovery(published *publishedInstall) error {
+	root := published.scope.roots.RecoveryRoot
 	sentinel, _, err := loadInstallSentinel(root)
 	if err != nil {
 		return err
 	}
-	if _, err := validateInstallRecovery(prepared, sentinel); err != nil {
+	if _, err := loadPublishedInstall(&published.scope, published.targets, published.ownedPaths, sentinel); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "retire-before"); err != nil {
+	if err := callInstallFault(published.scope.fault, "retire-before"); err != nil {
 		return err
 	}
-	retired := prepared.retiredPath
+	retired := published.retiredPath
 	if retired == "" {
-		retired = filepath.Join(filepath.Dir(root), ".baton-sync-retired-"+prepared.transaction)
+		retired = filepath.Join(filepath.Dir(root), ".baton-sync-retired-"+published.transaction)
 	}
 	if _, err := os.Lstat(retired); err == nil || !os.IsNotExist(err) {
 		return newInstallError("operation-path-collision", []string{"retired"}, retired, errors.New("retired path exists"))
@@ -1975,20 +2301,20 @@ func retireInstallRecovery(prepared *preparedInstall) error {
 	if err := syncDir(filepath.Dir(root)); err != nil {
 		return err
 	}
-	if err := validateRelocatedInstallRecovery(prepared, retired); err != nil {
+	if err := validateRelocatedInstallRecovery(&published.scope, published.targets, retired); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "retire-after"); err != nil {
+	if err := callInstallFault(published.scope.fault, "retire-after"); err != nil {
 		return err
 	}
-	if err := removeValidatedRetiredInstall(prepared, retired, rootInfo); err != nil {
+	if err := removeValidatedRetiredInstall(&published.scope, published.targets, retired, rootInfo); err != nil {
 		return err
 	}
 	return syncDir(filepath.Dir(root))
 }
 
-func findRetiredInstallRecovery(prepared *preparedInstall) (string, error) {
-	parent := filepath.Dir(prepared.roots.RecoveryRoot)
+func findRetiredInstallRecovery(preflight *installPreflight) (string, error) {
+	parent := filepath.Dir(preflight.scope.roots.RecoveryRoot)
 	entries, err := os.ReadDir(parent)
 	if os.IsNotExist(err) {
 		return "", nil
@@ -2008,29 +2334,30 @@ func findRetiredInstallRecovery(prepared *preparedInstall) (string, error) {
 		found = filepath.Join(parent, entry.Name())
 	}
 	if found != "" {
-		if err := validateRelocatedInstallRecovery(prepared, found); err != nil {
+		if err := validateRelocatedInstallRecovery(&preflight.scope, publishedTargetsFromInstall(preflightInstallTargets(preflight)), found); err != nil {
 			return "", newInstallError("retired-debris-invalid", []string{"recovery"}, found, err)
 		}
 	}
 	return found, nil
 }
 
-func cleanupRetiredInstallRecovery(prepared *preparedInstall, retired string) error {
+func cleanupRetiredInstallRecovery(preflight *installPreflight, retired string) error {
 	info, err := os.Lstat(retired)
 	if err != nil {
 		return err
 	}
-	if err := validateRelocatedInstallRecovery(prepared, retired); err != nil {
+	expected := publishedTargetsFromInstall(preflightInstallTargets(preflight))
+	if err := validateRelocatedInstallRecovery(&preflight.scope, expected, retired); err != nil {
 		return err
 	}
-	return removeValidatedRetiredInstall(prepared, retired, info)
+	return removeValidatedRetiredInstall(&preflight.scope, expected, retired, info)
 }
 
-func removeValidatedRetiredInstall(prepared *preparedInstall, retired string, info fs.FileInfo) error {
+func removeValidatedRetiredInstall(scope *installScope, expectedTargets []publishedInstallTarget, retired string, info fs.FileInfo) error {
 	if err := validateOwnedInstallPath(retired, info, true); err != nil {
 		return err
 	}
-	if err := validateRelocatedInstallRecovery(prepared, retired); err != nil {
+	if err := validateRelocatedInstallRecovery(scope, expectedTargets, retired); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(retired); err != nil {
@@ -2039,8 +2366,8 @@ func removeValidatedRetiredInstall(prepared *preparedInstall, retired string, in
 	return syncDir(filepath.Dir(retired))
 }
 
-func cleanupIncompleteInstallRecovery(prepared *preparedInstall) error {
-	root := prepared.roots.RecoveryRoot
+func cleanupIncompleteInstallRecovery(preflight *installPreflight) error {
+	root := preflight.scope.roots.RecoveryRoot
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil
@@ -2068,7 +2395,7 @@ func cleanupIncompleteInstallRecovery(prepared *preparedInstall) error {
 		return newInstallError("recovery-debris-invalid", []string{"recovery"}, root, errors.New("unidentified recovery debris"))
 	}
 	path := filepath.Join(root, name)
-	if err := validateIncompleteInstallBundle(prepared, path, id, staging); err != nil {
+	if err := validateIncompleteInstallBundle(preflight, path, id, staging); err != nil {
 		return newInstallError("recovery-debris-invalid", []string{"recovery"}, root, err)
 	}
 	info, err := os.Lstat(path)
@@ -2092,7 +2419,7 @@ func validInstallTransactionID(id string) bool {
 	return err == nil && hex.EncodeToString(decoded) == id
 }
 
-func validateIncompleteInstallBundle(prepared *preparedInstall, path, id string, staging bool) error {
+func validateIncompleteInstallBundle(preflight *installPreflight, path, id string, staging bool) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
 		return errors.New("incomplete bundle root invalid")
@@ -2101,10 +2428,11 @@ func validateIncompleteInstallBundle(prepared *preparedInstall, path, id string,
 		return err
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(path, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot || (staging && owner.OperationID != id) {
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != preflight.scope.roots.RecoveryRoot || (staging && owner.OperationID != id) {
 		return errors.New("incomplete bundle owner identity invalid")
 	}
-	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
+	expectedTargets := publishedTargetsFromInstall(preflightInstallTargets(preflight))
+	if err := validateOwnerTargets(expectedTargets, owner.Targets); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(path)
@@ -2142,17 +2470,17 @@ func validateIncompleteInstallBundle(prepared *preparedInstall, path, id string,
 		return err
 	}
 	manifest, err := parseInstallManifest(manifestRaw)
-	if err != nil || validateInstallManifestPaths(manifest, prepared.targets) != nil {
+	if err != nil || validateInstallManifestPaths(manifest, preflightInstallTargets(preflight)) != nil {
 		return errors.New("orphan transaction manifest invalid")
 	}
-	targets := append([]installTarget(nil), prepared.targets...)
+	targets := append([]publishedInstallTarget(nil), expectedTargets...)
 	for i := range targets {
 		targets[i].snapshot = filepath.Join(path, "snapshots", targets[i].logical)
 	}
 	return validateSnapshotMaterial(targets, manifest)
 }
 
-func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string) error {
+func validateRelocatedInstallRecovery(scope *installScope, expectedTargets []publishedInstallTarget, retired string) error {
 	base := filepath.Base(retired)
 	id := strings.TrimPrefix(base, ".baton-sync-retired-")
 	if !strings.HasPrefix(base, ".baton-sync-retired-") || !validInstallTransactionID(id) {
@@ -2162,7 +2490,7 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 	if err != nil || sentinel.RecordVersion != 1 || sentinel.TransactionSHA256 != "sha256:"+id {
 		return errors.New("retired sentinel invalid")
 	}
-	originalTransaction := filepath.Join(prepared.roots.RecoveryRoot, id)
+	originalTransaction := filepath.Join(scope.roots.RecoveryRoot, id)
 	if sentinel.RecoveryDirectory != originalTransaction {
 		return errors.New("retired recovery identity invalid")
 	}
@@ -2174,10 +2502,10 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 		return err
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(relocatedTransaction, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot {
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != scope.roots.RecoveryRoot {
 		return errors.New("retired owner identity invalid")
 	}
-	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
+	if err := validateOwnerTargets(expectedTargets, owner.Targets); err != nil {
 		return err
 	}
 	if len(owner.Targets) != len(sentinel.Targets) {
@@ -2197,21 +2525,21 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 		return errors.New("retired manifest digest differs")
 	}
 	manifest, err := parseInstallManifest(manifestRaw)
-	if err != nil || validateInstallManifestPaths(manifest, prepared.targets) != nil {
+	if err != nil || validateInstallManifestPaths(manifest, installTargetsFromPublished(expectedTargets)) != nil {
 		return errors.New("retired manifest invalid")
 	}
-	targets := append([]installTarget(nil), prepared.targets...)
+	targets := append([]publishedInstallTarget(nil), expectedTargets...)
 	for i := range targets {
 		targets[i].snapshot = filepath.Join(relocatedTransaction, "snapshots", targets[i].logical)
 	}
 	return validateSnapshotMaterial(targets, manifest)
 }
 
-func validateOwnerTargets(prepared *preparedInstall, records []installSentinelTarget) error {
-	if len(records) != len(prepared.targets) {
+func validateOwnerTargets(expectedTargets []publishedInstallTarget, records []installSentinelTarget) error {
+	if len(records) != len(expectedTargets) {
 		return errors.New("owner target inventory differs")
 	}
-	for i, target := range prepared.targets {
+	for i, target := range expectedTargets {
 		want := installSentinelTarget{
 			LogicalRoot: target.logical, TargetPath: target.path,
 		}
@@ -2409,15 +2737,15 @@ func chmodTreeOwnerOnly(root string) error {
 	})
 }
 
-func atomicWriteInstallControl(prepared *preparedInstall, name string, data []byte) error {
-	tmp := prepared.sentinelTemp
+func atomicWriteInstallControl(fault InstallFault, ownedPaths map[string]fs.FileInfo, sentinelTemp, name string, data []byte) error {
+	tmp := sentinelTemp
 	if tmp == "" || filepath.Dir(tmp) != filepath.Dir(name) {
 		return errors.New("control temporary path identity missing")
 	}
 	if _, err := os.Lstat(tmp); err == nil || !os.IsNotExist(err) {
 		return newInstallError("operation-path-collision", []string{"sentinel_temp"}, tmp, errors.New("control temporary path exists"))
 	}
-	if err := callInstallFault(prepared.fault, "control-write-before"); err != nil {
+	if err := callInstallFault(fault, "control-write-before"); err != nil {
 		return err
 	}
 	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -2429,12 +2757,12 @@ func atomicWriteInstallControl(prepared *preparedInstall, name string, data []by
 		file.Close()
 		return statErr
 	}
-	prepared.createdPaths[tmp] = info
+	ownedPaths[tmp] = info
 	keep := false
 	defer func() {
 		_ = file.Close()
 		if !keep {
-			_ = removeOwnedInstallPath(prepared, tmp)
+			_ = removeOwnedInstallPath(ownedPaths, tmp)
 		}
 	}()
 	if _, err := file.Write(data); err != nil {
@@ -2443,30 +2771,30 @@ func atomicWriteInstallControl(prepared *preparedInstall, name string, data []by
 	if err := file.Chmod(0o600); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "control-sync-before"); err != nil {
+	if err := callInstallFault(fault, "control-sync-before"); err != nil {
 		return err
 	}
 	if err := file.Sync(); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "control-sync-after"); err != nil {
+	if err := callInstallFault(fault, "control-sync-after"); err != nil {
 		return err
 	}
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "control-rename-before"); err != nil {
+	if err := callInstallFault(fault, "control-rename-before"); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, name); err != nil {
 		return err
 	}
-	delete(prepared.createdPaths, tmp)
+	delete(ownedPaths, tmp)
 	keep = true
 	if err := syncDir(filepath.Dir(name)); err != nil {
 		return err
 	}
-	if err := callInstallFault(prepared.fault, "control-rename-after"); err != nil {
+	if err := callInstallFault(fault, "control-rename-after"); err != nil {
 		return err
 	}
 	contents, err := os.ReadFile(name)
@@ -2525,16 +2853,16 @@ func callInstallFault(fault InstallFault, point string) error {
 	return fault(point)
 }
 
-func cleanupInstallStages(prepared *preparedInstall) {
-	for _, target := range prepared.targets {
-		_ = removeOwnedInstallPath(prepared, target.stage)
+func cleanupInstallStages(captured *capturedInstall) {
+	for _, stage := range installStagePaths(capturedInstallTargets(captured), captured.transaction) {
+		_ = removeOwnedInstallPath(captured.ownedPaths, stage.path)
 	}
-	_ = removeOwnedInstallPath(prepared, prepared.sentinelTemp)
+	_ = removeOwnedInstallPath(captured.ownedPaths, captured.sentinelTemp)
 }
 
-func cleanupInstallStageDebris(prepared *preparedInstall) error {
+func cleanupInstallStageDebris(preflight *installPreflight) error {
 	seenParents := make(map[string]struct{})
-	for _, target := range prepared.targets {
+	for _, target := range preflight.targets {
 		parent := filepath.Dir(target.path)
 		if _, ok := seenParents[parent]; ok {
 			continue
@@ -2565,8 +2893,8 @@ func cleanupInstallStageDebris(prepared *preparedInstall) error {
 				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, errors.New("external stage transaction invalid"))
 			}
 			var matched *installTarget
-			for i := range prepared.targets {
-				candidate := &prepared.targets[i]
+			for i := range preflight.targets {
+				candidate := &preflight.targets[i].installTarget
 				if candidate.logical == identity.LogicalRoot && candidate.path == identity.TargetPath {
 					matched = candidate
 					break
@@ -2592,17 +2920,17 @@ func cleanupInstallStageDebris(prepared *preparedInstall) error {
 	return nil
 }
 
-func removeOwnedInstallPath(prepared *preparedInstall, name string) error {
+func removeOwnedInstallPath(ownedPaths map[string]fs.FileInfo, name string) error {
 	if name == "" {
 		return nil
 	}
-	want, ok := prepared.createdPaths[name]
+	want, ok := ownedPaths[name]
 	if !ok {
 		return nil
 	}
 	info, err := os.Lstat(name)
 	if os.IsNotExist(err) {
-		delete(prepared.createdPaths, name)
+		delete(ownedPaths, name)
 		return nil
 	}
 	if err != nil {
@@ -2617,7 +2945,7 @@ func removeOwnedInstallPath(prepared *preparedInstall, name string) error {
 		err = os.Remove(name)
 	}
 	if err == nil {
-		delete(prepared.createdPaths, name)
+		delete(ownedPaths, name)
 	}
 	return err
 }
