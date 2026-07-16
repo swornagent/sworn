@@ -553,8 +553,11 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   under this release's `planning/` directory. Every affected spec references
   those files directly because typed references are non-recursive. Add C-13 as
   the explicit activation contract owned by S13.
-- **Activation order**: S01 through S13 implement and verify under the ratified
-  manual v0.15 bootstrap. T1 then T2 merge canonically into `release-wt` while
+- **Activation order**: The active bootstrap set implements and verifies under
+  the ratified manual v0.15 adapter. After the Gate-3 amendment this means S01,
+  S03 through S13, S19 and S20, while original S02 remains a C-09-valid
+  rollback-backed terminal deferral. T1 then T2 merge canonically into
+  `release-wt` while
   the marker remains `planning`. On that clean local/remote-equal release-wt, before
   any T5 or T6 ref exists, `sworn maintainability cutover <release>` revalidates
   every gate, changes only `protocol.json.authority` to `current`, commits and
@@ -1031,6 +1034,43 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   No S01/S02 spec, report, proof, semantic code, lifecycle state, Verifier,
   installation, or branch authority is changed by this planning amendment.
 
+### 2026-07-16 — Retire failed S02 through exact rollback and fresh replacement
+
+- **Trigger**: The fresh artefact-only Verifier failed Gate 3 because
+  `cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability`
+  passed the developer-specific `/home/brad/projects/baton` checkout to the
+  built binary. The test was green only on the maintainer's host and was not a
+  clean-CI reachability proof.
+- **Lifecycle constraint**: S02's final Implementer maintainability PASS froze
+  semantic head `2a17443d67d39cf681dba117a57673714a916d7f`. Baton therefore forbids
+  repairing the test under the same slice id. Original S02 remains terminal
+  `re_slice_required`, preserves its complete reports/claim/receipt/proof and
+  Gate-3 failure, changes overall state only to rollback-backed `deferred`, and
+  records one immutable rollback link.
+- **Decision**: Insert `S19-s02-v015-rollback` and
+  `S20-v015-parity-portable-fixture` after original S02 and before S03. S19
+  restores the complete first-parent non-merge semantic envelope through its
+  verified implementation head to S02 start commit
+  `e61cb190736ee7483fb4ed1a993442b26ce3574c` exactly. S20 may start only after
+  that rollback is freshly verified and becomes the active C-01 owner.
+- **Portable proof**: S20 re-delivers the exact 45-path v0.15.1 semantic result
+  and adds one test-only authenticated Git-bundle fixture. The bundle is the
+  exact 2,505,826-byte canonical bundle-v2 stream: the fixed tag header plus Git 2.43.0 `pack-objects --stdout --revs --window=0 --depth=0 --compression=9 --threads=1 --no-reuse-delta --no-reuse-object --no-sparse --delta-base-offset` output, pinned
+  at SHA-256 `cba3796ed382623f35abc568183e3a5a0d4a82335cebd4589989d0ae41b43ad5`
+  and blob `77e5b4cc7210a41ce8779bc352a1f487101fb80e`; it contains annotated tag
+  `3ba5f704…` and peeled commit `3fb4d275…`. The test verifies complete history,
+  clones with `--no-checkout` beneath `t.TempDir()`, then detach-checkouts
+  `v0.15.1^{commit}` before evaluating HEAD. No sibling checkout, synthetic commit, weakened pin
+  predicate, or runtime bundle dependency is authority. The committed bytes and
+  pinned identities are normative; cross-version regeneration is not required.
+- **Topology**: T1 order is S01, original S02, S19, S20, S03, S04, S05. The
+  release now contains 20 proof-bounded slices; T2/T5/T6/T7 dependencies and the
+  pure-plan `shared_touchpoints: {}` authority are unchanged.
+- **Ratification**: Brad was told the mandatory rollback/replacement consequence,
+  accepted the orchestrator's recommendation, and instructed the release process
+  to continue. Real Codex and Claude homes remain untouched until S20 receives an
+  independent fresh Verifier PASS.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -1049,9 +1089,16 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - `S01-vendor-boundary-readiness`: A maintainer can run the upstream v0.15
   vendor/check workflow without false script-reference matches, unsupported
   schema-expression failures or any partial write being reported as success.
-- `S02-v015-parity-and-installs`: The binary, vendored normative content and
-  supported Codex and Claude installations report and byte-match the exact
-  Baton v0.15 pin.
+- `S02-v015-parity-and-installs`: Historical failed original. Its immutable
+  evidence explains the Gate-3 failure and its terminal deferral is valid only
+  through the verified S19 rollback link; it no longer owns active C-01.
+- `S19-s02-v015-rollback`: The complete ordinary semantic envelope is restored
+  mode-for-mode, object-for-object, and absence-for-absence to S02's immutable
+  start tree before replacement begins.
+- `S20-v015-parity-portable-fixture`: The binary, vendored normative content and
+  supported Codex and Claude installations report and byte-match exact Baton
+  v0.15.1, with built-binary reachability proven from a verified exact-tag Git
+  bundle clone rather than a developer checkout.
 - `S03-lossless-record-carriers`: `sworn doctor` proves state, board and spec
   records round-trip maintainability, shared touchpoints and typed references
   without loss against the exact v0.15 schemas.
@@ -1083,7 +1130,8 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - `S13-maintainability-engine-cutover`: Public review and adjudication commands
   atomically persist, commit and push lifecycle transitions, recover without
   redispatch, produce the exact empty-scope zero-dispatch PASS, and revalidate
-  every independently verified S01–S13 bootstrap record, including S13's own
+  every active S01/S03-S13/S19/S20 bootstrap record plus terminal original S02's
+  historical ledger, rollback link, and exact S19 equality, including S13's own
   verifier-certified evidence without self-awarding PASS, before automation
   becomes authoritative.
 - `S14-role-lifecycle-recovery`: Loop, router, Implementer and Verifier paths use
@@ -1117,8 +1165,8 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate; native `mark-shipped` performs exact Baton status/index bookkeeping while preserving the pure-plan board, hands push/cleanup to the human, and no-ops when nothing remains verified |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
-| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, normally under 25 files, with one explicit 42-file S02 complete-offline parity/install/doctor bootstrap exception after Captain review and exact-schema execution exposed its complete owners |
-| A-11 | How to group the 18 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; serial T2 command scaffold from S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified and amended after Gate 3: 20 proof-bounded slices, normally under 25 files, with the historical S02 exception followed by an explicit 45-path S19 rollback and 46-path S20 replacement including one authenticated test-only Git bundle |
+| A-11 | How to group the 20 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; T1 orders original S02 → S19 rollback → S20 replacement before S03, serial T2 runs S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
 | A-14 | Which owners publish, embed, compare, generate, install, and recover S02's offline archive | Repository atomicity, public parity, binary authority, local-home safety, file ceiling and Rule-9 records | Ratified: one expanded repository transaction; explicit `internal/adopt` embed; focused archive and install-transaction helpers; `internal/baton/diff.go` public parity; thin CLI adapters; eight-command inventory |

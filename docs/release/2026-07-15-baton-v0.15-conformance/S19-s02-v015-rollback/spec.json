@@ -1,0 +1,159 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S19-s02-v015-rollback",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T1-foundation",
+  "user_outcome": "A release operator can prove every S02-authored semantic path is restored mode-for-mode and object-for-object to the pre-S02 tree before replacement work begins.",
+  "rationale": "S02 received a final Implementer maintainability PASS and then failed fresh verification on a semantic Gate-3 defect. Baton forbids reopening that frozen boundary. This mandatory ordinary rollback restores the complete authored semantic envelope to S02's immutable start tree while preserving every release record, so corrected functionality can be introduced under a fresh slice id.",
+  "touchpoints": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go"
+  ],
+  "references": [
+    {
+      "kind": "contract",
+      "contract_id": "C-01"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-09"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S02-v015-parity-and-installs"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"
+    }
+  ],
+  "in_scope": [
+    "Derive every first-parent non-merge authored semantic path from S02's immutable start_commit e61cb190736ee7483fb4ed1a993442b26ce3574c through this rollback slice's pinned maintainability.implementation_head, including the original interval, gaps, rollback-authored files, generated files, and lockfiles.",
+    "Exclude only the physical docs/release/2026-07-15-baton-v0.15-conformance/ release-record root and recognized merge-only contributions; authored/merge overlap, unexpected later ordinary authority, or any other provenance ambiguity fails closed rather than narrowing the envelope.",
+    "Restore every envelope path's exact Git mode and blob identity, including absence, to the S02 start tree c57285e3f652e5f49aa8bb15e3ba65249b4a3db8. For the currently known 45-path envelope, 37 paths restore their exact start blobs and eight S02-added paths are absent.",
+    "Preserve the complete append-only S02 release history, including reports, claim, receipt, proof, journal, Verifier failure, deferred terminal status, and rollback link; do not revert or cherry-pick commits that would rewrite release-record topology.",
+    "Produce committed live equality evidence, full uncached build/test/vet results, a proof bundle, final Implementer maintainability PASS, and an independent fresh Verifier PASS before S20 begins."
+  ],
+  "out_of_scope": [
+    "Reapplying Baton v0.15.1 parity, installer, schema-carrier, or doctor behavior belongs to S20-v015-parity-portable-fixture.",
+    "Repairing or weakening the failed S02 proof, report ledger, replacement claim/receipt, or Verifier verdict is prohibited.",
+    "Post-sync rollback and the reusable C-09 product implementation remain owned by S12-rollback-readiness."
+  ],
+  "covers_needs": [
+    "N-07",
+    "N-09"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The change is a broad but mechanically exact 45-path restoration; the acceptance boundary is fixed by immutable Git modes, blobs, absences, and a no-subtraction envelope.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A rollback-authored, generated, or gap path escapes the envelope and survives with non-baseline identity.",
+      "mitigation": "Recompute first-parent non-merge authored history through the final rollback implementation head and compare every path mode/blob/absence to e61cb190."
+    },
+    {
+      "id": "R-02",
+      "description": "A broad Git revert rewrites or deletes S02's append-only release evidence.",
+      "mitigation": "Restore semantic paths explicitly while excluding only docs/release/2026-07-15-baton-v0.15-conformance/ and recognized merge-only contributions."
+    },
+    {
+      "id": "R-03",
+      "description": "Replacement begins while the original remains not C-09-ready or the rollback is not freshly verified.",
+      "mitigation": "Keep S20-v015-parity-portable-fixture ordered after this slice and block it until the rollback is verified and the original's immutable rollback link resolves tree-equal."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the rollback scope is derived at the final implementation head THE SYSTEM SHALL enumerate every first-parent non-merge authored semantic path from S02 start_commit e61cb190736ee7483fb4ed1a993442b26ce3574c through that head, including gaps and rollback-authored/generated/lock paths, and exclude only the physical release root plus recognized merge-only contributions (C-09, N-07, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md:CompleteRollbackEnvelope"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the complete ordinary rollback envelope is compared at the rollback implementation head THE SYSTEM SHALL prove every mode, blob OID, and expected absence exactly equals the S02 start tree c57285e3f652e5f49aa8bb15e3ba65249b4a3db8, including absence of all eight S02-added paths (C-09, N-07, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md:ExactStartTreeEquality"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF later ordinary authority, authored/merge overlap, a missing or surviving added path, mode drift, blob drift, or unrecognized provenance is observed THEN THE SYSTEM SHALL fail the rollback closed without narrowing the envelope or treating the original S02 as integration-ready (C-09, N-07, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md:FailClosedRollbackChecks"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN rollback changes are committed THE SYSTEM SHALL preserve every release record under the physical release root byte-for-byte except the normal S19 proof/lifecycle records and SHALL introduce no unrelated semantic difference from the S02 start tree (N-07, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md:PreservedReleaseHistory"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the rollback has final Implementer PASS, a complete live proof bundle, and an independent fresh Verifier PASS THE SYSTEM SHALL leave S02 as a C-09-valid rollback-backed terminal deferral and only then permit S20-v015-parity-portable-fixture to start; before that point the replacement remains blocked (C-09, N-07, N-09).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md:FreshVerification"
+      ]
+    }
+  ]
+}

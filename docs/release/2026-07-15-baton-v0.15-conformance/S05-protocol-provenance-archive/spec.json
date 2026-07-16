@@ -32,12 +32,30 @@
     "internal/mcp/server_test.go"
   ],
   "references": [
-    {"kind": "contract", "contract_id": "C-01"},
-    {"kind": "contract", "contract_id": "C-03"},
-    {"kind": "slice", "slice_id": "S02-v015-parity-and-installs"},
-    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+    {
+      "kind": "contract",
+      "contract_id": "C-01"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-03"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S20-v015-parity-portable-fixture"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S03-lossless-record-carriers"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"
+    }
   ],
   "in_scope": [
     "Embed and strictly decode release-protocol-authority-v1 with record_version 1, matching release ID, protocol name/version, upstream SHA, sha256 digest, upstream root VERSION blob OID, native-or-migrated origin, and planning-or-current authority; require upstream_version_blob_oid and reject the retired vendored_version_blob_oid spelling, duplicate or unknown keys, and require a release-confined migration receipt path for migrated origin.",
@@ -52,9 +70,16 @@
     "Bulk rewriting historical records or synthesizing v0.15 reports is forbidden; pristine active-plan migration belongs to S17-engine-replan-migration.",
     "Wiring RequireLive into maintainability, loop, merge, release, ship, and re-plan success paths belongs to C-03's declared consumer slices S13 through S18.",
     "Network retrieval of missing Git objects or protocol content is prohibited; shallow or incomplete evidence fails closed.",
-    "Changing the embedded C-01 pin or vendor content belongs to S02-v015-parity-and-installs."
+    "Changing the embedded C-01 pin or vendor content belongs to S20-v015-parity-portable-fixture."
   ],
-  "covers_needs": ["N-01", "N-02", "N-04", "N-09", "N-10", "N-11"],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-04",
+    "N-09",
+    "N-10",
+    "N-11"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
@@ -63,40 +88,64 @@
     "confirmed_by_implementer": false
   },
   "risks": [
-    {"id": "R-01", "description": "The upstream root VERSION blob or current binary version is mistaken for the adopting repository's historical manifest evidence.", "mitigation": "Accept only the exact committed record blob, first-parent introduction commit, and actual internal/adopt/baton/VERSION manifest blob/parsed pin from that same tree; keep upstream root identity separately named and structural heuristics out of every authority path."},
-    {"id": "R-02", "description": "A live marker is valid on one ref while its committed Sworn manifest is stale, dirty-only, or divergent on another participant.", "mitigation": "Resolve protocol and adopting-manifest blobs independently on every named ref, compare exact marker/manifest bytes and parsed pin fields, and test dirty worktree overlays plus divergent refs before any side-effect callback."},
-    {"id": "R-03", "description": "Archive inspection mutates the repository through a reused current reader or lazy migration.", "mitigation": "Use object-database-only reads, snapshot status/index/refs/worktree before inspection, and assert byte identity after success and every failure case."}
+    {
+      "id": "R-01",
+      "description": "The upstream root VERSION blob or current binary version is mistaken for the adopting repository's historical manifest evidence.",
+      "mitigation": "Accept only the exact committed record blob, first-parent introduction commit, and actual internal/adopt/baton/VERSION manifest blob/parsed pin from that same tree; keep upstream root identity separately named and structural heuristics out of every authority path."
+    },
+    {
+      "id": "R-02",
+      "description": "A live marker is valid on one ref while its committed Sworn manifest is stale, dirty-only, or divergent on another participant.",
+      "mitigation": "Resolve protocol and adopting-manifest blobs independently on every named ref, compare exact marker/manifest bytes and parsed pin fields, and test dirty worktree overlays plus divergent refs before any side-effect callback."
+    },
+    {
+      "id": "R-03",
+      "description": "Archive inspection mutates the repository through a reused current reader or lazy migration.",
+      "mitigation": "Use object-database-only reads, snapshot status/index/refs/worktree before inspection, and assert byte identity after success and every failure case."
+    }
   ],
   "acceptance_criteria": [
     {
       "id": "AC-01",
       "text": "WHEN the public baton protocol check and inspect commands run against a temporary repository containing live and historical records THE SYSTEM SHALL enforce C-03, return committed pin/provenance metadata, pair authority with exit code, and leave the worktree, index, refs, board, and status byte-identical (N-01, N-02, N-04, N-09, N-10, N-11).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/protocol_preflight_test.go:TestProtocolAuthorityPublicCommandPolicy"]
+      "test_refs": [
+        "cmd/sworn/protocol_preflight_test.go:TestProtocolAuthorityPublicCommandPolicy"
+      ]
     },
     {
       "id": "AC-02",
       "text": "WHEN RequireLive receives an authority ref and derived participating refs whose committed protocol.json bytes are equal, whose upstream_version_blob_oid equals C-01, and whose separately resolved committed internal/adopt/baton/VERSION manifest blobs are equal with parsed tag/SHA/digest matching C-01 and the binary THE SYSTEM SHALL return one validated immutable authority object before invoking the supplied operation callback; all 39 live CLI spellings plus mixed journeys/ledger routes and all 26 live MCP tools SHALL have exactly one exhaustive operation-level classification from planning/normative-clarifications.md section 4 before handlers execute, and an unclassified or unknown spelling SHALL fail registration/dispatch, with unknown CLI exiting 64.",
       "ears_pattern": "event-driven",
-      "test_refs": ["internal/protocol/live_test.go:TestRequireLiveExactMarkerAcrossAuthorityRefs", "cmd/sworn/commands_test.go:TestEveryCommandHasProtocolPolicy"]
+      "test_refs": [
+        "internal/protocol/live_test.go:TestRequireLiveExactMarkerAcrossAuthorityRefs",
+        "cmd/sworn/commands_test.go:TestEveryCommandHasProtocolPolicy"
+      ]
     },
     {
       "id": "AC-03",
       "text": "IF any live marker is missing, dirty-only, deleted, divergent, malformed, release-mismatched, unsupported, or binary-mismatched THEN THE SYSTEM SHALL return non-authoritative before the callback, commit, write, dispatch, or push counter changes.",
       "ears_pattern": "unwanted-behaviour",
-      "test_refs": ["internal/protocol/authority_test.go:TestLiveAuthorityFailureMatrixHasNoSideEffects"]
+      "test_refs": [
+        "internal/protocol/authority_test.go:TestLiveAuthorityFailureMatrixHasNoSideEffects"
+      ]
     },
     {
       "id": "AC-04",
       "text": "IF planning validation lacks exact planning-or-current C-03 authority, current policy lacks exact current C-03 authority, or activation does not match exactly one origin-specific edge—C-13 native cutover, C-12 pristine migration, or C-12 migrated activation—THEN dispatch SHALL exit non-zero before invoking its handler; protocol-independent and archive-inspection operations SHALL receive no mutation authority, and no flag, alias, or delta content MAY reclassify an operation.",
       "ears_pattern": "unwanted-behaviour",
-      "test_refs": ["cmd/sworn/protocol_preflight_test.go:TestProtocolPolicyRunsBeforeHandlerSideEffects"]
+      "test_refs": [
+        "cmd/sworn/protocol_preflight_test.go:TestProtocolPolicyRunsBeforeHandlerSideEffects"
+      ]
     },
     {
       "id": "AC-05",
       "text": "WHEN archive inspection requests a committed record THE SYSTEM SHALL walk first-parent history newest-to-oldest while the path resolves to the current exact blob, return the oldest commit in that uninterrupted equal-blob suffix, and return the exact adopting-manifest path internal/adopt/baton/VERSION, its actual blob and parsed tag/SHA/digest from that tree plus the separately named upstream root VERSION OID so deletion and later reintroduction select the most recent introduction; IF the boundary cannot be proven, history is shallow, objects are missing, manifests conflict, or resolution is otherwise impossible THEN validation SHALL fail and raw mode SHALL never claim authority.",
       "ears_pattern": "event-driven",
-      "test_refs": ["internal/protocol/archive_test.go:TestHistoricalRecordVersionEvidence", "internal/protocol/archive_test.go:TestHistoricalEvidenceFailureAndRawPolicy"]
+      "test_refs": [
+        "internal/protocol/archive_test.go:TestHistoricalRecordVersionEvidence",
+        "internal/protocol/archive_test.go:TestHistoricalEvidenceFailureAndRawPolicy"
+      ]
     }
   ]
 }
