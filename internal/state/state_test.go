@@ -1,13 +1,22 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/baton"
 )
+
+const fixtureStartCommit = "0123456789abcdef0123456789abcdef01234567"
+
+func pendingMaintainabilityFixture() json.RawMessage {
+	return json.RawMessage(`{"state":"pending","cycle":0,"implementation_head":null,"rollback_slice_id":null,"reports":[],"adjudication":null}`)
+}
 
 func TestTransition_LegalMoves(t *testing.T) {
 	tests := []struct {
@@ -104,6 +113,73 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	if got.Verification.Result != orig.Verification.Result {
 		t.Errorf("Verification.Result: want %q, got %q", orig.Verification.Result, got.Verification.Result)
 	}
+}
+
+func TestMaintainabilityCarrierPreservesSuppliedObject(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	want := pendingMaintainabilityFixture()
+	status := Status{
+		SliceID:         "S02-v015-parity-and-installs",
+		Release:         "2026-07-15-baton-v0.15-conformance",
+		State:           InProgress,
+		StartCommit:     fixtureStartCommit,
+		Maintainability: want,
+		Verification:    Verification{Result: "pending"},
+	}
+	if err := Write(path, &status); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := baton.ValidateSchema("slice-status-v1", raw); err != nil {
+		t.Fatalf("supplied maintainability object must remain schema-valid: %v", err)
+	}
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !bytes.Equal(compactJSON(t, got.Maintainability), compactJSON(t, want)) {
+		t.Fatalf("maintainability object changed\n got: %s\nwant: %s", got.Maintainability, want)
+	}
+}
+
+func TestMaintainabilityCarrierOmittedWhenAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	status := Status{
+		SliceID:      "S02-v015-parity-and-installs",
+		Release:      "2026-07-15-baton-v0.15-conformance",
+		State:        InProgress,
+		StartCommit:  fixtureStartCommit,
+		Verification: Verification{Result: "pending"},
+	}
+	if err := Write(path, &status); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"maintainability"`)) {
+		t.Fatalf("absent maintainability was synthesized: %s", raw)
+	}
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(got.Maintainability) != 0 {
+		t.Fatalf("absent maintainability read as %s", got.Maintainability)
+	}
+}
+
+func compactJSON(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		t.Fatalf("compact JSON: %v", err)
+	}
+	return compact.Bytes()
 }
 
 func TestRead_MissingFile(t *testing.T) {
