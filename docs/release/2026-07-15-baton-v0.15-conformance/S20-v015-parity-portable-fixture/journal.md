@@ -64,3 +64,17 @@
 - No real Codex or Claude home was selected or mutated. The native sync proof
   used disposable roots with `PATH` containing no shell or Go executable and
   observed exits 2 then 0.
+
+## 2026-07-17T05:12:00+10:00 — AC-satisfaction remediation
+
+- The configured AC-satisfaction check surfaced a real AC-04 adapter defect:
+  a completed `InstallRecovered` restoration returned public exit 2, while the
+  contract reserves exit 1 for verified restoration that still requires an
+  explicit later install.
+- Added `TestDoctorSyncBatonRecoveryExitIsOneBinaryReachability` first. It
+  created a durable recovery record through the test-only transaction seam,
+  ran the built binary in contained no-PATH-tool roots, and failed with
+  `exit = 2, want 1`.
+- The thin `cmdDoctorSyncBaton` adapter now maps `InstallRecovered` to 1;
+  repair remains 2 and already-exact remains 0. The new built-binary test and
+  the complete repository suite pass after the repair.

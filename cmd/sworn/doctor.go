@@ -337,7 +337,11 @@ func cmdDoctorSyncBaton() int {
 		return 2
 	case baton.InstallRecovered:
 		fmt.Println("[OK]    restored all pre-run Baton homes from durable recovery authority; rerun --sync-baton to install")
-		return 2
+		// Recovery restores the pre-run state rather than installing the embedded
+		// authority. Preserve that fail-closed distinction at the public boundary:
+		// repair is 2, exact is 0, and a completed recovery is 1 until a later
+		// explicit install succeeds.
+		return 1
 	case baton.InstallAlreadyExact:
 		fmt.Println("[OK]    Baton mirrors already match the embedded authority")
 		return 0

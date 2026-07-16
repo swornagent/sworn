@@ -26,6 +26,8 @@ any temporary checkout becomes evidence.
   (0).
 - Live `bin/sworn doctor --sync-baton` in explicit disposable homes with no
   PATH tools — repair PASS (2), immediate exact re-run PASS (0).
+- Built durable-recovery reachability — PASS: verified restoration exits 1,
+  distinct from repair (2) and already-exact (0).
 - Deterministic `bin/sworn verify` proof-bundle first pass with the live S20
   diff — PASS (0).
 

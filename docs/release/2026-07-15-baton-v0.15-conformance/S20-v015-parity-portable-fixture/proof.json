@@ -62,6 +62,11 @@
       "exit_code": 0
     },
     {
+      "command": "go test ./cmd/sworn -run '^TestDoctorSyncBatonRecoveryExitIsOneBinaryReachability$' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
       "command": "go test ./internal/baton -run '^(TestBatonV015GitBundleFixtureIdentity|TestBatonV015CodexAndClaudeMirrorParity|TestBatonSyncRollbackAndRecovery)$' -count=1",
       "passed": true,
       "exit_code": 0
@@ -130,8 +135,8 @@
       "evidence": "internal/baton/installer_archive_test.go:TestBatonV015CodexAndClaudeMirrorParity; internal/baton/records_conformance_test.go:TestBatonV015CodexAndClaudeMirrorParity"
     },
     {
-      "item": "AC-04: the three-root doctor transaction remains fail-closed across unsafe topology, fault-injected rollback, durable recovery, and a shell-free built-binary repair path.",
-      "evidence": "internal/baton/install_transaction_test.go:TestBatonSyncRollbackAndRecovery; internal/baton/records_conformance_test.go:TestBatonV015ParityFailsClosedOnEveryLayer; cmd/sworn/doctor.go"
+      "item": "AC-04: the three-root doctor transaction remains fail-closed across unsafe topology, fault-injected rollback, durable recovery, and a shell-free built-binary repair path; a completed recovery is publicly distinct at exit 1.",
+      "evidence": "internal/baton/install_transaction_test.go:TestBatonSyncRollbackAndRecovery; internal/baton/records_conformance_test.go:TestBatonV015ParityFailsClosedOnEveryLayer; cmd/sworn/doctor_test.go:TestDoctorSyncBatonRecoveryExitIsOneBinaryReachability; cmd/sworn/doctor.go"
     },
     {
       "item": "AC-05: exact v0.15 consumers retain canonical generic-check and status facts while state.Status carries an explicitly supplied maintainability object without synthesizing lifecycle state.",

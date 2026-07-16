@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/board"
@@ -147,6 +148,72 @@ func TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle(t *testing
 				t.Fatalf("invalid bundle created source evidence at %s: %v", evidence, err)
 			}
 		})
+	}
+}
+
+// TestDoctorSyncBatonRecoveryExitIsOneBinaryReachability drives a genuine
+// durable-recovery record through the built public command. A completed
+// recovery restored the pre-run roots, but it is not an installed exact state;
+// the public contract distinguishes it from both repair (2) and exact (0).
+func TestDoctorSyncBatonRecoveryExitIsOneBinaryReachability(t *testing.T) {
+	base := t.TempDir()
+	roots := []string{
+		filepath.Join(base, "home"),
+		filepath.Join(base, "agents"),
+		filepath.Join(base, "codex"),
+		filepath.Join(base, "claude"),
+		filepath.Join(base, "sworn-config"),
+	}
+	assertContainedDisjointProofRoots(t, base, roots...)
+	trees, err := baton.GenerateInstallerManagedTrees(adopt.BatonInstallerArchive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := adopt.BatonDocsFS().ReadFile("baton/VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := baton.InstallOpts{
+		Roots: baton.InstallRoots{
+			AgentsHome:   filepath.Join(base, "agents"),
+			CodexHome:    filepath.Join(base, "codex"),
+			ClaudeHome:   filepath.Join(base, "claude"),
+			RecoveryRoot: filepath.Join(base, "sworn-config", "recovery", "baton-sync"),
+		},
+		Trees:   trees,
+		Version: version,
+		Fault: func(point string) error {
+			if point == "publish-after" {
+				return errors.New("test durable recovery boundary")
+			}
+			return nil
+		},
+	}
+	if _, err := baton.SyncBatonInstall(opts); err == nil {
+		t.Fatal("test fixture did not retain a durable recovery record")
+	}
+	if _, err := os.Stat(filepath.Join(opts.Roots.RecoveryRoot, "rollback-incomplete.json")); err != nil {
+		t.Fatalf("test fixture recovery sentinel: %v", err)
+	}
+
+	cmd := exec.Command(buildSworn(t), "doctor", "--sync-baton")
+	cmd.Dir = swornTestRepoRoot(t)
+	cmd.Env = childProofEnvironment(base, true)
+	output, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("built doctor recovery error = %v\n%s", err, output)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("built doctor completed recovery exit = %d, want 1\n%s", exitErr.ExitCode(), output)
+	}
+	if !strings.Contains(string(output), "restored all pre-run Baton homes") {
+		t.Fatalf("built doctor recovery output missing restoration result:\n%s", output)
+	}
+	for _, root := range []string{opts.Roots.AgentsHome, opts.Roots.CodexHome, opts.Roots.ClaudeHome, opts.Roots.RecoveryRoot} {
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("completed recovery left %s present: %v", root, err)
+		}
 	}
 }
 
