@@ -96,3 +96,15 @@
 - Tracking: `/replan-release 2026-07-15-baton-v0.15-conformance`. The Coach
   directed this block and explicitly prohibited S20 scope widening or a
   synthetic report workaround.
+
+## 2026-07-17T05:28:20+10:00 - Planner replan: S04 prerequisite
+
+- T1 now orders `S04-typed-reference-ambiguity` immediately before S20.
+- S04's existing AC-04 is the sole owner of requested/emitted generic-check
+  identity. S20 AC-05 remains explicitly excluded from that behavior; no S20
+  implementation, proof, workaround, or scope expansion is authorized.
+- S20 remains `blocked`; its immutable start
+  `08dd38f81e466d3288ff4bf64953cfc90ea6063c` and existing implementation
+  evidence remain authoritative.
+- Resume S20 only after a fresh verifier PASS for S04, then rerun S20 readiness
+  and maintainability evidence before any S20 finalization.
