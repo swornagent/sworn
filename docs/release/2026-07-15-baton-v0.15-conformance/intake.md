@@ -65,6 +65,11 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   transports need a deterministic provider envelope; canonical schemas,
   prompts, local validation, emitted-check equality, and all other provider
   paths remain unchanged and fail closed.
+- N-13: **Direct OpenRouter tool-call compatibility.** A release operator can
+  use the explicitly selected `openrouter/z-ai/glm-5.2` model for a generic
+  structured check only through a direct, forced-function transport that keeps
+  the canonical Baton schema and local semantic gate authoritative. Sworn's
+  hosted proxy, Ollama, and every unprofiled provider remain default-deny.
 
 ## Source of truth
 
@@ -1069,7 +1074,8 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   predicate, or runtime bundle dependency is authority. The committed bytes and
   pinned identities are normative; cross-version regeneration is not required.
 - **Topology**: T1 order is S01, original S02, S19, verified S04, planned S21,
-  blocked S20, S03, S05. The release now contains 21 proof-bounded slices;
+  planned S22, blocked S20, S03, S05. The release now contains 22
+  proof-bounded slices;
   T2/T5/T6/T7 dependencies and the pure-plan `shared_touchpoints: {}`
   authority are unchanged.
 - **Ratification**: Brad was told the mandatory rollback/replacement consequence,
@@ -1131,6 +1137,45 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   credentialed exact-base OpenAI smoke that produces an accepted emitted
   check: ac-satisfaction result.
 
+### 2026-07-17 - Add a direct-only OpenRouter tool route before S20 resumes
+
+- **Trigger**: The Coach selected `openrouter/z-ai/glm-5.2` as the replacement
+  model for the required S20 provider-readiness evidence. The model catalogue
+  reports tool support, and OpenRouter's published
+  chat-completions contract supports a forced named function. Sworn currently
+  treats `openrouter/` as structured-output unsupported, so the public command
+  fails locally before an HTTP request; substituting the model flag alone would
+  not produce evidence.
+- **Decision**: Add `S22-openrouter-tool-structured-output` after verified S21
+  and before blocked S20. It profiles only **direct** `openrouter/` routing for
+  the existing one-forced-function wire: the full canonical schema is supplied
+  as the function parameters and `emit_structured_output` is forced. It does
+  not use OpenAI's strict envelope or response format. `SWORN_DIRECT=1` is
+  mandatory for the release proof, so Sworn's hosted proxy remains
+  structured-output default-deny for OpenRouter IDs. A direct-only
+  `SWORN_OPENROUTER_BASE_URL` override provides a local fake endpoint for the
+  built-command reachability test; ordinary direct use continues to use
+  `https://openrouter.ai/api/v1`.
+- **Authority boundary**: The canonical schema bytes are supplied unchanged to
+  `ChatStructuredJSON`; S04's full local canonical validation and
+  requested/emitted check equality remain the semantic authority. No provider
+  default, model catalogue claim, raw-text fallback, schema projection,
+  synthetic report, retry, or proxy-wide enablement is authorised. Ollama and
+  every other direct or proxied provider retain their current default-deny
+  structured capability unless separately planned and proven.
+- **Lifecycle**: The required dedicated `spec-ambiguity` check for this new
+  slice cannot run through the current binary before S22 because that
+  default-deny failure is the slice's subject. This is an explicit temporary
+  planning deferral: **why**, the direct OpenRouter structured route does not
+  yet exist; **tracking**, S22 AC-06 requires one direct
+  `openrouter/z-ai/glm-5.2` `spec-ambiguity` result after deterministic
+  implementation evidence and before S22 may become implemented; and
+  **acknowledgement**, the Coach selected the model and directed this route on
+  2026-07-17. A fresh S22 verifier PASS then gates S20. S20's immutable start,
+  semantic commits, previous non-secret failures, and no-real-home boundary
+  remain unchanged; its later direct readiness smoke uses the selected model
+  only after that PASS.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -1159,7 +1204,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   supported Codex and Claude installations report and byte-match exact Baton
   v0.15.1, with built-binary reachability proven from a verified exact-tag Git
   bundle clone rather than a developer checkout. It remains blocked behind a
-  fresh S21 PASS and retains all existing immutable lifecycle evidence.
+  fresh S22 PASS and retains all existing immutable lifecycle evidence.
 - `S03-lossless-record-carriers`: `sworn doctor` proves state, board and spec
   records round-trip maintainability, shared touchpoints and typed references
   without loss against the exact v0.15 schemas.
@@ -1170,6 +1215,10 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   response-format paths compile the exact generic report into a deterministic
   small envelope; the canonical schema and S04 semantic authority remain local
   and unchanged.
+- `S22-openrouter-tool-structured-output`: Only direct `openrouter/` routing
+  uses the existing forced-function transport for the selected GLM proof path;
+  it passes the canonical schema to the tool unchanged, leaves proxy and other
+  provider routes default-deny, and retains the full S04 local gate.
 - `S05-protocol-provenance-archive`: An operator can inspect historical records
   read-only with committed version evidence, while every live operation fails
   before side effects unless its exact protocol marker matches the binary and
@@ -1230,13 +1279,14 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate; native `mark-shipped` performs exact Baton status/index bookkeeping while preserving the pure-plan board, hands push/cleanup to the human, and no-ops when nothing remains verified |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
-| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified and amended after Gate 3: 21 proof-bounded slices, normally under 25 files, with the historical S02 exception followed by an explicit 45-path S19 rollback, verified S04 identity gate, planned OpenAI envelope S21, and 46-path S20 replacement including one authenticated test-only Git bundle |
-| A-11 | How to group the 21 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; T1 orders original S02 → S19 rollback → verified S04 → planned S21 → blocked S20 → S03 → S05, serial T2 runs S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified and amended after Gate 3: 22 proof-bounded slices, normally under 25 files, with the historical S02 exception followed by an explicit 45-path S19 rollback, verified S04 identity gate, planned OpenAI envelope S21, planned direct OpenRouter tool route S22, and 46-path S20 replacement including one authenticated test-only Git bundle |
+| A-11 | How to group the 22 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; T1 orders original S02 → S19 rollback → verified S04 → planned S21 → planned S22 → blocked S20 → S03 → S05, serial T2 runs S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
 | A-14 | Which owners publish, embed, compare, generate, install, and recover S02's offline archive | Repository atomicity, public parity, binary authority, local-home safety, file ceiling and Rule-9 records | Ratified: one expanded repository transaction; explicit `internal/adopt` embed; focused archive and install-transaction helpers; `internal/baton/diff.go` public parity; thin CLI adapters; eight-command inventory |
 | A-15 | Whether the upstream root VERSION blob and Sworn's adopting-repository VERSION manifest share one identity, and when local-install recovery becomes authoritative | Protocol marker schema, live/archive provenance, oracle modes, root topology, crash recovery and migration goldens | Ratified: `upstream_version_blob_oid` names only upstream `v0.15.1\n`; committed Sworn manifest blobs and parsed pins are separate per-ref evidence; umask 0022 is fixed; roots are disjoint; complete recovery authority is durable before first replacement; all affected goldens are refreshed |
 | A-16 | How OpenAI can accept a strict generic-check transport schema without becoming semantic authority | Generic LLM check Responses/completions transport, S04 identity gate, dedicated ambiguity contract, provider isolation, and S20 recovery | Ratified: exact-id-plus-digest closed-world OpenAI envelope below S04; canonical bytes and local validation remain authoritative; unsupported report identities fail before HTTP; xAI/tool-call/non-OpenAI paths remain raw; fresh S21 PASS gates S20 separate real smoke |
+| A-17 | How the selected OpenRouter GLM model can produce structured evidence without broadening proxy or provider authority | Direct OpenRouter wire, local public-command testing, S04 semantic gate, hosted proxy isolation, and S20 recovery | Ratified: direct-only forced named function using canonical parameters, `SWORN_DIRECT=1` for the proof, a local endpoint override only for public-command testing, and fresh S22 PASS before the separate S20 GLM smoke; hosted proxy, Ollama, and all other unprofiled routes remain default-deny |
 
 ## Screenshots / references
 

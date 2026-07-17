@@ -75,6 +75,14 @@
       "slice_id": "S04-typed-reference-ambiguity"
     },
     {
+      "kind": "slice",
+      "slice_id": "S21-openai-structured-envelope"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S22-openrouter-tool-structured-output"
+    },
+    {
       "kind": "file",
       "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"
     },
@@ -85,7 +93,7 @@
   ],
   "in_scope": [
     "Begin only after S19-s02-v015-rollback is freshly verified and S02's immutable rollback link is tree-equal; reconstruct the exact 45-path semantic result frozen at 2a17443d67d39cf681dba117a57673714a916d7f without inheriting S02's lifecycle authority.",
-    "Resume only after S04-typed-reference-ambiguity receives fresh verification for its existing AC-04 generic-check identity correction; then rerun S20 readiness and maintainability evidence from S20's immutable start before any S20 finalization, without assigning requested-check matching to S20.",
+    "Resume only after S04-typed-reference-ambiguity, S21-openai-structured-envelope, and S22-openrouter-tool-structured-output each receive fresh verification for their existing generic-check identity and direct-provider transport boundaries; then rerun S20 readiness and maintainability evidence from S20's immutable start, including the selected direct `openrouter/z-ai/glm-5.2` ac-satisfaction smoke, before any S20 finalization, without assigning requested-check matching to S20.",
     "Run the repaired vendor transaction from the exact v0.15.1 tag target 3fb4d275ae8a151f6287e7b9279d71628b12eea0 and record source digest sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f in VERSION.",
     "Update the explicit mapping, schema embed, fixture, and grade manifest for spec-ambiguity-report-v1; align existing canned generic-check responses and positive slice-status fixtures with v0.15.1-required identities; replace only mapped files whose v0.13.1-to-v0.15.1 upstream content changed; and generate the complete deterministic 78-entry installer-input tar whose exact archive SHA-256, Git blob OID, path/mode/blob set and extraction safety are pinned in planning/normative-clarifications.md section 2. The tar joins mapped bytes and VERSION as one materialised, snapshotted, applied, rolled-back, and restart-recovered repository transaction member before any repository mutation.",
     "Carry an explicitly supplied maintainability object opaquely and losslessly through state.Status read/write so exact-schema consumer and RunSlice fixtures retain their own lifecycle facts. Do not create defaults, interpret transitions, migrate active records, weaken schema validation, or patch JSON after the production writer.",

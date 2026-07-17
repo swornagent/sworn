@@ -1,0 +1,106 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T1-foundation",
+  "covers_needs": [
+    "N-02",
+    "N-10",
+    "N-13"
+  ],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-17T10:29:17+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/journal.md",
+  "planned_files": [
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/structured_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/config.go",
+    "internal/model/oai_test.go",
+    "internal/gate/llmcheck_test.go",
+    "cmd/sworn/llmcheck_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/model -run 'Test(NewClient_OpenRouterDirectUsesStructuredToolCall|OpenRouterChatStructuredUsesCanonicalForcedTool|OpenRouterStructuredRejectsInvalidToolCall|ProxyOpenRouterRemainsStructuredUnsupported|FromEnvOpenRouterDirectBaseURLOverride|FromEnvOpenRouterProxyIgnoresDirectBaseURLOverride|OllamaRemainsVerifyOnly)' -count=1",
+    "go test ./internal/gate ./cmd/sworn -run 'Test(OpenRouterToolPathStillFailsFullCanonicalReportViolations|LLMCheckOpenRouterToolStructured)' -count=1",
+    "go test ./... -count=1",
+    "go vet ./...",
+    "make build",
+    "SWORN_DIRECT=1 bin/sworn llm-check --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.15-conformance --model openrouter/z-ai/glm-5.2 --base <S22-start-commit>"
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint",
+    "one direct non-secret OpenRouter GLM-5.2 spec-ambiguity result for the immutable S22 start commit, recorded in proof.md only after deterministic evidence passes"
+  ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [
+    {
+      "item": "The S22 dedicated spec-ambiguity dispatch is temporarily deferred until the direct OpenRouter structured route exists.",
+      "why": "Current openrouter/ resolution deliberately fails closed before HTTP because it has no structured-output route; executing the dedicated planner check now would merely repeat that deterministic setup failure and cannot assess the new slice.",
+      "tracking": "S22-openrouter-tool-structured-output AC-06: run exactly one direct openrouter/z-ai/glm-5.2 spec-ambiguity check after deterministic implementation evidence and before S22 is marked implemented; a finding returns to Planner rework.",
+      "acknowledgement": "Coach selected openrouter/z-ai/glm-5.2 and directed the OpenRouter route on 2026-07-17. The acknowledgement does not waive the check, S22 fresh verification, or S20's separate later smoke.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T10:29:17+10:00"
+    }
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Direct/proxy isolation, a public binary test seam, exact tool response integrity, retained canonical gate authority, and a real planning check must compose without broadening any provider capability.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Lets the selected direct OpenRouter model produce a canonical generic-check result without weakening the fail-closed boundary for hosted proxy, Ollama, or unprofiled providers.",
+  "design_decisions": [
+    {
+      "choice": "Use an explicit direct-only OpenRouter forced-function route for the Coach-selected GLM-5.2 proof model, while retaining every proxy and unprofiled provider as structured-output unsupported.",
+      "stake_class": "Type-2",
+      "options": [
+        "direct-only existing forced-tool route with local canonical validation",
+        "treat OpenRouter as an OpenAI strict response-format endpoint",
+        "enable all OAI-compatible, proxy, or local endpoints based on URL resemblance",
+        "change a default model or canonical report schema"
+      ],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-17: use OpenRouter with GLM-5.2 for this proof path. The route remains direct-only and does not change a product default.",
+      "rationale": "The selected model catalogue entry advertises tool support, OpenRouter documents a forced named-function chat-completions contract, and the existing forced-tool driver preserves the canonical schema plus S04's local semantic authority without claiming compatibility for another transport.",
+      "architecturally_significant": false
+    }
+  ],
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-17T10:29:17+10:00",
+    "positive_scenarios": [
+      "A direct built binary reaches a local OpenRouter-shaped endpoint with one forced canonical tool and accepts a valid ac-satisfaction object through the unchanged local gate.",
+      "After deterministic evidence, the selected GLM-5.2 returns a non-violating S22 spec-ambiguity report before fresh verification and an independent S20 smoke."
+    ],
+    "negative_scenarios": [
+      "Hosted proxy, Ollama, unknown providers, malformed endpoint overrides, missing/wrong/multiple tool calls, invalid canonical output, check mismatch, a live ambiguity finding, and missing fresh S22 verification fail closed without an S20 resume or a real-home mutation."
+    ],
+    "benefit_hypothesis": "One bounded direct provider adapter unlocks the user-selected release proof while preserving Sworn's trust boundary: provider transport can help produce an object, but only Baton canonical validation authorizes it."
+  }
+}

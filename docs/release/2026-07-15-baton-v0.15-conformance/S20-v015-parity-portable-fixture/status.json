@@ -10,8 +10,8 @@
   ],
   "state": "blocked",
   "owner": "planner",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T09:56:12+10:00",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-17T10:29:17+10:00",
   "start_commit": "08dd38f81e466d3288ff4bf64953cfc90ea6063c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
@@ -113,6 +113,14 @@
       "acknowledgement": "The controlling remedial instruction requires S20 to return to blocked and stop on any non-zero credentialed smoke result, without a retry, prompt/schema change, synthetic report, waiver, or local-install mutation.",
       "acknowledged_by": "Coach",
       "acknowledged_at": "2026-07-17T09:56:12+10:00"
+    },
+    {
+      "item": "The Coach-selected direct OpenRouter GLM-5.2 readiness smoke has no structured transport path in the current binary.",
+      "why": "The selected openrouter/z-ai/glm-5.2 model catalogue entry advertises tools, but current direct openrouter/ construction deliberately has no structured-output mode, so generic llm-check fails locally before HTTP. S21's verified OpenAI response-format envelope is not OpenRouter authority and must not be reused for a tool call.",
+      "tracking": "S22-openrouter-tool-structured-output AC-01 through AC-06, including its direct spec-ambiguity result and a fresh verifier PASS; then one separate S20 direct ac-satisfaction smoke from immutable semantic head f3da6a49c3f89f0883e265befd30d1eb099d6a90.",
+      "acknowledgement": "Coach selected OpenRouter GLM-5.2 on 2026-07-17 and directed this narrow direct-only path. S20 remains blocked; no retry, fallback, proxy enablement, S20 source change, synthetic report, waiver, or real-home mutation is authorised.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T10:29:17+10:00"
     }
   ],
   "effort_complexity": {

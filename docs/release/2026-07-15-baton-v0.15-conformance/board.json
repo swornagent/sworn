@@ -17,6 +17,7 @@
       "S19-s02-v015-rollback",
       "S04-typed-reference-ambiguity",
       "S21-openai-structured-envelope",
+      "S22-openrouter-tool-structured-output",
       "S20-v015-parity-portable-fixture",
       "S03-lossless-record-carriers",
       "S05-protocol-provenance-archive"
