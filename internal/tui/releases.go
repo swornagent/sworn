@@ -2,22 +2,23 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/swornagent/sworn/internal/state"
-	"gopkg.in/yaml.v3"
+	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 )
 
 // ReleaseInfo holds metadata about one release for the list view.
 type ReleaseInfo struct {
-	ID          string // directory name, e.g. "2026-06-19-safe-parallelism"
-	Name        string `yaml:"title"` // display name from frontmatter
-	TrackCount  int
-	SliceStates map[string]int // state -> count, for aggregation
+	ID                    string // release ID, e.g. "2026-06-19-safe-parallelism"
+	Name                  string
+	TrackCount            int
+	SourceRef             string
+	HasUncommittedEvidence bool
+	Catalog               *board.CatalogRecord
+	SliceStates           map[string]int // state -> count, for aggregation
 }
 
 // ReleasesList is a Bubble Tea component embedded in the root model.
@@ -37,29 +38,20 @@ type ReleasesList struct {
 // ErrNoReleases indicates no releases were found.
 var ErrNoReleases = fmt.Errorf("no releases found under docs/release/")
 
-// LoadReleases scans docs/release/*/index.md and populates the ReleasesList.
-// repoRoot is the path to the git repo root (from git rev-parse --show-toplevel).
+// LoadReleases discovers releases from shared catalog records via
+// board.DiscoverCatalog.
 func (r *ReleasesList) LoadReleases(repoRoot string) error {
-	pattern := filepath.Join(repoRoot, "docs", "release", "*", "index.md")
-	matches, err := filepath.Glob(pattern)
+	catalog, err := board.DiscoverCatalog(git.New(repoRoot))
 	if err != nil {
-		return fmt.Errorf("scanning releases: %w", err)
+		return err
 	}
-	if len(matches) == 0 {
+	if len(catalog) == 0 {
 		return ErrNoReleases
 	}
 
-	var releases []ReleaseInfo
-	for _, path := range matches {
-		rel, err := parseReleaseIndex(path)
-		if err != nil {
-			// Skip unparseable releases — log but don't block.
-			continue
-		}
-		releases = append(releases, rel)
-	}
-	if len(releases) == 0 {
-		return ErrNoReleases
+	releases := make([]ReleaseInfo, 0, len(catalog))
+	for _, rec := range catalog {
+		releases = append(releases, releaseInfoFromCatalog(rec))
 	}
 
 	sort.Slice(releases, func(i, j int) bool {
@@ -73,65 +65,28 @@ func (r *ReleasesList) LoadReleases(repoRoot string) error {
 	return nil
 }
 
-// parseReleaseIndex reads an index.md file and returns ReleaseInfo.
-// It extracts the frontmatter title and walks slices/status.json files
-// for track count and state aggregation.
-func parseReleaseIndex(path string) (ReleaseInfo, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ReleaseInfo{}, err
+func releaseInfoFromCatalog(rec board.CatalogRecord) ReleaseInfo {
+	info := ReleaseInfo{
+		ID:          rec.Release,
+		Name:        rec.Release,
+		SourceRef:   rec.SourceRef,
+		TrackCount:  0,
+		SliceStates: map[string]int{},
+		Catalog:     &rec,
 	}
-
-	// Extract YAML frontmatter (between --- markers).
-	var info ReleaseInfo
-	// Set ID from the directory name (parent of index.md).
-	info.ID = filepath.Base(filepath.Dir(path))
-	frontmatter, _, _ := strings.Cut(string(data), "---") // Walk past opening ---.
-	if trimmed := strings.TrimSpace(frontmatter); trimmed == "" {
-		// First --- at start: find second ---
-		rest := string(data)
-		if strings.HasPrefix(rest, "---\n") || strings.HasPrefix(rest, "---\r\n") {
-			rest = rest[4:]
-		}
-		parts := strings.SplitN(rest, "---", 2)
-		if len(parts) >= 1 {
-			frontmatter = parts[0]
-		}
+	if rec.Board == nil {
+		return info
 	}
-
-	if err := yaml.Unmarshal([]byte(frontmatter), &info); err != nil {
-		// Fallback: use directory name as release name.
-		info.Name = filepath.Base(filepath.Dir(path))
-	}
-
-	// Count tracks: index.md has a `tracks:` list in frontmatter.
-	// But the real source is the directory structure.
-	releaseDir := filepath.Dir(path)
-	entries, err := os.ReadDir(releaseDir)
-	if err != nil {
-		return info, nil // return partial info
-	}
-
-	info.SliceStates = map[string]int{}
-	trackIDs := map[string]bool{}
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "S") {
-			// This is a slice directory — read its status.json.
-			statusPath := filepath.Join(releaseDir, entry.Name(), "status.json")
-			st, errR := state.Read(statusPath)
-			if errR != nil {
-				continue
-			}
-			stateStr := string(st.State)
-			info.SliceStates[stateStr]++
-			if st.Track != "" {
-				trackIDs[st.Track] = true
+	info.TrackCount = len(rec.Board.Tracks)
+	for _, t := range rec.Board.Tracks {
+		for _, ss := range t.Slices {
+			info.SliceStates[string(ss.State)]++
+			if ss.StateDurability == "uncommitted" {
+				info.HasUncommittedEvidence = true
 			}
 		}
 	}
-	info.TrackCount = len(trackIDs)
-
-	return info, nil
+	return info
 }
 
 // AggregatedState returns the dominant state across all slices.
@@ -165,10 +120,12 @@ func (r *ReleasesList) View() string {
 			rel.TrackCount,
 			stateStr,
 		)
+		if rel.HasUncommittedEvidence && i == r.Cursor {
+			label += " [uncommitted]"
+		}
 		// Coach pin 1: when the pane width is known, truncate the label with
-		// an ellipsis so a long release name stays on one line rather than
-		// wrapping illegibly. Budget accounts for the pane's own padding (2),
-		// the item style's padding (2) and the 2-column "▸ "/"  " prefix.
+		// an ellipsis so a long release name stays on a single line rather
+		// than wrapping illegibly.
 		if budget := r.Width - 6; r.Width > 0 && budget >= 1 {
 			label = ansi.Truncate(label, budget, "…")
 		}

@@ -246,7 +246,11 @@ func electBoard(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects
 	}
 	bs := &BoardState{Release: release}
 	for _, t := range tracks {
-		ts := TrackState{ID: t.ID, WorktreeBranch: t.WorktreeBranch}
+		ts := TrackState{
+			ID:             t.ID,
+			WorktreeBranch: t.WorktreeBranch,
+			DependsOn:      t.DependsOn,
+		}
 		for _, sid := range t.Slices {
 			winner, err := electSlice(repo, statusRefs, statusObjects, release, sid, t.ID, trackMap)
 			if err != nil {

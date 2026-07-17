@@ -67,6 +67,7 @@ type TrackState struct {
 	ID             string       `json:"id"`
 	State          string       `json:"state"`
 	Slices         []SliceState `json:"slices"`
+	DependsOn      []string     `json:"-"`
 	WorktreeBranch string       `json:"-"`
 }
 
