@@ -23,6 +23,8 @@ type CatalogRecord struct {
 
 type topologyCandidate struct{ ref, path string }
 
+func (c topologyCandidate) objectSpec() string { return c.ref + ":" + c.path }
+
 // DiscoverCatalog discovers all release plans on locally available branch tips.
 func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 	refs, err := repo.ListRefs()
@@ -73,16 +75,21 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 			}
 		}
 	}
-	var statusSpecs []string
+	var objectSpecs []string
 	for path, pathRefs := range statusRefs {
 		for _, ref := range pathRefs {
-			statusSpecs = append(statusSpecs, ref+":"+path)
+			objectSpecs = append(objectSpecs, ref+":"+path)
 		}
 	}
-	sort.Strings(statusSpecs)
-	statusObjects, err := repo.ReadObjects(statusSpecs)
+	for _, candidates := range byRelease {
+		for _, candidate := range candidates {
+			objectSpecs = append(objectSpecs, candidate.objectSpec())
+		}
+	}
+	sort.Strings(objectSpecs)
+	objects, err := repo.ReadObjects(objectSpecs)
 	if err != nil {
-		return nil, fmt.Errorf("read status evidence: %w", err)
+		return nil, fmt.Errorf("read catalog objects: %w", err)
 	}
 	names := make([]string, 0, len(byRelease))
 	for name := range byRelease {
@@ -91,15 +98,29 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 	sort.Strings(names)
 	out := make([]CatalogRecord, 0, len(names))
 	for _, release := range names {
-		selected, err := selectTopology(release, refs, byRelease[release])
+		candidates, err := validTopologyCandidates(release, byRelease[release], objects)
 		if err != nil {
 			return nil, err
 		}
-		tracks, err := parseTopology(repo, selected, release)
+		if len(candidates) == 0 && !hasCanonicalTopologyRef(refs, release) {
+			// A historical noncanonical ref is not authoritative. Without a
+			// readable direct plan it cannot create a catalog entry or poison
+			// the otherwise valid aggregate.
+			continue
+		}
+		selected, err := selectTopology(release, refs, candidates)
+		if err != nil {
+			return nil, err
+		}
+		raw, ok := objects[selected.objectSpec()]
+		if !ok {
+			return nil, fmt.Errorf("release %q ref %s: selected board record disappeared", release, selected.ref)
+		}
+		tracks, err := parseTopologyRaw(raw, selected, release)
 		if err != nil {
 			return nil, fmt.Errorf("release %q ref %s: %w", release, selected.ref, err)
 		}
-		bs, err := electBoard(repo, statusRefs, statusObjects, release, tracks)
+		bs, err := electBoard(repo, statusRefs, objects, release, tracks)
 		if err != nil {
 			return nil, err
 		}
@@ -128,6 +149,45 @@ func refClass(ref, release string) int {
 		return 2
 	}
 	return 3
+}
+
+func hasCanonicalTopologyRef(refs []string, release string) bool {
+	for _, ref := range refs {
+		if candidateRelease, ok := canonicalRelease(ref); ok && candidateRelease == release {
+			return true
+		}
+	}
+	return false
+}
+
+func isCanonicalTopologyRef(ref, release string) bool {
+	candidateRelease, ok := canonicalRelease(ref)
+	return ok && candidateRelease == release
+}
+
+// validTopologyCandidates restricts rank selection to parseable direct plans.
+// Canonical release-worktree records are the exception: their presence is
+// authoritative, so a missing or malformed record remains a deterministic
+// fail-closed error rather than allowing a lower-priority candidate to win.
+func validTopologyCandidates(release string, candidates []topologyCandidate, objects map[string]string) ([]topologyCandidate, error) {
+	valid := make([]topologyCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		raw, ok := objects[candidate.objectSpec()]
+		if !ok {
+			if isCanonicalTopologyRef(candidate.ref, release) {
+				return nil, fmt.Errorf("release %q ref %s: canonical ref carries no board record", release, candidate.ref)
+			}
+			continue
+		}
+		if _, err := parseTopologyRaw(raw, candidate, release); err != nil {
+			if isCanonicalTopologyRef(candidate.ref, release) {
+				return nil, fmt.Errorf("release %q ref %s: %w", release, candidate.ref, err)
+			}
+			continue
+		}
+		valid = append(valid, candidate)
+	}
+	return valid, nil
 }
 
 func selectTopology(release string, refs []string, candidates []topologyCandidate) (topologyCandidate, error) {
@@ -162,6 +222,10 @@ func parseTopology(repo *gitpkg.Repo, c topologyCandidate, release string) ([]Tr
 	if err != nil {
 		return nil, err
 	}
+	return parseTopologyRaw(raw, c, release)
+}
+
+func parseTopologyRaw(raw string, c topologyCandidate, release string) ([]TrackInfo, error) {
 	if strings.HasSuffix(c.path, "board.json") {
 		var br BoardRecord
 		if err := json.Unmarshal([]byte(raw), &br); err != nil {

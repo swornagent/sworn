@@ -404,6 +404,66 @@ func TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed(t *testing.T) {
 	}
 }
 
+func TestBoardCLIAllRefsCatalogSkipsInvalidNoncanonicalTopology(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
+
+	// An arbitrary historical branch can carry records that no longer satisfy
+	// the canonical board schema. It must neither abort an unrelated catalog
+	// nor outrank a valid lower-priority noncanonical candidate for its own
+	// release.
+	runGit(t, repoDir, "checkout", "-b", "audit/legacy-topology", "main")
+	for _, release := range []string{"fallback-release", "legacy-only"} {
+		dir := filepath.Join(repoDir, "docs", "release", release)
+		mustMkdir(t, dir)
+		mustWrite(t, filepath.Join(dir, "board.json"), `{"release":"`+release+`","tracks":[]}`)
+	}
+	runGit(t, repoDir, "add", "docs")
+	runGit(t, repoDir, "commit", "-m", "add legacy noncanonical boards")
+	runGit(t, repoDir, "checkout", "main")
+
+	runGit(t, repoDir, "checkout", "-b", "topic/fallback-valid", "main")
+	validDir := filepath.Join(repoDir, "docs", "release", "fallback-release", "S01-fallback")
+	mustMkdir(t, validDir)
+	mustWrite(t, filepath.Join(repoDir, "docs", "release", "fallback-release", "board.json"), `{"$schema":"board-v1","release":{"name":"fallback-release"},"tracks":[{"id":"T1-fallback","slices":["S01-fallback"]}]}`)
+	mustWrite(t, filepath.Join(validDir, "status.json"), `{"slice_id":"S01-fallback","release":"fallback-release","track":"T1-fallback","state":"planned","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"pending"}}`)
+	runGit(t, repoDir, "add", "docs")
+	runGit(t, repoDir, "commit", "-m", "add valid fallback board")
+	runGit(t, repoDir, "checkout", "main")
+
+	stdout, stderr, code := runBoard(t, bin, repoDir, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("aggregate board exit=%d stderr=%q stdout=%s", code, stderr, stdout)
+	}
+	var catalog struct {
+		Releases map[string]struct {
+			SourceRef string `json:"sourceRef"`
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &catalog); err != nil {
+		t.Fatalf("parse aggregate: %v\n%s", err, stdout)
+	}
+	if _, found := catalog.Releases["legacy-only"]; found {
+		t.Fatalf("invalid-only noncanonical release must be omitted: %s", stdout)
+	}
+	if got := catalog.Releases["fallback-release"].SourceRef; got != "refs/heads/topic/fallback-valid" {
+		t.Fatalf("fallback sourceRef=%q, want valid noncanonical ref", got)
+	}
+
+	named, namedErr, namedCode := runBoard(t, bin, repoDir, "--release", "alpha-release", "--json")
+	if namedCode != 0 || namedErr != "" {
+		t.Fatalf("named board exit=%d stderr=%q stdout=%s", namedCode, namedErr, named)
+	}
+	var single struct {
+		Release string `json:"release"`
+	}
+	if err := json.Unmarshal([]byte(named), &single); err != nil {
+		t.Fatalf("parse named board: %v\n%s", err, named)
+	}
+	if single.Release != "alpha-release" {
+		t.Fatalf("named release=%q", single.Release)
+	}
+}
+
 func TestBoardCLIStateEvidenceProvenance(t *testing.T) {
 	repoDir, bin := setupAllRefsCatalogFixture(t)
 	decode := func(stdout string) (state, source, durability string, blocked bool, reason string) {
