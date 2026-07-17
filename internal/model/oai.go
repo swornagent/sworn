@@ -126,8 +126,30 @@ type ToolCall struct {
 
 // FunctionCall is the function name and arguments within a ToolCall.
 type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name              string `json:"name"`
+	Arguments         string `json:"arguments"`
+	argumentsJSONNull bool
+}
+
+// UnmarshalJSON preserves the literal JSON-null distinction for the direct
+// OpenRouter structured-response policy. encoding/json otherwise decodes a
+// null string field as an empty string, which would erase that wire fact.
+func (f *FunctionCall) UnmarshalJSON(data []byte) error {
+	type plainFunctionCall FunctionCall
+	var decoded plainFunctionCall
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*f = FunctionCall(decoded)
+
+	var raw struct {
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	f.argumentsJSONNull = bytes.Equal(bytes.TrimSpace(raw.Arguments), []byte("null"))
+	return nil
 }
 
 // UsageBlock carries token usage from the API response.
@@ -389,8 +411,14 @@ func (c *OAI) structuredToolCallArguments(calls []ToolCall) (string, error) {
 		if len(calls) != 1 {
 			return "", fmt.Errorf("model: structured output: expected exactly one forced tool call")
 		}
+		if calls[0].Type != "function" {
+			return "", fmt.Errorf("model: structured output: expected forced tool call type function")
+		}
 		if calls[0].Function.Name != structuredToolName {
 			return "", fmt.Errorf("model: structured output: unexpected forced tool call")
+		}
+		if calls[0].Function.argumentsJSONNull {
+			return "", fmt.Errorf("model: structured output: forced tool arguments must not be JSON null")
 		}
 		return calls[0].Function.Arguments, nil
 	}

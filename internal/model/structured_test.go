@@ -510,13 +510,25 @@ func TestOpenRouterChatStructuredUsesCanonicalForcedTool(t *testing.T) {
 func TestOpenRouterStructuredRejectsInvalidToolCall(t *testing.T) {
 	valid := ToolCall{Type: "function", Function: FunctionCall{Name: structuredToolName, Arguments: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`}}
 	tests := []struct {
-		name  string
-		calls []ToolCall
+		name        string
+		calls       []ToolCall
+		response    []byte
+		wantErrText string
 	}{
 		{name: "zero calls"},
 		{name: "multiple calls", calls: []ToolCall{valid, valid}},
 		{name: "wrong name", calls: []ToolCall{{Type: "function", Function: FunctionCall{Name: "other_function", Arguments: valid.Function.Arguments}}}},
 		{name: "non-object arguments", calls: []ToolCall{{Type: "function", Function: FunctionCall{Name: structuredToolName, Arguments: `[]`}}}},
+		{
+			name:        "literal JSON null arguments",
+			response:    []byte(`{"choices":[{"message":{"content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"emit_structured_output","arguments":null}}]},"finish_reason":"tool_calls"}]}`),
+			wantErrText: "model: structured output: forced tool arguments must not be JSON null",
+		},
+		{
+			name:        "non-function call type",
+			calls:       []ToolCall{{Type: "custom", Function: valid.Function}},
+			wantErrText: "model: structured output: expected forced tool call type function",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -524,7 +536,11 @@ func TestOpenRouterStructuredRejectsInvalidToolCall(t *testing.T) {
 			server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				w.Header().Set("Content-Type", "application/json")
-				w.Write(structuredToolCallResponse(tt.calls))
+				response := tt.response
+				if response == nil {
+					response = structuredToolCallResponse(tt.calls)
+				}
+				w.Write(response)
 			})
 			v, err := NewClient("openrouter/z-ai/glm-5.2", ProviderConfig{OpenRouterKey: "synthetic-openrouter-key"})
 			if err != nil {
@@ -532,8 +548,12 @@ func TestOpenRouterStructuredRejectsInvalidToolCall(t *testing.T) {
 			}
 			client := v.(*OAI)
 			client.BaseURL = server.URL
-			if _, err := client.ChatStructured(context.Background(), nil, schemas.LLMCheckReportV1); err == nil {
+			_, err = client.ChatStructured(context.Background(), nil, schemas.LLMCheckReportV1)
+			if err == nil {
 				t.Fatal("invalid OpenRouter tool response unexpectedly succeeded")
+			}
+			if tt.wantErrText != "" && err.Error() != tt.wantErrText {
+				t.Errorf("error = %q, want %q", err, tt.wantErrText)
 			}
 			if calls != 1 {
 				t.Fatalf("OpenRouter dispatch count = %d, want 1 with no retry or fallback", calls)
