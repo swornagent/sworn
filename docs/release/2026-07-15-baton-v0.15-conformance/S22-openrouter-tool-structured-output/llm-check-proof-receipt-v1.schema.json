@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json",
+  "title": "LLM check proof receipt v1",
+  "description": "A private, metadata-only durable receipt for a bounded S22 proof attempt. It is deliberately not an llm-check report and cannot contain provider or model payload data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "record_version",
+    "release",
+    "slice_id",
+    "check_type",
+    "model_id",
+    "immutable_start_commit",
+    "attempt",
+    "attempt_class",
+    "result",
+    "process_exit_code"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json"
+    },
+    "record_version": {
+      "const": 1
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slice_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "check_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "immutable_start_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2
+    },
+    "attempt_class": {
+      "enum": [
+        "final_verdict",
+        "rate_limit",
+        "upstream",
+        "transient",
+        "network",
+        "deadline",
+        "runner_failure",
+        "receipt_failure",
+        "http_client_error",
+        "parse_failure",
+        "schema_failure",
+        "identity_mismatch",
+        "malformed_tool",
+        "opaque",
+        "untrusted_binding",
+        "unknown"
+      ]
+    },
+    "result": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "BLOCKED",
+        "UNPARSEABLE"
+      ]
+    },
+    "process_exit_code": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "const": "unavailable"
+        }
+      ]
+    }
+  }
+}

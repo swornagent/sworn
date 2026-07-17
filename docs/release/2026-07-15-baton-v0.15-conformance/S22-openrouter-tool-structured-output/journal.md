@@ -190,3 +190,34 @@ this is not a fresh verifier verdict.
 - The synthetic-only deterministic proof-gate PASS remains evidence of the
   current binary's no-model-dispatch first pass. It is not AC-06 evidence and
   is not a reason to alter this blocked handoff.
+
+## 2026-07-17T20:47:05+10:00 — Planner material replan: native proof receipt
+
+- The Coach ratified a material replacement of the previous shell-style
+  receipt recovery. The raw output from the historical invocation remains
+  destroyed and must not be sought or reproduced. Its retained safe facts are
+  now committed as attempt 1: release, slice, spec-ambiguity,
+  openrouter/z-ai/glm-5.2, immutable S22 start, unavailable exit semantics,
+  UNPARSEABLE, and receipt_failure.
+- S22 now owns a separate native proof-receipt facility, not LLMCheckReport:
+  validate the exact release/slice/check/model/start binding, atomically reserve metadata before dispatch,
+  atomically finalize the same strict receipt, and never retain or render raw
+  provider data. Reservation failure makes zero requests; a post-call receipt
+  write fault is receipt_failure without an inferred model verdict. A
+  mismatched binding rejects before dispatch and cannot consume or reuse retry
+  budget.
+- Attempt 2 is available only after explicit rate_limit, upstream, transient,
+  network, deadline, runner_failure, or receipt_failure at attempt 1. Valid
+  PASS/FAIL/BLOCKED and every 400/401/402, unknown, parse, schema, identity,
+  malformed-tool, opaque, or untrusted outcome is terminal; attempt 2 never
+  permits a third dispatch.
+- This is a material scope change. The prior Captain review is superseded,
+  S22 moves only to design_review, and a fresh Captain PROCEED plus
+  acknowledgement is required before implementation. S20 remains blocked and
+  untouched until a fresh S22 verifier PASS. No provider/model call occurred
+  in this Planner replan.
+- Reconciliation against the authoritative T1 worktree confirms that the
+  immediately preceding serial slice, S21-openai-structured-envelope, is
+  verified/PASS at immutable start ed0badf68673f0af84834458f07be0792555484f.
+  The release-wt copy is corrected to that verified state; S22 must remain
+  gated if this upstream evidence is not preserved.

@@ -16,6 +16,13 @@
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.json",
   "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/journal.md",
+  "proof_provenance": {
+    "verifier_commit": "240a2ede9a5fd022ae403ced30a6a5f80d918747",
+    "source_ref": "track/2026-07-15-baton-v0.15-conformance/T1-foundation",
+    "proof_json": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.json",
+    "proof_md": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.md",
+    "restoration": "Planner replan restored the matching committed proof artifacts byte-for-byte because release-wt history did not contain the verifier commit."
+  },
   "planned_files": [
     "internal/model/llmcheck_envelope.go",
     "internal/model/llmcheck_envelope_test.go",
