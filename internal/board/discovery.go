@@ -16,9 +16,10 @@ import (
 
 // CatalogRecord is one selected topology and its centrally elected live state.
 type CatalogRecord struct {
-	Release   string      `json:"release"`
-	SourceRef string      `json:"sourceRef"`
-	Board     *BoardState `json:"-"`
+	Release        string              `json:"release"`
+	SourceRef      string              `json:"sourceRef"`
+	Board          *BoardState         `json:"-"`
+	TrackDependsOn map[string][]string `json:"-"`
 }
 
 type topologyCandidate struct{ ref, path string }
@@ -27,6 +28,13 @@ func (c topologyCandidate) objectSpec() string { return c.ref + ":" + c.path }
 
 // DiscoverCatalog discovers all release plans on locally available branch tips.
 func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
+	if _, err := repo.RevParse("HEAD"); err != nil {
+		if headIsUnavailable(err) {
+			return discoverFilesystemCatalog(repo.Dir)
+		}
+		return nil, fmt.Errorf("resolve HEAD: %w", err)
+	}
+
 	refs, err := repo.ListRefs()
 	if err != nil {
 		return nil, fmt.Errorf("list refs: %w", err)
@@ -124,9 +132,166 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, CatalogRecord{Release: release, SourceRef: selected.ref, Board: bs})
+		out = append(out, CatalogRecord{
+			Release:        release,
+			SourceRef:      selected.ref,
+			Board:          bs,
+			TrackDependsOn: trackDependencies(tracks),
+		})
 	}
 	return out, nil
+}
+
+func headIsUnavailable(err error) bool {
+	message := err.Error()
+	for _, fragment := range []string{
+		"not a git repository",
+		"unknown revision or path not in the working tree",
+		"Needed a single revision",
+		"does not have any commits yet",
+		"bad revision 'HEAD'",
+		"ambiguous argument 'HEAD'",
+	} {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
+	type filesystemTopology struct {
+		release string
+		prefix  string
+		path    string
+		raw     string
+	}
+
+	byRelease := map[string]filesystemTopology{}
+	for _, prefix := range docsPrefixes {
+		root := filepath.Join(repoRoot, filepath.FromSlash(prefix))
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read release directory %s: %w", root, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			release := entry.Name()
+			if _, exists := byRelease[release]; exists {
+				continue
+			}
+			releaseDir := filepath.Join(root, release)
+			boardPath := filepath.Join(releaseDir, "board.json")
+			indexPath := filepath.Join(releaseDir, "index.md")
+
+			path, raw, err := readFilesystemTopology(boardPath, indexPath)
+			if err != nil {
+				return nil, fmt.Errorf("release %q filesystem: %w", release, err)
+			}
+			if path == "" {
+				continue
+			}
+			byRelease[release] = filesystemTopology{
+				release: release,
+				prefix:  prefix,
+				path:    filepath.ToSlash(path),
+				raw:     raw,
+			}
+		}
+	}
+
+	names := make([]string, 0, len(byRelease))
+	for release := range byRelease {
+		names = append(names, release)
+	}
+	sort.Strings(names)
+
+	out := make([]CatalogRecord, 0, len(names))
+	for _, release := range names {
+		topology := byRelease[release]
+		tracks, err := parseTopologyRaw(topology.raw, topologyCandidate{path: topology.path}, release)
+		if err != nil {
+			return nil, fmt.Errorf("release %q filesystem: %w", release, err)
+		}
+		boardState, err := filesystemBoard(repoRoot, topology.prefix, release, tracks)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, CatalogRecord{
+			Release:        release,
+			Board:          boardState,
+			TrackDependsOn: trackDependencies(tracks),
+		})
+	}
+	return out, nil
+}
+
+func trackDependencies(tracks []TrackInfo) map[string][]string {
+	dependencies := make(map[string][]string, len(tracks))
+	for _, track := range tracks {
+		dependencies[track.ID] = append([]string(nil), track.DependsOn...)
+	}
+	return dependencies
+}
+
+func readFilesystemTopology(boardPath, indexPath string) (string, string, error) {
+	if raw, err := os.ReadFile(boardPath); err == nil {
+		return boardPath, string(raw), nil
+	} else if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("read board.json: %w", err)
+	}
+	if raw, err := os.ReadFile(indexPath); err == nil {
+		return indexPath, string(raw), nil
+	} else if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("read index.md: %w", err)
+	}
+	return "", "", nil
+}
+
+func filesystemBoard(repoRoot, prefix, release string, tracks []TrackInfo) (*BoardState, error) {
+	trackMap := make(map[string]TrackInfo, len(tracks))
+	for _, track := range tracks {
+		trackMap[track.ID] = track
+	}
+
+	bs := &BoardState{Release: release}
+	for _, track := range tracks {
+		ts := TrackState{
+			ID:             track.ID,
+			WorktreeBranch: track.WorktreeBranch,
+		}
+		for _, sliceID := range track.Slices {
+			statusPath := filepath.Join(repoRoot, filepath.FromSlash(prefix), release, sliceID, "status.json")
+			raw, err := os.ReadFile(statusPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					ts.Slices = append(ts.Slices, SliceState{ID: sliceID, Track: track.ID, State: "unknown"})
+					continue
+				}
+				return nil, fmt.Errorf("release %q slice %q: read status.json: %w", release, sliceID, err)
+			}
+			e, ok := validEvidence(string(raw), "working-tree", "uncommitted", release, sliceID, track.ID)
+			if !ok {
+				ts.Slices = append(ts.Slices, SliceState{ID: sliceID, Track: track.ID, State: "unknown"})
+				continue
+			}
+			ss, err := parseStatusJSON(e.raw, sliceID, track.ID, trackMap)
+			if err != nil {
+				return nil, fmt.Errorf("release %q slice %q: %w", release, sliceID, err)
+			}
+			ss.StateSource = e.source
+			ss.StateDurability = e.durability
+			ts.Slices = append(ts.Slices, ss)
+		}
+		ts.State = aggregateState(ts.Slices)
+		bs.Tracks = append(bs.Tracks, ts)
+	}
+	return bs, nil
 }
 
 func canonicalRelease(ref string) (string, bool) {
@@ -249,7 +414,6 @@ func electBoard(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects
 		ts := TrackState{
 			ID:             t.ID,
 			WorktreeBranch: t.WorktreeBranch,
-			DependsOn:      t.DependsOn,
 		}
 		for _, sid := range t.Slices {
 			winner, err := electSlice(repo, statusRefs, statusObjects, release, sid, t.ID, trackMap)

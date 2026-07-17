@@ -155,7 +155,7 @@ func (b *BoardView) LoadBoardFromCatalog(repoRoot string, rec board.CatalogRecor
 	b.Loaded = false
 	b.Loading = false
 
-	b.Tracks = catalogTracksToTrackInfos(rec.Board.Tracks)
+	b.Tracks = catalogTracksToTrackInfos(rec.Board.Tracks, rec.TrackDependsOn)
 	b.Slices = map[string]SliceBoardInfo{}
 	for _, track := range rec.Board.Tracks {
 		for _, ss := range track.Slices {
@@ -227,14 +227,15 @@ func loadBoardCmd(repoRoot string, rec board.CatalogRecord) tea.Cmd {
 }
 
 // catalogTracksToTrackInfos translates board.TrackState entries to tui TrackInfo.
-func catalogTracksToTrackInfos(tracks []board.TrackState) []TrackInfo {
+func catalogTracksToTrackInfos(tracks []board.TrackState, dependencies map[string][]string) []TrackInfo {
 	out := make([]TrackInfo, 0, len(tracks))
 	for _, t := range tracks {
+		dependsOn := dependencies[t.ID]
 		out = append(out, TrackInfo{
 			ID:        t.ID,
 			Slices:    append([]string(nil), boardTrackSliceIDs(t.Slices)...),
-			Depends:   strings.Join(t.DependsOn, ", "),
-			DependsOn: append([]string(nil), t.DependsOn...),
+			Depends:   strings.Join(dependsOn, ", "),
+			DependsOn: append([]string(nil), dependsOn...),
 			State:     t.State,
 		})
 	}
