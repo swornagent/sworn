@@ -471,3 +471,41 @@ func TestRepoListRefsReadOnly(t *testing.T) {
 		t.Fatalf("status changed: %q -> %q", before, after)
 	}
 }
+
+func TestRepoListRefsExcludesOnlySymbolicRemoteHEAD(t *testing.T) {
+	r := setupRepo(t)
+	writeFile(t, r.Dir, "README.md", "test")
+	if err := r.Stage("README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit("initial"); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := r.RevParse("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("update-ref", "refs/remotes/origin/main", sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	// A direct ref whose final path component is HEAD is still a real ref and
+	// must not be filtered by name alone.
+	if _, err := r.run("update-ref", "refs/remotes/upstream/HEAD", sha); err != nil {
+		t.Fatal(err)
+	}
+
+	refs, err := r.ListRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(refs, "\n")
+	if strings.Contains(got, "refs/remotes/origin/HEAD") {
+		t.Fatalf("symbolic remote HEAD leaked into refs: %v", refs)
+	}
+	if !strings.Contains(got, "refs/remotes/origin/main") || !strings.Contains(got, "refs/remotes/upstream/HEAD") {
+		t.Fatalf("real remote refs missing: %v", refs)
+	}
+}

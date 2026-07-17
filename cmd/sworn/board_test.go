@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +118,17 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
 func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -130,8 +143,42 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
-func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
-	repoDir := t.TempDir()
+func buildSwornBinary(t *testing.T) string {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "sworn")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".")
+	build.Dir = cwd
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build sworn: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func runBoard(t *testing.T, bin, repoDir string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+	cmd := exec.Command(bin, append([]string{"board"}, args...)...)
+	cmd.Dir = repoDir
+	var out, errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	err := cmd.Run()
+	if err == nil {
+		return out.String(), errOut.String(), 0
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("run sworn board: %v", err)
+	}
+	return out.String(), errOut.String(), exitErr.ExitCode()
+}
+
+func setupAllRefsCatalogFixture(t *testing.T) (repoDir, swornBin string) {
+	t.Helper()
+	repoDir = t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
 	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
 	runGit(t, repoDir, "config", "user.name", "sworn test")
@@ -151,8 +198,6 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	}
 	writeRelease("alpha-release", "T1-alpha", "S01-alpha", "implemented")
 	writeRelease("beta-release", "T1-beta", "S01-beta", "planned")
-	// Model a ref-heavy real repository. These irrelevant local heads force
-	// discovery to inspect many tips while preserving the same catalog result.
 	for i := 0; i < 64; i++ {
 		runGit(t, repoDir, "branch", fmt.Sprintf("irrelevant-%02d", i), "main")
 	}
@@ -165,16 +210,32 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	runGit(t, repoDir, "commit", "-m", "verify alpha")
 	runGit(t, repoDir, "checkout", "main")
 
+	return repoDir, buildSwornBinary(t)
+}
+
+type repoSnapshot struct {
+	Head, Branch, Refs, Status, CWD string
+}
+
+func snapshotRepo(t *testing.T, repoDir string) repoSnapshot {
+	t.Helper()
+	refs := strings.Fields(gitOutput(t, repoDir, "for-each-ref", "--format=%(refname)"))
+	sort.Strings(refs)
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(t.TempDir(), "sworn")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".")
-	build.Dir = cwd
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+	return repoSnapshot{
+		Head:   strings.TrimSpace(gitOutput(t, repoDir, "rev-parse", "HEAD")),
+		Branch: strings.TrimSpace(gitOutput(t, repoDir, "branch", "--show-current")),
+		Refs:   strings.Join(refs, "\n"),
+		Status: gitOutput(t, repoDir, "status", "--porcelain"),
+		CWD:    cwd,
 	}
+}
+
+func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "board", "--json")
@@ -200,13 +261,302 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	if len(got.Releases) != 2 {
 		t.Fatalf("releases=%d, want 2: %s", len(got.Releases), out)
 	}
+	alphaPos := bytes.Index(out, []byte(`"alpha-release"`))
+	betaPos := bytes.Index(out, []byte(`"beta-release"`))
+	if alphaPos < 0 || betaPos < 0 || alphaPos >= betaPos {
+		t.Fatalf("catalog keys are not bytewise sorted: %s", out)
+	}
 	alpha := got.Releases["alpha-release"]
+	if alpha.Release != "alpha-release" {
+		t.Fatalf("alpha release=%q", alpha.Release)
+	}
 	if alpha.SourceRef != "refs/heads/release-wt/alpha-release" {
 		t.Errorf("sourceRef=%q", alpha.SourceRef)
 	}
 	s := alpha.Tracks[0].Slices[0]
 	if s.State != "verified" || s.StateSource != "refs/heads/track/alpha-release/T1-alpha" || s.StateDurability != "committed" {
 		t.Fatalf("alpha evidence=%+v", s)
+	}
+}
+
+func TestBoardCLIAllRefsCatalogSourceRef(t *testing.T) {
+	const release = "ranked-release"
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, repoDir, "config", "user.name", "sworn test")
+	mustWrite(t, filepath.Join(repoDir, "README.md"), "consumer\n")
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "consumer head")
+
+	dir := filepath.Join(repoDir, "docs", "release", release)
+	mustMkdir(t, filepath.Join(dir, "S01-alpha"))
+	mustWrite(t, filepath.Join(dir, "board.json"), `{"$schema":"board-v1","release":{"name":"ranked-release"},"tracks":[{"id":"T1","slices":["S01-alpha"]}]}`)
+	mustWrite(t, filepath.Join(dir, "S01-alpha", "status.json"), `{"slice_id":"S01-alpha","release":"ranked-release","track":"T1","state":"planned","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"pending"}}`)
+	runGit(t, repoDir, "add", "docs")
+	runGit(t, repoDir, "commit", "-m", "topology")
+	topology := strings.TrimSpace(gitOutput(t, repoDir, "rev-parse", "HEAD"))
+	runGit(t, repoDir, "reset", "--hard", "HEAD^")
+
+	for _, ref := range []string{
+		"refs/heads/release-wt/" + release,
+		"refs/remotes/a/release-wt/" + release,
+		"refs/remotes/z/release-wt/" + release,
+		"refs/heads/a-fallback",
+		"refs/heads/z-fallback",
+		"refs/remotes/a/topic",
+		"refs/remotes/z/topic",
+	} {
+		runGit(t, repoDir, "update-ref", ref, topology)
+	}
+
+	bin := buildSwornBinary(t)
+	steps := []struct {
+		want   string
+		remove []string
+	}{
+		{want: "refs/heads/release-wt/" + release, remove: []string{"refs/heads/release-wt/" + release}},
+		{want: "refs/remotes/a/release-wt/" + release, remove: []string{"refs/remotes/a/release-wt/" + release, "refs/remotes/z/release-wt/" + release}},
+		{want: "refs/heads/a-fallback", remove: []string{"refs/heads/a-fallback", "refs/heads/z-fallback"}},
+		{want: "refs/remotes/a/topic"},
+	}
+	for _, step := range steps {
+		stdout, stderr, code := runBoard(t, bin, repoDir, "--json")
+		if code != 0 {
+			t.Fatalf("sworn board --json exit=%d stderr=%s", code, stderr)
+		}
+		var result struct {
+			Releases map[string]struct {
+				SourceRef string `json:"sourceRef"`
+			} `json:"releases"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+			t.Fatalf("parse catalog: %v\n%s", err, stdout)
+		}
+		if got := result.Releases[release].SourceRef; got != step.want {
+			t.Fatalf("sourceRef=%q, want %q", got, step.want)
+		}
+		for _, ref := range step.remove {
+			runGit(t, repoDir, "update-ref", "-d", ref)
+		}
+	}
+}
+
+func TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed(t *testing.T) {
+	bin := buildSwornBinary(t)
+	for _, scope := range []struct {
+		name, canonicalPrefix string
+	}{
+		{name: "local", canonicalPrefix: "refs/heads/release-wt/"},
+		{name: "remote", canonicalPrefix: "refs/remotes/origin/release-wt/"},
+	} {
+		for _, defect := range []string{"missing", "malformed", "identity-mismatch"} {
+			t.Run(scope.name+"-"+defect, func(t *testing.T) {
+				release := scope.name + "-" + defect
+				repoDir := t.TempDir()
+				runGit(t, repoDir, "init", "-b", "main")
+				runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
+				runGit(t, repoDir, "config", "user.name", "sworn test")
+				mustWrite(t, filepath.Join(repoDir, "README.md"), "consumer\n")
+				runGit(t, repoDir, "add", "README.md")
+				runGit(t, repoDir, "commit", "-m", "consumer head")
+				base := strings.TrimSpace(gitOutput(t, repoDir, "rev-parse", "HEAD"))
+
+				lowerDir := filepath.Join(repoDir, "docs", "release", release)
+				mustMkdir(t, filepath.Join(lowerDir, "S01-alpha"))
+				mustWrite(t, filepath.Join(lowerDir, "board.json"), `{"$schema":"board-v1","release":{"name":"`+release+`"},"tracks":[{"id":"T1","slices":["S01-alpha"]}]}`)
+				mustWrite(t, filepath.Join(lowerDir, "S01-alpha", "status.json"), `{"slice_id":"S01-alpha","release":"`+release+`","track":"T1","state":"planned","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"pending"}}`)
+				runGit(t, repoDir, "add", "docs")
+				runGit(t, repoDir, "commit", "-m", "valid lower topology")
+				lower := strings.TrimSpace(gitOutput(t, repoDir, "rev-parse", "HEAD"))
+				runGit(t, repoDir, "reset", "--hard", base)
+				runGit(t, repoDir, "update-ref", "refs/heads/topic", lower)
+
+				canonical := base
+				if defect != "missing" {
+					canonicalDir := filepath.Join(repoDir, "docs", "release", release)
+					mustMkdir(t, canonicalDir)
+					if defect == "malformed" {
+						mustWrite(t, filepath.Join(canonicalDir, "board.json"), `{`)
+					} else {
+						mustWrite(t, filepath.Join(canonicalDir, "board.json"), `{"$schema":"board-v1","release":{"name":"wrong-release"},"tracks":[]}`)
+					}
+					runGit(t, repoDir, "add", "docs")
+					runGit(t, repoDir, "commit", "-m", "broken canonical topology")
+					canonical = strings.TrimSpace(gitOutput(t, repoDir, "rev-parse", "HEAD"))
+					runGit(t, repoDir, "reset", "--hard", base)
+				}
+				canonicalRef := scope.canonicalPrefix + release
+				runGit(t, repoDir, "update-ref", canonicalRef, canonical)
+
+				stdout, stderr, code := runBoard(t, bin, repoDir, "--json")
+				if code != 2 {
+					t.Fatalf("exit=%d, want 2; stdout=%q stderr=%q", code, stdout, stderr)
+				}
+				if stdout != "" {
+					t.Fatalf("successful aggregate output must be empty, got %q", stdout)
+				}
+				if !strings.Contains(stderr, `release "`+release+`"`) || !strings.Contains(stderr, canonicalRef) {
+					t.Fatalf("stderr must name release and canonical ref: %q", stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestBoardCLIStateEvidenceProvenance(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
+	decode := func(stdout string) (state, source, durability string, blocked bool, reason string) {
+		t.Helper()
+		var result struct {
+			Tracks []struct {
+				Slices []struct {
+					State, StateSource, StateDurability string
+					Blocked                             bool
+					BlockedReason                       string `json:"blocked_reason"`
+				}
+			} `json:"tracks"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+			t.Fatalf("parse named board: %v\n%s", err, stdout)
+		}
+		if len(result.Tracks) != 1 || len(result.Tracks[0].Slices) != 1 {
+			t.Fatalf("unexpected board shape: %s", stdout)
+		}
+		s := result.Tracks[0].Slices[0]
+		return s.State, s.StateSource, s.StateDurability, s.Blocked, s.BlockedReason
+	}
+	runNamed := func() (string, string, string, bool, string) {
+		stdout, stderr, code := runBoard(t, bin, repoDir, "--release", "alpha-release", "--json")
+		if code != 0 {
+			t.Fatalf("named board exit=%d stderr=%s", code, stderr)
+		}
+		return decode(stdout)
+	}
+
+	state, source, durability, blocked, reason := runNamed()
+	if state != "verified" || source != "refs/heads/track/alpha-release/T1-alpha" || durability != "committed" || blocked {
+		t.Fatalf("farthest committed state = %q %q %q blocked=%v", state, source, durability, blocked)
+	}
+
+	statusPath := filepath.Join(repoDir, "docs", "release", "alpha-release", "S01-alpha", "status.json")
+	mustMkdir(t, filepath.Dir(statusPath))
+	// Exact normal-state/timestamp ties preserve the committed evidence.
+	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"verified","owner":"dirty","last_updated_at":"2026-01-02T00:00:00Z","verification":{"result":"pending"}}`)
+	state, source, durability, _, _ = runNamed()
+	if state != "verified" || source != "refs/heads/track/alpha-release/T1-alpha" || durability != "committed" {
+		t.Fatalf("committed tie winner = %q %q %q", state, source, durability)
+	}
+
+	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"shipped","last_updated_at":"2026-01-03T00:00:00Z","verification":{"result":"pending"}}`)
+	state, source, durability, _, _ = runNamed()
+	if state != "shipped" || source != "working-tree" || durability != "uncommitted" {
+		t.Fatalf("dirty high-water state = %q %q %q", state, source, durability)
+	}
+	text, stderr, code := runBoard(t, bin, repoDir, "--release", "alpha-release")
+	if code != 0 || stderr != "" || !strings.Contains(text, "[uncommitted]") {
+		t.Fatalf("uncommitted text output=%q stderr=%q exit=%d", text, stderr, code)
+	}
+
+	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"implemented","last_updated_at":"2026-01-04T00:00:00Z","verification":{"result":"blocked","violations":["late attention"],"routing":"needs_planner"}}`)
+	state, source, durability, blocked, reason = runNamed()
+	if state != "implemented" || source != "working-tree" || durability != "uncommitted" || !blocked || reason != "late attention" {
+		t.Fatalf("attention winner = %q %q %q blocked=%v reason=%q", state, source, durability, blocked, reason)
+	}
+	text, stderr, code = runBoard(t, bin, repoDir, "--release", "alpha-release")
+	if code != 0 || stderr != "" || !strings.Contains(text, "[uncommitted]") {
+		t.Fatalf("blocked uncommitted text output=%q stderr=%q exit=%d", text, stderr, code)
+	}
+}
+
+func TestBoardCLINamedReleaseJSONShapeCompatibility(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
+	aggregate, stderr, code := runBoard(t, bin, repoDir, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("aggregate board exit=%d stderr=%s", code, stderr)
+	}
+	named, stderr, code := runBoard(t, bin, repoDir, "--release", "alpha-release", "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("named board exit=%d stderr=%s", code, stderr)
+	}
+
+	var namedShape map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(named), &namedShape); err != nil {
+		t.Fatalf("parse named shape: %v\n%s", err, named)
+	}
+	if len(namedShape) != 2 || namedShape["release"] == nil || namedShape["tracks"] == nil || namedShape["releases"] != nil || namedShape["sourceRef"] != nil {
+		t.Fatalf("named top-level shape changed: %s", named)
+	}
+
+	var catalog struct {
+		Releases map[string]struct {
+			Tracks []struct {
+				Slices []struct{ StateSource, StateDurability string }
+			}
+		} `json:"releases"`
+	}
+	var single struct {
+		Release string `json:"release"`
+		Tracks  []struct {
+			Slices []struct{ StateSource, StateDurability string }
+		} `json:"tracks"`
+	}
+	if err := json.Unmarshal([]byte(aggregate), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(named), &single); err != nil {
+		t.Fatal(err)
+	}
+	fromCatalog := catalog.Releases["alpha-release"].Tracks[0].Slices[0]
+	fromNamed := single.Tracks[0].Slices[0]
+	if single.Release != "alpha-release" || fromCatalog.StateSource != fromNamed.StateSource || fromCatalog.StateDurability != fromNamed.StateDurability {
+		t.Fatalf("catalog/named provenance differs: catalog=%+v named=%+v release=%q", fromCatalog, fromNamed, single.Release)
+	}
+}
+
+func TestBoardCLINamedAndCatalogStateEvidenceAgree(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
+	aggregate, stderr, code := runBoard(t, bin, repoDir, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("aggregate board exit=%d stderr=%s", code, stderr)
+	}
+	named, stderr, code := runBoard(t, bin, repoDir, "--release", "alpha-release", "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("named board exit=%d stderr=%s", code, stderr)
+	}
+	var catalog struct {
+		Releases map[string]struct {
+			Tracks []struct {
+				Slices []struct{ State, StateSource, StateDurability string }
+			}
+		} `json:"releases"`
+	}
+	var single struct {
+		Tracks []struct {
+			Slices []struct{ State, StateSource, StateDurability string }
+		} `json:"tracks"`
+	}
+	if err := json.Unmarshal([]byte(aggregate), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(named), &single); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := single.Tracks[0].Slices[0], catalog.Releases["alpha-release"].Tracks[0].Slices[0]; got != want {
+		t.Fatalf("named evidence=%+v, catalog evidence=%+v", got, want)
+	}
+}
+
+func TestBoardCLIAllRefsCatalogReadOnly(t *testing.T) {
+	repoDir, bin := setupAllRefsCatalogFixture(t)
+	before := snapshotRepo(t, repoDir)
+	stdout, stderr, code := runBoard(t, bin, repoDir, "--json")
+	if code != 0 || stderr != "" || stdout == "" {
+		t.Fatalf("board output exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	after := snapshotRepo(t, repoDir)
+	if before != after {
+		t.Fatalf("read-only snapshot changed:\n before=%+v\n after=%+v", before, after)
 	}
 }
 

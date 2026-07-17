@@ -180,12 +180,14 @@ func printBoardText(bs *board.BoardState) int {
 
 		for _, s := range slices {
 			stateStr := string(s.State)
+			uncommittedSuffix := ""
 			if s.StateDurability == "uncommitted" {
-				stateStr += " [uncommitted]"
+				uncommittedSuffix = " [uncommitted]"
+				stateStr += uncommittedSuffix
 			}
 			if s.Blocked {
 				// BLOCKED visibility: render distinctly.
-				stateStr = style.Danger(fmt.Sprintf("BLOCKED → %s: %s", s.BlockedOwner, s.BlockedReason))
+				stateStr = style.Danger(fmt.Sprintf("BLOCKED → %s: %s", s.BlockedOwner, s.BlockedReason)) + uncommittedSuffix
 			} else if s.State == "verified" {
 				stateStr = style.Accent(stateStr)
 			} else if s.State == "failed_verification" {
