@@ -346,6 +346,50 @@ func TestShow(t *testing.T) {
 	}
 }
 
+func TestReadObjectsBatchPreservesSpecMapping(t *testing.T) {
+	r := setupRepo(t)
+	writeFile(t, r.Dir, "a.txt", "alpha\n")
+	writeFile(t, r.Dir, "b.txt", "beta\n")
+	r.Stage("a.txt", "b.txt")
+	r.Commit("add batch objects")
+
+	specs := []string{"HEAD:b.txt", "HEAD:missing.txt", "HEAD:a.txt"}
+	got, err := r.ReadObjects(specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["HEAD:a.txt"] != "alpha\n" || got["HEAD:b.txt"] != "beta\n" {
+		t.Fatalf("objects = %#v", got)
+	}
+	if _, ok := got["HEAD:missing.txt"]; ok {
+		t.Fatalf("missing object unexpectedly returned: %#v", got)
+	}
+}
+
+func TestListTreePathsMultiplePrefixes(t *testing.T) {
+	r := setupRepo(t)
+	if err := os.MkdirAll(filepath.Join(r.Dir, "docs", "release"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(r.Dir, ".sworn", "releases"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, r.Dir, "docs/release/board.json", "docs\n")
+	writeFile(t, r.Dir, ".sworn/releases/board.json", "sworn\n")
+	writeFile(t, r.Dir, "ignored.txt", "ignored\n")
+	r.Stage(".")
+	r.Commit("add prefixed trees")
+
+	got, err := r.ListTreePaths("HEAD", "docs/release", ".sworn/releases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".sworn/releases/board.json", "docs/release/board.json"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("paths = %q, want %q", got, want)
+	}
+}
+
 func TestShow_RejectsEmptyDir(t *testing.T) {
 	zero := &Repo{}
 	_, err := zero.Show("HEAD", "any/path")
@@ -393,5 +437,75 @@ func TestCatFileExists_RejectsEmptyDir(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty Repo.Dir") {
 		t.Errorf("error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+}
+
+func TestRepoListRefsReadOnly(t *testing.T) {
+	r := setupRepo(t)
+	if err := os.WriteFile(filepath.Join(r.Dir, "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Stage("x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit("x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("branch", "z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("branch", "a"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := r.StatusPorcelain()
+	refs, err := r.ListRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := r.StatusPorcelain()
+	want := []string{"refs/heads/a", "refs/heads/main", "refs/heads/z"}
+	if strings.Join(refs, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("refs=%v want=%v", refs, want)
+	}
+	if before != after {
+		t.Fatalf("status changed: %q -> %q", before, after)
+	}
+}
+
+func TestRepoListRefsExcludesOnlySymbolicRemoteHEAD(t *testing.T) {
+	r := setupRepo(t)
+	writeFile(t, r.Dir, "README.md", "test")
+	if err := r.Stage("README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit("initial"); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := r.RevParse("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("update-ref", "refs/remotes/origin/main", sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	// A direct ref whose final path component is HEAD is still a real ref and
+	// must not be filtered by name alone.
+	if _, err := r.run("update-ref", "refs/remotes/upstream/HEAD", sha); err != nil {
+		t.Fatal(err)
+	}
+
+	refs, err := r.ListRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(refs, "\n")
+	if strings.Contains(got, "refs/remotes/origin/HEAD") {
+		t.Fatalf("symbolic remote HEAD leaked into refs: %v", refs)
+	}
+	if !strings.Contains(got, "refs/remotes/origin/main") || !strings.Contains(got, "refs/remotes/upstream/HEAD") {
+		t.Fatalf("real remote refs missing: %v", refs)
 	}
 }
