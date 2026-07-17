@@ -42,8 +42,8 @@ type BoardView struct {
 	Tracks        []TrackInfo
 	Slices        map[string]SliceBoardInfo // slice ID -> live data
 	Loaded        bool
-	Loading       bool // true while an async LoadBoard is in flight (sworn#82)
-	Cursor        int  // index of the selected slice in orderedSlices
+	Loading       bool     // true while an async LoadBoard is in flight (sworn#82)
+	Cursor        int      // index of the selected slice in orderedSlices
 	orderedSlices []string // slice IDs in display order
 	MergeActive   map[string]bool
 	GateResults   map[string]GateResult // per-slice gate check results (S72)
@@ -258,12 +258,12 @@ func sliceBoardInfoFromCatalog(ss board.SliceState) SliceBoardInfo {
 		lastUp = "—"
 	}
 	return SliceBoardInfo{
-		ID:              ss.ID,
-		State:           string(ss.State),
-		LastUpdatedAt:   formatLastUpdated(lastUp),
+		ID:                 ss.ID,
+		State:              string(ss.State),
+		LastUpdatedAt:      formatLastUpdated(lastUp),
 		VerificationResult: ss.VerificationResult,
-		StateSource:     ss.StateSource,
-		StateDurability: ss.StateDurability,
+		StateSource:        ss.StateSource,
+		StateDurability:    ss.StateDurability,
 	}
 }
 

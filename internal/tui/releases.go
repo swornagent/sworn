@@ -12,13 +12,13 @@ import (
 
 // ReleaseInfo holds metadata about one release for the list view.
 type ReleaseInfo struct {
-	ID                    string // release ID, e.g. "2026-06-19-safe-parallelism"
-	Name                  string
-	TrackCount            int
-	SourceRef             string
+	ID                     string // release ID, e.g. "2026-06-19-safe-parallelism"
+	Name                   string
+	TrackCount             int
+	SourceRef              string
 	HasUncommittedEvidence bool
-	Catalog               *board.CatalogRecord
-	SliceStates           map[string]int // state -> count, for aggregation
+	Catalog                *board.CatalogRecord
+	SliceStates            map[string]int // state -> count, for aggregation
 }
 
 // ReleasesList is a Bubble Tea component embedded in the root model.
