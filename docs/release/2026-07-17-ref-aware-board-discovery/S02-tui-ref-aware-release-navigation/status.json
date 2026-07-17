@@ -10,8 +10,8 @@
   ],
   "state": "in_progress",
   "owner": "unassigned",
-  "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-17T22:57:07+10:00",
+  "last_updated_by": "codex-verifier",
+  "last_updated_at": "2026-07-17T23:24:36+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
@@ -51,11 +51,13 @@
     "confirmed_by_implementer": false
   },
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "blocked",
+    "verifier_session_id": "codex-verifier-2026-07-17-S02",
+    "verifier_verdict_at": "2026-07-17T23:24:36+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Slice is in state 'in_progress', expected 'implemented'; the required docs(...): start implementation checkpoint is absent (start_commit is null), so verification cannot begin."
+    ]
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent TUI operator sees and opens the same high-water board state as the CLI, including a clear warning when that state has not yet been committed.",
