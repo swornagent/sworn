@@ -1176,6 +1176,33 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   remain unchanged; its later direct readiness smoke uses the selected model
   only after that PASS.
 
+### 2026-07-17 - Recover S22 after the unreceipted AC-06 invocation
+
+- **Trigger**: The earlier once-authorized S22 AC-06 direct invocation did not
+  yield a usable sanitized receipt. It is therefore neither a PASS nor a FAIL,
+  and it is not a fresh verifier verdict. The advisory audit also found two
+  unpinned deterministic transport cases: JSON `null` tool arguments and a
+  returned tool call whose `type` is not `function`.
+- **Coach decision**: Re-scope only started S22, preserving its immutable
+  start commit `a09b0e46df465862d00469d4aef2a997442b3d5b` and all existing T1
+  code. Add explicit AC-07 JSON-null and AC-08 non-function-type rejections
+  at the existing `internal/model/oai.go` and
+  `internal/model/structured_test.go` touchpoints. S22 remains after verified
+  S21 and before blocked S20; no other slice, track, or S20 fact changes.
+- **New direct proof authority**: After both guard fixes and every deterministic
+  S22 gate pass, the Coach authorizes exactly one new direct
+  `openrouter/z-ai/glm-5.2` `spec-ambiguity` proof. This is an explicit
+  recovery action, not a silent retry. The receipt may contain only check
+  identity, model ID, immutable start commit, process exit code, and a
+  PASS/FAIL/BLOCKED/UNPARSEABLE result. Raw provider/model output is
+  private-temporary then destroyed, or never retained.
+- **Boundary**: There is no fallback and no further retry. The cleared external
+  evidence block returns only S22 to a fresh Implementer. S20 remains blocked,
+  unmodified, and cannot resume until the one new receipt is PASS and a fresh
+  S22 verifier separately records PASS. Credentials, request bodies, model
+  output, and provider diagnostics are neither inspected nor retained by the
+  planner.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -1287,6 +1314,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-15 | Whether the upstream root VERSION blob and Sworn's adopting-repository VERSION manifest share one identity, and when local-install recovery becomes authoritative | Protocol marker schema, live/archive provenance, oracle modes, root topology, crash recovery and migration goldens | Ratified: `upstream_version_blob_oid` names only upstream `v0.15.1\n`; committed Sworn manifest blobs and parsed pins are separate per-ref evidence; umask 0022 is fixed; roots are disjoint; complete recovery authority is durable before first replacement; all affected goldens are refreshed |
 | A-16 | How OpenAI can accept a strict generic-check transport schema without becoming semantic authority | Generic LLM check Responses/completions transport, S04 identity gate, dedicated ambiguity contract, provider isolation, and S20 recovery | Ratified: exact-id-plus-digest closed-world OpenAI envelope below S04; canonical bytes and local validation remain authoritative; unsupported report identities fail before HTTP; xAI/tool-call/non-OpenAI paths remain raw; fresh S21 PASS gates S20 separate real smoke |
 | A-17 | How the selected OpenRouter GLM model can produce structured evidence without broadening proxy or provider authority | Direct OpenRouter wire, local public-command testing, S04 semantic gate, hosted proxy isolation, and S20 recovery | Ratified: direct-only forced named function using canonical parameters, `SWORN_DIRECT=1` for the proof, a local endpoint override only for public-command testing, and fresh S22 PASS before the separate S20 GLM smoke; hosted proxy, Ollama, and all other unprofiled routes remain default-deny |
+| A-18 | How to recover S22 when the one prior direct proof has no usable receipt | Exact direct-tool fail-closed cases, immutable started work, receipt minimisation, retry authority, and S20 sequencing | Ratified: preserve S22 start `a09b0e46df465862d00469d4aef2a997442b3d5b` and T1 code; add JSON-null and non-function-type deterministic guards; after deterministic gates permit exactly one new direct GLM-5.2 proof with only check/model/start/exit/result receipt fields; raw output is temporary-destroyed or absent, no fallback/retry, and no S20 action before fresh S22 PASS |
 
 ## Screenshots / references
 

@@ -8,11 +8,11 @@
     "N-10",
     "N-13"
   ],
-  "state": "planned",
-  "owner": "unassigned",
+  "state": "in_progress",
+  "owner": "implementer",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-17T10:29:17+10:00",
-  "start_commit": null,
+  "last_updated_at": "2026-07-17T17:51:30+10:00",
+  "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
   "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/journal.md",
@@ -35,11 +35,11 @@
     "go test ./... -count=1",
     "go vet ./...",
     "make build",
-    "SWORN_DIRECT=1 bin/sworn llm-check --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.15-conformance --model openrouter/z-ai/glm-5.2 --base <S22-start-commit>"
+    "SWORN_DIRECT=1 bin/sworn llm-check --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.15-conformance --model openrouter/z-ai/glm-5.2 --base a09b0e46df465862d00469d4aef2a997442b3d5b"
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint",
-    "one direct non-secret OpenRouter GLM-5.2 spec-ambiguity result for the immutable S22 start commit, recorded in proof.md only after deterministic evidence passes"
+    "one newly Coach-authorized direct OpenRouter GLM-5.2 spec-ambiguity receipt for immutable S22 start commit a09b0e46df465862d00469d4aef2a997442b3d5b, recorded only after AC-07, AC-08, and deterministic evidence pass; it contains only check identity, model ID, start commit, process exit code, and PASS/FAIL/BLOCKED/UNPARSEABLE result"
   ],
   "maintainability": {
     "state": "pending",
@@ -49,16 +49,7 @@
     "reports": [],
     "adjudication": null
   },
-  "open_deferrals": [
-    {
-      "item": "The S22 dedicated spec-ambiguity dispatch is temporarily deferred until the direct OpenRouter structured route exists.",
-      "why": "Current openrouter/ resolution deliberately fails closed before HTTP because it has no structured-output route; executing the dedicated planner check now would merely repeat that deterministic setup failure and cannot assess the new slice.",
-      "tracking": "S22-openrouter-tool-structured-output AC-06: run exactly one direct openrouter/z-ai/glm-5.2 spec-ambiguity check after deterministic implementation evidence and before S22 is marked implemented; a finding returns to Planner rework.",
-      "acknowledgement": "Coach selected openrouter/z-ai/glm-5.2 and directed the OpenRouter route on 2026-07-17. The acknowledgement does not waive the check, S22 fresh verification, or S20's separate later smoke.",
-      "acknowledged_by": "Coach",
-      "acknowledged_at": "2026-07-17T10:29:17+10:00"
-    }
-  ],
+  "open_deferrals": [],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
@@ -71,7 +62,8 @@
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": []
+    "violations": [],
+    "notes": "Coach-authorized S22 recovery: the prior AC-06 invocation has no usable sanitized receipt and is neither a PASS nor a FAIL. The external evidence block is cleared only so a fresh Implementer can add AC-07 and AC-08, pass deterministic gates, and make exactly one new direct openrouter/z-ai/glm-5.2 proof with the allowlisted receipt. This is not a verifier verdict and no S20 activity is authorized without a fresh S22 PASS."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter model produce a canonical generic-check result without weakening the fail-closed boundary for hosted proxy, Ollama, or unprofiled providers.",
@@ -88,19 +80,65 @@
       "human_decision": "Ratified by Brad (Coach), 2026-07-17: use OpenRouter with GLM-5.2 for this proof path. The route remains direct-only and does not change a product default.",
       "rationale": "The selected model catalogue entry advertises tool support, OpenRouter documents a forced named-function chat-completions contract, and the existing forced-tool driver preserves the canonical schema plus S04's local semantic authority without claiming compatibility for another transport.",
       "architecturally_significant": false
+    },
+    {
+      "choice": "Resume only S22 for two deterministic direct-tool guards and one newly authorized sanitized proof receipt.",
+      "stake_class": "Type-2",
+      "options": [
+        "resume S22 with JSON-null and non-function-type guards, then make one new direct proof with an allowlisted receipt",
+        "treat the unreceipted prior invocation as a pass or fail",
+        "retry through another provider, model, transport, or fallback",
+        "resume S20 before a fresh S22 verifier PASS"
+      ],
+      "human_decision": "Ratified by the Coach, 2026-07-17: the prior AC-06 invocation has no usable evidence and is not a pass/fail result. After the two deterministic guard fixes and deterministic gates, exactly one new direct openrouter/z-ai/glm-5.2 S22 spec-ambiguity proof is authorized. It is not a silent retry; no fallback, further retry, or S20 activity is authorized absent fresh S22 PASS.",
+      "rationale": "The advisory audit exposed two uncovered fail-closed cases: JSON null tool arguments and a returned tool call whose type is not function. A five-field sanitized receipt preserves a decisive, non-secret outcome while raw provider/model output remains private-temporary then destroyed or is never retained. Existing T1 code and immutable start commit a09b0e46df465862d00469d4aef2a997442b3d5b remain in place.",
+      "architecturally_significant": false
     }
   ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-17T10:29:17+10:00",
+    "ratified_at": "2026-07-17T17:51:30+10:00",
     "positive_scenarios": [
       "A direct built binary reaches a local OpenRouter-shaped endpoint with one forced canonical tool and accepts a valid ac-satisfaction object through the unchanged local gate.",
-      "After deterministic evidence, the selected GLM-5.2 returns a non-violating S22 spec-ambiguity report before fresh verification and an independent S20 smoke."
+      "After AC-07 and AC-08 deterministic guards plus all deterministic gates pass, the selected GLM-5.2 produces one allowlisted S22 spec-ambiguity receipt before fresh verification and an independent later S20 smoke."
     ],
     "negative_scenarios": [
-      "Hosted proxy, Ollama, unknown providers, malformed endpoint overrides, missing/wrong/multiple tool calls, invalid canonical output, check mismatch, a live ambiguity finding, and missing fresh S22 verification fail closed without an S20 resume or a real-home mutation."
+      "Hosted proxy, Ollama, unknown providers, malformed endpoint overrides, missing/wrong/multiple tool calls, JSON null arguments, a non-function tool-call type, invalid canonical output, check mismatch, a non-PASS or unreceipted proof, and missing fresh S22 verification fail closed without fallback, a further retry, an S20 resume, or a real-home mutation."
     ],
-    "benefit_hypothesis": "One bounded direct provider adapter unlocks the user-selected release proof while preserving Sworn's trust boundary: provider transport can help produce an object, but only Baton canonical validation authorizes it."
+    "benefit_hypothesis": "One bounded direct provider adapter plus two exact transport guards unlocks the user-selected release proof while preserving Sworn's trust boundary: provider transport can help produce an object, but only Baton canonical validation and a five-field receipt authorize the next lifecycle decision."
+  },
+  "recovery": {
+    "authorized_by": "Coach",
+    "authorized_at": "2026-07-17T17:51:30+10:00",
+    "prior_ac06": {
+      "usable_receipt": false,
+      "result": "not-a-pass-fail-result"
+    },
+    "scope": "S22-openrouter-tool-structured-output only",
+    "required_before_proof": [
+      "AC-07 JSON-null-arguments guard",
+      "AC-08 non-function-tool-call-type guard",
+      "all listed deterministic S22 gates"
+    ],
+    "authorized_proof": {
+      "count": 1,
+      "check_identity": "spec-ambiguity",
+      "model_id": "openrouter/z-ai/glm-5.2",
+      "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
+      "receipt_allowlist": [
+        "check identity",
+        "model ID",
+        "immutable start commit",
+        "process exit code",
+        "PASS/FAIL/BLOCKED/UNPARSEABLE result"
+      ],
+      "raw_output_policy": "private-temporary then destroyed, or never retained",
+      "prohibitions": [
+        "fallback",
+        "further retry",
+        "S20 activity before fresh S22 PASS"
+      ]
+    }
   }
 }

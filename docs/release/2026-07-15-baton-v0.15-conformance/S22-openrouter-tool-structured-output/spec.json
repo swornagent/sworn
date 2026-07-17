@@ -4,7 +4,7 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "user_outcome": "A Sworn release operator can run a generic structured llm-check directly through the Coach-selected openrouter/z-ai/glm-5.2 model without weakening Baton report semantics or enabling the Sworn hosted proxy, Ollama, or any other provider by accident.",
-  "rationale": "The Coach selected openrouter/z-ai/glm-5.2 for the still-required S20 provider-readiness proof. The current direct OpenRouter client is deliberately structured-output unsupported, so a generic llm-check stops locally before an HTTP request. OpenRouter's documented chat-completions contract supports one forced named function, and the model catalogue marks the selected model as tool-capable. This slice adds only that direct provider transport: it supplies the unchanged canonical Baton schema as the one function's parameters and forces emit_structured_output. The existing S04 local canonical schema validation and requested/emitted check equality remain authoritative after the provider emits the function arguments. The route is deliberately direct-only: a Sworn hosted-proxy client for an OpenRouter model remains default-deny, as does Ollama and every unprofiled provider. The selected model is release-proof configuration, never a product default or a claim that every OpenRouter model supports this transport.",
+  "rationale": "The Coach selected openrouter/z-ai/glm-5.2 for the still-required S20 provider-readiness proof. The current direct OpenRouter client is deliberately structured-output unsupported, so a generic llm-check stops locally before an HTTP request. OpenRouter's documented chat-completions contract supports one forced named function, and the model catalogue marks the selected model as tool-capable. This slice adds only that direct provider transport: it supplies the unchanged canonical Baton schema as the one function's parameters and forces emit_structured_output. The existing S04 local canonical schema validation and requested/emitted check equality remain authoritative after the provider emits the function arguments. The route is deliberately direct-only: a Sworn hosted-proxy client for an OpenRouter model remains default-deny, as does Ollama and every unprofiled provider. The selected model is release-proof configuration, never a product default or a claim that every OpenRouter model supports this transport. The prior AC-06 invocation has no usable sanitized receipt and is neither a PASS nor a FAIL. The Coach has authorized one new direct proof only after the two ratified deterministic guards and every deterministic gate pass; it is a recovery action, not a silent retry.",
   "touchpoints": [
     "internal/model/llmcheck_envelope.go",
     "internal/model/llmcheck_envelope_test.go",
@@ -58,10 +58,10 @@
   "in_scope": [
     "Split direct-provider and Sworn-hosted-proxy structured route selection so only direct provider prefix openrouter selects StructuredToolCall. Direct OpenRouter construction must retain the exact model subpath after the first slash, set the existing forced-tool mode, and remain explicitly distinguishable from a proxy-routed OpenRouter client; every unknown, Ollama, and proxy OpenRouter route remains structured-output unsupported.",
     "For direct OpenRouter only, pass the exact canonical schema supplied to ChatStructuredJSON as the nested parameters of the single existing emit_structured_output function and force that function through tool_choice. Do not apply strictProjection, the S21 OpenAI envelope compiler, a source rewrite, a response_format field, a raw Verify call, an unconstrained text retry, or a fallback when the tool call is absent or malformed.",
-    "Fail closed after a direct OpenRouter response unless it contains exactly one named emit_structured_output call whose arguments are one JSON object. The emitted arguments then flow unchanged to the existing generic gate; full Baton llm-check-report-v1 validation and S04 requested/emitted check equality continue to decide acceptance.",
+    "Fail closed after a direct OpenRouter response unless it contains exactly one named emit_structured_output call whose type is exactly function and whose arguments are one non-null JSON object. Reject JSON null arguments and a returned call with any type other than function locally; do not repair, retry, fall back, or send a second provider request. The emitted arguments then flow unchanged to the existing generic gate; full Baton llm-check-report-v1 validation and S04 requested/emitted check equality continue to decide acceptance.",
     "Add one direct-only SWORN_OPENROUTER_BASE_URL environment override, validated as a URL and applied after direct OpenRouter client construction. It must not alter proxy routing precedence, proxy endpoint selection, another provider's endpoint, model default selection, or normal direct routing when unset. It exists so a built command can use an httptest endpoint without a credentialed provider request.",
     "Add deterministic tests that inspect the outgoing nested tool shape and forced tool_choice from NewClient and a built sworn llm-check --type ac-satisfaction --model openrouter/z-ai/glm-5.2 process using SWORN_DIRECT=1, a synthetic key, and the local override. The fake returns a real tool-call-shaped canonical object with check ac-satisfaction. Tests must also prove proxy OpenRouter, Ollama, and unprofiled clients stay unsupported; a wrong/missing/multiple tool call, non-object arguments, invalid canonical report, and mismatched emitted check return non-success without a repair or a second request.",
-    "After deterministic implementation evidence passes, run exactly one direct credentialed sworn llm-check --type spec-ambiguity for this S22 slice using openrouter/z-ai/glm-5.2 and its immutable S22 start commit. Retain only the check identity, model ID, exit/result, and any non-secret planning finding needed to revise the plan; never log an API key, request body, prompt, response payload, or provider diagnostic. A result with violations returns to Planner rework; no S20 activity follows it.",
+    "After the two ratified deterministic guard fixes and every listed deterministic gate pass, run exactly one newly Coach-authorized direct sworn llm-check --type spec-ambiguity for this S22 slice using openrouter/z-ai/glm-5.2 and immutable S22 start commit a09b0e46df465862d00469d4aef2a997442b3d5b. The prior AC-06 invocation has no usable evidence and is not a pass/fail result, so this is not a silent retry. Retain an allowlisted sanitized receipt containing only check identity, model ID, immutable start commit, process exit code, and PASS, FAIL, BLOCKED, or UNPARSEABLE result. Raw provider or model output is private-temporary then destroyed, or never retained. There is no fallback and no further retry; any non-PASS result returns S22 to the Planner and no S20 activity follows it.",
     "Remain ordered after verified S21 and before blocked S20. A fresh artefact-only S22 verifier PASS, including the S22 direct spec-ambiguity evidence, is required before S20 may resume. The resumed S20 session then independently reruns its own readiness and maintainability evidence and performs one fresh direct ac-satisfaction smoke with the same selected model from S20's immutable semantic base."
   ],
   "out_of_scope": [
@@ -69,7 +69,8 @@
     "Changing S21's verified OpenAI envelope, treating its response_format behavior as OpenRouter authority, or applying that envelope to an OpenRouter tool call is prohibited.",
     "Enabling structured generic checks through the Sworn hosted proxy for OpenRouter model IDs, Ollama, a generic OAI-compatible endpoint, or any other provider is prohibited. Each is a separate provider-and-transport decision requiring its own evidence.",
     "Changing a verifier-model default, model catalogue result, provider pricing, hosted-service behavior, customer key handling, or any commercial policy is prohibited. The GLM model is solely the Coach-selected release proof input.",
-    "Executing S20's credentialed ac-satisfaction smoke, rerunning S20 readiness or maintainability, changing S20 source/start/semantic commits/proof, or touching real Codex or Claude homes belongs exclusively to the later resumed S20 lifecycle after fresh S22 verification."
+    "Executing S20's credentialed ac-satisfaction smoke, rerunning S20 readiness or maintainability, changing S20 source/start/semantic commits/proof, or touching real Codex or Claude homes belongs exclusively to the later resumed S20 lifecycle after fresh S22 verification.",
+    "Using another provider, model, transport, fallback, raw-text repair, retained provider/model payload, or a second direct proof is prohibited. S20 cannot resume unless a fresh S22 verifier records PASS after the one new proof."
   ],
   "covers_needs": [
     "N-02",
@@ -97,12 +98,12 @@
     {
       "id": "R-03",
       "description": "A malformed, arbitrary, or multiple tool call is normalised into a valid-looking generic report.",
-      "mitigation": "Require exactly one emit_structured_output call with one object of arguments, reject every other shape locally, and prove no repair or second HTTP request occurs."
+      "mitigation": "Require exactly one emit_structured_output call with type function and one non-null object of arguments, reject JSON null and every other shape locally, and prove no repair or second HTTP request occurs."
     },
     {
       "id": "R-04",
       "description": "The selected GLM proof is treated as a new default or an authorization to retry or resume S20 without independent evidence.",
-      "mitigation": "Pin the model only in S22/S20 release-proof commands, keep defaults untouched, record the S22 spec-ambiguity result without payloads, and require fresh S22 PASS before an independent S20 smoke."
+      "mitigation": "Pin the model only in S22/S20 release-proof commands, keep defaults untouched, retain only the five-field allowlisted S22 receipt, permit one new Coach-authorized S22 proof after deterministic gates, and require fresh S22 PASS before an independent S20 smoke."
     }
   ],
   "acceptance_criteria": [
@@ -134,7 +135,7 @@
     },
     {
       "id": "AC-04",
-      "text": "IF direct OpenRouter returns zero, multiple, or differently named tool calls; non-object arguments; a PASS with a blocking finding; a FAIL without a blocking finding; a missing check; or a check other than ac-satisfaction THEN THE SYSTEM SHALL return non-success, preserve S04 local canonical validation and requested/emitted equality, make no synthetic repair or raw-text fallback, and make no second provider request (N-02, N-10, N-13).",
+      "text": "IF direct OpenRouter returns zero, multiple, or differently named tool calls; non-object arguments other than the separately required JSON null case; a PASS with a blocking finding; a FAIL without a blocking finding; a missing check; or a check other than ac-satisfaction THEN THE SYSTEM SHALL return non-success, preserve S04 local canonical validation and requested/emitted equality, make no synthetic repair or raw-text fallback, and make no second provider request (N-02, N-10, N-13).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": [
         "internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall",
@@ -153,11 +154,27 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN deterministic S22 tests, full suite, vet, and build pass THE IMPLEMENTER SHALL run one direct credentialed sworn llm-check --type spec-ambiguity for S22 using openrouter/z-ai/glm-5.2 and the immutable S22 start commit; IF it returns no violations and a fresh S22 verifier PASS is later present THEN S20 may separately resume for its own direct ac-satisfaction smoke, otherwise S22 or S20 SHALL remain blocked without retrying, touching real homes, or retaining secrets or model payloads (N-02, N-10, N-13).",
+      "text": "WHEN AC-07, AC-08, deterministic S22 tests, the full suite, vet, and build pass THE IMPLEMENTER SHALL make exactly one newly Coach-authorized direct sworn llm-check --type spec-ambiguity for S22 using openrouter/z-ai/glm-5.2 and immutable start commit a09b0e46df465862d00469d4aef2a997442b3d5b; the prior AC-06 invocation has no usable evidence and is neither PASS nor FAIL, so this recovery action is not a retry. THE SYSTEM SHALL retain only a sanitized receipt containing check identity, model ID, immutable start commit, process exit code, and PASS, FAIL, BLOCKED, or UNPARSEABLE result, while raw provider/model output is private-temporary then destroyed or never retained. IF the result is not PASS, a fresh S22 verifier PASS is absent, or receipt allowlisting fails THEN S22 and S20 SHALL remain blocked without fallback, further retry, real-home mutation, or S20 activity; only a PASS receipt followed by fresh S22 verifier PASS permits S20's separate later smoke (N-02, N-10, N-13).",
       "ears_pattern": "complex",
       "test_refs": [
         "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.md",
         "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF the sole otherwise valid direct OpenRouter emit_structured_output call supplies function.arguments as JSON null THEN THE SYSTEM SHALL reject it locally as non-success before canonical report acceptance, make no synthetic repair or fallback, and make exactly one provider request (N-02, N-10, N-13).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "IF the sole otherwise valid direct OpenRouter emit_structured_output call has a type other than function THEN THE SYSTEM SHALL reject it locally as non-success before canonical report acceptance, make no synthetic repair or fallback, and make exactly one provider request (N-02, N-10, N-13).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall"
       ]
     }
   ]
