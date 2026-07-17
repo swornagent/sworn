@@ -1,6 +1,11 @@
 package board
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	gitpkg "github.com/swornagent/sworn/internal/git"
+)
 
 func TestDiscoverCatalogSourceRefRanking(t *testing.T) {
 	release := "r"
@@ -25,5 +30,19 @@ func TestDiscoverCatalogCanonicalSkewFailsClosed(t *testing.T) {
 	_, err := selectTopology("r", []string{"refs/heads/release-wt/r"}, []topologyCandidate{{"refs/heads/topic", "p"}})
 	if err == nil {
 		t.Fatal("expected canonical skew error")
+	}
+}
+
+func TestDiscoverCatalogSelectedNoncanonicalMalformedBoardFailsClosed(t *testing.T) {
+	repo := gitpkg.New(t.TempDir())
+	_, err := parseTopology(repo, topologyCandidate{
+		ref:  "refs/heads/a-selected",
+		path: "docs/release/r/board.json",
+	}, "r")
+	if err == nil {
+		t.Fatal("expected selected source read error")
+	}
+	if !strings.Contains(err.Error(), "git show") {
+		t.Fatalf("error = %q, want selected-source read failure", err)
 	}
 }

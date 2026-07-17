@@ -346,6 +346,50 @@ func TestShow(t *testing.T) {
 	}
 }
 
+func TestReadObjectsBatchPreservesSpecMapping(t *testing.T) {
+	r := setupRepo(t)
+	writeFile(t, r.Dir, "a.txt", "alpha\n")
+	writeFile(t, r.Dir, "b.txt", "beta\n")
+	r.Stage("a.txt", "b.txt")
+	r.Commit("add batch objects")
+
+	specs := []string{"HEAD:b.txt", "HEAD:missing.txt", "HEAD:a.txt"}
+	got, err := r.ReadObjects(specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["HEAD:a.txt"] != "alpha\n" || got["HEAD:b.txt"] != "beta\n" {
+		t.Fatalf("objects = %#v", got)
+	}
+	if _, ok := got["HEAD:missing.txt"]; ok {
+		t.Fatalf("missing object unexpectedly returned: %#v", got)
+	}
+}
+
+func TestListTreePathsMultiplePrefixes(t *testing.T) {
+	r := setupRepo(t)
+	if err := os.MkdirAll(filepath.Join(r.Dir, "docs", "release"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(r.Dir, ".sworn", "releases"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, r.Dir, "docs/release/board.json", "docs\n")
+	writeFile(t, r.Dir, ".sworn/releases/board.json", "sworn\n")
+	writeFile(t, r.Dir, "ignored.txt", "ignored\n")
+	r.Stage(".")
+	r.Commit("add prefixed trees")
+
+	got, err := r.ListTreePaths("HEAD", "docs/release", ".sworn/releases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".sworn/releases/board.json", "docs/release/board.json"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("paths = %q, want %q", got, want)
+	}
+}
+
 func TestShow_RejectsEmptyDir(t *testing.T) {
 	zero := &Repo{}
 	_, err := zero.Show("HEAD", "any/path")

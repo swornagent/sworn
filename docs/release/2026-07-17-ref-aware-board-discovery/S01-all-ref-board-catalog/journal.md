@@ -1,0 +1,12 @@
+# S01-all-ref-board-catalog journal
+
+## 2026-07-17 — final Implementer recovery
+
+- Resumed from `in_progress` with interrupted uncommitted edits in `internal/board/discovery.go` and `internal/git/git.go`; inspected rather than trusting them.
+- Step 0 bootstrap scope: built a throwaway candidate outside the repository because the installed released binary cannot provide this slice's new no-argument discovery command. The first build attempt failed before execution because Go 1.26 VCS stamping resolved the linked-worktree repository root incorrectly; the retry used `-buildvcs=false` only for throwaway build metadata. Under `timeout 30s`, candidate `sworn board --json` exited 0, emitted 123250 bytes with no stderr, resolved release `2026-07-17-ref-aware-board-discovery`, track `T1-ref-aware-board`, and slice `S01-all-ref-board-catalog`, and left the HEAD/branch/refs/porcelain/cwd snapshot byte-identical.
+- Preserved the bounded 16-way ref-tip tree scan and one `git cat-file --batch` status read. Removed the interrupted fallback that skipped a malformed selected noncanonical topology source, retaining fail-closed selected-source semantics.
+- Added regression coverage for multi-prefix tree enumeration, batch object/spec mapping including missing objects, selected-source failure, and compiled-CLI completion with 64 irrelevant refs under a 10-second bound. Focused race tests passed.
+- Required mutation evidence: temporarily forced discovery to use only `HEAD`; `TestBoardCLIAllRefsCatalogStateEvidenceReachability` failed with `releases=0, want 2`, exit 1. After restoration via `apply_patch`, the same test passed, exit 0.
+- Code-correctness runs with `GOFLAGS=-buildvcs=false` (workaround for Go 1.26 linked-worktree VCS stamping) passed: `go test ./internal/git ./internal/board ./cmd/sworn`, `go test ./...`, `go vet ./...`, and empty `gofmt -l .`.
+- Mandatory primary proof review attempted with `openrouter/z-ai/glm-5.2` via `sworn llm-check -type ac-satisfaction`. It emitted no stdout or stderr for approximately two minutes and was terminated after the declared final bound. This is not recorded as a successful model result. The cross-provider `xai/grok-4.5` security review and proof-bundle gate were not run after the primary mandatory gate failed.
+- Fail-closed outcome: slice remains `in_progress`; no `proof.json`/`proof.md` success bundle was created and no verifier prompt was run.

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // setupBoardFixture creates a temp git repo with a release-wt branch
@@ -148,6 +151,11 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	}
 	writeRelease("alpha-release", "T1-alpha", "S01-alpha", "implemented")
 	writeRelease("beta-release", "T1-beta", "S01-beta", "planned")
+	// Model a ref-heavy real repository. These irrelevant local heads force
+	// discovery to inspect many tips while preserving the same catalog result.
+	for i := 0; i < 64; i++ {
+		runGit(t, repoDir, "branch", fmt.Sprintf("irrelevant-%02d", i), "main")
+	}
 
 	// A non-topology track ref carries farther state evidence for alpha.
 	runGit(t, repoDir, "checkout", "-b", "track/alpha-release/T1-alpha", "release-wt/alpha-release")
@@ -167,9 +175,14 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	cmd := exec.Command(bin, "board", "--json")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "board", "--json")
 	cmd.Dir = repoDir
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("sworn board --json exceeded 10s with many refs: %v", ctx.Err())
+	}
 	if err != nil {
 		t.Fatalf("sworn board --json: %v\n%s", err, out)
 	}

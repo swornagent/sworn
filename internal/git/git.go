@@ -9,9 +9,13 @@
 package git
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -100,6 +104,48 @@ func (r *Repo) Merge(branch string) error {
 // colon-separated form (e.g. "HEAD:docs/release/.../status.json").
 func (r *Repo) Show(ref, path string) (string, error) {
 	return r.run("show", ref+":"+path)
+}
+
+// ReadObjects reads each ref:path object through one git cat-file batch.
+func (r *Repo) ReadObjects(specs []string) (map[string]string, error) {
+	objects := make(map[string]string, len(specs))
+	if len(specs) == 0 {
+		return objects, nil
+	}
+	cmd := exec.Command("git", "cat-file", "--batch")
+	cmd.Dir = r.Dir
+	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %w", err)
+	}
+	reader := bufio.NewReader(bytes.NewReader(out))
+	for _, spec := range specs {
+		header, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("git cat-file --batch %s header: %w", spec, err)
+		}
+		fields := strings.Fields(header)
+		if len(fields) == 2 && fields[1] == "missing" {
+			continue
+		}
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("git cat-file --batch %s: malformed header %q", spec, strings.TrimSpace(header))
+		}
+		size, err := strconv.ParseInt(fields[2], 10, 64)
+		if err != nil || size < 0 {
+			return nil, fmt.Errorf("git cat-file --batch %s: invalid size %q", spec, fields[2])
+		}
+		content := make([]byte, size)
+		if _, err := io.ReadFull(reader, content); err != nil {
+			return nil, fmt.Errorf("git cat-file --batch %s content: %w", spec, err)
+		}
+		if b, err := reader.ReadByte(); err != nil || b != '\n' {
+			return nil, fmt.Errorf("git cat-file --batch %s: missing content terminator", spec)
+		}
+		objects[spec] = string(content)
+	}
+	return objects, nil
 }
 
 // CatFileExists returns true when <ref>:<path> exists in the git object
@@ -212,8 +258,10 @@ func (r *Repo) ListRefs() ([]string, error) {
 }
 
 // ListTreePaths lists files below prefix at ref without checking it out.
-func (r *Repo) ListTreePaths(ref, prefix string) ([]string, error) {
-	out, err := r.run("ls-tree", "-r", "--name-only", ref, "--", prefix)
+func (r *Repo) ListTreePaths(ref string, prefixes ...string) ([]string, error) {
+	args := []string{"ls-tree", "-r", "--name-only", ref, "--"}
+	args = append(args, prefixes...)
+	out, err := r.run(args...)
 	if err != nil {
 		return nil, err
 	}

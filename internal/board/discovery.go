@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	gitpkg "github.com/swornagent/sworn/internal/git"
@@ -28,18 +29,41 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list refs: %w", err)
 	}
+	type scanResult struct {
+		paths []string
+		err   error
+	}
+	scans := make([]scanResult, len(refs))
+	sem := make(chan struct{}, 16)
+	var wg sync.WaitGroup
+	for i, ref := range refs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			scans[i].paths, scans[i].err = repo.ListTreePaths(ref, docsPrefixes...)
+		}()
+	}
+	wg.Wait()
 	byRelease := map[string][]topologyCandidate{}
-	for _, ref := range refs {
-		for _, prefix := range docsPrefixes {
-			paths, err := repo.ListTreePaths(ref, prefix)
-			if err != nil {
-				return nil, fmt.Errorf("scan %s: %w", ref, err)
-			}
-			for _, p := range paths {
+	statusRefs := map[string][]string{}
+	for i, ref := range refs {
+		if scans[i].err != nil {
+			return nil, fmt.Errorf("scan %s: %w", ref, scans[i].err)
+		}
+		for _, p := range scans[i].paths {
+			for _, prefix := range docsPrefixes {
 				rel := strings.TrimPrefix(p, prefix+"/")
+				if rel == p {
+					continue
+				}
 				parts := strings.Split(rel, "/")
 				if len(parts) == 2 && (parts[1] == "board.json" || parts[1] == "index.md") {
 					byRelease[parts[0]] = append(byRelease[parts[0]], topologyCandidate{ref, p})
+				}
+				if len(parts) == 3 && parts[2] == "status.json" {
+					statusRefs[p] = append(statusRefs[p], ref)
 				}
 			}
 		}
@@ -48,6 +72,17 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 				byRelease[release] = nil
 			}
 		}
+	}
+	var statusSpecs []string
+	for path, pathRefs := range statusRefs {
+		for _, ref := range pathRefs {
+			statusSpecs = append(statusSpecs, ref+":"+path)
+		}
+	}
+	sort.Strings(statusSpecs)
+	statusObjects, err := repo.ReadObjects(statusSpecs)
+	if err != nil {
+		return nil, fmt.Errorf("read status evidence: %w", err)
 	}
 	names := make([]string, 0, len(byRelease))
 	for name := range byRelease {
@@ -64,7 +99,7 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 		if err != nil {
 			return nil, fmt.Errorf("release %q ref %s: %w", release, selected.ref, err)
 		}
-		bs, err := electBoard(repo, refs, release, tracks)
+		bs, err := electBoard(repo, statusRefs, statusObjects, release, tracks)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +175,7 @@ func parseTopology(repo *gitpkg.Repo, c topologyCandidate, release string) ([]Tr
 	return ParseTracks(extractFrontmatterBody(raw)), nil
 }
 
-func electBoard(repo *gitpkg.Repo, refs []string, release string, tracks []TrackInfo) (*BoardState, error) {
+func electBoard(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects map[string]string, release string, tracks []TrackInfo) (*BoardState, error) {
 	trackMap := make(map[string]TrackInfo, len(tracks))
 	for _, t := range tracks {
 		trackMap[t.ID] = t
@@ -149,7 +184,7 @@ func electBoard(repo *gitpkg.Repo, refs []string, release string, tracks []Track
 	for _, t := range tracks {
 		ts := TrackState{ID: t.ID, WorktreeBranch: t.WorktreeBranch}
 		for _, sid := range t.Slices {
-			winner, err := electSlice(repo, refs, release, sid, t.ID, trackMap)
+			winner, err := electSlice(repo, statusRefs, statusObjects, release, sid, t.ID, trackMap)
 			if err != nil {
 				return nil, err
 			}
@@ -169,12 +204,12 @@ type evidence struct {
 	timestamp               int64
 }
 
-func electSlice(repo *gitpkg.Repo, refs []string, release, sid, track string, trackMap map[string]TrackInfo) (SliceState, error) {
+func electSlice(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects map[string]string, release, sid, track string, trackMap map[string]TrackInfo) (SliceState, error) {
 	path := filepath.ToSlash(filepath.Join("docs", "release", release, sid, "status.json"))
 	var candidates []evidence
-	for _, ref := range refs {
-		raw, err := repo.Show(ref, path)
-		if err != nil {
+	for _, ref := range statusRefs[path] {
+		raw, ok := statusObjects[ref+":"+path]
+		if !ok {
 			continue
 		}
 		if e, ok := validEvidence(raw, ref, "committed", release, sid, track); ok {
