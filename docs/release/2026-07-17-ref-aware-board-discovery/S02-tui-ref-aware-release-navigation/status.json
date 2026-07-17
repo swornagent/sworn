@@ -37,10 +37,10 @@
     "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md"
   ],
   "test_commands": [
-    "go test ./internal/tui ./internal/board ./cmd/sworn",
-    "go test ./...",
-    "go vet ./...",
-    "test -z \"$(gofmt -l .)\""
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
   ],
   "reachability_artifacts": [
     "internal/board/discovery_test.go:TestDiscoverCatalogFilesystemFallbackWithoutUsableHead",
