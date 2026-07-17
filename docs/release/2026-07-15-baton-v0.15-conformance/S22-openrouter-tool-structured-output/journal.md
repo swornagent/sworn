@@ -166,3 +166,32 @@
   verified/PASS at immutable start ed0badf68673f0af84834458f07be0792555484f.
   The release-wt copy is corrected to that verified state; S22 must remain
   gated if this upstream evidence is not preserved.
+
+## 2026-07-18T08:38:47+10:00 - Planner narrow safety replan
+
+- The Coach approved a narrow S22-only correction after pre-live audit found
+  that the registered `sworn.llm_check` MCP tool can expose a
+  provider-response-derived error message even when receipts and generic JSON
+  are sanitized. S22 now owns the MCP adapter/test touchpoints and C-17:
+  provider/model errors preserve MCP error/non-success semantics but expose
+  exactly `llm_check: provider request failed`, with deterministic reachability
+  and leak-canary evidence required.
+- The receipt contract now explicitly covers the second-fault case: if a
+  post-rename finalization error is followed by failed reservation restoration,
+  a final model verdict must never remain trusted. Only a durable
+  `receipt_failure`/`UNPARSEABLE` record with unavailable exit semantics may be
+  retained or surfaced, and the path fails closed.
+- S22 preflight must mechanically bind its declared S21 slice/release identity,
+  authoritative status path/commit, immutable start, verified/PASS result,
+  non-empty verdict time, and `verifier_was_fresh_context: true`; every absent
+  or mismatched fact makes zero provider requests.
+- The release assembly first merged `release/v0.2.0` cleanly at `8d58384`.
+  T1 has preserved uncommitted S22 proof/spec work, so this planning change is
+  deliberately not forward-merged into that dirty worktree. A fresh
+  Implementer must self-heal from the committed assembly branch and retain the
+  preserved work without reset, checkout, stash, or provider dispatch.
+- No provider/model call, credential inspection, source-code edit, proof
+  completion claim, S20 action, model-default change, routing change, proxy
+  expansion, fallback, or retry-policy broadening occurred. The prior Captain
+  review remains superseded; fresh Captain PROCEED and acknowledgement are
+  required before implementation resumes.

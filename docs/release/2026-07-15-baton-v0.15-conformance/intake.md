@@ -1208,6 +1208,34 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   output, and provider diagnostics are neither inspected nor retained by the
   planner.
 
+### 2026-07-18 - Close S22 public-error and atomic-finalization audit findings
+
+- **Trigger**: Pre-live adversarial audit found two fail-closed gaps in the
+  started S22 recovery: `sworn.llm_check` can wrap a provider error whose
+  message derives from the provider response body, and a second write failure
+  while restoring a receipt reservation after post-rename finalization failure
+  can leave a final model verdict trusted. It also found that S22's upstream
+  S21 preflight did not mechanically prove the recorded fresh-context evidence.
+- **Coach decision**: Replan only S22. Add `internal/mcp/lint.go` and
+  `internal/mcp/lint_test.go` to its T1-owned touchpoints and require the
+  registered MCP tool to retain error/non-success semantics while exposing
+  exactly `llm_check: provider request failed` for provider/model errors. Add
+  deterministic reachability and leak-canary coverage. Require the receipt
+  lifecycle to retain or surface only durable `receipt_failure` if restoration
+  itself fails, never trust final verdict bytes, and reject every absent or
+  mismatched S21 identity, status reference, immutable start, PASS, verdict
+  time, or fresh-context fact before dispatch.
+- **Boundary**: This is a confidentiality and fail-closed correction, not a
+  routing or product-policy change. No provider call, default model, proxy
+  capability, fallback, third dispatch, or S20 activity is authorized. The
+  prior Captain review is superseded; fresh Captain PROCEED and acknowledgement
+  remain required after deterministic implementation evidence.
+- **Release mechanics**: The release assembly was first forward-merged from
+  `release/v0.2.0` cleanly. T1 is dirty only with S22 in-progress proof/spec
+  artefacts, so the replan is not propagated into that worktree; the next fresh
+  Implementer session must self-heal from the committed release assembly
+  without discarding the preserved work.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -1321,6 +1349,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-17 | How the selected OpenRouter GLM model can produce structured evidence without broadening proxy or provider authority | Direct OpenRouter wire, local public-command testing, S04 semantic gate, hosted proxy isolation, and S20 recovery | Ratified: direct-only forced named function using canonical parameters, `SWORN_DIRECT=1` for the proof, a local endpoint override only for public-command testing, and fresh S22 PASS before the separate S20 GLM smoke; hosted proxy, Ollama, and all other unprofiled routes remain default-deny |
 | A-18 | Historical S22 receipt-recovery decision | Exact direct-tool fail-closed cases, immutable started work, receipt minimisation, retry authority, and S20 sequencing | Superseded by A-19 after the audit identified that a shell-style five-field receipt cannot prove atomic dispatch, preserve raw-data boundaries across normal rendering, or distinguish an eligible environmental recovery from an opaque failure. The historical raw output remains destroyed. |
 | A-19 | How S22 can recover a missing proof receipt without adding a generic retry or exposing provider data | Native CLI contract, atomic evidence, typed error classification, generic output sanitation, direct-only transport, and S20 sequencing | Ratified: record the original invocation only as attempt 1 receipt_failure/UNPARSEABLE with immutable release/slice/check/model/start binding; add a separate strict metadata-only native proof receipt reserved atomically before dispatch; a mismatched release/slice/check/model/start receipt rejects before dispatch and cannot consume or reuse retry budget; allow attempt 2 only for rate_limit, upstream, transient, network, deadline, runner_failure, or receipt_failure; final PASS/FAIL/BLOCKED and 400/401/402, unknown, parse/schema/identity/malformed-tool/opaque/untrusted outcomes do not retry; no third call, raw data, fallback, or S20 action before fresh S22 PASS. Fresh Captain review is required. |
+| A-20 | Whether a sanitized receipt is sufficient when MCP can wrap provider-response-derived errors, or when a second receipt recovery write fails | Public MCP error surface, atomic finalization, S21 freshness proof, retry authority, and S20 sequencing | Ratified: extend only S22 with C-17's fixed MCP provider-error diagnostic and deterministic canaries; make post-rename restoration failure fail closed without trusting a final verdict; mechanically bind the S21 identity/start/PASS/time/fresh-context facts. No model/provider policy or proof budget changes. |
 
 ## Screenshots / references
 

@@ -3,8 +3,8 @@
   "slice_id": "S22-openrouter-tool-structured-output",
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
-  "user_outcome": "A Sworn release operator can run the selected direct OpenRouter structured proof through a native, atomic, sanitized receipt mode that preserves the canonical Baton gate, permits only one classified recovery attempt, and never broadens proxy or provider authority.",
-  "rationale": "S22 already delivers the direct-only OpenRouter forced-tool transport, while the sole prior AC-06 proof has only the retained safe facts: spec-ambiguity, openrouter/z-ai/glm-5.2, immutable start a09b0e46df465862d00469d4aef2a997442b3d5b, unavailable exit code, and UNPARSEABLE result. Its raw provider output was destroyed and must not be sought or reproduced. The Coach has materially changed the started S22 contract: that historical record is the policy-authorized attempt-1 receipt_failure, and exactly one attempt-2 may be considered only after a native receipt facility, deterministic evidence, and a fresh Captain design review are complete. The new facility is separate from LLMCheckReport and preserves the direct-only transport, canonical schema validation, S04 requested/emitted identity check, and existing RunLLMCheck/MCP semantics. It records only strict metadata, classifies only explicit retryable failures, and does not infer a model verdict from opaque, parse, schema, identity, or unknown errors.",
+  "user_outcome": "A Sworn release operator can run the selected direct OpenRouter structured proof through a native, atomic, sanitized receipt mode and observe stable, payload-free public diagnostics, while preserving the canonical Baton gate, one classified recovery attempt, and the existing default-deny provider boundary.",
+  "rationale": "S22 already delivers the direct-only OpenRouter forced-tool transport, while the sole prior AC-06 proof has only the retained safe facts: spec-ambiguity, openrouter/z-ai/glm-5.2, immutable start a09b0e46df465862d00469d4aef2a997442b3d5b, unavailable exit code, and UNPARSEABLE result. Its raw provider output was destroyed and must not be sought or reproduced. The Coach has materially changed the started S22 contract: that historical record is the policy-authorized attempt-1 receipt_failure, and exactly one attempt-2 may be considered only after a native receipt facility, deterministic evidence, and a fresh Captain design review are complete. This narrow safety correction adds the existing public MCP error-rendering boundary because sworn.llm_check currently wraps a provider error whose message may derive from a provider response body. MCP retains the same in-process error/non-success semantics, but its public diagnostic becomes stable and raw-free. The correction also makes two already-implied safety properties explicit: a post-rename finalization fault must never leave a final model verdict trusted when reservation restoration also fails, and the S21 gate must mechanically substantiate identity, immutable start, and fresh-context PASS evidence before dispatch. The facility remains separate from LLMCheckReport, preserves the direct-only transport, canonical schema validation, and S04 requested/emitted identity check, records only strict metadata, classifies only explicit retryable failures, and does not infer a model verdict from opaque, parse, schema, identity, or unknown errors.",
   "touchpoints": [
     "cmd/sworn/llmcheck.go",
     "cmd/sworn/llmcheck_test.go",
@@ -13,6 +13,8 @@
     "internal/gate/llmcheck_receipt.go",
     "internal/gate/llmcheck_receipt_test.go",
     "internal/gate/llmcheck_test.go",
+    "internal/mcp/lint.go",
+    "internal/mcp/lint_test.go",
     "internal/model/config.go",
     "internal/model/errors.go",
     "internal/model/errors_test.go",
@@ -36,6 +38,10 @@
     {
       "kind": "contract",
       "contract_id": "C-16"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-17"
     },
     {
       "kind": "slice",
@@ -63,6 +69,14 @@
     },
     {
       "kind": "file",
+      "path": "internal/mcp/lint.go"
+    },
+    {
+      "kind": "file",
+      "path": "internal/mcp/lint_test.go"
+    },
+    {
+      "kind": "file",
       "path": "internal/model/errors.go"
     },
     {
@@ -75,14 +89,14 @@
     }
   ],
   "in_scope": [
-    "S22 is serially gated after S21-openai-structured-envelope in T1-foundation. The authoritative T1 status records S21 verified with a fresh PASS at 2026-07-17T09:32:45+10:00 from immutable start ed0badf68673f0af84834458f07be0792555484f; S22 must not enter implementation or proof-receipt dispatch unless that upstream verified state remains preserved.",
+    "S22 is serially gated after S21-openai-structured-envelope in T1-foundation. Before any proof-receipt dispatch, preflight must mechanically read S22's upstream_gate and the resolved S21 status, require their slice/release identity, immutable start ed0badf68673f0af84834458f07be0792555484f, authoritative-status reference, verified state, pass result, non-empty verifier verdict time, and verifier_was_fresh_context true to agree, and reject every absent, stale, or mismatched fact with zero provider dispatch.",
     "Preserve the delivered direct-only provider split: only a direct openrouter/ model route uses StructuredToolCall and the one forced emit_structured_output function with the canonical schema as parameters. Proxy-routed OpenRouter, Ollama, generic OAI-compatible endpoints, and every unprofiled provider remain structured-output unsupported. The S21 envelope, source-schema rewrites, response_format, raw Verify, fallback, and unconstrained-text repair remain prohibited.",
     "Add a native sworn llm-check --proof-receipt mode for a proof bound to the selected check, model, slice, release, and immutable status.start_commit. It owns the receipt lifecycle rather than accepting a shell-redirection convention. It must reject an implicit or mismatched base, an invalid receipt directory, a malformed historical receipt, a changed check/model/slice/release/start binding, a final prior verdict, an opaque prior outcome, or an exhausted budget before any provider dispatch or retry-budget consumption.",
-    "Make proof-receipt mode preflight and atomically persist a private metadata-only attempt reservation before dispatch using create, fsync, close, rename, and parent-directory sync. It must finalize the same attempt atomically to a strict llm-check-proof-receipt-v1 record. If finalization cannot complete, the durable reservation must classify receipt_failure without inventing a model verdict or retaining payload text; it is the only receipt-write condition eligible for the bounded recovery policy.",
+    "Make proof-receipt mode preflight and atomically persist a private metadata-only attempt reservation before dispatch using create, fsync, close, rename, and parent-directory sync. It must finalize the same attempt atomically to a strict llm-check-proof-receipt-v1 record. If finalization fails after a rename and restoring the reservation also fails, no final model verdict may remain trusted: the facility must retain or surface a durable receipt_failure/UNPARSEABLE record with unavailable exit semantics, fail closed, and preserve no raw payload. Receipt failure is the only receipt-write condition eligible for the bounded recovery policy.",
     "Define llm-check-proof-receipt-v1 as a separate strict metadata schema and renderer, never an LLMCheckReport. Its complete allowlist is schema/version, release, slice ID, check type, selected model ID, immutable start commit, attempt ordinal, classified attempt class, terminal result, and process-exit semantics. It must exclude endpoints, headers, request bodies, response bodies, findings, raw errors, prompts, diffs, credentials, and keys from the receipt, normal output, Git, docs, and status/journal evidence.",
     "Treat a genuine, locally validated model PASS, FAIL, or BLOCKED receipt as final with no retry. Permit attempt 2 only when attempt 1 is durably and explicitly classified as rate_limit, upstream, transient, network, deadline, runner_failure, or receipt_failure. Do not retry 400, 401, 402, any other unclassified HTTP or local error, parse failure, schema failure, requested/emitted identity mismatch, malformed tool result, opaque output, or a receipt with untrusted binding. After attempt 2, any environmental, runner, receipt, opaque, or untrusted outcome stops without a third provider call and surfaces the two sanitized receipts for investigation.",
-    "Add a narrow model error classifier for the proof receipt policy that recognizes only the explicit retryable classes above. It must not reuse the broader legacy IsTransient treatment of unknown errors. Existing RunLLMCheck and MCP behavior remain unchanged outside proof-receipt mode; generic JSON must no longer serialize raw_response and a malformed generic response must not place raw content in a rendered finding or test failure output.",
-    "Add deterministic local coverage with synthetic keys and local endpoints for final PASS, FAIL, and BLOCKED; 429, 5xx, normalized network/deadline, runner, and receipt failure; 400, 401, 402, parse, schema, identity, malformed-tool, opaque, and unknown failures; atomic preflight/finalization and receipt-write failure; mismatched check/model/slice/release/start receipt bindings that make zero dispatches and cannot consume or reuse S22 retry budget; exact two-attempt stop behavior; and request/response/key leak canaries across receipt files, stdout, stderr, JSON output, journals, and Git-visible artefacts.",
+    "Add a narrow model error classifier for the proof receipt policy that recognizes only the explicit retryable classes above. It must not reuse the broader legacy IsTransient treatment of unknown errors. Existing RunLLMCheck semantics remain unchanged outside proof-receipt mode; generic JSON must no longer serialize raw_response and a malformed generic response must not place raw content in a rendered finding or test failure output. MCP retains its in-process error/non-success semantics, but when sworn.llm_check reaches a provider/model error its public text must be the stable diagnostic llm_check: provider request failed and must contain no endpoint, header, request, response, prompt, diff, credential, key, or provider-body content.",
+    "Add deterministic local coverage with synthetic keys and local endpoints for final PASS, FAIL, and BLOCKED; 429, 5xx, normalized network/deadline, runner, and receipt failure; 400, 401, 402, parse, schema, identity, malformed-tool, opaque, and unknown failures; atomic preflight/finalization and receipt-write failure including post-rename restoration failure; mismatched check/model/slice/release/start and absent/stale S21 gate facts that make zero dispatches and cannot consume or reuse S22 retry budget; exact two-attempt stop behavior; MCP provider-error reachability and canaries; and request/response/key leak canaries across receipt files, stdout, stderr, JSON output, MCP public errors, journals, and Git-visible artefacts.",
     "Before any new live proof, require this revised source implementation, its deterministic tests, full suite, vet, build, a regenerated proof bundle, and a fresh Captain design review plus acknowledgement. Only then may the native proof-receipt command consider the one policy-authorized attempt 2 for direct openrouter/z-ai/glm-5.2 and immutable start a09b0e46df465862d00469d4aef2a997442b3d5b. A PASS still requires a fresh artefact-only S22 verifier PASS before S20 may resume; FAIL, BLOCKED, or any non-final terminal policy outcome leaves S22/S20 blocked."
   ],
   "out_of_scope": [
@@ -90,7 +104,7 @@
     "Changing S21's verified OpenAI envelope or applying response_format or another OpenAI transport authority to OpenRouter is prohibited.",
     "Enabling structured generic checks through the Sworn hosted proxy for OpenRouter model IDs, Ollama, a generic OAI-compatible endpoint, or any other provider is prohibited. Each remains a separate provider-and-transport decision requiring its own plan and evidence.",
     "Changing model defaults, model catalogue or pricing, hosted-service behavior, customer key handling, or commercial policy is prohibited. The GLM model remains only the Coach-selected S22/S20 release-proof input.",
-    "Adding a generic automatic retry policy, changing ordinary RunLLMCheck or MCP behavior, retaining model/provider payloads, or using error-message text as a retry classifier is prohibited.",
+    "Adding a generic automatic retry policy, changing ordinary RunLLMCheck behavior or MCP control/error semantics beyond the specified stable public provider-error diagnostic, retaining model/provider payloads, or using error-message text as a retry classifier is prohibited.",
     "Making a provider or model call in this Planner session, running S20 readiness/maintainability/ac-satisfaction, changing S20 source/start/semantic commits/proof, touching real Codex or Claude homes, or resuming S20 before fresh S22 verification is prohibited.",
     "Using another provider, model, transport, fallback, raw-text repair, or any third provider call is prohibited. The historical attempt and an eligible attempt 2 are the complete S22 proof budget."
   ],
@@ -137,6 +151,11 @@
       "id": "R-06",
       "description": "The selected GLM proof is treated as a model default or as authority to resume S20 without independent evidence.",
       "mitigation": "Keep model selection proof-only, require fresh Captain review, deterministic gates, native receipt evidence, and a fresh S22 verifier PASS before an independent later S20 smoke."
+    },
+    {
+      "id": "R-07",
+      "description": "An MCP wrapper exposes provider-response-derived text even though receipt and CLI output are sanitized.",
+      "mitigation": "Keep MCP failure semantics but replace its public provider-error text with one stable diagnostic and prove it with deterministic registered-tool reachability and leak-canary tests."
     }
   ],
   "acceptance_criteria": [
@@ -187,10 +206,11 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN a proof-receipt invocation supplies the selected check, model, slice, release, and exact immutable S22 start commit THE SYSTEM SHALL preflight and atomically create a private metadata-only attempt reservation before provider dispatch, then atomically finalize it as llm-check-proof-receipt-v1 using only schema/version, release, slice ID, check type, model ID, immutable start commit, attempt ordinal, class, terminal result, and exit semantics; IF reservation or finalization fails THEN the system SHALL retain or surface only a receipt_failure record, infer no model verdict, expose no payload, and make no provider request when preflight failed; IF any persisted receipt has a mismatched check, model, slice, release, or start binding THEN the system SHALL reject it before dispatch and without consuming or reusing S22 retry budget (N-10, N-14).",
+      "text": "WHEN a proof-receipt invocation supplies the selected check, model, slice, release, and exact immutable S22 start commit THE SYSTEM SHALL preflight and atomically create a private metadata-only attempt reservation before provider dispatch, then atomically finalize it as llm-check-proof-receipt-v1 using only schema/version, release, slice ID, check type, model ID, immutable start commit, attempt ordinal, class, terminal result, and exit semantics; IF reservation or finalization fails THEN the system SHALL retain or surface only a receipt_failure/UNPARSEABLE record, infer no model verdict, expose no payload, and make no provider request when preflight failed; IF finalization fails after rename and the reservation restoration also fails THEN no final model verdict SHALL remain trusted and the system SHALL retain or surface a durable receipt_failure with unavailable exit semantics and fail closed; IF any persisted receipt has a mismatched check, model, slice, release, or start binding THEN the system SHALL reject it before dispatch and without consuming or reusing S22 retry budget (N-10, N-14).",
       "ears_pattern": "complex",
       "test_refs": [
-      "internal/gate/llmcheck_receipt_test.go:TestProofReceiptAtomicReservationAndFinalization",
+        "internal/gate/llmcheck_receipt_test.go:TestProofReceiptAtomicReservationAndFinalization",
+        "internal/gate/llmcheck_receipt_test.go:TestProofReceiptPostRenameSyncFailureNeverTrustsFinalVerdict",
         "internal/gate/llmcheck_receipt_test.go:TestProofReceiptRejectsMismatchedBindingWithoutBudgetConsumption",
         "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptPreflightWriteFailureHasZeroDispatch",
         "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptMismatchedBindingHasZeroDispatch"
@@ -235,20 +255,23 @@
     },
     {
       "id": "AC-11",
-      "text": "WHEN proof-receipt mode or generic llm-check JSON renders a provider outcome THE SYSTEM SHALL exclude raw_response, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys from receipt files and normal output; malformed generic output SHALL render a stable non-raw diagnostic while RunLLMCheck and MCP retain their existing in-process semantic behavior (N-02, N-10, N-14).",
+      "text": "WHEN proof-receipt mode or generic llm-check JSON renders a provider outcome THE SYSTEM SHALL exclude raw_response, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys from receipt files and normal output; malformed generic output SHALL render a stable non-raw diagnostic; IF sworn.llm_check reaches a provider/model error THEN MCP SHALL retain its error/non-success semantics and return exactly llm_check: provider request failed as public text, with no endpoint, header, request, response, prompt, diff, credential, key, or provider-body content (N-02, N-10, N-14).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/gate/llmcheck_test.go:TestLLMCheckPublicOutputExcludesRawResponse",
         "internal/gate/llmcheck_receipt_test.go:TestProofReceiptLeakCanaries",
-        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptLeakCanaries"
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptLeakCanaries",
+        "internal/mcp/lint_test.go:TestLintTools_LLMCheckProviderErrorSanitizedReachability",
+        "internal/mcp/lint_test.go:TestLintTools_LLMCheckProviderErrorLeakCanary"
       ]
     },
     {
       "id": "AC-12",
-      "text": "WHEN S21-openai-structured-envelope remains freshly verified, the revised receipt implementation, Captain-reviewed design acknowledgement, deterministic S22 tests, full suite, vet, build, and regenerated proof bundle pass THE IMPLEMENTER MAY invoke exactly the native attempt-2 direct spec-ambiguity proof for S22 with openrouter/z-ai/glm-5.2 and immutable start a09b0e46df465862d00469d4aef2a997442b3d5b; IF S21 is not verified THEN S22 SHALL remain gated with no implementation or proof dispatch; IF the S22 sanitized receipt is PASS and a fresh artefact-only S22 verifier separately records PASS THEN and only then may S20 resume its independent later lifecycle (N-10, N-13, N-14).",
+      "text": "WHEN S21-openai-structured-envelope remains freshly verified and S22 preflight mechanically confirms its declared S21 identity, immutable start, authoritative status reference, verified/pass result, non-empty verifier verdict time, and verifier_was_fresh_context true, and the revised receipt implementation, Captain-reviewed design acknowledgement, deterministic S22 tests, full suite, vet, build, and regenerated proof bundle pass THE IMPLEMENTER MAY invoke exactly the native attempt-2 direct spec-ambiguity proof for S22 with openrouter/z-ai/glm-5.2 and immutable start a09b0e46df465862d00469d4aef2a997442b3d5b; IF any S21 evidence is absent, stale, or mismatched THEN S22 SHALL remain gated with zero implementation or proof dispatch; IF the S22 sanitized receipt is PASS and a fresh artefact-only S22 verifier separately records PASS THEN and only then may S20 resume its independent later lifecycle (N-10, N-13, N-14).",
       "ears_pattern": "complex",
       "test_refs": [
         "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability",
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptPreflightRequiresFreshS21VerificationEvidence",
         "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.md"
       ]
     }

@@ -256,13 +256,22 @@
       "id": "C-16",
       "kind": "schema-version",
       "surface": "llm-check-proof-receipt-v1",
-      "shape": "The native sworn llm-check --proof-receipt mode is separate from LLMCheckReport and is bound to one selected release, slice, check, model, and immutable status.start_commit. Before provider dispatch it validates every existing receipt binding and atomically persists a private metadata-only reservation by create, fsync, close, rename, and parent-directory sync; preflight failure makes zero requests. It finalizes the same strict receipt atomically and may retain only schema/version, release, slice ID, check type, model ID, immutable start commit, attempt ordinal, classified attempt class, terminal result, and process-exit semantics. A mismatched release, slice, check, model, or start receipt is rejected before dispatch and cannot consume or reuse S22 retry budget. It never stores or renders endpoints, headers, bodies, findings, raw errors, prompts, diffs, credentials, or keys. Locally validated PASS, FAIL, and BLOCKED are final. Attempt 2 is permitted only after attempt 1 is explicitly rate_limit, upstream, transient, network, deadline, runner_failure, or receipt_failure. HTTP 400/401/402, unclassified errors, parse/schema/identity/malformed-tool/opaque/untrusted outcomes are non-retryable. Any attempt-2 outcome stops without a third dispatch. Existing RunLLMCheck and MCP semantics remain unchanged outside this mode, and generic JSON must not serialize raw_response.",
+      "shape": "The native sworn llm-check --proof-receipt mode is separate from LLMCheckReport and is bound to one selected release, slice, check, model, and immutable status.start_commit. Before provider dispatch it validates every existing receipt binding, mechanically confirms the declared verified/fresh S21 status identity and immutable start, and atomically persists a private metadata-only reservation by create, fsync, close, rename, and parent-directory sync; preflight failure makes zero requests. It finalizes the same strict receipt atomically and may retain only schema/version, release, slice ID, check type, model ID, immutable start commit, attempt ordinal, classified attempt class, terminal result, and process-exit semantics. A mismatched release, slice, check, model, start, or S21 gate fact is rejected before dispatch and cannot consume or reuse S22 retry budget. If finalization fails after rename and reservation restoration also fails, no final verdict is trusted; only a durable receipt_failure/UNPARSEABLE record with unavailable exit semantics may remain or surface. It never stores or renders endpoints, headers, bodies, findings, raw errors, prompts, diffs, credentials, or keys. Locally validated PASS, FAIL, and BLOCKED are final. Attempt 2 is permitted only after attempt 1 is explicitly rate_limit, upstream, transient, network, deadline, runner_failure, or receipt_failure. HTTP 400/401/402, unclassified errors, parse/schema/identity/malformed-tool/opaque/untrusted outcomes are non-retryable. Any attempt-2 outcome stops without a third dispatch. Existing RunLLMCheck semantics remain unchanged outside this mode, and generic JSON must not serialize raw_response. C-17 alone governs the public MCP provider-error diagnostic.",
       "owner": "S22-openrouter-tool-structured-output",
       "consumers": [
         "S20-v015-parity-portable-fixture"
       ],
       "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability",
-      "rationale": "S22 needs durable, diagnosable proof state without treating raw provider output, a shell convention, or a broad retry heuristic as lifecycle authority."
+      "rationale": "S22 needs durable, diagnosable proof state without treating raw provider output, a shell convention, an untrusted upstream status, or a broad retry heuristic as lifecycle authority."
+    },
+    {
+      "id": "C-17",
+      "kind": "event",
+      "surface": "MCP sworn.llm_check provider-error-v1",
+      "shape": "When the registered sworn.llm_check MCP handler reaches a provider/model error, it preserves MCP error/non-success semantics and returns exactly one public text value: llm_check: provider request failed. The public value excludes endpoint, headers, request/response body, provider error message, prompt, diff, credential, and key content; no provider response-derived text is retained or rendered.",
+      "owner": "S22-openrouter-tool-structured-output",
+      "live_test": "internal/mcp/lint_test.go:TestLintTools_LLMCheckProviderErrorSanitizedReachability",
+      "rationale": "The MCP adapter is a public output boundary distinct from receipt serialization. A fixed diagnostic preserves the caller's failure signal while preventing provider-body disclosure."
     }
   ]
 }
