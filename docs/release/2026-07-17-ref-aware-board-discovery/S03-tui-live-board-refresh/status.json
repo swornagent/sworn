@@ -1,0 +1,86 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-tui-live-board-refresh",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "track": "T2-tui-live-refresh",
+  "covers_needs": ["N-03", "N-04", "N-06"],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-18T06:47:15+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/spec.json",
+  "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
+  "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
+  "planned_files": [
+    "internal/tui/tui.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+  ],
+  "reachability_artifacts": [
+    "internal/tui/tui_test.go:TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard",
+    "internal/tui/tui_test.go:TestCatalogRefreshErrorRetainsLastGoodAndRecovers"
+  ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the file surface is bounded, but refresh scheduling and atomic navigation-safe snapshot replacement are state-machine work.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent operator can monitor in-flight release boards in an open TUI and see the newest completed shared-catalog snapshot without restarting or losing navigation context.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-18T06:47:15+10:00",
+    "positive_scenarios": [
+      "An open TUI gains a newly added slice in both the releases aggregate and selected board after one background catalog discovery completes.",
+      "Release and slice selections survive catalog insertion and reordering by stable identity."
+    ],
+    "negative_scenarios": [
+      "A slow discovery cannot overlap another or let an older generation replace newer visible state.",
+      "A transient catalog failure cannot erase the last good board or permanently stop refresh.",
+      "Catalog refresh cannot interfere with the existing live-view or log-view tick chains."
+    ],
+    "benefit_hypothesis": "Automatic serial refresh turns the ref-aware TUI from a startup snapshot viewer into a trustworthy monitor for releases that continue changing while the process is open."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use a non-overlapping asynchronous refresh chain and atomically replace list and selected board from one catalog result.",
+      "stake_class": "Type-1",
+      "options": [
+        "startup snapshot plus restart or manual refresh",
+        "fixed ticks that may overlap catalog discovery",
+        "serial background discovery re-armed only after completion"
+      ],
+      "human_decision": "Repository owner required an open TUI to monitor in-flight releases on 2026-07-18; the serial automatic option directly satisfies that requirement.",
+      "rationale": "Serial discovery bounds Git work and atomic replacement preserves the shared catalog as the single list-and-board authority.",
+      "architecturally_significant": true
+    }
+  ]
+}
