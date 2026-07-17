@@ -119,6 +119,17 @@ func FromEnv(modelID string) (Verifier, error) {
 		return nil, fmt.Errorf("model: %w", err)
 	}
 
+	// SWORN_OPENROUTER_BASE_URL is a direct-only deterministic test seam. It
+	// is intentionally after ProxyRoute and direct NewClient construction: a
+	// hosted proxy is a distinct trust boundary and must never be redirected by
+	// a provider override.
+	if provider == "openrouter" {
+		if err := applyDirectOpenRouterBaseURL(verifier); err != nil {
+			return nil, err
+		}
+		return verifier, nil
+	}
+
 	// Apply SWORN_*_BASE_URL overrides to both native OpenAI wire formats.
 	// The deprecated responses alias deliberately shares openai/'s override:
 	// its provider semantics are an alias, not a separate endpoint profile.
@@ -174,7 +185,7 @@ func ProxyRoute(modelID string) (baseURL, token string, ok bool) {
 // legacy chat/completions wire format. The proxy URL + token are identical;
 // only the struct type differs so /v1/responses is called.
 func proxyClient(provider, model, baseURL, token string) Verifier {
-	route := structuredRouteForProvider(provider)
+	route := structuredRouteForProxyProvider(provider)
 	if route.wire == structuredWireResponsesTextFormat {
 		return &OpenAIResponses{
 			BaseURL:           baseURL,
@@ -192,7 +203,29 @@ func proxyClient(provider, model, baseURL, token string) Verifier {
 		Structured:        route.oaiMode,
 		structuredProfile: route.profile,
 		structuredWire:    route.wire,
+		toolCallPolicy:    route.toolCallPolicy,
 	}
+}
+
+// applyDirectOpenRouterBaseURL applies the only direct OpenRouter endpoint
+// override. The exact predicate is intentionally stricter than url.Parse:
+// relative, hostless, and non-HTTP(S) values fail locally before any request
+// can be built or dispatched. The error never includes the supplied value.
+func applyDirectOpenRouterBaseURL(verifier Verifier) error {
+	baseURL := os.Getenv("SWORN_OPENROUTER_BASE_URL")
+	if baseURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return constErr("model: invalid SWORN_OPENROUTER_BASE_URL")
+	}
+	client, ok := verifier.(*OAI)
+	if !ok {
+		return constErr("model: direct OpenRouter client is unavailable")
+	}
+	client.BaseURL = baseURL
+	return nil
 }
 
 // ResolveLoopClient is the FromEnv-equivalent client resolution the loop's

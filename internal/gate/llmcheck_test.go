@@ -451,6 +451,93 @@ func TestOpenAIEnvelopeStillFailsFullCanonicalReportViolations(t *testing.T) {
 	}
 }
 
+// TestOpenRouterToolPathStillFailsFullCanonicalReportViolations proves the
+// direct forced-tool transport remains below the unchanged Baton semantic
+// authority. A syntactically valid tool argument is never repaired, relabelled,
+// or accepted merely because OpenRouter produced it.
+func TestOpenRouterToolPathStillFailsFullCanonicalReportViolations(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"S01-test/spec.md": "# Slice: S01-test\n\n## Acceptance checks\n\n- [ ] THE SYSTEM SHALL retain canonical report semantics.\n",
+	})
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "PASS with blocking finding",
+			raw:  `{"check":"ac-satisfaction","verdict":"PASS","findings":[{"id":"F-01","severity":"high","blocking":true,"title":"blocked","detail":"canonical validator must reject"}]}`,
+		},
+		{
+			name: "FAIL without blocking finding",
+			raw:  `{"check":"ac-satisfaction","verdict":"FAIL","findings":[{"id":"F-01","severity":"low","blocking":false,"title":"not blocked","detail":"canonical validator must reject"}]}`,
+		},
+		{name: "missing check", raw: `{"verdict":"PASS","findings":[]}`},
+		{name: "different emitted check", raw: `{"check":"design-review","verdict":"PASS","findings":[]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var request struct {
+					Tools []struct {
+						Function struct {
+							Name string `json:"name"`
+						} `json:"function"`
+					} `json:"tools"`
+					ResponseFormat json.RawMessage `json:"response_format"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode OpenRouter request: %v", err)
+				}
+				if len(request.Tools) != 1 || request.Tools[0].Function.Name != "emit_structured_output" {
+					t.Errorf("generic gate did not use the direct forced tool: %+v", request.Tools)
+				}
+				if len(request.ResponseFormat) != 0 {
+					t.Errorf("OpenRouter generic gate unexpectedly sent response_format: %s", request.ResponseFormat)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{
+						"message": map[string]any{
+							"content": "",
+							"tool_calls": []any{map[string]any{
+								"id":   "call-1",
+								"type": "function",
+								"function": map[string]any{
+									"name":      "emit_structured_output",
+									"arguments": tt.raw,
+								},
+							}},
+						},
+					}},
+				})
+			}))
+			defer server.Close()
+
+			verifier, err := model.NewClient("openrouter/z-ai/glm-5.2", model.ProviderConfig{OpenRouterKey: "synthetic-openrouter-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			verifier.(*model.OAI).BaseURL = server.URL
+			report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, dir+"/S01-test", "", verifier)
+			if err != nil {
+				t.Fatalf("RunLLMCheck: %v", err)
+			}
+			if calls != 1 {
+				t.Fatalf("OpenRouter model calls = %d, want 1 without repair or retry", calls)
+			}
+			if report.Verdict != "FAIL" || !report.HasViolations() {
+				t.Fatalf("canonical violation was accepted: verdict=%q has_violations=%t", report.Verdict, report.HasViolations())
+			}
+			if report.RawResponse != tt.raw {
+				t.Fatal("tool arguments were repaired or replaced")
+			}
+		})
+	}
+}
+
 func TestRetiredMaintainabilityReviewStopsBeforeDispatch(t *testing.T) {
 	mock := &mockVerifier{}
 	_, err := RunLLMCheck(context.Background(), CheckMaintainabilityReview, "/not/a/release/slice", "unusable diff", mock)

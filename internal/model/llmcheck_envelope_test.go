@@ -103,6 +103,28 @@ func TestCompileOpenAILLMCheckEnvelopeClosedWorld(t *testing.T) {
 	}
 }
 
+func TestStructuredRouteOpenRouterIsDirectOnly(t *testing.T) {
+	direct := structuredRouteForProvider("openrouter")
+	if direct.wire != structuredWireToolCall || direct.oaiMode != StructuredToolCall || direct.toolCallPolicy != structuredToolCallRequireExactEmit {
+		t.Fatalf("direct OpenRouter route = %+v, want explicit exact forced-tool route", direct)
+	}
+	proxy := structuredRouteForProxyProvider("openrouter")
+	if proxy != (structuredProviderRoute{}) {
+		t.Fatalf("proxy OpenRouter route = %+v, want default deny", proxy)
+	}
+
+	for _, provider := range []string{"deepseek"} {
+		direct := structuredRouteForProvider(provider)
+		proxy := structuredRouteForProxyProvider(provider)
+		if direct.wire != structuredWireToolCall || direct.oaiMode != StructuredToolCall || direct.toolCallPolicy != structuredToolCallLegacy {
+			t.Fatalf("direct %s route = %+v, want unchanged legacy tool route", provider, direct)
+		}
+		if proxy.wire != structuredWireToolCall || proxy.oaiMode != StructuredToolCall || proxy.toolCallPolicy != structuredToolCallLegacy {
+			t.Fatalf("proxy %s route = %+v, want unchanged legacy tool route", provider, proxy)
+		}
+	}
+}
+
 func TestOpenAIEnvelopeProfileRejectsUnsupportedCanonicalSchemasBeforeHTTP(t *testing.T) {
 	var calls atomic.Int32
 	server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {

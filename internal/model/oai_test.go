@@ -793,3 +793,170 @@ func TestFromEnvOpenAIResponsesBaseURLOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestFromEnvOpenRouterDirectBaseURLOverride(t *testing.T) {
+	serverHits := 0
+	server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		serverHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	setDirectEnv := func(t *testing.T, baseURL string) {
+		t.Helper()
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv(CredentialsPathEnv, filepath.Join(t.TempDir(), "no-credentials.json"))
+		t.Setenv("SWORN_DIRECT", "1")
+		t.Setenv("SWORN_PROXY_URL", server.URL)
+		t.Setenv("OPENROUTER_API_KEY", "synthetic-openrouter-key")
+		t.Setenv("SWORN_OPENROUTER_BASE_URL", baseURL)
+	}
+
+	for _, tt := range []struct {
+		name    string
+		baseURL string
+		want    string
+	}{
+		{name: "unset retains direct default", want: "https://openrouter.ai/api/v1"},
+		{name: "absolute HTTP override", baseURL: server.URL, want: server.URL},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			setDirectEnv(t, tt.baseURL)
+			v, err := FromEnv("openrouter/z-ai/glm-5.2")
+			if err != nil {
+				t.Fatalf("FromEnv(openrouter/...): %v", err)
+			}
+			client, ok := v.(*OAI)
+			if !ok {
+				t.Fatalf("FromEnv(openrouter/...) = %T, want *OAI", v)
+			}
+			if client.BaseURL != tt.want {
+				t.Errorf("base URL = %q, want %q", client.BaseURL, tt.want)
+			}
+			if client.Structured != StructuredToolCall || client.toolCallPolicy != structuredToolCallRequireExactEmit {
+				t.Errorf("direct OpenRouter route = mode %v / policy %v, want forced exact tool", client.Structured, client.toolCallPolicy)
+			}
+		})
+	}
+
+	for _, baseURL := range []string{"relative/path", "http:///hostless", "ftp://example.invalid/v1"} {
+		t.Run("invalid pre-dispatch "+baseURL, func(t *testing.T) {
+			serverHits = 0
+			setDirectEnv(t, baseURL)
+			_, err := FromEnv("openrouter/z-ai/glm-5.2")
+			if err == nil {
+				t.Fatal("invalid direct OpenRouter URL unexpectedly constructed a client")
+			}
+			if !strings.Contains(err.Error(), "invalid SWORN_OPENROUTER_BASE_URL") {
+				t.Errorf("error = %q, want stable invalid-override failure", err)
+			}
+			if strings.Contains(err.Error(), baseURL) {
+				t.Errorf("invalid-override error leaked the supplied endpoint: %q", err)
+			}
+			if serverHits != 0 {
+				t.Fatalf("invalid direct OpenRouter URL dispatched %d requests, want 0", serverHits)
+			}
+		})
+	}
+}
+
+func TestFromEnvOpenRouterProxyIgnoresDirectBaseURLOverride(t *testing.T) {
+	proxyHits := 0
+	proxy := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		proxyHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	directHits := 0
+	direct := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		directHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	t.Setenv("SWORN_PROXY_URL", proxy.URL)
+	t.Setenv("SWORN_DIRECT", "")
+	t.Setenv("OPENROUTER_API_KEY", "synthetic-openrouter-key")
+	t.Setenv("SWORN_OPENROUTER_BASE_URL", direct.URL)
+	writeTestCreds(t, t.TempDir())
+
+	v, err := FromEnv("openrouter/z-ai/glm-5.2")
+	if err != nil {
+		t.Fatalf("FromEnv(proxy openrouter/...): %v", err)
+	}
+	client, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("FromEnv(proxy openrouter/...) = %T, want *OAI", v)
+	}
+	if !strings.HasPrefix(client.BaseURL, proxy.URL) {
+		t.Errorf("proxy base URL = %q, want proxy endpoint prefix %q", client.BaseURL, proxy.URL)
+	}
+	if client.BaseURL == direct.URL {
+		t.Error("proxy OpenRouter inherited SWORN_OPENROUTER_BASE_URL")
+	}
+	if client.Structured != structuredUnsupported || client.Capabilities()&CapStructuredOutput != 0 {
+		t.Fatal("proxy OpenRouter unexpectedly advertised structured output")
+	}
+	if _, err := client.ChatStructured(context.Background(), nil, []byte(`{"type":"object"}`)); err == nil {
+		t.Fatal("proxy OpenRouter structured call unexpectedly succeeded")
+	}
+	if proxyHits != 0 || directHits != 0 {
+		t.Fatalf("proxy/direct structured request counts = %d/%d, want 0/0", proxyHits, directHits)
+	}
+}
+
+func TestFromEnvOpenRouterBaseURLOverrideDoesNotRedirectOtherProviders(t *testing.T) {
+	direct := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(CredentialsPathEnv, filepath.Join(t.TempDir(), "no-credentials.json"))
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("SWORN_PROXY_URL", "")
+	t.Setenv("GROQ_API_KEY", "synthetic-groq-key")
+	t.Setenv("SWORN_GROQ_BASE_URL", "")
+	t.Setenv("SWORN_OPENROUTER_BASE_URL", direct.URL)
+
+	v, err := FromEnv("groq/test-model")
+	if err != nil {
+		t.Fatalf("FromEnv(groq/...): %v", err)
+	}
+	client, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("FromEnv(groq/...) = %T, want *OAI", v)
+	}
+	if client.BaseURL != "https://api.groq.com/openai/v1" {
+		t.Errorf("Groq base URL = %q, want provider default", client.BaseURL)
+	}
+}
+
+func TestProxyOpenRouterRemainsStructuredUnsupported(t *testing.T) {
+	proxyHits := 0
+	proxy := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		proxyHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	unprofiledHits := 0
+	unprofiled := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		unprofiledHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	proxyClient, ok := proxyClient("openrouter", "z-ai/glm-5.2", proxy.URL, "proxy-token").(*OAI)
+	if !ok {
+		t.Fatal("proxy OpenRouter client is not OAI")
+	}
+	for name, client := range map[string]*OAI{
+		"proxy OpenRouter": proxyClient,
+		"unprofiled OAI":   {BaseURL: unprofiled.URL, Model: "unprofiled", APIKey: "synthetic-key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if client.Structured != structuredUnsupported || client.Capabilities()&CapStructuredOutput != 0 {
+				t.Fatal("unprofiled client unexpectedly advertised structured output")
+			}
+			if _, err := client.ChatStructured(context.Background(), nil, []byte(`{"type":"object"}`)); err == nil {
+				t.Fatal("unprofiled client structured call unexpectedly succeeded")
+			}
+		})
+	}
+	if proxyHits != 0 || unprofiledHits != 0 {
+		t.Fatalf("proxy/unprofiled structured request counts = %d/%d, want 0/0", proxyHits, unprofiledHits)
+	}
+}

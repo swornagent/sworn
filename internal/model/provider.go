@@ -126,6 +126,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			Structured:        route.oaiMode, // native strict json_schema (ADR-0011)
 			structuredProfile: route.profile,
 			structuredWire:    route.wire,
+			toolCallPolicy:    route.toolCallPolicy,
 		}, nil
 
 	case "deepseek":
@@ -136,6 +137,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			Structured:        route.oaiMode, // no strict response_format; forced-tool fallback
 			structuredProfile: route.profile,
 			structuredWire:    route.wire,
+			toolCallPolicy:    route.toolCallPolicy,
 		}, nil
 
 	case "groq":
@@ -158,9 +160,13 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// the first '/', so provider="openrouter" and model is everything
 		// after the first slash — exactly the sub-path OpenRouter expects.
 		return &OAI{
-			BaseURL: "https://openrouter.ai/api/v1",
-			Model:   model,
-			APIKey:  pcfg.OpenRouterKey,
+			BaseURL:           "https://openrouter.ai/api/v1",
+			Model:             model,
+			APIKey:            pcfg.OpenRouterKey,
+			Structured:        route.oaiMode,
+			structuredProfile: route.profile,
+			structuredWire:    route.wire,
+			toolCallPolicy:    route.toolCallPolicy,
 		}, nil
 
 	case "xai":
@@ -176,6 +182,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			Structured:        route.oaiMode, // native strict json_schema (ADR-0011)
 			structuredProfile: route.profile,
 			structuredWire:    route.wire,
+			toolCallPolicy:    route.toolCallPolicy,
 		}, nil
 
 	case "ollama":

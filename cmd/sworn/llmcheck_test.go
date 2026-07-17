@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/config"
 )
 
@@ -358,6 +360,169 @@ func TestLLMCheckOpenAICompletionsStructuredEnvelopeBinaryReachability(t *testin
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("completions endpoint hits = %d, want 1", hits.Load())
+	}
+}
+
+// TestLLMCheckOpenRouterToolStructuredBinaryReachability drives the built
+// command through the direct-only OpenRouter forced-tool route. The endpoint
+// and key are synthetic so this asserts public wiring without any provider
+// dispatch or inherited login state.
+func TestLLMCheckOpenRouterToolStructuredBinaryReachability(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("OpenRouter path = %q, want /chat/completions", r.URL.Path)
+		}
+		var request struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+			Tools []struct {
+				Type     string `json:"type"`
+				Function struct {
+					Name       string          `json:"name"`
+					Parameters json.RawMessage `json:"parameters"`
+				} `json:"function"`
+			} `json:"tools"`
+			ToolChoice struct {
+				Type     string `json:"type"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tool_choice"`
+			ResponseFormat json.RawMessage `json:"response_format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode OpenRouter request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if request.Model != "z-ai/glm-5.2" {
+			t.Errorf("OpenRouter model = %q, want z-ai/glm-5.2", request.Model)
+		}
+		if len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[0].Content == "" || request.Messages[1].Role != "user" || request.Messages[1].Content == "" {
+			t.Errorf("OpenRouter prompt/payload was not preserved: %+v", request.Messages)
+		}
+		if len(request.Tools) != 1 || request.Tools[0].Type != "function" || request.Tools[0].Function.Name != "emit_structured_output" {
+			t.Errorf("OpenRouter tools = %+v, want one forced emit_structured_output function", request.Tools)
+		} else {
+			// JSON transport compacts insignificant whitespace while embedding the
+			// raw schema value; compare the canonical JSON representation to prove
+			// no envelope, projection, or source rewrite reached parameters.
+			canonical, err := json.Marshal(json.RawMessage(schemas.LLMCheckReportV1))
+			if err != nil {
+				t.Fatalf("marshal canonical report as wire JSON: %v", err)
+			}
+			if !bytes.Equal(request.Tools[0].Function.Parameters, canonical) {
+				t.Error("OpenRouter tool parameters did not preserve the canonical report")
+			}
+		}
+		if request.ToolChoice.Type != "function" || request.ToolChoice.Function.Name != "emit_structured_output" {
+			t.Errorf("OpenRouter tool_choice = %+v, want forced emit_structured_output", request.ToolChoice)
+		}
+		if len(request.ResponseFormat) != 0 {
+			t.Errorf("OpenRouter request unexpectedly sent response_format: %s", request.ResponseFormat)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{
+					"content": "",
+					"tool_calls": []any{map[string]any{
+						"id":   "call-1",
+						"type": "function",
+						"function": map[string]any{
+							"name":      "emit_structured_output",
+							"arguments": `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`,
+						},
+					}},
+				},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	root := llmCheckRepoFixture(t)
+	configPath := llmCheckConfig(t, "ignored/by-flag")
+	cmd := exec.Command(buildSworn(t), "llm-check", "--type", "ac-satisfaction", "--slice", "S01-test", "--release", "test-release", "--model", "openrouter/z-ai/glm-5.2", "--base", "HEAD", "--json")
+	cmd.Dir = root
+	cmd.Env = append(
+		hermeticLLMCheckEnv(t, configPath, "SWORN_OPENROUTER_BASE_URL", server.URL),
+		"OPENROUTER_API_KEY=synthetic-openrouter-key",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("OpenRouter llm-check failed: %v", err)
+	}
+	if got := cmd.ProcessState.ExitCode(); got != 0 {
+		t.Fatalf("OpenRouter llm-check exit = %d, want 0", got)
+	}
+	if !strings.Contains(string(output), "PASS") {
+		t.Fatal("OpenRouter llm-check did not print a PASS report")
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("OpenRouter endpoint hits = %d, want 1", hits.Load())
+	}
+}
+
+func TestLLMCheckOpenRouterToolStructuredBinaryRejectsInvalidResponse(t *testing.T) {
+	root := llmCheckRepoFixture(t)
+	configPath := llmCheckConfig(t, "ignored/by-flag")
+	var response map[string]any
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	toolCall := func(name, arguments string) any {
+		return map[string]any{
+			"id":   "call-1",
+			"type": "function",
+			"function": map[string]any{
+				"name":      name,
+				"arguments": arguments,
+			},
+		}
+	}
+	withCalls := func(calls []any) map[string]any {
+		return map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"content": "", "tool_calls": calls},
+			}},
+		}
+	}
+
+	for _, tt := range []struct {
+		name      string
+		toolCalls []any
+	}{
+		{name: "missing tool call"},
+		{name: "multiple tool calls", toolCalls: []any{toolCall("emit_structured_output", `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`), toolCall("emit_structured_output", `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`)}},
+		{name: "wrong tool name", toolCalls: []any{toolCall("other_function", `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`)}},
+		{name: "non-object arguments", toolCalls: []any{toolCall("emit_structured_output", `[]`)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			hits.Store(0)
+			response = withCalls(tt.toolCalls)
+			cmd := exec.Command(buildSworn(t), "llm-check", "--type", "ac-satisfaction", "--slice", "S01-test", "--release", "test-release", "--model", "openrouter/z-ai/glm-5.2", "--base", "HEAD", "--json")
+			cmd.Dir = root
+			cmd.Env = append(
+				hermeticLLMCheckEnv(t, configPath, "SWORN_OPENROUTER_BASE_URL", server.URL),
+				"OPENROUTER_API_KEY=synthetic-openrouter-key",
+			)
+			if _, err := cmd.CombinedOutput(); err == nil {
+				t.Fatal("invalid OpenRouter tool response exited 0")
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("OpenRouter endpoint hits = %d, want 1 without retry or fallback", hits.Load())
+			}
+		})
 	}
 }
 

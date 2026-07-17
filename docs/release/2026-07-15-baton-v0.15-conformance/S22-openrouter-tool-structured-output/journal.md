@@ -64,3 +64,19 @@
   a fresh S22 verifier PASS.
 - Proceed to `in_progress` only in a fresh Implementer session. That session
   must stop at `implemented`; only a fresh S22 verifier certifies the slice.
+
+## 2026-07-17T11:27:23+10:00 — Implementer transport checkpoint
+
+- The first S22 red was the built `sworn llm-check` reachability test: direct
+  `openrouter/z-ai/glm-5.2` correctly failed locally before this slice added a
+  structured route. It used a synthetic key and a local test endpoint only.
+- Direct construction now has a separate forced-tool route and exact named
+  call policy. Proxy OpenRouter stays default-deny; unprofiled OAI and Ollama
+  reject before dispatch; the existing DeepSeek forced-tool behavior remains
+  a separate legacy path.
+- `SWORN_OPENROUTER_BASE_URL` is validated only after direct construction and
+  only after proxy routing has declined. Relative, hostless, and non-HTTP(S)
+  values fail before dispatch; proxy and another provider do not inherit it.
+- The immutable S22 diff base is `a09b0e46df465862d00469d4aef2a997442b3d5b`.
+  No credentialed provider check has run yet; AC-06 remains gated on the full
+  deterministic suite, vet, and build.

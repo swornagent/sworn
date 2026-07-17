@@ -436,6 +436,143 @@ func TestToolCallChatStructuredRetainsRawSchema(t *testing.T) {
 	}
 }
 
+func TestOpenRouterChatStructuredUsesCanonicalForcedTool(t *testing.T) {
+	var request struct {
+		Model string `json:"model"`
+		Tools []struct {
+			Type     string `json:"type"`
+			Function struct {
+				Name       string          `json:"name"`
+				Parameters json.RawMessage `json:"parameters"`
+			} `json:"function"`
+		} `json:"tools"`
+		ToolChoice struct {
+			Type     string `json:"type"`
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tool_choice"`
+		ResponseFormat json.RawMessage `json:"response_format"`
+	}
+	server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Errorf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(structuredToolCallResponse([]ToolCall{{
+			ID:   "call-1",
+			Type: "function",
+			Function: FunctionCall{
+				Name:      structuredToolName,
+				Arguments: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`,
+			},
+		}}))
+	})
+
+	v, err := NewClient("openrouter/z-ai/glm-5.2", ProviderConfig{OpenRouterKey: "synthetic-openrouter-key"})
+	if err != nil {
+		t.Fatalf("NewClient(openrouter/...): %v", err)
+	}
+	client := v.(*OAI)
+	client.BaseURL = server.URL
+	response, err := client.ChatStructured(context.Background(), []ChatMessage{{Role: "user", Content: "verify"}}, schemas.LLMCheckReportV1)
+	if err != nil {
+		t.Fatalf("ChatStructured: %v", err)
+	}
+	if response.Choices[0].Message.Content != `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}` {
+		t.Errorf("structured content = %q, want tool arguments", response.Choices[0].Message.Content)
+	}
+	if request.Model != "z-ai/glm-5.2" {
+		t.Errorf("model = %q, want z-ai/glm-5.2", request.Model)
+	}
+	if len(request.Tools) != 1 || request.Tools[0].Type != "function" || request.Tools[0].Function.Name != structuredToolName {
+		t.Fatalf("tools = %+v, want one nested forced tool", request.Tools)
+	}
+	canonical, err := json.Marshal(json.RawMessage(schemas.LLMCheckReportV1))
+	if err != nil {
+		t.Fatalf("marshal canonical report as wire JSON: %v", err)
+	}
+	if !bytes.Equal(request.Tools[0].Function.Parameters, canonical) {
+		t.Error("OpenRouter parameters were not the supplied canonical report")
+	}
+	if request.ToolChoice.Type != "function" || request.ToolChoice.Function.Name != structuredToolName {
+		t.Errorf("tool_choice = %+v, want forced emit_structured_output", request.ToolChoice)
+	}
+	if len(request.ResponseFormat) != 0 {
+		t.Errorf("OpenRouter request unexpectedly sent response_format: %s", request.ResponseFormat)
+	}
+}
+
+func TestOpenRouterStructuredRejectsInvalidToolCall(t *testing.T) {
+	valid := ToolCall{Type: "function", Function: FunctionCall{Name: structuredToolName, Arguments: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`}}
+	tests := []struct {
+		name  string
+		calls []ToolCall
+	}{
+		{name: "zero calls"},
+		{name: "multiple calls", calls: []ToolCall{valid, valid}},
+		{name: "wrong name", calls: []ToolCall{{Type: "function", Function: FunctionCall{Name: "other_function", Arguments: valid.Function.Arguments}}}},
+		{name: "non-object arguments", calls: []ToolCall{{Type: "function", Function: FunctionCall{Name: structuredToolName, Arguments: `[]`}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(structuredToolCallResponse(tt.calls))
+			})
+			v, err := NewClient("openrouter/z-ai/glm-5.2", ProviderConfig{OpenRouterKey: "synthetic-openrouter-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := v.(*OAI)
+			client.BaseURL = server.URL
+			if _, err := client.ChatStructured(context.Background(), nil, schemas.LLMCheckReportV1); err == nil {
+				t.Fatal("invalid OpenRouter tool response unexpectedly succeeded")
+			}
+			if calls != 1 {
+				t.Fatalf("OpenRouter dispatch count = %d, want 1 with no retry or fallback", calls)
+			}
+		})
+	}
+}
+
+func TestDeepSeekForcedToolPathRetainsLegacyFirstCallBehavior(t *testing.T) {
+	dispatches := 0
+	server := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		dispatches++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(structuredToolCallResponse([]ToolCall{{
+			Type: "function",
+			Function: FunctionCall{
+				Name:      "legacy_first_tool",
+				Arguments: `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}`,
+			},
+		}}))
+	})
+	v, err := NewClient("deepseek/test-model", ProviderConfig{DeepSeekKey: "synthetic-deepseek-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := v.(*OAI)
+	client.BaseURL = server.URL
+	response, err := client.ChatStructured(context.Background(), nil, schemas.LLMCheckReportV1)
+	if err != nil {
+		t.Fatalf("DeepSeek legacy forced-tool response changed behavior: %v", err)
+	}
+	if response.Choices[0].Message.Content != `{"check":"ac-satisfaction","verdict":"PASS","findings":[]}` {
+		t.Errorf("legacy DeepSeek content = %q, want first tool arguments", response.Choices[0].Message.Content)
+	}
+	if dispatches != 1 {
+		t.Fatalf("DeepSeek dispatch count = %d, want 1", dispatches)
+	}
+}
+
 func TestOAI_ChatStructured_ToolCall_NoCall(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -446,6 +583,21 @@ func TestOAI_ChatStructured_ToolCall_NoCall(t *testing.T) {
 	if _, err := o.ChatStructured(context.Background(), nil, sampleSchema); err == nil {
 		t.Fatal("want error when model returns no tool call, got nil")
 	}
+}
+
+func structuredToolCallResponse(calls []ToolCall) []byte {
+	response := ChatResponse{}
+	response.Choices = append(response.Choices, struct {
+		Message struct {
+			Content   string     `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	}{})
+	response.Choices[0].Message.ToolCalls = calls
+	response.Choices[0].FinishReason = "tool_calls"
+	encoded, _ := json.Marshal(response)
+	return encoded
 }
 
 // --- fail-closed guards ------------------------------------------------------

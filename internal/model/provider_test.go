@@ -1,7 +1,10 @@
 package model
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -188,6 +191,55 @@ func TestNewClient_OpenRouterSubPath(t *testing.T) {
 	// The model should be the full sub-path.
 	if oai.Model != "anthropic/claude-sonnet-4-6" {
 		t.Errorf("Model = %q, want anthropic/claude-sonnet-4-6", oai.Model)
+	}
+}
+
+func TestNewClient_OpenRouterDirectUsesStructuredToolCall(t *testing.T) {
+	v, err := NewClient("openrouter/z-ai/glm-5.2", ProviderConfig{OpenRouterKey: "synthetic-openrouter-key"})
+	if err != nil {
+		t.Fatalf("NewClient(openrouter/...): %v", err)
+	}
+	client, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("NewClient(openrouter/...) = %T, want *OAI", v)
+	}
+	if client.Model != "z-ai/glm-5.2" {
+		t.Errorf("model = %q, want z-ai/glm-5.2", client.Model)
+	}
+	if client.BaseURL != "https://openrouter.ai/api/v1" {
+		t.Errorf("base URL = %q, want direct OpenRouter default", client.BaseURL)
+	}
+	if client.Structured != StructuredToolCall {
+		t.Errorf("structured mode = %v, want StructuredToolCall", client.Structured)
+	}
+	if client.toolCallPolicy != structuredToolCallRequireExactEmit {
+		t.Errorf("tool-call policy = %v, want direct OpenRouter exact-call policy", client.toolCallPolicy)
+	}
+	if client.Capabilities()&CapStructuredOutput == 0 {
+		t.Error("direct OpenRouter did not advertise structured output")
+	}
+}
+
+func TestOllamaRemainsVerifyOnly(t *testing.T) {
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	v, err := NewClient("ollama/test-model", ProviderConfig{OllamaHost: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient(ollama/...): %v", err)
+	}
+	if v.(CapabilityProvider).Capabilities()&CapStructuredOutput != 0 {
+		t.Fatal("Ollama unexpectedly advertised structured output")
+	}
+	if _, err := ChatStructuredJSON(context.Background(), v, "system", "payload", []byte(`{"type":"object"}`)); !errors.Is(err, ErrStructuredUnsupported) {
+		t.Fatalf("ChatStructuredJSON error = %v, want ErrStructuredUnsupported", err)
+	}
+	if hits != 0 {
+		t.Fatalf("Ollama structured request count = %d, want 0", hits)
 	}
 }
 

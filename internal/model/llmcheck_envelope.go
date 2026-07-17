@@ -43,10 +43,22 @@ const (
 )
 
 type structuredProviderRoute struct {
-	profile structuredProviderProfile
-	wire    structuredWireMode
-	oaiMode StructuredMode
+	profile        structuredProviderProfile
+	wire           structuredWireMode
+	oaiMode        StructuredMode
+	toolCallPolicy structuredToolCallPolicy
 }
+
+// structuredToolCallPolicy separates the intentionally narrower direct
+// OpenRouter response guard from the historical forced-tool routes. The zero
+// value preserves the existing DeepSeek behavior; only an explicit direct
+// OpenRouter construction receives the exact named-call policy.
+type structuredToolCallPolicy uint8
+
+const (
+	structuredToolCallLegacy structuredToolCallPolicy = iota
+	structuredToolCallRequireExactEmit
+)
 
 func (r structuredProviderRoute) String() string {
 	return r.profile.String() + "-" + r.wire.String()
@@ -76,10 +88,11 @@ func (m structuredWireMode) String() string {
 	}
 }
 
-// structuredRouteForProvider is the single default-deny prefix mapping used by
-// direct NewClient and proxyClient construction. It deliberately recognises
-// the deprecated openai-responses alias as the same Responses profile for its
-// one-release compatibility window.
+// structuredRouteForProvider is the direct-provider default-deny mapping. It
+// deliberately recognises the deprecated openai-responses alias as the same
+// Responses profile for its one-release compatibility window. OpenRouter is
+// admitted only here: proxy construction uses structuredRouteForProxyProvider
+// below and therefore cannot inherit this capability from its provider name.
 func structuredRouteForProvider(provider string) structuredProviderRoute {
 	switch provider {
 	case "openai", "openai-responses":
@@ -103,7 +116,47 @@ func structuredRouteForProvider(provider string) structuredProviderRoute {
 			wire:    structuredWireToolCall,
 			oaiMode: StructuredToolCall,
 		}
+	case "openrouter":
+		return structuredProviderRoute{
+			wire:           structuredWireToolCall,
+			oaiMode:        StructuredToolCall,
+			toolCallPolicy: structuredToolCallRequireExactEmit,
+		}
 	default:
+		return structuredProviderRoute{}
+	}
+}
+
+// structuredRouteForProxyProvider is intentionally a separate default-deny
+// construction map. A Sworn-hosted proxy route is a distinct transport
+// authority from direct OpenRouter, so it must not receive the direct tool
+// capability simply because both model IDs use the openrouter/ prefix.
+func structuredRouteForProxyProvider(provider string) structuredProviderRoute {
+	switch provider {
+	case "openai", "openai-responses":
+		return structuredProviderRoute{
+			profile: structuredProfileOpenAIResponses,
+			wire:    structuredWireResponsesTextFormat,
+		}
+	case "openai-completions":
+		return structuredProviderRoute{
+			profile: structuredProfileOpenAICompletions,
+			wire:    structuredWireChatResponseFormat,
+			oaiMode: StructuredResponseFormat,
+		}
+	case "xai":
+		return structuredProviderRoute{
+			wire:    structuredWireChatResponseFormat,
+			oaiMode: StructuredResponseFormat,
+		}
+	case "deepseek":
+		// Existing proxy DeepSeek behavior is deliberately unchanged.
+		return structuredProviderRoute{
+			wire:    structuredWireToolCall,
+			oaiMode: StructuredToolCall,
+		}
+	default:
+		// This includes proxy-routed OpenRouter and every unprofiled provider.
 		return structuredProviderRoute{}
 	}
 }

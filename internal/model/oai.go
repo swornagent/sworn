@@ -37,6 +37,10 @@ type OAI struct {
 	// schema behavior even when its BaseURL resembles OpenAI.
 	structuredProfile structuredProviderProfile
 	structuredWire    structuredWireMode
+	// toolCallPolicy is construction-time authority for the stricter direct
+	// OpenRouter response guard. The zero value preserves legacy forced-tool
+	// behavior for DeepSeek and manual OAI clients.
+	toolCallPolicy structuredToolCallPolicy
 }
 
 // ToolDef describes a tool the model may call. Name, Description, and the
@@ -360,10 +364,11 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 	// Content so callers read one place across both paths.
 	if c.Structured == StructuredToolCall {
 		tcs := cr.Choices[0].Message.ToolCalls
-		if len(tcs) == 0 {
-			return nil, fmt.Errorf("model: structured output: model returned no tool call")
+		arguments, err := c.structuredToolCallArguments(tcs)
+		if err != nil {
+			return nil, err
 		}
-		cr.Choices[0].Message.Content = tcs[0].Function.Arguments
+		cr.Choices[0].Message.Content = arguments
 	}
 
 	content, err := normaliseStructuredContent(cr.Choices[0].Message.Content)
@@ -372,6 +377,27 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 	}
 	cr.Choices[0].Message.Content = content
 	return cr, nil
+}
+
+// structuredToolCallArguments lifts tool arguments to the common structured
+// response content field. Direct OpenRouter is deliberately stricter than the
+// historical generic tool path: one and only one forced, named call is valid.
+// The final JSON-object guard remains normaliseStructuredContent below, so no
+// tool transport result can bypass local canonical validation in gate.
+func (c *OAI) structuredToolCallArguments(calls []ToolCall) (string, error) {
+	if c.toolCallPolicy == structuredToolCallRequireExactEmit {
+		if len(calls) != 1 {
+			return "", fmt.Errorf("model: structured output: expected exactly one forced tool call")
+		}
+		if calls[0].Function.Name != structuredToolName {
+			return "", fmt.Errorf("model: structured output: unexpected forced tool call")
+		}
+		return calls[0].Function.Arguments, nil
+	}
+	if len(calls) == 0 {
+		return "", fmt.Errorf("model: structured output: model returned no tool call")
+	}
+	return calls[0].Function.Arguments, nil
 }
 
 // reasoningFallback returns content unchanged unless it is empty — in which case
