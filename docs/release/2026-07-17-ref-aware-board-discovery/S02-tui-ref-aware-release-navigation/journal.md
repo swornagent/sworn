@@ -32,3 +32,11 @@ Executed 2026-07-17 (local):
 - Reproduced `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test -count=1 ./internal/tui ./internal/board ./cmd/sworn` from the track worktree. `internal/tui` fails when `board.DiscoverCatalog` calls `git for-each-ref` in the established non-Git fixtures: `fatal: not a git repository (or any of the parent directories): .git`.
 - This is a gating prerequisite defect owned by `S01-all-ref-board-catalog`: its spec requires `DiscoverCatalog` to use a shared filesystem fallback when no usable Git HEAD exists. S02 AC-03 explicitly consumes that shared fallback and forbids a TUI-local parser.
 - Implementing the missing fallback in S02 would modify S01's already-verified authority surface and violate the one-slice boundary. Planner action is required to reopen/re-scope S01 or add an owning remediation slice, then return S02 to implementation.
+
+## 2026-07-18T00:16:55+10:00 — implementation completed after planner re-scope
+
+- Resumed the planner-approved S02 contract that explicitly assigns the missing no-HEAD `board.DiscoverCatalog` fallback to this slice.
+- Preserved one catalog snapshot across release selection and asynchronous board loading; stale results are rejected by both release ID and `sourceRef`.
+- Kept filesystem fallback authority inside `internal/board`, read-only, bytewise ordered, and conservatively marked `working-tree` / `uncommitted`; no TUI-local state election was added.
+- Required tests passed: targeted TUI/board/CLI packages, full `go test ./...`, `go vet ./...`, and empty `gofmt -l .` output.
+- Semantic-coverage and AC-satisfaction checks both returned `PASS` for AC-01 through AC-04. No subagents were dispatched.

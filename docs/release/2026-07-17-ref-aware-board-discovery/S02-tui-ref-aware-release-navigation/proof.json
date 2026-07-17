@@ -4,43 +4,62 @@
   "release": "2026-07-17-ref-aware-board-discovery",
   "scope": "The SwornAgent TUI operator can discover and open non-HEAD release boards using the S01 catalog snapshot, preserve selected sourceRef identity for async loads, and render explicit durability markers from the shared state-evidence fields.",
   "files_changed": [
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/status.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/contracts.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/index.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/intake.md",
     "internal/board/discovery.go",
-    "internal/board/oracle.go",
+    "internal/board/discovery_test.go",
     "internal/tui/board.go",
     "internal/tui/model.go",
     "internal/tui/releases.go",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/status.json"
+    "internal/tui/tui_test.go"
   ],
   "test_results": [
     {
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
-      "passed": false,
-      "exit_code": 1,
-      "output_ref": "journal.md verification capture — test failure remains because internal/tui helper fixtures need a real git worktree in this session context"
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "2026-07-18 live run: internal/tui and internal/board passed"
     },
     {
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
-      "passed": false,
-      "exit_code": 1,
-      "output_ref": "journal.md verification capture — full-suite failure mirrors internal/tui non-git fixture context"
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "2026-07-18 live run: all packages passed"
     },
     {
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "journal.md verification capture"
+      "output_ref": "2026-07-18 live run: empty output"
     },
     {
       "command": "/usr/local/go/bin/gofmt -l .",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "journal.md verification capture"
+      "output_ref": "2026-07-18 live run: empty output"
+    },
+    {
+      "command": "sworn llm-check -type semantic-coverage -slice S02-tui-ref-aware-release-navigation -release 2026-07-17-ref-aware-board-discovery -json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "verdict PASS; all four ACs mapped to integration evidence"
+    },
+    {
+      "command": "sworn llm-check -type ac-satisfaction -slice S02-tui-ref-aware-release-navigation -release 2026-07-17-ref-aware-board-discovery -json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "verdict PASS; AC-01 through AC-04 satisfied"
     }
   ],
   "reachability": {
     "type": "cli-run",
-    "evidence": "Executed the required proof-gate commands from this worktree at 2026-07-17 local time. The S01 catalog and UI fixtures are exercised through `go test` command-lines; static code path and formatting checks are clean after gofmt update. The remaining failures are isolated to `internal/tui` integration tests that expect a different test execution root than this session can provide."
+    "evidence": "2026-07-18 live runs from the track worktree passed the targeted TUI/board/CLI test set and the full Go suite. Reachability is exercised by TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot, TestRefOnlyBoardAndCLIStateEvidenceAgree, TestBoardViewRendersCatalogStateDurability, TestReleasesListRendersCatalogUncommittedAggregate, TestReleasesListUsesSharedNonGitCatalogFallback, TestRefAwareReleaseInteractionContract, and TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef."
   },
   "delivered": [
     {
@@ -56,8 +75,6 @@
       "evidence": "internal/tui/releases.go; internal/tui/model.go; internal/tui/board.go"
     }
   ],
-  "not_delivered": [
-    "go test ./internal/tui ./internal/board ./cmd/sworn and go test ./... currently fail only from test-context invocation; this appears unrelated to production-code changes and remains to be triaged by the verifier."
-  ],
+  "not_delivered": [],
   "divergence": []
 }
