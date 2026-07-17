@@ -1,0 +1,102 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-all-ref-board-catalog",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "scope": "The SwornAgent board command now discovers every locally available release board through one read-only catalog oracle, selects a deterministic topology source and farthest valid slice evidence, and reports explicit committed or uncommitted provenance while keeping named-board output compatible.",
+  "files_changed": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/journal.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/status.json",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/board/oracle.go",
+    "internal/board/status_evidence_test.go",
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/git ./internal/board ./cmd/sworn",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./cmd/sworn -run '^TestBoardCLI(AllRefsCatalogStateEvidenceReachability|AllRefsCatalogSourceRef|AllRefsCatalogCanonicalSkewFailsClosed|StateEvidenceProvenance|NamedReleaseJSONShapeCompatibility|NamedAndCatalogStateEvidenceAgree|AllRefsCatalogReadOnly)$' -count=1 -v",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17"
+    },
+    {
+      "command": "sworn lint coverage --slice S01-all-ref-board-catalog --release 2026-07-17-ref-aware-board-discovery",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17 (6/6 acceptance checks covered)"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17"
+    },
+    {
+      "command": "/usr/local/go/bin/gofmt -l .",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17 (empty output)"
+    },
+    {
+      "command": "sworn llm-check --type ac-satisfaction --slice S01-all-ref-board-catalog --release 2026-07-17-ref-aware-board-discovery --json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md completion entry — 2026-07-17 (structured PASS; no findings)"
+    },
+    {
+      "command": "git diff --binary 130a304a4cf108734a026f8037bc645718e99363..HEAD | sworn verify --spec docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json --diff - --proof docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "proof.md First-pass verdict — deterministic PASS"
+    }
+  ],
+  "reachability": {
+    "type": "e2e-test",
+    "evidence": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability compiles the CLI and runs `sworn board --json` from a temporary consumer Git repository whose checked-out HEAD has no release board. The fixture asserts two non-HEAD releases, deterministic source/state provenance, and byte-identical HEAD, branch, refs, porcelain status, and process directory snapshots. Mutation evidence: forcing discovery to use only HEAD made the test fail with `releases=0, want 2` (exit 1); after restoration, the same test passed (exit 0)."
+  },
+  "delivered": [
+    {
+      "item": "AC-01 — no-filter board discovery returns a bytewise release-sorted all-ref catalog, including non-HEAD releases, selected source refs, and farthest elected slice evidence.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability; internal/board/discovery.go:DiscoverCatalog"
+    },
+    {
+      "item": "AC-02 — topology source selection follows canonical local, canonical remote, local noncanonical, then remote noncanonical priority with bytewise tie-breaking.",
+      "evidence": "internal/board/discovery_test.go:TestDiscoverCatalogSourceRefRanking; cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogSourceRef"
+    },
+    {
+      "item": "AC-03 — malformed, missing, or identity-mismatched canonical records fail the catalog closed without partial output or fallback selection.",
+      "evidence": "internal/board/discovery_test.go:TestDiscoverCatalogCanonicalSkewFailsClosed; cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed"
+    },
+    {
+      "item": "AC-04 — one shared state-evidence election selects lifecycle and attention high water marks and labels committed versus dirty-working-tree provenance.",
+      "evidence": "internal/board/status_evidence_test.go:TestElectStateEvidenceLifecycleAndAttention; internal/board/status_evidence_test.go:TestElectStateEvidenceCommittedTieBeatsWorkingTree; cmd/sworn/board_test.go:TestBoardCLIStateEvidenceProvenance"
+    },
+    {
+      "item": "AC-05 — named release queries use the same catalog evidence while retaining the established release/tracks JSON envelope and one-board text form.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLINamedReleaseJSONShapeCompatibility; cmd/sworn/board_test.go:TestBoardCLINamedAndCatalogStateEvidenceAgree"
+    },
+    {
+      "item": "AC-06 — ref discovery remains read-only and the full targeted and repository-wide Go gates are clean.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReadOnly; internal/git/git_test.go:TestRepoListRefsReadOnly; test_results and reachability evidence above"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}
