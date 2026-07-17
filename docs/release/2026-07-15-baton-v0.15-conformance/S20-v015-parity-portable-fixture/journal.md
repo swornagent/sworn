@@ -18,3 +18,19 @@
   evidence remain authoritative.
 - Resume S20 only after a fresh verifier PASS for S04, then rerun S20 readiness
   and maintainability evidence before any S20 finalization.
+
+## 2026-07-17T10:29:17+10:00 — Planner replan: direct OpenRouter GLM-5.2 route
+
+- Coach selected `openrouter/z-ai/glm-5.2` for S20's pending direct
+  provider-readiness evidence.
+- Current direct `openrouter/` construction is intentionally
+  structured-output unsupported, so merely changing S20's model flag would
+  fail locally before any provider request. S21's verified OpenAI envelope does
+  not authorise a tool-call route.
+- `S22-openrouter-tool-structured-output` is inserted before S20. It proves
+  only direct forced-function transport, preserves the canonical schema plus
+  S04 local authority, and keeps Sworn hosted-proxy OpenRouter, Ollama, and all
+  unprofiled routes default-deny.
+- S20 retains its immutable start and semantic commits. It may resume only
+  after a non-violating S22 direct spec-ambiguity result and a fresh S22
+  verifier PASS, then must run its own separate direct ac-satisfaction smoke.

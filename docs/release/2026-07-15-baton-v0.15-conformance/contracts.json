@@ -239,6 +239,18 @@
       ],
       "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability",
       "rationale": "The consumer needs a real accepted ac-satisfaction emission only after the transport constraint is proven without weakening or re-owning S04 semantics."
+    },
+    {
+      "id": "C-15",
+      "kind": "schema-version",
+      "surface": "direct-openrouter-tool-structured-output-v1",
+      "shape": "Only a direct `openrouter/` model route may advertise structured output, and it does so solely through the existing OpenAI-compatible forced function named `emit_structured_output`. The exact canonical schema supplied to ChatStructuredJSON becomes that function's parameters without strict projection, OpenAI envelope compilation, source mutation, raw-text fallback, retry, or synthesis. The function choice is forced and a missing/invalid tool call fails locally. `SWORN_OPENROUTER_BASE_URL` is valid only on the direct client path and exists to direct the public command to a local test endpoint; ordinary direct routing uses https://openrouter.ai/api/v1. A Sworn hosted-proxy route for an `openrouter/` model, Ollama, and every other unprofiled provider remain structured-output unsupported. The release proof pins `SWORN_DIRECT=1` and model `openrouter/z-ai/glm-5.2`, but that customer-selected proof input does not establish a Sworn default. After emission, the unchanged canonical Baton validation and S04 requested/emitted check equality are the sole semantic authority.",
+      "owner": "S22-openrouter-tool-structured-output",
+      "consumers": [
+        "S20-v015-parity-portable-fixture"
+      ],
+      "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability",
+      "rationale": "The selected provider path needs deterministic transport evidence while preserving the default-deny trust boundary for every other direct and proxied route."
     }
   ]
 }
