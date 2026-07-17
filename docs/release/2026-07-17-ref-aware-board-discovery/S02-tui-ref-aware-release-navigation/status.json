@@ -8,21 +8,31 @@
     "N-04",
     "N-05"
   ],
-  "state": "planned",
-  "owner": "unassigned",
+  "state": "in_progress",
+  "owner": "implementer",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-17T06:48:23+10:00",
-  "start_commit": null,
+  "last_updated_at": "2026-07-17T23:55:53+10:00",
+  "start_commit": "406430bc639421dd4319b60aee5f04a2d505c3cb",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
   "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md",
   "planned_files": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
     "internal/tui/releases.go",
     "internal/tui/board.go",
     "internal/tui/model.go",
     "internal/tui/tui_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/board/discovery.go",
+    "internal/board/oracle.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md"
+  ],
   "test_commands": [
     "go test ./internal/tui ./internal/board ./cmd/sworn",
     "go test ./...",
@@ -30,6 +40,7 @@
     "test -z \"$(gofmt -l .)\""
   ],
   "reachability_artifacts": [
+    "internal/board/discovery_test.go:TestDiscoverCatalogFilesystemFallbackWithoutUsableHead",
     "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot",
     "internal/tui/tui_test.go:TestRefOnlyBoardAndCLIStateEvidenceAgree",
     "internal/tui/tui_test.go:TestBoardViewRendersCatalogStateDurability"
