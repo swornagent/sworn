@@ -1,6 +1,6 @@
 ---
 title: 'Proof bundle — S01-all-ref-board-catalog'
-description: 'Deterministic all-ref board discovery with source and durability provenance. Implemented, not yet Rule-7 verified.'
+description: 'Deterministic all-ref board discovery with source and durability provenance, including recovery from malformed noncanonical historical records. Implemented, not yet Rule-7 verified.'
 date: 2026-07-17
 ---
 
@@ -10,10 +10,40 @@ date: 2026-07-17
 
 ## Scope
 
-The SwornAgent board command now discovers every locally available release board through one
-read-only catalog oracle, selects a deterministic topology source and farthest valid slice
-evidence, and reports explicit committed or uncommitted provenance while keeping named-board
-output compatible.
+The SwornAgent board command discovers every locally available valid release board through one
+read-only catalog oracle, ignores malformed noncanonical historical topology records, preserves
+canonical release-worktree fail-closed semantics, and reports deterministic source and durability
+provenance in aggregate and named output.
+
+## Verifier-remediation evidence
+
+The fresh verifier found that a bare-string legacy `board.json` on
+`refs/heads/audit/2026-07-02-conformance-gap-closure` aborted both user-facing commands before
+they could produce output. The correction batch-reads direct topology artifacts, validates them
+before source-ref ranking, skips invalid noncanonical candidates, and leaves canonical candidates
+strict.
+
+After commit `2cca001`:
+
+```text
+$ GOFLAGS=-buildvcs=false /usr/local/go/bin/go run ./cmd/sworn board --json
+release_count: 17
+target.sourceRef: refs/heads/release-wt/2026-07-17-ref-aware-board-discovery
+exit: 0
+
+$ GOFLAGS=-buildvcs=false /usr/local/go/bin/go run ./cmd/sworn board \
+    --release 2026-07-17-ref-aware-board-discovery --json
+release: 2026-07-17-ref-aware-board-discovery
+tracks: 1
+top_level_releases: false
+exit: 0
+```
+
+`TestBoardCLIAllRefsCatalogSkipsInvalidNoncanonicalTopology` is the compiled-CLI regression: it
+places a lexically earlier malformed noncanonical bare-string board beside a valid lower-priority
+record, asserts the valid source wins, asserts an invalid-only historical release is omitted, and
+asserts an unrelated named query remains reachable. Canonical malformed/missing/identity-mismatched
+cases still fail closed in `TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed`.
 
 ## Files changed
 
@@ -21,13 +51,15 @@ output compatible.
 - `internal/git/git.go`, `internal/git/git_test.go`
 - `internal/board/discovery.go`, `internal/board/discovery_test.go`, `internal/board/oracle.go`,
   `internal/board/status_evidence_test.go`
-- This slice's `journal.md`, `status.json`, `proof.json`, and `proof.md`
+- This slice's `journal.md`, `status.json`, `proof.json`, and `proof.md`, plus the rendered
+  release `index.md`
 
 ## Test results
 
 - Targeted packages: `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/git
   ./internal/board ./cmd/sworn` → exit 0.
-- Compiled-CLI acceptance fixtures (seven cases) → exit 0.
+- Compiled-CLI acceptance fixtures (eight cases, including malformed noncanonical recovery) →
+  exit 0.
 - Coverage: `sworn lint coverage --slice S01-all-ref-board-catalog --release
   2026-07-17-ref-aware-board-discovery` → 6/6 acceptance checks covered, exit 0.
 - Full suite: `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...` → exit 0.
@@ -37,11 +69,9 @@ output compatible.
 
 ## Reachability artefact
 
-**type: e2e-test.** `TestBoardCLIAllRefsCatalogStateEvidenceReachability` compiles the CLI and
-runs `sworn board --json` from a temporary consumer Git repository where checked-out `HEAD` has no
-release board. It asserts two non-HEAD releases, source/state provenance, and byte-identical
-snapshots of HEAD, branch, refs, porcelain status, and process directory before and after the CLI
-call.
+**type: cli-run.** The live project-root commands above are the user-facing affordance the fresh
+verifier found unreachable; they now exit 0 from this committed track branch. The compiled fixture
+keeps that recovery testable without depending on this repository's historical refs.
 
 Required mutation transcript:
 
@@ -49,24 +79,17 @@ Required mutation transcript:
 2. Run `TestBoardCLIAllRefsCatalogStateEvidenceReachability` → fails: `releases=0, want 2`
    (exit 1).
 3. Restore all-ref discovery with `apply_patch`.
-4. Rerun the same compiled-CLI test → passes (exit 0; latest run 2.51s).
+4. Rerun the same compiled-CLI test → passes (exit 0).
 
 ## Delivered
 
 - **AC-01:** all-ref catalog discovers non-HEAD releases, emits sorted keys, selected `sourceRef`,
-  and elected state provenance. Evidence: `TestBoardCLIAllRefsCatalogStateEvidenceReachability`;
-  `board.DiscoverCatalog`.
-- **AC-02:** deterministic canonical/local/remote source-ref rank order. Evidence:
-  `TestDiscoverCatalogSourceRefRanking`; `TestBoardCLIAllRefsCatalogSourceRef`.
-- **AC-03:** canonical skew fails closed. Evidence:
-  `TestDiscoverCatalogCanonicalSkewFailsClosed`; `TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed`.
+  and elected state provenance without being poisoned by invalid noncanonical history.
+- **AC-02:** deterministic canonical/local/remote source-ref rank order among valid direct records.
+- **AC-03:** canonical skew still fails closed.
 - **AC-04:** shared state election preserves lifecycle, attention, and durability provenance.
-  Evidence: state-evidence tests and `TestBoardCLIStateEvidenceProvenance`.
 - **AC-05:** named queries preserve their envelope while agreeing with aggregate evidence.
-  Evidence: `TestBoardCLINamedReleaseJSONShapeCompatibility` and
-  `TestBoardCLINamedAndCatalogStateEvidenceAgree`.
-- **AC-06:** all-ref reachability is read-only and the Go checks pass. Evidence:
-  `TestBoardCLIAllRefsCatalogReadOnly`, `TestRepoListRefsReadOnly`, and the test results above.
+- **AC-06:** all-ref reachability is read-only and the Go checks pass.
 
 ## Not delivered
 
@@ -78,7 +101,7 @@ None.
 
 ## First-pass verdict
 
-`git diff --binary 130a304a4cf108734a026f8037bc645718e99363..HEAD | sworn verify --spec
+`git diff --binary 130a304a4cf108734a026f8037bc645718e99363 | sworn verify --spec
 docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json --diff -
 --proof docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json`
 returned:

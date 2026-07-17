@@ -10,10 +10,10 @@
     "N-04",
     "N-05"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "codex-implementer",
   "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-17T22:32:52+10:00",
+  "last_updated_at": "2026-07-17T22:44:08+10:00",
   "start_commit": "130a304a4cf108734a026f8037bc645718e99363",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
@@ -39,6 +39,7 @@
     "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
     "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md",
     "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/status.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/index.md",
     "internal/board/discovery.go",
     "internal/board/discovery_test.go",
     "internal/board/oracle.go",
@@ -48,7 +49,7 @@
   ],
   "test_commands": [
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/git ./internal/board ./cmd/sworn",
-    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./cmd/sworn -run '^TestBoardCLI(AllRefsCatalogStateEvidenceReachability|AllRefsCatalogSourceRef|AllRefsCatalogCanonicalSkewFailsClosed|StateEvidenceProvenance|NamedReleaseJSONShapeCompatibility|NamedAndCatalogStateEvidenceAgree|AllRefsCatalogReadOnly)$' -count=1 -v",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./cmd/sworn -run '^TestBoardCLI(AllRefsCatalogStateEvidenceReachability|AllRefsCatalogSourceRef|AllRefsCatalogCanonicalSkewFailsClosed|AllRefsCatalogSkipsInvalidNoncanonicalTopology|StateEvidenceProvenance|NamedReleaseJSONShapeCompatibility|NamedAndCatalogStateEvidenceAgree|AllRefsCatalogReadOnly)$' -count=1 -v",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
     "/usr/local/go/bin/gofmt -l .",
@@ -56,7 +57,8 @@
   ],
   "reachability_artifacts": [
     "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: non-HEAD discovery/state-evidence mutation transcript"
+    "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogSkipsInvalidNoncanonicalTopology",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: live project-root aggregate/named command transcript and non-HEAD discovery/state-evidence mutation transcript"
   ],
   "maintainability": {
     "state": "pending",
