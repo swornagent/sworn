@@ -33,11 +33,11 @@ func TestReleasesListPopulates(t *testing.T) {
 	if len(rl.Releases) != 2 {
 		t.Fatalf("expected 2 releases, got %d", len(rl.Releases))
 	}
-	if rl.Releases[0].Name != "Release Alpha" {
-		t.Errorf("expected first release to be 'Release Alpha', got %q", rl.Releases[0].Name)
+	if rl.Releases[0].Name != "release-alpha" {
+		t.Errorf("expected first release identity to be 'release-alpha', got %q", rl.Releases[0].Name)
 	}
-	if rl.Releases[1].Name != "Release Beta" {
-		t.Errorf("expected second release to be 'Release Beta', got %q", rl.Releases[1].Name)
+	if rl.Releases[1].Name != "release-beta" {
+		t.Errorf("expected second release identity to be 'release-beta', got %q", rl.Releases[1].Name)
 	}
 }
 
@@ -86,12 +86,8 @@ func TestBoardViewShowsSlices(t *testing.T) {
 	checkSlice(t, bv, "S03-third", "planned")
 }
 
-// TestBoardViewLegacyIndexFallback verifies AC-06: a release with NO
-// board.json (genuinely pre-migration) still renders via board.ReadBoard's
-// lazy migrateFromIndex fallback, which parses the legacy `tracks:` YAML
-// frontmatter in index.md. This is the ONE dedicated test intentionally kept
-// on the legacy frontmatter-only shape (per design.md) — every other test
-// in this file now builds its fixture via writeBoardFixture (AC-04).
+// TestBoardViewLegacyIndexFallback verifies a release with NO board.json still
+// renders through the shared, read-only catalog fallback.
 func TestBoardViewLegacyIndexFallback(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "legacy-release")
@@ -121,10 +117,9 @@ tracks:
 	}
 	checkSlice(t, bv, "S01-only", "in_progress")
 
-	// The lazy migration should have materialised board.json on disk (the
-	// oracle's existing designed behaviour — DC-2 in design.md).
-	if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
-		t.Errorf("expected board.json to be lazily written by migrateFromIndex: %v", err)
+	// Catalog discovery is read-only and must not lazily migrate index.md.
+	if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); !os.IsNotExist(err) {
+		t.Errorf("expected no board.json write during catalog fallback, stat err=%v", err)
 	}
 }
 
@@ -799,6 +794,236 @@ func TestHasInProgressTracks(t *testing.T) {
 
 	if !HasInProgressTracks(dir, "test-release") {
 		t.Fatal("expected true after adding in-progress track")
+	}
+}
+
+func TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot(t *testing.T) {
+	dir := refOnlyCatalogFixture(t)
+
+	m := newReleaseModel(t, dir)
+	if len(m.Releases.Releases) != 1 {
+		t.Fatalf("releases = %+v, want one ref-only release", m.Releases.Releases)
+	}
+	selected := m.Releases.Releases[0]
+	if selected.ID != "ref-only-release" || selected.SourceRef != "refs/heads/release-wt/ref-only-release" {
+		t.Fatalf("selected release = %+v", selected)
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*Model)
+	if cmd == nil || m.Board.Loaded || !m.Board.Loading {
+		t.Fatalf("Enter state: cmd=%v loaded=%v loading=%v", cmd != nil, m.Board.Loaded, m.Board.Loading)
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*Model)
+	if !m.Board.Loaded || m.Board.SourceRef != selected.SourceRef {
+		t.Fatalf("loaded board = %+v", m.Board)
+	}
+	if len(m.Board.Tracks) != 1 || m.Board.Tracks[0].ID != "T1-core" {
+		t.Fatalf("tracks = %+v", m.Board.Tracks)
+	}
+	got := m.Board.Slices["S01-alpha"]
+	if got.State != "verified" || got.StateSource != "refs/heads/track/ref-only-release/T1-core" || got.StateDurability != "committed" {
+		t.Fatalf("catalog state did not reach TUI board unchanged: %+v", got)
+	}
+}
+
+func TestRefOnlyBoardAndCLIStateEvidenceAgree(t *testing.T) {
+	dir := refOnlyCatalogFixture(t)
+	catalog, err := board.DiscoverCatalog(git.New(dir))
+	if err != nil {
+		t.Fatalf("DiscoverCatalog (sworn board authority): %v", err)
+	}
+	if len(catalog) != 1 {
+		t.Fatalf("catalog = %+v", catalog)
+	}
+	want := catalog[0].Board.Tracks[0].Slices[0]
+
+	m := newReleaseModel(t, dir)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*Model)
+	updated, _ = m.Update(cmd())
+	m = updated.(*Model)
+	got := m.Board.Slices[want.ID]
+	if got.State != string(want.State) || got.StateSource != want.StateSource || got.StateDurability != want.StateDurability || m.Board.SourceRef != catalog[0].SourceRef {
+		t.Fatalf("TUI state %+v differs from board catalog %+v (sourceRef %q)", got, want, catalog[0].SourceRef)
+	}
+}
+
+func TestBoardViewRendersCatalogStateDurability(t *testing.T) {
+	record := testCatalogRecord("alpha", "refs/heads/release-wt/alpha", "uncommitted")
+	bv := &BoardView{}
+	if err := bv.LoadBoardFromCatalog(t.TempDir(), record); err != nil {
+		t.Fatal(err)
+	}
+	if got := bv.View(); !strings.Contains(got, "S01-alpha") || !strings.Contains(got, "[uncommitted]") {
+		t.Fatalf("uncommitted board marker missing:\n%s", got)
+	}
+
+	record.Board.Tracks[0].Slices[0].StateDurability = "committed"
+	if err := bv.LoadBoardFromCatalog(t.TempDir(), record); err != nil {
+		t.Fatal(err)
+	}
+	if got := bv.View(); strings.Contains(got, "[uncommitted]") {
+		t.Fatalf("committed board rendered uncommitted marker:\n%s", got)
+	}
+}
+
+func TestReleasesListRendersCatalogUncommittedAggregate(t *testing.T) {
+	uncommitted := releaseInfoFromCatalog(testCatalogRecord("alpha", "", "uncommitted"))
+	committed := releaseInfoFromCatalog(testCatalogRecord("zeta", "", "committed"))
+	rl := &ReleasesList{Releases: []ReleaseInfo{uncommitted, committed}}
+	if got := rl.View(); !strings.Contains(got, "alpha") || !strings.Contains(got, " [uncommitted]") {
+		t.Fatalf("selected uncommitted release marker missing:\n%s", got)
+	}
+	rl.Cursor = 1
+	if got := rl.View(); strings.Contains(got, "[uncommitted]") {
+		t.Fatalf("unselected evidence or committed selection rendered marker:\n%s", got)
+	}
+}
+
+func TestReleasesListCatalogFailureIsVisible(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "broken")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseDir, "board.json"), []byte(`{"release":{"name":"other"},"tracks":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &Model{state: viewReleases, repoRoot: dir, Releases: &ReleasesList{}, Board: &BoardView{}}
+	err := m.Releases.LoadReleases(dir)
+	if err == nil {
+		t.Fatal("expected identity-mismatched board error")
+	}
+	m.errMsg = err.Error()
+	if len(m.Releases.Releases) != 0 {
+		t.Fatalf("catalog failure populated partial releases: %+v", m.Releases.Releases)
+	}
+	if got := m.View(); !strings.Contains(got, "Error: "+err.Error()) {
+		t.Fatalf("error not visible unchanged, want %q in:\n%s", err.Error(), got)
+	}
+}
+
+func TestReleasesListUsesSharedNonGitCatalogFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeBoardFixture(t, dir, "local-alpha", []board.BoardTrack{{ID: "T1-core", Slices: []string{"S01-alpha"}}})
+	createSliceStatus(t, filepath.Join(dir, "docs", "release", "local-alpha"), "S01-alpha", "verified", "T1-core")
+
+	m := newReleaseModel(t, dir)
+	if got := m.Releases.Releases[0]; got.ID != "local-alpha" || got.SourceRef != "" || !got.HasUncommittedEvidence {
+		t.Fatalf("filesystem catalog release = %+v", got)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*Model)
+	updated, _ = m.Update(cmd())
+	m = updated.(*Model)
+	if !m.Board.Loaded || m.Board.Tracks[0].ID != "T1-core" || m.Board.Slices["S01-alpha"].StateDurability != "uncommitted" {
+		t.Fatalf("filesystem catalog did not load through Model: %+v", m.Board)
+	}
+}
+
+func TestRefAwareReleaseInteractionContract(t *testing.T) {
+	dir := t.TempDir()
+	for _, release := range []string{"zeta", "alpha"} {
+		writeBoardFixture(t, dir, release, []board.BoardTrack{{ID: "T1-core", Slices: []string{"S01-alpha"}}})
+		createSliceStatus(t, filepath.Join(dir, "docs", "release", release), "S01-alpha", "planned", "T1-core")
+	}
+	m := newReleaseModel(t, dir)
+	if m.Releases.Releases[0].ID != "alpha" || m.Releases.Cursor != 0 {
+		t.Fatalf("initial releases = %+v cursor=%d", m.Releases.Releases, m.Releases.Cursor)
+	}
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyRunes, Runes: []rune("j")}, {Type: tea.KeyDown}, {Type: tea.KeyRunes, Runes: []rune("k")}, {Type: tea.KeyUp}, {Type: tea.KeyDown}} {
+		updated, _ := m.Update(key)
+		m = updated.(*Model)
+	}
+	if m.Releases.Cursor != 1 || m.Releases.Releases[m.Releases.Cursor].ID != "zeta" {
+		t.Fatalf("navigation cursor=%d releases=%+v", m.Releases.Cursor, m.Releases.Releases)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*Model)
+	if cmd == nil || m.Board.ReleaseName != "zeta" || m.Board.Loaded || !m.Board.Loading || !strings.Contains(m.Board.View(), "Loading…") {
+		t.Fatalf("async Enter contract failed: board=%+v cmd=%v view=%q", m.Board, cmd != nil, m.Board.View())
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*Model)
+	if !m.Board.Loaded || m.Board.ReleaseName != "zeta" {
+		t.Fatalf("async result did not load zeta: %+v", m.Board)
+	}
+}
+
+func TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef(t *testing.T) {
+	m := &Model{
+		state: viewBoard,
+		Board: &BoardView{ReleaseName: "ref-only-release", SourceRef: "refs/heads/release-wt/ref-only-release", Loading: true},
+	}
+	stale := &BoardView{ReleaseName: "ref-only-release", SourceRef: "refs/heads/topic", Loaded: true}
+	updated, _ := m.Update(boardLoadedMsg{releaseName: "ref-only-release", sourceRef: "refs/heads/topic", board: stale})
+	m = updated.(*Model)
+	if m.Board == stale || m.Board.Loaded || !m.Board.Loading || m.Board.SourceRef != "refs/heads/release-wt/ref-only-release" {
+		t.Fatalf("stale different-sourceRef result replaced selection: %+v", m.Board)
+	}
+}
+
+func testCatalogRecord(release, sourceRef, durability string) board.CatalogRecord {
+	return board.CatalogRecord{
+		Release:   release,
+		SourceRef: sourceRef,
+		Board: &board.BoardState{Release: release, Tracks: []board.TrackState{{
+			ID:    "T1-core",
+			State: "verified",
+			Slices: []board.SliceState{{
+				ID:              "S01-alpha",
+				Track:           "T1-core",
+				State:           "verified",
+				StateSource:     sourceRef,
+				StateDurability: durability,
+			}},
+		}}},
+	}
+}
+
+func newReleaseModel(t *testing.T, dir string) *Model {
+	t.Helper()
+	m := &Model{state: viewReleases, repoRoot: dir, Releases: &ReleasesList{}, Board: &BoardView{}}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+	return m
+}
+
+func refOnlyCatalogFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runFixtureGit(t, dir, "init", "-b", "main")
+	runFixtureGit(t, dir, "config", "user.email", "test@example.com")
+	runFixtureGit(t, dir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runFixtureGit(t, dir, "add", "README.md")
+	runFixtureGit(t, dir, "commit", "-m", "initial")
+	runFixtureGit(t, dir, "checkout", "-b", "release-wt/ref-only-release")
+	releaseDir := filepath.Join(dir, "docs", "release", "ref-only-release")
+	writeBoardFixture(t, dir, "ref-only-release", []board.BoardTrack{{ID: "T1-core", Slices: []string{"S01-alpha"}}})
+	createSliceStatus(t, releaseDir, "S01-alpha", "planned", "T1-core")
+	runFixtureGit(t, dir, "add", "docs")
+	runFixtureGit(t, dir, "commit", "-m", "release plan")
+	runFixtureGit(t, dir, "checkout", "-b", "track/ref-only-release/T1-core")
+	createSliceStatus(t, releaseDir, "S01-alpha", "verified", "T1-core")
+	runFixtureGit(t, dir, "add", "docs")
+	runFixtureGit(t, dir, "commit", "-m", "verified state")
+	runFixtureGit(t, dir, "checkout", "main")
+	return dir
+}
+
+func runFixtureGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
