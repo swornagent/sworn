@@ -11,7 +11,7 @@
   "state": "blocked",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T11:33:17+10:00",
+  "last_updated_at": "2026-07-17T11:34:50+10:00",
   "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
@@ -58,12 +58,12 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": [],
-    "notes": "AC-06 was invoked exactly once after deterministic gates. Its non-secret receipt was not recoverable from the execution channel after output disposal, so a clean result cannot be evidenced and no retry is permitted without new human authority."
+    "notes": "AC-06 was invoked exactly once after deterministic gates. Its non-secret receipt was not recoverable from the execution channel after output disposal, so a clean result cannot be evidenced and no retry is permitted without new human authority. This is an external evidence block, not a fresh verifier verdict."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter model produce a canonical generic-check result without weakening the fail-closed boundary for hosted proxy, Ollama, or unprofiled providers.",

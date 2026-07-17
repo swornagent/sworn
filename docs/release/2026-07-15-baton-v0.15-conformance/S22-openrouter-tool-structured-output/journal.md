@@ -96,3 +96,6 @@
   is permitted. S22 is blocked short of `implemented` pending a human decision
   on how to recover the required non-secret receipt or authorize any future
   provider action.
+- This is not a fresh verifier verdict: `verification.result` remains
+  `pending` so a later S22 verifier is not misrouted through the planner-only
+  blocked-verdict guard.
