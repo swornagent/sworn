@@ -8,10 +8,10 @@
     "N-04",
     "N-05"
   ],
-  "state": "implemented",
-  "owner": "unassigned",
+  "state": "in_progress",
+  "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T23:36:29+10:00",
+  "last_updated_at": "2026-07-17T23:49:11+10:00",
   "start_commit": "406430bc639421dd4319b60aee5f04a2d505c3cb",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
