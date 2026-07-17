@@ -1,43 +1,49 @@
 ---
-title: Slice proof bundle — S02-tui-ref-aware-release-navigation
-description: Rule 6 proof bundle rendered from proof.json and live repository checks.
+title: 'Proof bundle — S02-tui-ref-aware-release-navigation'
+description: 'Ref-aware TUI release navigation with immutable catalog snapshots and explicit uncommitted evidence.'
+date: 2026-07-18
 ---
 
-# Proof Bundle: `S02-tui-ref-aware-release-navigation`
+# Proof bundle — S02-tui-ref-aware-release-navigation
 
-Rendered from `proof.json` (proof-v1). First passing implementation proof.
+> Rendered from `proof.json` (proof-v1). The JSON record is the source of truth.
 
 ## Scope
 
-The SwornAgent TUI discovers and opens non-HEAD release boards from the shared
-catalog snapshot, preserves selected `sourceRef` identity across asynchronous
-loads, and visibly marks uncommitted state evidence.
+The SwornAgent TUI discovers and asynchronously opens the same immutable ref-only release catalog
+snapshot and high-water slice evidence as the board command. It marks uncommitted evidence in text
+and consumes the board package's read-only filesystem fallback when no usable Git HEAD exists.
+
+## Files changed
+
+`git diff --name-only 406430bc639421dd4319b60aee5f04a2d505c3cb..HEAD` identifies the
+implementation surfaces in `internal/board/discovery*` and `internal/tui/{board,model,releases,tui_test}.go`,
+plus this slice's proof/status/journal and the planner's committed re-scope artefacts.
 
 ## Test results
 
-- `go test ./internal/tui ./internal/board ./cmd/sworn` — PASS
-- `go test ./...` — PASS
-- `go vet ./...` — PASS
-- `gofmt -l .` — PASS (empty output)
-- semantic-coverage check — PASS
-- AC-satisfaction check — PASS for AC-01 through AC-04
+- Required package tests passed: `go test ./internal/tui ./internal/board ./cmd/sworn`.
+- Repository-wide tests passed: `go test ./...`.
+- Static checks passed: `go vet ./...`; `gofmt -l .` produced no output.
+- Coverage passed with 4/4 ACs mapped to tests.
+- The configured AC-satisfaction check returned `PASS` with four non-blocking informational findings.
 
 ## Reachability artefact
 
-Integration fixtures exercise ref-only discovery, CLI/TUI state-evidence parity,
-catalog-backed asynchronous board loading, stale-`sourceRef` rejection, shared
-non-Git fallback, and committed versus uncommitted textual rendering.
+The verbose named test command recorded in `proof.json` passed all nine integration cases. The
+primary fixture creates a real temporary Git repository whose HEAD contains no release board,
+selects `refs/heads/release-wt/ref-only-release`, drives Enter through the root Bubble Tea
+`Model.Update`, executes the returned asynchronous command, and observes the same T1 plan and
+verified/committed SliceState evidence as `board.DiscoverCatalog` (the `sworn board` authority).
 
 ## Delivered
 
-- AC-01: ref-only releases and their elected state evidence reach the TUI from
-  the selected catalog record.
-- AC-02: uncommitted evidence receives textual markers in the board and selected
-  release aggregate; committed evidence does not.
-- AC-03: catalog errors remain fail-closed, while no-HEAD filesystem fallback is
-  read-only, ordered, and conservatively classified as uncommitted.
-- AC-04: existing navigation remains bounded and asynchronous results are
-  accepted only when both release ID and `sourceRef` still match.
+- **AC-01:** one selected CatalogRecord supplies release identity, topology, and high-water state.
+- **AC-02:** exact `[uncommitted]` text is derived only from catalog durability evidence.
+- **AC-03:** no-HEAD filesystem discovery is read-only, ordered, provenance-conservative, and
+  fail-closed for a present malformed or identity-mismatched board.
+- **AC-04:** ordering, navigation, Loading… feedback, async completion, and sourceRef staleness
+  protection remain intact.
 
 ## Not delivered
 
@@ -46,3 +52,7 @@ None.
 ## Divergence from plan
 
 None.
+
+## First-pass verdict
+
+`PASS` — the proof-bundle gate exited 0 against this live bundle.

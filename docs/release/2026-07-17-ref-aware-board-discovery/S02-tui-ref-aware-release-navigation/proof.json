@@ -2,7 +2,7 @@
   "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
   "slice_id": "S02-tui-ref-aware-release-navigation",
   "release": "2026-07-17-ref-aware-board-discovery",
-  "scope": "The SwornAgent TUI operator can discover and open non-HEAD release boards using the S01 catalog snapshot, preserve selected sourceRef identity for async loads, and render explicit durability markers from the shared state-evidence fields.",
+  "scope": "A SwornAgent TUI operator can discover and asynchronously open the same immutable ref-only release catalog snapshot and high-water slice evidence as the board command, with explicit textual markers for uncommitted evidence and a read-only filesystem fallback when no usable Git HEAD exists.",
   "files_changed": [
     "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md",
     "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
@@ -24,55 +24,65 @@
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "2026-07-18 live run: internal/tui and internal/board passed"
+      "output_ref": "live completion run 2026-07-18 — all three packages passed"
     },
     {
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "2026-07-18 live run: all packages passed"
+      "output_ref": "live completion run 2026-07-18 — repository-wide suite passed"
     },
     {
       "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "2026-07-18 live run: empty output"
+      "output_ref": "live completion run 2026-07-18"
     },
     {
       "command": "/usr/local/go/bin/gofmt -l .",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "2026-07-18 live run: empty output"
+      "output_ref": "live completion run 2026-07-18 — empty output"
     },
     {
-      "command": "sworn llm-check -type semantic-coverage -slice S02-tui-ref-aware-release-navigation -release 2026-07-17-ref-aware-board-discovery -json",
+      "command": "sworn lint coverage --slice S02-tui-ref-aware-release-navigation --release 2026-07-17-ref-aware-board-discovery --base 406430bc639421dd4319b60aee5f04a2d505c3cb",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "verdict PASS; all four ACs mapped to integration evidence"
+      "output_ref": "live completion run 2026-07-18 — 4/4 acceptance checks covered"
     },
     {
-      "command": "sworn llm-check -type ac-satisfaction -slice S02-tui-ref-aware-release-navigation -release 2026-07-17-ref-aware-board-discovery -json",
+      "command": "sworn llm-check --type ac-satisfaction --slice S02-tui-ref-aware-release-navigation --release 2026-07-17-ref-aware-board-discovery --base 406430bc639421dd4319b60aee5f04a2d505c3cb",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "verdict PASS; AC-01 through AC-04 satisfied"
+      "output_ref": "live completion run 2026-07-18 — PASS with four non-blocking informational findings"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board -run 'Test(RefOnlyReleaseListAndBoardUsesCatalogSnapshot|RefOnlyBoardAndCLIStateEvidenceAgree|BoardViewRendersCatalogStateDurability|ReleasesListRendersCatalogUncommittedAggregate|DiscoverCatalogFilesystemFallbackWithoutUsableHead|ReleasesListCatalogFailureIsVisible|ReleasesListUsesSharedNonGitCatalogFallback|RefAwareReleaseInteractionContract|RefOnlyBoardLoadRejectsStaleDifferentSourceRef)$' -count=1 -v",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live reachability run 2026-07-18 — all nine named integration tests passed"
     }
   ],
   "reachability": {
-    "type": "cli-run",
-    "evidence": "2026-07-18 live runs from the track worktree passed the targeted TUI/board/CLI test set and the full Go suite. Reachability is exercised by TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot, TestRefOnlyBoardAndCLIStateEvidenceAgree, TestBoardViewRendersCatalogStateDurability, TestReleasesListRendersCatalogUncommittedAggregate, TestReleasesListUsesSharedNonGitCatalogFallback, TestRefAwareReleaseInteractionContract, and TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef."
+    "type": "e2e-test",
+    "evidence": "The named verbose command in test_results drove the root Bubble Tea Model entry point in a real temporary Git repository whose HEAD had no release, selected refs/heads/release-wt/ref-only-release, executed the Enter-returned asynchronous command, and observed T1-core plus the exact verified/committed state from refs/heads/track/ref-only-release/T1-core. It also proved no-HEAD fallback, exact [uncommitted] markers, visible catalog failure, navigation/loading, and stale sourceRef rejection; all nine tests passed."
   },
   "delivered": [
     {
-      "item": "AC-01 and AC-04 — release discovery and async board load now flow from catalog records and reject stale sourceRef board payloads.",
-      "evidence": "internal/board/discovery.go; internal/board/oracle.go; internal/tui/releases.go; internal/tui/model.go; internal/tui/board.go"
+      "item": "AC-01 — the releases pane and selected board consume one immutable all-ref CatalogRecord, preserving the canonical topology sourceRef and the exact high-water SliceState evidence selected by the board authority.",
+      "evidence": "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot and TestRefOnlyBoardAndCLIStateEvidenceAgree"
     },
     {
-      "item": "AC-02 — `[uncommitted]` is rendered from state durability and aggregate sourceRef-based labels.",
-      "evidence": "internal/tui/board.go; internal/tui/releases.go; internal/tui/model.go"
+      "item": "AC-02 — board rows and the selected release aggregate render the exact textual [uncommitted] marker only from StateDurability, without reading or re-ranking status evidence.",
+      "evidence": "internal/tui/tui_test.go:TestBoardViewRendersCatalogStateDurability and TestReleasesListRendersCatalogUncommittedAggregate"
     },
     {
-      "item": "AC-03 and AC-04 error/selection paths avoid filesystem fallback parser and maintain deterministic async transition state.",
-      "evidence": "internal/tui/releases.go; internal/tui/model.go; internal/tui/board.go"
+      "item": "AC-03 — DiscoverCatalog provides a bytewise, read-only board-package filesystem fallback for non-Git or unborn roots, prefers board.json without lazy migration, projects matching status as working-tree/uncommitted, and surfaces catalog identity failures unchanged through Model.View without partial releases.",
+      "evidence": "internal/board/discovery_test.go:TestDiscoverCatalogFilesystemFallbackWithoutUsableHead; internal/tui/tui_test.go:TestReleasesListCatalogFailureIsVisible and TestReleasesListUsesSharedNonGitCatalogFallback"
+    },
+    {
+      "item": "AC-04 — bytewise list ordering, bounded j/k/up/down navigation, asynchronous Loading… state, and release-plus-sourceRef stale-result rejection remain reachable through Model.Update.",
+      "evidence": "internal/tui/tui_test.go:TestRefAwareReleaseInteractionContract and TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef; required test commands all exit 0"
     }
   ],
   "not_delivered": [],
