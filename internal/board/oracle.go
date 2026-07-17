@@ -57,7 +57,9 @@ type SliceState struct {
 	VerificationResult string `json:"-"`
 	// Violations is the verification.violations array from status.json.
 	// Exposed for the router (S58) to classify violations by gate.
-	Violations []string `json:"-"`
+	Violations      []string `json:"-"`
+	StateSource     string   `json:"stateSource"`
+	StateDurability string   `json:"stateDurability"`
 }
 
 // TrackState is the board-level track entry.

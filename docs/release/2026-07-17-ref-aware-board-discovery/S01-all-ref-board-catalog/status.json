@@ -10,11 +10,11 @@
     "N-04",
     "N-05"
   ],
-  "state": "planned",
-  "owner": "unassigned",
-  "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-17T06:48:23+10:00",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-17T22:55:20+10:00",
+  "start_commit": "130a304a4cf108734a026f8037bc645718e99363",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
   "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/journal.md",
@@ -32,16 +32,33 @@
     "cmd/sworn/board.go",
     "cmd/sworn/board_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/journal.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/status.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/index.md",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/board/oracle.go",
+    "internal/board/status_evidence_test.go",
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],
   "test_commands": [
-    "go test ./internal/git ./internal/board ./cmd/sworn",
-    "go test ./...",
-    "go vet ./...",
-    "test -z \"$(gofmt -l .)\""
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/git ./internal/board ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./cmd/sworn -run '^TestBoardCLI(AllRefsCatalogStateEvidenceReachability|AllRefsCatalogSourceRef|AllRefsCatalogCanonicalSkewFailsClosed|AllRefsCatalogSkipsInvalidNoncanonicalTopology|StateEvidenceProvenance|NamedReleaseJSONShapeCompatibility|NamedAndCatalogStateEvidenceAgree|AllRefsCatalogReadOnly)$' -count=1 -v",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "/usr/local/go/bin/gofmt -l .",
+    "sworn lint coverage --slice S01-all-ref-board-catalog --release 2026-07-17-ref-aware-board-discovery"
   ],
   "reachability_artifacts": [
     "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: non-HEAD discovery/state-evidence mutation transcript"
+    "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogSkipsInvalidNoncanonicalTopology",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: live project-root aggregate/named command transcript and non-HEAD discovery/state-evidence mutation transcript"
   ],
   "maintainability": {
     "state": "pending",
@@ -57,13 +74,13 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "See spec.json; one state-evidence authority crosses Git, board, CLI, lifecycle selection, provenance, and real-ref integration boundaries.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-17T22:55:20+10:00",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.2.0",
