@@ -99,3 +99,39 @@
 - This is not a fresh verifier verdict: `verification.result` remains
   `pending` so a later S22 verifier is not misrouted through the planner-only
   blocked-verdict guard.
+
+## 2026-07-17T17:51:30+10:00 — Coach-authorized S22 receipt recovery
+
+- The Coach expressly ratified a narrow recovery after the advisory audit:
+  add deterministic rejection of JSON `null` tool arguments and of a returned
+  tool call whose `type` is not `function`. These are S22-only changes to the
+  already-planned `internal/model/oai.go` and
+  `internal/model/structured_test.go` touchpoints; the existing T1 code and
+  immutable start commit `a09b0e46df465862d00469d4aef2a997442b3d5b` are
+  preserved.
+- The prior AC-06 invocation has no usable sanitized receipt and is neither a
+  PASS nor a FAIL. It is not evidence of a completed proof and is not a fresh
+  verifier result.
+- After AC-07, AC-08, and every deterministic S22 gate pass, exactly one new
+  direct `openrouter/z-ai/glm-5.2` `spec-ambiguity` proof is authorized. This
+  is a Coach-authorized recovery action, not a silent retry.
+- The only retained receipt fields are check identity, model ID, immutable
+  start commit, process exit code, and PASS/FAIL/BLOCKED/UNPARSEABLE result.
+  Raw provider/model output is private-temporary then destroyed, or never
+  retained. There is no fallback and no further retry.
+- The external evidence block is cleared by moving only S22 back to
+  `in_progress` for a fresh Implementer. S20 remains blocked and untouched;
+  it cannot resume without the one new receipt followed by a fresh S22
+  verifier PASS.
+
+## 2026-07-17T17:56:38+10:00 — Planner deterministic validation
+
+- Re-rendered `index.md` from `board.json` and the current slice records.
+  `jq` parsing and `git diff --check` passed.
+- Passed the non-provider planner gates for the entire release: `sworn lint
+  ac`, `sworn lint trace`, `sworn reqvalidate`, `sworn designfit`, and `sworn
+  specquality`.
+- No provider/model/LLM call was made. In particular, the future AC-06 direct
+  proof and model-backed requirements checks were intentionally not run under
+  this Planner session's scope; this is not a waiver of the one newly
+  authorized S22 proof.
