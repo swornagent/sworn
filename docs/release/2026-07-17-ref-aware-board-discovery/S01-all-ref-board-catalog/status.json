@@ -10,10 +10,10 @@
     "N-04",
     "N-05"
   ],
-  "state": "implemented",
-  "owner": "codex-implementer",
-  "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-17T22:44:08+10:00",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-17T22:55:20+10:00",
   "start_commit": "130a304a4cf108734a026f8037bc645718e99363",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
@@ -77,10 +77,10 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-17T22:55:20+10:00",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.2.0",

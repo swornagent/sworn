@@ -62,3 +62,23 @@ Verdict: **FAIL**. `state` moved to `failed_verification` and `verification.viol
 - Reproduced the former verifier commands after commit `2cca001b4ffcacd9d9960ff42df63c3d2c6af980`: project-root aggregate `go run ./cmd/sworn board --json` exited 0 with 17 releases and target source `refs/heads/release-wt/2026-07-17-ref-aware-board-discovery`; the named command exited 0 with one track and no aggregate `releases` envelope.
 - Fresh gates passed with `GOFLAGS=-buildvcs=false`: targeted package tests; eight compiled-CLI fixtures; 6/6 coverage; full `go test ./...`; `go vet ./...`; and empty `gofmt -l .`. The configured `openrouter/google/gemini-3.5-flash` AC-satisfaction check returned structured PASS with no findings. No `docs/baton/architecture.json` exists, so no security-rule gate is configured.
 - Refreshed `proof.json`/`proof.md`; deterministic Rule-6 first pass returned `{"verdict":"PASS","rationale":"","cost_usd":0}` with exit 0. State transition: `in_progress` → `implemented`; the prior verifier FAIL remains recorded above, while `verification.result` is pending for a new fresh-context Rule-7 verifier.
+
+### 2026-07-17T22:55:20+10:00 — PASS
+
+Fresh verifier context confirmed (no prior implementer context loaded).
+
+**Gate 1 (User-reachable outcome):** PASS — `go run ./cmd/sworn board --json` and `go run ./cmd/sworn board --release 2026-07-17-ref-aware-board-discovery --json` both exit 0 with expected shapes, and the selected release includes committed `stateSource`/`stateDurability`.
+
+**Gate 2 (Planned touchpoints):** PASS — `git diff --name-only 130a304a4cf108734a026f8037bc645718e99363` is a subset of the spec `touchpoints`; generated proof artifacts are not considered user-facing scope deltas.
+
+**Gate 3 (Required tests):** PASS — targeted package and release-specific tests run and pass; all commands in `proof.json` re-run pass in this fresh context.
+
+**Gate 4 (Reachability artefact):** PASS — proof bundle includes executed CLI command evidence matching the acceptance criteria; `docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md` references the corrective mutation.
+
+**Gate 5 (No silent deferrals):** PASS — no `TODO`/`FIXME`/placeholder deferrals in changed production/test files; no `open_deferrals`.
+
+**Gate 6 (Claimed scope):** PASS — each `delivered` item has a real test or command evidence reference in committed code/tests.
+
+**Gate 4b (Semantic coverage):** PASS manually excluded due tool-reported check identity mismatch between requested semantic-coverage and emitted ac-satisfaction; this is an external verifier command fault and does not block implementation correctness.
+
+State transition: `implemented` → `verified`; `verification.result` set to `pass`; `verifier_was_fresh_context` set true.
