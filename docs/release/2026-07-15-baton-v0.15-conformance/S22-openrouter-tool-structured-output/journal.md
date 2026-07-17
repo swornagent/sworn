@@ -221,3 +221,19 @@ this is not a fresh verifier verdict.
   verified/PASS at immutable start ed0badf68673f0af84834458f07be0792555484f.
   The release-wt copy is corrected to that verified state; S22 must remain
   gated if this upstream evidence is not preserved.
+
+## 2026-07-18T07:03:29+10:00 — Automatic Coach acknowledgement of revised Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the fresh
+  Captain review in commit `223f687` is acknowledged. Its `PROCEED` verdict
+  supersedes the earlier review and has no `[escalate]` pins or new Type-1
+  decision.
+- Apply both inline pins during implementation: keep
+  `openrouter/z-ai/glm-5.2` proof-only (never a default, catalogue, or
+  routing change), and retain the AC-05 direct-base and proxy-isolation
+  regressions in the proof evidence.
+- This acknowledgement authorizes only the normal S22 implementation lifecycle.
+  It does not authorize a provider call until the native receipt facility,
+  deterministic gates, proof bundle, and all S22 preconditions are complete;
+  the one remaining live attempt remains attempt 2 only, with no fallback or
+  third dispatch.
