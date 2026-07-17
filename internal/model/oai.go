@@ -395,6 +395,9 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 
 	content, err := normaliseStructuredContent(cr.Choices[0].Message.Content)
 	if err != nil {
+		if c.toolCallPolicy == structuredToolCallRequireExactEmit {
+			return nil, &StructuredOutputError{Kind: StructuredOutputOpaque}
+		}
 		return nil, err
 	}
 	cr.Choices[0].Message.Content = content
@@ -409,16 +412,16 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 func (c *OAI) structuredToolCallArguments(calls []ToolCall) (string, error) {
 	if c.toolCallPolicy == structuredToolCallRequireExactEmit {
 		if len(calls) != 1 {
-			return "", fmt.Errorf("model: structured output: expected exactly one forced tool call")
+			return "", &StructuredOutputError{Kind: StructuredOutputMalformedTool, message: "model: structured output: expected exactly one forced tool call"}
 		}
 		if calls[0].Type != "function" {
-			return "", fmt.Errorf("model: structured output: expected forced tool call type function")
+			return "", &StructuredOutputError{Kind: StructuredOutputMalformedTool, message: "model: structured output: expected forced tool call type function"}
 		}
 		if calls[0].Function.Name != structuredToolName {
-			return "", fmt.Errorf("model: structured output: unexpected forced tool call")
+			return "", &StructuredOutputError{Kind: StructuredOutputMalformedTool, message: "model: structured output: unexpected forced tool call"}
 		}
 		if calls[0].Function.argumentsJSONNull {
-			return "", fmt.Errorf("model: structured output: forced tool arguments must not be JSON null")
+			return "", &StructuredOutputError{Kind: StructuredOutputMalformedTool, message: "model: structured output: forced tool arguments must not be JSON null"}
 		}
 		return calls[0].Function.Arguments, nil
 	}

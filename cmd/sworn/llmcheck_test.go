@@ -596,6 +596,134 @@ func TestLLMCheckOpenAIEnvelopeBinaryRejectsInvalidCanonicalResponse(t *testing.
 	}
 }
 
+// TestLLMCheckProofReceiptBinaryReachability is the public reachability gate
+// for S22. It drives the built binary through the direct forced-tool wire,
+// records only the strict metadata receipt, and proves neither the synthetic
+// credential, endpoint, nor model response reaches public output.
+func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
+	const (
+		release = "2026-07-15-baton-v0.15-conformance"
+		slice   = "S22-openrouter-tool-structured-output"
+		start   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
+		modelID = "openrouter/z-ai/glm-5.2"
+	)
+
+	root := llmCheckRepoFixture(t)
+	releaseDir := filepath.Join(root, "docs", "release", release)
+	sliceDir := filepath.Join(releaseDir, slice)
+	write := func(path, contents string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(releaseDir, "index.md"), "# S22 fixture\n")
+	write(filepath.Join(sliceDir, "spec.json"), `{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "user_outcome": "A native receipt records one bounded proof.",
+  "covers_needs": ["N-10"],
+  "acceptance_criteria": [{"id":"AC-01","text":"WHEN the fixture runs THE SYSTEM SHALL retain only a receipt.","ears_pattern":"event-driven"}],
+  "in_scope": [],
+  "out_of_scope": [],
+  "references": []
+}
+`)
+	write(filepath.Join(sliceDir, "status.json"), `{
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b"
+}
+`)
+	write(filepath.Join(sliceDir, "receipts", "attempt-1.json"), `{
+  "$schema": "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json",
+  "record_version": 1,
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "check_type": "spec-ambiguity",
+  "model_id": "openrouter/z-ai/glm-5.2",
+  "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
+  "attempt": 1,
+  "attempt_class": "receipt_failure",
+  "result": "UNPARSEABLE",
+  "process_exit_code": "unavailable"
+}
+`)
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		calls.Add(1)
+		var request struct {
+			Tools []struct {
+				Type     string `json:"type"`
+				Function struct {
+					Name       string          `json:"name"`
+					Parameters json.RawMessage `json:"parameters"`
+				} `json:"function"`
+			} `json:"tools"`
+			ToolChoice     json.RawMessage `json:"tool_choice"`
+			ResponseFormat json.RawMessage `json:"response_format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error("proof receipt request was not JSON")
+			return
+		}
+		if len(request.Tools) != 1 || request.Tools[0].Type != "function" || request.Tools[0].Function.Name != "emit_structured_output" || len(request.Tools[0].Function.Parameters) == 0 || len(request.ToolChoice) == 0 || len(request.ResponseFormat) != 0 {
+			t.Error("proof receipt did not use the direct forced-tool contract")
+			return
+		}
+		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.15-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{"s22.advisory":{"id":"F-01","severity":"info","title":"advisory","detail":"S22-RESPONSE-CANARY","criterion_id":"AC-01","ambiguity_kind":"vague-language","observable_divergence":"fixture evidence","contract_surface":"verification-evidence","semantic_subject":"fixture","suggested_resolution":"none"}}}`
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"tool_calls": []any{map[string]any{
+				"id": "call-1", "type": "function", "function": map[string]any{"name": "emit_structured_output", "arguments": arguments},
+			}}}}},
+		})
+	}))
+	defer server.Close()
+
+	configPath := llmCheckConfig(t, modelID)
+	cmd := exec.Command(buildSworn(t), "llm-check", "--proof-receipt", "--type", "spec-ambiguity", "--slice", slice, "--release", release, "--model", modelID, "--base", start)
+	cmd.Dir = root
+	cmd.Env = append(hermeticLLMCheckEnv(t, configPath, "SWORN_OPENROUTER_BASE_URL", server.URL), "OPENROUTER_API_KEY=S22-SYNTHETIC-KEY-CANARY")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("proof receipt command failed with exit %d", cmd.ProcessState.ExitCode())
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("proof receipt requests = %d, want 1", calls.Load())
+	}
+	for _, forbidden := range []string{"S22-SYNTHETIC-KEY-CANARY", "S22-RESPONSE-CANARY", server.URL} {
+		if bytes.Contains(output, []byte(forbidden)) {
+			t.Fatalf("public proof receipt output leaked protected data")
+		}
+	}
+	receiptBytes, err := os.ReadFile(filepath.Join(sliceDir, "receipts", "attempt-2.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"S22-SYNTHETIC-KEY-CANARY", "S22-RESPONSE-CANARY", server.URL} {
+		if bytes.Contains(receiptBytes, []byte(forbidden)) {
+			t.Fatalf("proof receipt leaked protected data")
+		}
+	}
+	var receipt struct {
+		Attempt int    `json:"attempt"`
+		Result  string `json:"result"`
+	}
+	if err := json.Unmarshal(receiptBytes, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Attempt != 2 || receipt.Result != "PASS" {
+		t.Fatalf("receipt identity = attempt %d result %q, want attempt 2 PASS", receipt.Attempt, receipt.Result)
+	}
+}
+
 func llmCheckRepoFixture(t *testing.T) string {
 	t.Helper()
 	root := llmCheckFixture(t)

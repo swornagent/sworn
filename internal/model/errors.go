@@ -1,8 +1,11 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -36,6 +39,110 @@ func (k ErrorKind) String() string {
 	default:
 		return "other"
 	}
+}
+
+// ProofReceiptErrorClass is the deliberately narrow error taxonomy used by
+// S22's native proof receipt. It is separate from IsTransient: legacy callers
+// deliberately retry unknown failures once, while a receipt may retry only an
+// explicit typed environmental condition.
+type ProofReceiptErrorClass string
+
+const (
+	ProofReceiptErrorUnknown       ProofReceiptErrorClass = "unknown"
+	ProofReceiptErrorHTTPClient    ProofReceiptErrorClass = "http_client_error"
+	ProofReceiptErrorRateLimit     ProofReceiptErrorClass = "rate_limit"
+	ProofReceiptErrorUpstream      ProofReceiptErrorClass = "upstream"
+	ProofReceiptErrorTransient     ProofReceiptErrorClass = "transient"
+	ProofReceiptErrorNetwork       ProofReceiptErrorClass = "network"
+	ProofReceiptErrorDeadline      ProofReceiptErrorClass = "deadline"
+	ProofReceiptErrorMalformedTool ProofReceiptErrorClass = "malformed_tool"
+	ProofReceiptErrorOpaque        ProofReceiptErrorClass = "opaque"
+)
+
+// StructuredOutputFailureKind is a typed local wire outcome. It ensures the
+// proof-receipt classifier never has to inspect a provider error string.
+type StructuredOutputFailureKind uint8
+
+const (
+	StructuredOutputMalformedTool StructuredOutputFailureKind = iota + 1
+	StructuredOutputOpaque
+)
+
+// StructuredOutputError is safe to return through existing model interfaces:
+// its text carries only the stable class, never an endpoint, payload, or key.
+type StructuredOutputError struct {
+	Kind    StructuredOutputFailureKind
+	message string
+}
+
+func (e *StructuredOutputError) Error() string {
+	if e != nil && e.message != "" {
+		return e.message
+	}
+	if e != nil && e.Kind == StructuredOutputMalformedTool {
+		return "model: structured output malformed tool call"
+	}
+	return "model: structured output opaque response"
+}
+
+// ClassifyProofReceiptError classifies only typed transport and local wire
+// facts. It never matches error-message text, so opaque provider bodies,
+// requests, credentials, endpoints, and arbitrary local errors cannot become
+// retry authority.
+func ClassifyProofReceiptError(err error) ProofReceiptErrorClass {
+	if err == nil {
+		return ProofReceiptErrorUnknown
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ProofReceiptErrorDeadline
+	}
+
+	var structuredErr *StructuredOutputError
+	if errors.As(err, &structuredErr) {
+		if structuredErr.Kind == StructuredOutputMalformedTool {
+			return ProofReceiptErrorMalformedTool
+		}
+		return ProofReceiptErrorOpaque
+	}
+
+	var providerErr *Error
+	if errors.As(err, &providerErr) {
+		switch providerErr.Kind {
+		case KindRateLimit:
+			return ProofReceiptErrorRateLimit
+		case KindUpstream:
+			return ProofReceiptErrorUpstream
+		case KindTransient:
+			return ProofReceiptErrorTransient
+		case KindAuth, KindCredits:
+			return ProofReceiptErrorHTTPClient
+		case KindOther:
+			if providerErr.Status >= 400 && providerErr.Status < 500 {
+				return ProofReceiptErrorHTTPClient
+			}
+			return ProofReceiptErrorUnknown
+		default:
+			return ProofReceiptErrorUnknown
+		}
+	}
+
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return ProofReceiptErrorOpaque
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return ProofReceiptErrorOpaque
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) {
+		if networkErr.Timeout() {
+			return ProofReceiptErrorDeadline
+		}
+		return ProofReceiptErrorNetwork
+	}
+
+	return ProofReceiptErrorUnknown
 }
 
 // Error wraps a provider error with a classified Kind. It implements both
