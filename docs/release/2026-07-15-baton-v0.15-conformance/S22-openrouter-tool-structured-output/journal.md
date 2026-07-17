@@ -42,3 +42,25 @@
   and deferred live-check boundary. Run a fresh Captain
   `/design-review S22-openrouter-tool-structured-output 2026-07-15-baton-v0.15-conformance`
   before implementation.
+
+## 2026-07-17T11:04:16+10:00 — Automatic Coach acknowledgement and Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the
+  Captain's `PROCEED` verdict in `review.md` (commit `6665355`) is
+  acknowledged. There are no `[escalate]` pins and no new Type-1 decision to
+  seek.
+- Apply pin 1 inline: bind the stricter tool-call policy exclusively to direct
+  OpenRouter; prove proxy OpenRouter, unprofiled OAI, and Ollama reject before
+  dispatch, and preserve existing DeepSeek forced-tool behavior.
+- Apply pin 2 inline: validate relative, hostless, and non-HTTP(S)
+  `SWORN_OPENROUTER_BASE_URL` values as pre-dispatch failures; prove proxy and
+  other-provider endpoint isolation.
+- Apply pin 3 inline: preserve canonical report parameters and S04
+  requested/emitted equality as semantic authority, with no repair, fallback,
+  retry, or synthetic report.
+- The skipped design-review LLM check is a no-network limitation, not an
+  AC-06 waiver. Only after deterministic evidence may S22 perform one direct
+  `openrouter/z-ai/glm-5.2` `spec-ambiguity` proof; S20 remains blocked until
+  a fresh S22 verifier PASS.
+- Proceed to `in_progress` only in a fresh Implementer session. That session
+  must stop at `implemented`; only a fresh S22 verifier certifies the slice.
