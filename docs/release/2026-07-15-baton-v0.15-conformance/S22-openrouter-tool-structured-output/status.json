@@ -9,10 +9,10 @@
     "N-13",
     "N-14"
   ],
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "implementer",
-  "last_updated_by": "planner-replan",
-  "last_updated_at": "2026-07-18T08:38:47+10:00",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-18T07:06:24+10:00",
   "upstream_gate": {
     "slice_id": "S21-openai-structured-envelope",
     "required_state": "verified",
@@ -20,8 +20,6 @@
     "authoritative_track_status_commit": "240a2ede9a5fd022ae403ced30a6a5f80d918747",
     "immutable_start_commit": "ed0badf68673f0af84834458f07be0792555484f",
     "verifier_verdict_at": "2026-07-17T09:32:45+10:00",
-    "required_verifier_was_fresh_context": true,
-    "required_status_path": "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/status.json",
     "ordering_evidence": "S21 immediately precedes S22 in T1-foundation serial board order"
   },
   "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
@@ -36,8 +34,6 @@
     "internal/gate/llmcheck_receipt.go",
     "internal/gate/llmcheck_receipt_test.go",
     "internal/gate/llmcheck_test.go",
-    "internal/mcp/lint.go",
-    "internal/mcp/lint_test.go",
     "internal/model/config.go",
     "internal/model/errors.go",
     "internal/model/errors_test.go",
@@ -49,10 +45,28 @@
     "internal/model/provider_test.go",
     "internal/model/structured_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/llmcheck_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/intake.md",
+    "internal/gate/llmcheck_test.go",
+    "internal/model/config.go",
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/structured_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model -run 'Test(NewClient_OpenRouterDirectUsesStructuredToolCall|OpenRouterChatStructuredUsesCanonicalForcedTool|OpenRouterStructuredRejectsInvalidToolCall|ProxyOpenRouterRemainsStructuredUnsupported|FromEnvOpenRouterDirectBaseURLOverride|FromEnvOpenRouterProxyIgnoresDirectBaseURLOverride|OllamaRemainsVerifyOnly|ProofReceiptRetryClassification)' -count=1",
-    "go test ./internal/gate ./internal/mcp ./cmd/sworn -run 'Test(OpenRouterToolPathStillFailsFullCanonicalReportViolations|LLMCheckOpenRouterToolStructured|ProofReceipt|LLMCheckPublicOutputExcludesRawResponse|LintTools_LLMCheckProviderErrorSanitizedReachability|LintTools_LLMCheckProviderErrorLeakCanary)' -count=1",
+    "go test ./internal/gate ./cmd/sworn -run 'Test(OpenRouterToolPathStillFailsFullCanonicalReportViolations|LLMCheckOpenRouterToolStructured|ProofReceipt)' -count=1",
     "go test ./... -count=1",
     "go vet ./...",
     "make build",
@@ -60,7 +74,6 @@
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint and asserts the metadata-only receipt, canonical verdict/exit behavior, and no raw output.",
-    "internal/mcp/lint_test.go:TestLintTools_LLMCheckProviderErrorSanitizedReachability drives the registered sworn.llm_check MCP handler through a synthetic provider error and asserts its preserved error/non-success result with exactly the stable public diagnostic.",
     "No credentialed provider reachability artifact exists in this Planner replan. The historical receipt at receipts/attempt-1.json records only the ratified non-secret failure class and cannot authorize S20."
   ],
   "maintainability": {
@@ -76,7 +89,7 @@
     "effort": "high",
     "complexity": "high",
     "quadrant": "beast",
-    "rationale": "The material re-scope adds a public native proof mode, atomic metadata durability even under restoration failure, narrow error classification, a fixed MCP public-error contract, exact retry bounds, and a fresh review gate while preserving the direct-only transport boundary.",
+    "rationale": "The material re-scope adds a public native proof mode, atomic metadata durability, narrow error classification, confidentiality controls, exact retry bounds, and a fresh review gate while preserving the direct-only transport boundary.",
     "confirmed_by_implementer": false
   },
   "verification": {
@@ -85,7 +98,7 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": [],
-    "notes": "The former blocked evidence is retained as the historical attempt-1 receipt_failure in receipts/attempt-1.json. The 2026-07-18 narrow safety replan keeps S22 in design_review, adds only MCP public provider-error sanitization and exact atomic/S21-gate requirements, and is not a PASS, implementation, or verifier verdict. A fresh Captain design review and acknowledgement are mandatory before source work, and a fresh S22 verifier PASS remains required before S20 can resume."
+    "notes": "The former blocked evidence is retained as the historical attempt-1 receipt_failure in receipts/attempt-1.json. This material re-scope moves only S22 to design_review; it is not a PASS, implementation, or verifier verdict. Fresh Captain design review and acknowledgement are mandatory before source work, and a fresh S22 verifier PASS remains required before S20 can resume."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter proof produce a durable, bounded, sanitized receipt without weakening the canonical gate, proxy isolation, raw-data protections, or S20's independent verification gate.",
@@ -115,45 +128,29 @@
       "human_decision": "Ratified by the Coach, 2026-07-17: record the destroyed-output historical invocation only as attempt 1 receipt_failure/UNPARSEABLE and permit an attempt 2 only under the strict native facility, deterministic evidence, and a fresh Captain design review. No fallback, model default change, generic retry, or S20 activity is authorized.",
       "rationale": "A private metadata-only record makes proof state durable without preserving raw provider data. Atomic pre-dispatch reservation prevents an unevidenced dispatch; a narrow allowlist prevents error text, unknown failures, or invalid model output from becoming retry authority.",
       "architecturally_significant": true
-    },
-    {
-      "choice": "Preserve MCP error/non-success semantics while making provider/model failures expose one stable payload-free public diagnostic, and make receipt finalization fail closed even if reservation restoration also fails.",
-      "stake_class": "Type-1",
-      "options": [
-        "narrowly replan S22 to sanitize the public MCP error boundary and prove the second-fault receipt outcome",
-        "leave MCP outside the receipt boundary because the generic report JSON is sanitized",
-        "suppress or change MCP control/error semantics",
-        "permit an untrusted final receipt after a second write fault"
-      ],
-      "human_decision": "Ratified by Brad (Coach), 2026-07-18: treat the MCP provider-error path as part of S22's existing no-payload public-output guarantee, formally add its touchpoints and reachability canary, and keep the native receipt path fail closed. No provider call, routing change, default, proxy expansion, or retry-policy broadening is authorized.",
-      "rationale": "The audit proved that a wrapped provider error can carry response-derived message text despite receipt and JSON sanitization. A fixed MCP diagnostic preserves caller-visible failure semantics without retaining or disclosing provider data. A final verdict cannot remain authoritative when the recovery write itself fails.",
-      "architecturally_significant": true
     }
   ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-18T08:38:47+10:00",
+    "ratified_at": "2026-07-17T20:47:05+10:00",
     "positive_scenarios": [
-      "The serial T1 gate mechanically confirms S21's declared slice/release identity, authoritative-status reference, immutable start, verified/PASS result, non-empty verdict time, and fresh-context flag before S22 proof-receipt dispatch.",
+      "The serial T1 gate preserves S21-openai-structured-envelope verified/PASS from its immutable start before S22 design review, implementation, or proof-receipt dispatch.",
       "A built direct proof-receipt command reaches a local OpenRouter-shaped endpoint, reserves then finalizes one strict metadata-only record bound to the exact release, slice, check, model, and immutable start, and accepts a valid canonical result through the unchanged local gate.",
       "An explicit 429, 5xx, normalized network/deadline, runner, or receipt failure on attempt 1 permits exactly one second dispatch; a valid final result is then terminal.",
-      "The historical attempt-1 receipt_failure is bound to the selected release, slice, check, model, and immutable start commit and is eligible only for the revised native attempt-2 gate.",
-      "A registered sworn.llm_check MCP handler receiving a synthetic provider/model error remains an MCP error/non-success and emits exactly the fixed payload-free diagnostic."
+      "The historical attempt-1 receipt_failure is bound to the selected release, slice, check, model, and immutable start commit and is eligible only for the revised native attempt-2 gate."
     ],
     "negative_scenarios": [
-      "If S21 has an absent or mismatched identity, status reference, immutable start, verified/PASS result, verdict time, or fresh-context flag, S22 remains gated with zero provider dispatch.",
+      "If S21 no longer has its verified/PASS status, S22 remains gated with no implementation or proof-receipt dispatch.",
       "Preflight write failure, a mismatched release/slice/check/model/immutable-start binding, a final prior verdict, invalid receipt path, or exhausted budget makes zero provider requests and cannot consume or reuse S22 retry budget.",
       "HTTP 400/401/402, unknown/local errors, parse/schema/identity/malformed-tool/opaque outcomes, and all attempt-2 non-final outcomes make no additional request.",
-      "If finalization fails after rename and reservation restoration also fails, no final verdict remains trusted; only a durable receipt_failure/UNPARSEABLE outcome with unavailable exit semantics is retained or surfaced.",
-      "Hosted proxy, Ollama, unknown providers, raw payloads, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys remain excluded from receipts, normal output, JSON, MCP public errors, journals, docs, and Git-visible artifacts; S20 remains blocked until a fresh S22 verifier PASS."
+      "Hosted proxy, Ollama, unknown providers, raw payloads, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys remain excluded from receipts, normal output, JSON, journals, docs, and Git-visible artifacts; S20 remains blocked until a fresh S22 verifier PASS."
     ],
     "benefit_hypothesis": "A native, receipt-bound evidence path makes the user-selected proof diagnosable and recoverable exactly once without changing model/provider authority or exposing provider data."
   },
   "recovery": {
     "authorized_by": "Coach",
     "authorized_at": "2026-07-17T20:47:05+10:00",
-    "safety_replan_authorized_at": "2026-07-18T08:38:47+10:00",
     "policy_revision": "llm-check-proof-receipt-v1",
     "scope": "S22-openrouter-tool-structured-output only",
     "historical_attempt_receipt": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/receipts/attempt-1.json",
@@ -173,8 +170,6 @@
       "ordinal": 2,
       "may_dispatch_only_after": [
         "native receipt implementation and deterministic receipt/error/leak coverage",
-        "MCP provider-error reachability and leak-canary coverage",
-        "post-rename restoration-failure and fresh-S21-evidence zero-dispatch coverage",
         "full S22 suite, go vet, and build",
         "regenerated S22 proof bundle",
         "fresh Captain design review PROCEED and acknowledgement"
@@ -231,8 +226,14 @@
     ],
     "captain_review": {
       "required": true,
-      "prior_review": "superseded by the 2026-07-18 narrow safety replan",
+      "prior_review": "superseded by this material re-scope",
       "state": "awaiting_fresh_review"
     }
+  },
+  "preserved_t1_implementation": {
+    "track_head_before_replan_merge": "3b5a618f7c878d7370d90fc721db5e23cabff267",
+    "direct_tool_guard_commit": "57f05e7",
+    "handoff_commit": "3b5a618f7c878d7370d90fc721db5e23cabff267",
+    "note": "T1 direct-tool implementation is retained as prior work; the native receipt, retry, and output-sanitization scope remains subject to fresh design review."
   }
 }
