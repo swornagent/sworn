@@ -25,3 +25,10 @@ Executed 2026-07-17 (local):
 - `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...` (passed, exit 0).
 - `/usr/local/go/bin/gofmt -l .` (passed after formatter fix; output empty).
 - `go fmt` updates in `internal/tui/board.go` and `internal/tui/releases.go` were applied so `gofmt -l .` is clean.
+
+## 2026-07-17T23:50:30+10:00 — implementation blocked on S01 prerequisite
+
+- Reopened the slice from its recorded verifier FAIL because `status.json` still said `implemented` while the proof bundle recorded required test failures.
+- Reproduced `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test -count=1 ./internal/tui ./internal/board ./cmd/sworn` from the track worktree. `internal/tui` fails when `board.DiscoverCatalog` calls `git for-each-ref` in the established non-Git fixtures: `fatal: not a git repository (or any of the parent directories): .git`.
+- This is a gating prerequisite defect owned by `S01-all-ref-board-catalog`: its spec requires `DiscoverCatalog` to use a shared filesystem fallback when no usable Git HEAD exists. S02 AC-03 explicitly consumes that shared fallback and forbids a TUI-local parser.
+- Implementing the missing fallback in S02 would modify S01's already-verified authority surface and violate the one-slice boundary. Planner action is required to reopen/re-scope S01 or add an owning remediation slice, then return S02 to implementation.
