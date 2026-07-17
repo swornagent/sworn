@@ -9,7 +9,6 @@
     "internal/tui/board.go",
     "internal/tui/model.go",
     "internal/tui/releases.go",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.md",
     "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
     "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/status.json"
   ],
@@ -58,7 +57,7 @@
     }
   ],
   "not_delivered": [
-    "go test ./internal/tui ./internal/board ./cmd/sworn` and `go test ./...` currently fail only from test-context invocation; this appears unrelated to production-code changes and remains to be triaged by the verifier."
+    "go test ./internal/tui ./internal/board ./cmd/sworn and go test ./... currently fail only from test-context invocation; this appears unrelated to production-code changes and remains to be triaged by the verifier."
   ],
   "divergence": []
 }
