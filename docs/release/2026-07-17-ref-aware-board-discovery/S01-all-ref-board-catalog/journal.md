@@ -48,3 +48,9 @@ Fresh verifier context confirmed (no prior implementer context loaded).
 **Gate 6 (Claimed scope):** not reached due Gate 1 stop.
 
 Verdict: **FAIL**. `state` moved to `failed_verification` and `verification.violations` records the Gate 1 failure.
+
+## 2026-07-17 — re-enter implementation for legacy noncanonical topology
+
+- Reproduced the fresh verifier's Gate 1 result from the track worktree. Both `GOFLAGS=-buildvcs=false /usr/local/go/bin/go run ./cmd/sworn board --json` and the named release form stop before output because `refs/heads/audit/2026-07-02-conformance-gap-closure` holds a bare-string legacy `board.json` for `2026-06-27-conformance-foundation`.
+- This is within the existing S01 contract rather than a spec gap: canonical release-worktree skew remains fail-closed, while source-ref priority is defined over valid direct board records. The corrective path is to parse topology candidates deterministically before election, discard invalid noncanonical candidates, and retain canonical missing/malformed/identity-mismatch failures.
+- Re-entered `failed_verification` → `in_progress`; `verification.result` is reset to `pending` and the fresh verifier's exact FAIL remains above as durable history. `start_commit` remains `130a304a4cf108734a026f8037bc645718e99363` so the retry verifier sees the full contiguous slice diff.
