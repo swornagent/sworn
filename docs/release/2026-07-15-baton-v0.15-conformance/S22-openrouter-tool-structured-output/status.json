@@ -8,10 +8,10 @@
     "N-10",
     "N-13"
   ],
-  "state": "in_progress",
-  "owner": "implementer",
+  "state": "blocked",
+  "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T11:27:23+10:00",
+  "last_updated_at": "2026-07-17T11:33:17+10:00",
   "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
@@ -49,16 +49,7 @@
     "reports": [],
     "adjudication": null
   },
-  "open_deferrals": [
-    {
-      "item": "The S22 dedicated spec-ambiguity dispatch is temporarily deferred until the direct OpenRouter structured route exists.",
-      "why": "Current openrouter/ resolution deliberately fails closed before HTTP because it has no structured-output route; executing the dedicated planner check now would merely repeat that deterministic setup failure and cannot assess the new slice.",
-      "tracking": "S22-openrouter-tool-structured-output AC-06: run exactly one direct openrouter/z-ai/glm-5.2 spec-ambiguity check after deterministic implementation evidence and before S22 is marked implemented; a finding returns to Planner rework.",
-      "acknowledgement": "Coach selected openrouter/z-ai/glm-5.2 and directed the OpenRouter route on 2026-07-17. The acknowledgement does not waive the check, S22 fresh verification, or S20's separate later smoke.",
-      "acknowledged_by": "Coach",
-      "acknowledged_at": "2026-07-17T10:29:17+10:00"
-    }
-  ],
+  "open_deferrals": [],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
@@ -67,11 +58,12 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": []
+    "violations": [],
+    "notes": "AC-06 was invoked exactly once after deterministic gates. Its non-secret receipt was not recoverable from the execution channel after output disposal, so a clean result cannot be evidenced and no retry is permitted without new human authority."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter model produce a canonical generic-check result without weakening the fail-closed boundary for hosted proxy, Ollama, or unprofiled providers.",

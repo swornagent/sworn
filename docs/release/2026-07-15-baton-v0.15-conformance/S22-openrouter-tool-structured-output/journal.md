@@ -80,3 +80,19 @@
 - The immutable S22 diff base is `a09b0e46df465862d00469d4aef2a997442b3d5b`.
   No credentialed provider check has run yet; AC-06 remains gated on the full
   deterministic suite, vet, and build.
+
+## 2026-07-17T11:33:17+10:00 — AC-06 evidence block
+
+- Focused deterministic tests, `go test ./...`, `go vet ./...`, and `make
+  build` completed before the one authorized direct S22
+  `openrouter/z-ai/glm-5.2` `spec-ambiguity` command was invoked with the
+  immutable S22 start commit.
+- The command's output was redirected to avoid retaining any provider
+  diagnostic or model payload, then disposed. This execution channel returned
+  no sanitized exit/result receipt. No exported `OPENROUTER_API_KEY` was
+  present; no credential source was inspected or exposed.
+- A clean AC-06 result therefore cannot be evidenced. Per the exactly-once
+  constraint, no retry, fallback, repair, S20 activity, or real-home mutation
+  is permitted. S22 is blocked short of `implemented` pending a human decision
+  on how to recover the required non-secret receipt or authorize any future
+  provider action.
