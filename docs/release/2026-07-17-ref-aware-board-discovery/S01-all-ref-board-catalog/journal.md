@@ -33,3 +33,18 @@
 - Emitted `proof.json` and rendered `proof.md` from the current track state. The bundle records the required mutation transcript: restricting discovery to HEAD caused `TestBoardCLIAllRefsCatalogStateEvidenceReachability` to fail with `releases=0, want 2` (exit 1); restoration made the same compiled-CLI test pass (exit 0).
 - Deterministic Rule-6 proof first pass: `git diff --binary 130a304a4cf108734a026f8037bc645718e99363..HEAD | sworn verify --spec docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json --diff - --proof docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json` returned JSON `{"verdict":"PASS","rationale":"","cost_usd":0}` and exit 0.
 - State transition: `in_progress` → `implemented`. `verification.result` deliberately remains `pending`; no fresh-context Rule-7 verifier prompt or `verified` transition was run in this Implementer session.
+
+## Verifier verdicts received
+
+### 2026-07-17T22:25:48+10:00 — FAIL
+
+Fresh verifier context confirmed (no prior implementer context loaded).
+
+**Gate 1 (User-reachable outcome):** FAIL — `go run ./cmd/sworn board --json` and `go run ./cmd/sworn board --release 2026-07-17-ref-aware-board-discovery --json` both exit 2 instead of returning a catalog. stderr reports `release "2026-06-27-conformance-foundation" ref refs/heads/audit/2026-07-02-conformance-gap-closure: parse board.json: board release: not a canonical {name} object ...`, so the specified no-`--release` board path is not reproducibly reachable in the current code.
+**Gate 2 (Planned touchpoints):** not reached due Gate 1 stop.
+**Gate 3 (Required tests):** not reached due Gate 1 stop.
+**Gate 4 (Reachability artefact):** not reached due Gate 1 stop.
+**Gate 5 (No silent deferrals):** not reached due Gate 1 stop.
+**Gate 6 (Claimed scope):** not reached due Gate 1 stop.
+
+Verdict: **FAIL**. `state` moved to `failed_verification` and `verification.violations` records the Gate 1 failure.

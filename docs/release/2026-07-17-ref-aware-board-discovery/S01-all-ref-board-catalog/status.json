@@ -10,7 +10,7 @@
     "N-04",
     "N-05"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "codex-implementer",
   "last_updated_by": "codex-implementer",
   "last_updated_at": "2026-07-17T22:18:23+10:00",
@@ -75,11 +75,13 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "2026-07-17-verifier-fresh",
+    "verifier_verdict_at": "2026-07-17T22:25:48+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "1. Gate 1 (User-reachable outcome): `sworn board --json` and `sworn board --release 2026-07-17-ref-aware-board-discovery --json` are not yielding a user path in this repository because command execution stops with `release \"2026-06-27-conformance-foundation\" ref refs/heads/audit/2026-07-02-conformance-gap-closure: parse board.json: board release: not a canonical {name} object`, so the slice's stated outcome is not reproducible from the implemented command."
+    ]
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent operator or automation caller can discover every locally available release board and see whether its farthest reported slice state is committed or only present in the active working tree.",
