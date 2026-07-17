@@ -1,55 +1,42 @@
 # Captain review — S22-openrouter-tool-structured-output
-
-Date: 2026-07-17T11:04:16+10:00
-Design commit: ce699ccbb2b04a07ee4d124793b31d57d2ffdd80
+Date: 2026-07-18T07:00:01+10:00
+Design commit: fcd17df5b4ce365d2e077af3f4a3d63a03390b9b
 
 ## Pins
+1. [memory-cited] §Boundary / Decision 1 — Keep `openrouter/z-ai/glm-5.2` proof-only, never a model default.
+   What I observed: The design calls it the “Coach-selected GLM-5.2 proof model”; the spec and status keep model defaults, catalogue, pricing, and hosted-service behavior out of scope.
+   What to ask the implementer: Keep the selected model confined to the S22 receipt binding and deterministic proof seam; do not change any default, catalogue, or provider-routing policy.
+   Citation: [[2026-07-14T03-04-28-9XdZ-baton_v0_15_conformance_s20_vendoring_and_model_policy]]
 
-1. [mechanical] §2.1–2 — Bind the stricter tool-call policy to direct OpenRouter alone, and prove it cannot become a proxy or legacy OAI policy.
-   What I observed: `structuredRouteForProvider` currently supplies both direct `NewClient` and `proxyClient`, while the shared `StructuredToolCall` path accepts the first tool call whenever any call exists. The design correctly proposes a construction-time direct-only policy, but its test plan names capability checks without explicitly proving zero dispatch for the closed routes or retaining DeepSeek's existing tool-call semantics.
-   What to ask the implementer: add deterministic counter-server coverage showing proxy OpenRouter, unprofiled OAI, and Ollama reject structured output before a request; show the direct route rejects zero, wrong, multiple, and non-object calls after exactly one request; and retain a regression assertion for the existing DeepSeek forced-tool behavior.
-
-2. [mechanical] §2.3 — Test the promised direct base-URL predicate rather than relying on generic URL parsing.
-   What I observed: the current `FromEnv` override path uses `url.Parse` alone, whereas the design and AC-05 require an absolute HTTP(S) URL with a host and a pre-dispatch failure. The design calls out an invalid case but not the boundary cases that distinguish this predicate.
-   What to ask the implementer: cover relative, hostless, and non-HTTP(S) values with a request counter proving failure before dispatch; also prove the override remains ignored by proxy OpenRouter and another provider.
-
-3. [memory-cited] §2 — Preserve the canonical report and S04 identity gate as the only semantic authority.
-   What I observed: the design passes the supplied canonical schema directly as the forced function parameters and routes returned arguments back through the unchanged generic gate. This agrees with the accepted typed ambiguity protocol: report families and reference semantics must remain explicit, deterministic, and fail closed rather than being inferred from provider transport success.
-   What to ask the implementer: retain the canonical bytes and requested/emitted-check equality untouched, and ensure every malformed or semantically invalid tool result remains a local non-success without repair or fallback.
-   Citation (if [memory-cited]): [[baton_spec_ambiguity_protocol_accepted]]
-
-Pins: 3 total — 2 [mechanical], 1 [memory-cited], 0 [escalate]
-Critical pins (if any): 1
+2. [mechanical] §Required deterministic evidence — Retain AC-05 direct-base and proxy-isolation regression evidence.
+   What I observed: The design names the fake direct endpoint and route boundary, while `internal/model/config.go` and `internal/model/oai.go` are planned touchpoints; the status test command already names the direct-base override and proxy-ignore tests.
+   What to ask the implementer: Run and retain the two named AC-05 regressions (`TestFromEnvOpenRouterDirectBaseURLOverride` and `TestFromEnvOpenRouterProxyIgnoresDirectBaseURLOverride`) in the S22 proof evidence, alongside the receipt tests.
 
 ## Summary
-
-The direct-only construction boundary, raw canonical function parameters, and post-emission S04 gate match all six acceptance criteria and the four specified risk mitigations. S21 is verified and acknowledged as an unchanged, incompatible response-format route; S20 remains blocked and is explicitly sequenced after a fresh S22 PASS. All intersecting sibling touchpoints are verified, deferred, blocked, or planned—none is in progress or implemented—so no live handoff collision needs a dependency change.
+Pins: 2 total — 1 [mechanical], 1 [memory-cited], 0 [escalate]
+Critical pins (if any): none
 
 ## Smaller flags (not pins, worth one-line acknowledgement)
-
-- The Captain role prompt normally prescribes `sworn llm-check --check design-review` after a PROCEED. The Coach's explicit preflight instruction prohibits every live provider/model call before deterministic implementation, so this review did not run that check. This is a recorded no-network limitation, not a waiver: after deterministic evidence, AC-06 still permits exactly one direct, non-secret `spec-ambiguity` proof for S22; it cannot be replaced by an S20 call or a proxy/fallback path.
+The on-disk rescope already matches its strict policy: metadata-only atomic receipt, one retry only for enumerated environmental or receipt classes, no retry for parse/schema/identity/malformed/substantive outcomes, and no third dispatch after attempt 2. S21 remains verified/PASS; no active sibling collision exists.
 
 ## Suggested acknowledgement reply
 <!-- Human-extractable section: a driver that applies the acknowledgement automatically reads everything
      between this heading and the next ## heading (or EOF). Keep this content
      verbatim-pasteable into the Implementer session — no surrounding prose. -->
 
-TL;DR The direct-only OpenRouter tool design is sound and remains bounded below the unchanged canonical gate. 3 pins + 1 flag:
+TL;DR The receipt-recovery rescope is implementable without changing OpenRouter, proxy, or model-default authority. 2 pins + 0 flags:
 
-1. **Direct policy boundary.** Make the exact tool-call policy construction-time and direct-OpenRouter-only. Add counter-server tests for zero-dispatch rejection on proxy OpenRouter, unprofiled OAI, and Ollama; direct exact-call rejection; and unchanged DeepSeek forced-tool behavior.
-2. **Base-URL predicate.** Test relative, hostless, and non-HTTP(S) `SWORN_OPENROUTER_BASE_URL` values as pre-dispatch failures, and prove proxy OpenRouter and another provider ignore that override.
-3. **Canonical semantic authority.** Keep the supplied canonical bytes and S04 requested/emitted equality authoritative; malformed or semantically invalid tool output must remain a local non-success with no repair or fallback.
+1. **Proof-only model selection.** Keep `openrouter/z-ai/glm-5.2` confined to the S22 proof receipt binding and deterministic proof seam; do not change defaults, catalogue, or provider-routing policy.
+2. **Direct-base regression coverage.** Include `TestFromEnvOpenRouterDirectBaseURLOverride` and `TestFromEnvOpenRouterProxyIgnoresDirectBaseURLOverride` in the S22 proof evidence with the receipt tests.
 
-Flags (not pins): (a) Captain did not run the normally prescribed live design-review LLM check because the Coach prohibited provider/model calls before deterministic implementation; this does not waive the single AC-06 direct S22 `spec-ambiguity` proof after deterministic evidence, and S20 remains blocked.
+Flags (not pins): the atomic metadata-only receipt and exact two-attempt policy already match the re-scoped contract; S21 verified/PASS remains the serial upstream gate.
 
-§2 direct-only route decision and its canonical-gate constraint acknowledged. §6 questions: none.
+§2 decisions Decision 1 [memory-cited] and Decision 2 acknowledged. §6 questions none.
 
-Address pins 1–3 inline during implementation, then proceed to in_progress.
-
-## Captain verdict
+Address pins 1–2 inline during implementation, then proceed to in_progress.
 
 <!-- CAPTAIN-VERDICT
 DECISION: PROCEED
 CONSTITUTIONAL: no
-REASON: The two boundary corrections are deterministic apply-inline work, the semantic gate aligns with accepted protocol memory, and the live LLM preflight is explicitly prohibited rather than waived.
+REASON: The re-scoped design preserves the direct-only canonical gate, exact receipt binding, and bounded retry policy; remaining pins are inline confirmations.
 -->
