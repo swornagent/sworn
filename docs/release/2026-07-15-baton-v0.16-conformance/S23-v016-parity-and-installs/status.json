@@ -1,0 +1,57 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S23-v016-parity-and-installs",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T1-foundation",
+  "covers_needs": ["N-15"],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-18T09:00:58+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S23-v016-parity-and-installs/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S23-v016-parity-and-installs/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S23-v016-parity-and-installs/journal.md",
+  "planned_files": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/schemas/board-oracle-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/testdata/fixture/baton-v0.16.0.bundle",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/baton ./cmd/sworn", "go test ./...", "go vet ./...", "make build"],
+  "reachability_artifacts": ["built sworn baton diff and sworn doctor --sync-baton runs prove exact v0.16.0 parity and isolated installer output without a sibling Baton checkout"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind", "rationale": "A bounded but broad exact-byte vendor and installer parity upgrade across archive, schemas, mirrors, and public commands.", "confirmed_by_implementer": false},
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Pins every supported local Baton surface to the exact v0.16.0 protocol before release-mode behavior depends on it.",
+  "design_decisions": [
+    {
+      "choice": "Adopt Baton v0.16.0 through a fresh, exact vendor/archive/installer tail slice while preserving the immutable started v0.15.1 bootstrap evidence in S20.",
+      "stake_class": "Type-1",
+      "options": [
+        "append a pinned v0.16.0 parity slice after S22/S20",
+        "rewrite S20 in place from v0.15.1 to v0.16.0",
+        "treat the local Baton checkout or a real user home as installation authority"
+      ],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-18: replan the active release for Baton v0.16.0, update local installations through the bounded release work, and retain started S20 lifecycle evidence rather than rewriting it.",
+      "rationale": "An exact archive and native transaction retain clean-CI and real-home safety, while an append-only slice preserves the pre-existing v0.15.1 lifecycle and avoids fabricating replacement evidence.",
+      "architecturally_significant": true
+    }
+  ],
+  "validation": {"human_ratified": true, "ratified_by": "Coach", "ratified_at": "2026-07-18T09:00:58+10:00", "positive_scenarios": ["A clean checkout and isolated Codex/Claude homes agree with the exact tagged v0.16.0 protocol."], "negative_scenarios": ["Missing, corrupt, mismatched, or partial vendor/archive/installer state fails closed without mutating a real user home."], "benefit_hypothesis": "One exact archive and transaction prevent the binary, vendored protocol, and installed agent guidance from silently diverging."}
+}

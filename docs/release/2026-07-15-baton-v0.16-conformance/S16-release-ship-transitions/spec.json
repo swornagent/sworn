@@ -1,0 +1,114 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S16-release-ship-transitions",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T6-release-adapters",
+  "user_outcome": "Release merge, pre-cutover ship and post-deployment mark-shipped paths share canonical gates while preserving readiness and deployment as distinct facts.",
+  "rationale": "C-11 prevents a successful readiness check from becoming false production history. Release integration, read-only pre-cutover authorization, and the durable post-deployment transition remain separate operations but consume the same committed protocol and C-09 authority.",
+  "touchpoints": [
+    "internal/integration/release.go",
+    "internal/integration/release_test.go",
+    "internal/integration/shipping.go",
+    "internal/integration/shipping_test.go",
+    "internal/integration/schemas/mark-shipped-ship-v1.json",
+    "internal/integration/shipping_schema.go",
+    "internal/integration/shipping_schema_test.go",
+    "cmd/sworn/merge_release.go",
+    "cmd/sworn/merge_release_test.go",
+    "cmd/sworn/ship.go",
+    "cmd/sworn/ship_test.go",
+    "cmd/sworn/mark_shipped.go",
+    "cmd/sworn/mark_shipped_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
+    {"kind": "contract", "contract_id": "C-08"},
+    {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "contract", "contract_id": "C-11"},
+    {"kind": "contract", "contract_id": "C-13"},
+    {"kind": "contract", "contract_id": "C-19"},
+    {"kind": "slice", "slice_id": "S12-rollback-readiness"},
+    {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
+    {"kind": "slice", "slice_id": "S15-unified-track-merge"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/mark-shipped-ship-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Make sworn merge-release require exact C-03 authority, every track's retained canonical integration, and every slice's fresh C-09 readiness before merging release-wt into the declared integration branch; normal and already-integrated execution revalidate the same evidence.",
+    "Keep sworn ship <release> as a read-only pre-cutover gate that first validates C-03 through C-09 and then preserves the existing human journey-attestation checks; it neither deploys nor changes any slice to shipped.",
+    "Add sworn mark-shipped <release> [--deployed-commit <full-oid>] [--deploy-ref <note>] as the native adapter for exact Baton v0.15.1 /mark-shipped: from the clean primary integration worktree fetch origin and require remote ancestry/equality, validate complete C-03 through C-09 terminal authority, and return the exact no-evidence no-op when no verified slice remains; otherwise require the deployed commit, apply containment when the conventional release-merge identity exists or record the exact legacy skip when it does not, atomically transition only eligible verified statuses with exact last_updated_by/at plus ship block, preserve the pure-plan board byte-identically, re-render the status-derived slice/aggregate/recent-activity index views, and create one local bookkeeping commit.",
+    "Preserve verified statuses through track merge, release merge, and pre-cutover ship; preserve legal deferred statuses and already-shipped records; change no verification, maintainability, report, or implementation identity during mark-shipped.",
+    "Return the exact Baton handoff after a successful transition: local commit, transitioned count, exact human push command, and suggested cleanup commands which are never executed. On every rerun reassert the primary clean integration worktree, fetch origin, and revalidate Baton's schema, lifecycle, provenance, rollback and terminal-state gates first; when no verified slice remains, return the exact nothing-to-do result with zero deployment-evidence resolution, writes, existing-record rewrite, or repeated handoff.",
+    "Validate C-19 before resolving release or ship topology; the named compatibility view remains read-only discovery evidence and any mutable sourceRef must pass its exact Git-ref guard."
+  ],
+  "out_of_scope": [
+    "Neither ship nor mark-shipped builds, deploys, merges, pushes any ref, deletes branches, or cleans worktrees; mark-shipped owns exactly one local integration-branch status/index evidence commit and a human handoff, with no authority to mutate board.json.",
+    "Track merge mechanics belong to S15-unified-track-merge.",
+    "Human journey content and attestation collection are not redesigned by this slice.",
+    "Mark-shipped cannot infer that deployment occurred; it validates an explicit deploy reference containing the release integration."
+  ],
+  "covers_needs": ["N-04", "N-06", "N-07", "N-09", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Three public release facts must share deep evidence gates while retaining different mutation authority and durable-history locations.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Pre-cutover ship mutates shipped state, mark-shipped is treated as deployment, or bookkeeping silently pushes an integration ref.",
+      "mitigation": "Assert byte-identical records around ship; mark-shipped accepts only already-deployed evidence, writes the exact Baton ship/status/index transition while asserting a byte-identical board in one local commit, emits the prescribed handoff, and has no build, deploy, merge, push, or cleanup callback."
+    },
+    {
+      "id": "R-02",
+      "description": "Cleaned-up track refs make terminal evidence appear unavailable after deployment.",
+      "mitigation": "Resolve track integration parents and reports from durable release/integration ancestry and compare integration-branch status to that history."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN sworn merge-release runs on the declared integration branch with exact C-13 current authority and every retained track integration/slice satisfies C-03 and C-09 THE SYSTEM SHALL merge the exact release-wt authority while leaving every verified slice verified; WHEN rerun after the exact merge exists THE SYSTEM SHALL revalidate all gates before idempotent success (C-03, C-09, C-11, C-13, N-04, N-06, N-07, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/merge_release_test.go:TestMergeReleaseRegatesLifecycleAndReadiness"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN sworn ship <release> receives valid C-03 through C-09 evidence and passing required journey attestations THE SYSTEM SHALL exit 0 with a pre-cutover-ready result, leave every file and ref byte-identical, keep verified statuses verified, and perform no deploy, push, merge, or shipped transition (C-09, C-11, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestShipAndMarkShippedBinaryReachability"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN sworn mark-shipped <release> --deployed-commit <full-oid> [--deploy-ref <note>] runs from the clean primary integration worktree, fetches origin whose integration head is an ancestor/equal, C-03 through C-09 pass, and at least one slice is verified THE SYSTEM SHALL require the deployed commit, require it to contain the conventional release-merge identity when that identity exists or record Baton's exact containment-skip note when it does not, atomically change only eligible verified states to shipped, set last_updated_by to mark-shipped and last_updated_at to the one captured shipped_at, add the exact Baton ship block with full deployed_commit, nullable deploy_ref and /mark-shipped identity, validate and preserve board.json byte-identically, re-render slice/aggregate/recent-activity index views from the board plus statuses, create one local status/index commit, leave remotes unchanged, and return Baton's exact handoff (C-09, C-11, C-13, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestShipAndMarkShippedBinaryReachability"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF origin fetch fails, local integration is behind or divergent, any status/report/protocol/provenance/rollback/readiness gate fails, the primary integration worktree is dirty or on the wrong branch, any slice is neither verified/shipped nor one of C-09's exact legal unstarted or rollback-backed terminal deferrals, a verified slice exists but deployed-commit is missing or invalid, an existing conventional release-merge identity is not contained by the deployed commit, or board.json would change THEN sworn mark-shipped SHALL exit non-zero and leave all files, refs, statuses, the pure-plan board, rendered index, and ship records unchanged; absence of the conventional release-merge identity alone SHALL instead use Baton's recorded legacy containment-skip path (C-03, C-09, C-11, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestMarkShippedFailsClosedBeforeStatusMutation"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN ship reruns after prior success THE SYSTEM SHALL revalidate all C-03 through C-11 inputs without mutation; WHEN mark-shipped reruns with no verified slices THE SYSTEM SHALL first reassert primary clean integration worktree, fetch origin/require remote ancestry, and revalidate every schema, lifecycle, provenance, rollback and terminal-state gate, then return Baton's exact nothing-to-do result without requiring or resolving deployed-commit, release-merge identity or timestamp and with zero writes/pushes, existing-record rewrite, or repeated handoff; any failed pre-no-op gate SHALL block the no-op (C-11, N-09, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/shipping_test.go:TestReleaseTransitionsIdempotentlyRegateAllEvidence"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHILE a release contains a legal unstarted deferral or rollback-backed terminal deferral, THE SYSTEM SHALL preserve it unchanged through merge-release, ship, and mark-shipped; raw deferred, superseded, or deferred rollback state SHALL block all three operations through C-09 (C-06, C-09, C-11, N-07, N-09).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["internal/integration/release_test.go:TestReleaseTransitionsPreserveOnlyLegalDeferrals"]
+    }
+  ]
+}

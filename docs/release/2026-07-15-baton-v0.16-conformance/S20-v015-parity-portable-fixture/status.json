@@ -1,0 +1,288 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S20-v015-parity-portable-fixture",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T1-foundation",
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-10"
+  ],
+  "state": "blocked",
+  "owner": "planner",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-17T10:29:17+10:00",
+  "start_commit": "08dd38f81e466d3288ff4bf64953cfc90ea6063c",
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S20-v015-parity-portable-fixture/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S20-v015-parity-portable-fixture/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S20-v015-parity-portable-fixture/journal.md",
+  "planned_files": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/baton/testdata/fixture/baton-v0.15.1.bundle"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn -run '^TestDoctorAndBatonDiffV015BinaryReachability$' -count=1",
+    "go test ./cmd/sworn -run '^TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle$' -count=1",
+    "go test ./internal/baton -run '^TestBatonV015GitBundleFixtureIdentity$' -count=1",
+    "go test ./internal/baton -run '^TestBatonV015CodexAndClaudeMirrorParity$' -count=1",
+    "go test ./internal/baton -count=1",
+    "go test ./internal/gate ./internal/run ./internal/state -count=1",
+    "go test ./... -count=1",
+    "go vet ./...",
+    "make build",
+    "bin/sworn baton diff <verified-temp-clone-from-baton-v0.15.1.bundle>",
+    "bin/sworn doctor --sync-baton"
+  ],
+  "reachability_artifacts": [
+    "built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability using only a verified temporary clone of the authenticated exact-tag Git bundle beneath t.TempDir(), plus isolated fixed-umask Codex/Claude installer parity and transaction recovery fixtures"
+  ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [
+    {
+      "item": "The generic LLM check identity required by the upgraded v0.15 schema is omitted by the exact ac-satisfaction prompt.",
+      "why": "The exact prompt asks for verdict and findings only, while llm-check-report-v1 requires check. After the AC-04 recovery-exit repair, the raw configured ac-satisfaction response {\"verdict\":\"PASS\",\"findings\":[]} still failed closed because it omitted check. S04 AC-04 exclusively owns requested/emitted generic-check identity; S20 AC-05 explicitly excludes requested-check matching.",
+      "tracking": "S04-typed-reference-ambiguity AC-04 and its fresh verifier PASS; then rerun S20 readiness and maintainability evidence.",
+      "acknowledgement": "The Coach directed this replan: S04 is immediately before S20; S20 remains blocked until S04 receives fresh verification, then reruns its own readiness and maintainability evidence. No S20 scope widening or synthetic report workaround is authorized.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T05:28:20+10:00"
+    },
+    {
+      "item": "The configured OpenAI structured-output endpoint rejects the exact v0.15.1 generic report schema before ac-satisfaction can emit an identity.",
+      "why": "From a clean independent S20 semantic clone at f3da6a49c3f89f0883e265befd30d1eb099d6a90, using the newly built current T1 binary with S04's schema-constrained generic channel, the exact ac-satisfaction command exited 2: Invalid schema for response_format 'llm-check-report-v1': In context=(), 'allOf' is not permitted. The failure precedes model output, so no genuine emitted check can be compared with ac-satisfaction.",
+      "tracking": "S04-typed-reference-ambiguity AC-04 via /replan-release 2026-07-15-baton-v0.16-conformance",
+      "acknowledgement": "The controlling resume instruction requires recording this exact structured-readiness blocker and stopping rather than changing S04, the vendored prompt/schema, or synthesizing, waiving, or downgrading a report.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T07:35:39+10:00"
+    },
+    {
+      "item": "The required credentialed S20 ac-satisfaction readiness smoke did not produce a locally accepted report.",
+      "why": "From a clean detached clone at immutable S20 semantic head f3da6a49c3f89f0883e265befd30d1eb099d6a90, using the S21-capable binary built at c52f8790eb955efed9d923b0df74e0e00b0861f6, the exact ac-satisfaction command with requested model prefix openai/gpt-5.6-sol exited 2 after 2 seconds. Per the release evidence boundary, credentials, request body, model output, and provider diagnostics were not printed, logged, or committed. The non-zero exit is therefore the durable non-secret fact: no genuine emitted check was accepted by unchanged S04 local canonical validation.",
+      "tracking": "Fresh provider/model readiness diagnostic through /replan-release 2026-07-15-baton-v0.16-conformance before S20 can resume",
+      "acknowledgement": "The controlling remedial instruction requires S20 to return to blocked and stop on any non-zero credentialed smoke result, without a retry, prompt/schema change, synthetic report, waiver, or local-install mutation.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T09:56:12+10:00"
+    },
+    {
+      "item": "The Coach-selected direct OpenRouter GLM-5.2 readiness smoke has no structured transport path in the current binary.",
+      "why": "The selected openrouter/z-ai/glm-5.2 model catalogue entry advertises tools, but current direct openrouter/ construction deliberately has no structured-output mode, so generic llm-check fails locally before HTTP. S21's verified OpenAI response-format envelope is not OpenRouter authority and must not be reused for a tool call.",
+      "tracking": "S22-openrouter-tool-structured-output AC-01 through AC-06, including its direct spec-ambiguity result and a fresh verifier PASS; then one separate S20 direct ac-satisfaction smoke from immutable semantic head f3da6a49c3f89f0883e265befd30d1eb099d6a90.",
+      "acknowledgement": "Coach selected OpenRouter GLM-5.2 on 2026-07-17 and directed this narrow direct-only path. S20 remains blocked; no retry, fallback, proxy enablement, S20 source change, synthetic report, waiver, or real-home mutation is authorised.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T10:29:17+10:00"
+    }
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Fresh 45-path C-01 replacement after exact rollback, plus a portable clean-CI source oracle cloned from an authenticated exact upstream Git bundle, remains one indivisible bootstrap boundary.",
+    "confirmed_by_implementer": true
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Restores exact Baton v0.15.1 parity and safe installs with clean-CI proof that does not depend on Brad's filesystem.",
+  "design_decisions": [
+    {
+      "choice": "Treat the exact pinned upstream installers as canonical managed-tree generators and make doctor repair both supported installations in one transaction.",
+      "stake_class": "Type-1",
+      "options": [
+        "canonical installer output plus one dual-install doctor transaction",
+        "compare only documented path substitutions",
+        "leave doctor outside the parity boundary"
+      ],
+      "human_decision": "Coach selected the orchestrator's recommendation under Brad's 2026-07-16 instruction to proceed with exact conformance and resolve Captain pins 1 through 7.",
+      "rationale": "Installer-generated wrappers are protocol-operational bytes, and one repair authority must not leave Codex and Claude on different pins.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use one identity-checked embedded installer archive as the sole source for native generation, doctor checks, repair, and isolated parity.",
+      "stake_class": "Type-1",
+      "options": [
+        "one embedded archive authority",
+        "reconstruct from mapped repository files",
+        "read a live Baton checkout at runtime"
+      ],
+      "human_decision": "Coach selected one embedded source under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "The mapped Sworn subset is incomplete installer input, while a live checkout or second generated source would permit authority drift.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Publish installer-input-v0.15.1.tar inside the same repository transaction and restart-recovery set as mapped bytes and VERSION.",
+      "stake_class": "Type-1",
+      "options": [
+        "expand the existing repository transaction",
+        "use a separately recoverable archive transaction",
+        "write the archive outside recovery"
+      ],
+      "human_decision": "Coach selected the single expanded repository transaction under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "A split or unprotected archive write could leave the pin, mapped protocol, and offline installer authority at different versions after failure.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Restore the complete pre-run agents_home, codex_home, and claude_home trees as one whole-root rollback outcome, retaining restart authority if any restoration is incomplete.",
+      "stake_class": "Type-1",
+      "options": [
+        "whole-root three-target rollback",
+        "restore only managed paths",
+        "independent per-home rollback"
+      ],
+      "human_decision": "Coach selected whole-root rollback under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "Managed-path-only or independent rollback can preserve a mixed installation or lose unrelated pre-existing user content after partial replacement.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep cmd/sworn thin by assigning archive generation and validation to internal/baton/installer_archive.go, install rollback and recovery to internal/baton/install_transaction.go, archive bytes to internal/adopt/baton_archive.go, and public archive parity to internal/baton/diff.go.",
+      "stake_class": "Type-1",
+      "options": [
+        "bounded focused internal owners",
+        "add all behavior to cmd/sworn/doctor.go",
+        "place unrelated responsibilities in manifest.go or source.go"
+      ],
+      "human_decision": "Coach selected bounded focused owners under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "The existing doctor adapter is already 1,316 lines and neither schema manifest nor ordinary source mapping owns hostile archive or filesystem transaction semantics.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Name 5f1dd0af59642311ee04e018a0023562d4dde008 only as the upstream root VERSION blob whose exact bytes are v0.15.1 plus LF, while separately resolving and comparing Sworn's committed internal/adopt/baton/VERSION manifest blob and parsed tag/SHA/digest on every participating ref.",
+      "stake_class": "Type-1",
+      "options": [
+        "separate upstream source identity from adopting-manifest evidence",
+        "treat the upstream blob as Sworn manifest identity",
+        "store a time-dependent Sworn manifest blob in protocol.json"
+      ],
+      "human_decision": "Coach selected the explicit two-identity contract under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "The upstream object is exactly v0.15.1 plus LF, while Sworn requires a multi-line parseable manifest; conflating them would either break the binary or make the claimed blob impossible.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Physically resolve agents_home, codex_home, claude_home, and recovery roots; reject equal, nested, aliased, symlinked, special-file, or recovery-overlapping topology before mutation; and durably publish complete owner-only snapshots, manifest, and sentinel before the first target replacement.",
+      "stake_class": "Type-1",
+      "options": [
+        "disjoint roots plus pre-write restart authority",
+        "best-effort rollback authority created after failure",
+        "permit aliased or nested logical roots"
+      ],
+      "human_decision": "Coach selected fail-closed root topology and crash authority under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "Aliased or overlapping roots can overwrite one another, and recovery material created only after failure cannot restore a process killed at a publish, replace, verify, or retire boundary; sentinel presence must therefore force recovery-only execution.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Run both isolated installer script oracles under explicit umask 0022, make native output explicitly fix directories to 0755 and regular files to 0644, and prove a hostile inherited umask cannot change the canonical tree.",
+      "stake_class": "Type-2",
+      "options": [
+        "fixed umask 0022",
+        "inherit caller umask",
+        "ignore file modes"
+      ],
+      "human_decision": "Implementer deterministic default accepted by Coach during the 2026-07-16 replan.",
+      "rationale": "The tagged scripts do not set umask, so an inherited value would otherwise make the byte-and-mode oracle environment-dependent.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Emit path-only mismatch and recovery diagnostics, with byte-sorted logical paths and no payload, credential, request, or snapshot bytes.",
+      "stake_class": "Type-2",
+      "options": [
+        "path-only diagnostics",
+        "include content excerpts",
+        "suppress all target detail"
+      ],
+      "human_decision": "Implementer default accepted by Coach during the 2026-07-16 replan.",
+      "rationale": "Paths and classes are sufficient for deterministic repair while content excerpts can expose protocol or user-home bytes.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Pull forward only an optional opaque/lossless maintainability carrier and schema-valid canned fixtures so the exact v0.15 protocol can land with a green repository gate.",
+      "stake_class": "Type-1",
+      "options": [
+        "bounded opaque carrier plus explicit fixtures",
+        "weaken exact-schema assertions",
+        "pull all S03 and S04 behavior into S02"
+      ],
+      "human_decision": "Coach selected the orchestrator's recommendation under Brad's 2026-07-16 standing instruction after an independent read-only scope audit returned BLOCKED for a fixture-only repair.",
+      "rationale": "state.Status otherwise drops a supplied maintainability object and production Write cannot emit it, while broader lifecycle, null-semantics, and check-matching authority remains deliberately owned by S03 and S04.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Create the reachability test's exact Baton source by verifying and cloning a committed exact-tag Git bundle, rather than adding a synthetic commit, weakening production pin checks, or using a sibling checkout.",
+      "stake_class": "Type-2",
+      "options": [
+        "authenticated exact-tag Git bundle",
+        "archive-authenticated synthetic commit with weakened pin predicate",
+        "developer-specific sibling checkout"
+      ],
+      "human_decision": "The deterministic portable-fixture default follows the fresh Verifier's required correction and Brad's instruction to continue with the orchestrator's recommendation.",
+      "rationale": "Production requires the exact upstream commit and tag; the 78-entry installer tar cannot reproduce those Git objects, while the pinned bundle preserves clean-CI fidelity without a runtime dependency.",
+      "architecturally_significant": false
+    }
+  ],
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T22:53:25+10:00",
+    "positive_scenarios": [
+      "Every C-01 surface is re-delivered under fresh lifecycle authority and the built-binary reachability test passes from a verified exact-tag bundle clone without any developer checkout."
+    ],
+    "negative_scenarios": [
+      "Any inherited S02 authority, archive/pin drift, non-transactional install, corrupt/missing Git bundle, wrong tag/commit/tree/VERSION, or ambient /home/brad/projects/baton dependency fails closed."
+    ],
+    "benefit_hypothesis": "Fresh replacement plus portable proof makes exact protocol parity reproducible for users and CI rather than only on the maintainer's host."
+  }
+}

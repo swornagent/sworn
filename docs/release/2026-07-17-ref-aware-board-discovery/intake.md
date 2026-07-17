@@ -218,6 +218,23 @@ a crashed process before it was written to either location.
   to judge whether that fact survived a commit, while the bounded source set
   keeps discovery deterministic and read-only.
 
+### 2026-07-17 — assign the missing no-HEAD fallback remediation to S02
+
+- **Context**: S02 implementation reproduced that `board.DiscoverCatalog`
+  exits during ref enumeration in a non-Git/no-HEAD root, although S01's
+  ratified scope promised a shared read-only filesystem fallback and S02 AC-03
+  must consume it. S01 is already verified and its spec is immutable; S02 is
+  already in progress and cannot have a prerequisite slice inserted ahead of it.
+- **Options considered**: edit verified S01; append a successor slice that
+  cannot unblock S02; add a TUI-local parser; re-scope S02 to complete only the
+  missing shared board-package fallback before finishing its TUI consumer work.
+- **Decision**: re-scope S02 to own the bounded no-HEAD fallback remediation in
+  `internal/board/discovery.go` and `internal/board/discovery_test.go`, while
+  keeping all usable-HEAD ref ranking and state election owned by S01.
+- **Why**: this preserves one shared oracle, avoids rewriting verified S01,
+  keeps the repair in the already-serial T1 track, and gives the implementer a
+  legal touchpoint for the prerequisite needed by S02 AC-03.
+
 ## Schema-vs-spec audit notes
 
 - The current `spec-v1` record has no typed `references` field in this branch,

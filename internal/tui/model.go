@@ -117,9 +117,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case boardLoadedMsg:
 		// Delivered by loadBoardCmd (sworn#82). Discard a stale load — the
-		// user may have navigated to a different release before this one
-		// finished — rather than clobbering what's now on screen.
+		// user may have navigated to a different release or catalog ref before
+		// this one finished — rather than clobbering what's now on screen.
 		if msg.releaseName != m.Board.ReleaseName {
+			return m, nil
+		}
+		if msg.sourceRef != m.Board.SourceRef {
 			return m, nil
 		}
 		if msg.err != nil {
@@ -274,6 +277,10 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "enter":
 		if len(m.Releases.Releases) > 0 {
 			sel := m.Releases.Releases[m.Releases.Cursor]
+			if sel.Catalog == nil {
+				m.errMsg = "no catalog snapshot for selected release"
+				return m, nil
+			}
 
 			// sworn#82: board loading is dispatched as a tea.Cmd, never run
 			// inline here — LoadBoard used to execute synchronously inside
@@ -283,13 +290,14 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			// a "loading" placeholder now; loadBoardCmd's boardLoadedMsg
 			// populates the real data once it lands.
 			m.Board.ReleaseName = sel.ID
+			m.Board.SourceRef = sel.SourceRef
 			m.Board.Loaded = false
 			m.Board.Loading = true
 			m.Board.GateResults = nil
 			m.Board.GatesLoaded = false
 			m.Board.GatesLoading = false
 			m.state = viewBoard
-			cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, sel.ID)}
+			cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, *sel.Catalog)}
 
 			// Auto-transition to live view if tracks are in-progress. This
 			// check stays synchronous — HasInProgressTracks is a single

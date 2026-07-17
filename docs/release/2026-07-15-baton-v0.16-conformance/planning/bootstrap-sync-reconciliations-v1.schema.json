@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/bootstrap-sync-reconciliations-v1.json",
+  "title": "SwornAgent planning-authority bootstrap synchronization reconciliations",
+  "description": "Sealed exact-object recognition for pre-C12 historical release-record reconciliations. It grants no pattern-based or future manual merge authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "record_version", "release", "authority", "sealed", "entries"],
+  "properties": {
+    "$schema": {"const": "https://swornagent.dev/schemas/bootstrap-sync-reconciliations-v1.json"},
+    "record_version": {"const": 1},
+    "release": {"const": "2026-07-15-baton-v0.16-conformance"},
+    "authority": {"const": "planning"},
+    "sealed": {"const": true},
+    "entries": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/reconciliation"}
+    }
+  },
+  "$defs": {
+    "oid": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "treeEntry": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "oid"],
+          "properties": {
+            "mode": {"type": "string", "pattern": "^[0-7]{6}$"},
+            "oid": {"$ref": "#/$defs/oid"}
+          }
+        }
+      ]
+    },
+    "exceptionalPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "base", "parent_1", "parent_2", "result"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^docs/release/2026-07-15-baton-v0\\.15-conformance/.+"},
+        "base": {"$ref": "#/$defs/treeEntry"},
+        "parent_1": {"$ref": "#/$defs/treeEntry"},
+        "parent_2": {"$ref": "#/$defs/treeEntry"},
+        "result": {"$ref": "#/$defs/treeEntry"}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumer_slice_id", "start_commit", "review_head", "interval_semantics", "permitted_purposes"],
+      "properties": {
+        "consumer_slice_id": {"enum": ["S01-vendor-boundary-readiness", "S02-v015-parity-and-installs"]},
+        "start_commit": {"$ref": "#/$defs/oid"},
+        "review_head": {"$ref": "#/$defs/oid"},
+        "interval_semantics": {"const": "first-parent-start-exclusive-head-inclusive"},
+        "permitted_purposes": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "semantic_scope"},
+            {"const": "freshness_revalidation"},
+            {"const": "bootstrap_cutover_revalidation"}
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["merge", "parent_1", "parent_2", "merge_base", "authorization", "exceptional_paths"],
+      "properties": {
+        "merge": {"$ref": "#/$defs/oid"},
+        "parent_1": {"$ref": "#/$defs/oid"},
+        "parent_2": {"$ref": "#/$defs/oid"},
+        "merge_base": {"$ref": "#/$defs/oid"},
+        "authorization": {"$ref": "#/$defs/authorization"},
+        "exceptional_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/exceptionalPath"}
+        }
+      }
+    }
+  }
+}

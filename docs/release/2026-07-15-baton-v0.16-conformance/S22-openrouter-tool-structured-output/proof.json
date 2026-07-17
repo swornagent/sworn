@@ -1,0 +1,111 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "scope": "Add only the direct OpenRouter forced-tool transport and fail-closed malformed-tool-call guards required for the Coach-selected S22 proof, while retaining the canonical Baton gate and every proxy, Ollama, and unprofiled route as unsupported.",
+  "files_changed": [
+    "cmd/sworn/llmcheck_test.go",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/journal.md",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.md",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/spec.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/status.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/index.md",
+    "docs/release/2026-07-15-baton-v0.16-conformance/intake.md",
+    "internal/gate/llmcheck_test.go",
+    "internal/model/config.go",
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/structured_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./internal/model -run 'Test(NewClient_OpenRouterDirectUsesStructuredToolCall|OpenRouterChatStructuredUsesCanonicalForcedTool|OpenRouterStructuredRejectsInvalidToolCall|ProxyOpenRouterRemainsStructuredUnsupported|FromEnvOpenRouterDirectBaseURLOverride|FromEnvOpenRouterProxyIgnoresDirectBaseURLOverride|OllamaRemainsVerifyOnly)' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./internal/gate ./cmd/sworn -run 'Test(OpenRouterToolPathStillFailsFullCanonicalReportViolations|LLMCheckOpenRouterToolStructured)' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./... -count=1 (isolated no-credential, no-model environment)",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go vet ./... (isolated no-credential, no-model environment)",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false make build (isolated no-credential, no-model environment)",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test -cover ./internal/model -count=1 (isolated no-credential, no-model environment; 81.4% statements)",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "SWORN_DIRECT=1 OPENROUTER_API_KEY=synthetic SWORN_OPENROUTER_BASE_URL=http://127.0.0.1:1 bin/sworn verify --verifier-model openrouter/z-ai/glm-5.2 --spec docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/spec.json --diff <temporary git diff> --proof docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.json (isolated no-model-dispatch environment)",
+      "passed": true,
+      "exit_code": 0
+    }
+  ],
+  "reachability": {
+    "type": "e2e-test",
+    "evidence": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability builds and drives the sworn llm-check binary through direct OpenRouter configuration to a local fake chat-completions endpoint with a synthetic key; it accepts the real forced-tool response through the unchanged canonical gate and exits 0."
+  },
+  "delivered": [
+    {
+      "item": "AC-01 direct-only route selection preserves the OpenRouter model subpath and keeps proxy OpenRouter, Ollama, and unprofiled clients unsupported.",
+      "evidence": "internal/model/provider_test.go:TestNewClient_OpenRouterDirectUsesStructuredToolCall; internal/model/oai_test.go:TestProxyOpenRouterRemainsStructuredUnsupported; internal/model/ollama_test.go:TestOllamaRemainsVerifyOnly"
+    },
+    {
+      "item": "AC-02 sends exactly one forced emit_structured_output function with the unchanged canonical schema as parameters and no response_format envelope.",
+      "evidence": "internal/model/structured_test.go:TestOpenRouterChatStructuredUsesCanonicalForcedTool"
+    },
+    {
+      "item": "AC-03 reaches the direct OpenRouter tool wire from the built sworn llm-check command and accepts a valid canonical ac-satisfaction report.",
+      "evidence": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability"
+    },
+    {
+      "item": "AC-04 preserves local canonical validation and requested/emitted equality while rejecting malformed, missing, multiple, wrongly named, and semantically invalid tool output without repair or a second request.",
+      "evidence": "internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall; internal/gate/llmcheck_test.go:TestOpenRouterToolPathStillFailsFullCanonicalReportViolations; cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryRejectsInvalidResponse"
+    },
+    {
+      "item": "AC-05 confines SWORN_OPENROUTER_BASE_URL to validated direct OpenRouter construction and preserves proxy and other-provider endpoint isolation.",
+      "evidence": "internal/model/oai_test.go:TestFromEnvOpenRouterDirectBaseURLOverride; internal/model/oai_test.go:TestFromEnvOpenRouterProxyIgnoresDirectBaseURLOverride"
+    },
+    {
+      "item": "AC-07 preserves literal wire JSON null for direct OpenRouter tool arguments and rejects it locally after the sole request without repair or fallback.",
+      "evidence": "internal/model/oai.go:FunctionCall.UnmarshalJSON and structuredToolCallArguments; internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall"
+    },
+    {
+      "item": "AC-08 requires the sole direct OpenRouter tool call to have type function and rejects any other type locally after the sole request without repair or fallback.",
+      "evidence": "internal/model/oai.go:structuredToolCallArguments; internal/model/structured_test.go:TestOpenRouterStructuredRejectsInvalidToolCall"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "AC-06 one newly Coach-authorized live direct OpenRouter spec-ambiguity proof receipt",
+      "why": "Sanitized receipt: check identity spec-ambiguity; model ID openrouter/z-ai/glm-5.2; immutable start commit a09b0e46df465862d00469d4aef2a997442b3d5b; process exit code unavailable; result UNPARSEABLE. The raw temporary file was destroyed. The exactly-one budget is consumed, so S22 is blocked for the Planner with no retry or fallback and S20 remains untouched.",
+      "tracking": "S22-openrouter-tool-structured-output AC-06",
+      "acknowledged": true
+    },
+    {
+      "item": "Role-prompt protocol coverage command",
+      "why": "The current sworn binary has no coverage verb and fails with unknown command. Adding that unrelated command is outside this S22 recovery; the artifact-specific AC-to-test matrix and local Go coverage measurement provide the available evidence.",
+      "tracking": "sworn#122",
+      "acknowledged": true
+    }
+  ],
+  "divergence": []
+}

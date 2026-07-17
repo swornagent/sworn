@@ -1,0 +1,151 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
+  "schema_version": 1,
+  "check": "maintainability-review",
+  "slice_id": "S02-v015-parity-and-installs",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "role": "implementer",
+  "phase": "closure",
+  "cycle": 0,
+  "invocation_id": "1329db03-1597-45a1-a6de-2c778325af62",
+  "input_fingerprint": "sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2",
+  "review_scope": {
+    "base": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+    "head": "2a17443d67d39cf681dba117a57673714a916d7f",
+    "included_paths": [
+      "cmd/sworn/baton.go",
+      "cmd/sworn/baton_test.go",
+      "cmd/sworn/doctor.go",
+      "cmd/sworn/doctor_test.go",
+      "internal/adopt/baton/README.md",
+      "internal/adopt/baton/VERSION",
+      "internal/adopt/baton/architecture.json",
+      "internal/adopt/baton/installer-input-v0.15.1.tar",
+      "internal/adopt/baton/rules/07-adversarial-verification.md",
+      "internal/adopt/baton/rules/10-customer-journey-validation.md",
+      "internal/adopt/baton_archive.go",
+      "internal/baton/diff.go",
+      "internal/baton/install_transaction.go",
+      "internal/baton/install_transaction_test.go",
+      "internal/baton/installer_archive.go",
+      "internal/baton/installer_archive_test.go",
+      "internal/baton/manifest.go",
+      "internal/baton/manifest_test.go",
+      "internal/baton/records_conformance_test.go",
+      "internal/baton/schemas/board-v1.json",
+      "internal/baton/schemas/embed.go",
+      "internal/baton/schemas/llm-check-report-v1.json",
+      "internal/baton/schemas/slice-status-v1.json",
+      "internal/baton/schemas/spec-ambiguity-report-v1.json",
+      "internal/baton/schemas/spec-v1.json",
+      "internal/baton/source.go",
+      "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+      "internal/baton/validate_schema_test.go",
+      "internal/baton/vendor.go",
+      "internal/baton/vendor_transaction.go",
+      "internal/baton/vendor_transaction_test.go",
+      "internal/gate/llmcheck_test.go",
+      "internal/prompt/baton/README.md",
+      "internal/prompt/baton/llm-checks/README.md",
+      "internal/prompt/baton/llm-checks/maintainability-review.md",
+      "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+      "internal/prompt/baton/rules.md",
+      "internal/prompt/baton/track-mode.md",
+      "internal/prompt/implementer.md",
+      "internal/prompt/planner.md",
+      "internal/prompt/verifier.md",
+      "internal/run/slice_test.go",
+      "internal/state/record_reconciliation_test.go",
+      "internal/state/state.go",
+      "internal/state/state_test.go"
+    ],
+    "excluded_paths": [
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/design.md",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/journal.md",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-ff6145c0-2d33-46f7-af38-2ab742516425.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/review.md",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/status.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S03-lossless-record-carriers/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S04-typed-reference-ambiguity/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S07-canonical-semantic-scope/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S07-canonical-semantic-scope/status.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S11-track-evidence-freshness/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S11-track-evidence-freshness/status.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S13-maintainability-engine-cutover/spec.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/S13-maintainability-engine-cutover/status.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/contracts.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/index.md",
+      "docs/release/2026-07-15-baton-v0.16-conformance/intake.md",
+      "docs/release/2026-07-15-baton-v0.16-conformance/planning/bootstrap-sync-reconciliations-v1.schema.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/planning/bootstrap-sync-reconciliations.json",
+      "docs/release/2026-07-15-baton-v0.16-conformance/planning/normative-clarifications.md"
+    ],
+    "fingerprint_algorithm": "baton-maintainability-v1"
+  },
+  "verdict": "PASS",
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "low",
+      "blocking": false,
+      "title": "Dormant owner-only copy path obscures live permission behavior",
+      "detail": "internal/baton/install_transaction.go: copyCompleteTree and chooseMode expose an ownerOnly mode that no changed caller enables, while ensureOwnerOnlyDir and chmodTreeOwnerOnly are unused. A future maintainer must determine whether this is unfinished recovery behavior or intentionally dead code before safely changing copy permissions. Remove the unused branch and helpers, or connect them to the intended caller so the copy contract reflects live behavior."
+    }
+  ],
+  "sworn": {
+    "record_version": 1,
+    "scope_provenance": {
+      "release": "2026-07-15-baton-v0.16-conformance",
+      "slice_id": "S02-v015-parity-and-installs",
+      "status_path": "docs/release/2026-07-15-baton-v0.16-conformance/S02-v015-parity-and-installs/status.json",
+      "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+      "review_base": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+      "review_head": "2a17443d67d39cf681dba117a57673714a916d7f"
+    },
+    "freshness_frontier": {
+      "track_ref": "track/2026-07-15-baton-v0.16-conformance/T1-foundation",
+      "validated_track_head": "9896756ca118eef46662fba465e95f6ba6adbdb9",
+      "release_wt_ref": "release-wt/2026-07-15-baton-v0.16-conformance",
+      "validated_release_wt_head": "7ceeb46107fa4371ee1e59d6c4bb882dd2da806c",
+      "synchronizations": [
+        {
+          "merge": "b8df1857ab8c7d2acf4b91c4c37df3cf07f80832",
+          "parent1": "7b57f64fbfe9d0540737034d1794100b80aeec3b",
+          "parent2": "32060a486d2045c1db54fd01551eae1946207efb",
+          "base": "6ceded2435a193a45dfd9732c92ae0ace3ab0d64"
+        },
+        {
+          "merge": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a",
+          "parent1": "60dcd6291ddbe3491e16a05d2ed98d896d714165",
+          "parent2": "dcd6386fc0268cd476287fc70bfb1f389c158f2e",
+          "base": "32060a486d2045c1db54fd01551eae1946207efb"
+        },
+        {
+          "merge": "d54c102f9d244a316ae3f0301bec617b2fc6c6f3",
+          "parent1": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+          "parent2": "5eaa7aea39b5ce17f483647824ca538e316a5ac8",
+          "base": "dcd6386fc0268cd476287fc70bfb1f389c158f2e"
+        },
+        {
+          "merge": "866bd2113e9530c8cd645006eb573fe11af4b3c1",
+          "parent1": "4377d71a23a2252d4bbb6bb3784692171b0329da",
+          "parent2": "af9426e0005e8f319acbf504fa63f76553dcd880",
+          "base": "5eaa7aea39b5ce17f483647824ca538e316a5ac8"
+        },
+        {
+          "merge": "d3acf943f666f52c0e575e9116f07766ff94a5f7",
+          "parent1": "2a17443d67d39cf681dba117a57673714a916d7f",
+          "parent2": "727fbf1f2debbe3e2a46655ef390ceca7858b6c9",
+          "base": "af9426e0005e8f319acbf504fa63f76553dcd880"
+        },
+        {
+          "merge": "da8cc0664732bf3f5e0a043b8c397ce094ed4821",
+          "parent1": "3ac42c01cca6e9227bb93092ed13813bad95aa08",
+          "parent2": "7ceeb46107fa4371ee1e59d6c4bb882dd2da806c",
+          "base": "727fbf1f2debbe3e2a46655ef390ceca7858b6c9"
+        }
+      ]
+    }
+  }
+}

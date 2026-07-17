@@ -1,0 +1,51 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S24-board-oracle-v1-projection",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T1-foundation",
+  "user_outcome": "A release operator and every later Baton release-mode adapter can consume Sworn's portable board-oracle-v1 projection, derive only safe topology facts, and fail closed before ambiguous ownership or unsafe ref selection causes worktree or Git action.",
+  "rationale": "The v0.16 portable board oracle replaces assumptions about engine-specific worktree fields with a deliberately small public projection. Sworn already has ref-aware discovery evidence, but it needs one schema-backed projection validator and public reachability contract. This slice owns that boundary only; it does not implement future role, merge, or replan command behavior. It processes committed technical metadata, logs no secrets, and uses deterministic linear traversal plus sorted set checks.",
+  "touchpoints": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
+    "internal/board/projection.go",
+    "internal/board/projection_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-18"},
+    {"kind": "file", "path": "internal/baton/schemas/board-oracle-v1.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/v016-upgrade-decision.md"},
+    {"kind": "slice", "slice_id": "S23-v016-parity-and-installs"}
+  ],
+  "in_scope": [
+    "Emit and validate aggregate board-oracle-v1 catalogs with release, safe sourceRef, nested ordered tracks, and nested ordered slice rows containing id, state, track, and dependsOnTracks.",
+    "Preserve the explicitly named-release compatibility JSON shape containing only release and tracks; it intentionally omits sourceRef.",
+    "Normalize null dependency and empty-track compatibility spellings before validation, then reject duplicate track IDs, duplicate slice ownership, row/parent track mismatch, inconsistent normalized dependency sets within a track, and aggregate map-key/release mismatch before a consumer derives a path, tests a dependency, or selects a Git object.",
+    "Treat sourceRef as an empty read-only filesystem fallback sentinel or a syntactically safe fully qualified refs/heads or refs/remotes name. Provide a reusable mutating-consumer guard that rejects the empty sentinel and verifies the exact ref before object selection.",
+    "Retain ref-aware release-wt topology selection and branch-accurate status election, but never require or serialize optional worktree path, worktree branch, blocked-by, ready-to-merge, or track lifecycle convenience fields as portable authority."
+  ],
+  "out_of_scope": [
+    "Vendoring board-oracle-v1 bytes and installer commands belongs to S23-v016-parity-and-installs.",
+    "Implementing role lifecycle, merge, replan, or shipped transitions belongs to S14 through S17; those slices consume C-19 after it verifies.",
+    "Changing persisted board-v1 plan semantics, release requirements, or user-facing TUI design is not part of this projection-boundary slice.",
+    "Provider calls, credentials, model configuration, proxy routing, and any public/private commercial content are prohibited."
+  ],
+  "covers_needs": ["N-16"],
+  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "The contract spans compatible JSON emission, cross-node semantic validation, safe Git identity, and an existing ref-aware oracle without broadening authority.", "confirmed_by_implementer": false},
+  "risks": [
+    {"id": "R-01", "description": "A consumer accepts a structurally valid-looking but ambiguously owned projection and acts on the wrong track.", "mitigation": "Centralize normalization and integrity validation, test every forbidden topology, and make consumers require its result before deriving paths or refs."},
+    {"id": "R-02", "description": "A filesystem fallback or revision expression becomes a mutable Git selector.", "mitigation": "Accept only schema-safe fully qualified refs for mutating use, verify them exactly with Git, and reject the empty sentinel."},
+    {"id": "R-03", "description": "Compatibility support silently starts depending on optional Sworn-specific fields.", "mitigation": "Test output with those fields absent and derive branch, worktree, dependencies, and merge state from naming and Git only."}
+  ],
+  "acceptance_criteria": [
+    {"id": "AC-01", "text": "WHEN the built sworn binary runs board --json without a release filter THE SYSTEM SHALL emit a board-oracle-v1 aggregate catalog whose selected release entries contain release, sourceRef, and nested tracks/slices, and whose slice rows contain id, state, track, and dependsOnTracks; IF emission or schema validation fails THEN the command SHALL exit non-zero without partial JSON (N-16).", "ears_pattern": "event-driven", "test_refs": ["cmd/sworn/board_test.go:TestBoardCLIBoardOracleV1BinaryReachability"]},
+    {"id": "AC-02", "text": "WHEN the built sworn binary runs board --release <release> --json THE SYSTEM SHALL retain exactly the compatibility top-level release and tracks shape without sourceRef, normalize null dependencies and null empty-track spelling for validation, and preserve nested ordered rows (N-16).", "ears_pattern": "event-driven", "test_refs": ["cmd/sworn/board_test.go:TestBoardCLINamedReleaseBoardOracleV1Compatibility"]},
+    {"id": "AC-03", "text": "IF an aggregate projection has duplicate track IDs, duplicate slice IDs, a row whose track differs from its enclosing track, inconsistent normalized dependsOnTracks within one track, or a release-map key that differs from entry.release THEN the shared validator and every board command boundary using it SHALL reject the projection before deriving a worktree path, dependency, or Git object (N-16).", "ears_pattern": "unwanted-behaviour", "test_refs": ["internal/board/projection_test.go:TestBoardOracleV1RejectsAmbiguousTopology"]},
+    {"id": "AC-04", "text": "WHEN a release-mode caller requests mutable use of an aggregate sourceRef THE SYSTEM SHALL accept only a schema-safe fully qualified refs/heads or refs/remotes name that Git verifies exactly; IF sourceRef is empty, malformed, a revision expression, or missing then it SHALL fail before object selection or mutation (N-16).", "ears_pattern": "complex", "test_refs": ["internal/board/projection_test.go:TestBoardOracleV1MutatingSourceRefGuard"]},
+    {"id": "AC-05", "text": "WHILE deriving release-mode topology THE SYSTEM SHALL NOT require or treat optional worktreePath, worktreeBranch, blockedBy, readyToMerge, or track state fields as authority; branch/worktree identity, dependencies, and merged state remain derived from the locked naming convention and Git (N-16).", "ears_pattern": "state-driven", "test_refs": ["internal/board/discovery_test.go:TestBoardOracleV1ProjectionDoesNotRequireConvenienceFields", "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogSourceRef"]}
+  ]
+}

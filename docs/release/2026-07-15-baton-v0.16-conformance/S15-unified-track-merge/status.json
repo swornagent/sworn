@@ -1,0 +1,55 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S15-unified-track-merge",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T6-release-adapters",
+  "covers_needs": ["N-06", "N-07", "N-08", "N-09", "N-10"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S15-unified-track-merge/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S15-unified-track-merge/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S15-unified-track-merge/journal.md",
+  "planned_files": [
+    "internal/integration/trackmerge.go",
+    "internal/integration/trackmerge_test.go",
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_common.go",
+    "cmd/sworn/merge_track.go",
+    "cmd/sworn/merge_release.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/merge_track_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/integration ./internal/run ./internal/mcp ./cmd/sworn", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["built sworn merge-track plus autonomous-loop and MCP calls over the same temporary Git fixture, recording identical parents/tree, idempotent re-gating, exact local-only recognized-sync invalidation, unchanged remote/release-wt refs, and fail-closed outcomes"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Every way Sworn merges a track now enforces one deterministic and restart-safe integration contract.",
+  "design_decisions": [
+    {
+      "choice": "Use five dependency-safe tracks, serializing the public engine scaffold in T2 with exclusive cross-track file ownership and no shared-touchpoint exception in this release.",
+      "stake_class": "Type-1",
+      "options": ["five tracks with serial engine bootstrap", "seven tracks plus diagnostic commands", "new scaffold slices", "merge contract owners"],
+      "human_decision": "Ratified under Brad's 2026-07-16 Coach instruction to follow the orchestrator recommendation: use the five-track graph and block for re-planning if any undeclared cross-track write appears.",
+      "rationale": "The graph gives every foundational slice a real binary path, preserves the downstream parallel seam, and keeps every cross-track merge deterministic and collision-free.",
+      "architecturally_significant": true
+    }
+  ],
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["CLI, autonomous-loop, and MCP produce the same canonical integration, or the same exact local-only invalidation commit for the sole recoverable recognized-sync case, and revalidate on rerun."],
+    "negative_scenarios": ["Later overlap, shipped/unrecognized provenance, stale report, invalid rollback, undeclared conflict, non-canonical shared blob, or rewritten result blocks every adapter without lifecycle or ref mutation."],
+    "benefit_hypothesis": "Removing three divergent merge predicates eliminates the weakest-path bypass from automated delivery."
+  }
+}

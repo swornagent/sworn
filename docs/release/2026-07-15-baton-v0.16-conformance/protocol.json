@@ -1,0 +1,14 @@
+{
+  "$schema": "https://swornagent.dev/schemas/release-protocol-v1.json",
+  "record_version": 1,
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "protocol_pin": {
+    "name": "baton",
+    "version": "v0.15.1",
+    "upstream_sha": "3fb4d275ae8a151f6287e7b9279d71628b12eea0",
+    "upstream_digest": "sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f",
+    "upstream_version_blob_oid": "5f1dd0af59642311ee04e018a0023562d4dde008"
+  },
+  "origin": "native",
+  "authority": "planning"
+}
