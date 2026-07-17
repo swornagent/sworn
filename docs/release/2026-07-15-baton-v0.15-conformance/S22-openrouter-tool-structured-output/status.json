@@ -8,10 +8,10 @@
     "N-10",
     "N-13"
   ],
-  "state": "in_progress",
-  "owner": "implementer",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-07-17T17:51:30+10:00",
+  "state": "blocked",
+  "owner": "planner",
+  "last_updated_by": "implementer-handoff",
+  "last_updated_at": "2026-07-17T18:44:24+10:00",
   "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
@@ -28,7 +28,25 @@
     "internal/gate/llmcheck_test.go",
     "cmd/sworn/llmcheck_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/llmcheck_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S22-openrouter-tool-structured-output/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/intake.md",
+    "internal/gate/llmcheck_test.go",
+    "internal/model/config.go",
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/structured_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model -run 'Test(NewClient_OpenRouterDirectUsesStructuredToolCall|OpenRouterChatStructuredUsesCanonicalForcedTool|OpenRouterStructuredRejectsInvalidToolCall|ProxyOpenRouterRemainsStructuredUnsupported|FromEnvOpenRouterDirectBaseURLOverride|FromEnvOpenRouterProxyIgnoresDirectBaseURLOverride|OllamaRemainsVerifyOnly)' -count=1",
     "go test ./internal/gate ./cmd/sworn -run 'Test(OpenRouterToolPathStillFailsFullCanonicalReportViolations|LLMCheckOpenRouterToolStructured)' -count=1",
@@ -58,12 +76,19 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": [],
-    "notes": "Coach-authorized S22 recovery: the prior AC-06 invocation has no usable sanitized receipt and is neither a PASS nor a FAIL. The external evidence block is cleared only so a fresh Implementer can add AC-07 and AC-08, pass deterministic gates, and make exactly one new direct openrouter/z-ai/glm-5.2 proof with the allowlisted receipt. This is not a verifier verdict and no S20 activity is authorized without a fresh S22 PASS."
+    "violations": [
+      {
+        "gate": "AC-06 exact-one proof",
+        "description": "The exact-one S22 AC-06 proof returned UNPARSEABLE.",
+        "evidence": "Sanitized receipt records no safely available process exit code; raw provider/model output is not retained.",
+        "proposed_amendment": "New human authority and Planner ratification are required before another provider action. No retry, fallback, implemented/verified transition, or S20 activity is authorized."
+      }
+    ],
+    "notes": "The exact-one S22 AC-06 proof returned UNPARSEABLE with no safely available process exit code. S22 is blocked for the Planner; recovery requires new human authority and Planner ratification before another provider action. No retry or fallback is permitted, and S20 remains untouched."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter model produce a canonical generic-check result without weakening the fail-closed boundary for hosted proxy, Ollama, or unprofiled providers.",
@@ -138,7 +163,17 @@
         "fallback",
         "further retry",
         "S20 activity before fresh S22 PASS"
-      ]
-    }
+      ],
+      "consumed": true
+    },
+    "receipt": {
+      "check_identity": "spec-ambiguity",
+      "model_id": "openrouter/z-ai/glm-5.2",
+      "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
+      "process_exit_code": "unavailable",
+      "result": "UNPARSEABLE"
+    },
+    "raw_output_disposition": "destroyed",
+    "consequence": "S22 is blocked for the Planner; no retry or fallback is permitted, S22 is not implemented or verified, and S20 remains untouched."
   }
 }

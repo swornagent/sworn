@@ -135,3 +135,58 @@
   proof and model-backed requirements checks were intentionally not run under
   this Planner session's scope; this is not a waiver of the one newly
   authorized S22 proof.
+
+## 2026-07-17T18:27:06+10:00 — Implementer recovery guards and deterministic proof preflight
+
+- Added only the two ratified direct-OpenRouter transport guards. `FunctionCall`
+  now retains whether the wire value for `function.arguments` was literal JSON
+  `null`, so direct forced-tool extraction can reject it rather than silently
+  treating it as an empty Go string. The same direct-only extraction now rejects
+  a returned tool call whose `type` is not `function` before canonical report
+  acceptance. Existing legacy forced-tool behavior remains unchanged.
+- `TestOpenRouterStructuredRejectsInvalidToolCall` proves both cases make
+  exactly one provider request and fail locally with no repair, fallback, or
+  second request. The focused model and built-command/gate suites, full
+  `go test ./...`, `go vet ./...`, and `make build` all passed. The full
+  deterministic gates ran in an isolated no-credential, no-model environment;
+  `GOFLAGS=-buildvcs=false` only avoids this host's unrelated VCS-status probe.
+- A local `go test -cover ./internal/model -count=1` measurement passed at
+  81.4% statements. The role-prompt `sworn coverage` command is absent from
+  the current binary (`unknown command`). This is not an S22 blocker: why — a
+  coverage command is unrelated scope; tracking — `sworn#122`; acknowledgement
+  — the Coach explicitly accepted the artifact-specific AC-to-test matrix plus
+  local Go coverage measurement in its place. No command or source was added
+  for coverage.
+- Created a valid pre-live proof bundle with the AC-to-evidence mapping and the
+  two acknowledged Rule-2 entries above. It deliberately does not claim AC-06
+  delivered. The current binary's `verify` wrapper requires a verifier model
+  even for its documented deterministic first-pass, so the isolated preflight
+  used only a synthetic direct OpenRouter construction with an unroutable local
+  endpoint. It returned `PASS` at zero cost; the first-pass does not dispatch
+  its constructed verifier. No real credential, outbound request, or AC-06
+  provider command has run in this recovery session.
+
+## 2026-07-17T18:32:31+10:00 — AC-06 fail-closed handoff
+
+- Check identity: `spec-ambiguity`
+- Model ID: `openrouter/z-ai/glm-5.2`
+- Immutable start commit: `a09b0e46df465862d00469d4aef2a997442b3d5b`
+- Process exit code: `unavailable`
+- Result: `UNPARSEABLE`
+
+The raw temporary file was destroyed. The exactly-one AC-06 budget is consumed:
+there is no retry, fallback, repair, `implemented` or `verified` transition, or
+S20 activity. S22 is blocked and returned to the Planner for a new decision;
+this is not a fresh verifier verdict.
+
+## 2026-07-17T18:44:24+10:00 — Fail-closed handoff state recorded
+
+- `status.json` now records `state: blocked` and `verification.result:
+  blocked`. Its machine-readable AC-06 violation records the exact-one
+  `UNPARSEABLE` result and the absence of a safely available process exit code.
+- Recovery is explicitly routed to new human authority and Planner ratification
+  before any further provider action. The consumed proof budget, no-retry/no-
+  fallback constraint, and S20 hold remain unchanged.
+- The synthetic-only deterministic proof-gate PASS remains evidence of the
+  current binary's no-model-dispatch first pass. It is not AC-06 evidence and
+  is not a reason to alter this blocked handoff.
