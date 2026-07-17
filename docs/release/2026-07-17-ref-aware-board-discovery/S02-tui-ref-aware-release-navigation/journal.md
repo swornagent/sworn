@@ -40,3 +40,15 @@ Executed 2026-07-17 (local):
 - Kept filesystem fallback authority inside `internal/board`, read-only, bytewise ordered, and conservatively marked `working-tree` / `uncommitted`; no TUI-local state election was added.
 - Required tests passed: targeted TUI/board/CLI packages, full `go test ./...`, `go vet ./...`, and empty `gofmt -l .` output.
 - Semantic-coverage and AC-satisfaction checks both returned `PASS` for AC-01 through AC-04. No subagents were dispatched.
+
+## Verifier verdicts received
+
+### 2026-07-18T06:00:15+10:00 — PASS
+
+PASS
+
+Slice: `S02-tui-ref-aware-release-navigation`
+Verified against: `452fac107e6c28e2f1d9f3e1697fc63e85823618`
+Verifier session: `fresh, artefact-only`
+
+Next step: `/merge-track T1-ref-aware-board 2026-07-17-ref-aware-board-discovery`
