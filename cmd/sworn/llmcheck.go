@@ -122,7 +122,10 @@ func cmdLLMCheck(args []string) int {
 	ctx := context.Background()
 	report, err := gate.RunLLMCheck(ctx, ct, sliceDir, diffContent, verifier)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn llm-check: %v\n", err)
+		// Provider and parser errors can contain response data or endpoint
+		// fragments. Public CLI output is intentionally stable and non-raw;
+		// the in-process report contract remains unchanged for MCP callers.
+		fmt.Fprintln(os.Stderr, "sworn llm-check: check did not complete")
 		return 2
 	}
 
@@ -139,14 +142,21 @@ func cmdLLMCheck(args []string) int {
 	return 0
 }
 
-const s22ProofReceiptModel = "openrouter/z-ai/glm-5.2"
+const (
+	s22ProofReceiptRelease = "2026-07-15-baton-v0.15-conformance"
+	s22ProofReceiptSlice   = "S22-openrouter-tool-structured-output"
+	s22ProofReceiptModel   = "openrouter/z-ai/glm-5.2"
+	s22ProofReceiptStart   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
+	s22UpstreamSlice       = "S21-openai-structured-envelope"
+)
 
 // cmdLLMCheckProofReceipt owns the one native S22 receipt lifecycle. Its
 // output is deliberately limited to gate.ProofReceipt rendering; neither a
 // provider error nor a model report is permitted to cross this command's
 // stdout/stderr boundary.
 func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, requestedModel, baseRef string, jsonOut bool) int {
-	if checkType != gate.CheckSpecAmbiguity || os.Getenv("SWORN_DIRECT") != "1" {
+	if checkType != gate.CheckSpecAmbiguity || os.Getenv("SWORN_DIRECT") != "1" ||
+		releaseName != s22ProofReceiptRelease || sliceID != s22ProofReceiptSlice || baseRef != s22ProofReceiptStart {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
@@ -175,7 +185,30 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		StartCommit string `json:"start_commit"`
 	}
 	statusData, err := os.ReadFile(filepath.Join(sliceDir, "status.json"))
-	if err != nil || json.Unmarshal(statusData, &status) != nil || status.SliceID != sliceID || status.Release != releaseName || baseRef == "" || baseRef != status.StartCommit {
+	if err != nil || json.Unmarshal(statusData, &status) != nil || status.SliceID != sliceID || status.Release != releaseName || status.StartCommit != s22ProofReceiptStart {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+		return 2
+	}
+	var upstream struct {
+		State        string `json:"state"`
+		Verification struct {
+			Result string `json:"result"`
+		} `json:"verification"`
+	}
+	upstreamData, err := os.ReadFile(filepath.Join(releaseDir, s22UpstreamSlice, "status.json"))
+	if err != nil || json.Unmarshal(upstreamData, &upstream) != nil || upstream.State != "verified" || upstream.Verification.Result != "pass" {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+		return 2
+	}
+	binding := gate.ProofReceiptBinding{
+		Release:              releaseName,
+		SliceID:              sliceID,
+		CheckType:            checkType,
+		ModelID:              modelID,
+		ImmutableStartCommit: status.StartCommit,
+	}
+	receiptDir := filepath.Join(sliceDir, "receipts")
+	if err := gate.RequireHistoricalAttemptOneForAttemptTwo(binding, receiptDir); err != nil {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
@@ -194,13 +227,7 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		return 2
 	}
 
-	receipt, err := gate.RunProofReceipt(context.Background(), gate.ProofReceiptBinding{
-		Release:              releaseName,
-		SliceID:              sliceID,
-		CheckType:            checkType,
-		ModelID:              modelID,
-		ImmutableStartCommit: status.StartCommit,
-	}, filepath.Join(sliceDir, "receipts"), runner)
+	receipt, err := gate.RunProofReceipt(context.Background(), binding, receiptDir, runner)
 	if receipt.Attempt != 0 {
 		if jsonOut {
 			fmt.Print(gate.JSONProofReceipt(receipt))

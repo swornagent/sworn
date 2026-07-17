@@ -134,7 +134,7 @@ func TestLive_SecurityReviewSatisfiesTheContract(t *testing.T) {
 			t.Fatalf("THE PUBLISHED CONTRACT IS UNSATISFIABLE by %s.\n"+
 				"parseLLMResponse rejected the model's response, so every llm-check in every "+
 				"repo fails closed on a shape no model produces — the gate is red for everyone.\n"+
-				"detail: %s\nraw: %.600s", id, f.Detail, report.RawResponse)
+				"detail: %s", id, f.Detail)
 		}
 	}
 
@@ -149,8 +149,8 @@ func TestLive_SecurityReviewSatisfiesTheContract(t *testing.T) {
 	// A diff this bad must produce SOMETHING. Silence would mean the payload never
 	// reached the model.
 	if len(report.Findings) == 0 {
-		t.Errorf("no findings on a diff that logs PII and opens CORS to * — "+
-			"the check is not seeing the diff.\nraw: %.400s", report.RawResponse)
+		t.Errorf("no findings on a diff that logs PII and opens CORS to * — " +
+			"the check is not seeing the diff")
 	}
 }
 

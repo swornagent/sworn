@@ -694,6 +694,30 @@ func TestJSONLLMCheck(t *testing.T) {
 	}
 }
 
+func TestLLMCheckPublicOutputExcludesRawResponse(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"S01-test/spec.md": "# Slice\n",
+	})
+	const rawCanary = "S22-RAW-RESPONSE-CANARY"
+	mock := &mockVerifier{text: rawCanary}
+	report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, dir+"/S01-test", "", mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In-process callers such as MCP retain the original report behavior.
+	if report.RawResponse != rawCanary {
+		t.Fatal("in-process raw response was unexpectedly altered")
+	}
+	for _, rendered := range []string{PrintLLMCheck(report), JSONLLMCheck(report)} {
+		if strings.Contains(rendered, rawCanary) || strings.Contains(rendered, "raw_response") {
+			t.Fatal("public generic llm-check output leaked raw provider data")
+		}
+		if !strings.Contains(rendered, "Unparseable model response") {
+			t.Fatal("malformed generic output lost its stable diagnostic")
+		}
+	}
+}
+
 // --- helpers ---
 
 func TestExtractJSON(t *testing.T) {

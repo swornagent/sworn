@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -191,3 +192,39 @@ func TestNewProviderError_NoJSONBody(t *testing.T) {
 		t.Error("Message is empty for non-JSON body")
 	}
 }
+
+func TestProofReceiptRetryClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want ProofReceiptErrorClass
+	}{
+		{name: "429", err: &Error{Kind: KindRateLimit, Status: 429}, want: ProofReceiptErrorRateLimit},
+		{name: "5xx", err: &Error{Kind: KindUpstream, Status: 503}, want: ProofReceiptErrorUpstream},
+		{name: "explicit transient", err: &Error{Kind: KindTransient}, want: ProofReceiptErrorTransient},
+		{name: "400", err: &Error{Kind: KindOther, Status: 400}, want: ProofReceiptErrorHTTPClient},
+		{name: "401", err: &Error{Kind: KindAuth, Status: 401}, want: ProofReceiptErrorHTTPClient},
+		{name: "402", err: &Error{Kind: KindCredits, Status: 402}, want: ProofReceiptErrorHTTPClient},
+		{name: "deadline", err: context.DeadlineExceeded, want: ProofReceiptErrorDeadline},
+		{name: "network", err: proofReceiptTestNetError{}, want: ProofReceiptErrorNetwork},
+		{name: "network timeout", err: proofReceiptTestNetError{timeout: true}, want: ProofReceiptErrorDeadline},
+		{name: "malformed tool", err: &StructuredOutputError{Kind: StructuredOutputMalformedTool}, want: ProofReceiptErrorMalformedTool},
+		{name: "opaque", err: &StructuredOutputError{Kind: StructuredOutputOpaque}, want: ProofReceiptErrorOpaque},
+		// The words look retryable, but opaque message text must never grant
+		// retry authority to the proof-receipt policy.
+		{name: "opaque rate-limit wording", err: errors.New("rate limit at https://endpoint.invalid with S22-KEY-CANARY"), want: ProofReceiptErrorUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClassifyProofReceiptError(tt.err); got != tt.want {
+				t.Fatalf("ClassifyProofReceiptError = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+type proofReceiptTestNetError struct{ timeout bool }
+
+func (e proofReceiptTestNetError) Error() string   { return "network fixture" }
+func (e proofReceiptTestNetError) Timeout() bool   { return e.timeout }
+func (e proofReceiptTestNetError) Temporary() bool { return false }

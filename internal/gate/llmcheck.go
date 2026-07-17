@@ -74,7 +74,9 @@ type LLMCheckReport struct {
 	Release      string       `json:"release"`
 	Verdict      string       `json:"verdict"` // "PASS" or "FAIL"
 	Findings     []LLMFinding `json:"findings"`
-	RawResponse  string       `json:"raw_response,omitempty"`
+	// RawResponse remains available to in-process callers that need to preserve
+	// canonical validation behavior, but never serializes into public JSON.
+	RawResponse string `json:"-"`
 
 	// Ambiguity remains a separately typed result. It is deliberately excluded
 	// from generic JSON marshaling; JSONLLMCheck and PrintLLMCheck delegate to
@@ -253,7 +255,8 @@ func runGenericLLMCheck(ctx context.Context, checkType CheckType, sliceDir strin
 			Verdict: "FAIL",
 			Findings: []LLMFinding{{
 				ID: "F-00", Severity: "high", Blocking: &blocking,
-				Title: "Unparseable model response", Detail: rawResponse,
+				Title:  "Unparseable model response",
+				Detail: "The model response could not be parsed as a valid check report.",
 			}},
 		}
 	}
@@ -311,7 +314,7 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 
 	var result llmResponseJSON
 	if err := spec.DecodeJSONNoDuplicate([]byte(cleaned), &result); err != nil {
-		return nil, fmt.Errorf("parse LLM response: %w (raw: %.200s)", err, raw)
+		return nil, fmt.Errorf("parse LLM response: %w", err)
 	}
 
 	// Grade the payload against the published record BEFORE normalising, so the
@@ -331,8 +334,7 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 			Severity: "high",
 			Blocking: &blocking,
 			Title:    "LLM check response violates llm-check-report-v1",
-			Detail: fmt.Sprintf("The model's response does not satisfy the published check contract, "+
-				"so its verdict cannot be trusted: %v", verr),
+			Detail:   "The model response does not satisfy the published check contract, so its verdict cannot be trusted.",
 		})
 		return &result, nil
 	}

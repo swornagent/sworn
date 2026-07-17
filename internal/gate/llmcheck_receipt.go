@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -91,6 +92,10 @@ func (e ProofReceiptExit) MarshalJSON() ([]byte, error) {
 }
 
 func (e *ProofReceiptExit) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if bytes.Equal(data, []byte("null")) || len(data) == 0 {
+		return errors.New("invalid proof receipt process exit")
+	}
 	var code int
 	if err := json.Unmarshal(data, &code); err == nil {
 		if code < 0 || code > 255 {
@@ -163,6 +168,18 @@ func RunProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 type proofReceiptWriter func(string, ProofReceipt) error
 
 func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner, write proofReceiptWriter) (ProofReceipt, error) {
+	if !validProofReceiptBinding(binding) {
+		return ProofReceipt{}, ErrProofReceiptPreflight
+	}
+	if info, err := os.Stat(receiptDir); err != nil || !info.IsDir() {
+		return ProofReceipt{}, ErrProofReceiptPreflight
+	}
+	unlock, err := acquireProofReceiptLock(receiptDir)
+	if err != nil {
+		return ProofReceipt{}, ErrProofReceiptPreflight
+	}
+	defer unlock()
+
 	attempt, err := preflightProofReceipt(binding, receiptDir)
 	if err != nil {
 		return ProofReceipt{}, ErrProofReceiptPreflight
@@ -180,11 +197,44 @@ func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 	final.Result = outcome.Result
 	final.ProcessExitCode = outcome.ProcessExitCode
 	if err := write(path, final); err != nil {
-		// The first atomic write is already a valid receipt_failure reservation.
-		// Returning it is the only safe representation of a failed finalization.
+		// A directory sync can fail after rename, leaving the final bytes visible
+		// even though they were not durably acknowledged. Restore the already
+		// valid conservative reservation before returning. If restoration itself
+		// cannot complete, the caller still fails closed and never makes another
+		// provider request; a later run sees the durable state rather than trusting
+		// this process's model result.
+		_ = write(path, reservation)
 		return reservation, ErrProofReceiptFinalization
 	}
 	return final, nil
+}
+
+// acquireProofReceiptLock serializes the preflight → reservation transition.
+// rename alone may overwrite an already-created destination on POSIX, so a
+// same-directory O_EXCL lock is the no-replace authority before either caller
+// can decide an ordinal or dispatch a provider request. The lock is private,
+// fsync'd, and removed before return; a stale lock is fail-closed.
+func acquireProofReceiptLock(dir string) (func(), error) {
+	path := filepath.Join(dir, ".proof-receipt.lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, ErrProofReceiptPreflight
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return nil, ErrProofReceiptPreflight
+	}
+	if err := file.Close(); err != nil {
+		return nil, ErrProofReceiptPreflight
+	}
+	if err := syncProofReceiptDirectory(dir); err != nil {
+		return nil, ErrProofReceiptPreflight
+	}
+	return func() {
+		if os.Remove(path) == nil {
+			_ = syncProofReceiptDirectory(dir)
+		}
+	}, nil
 }
 
 func preflightProofReceipt(binding ProofReceiptBinding, receiptDir string) (int, error) {
@@ -223,6 +273,26 @@ func preflightProofReceipt(binding ProofReceiptBinding, receiptDir string) (int,
 		return 0, ErrProofReceiptPreflight
 	}
 	return 2, nil
+}
+
+// RequireHistoricalAttemptOneForAttemptTwo pins S22's policy-authorized live
+// dispatch to its committed historical receipt. The reusable lifecycle can
+// model a first attempt for deterministic tests, but the public S22 command
+// must never create one or substitute another retry class for history.
+func RequireHistoricalAttemptOneForAttemptTwo(binding ProofReceiptBinding, receiptDir string) error {
+	first, exists, err := readProofReceipt(receiptDir, 1)
+	if err != nil || !exists || !receiptMatchesBinding(first, binding, 1) ||
+		first.AttemptClass != ProofReceiptReceiptFailure || first.Result != ProofReceiptUnparseable {
+		return ErrProofReceiptPreflight
+	}
+	if _, available := first.ProcessExitCode.Code(); available {
+		return ErrProofReceiptPreflight
+	}
+	_, secondExists, err := readProofReceipt(receiptDir, 2)
+	if err != nil || secondExists {
+		return ErrProofReceiptPreflight
+	}
+	return nil
 }
 
 func validProofReceiptBinding(binding ProofReceiptBinding) bool {
@@ -293,10 +363,29 @@ func decodeProofReceipt(data []byte) (ProofReceipt, error) {
 	} else if receipt.Result != ProofReceiptUnparseable {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
-	if code, available := receipt.ProcessExitCode.Code(); available && (code < 0 || code > 255) {
+	if !validProofReceiptExitSemantics(receipt) {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
 	return receipt, nil
+}
+
+func validProofReceiptExitSemantics(receipt ProofReceipt) bool {
+	code, available := receipt.ProcessExitCode.Code()
+	if available && (code < 0 || code > 255) {
+		return false
+	}
+	if receipt.AttemptClass == ProofReceiptFinalVerdict {
+		if !available {
+			return false
+		}
+		if receipt.Result == ProofReceiptPass {
+			return code == 0
+		}
+		return code != 0
+	}
+	// A non-final error must never report success. A reservation may be
+	// unavailable because no durable process outcome exists yet.
+	return !available || code != 0
 }
 
 func receiptMatchesBinding(receipt ProofReceipt, binding ProofReceiptBinding, attempt int) bool {
@@ -326,10 +415,15 @@ func normaliseProofReceiptOutcome(outcome ProofReceiptOutcome) ProofReceiptOutco
 		return ProofReceiptOutcome{AttemptClass: ProofReceiptUnknown, Result: ProofReceiptUnparseable, ProcessExitCode: ProofReceiptExitCode(2)}
 	}
 	if outcome.AttemptClass == ProofReceiptFinalVerdict {
-		if outcome.Result == ProofReceiptPass || outcome.Result == ProofReceiptFail || outcome.Result == ProofReceiptBlocked {
+		code, available := outcome.ProcessExitCode.Code()
+		if (outcome.Result == ProofReceiptPass && available && code == 0) ||
+			((outcome.Result == ProofReceiptFail || outcome.Result == ProofReceiptBlocked) && available && code != 0) {
 			return outcome
 		}
 		return ProofReceiptOutcome{AttemptClass: ProofReceiptSchemaFailure, Result: ProofReceiptUnparseable, ProcessExitCode: ProofReceiptExitCode(1)}
+	}
+	if code, available := outcome.ProcessExitCode.Code(); available && code == 0 {
+		return ProofReceiptOutcome{AttemptClass: ProofReceiptUnknown, Result: ProofReceiptUnparseable, ProcessExitCode: ProofReceiptExitCode(2)}
 	}
 	return ProofReceiptOutcome{AttemptClass: outcome.AttemptClass, Result: ProofReceiptUnparseable, ProcessExitCode: outcome.ProcessExitCode}
 }
@@ -362,6 +456,13 @@ func proofReceiptRetryable(class ProofReceiptAttemptClass) bool {
 }
 
 func atomicWriteProofReceipt(path string, receipt ProofReceipt) error {
+	return atomicWriteProofReceiptWithSync(path, receipt, syncProofReceiptDirectory)
+}
+
+// atomicWriteProofReceiptWithSync exists so the receipt protocol can prove
+// recovery from the otherwise hard-to-reach post-rename directory-sync fault.
+// Production always supplies syncProofReceiptDirectory.
+func atomicWriteProofReceiptWithSync(path string, receipt ProofReceipt, syncDir func(string) error) error {
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
 		return ErrProofReceiptPreflight
@@ -392,15 +493,19 @@ func atomicWriteProofReceipt(path string, receipt ProofReceipt) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return ErrProofReceiptPreflight
 	}
-	parent, err := os.Open(dir)
-	if err != nil {
-		return ErrProofReceiptPreflight
-	}
-	defer parent.Close()
-	if err := parent.Sync(); err != nil {
+	if err := syncDir(dir); err != nil {
 		return ErrProofReceiptPreflight
 	}
 	return nil
+}
+
+func syncProofReceiptDirectory(dir string) error {
+	parent, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return parent.Sync()
 }
 
 // PrintProofReceipt renders only the schema allowlist, never model findings or
