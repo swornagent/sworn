@@ -8,11 +8,11 @@
     "N-04",
     "N-05"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "unassigned",
-  "last_updated_by": "codex-verifier",
-  "last_updated_at": "2026-07-17T23:24:36+10:00",
-  "start_commit": null,
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-17T23:27:08+10:00",
+  "start_commit": "406430bc639421dd4319b60aee5f04a2d505c3cb",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/proof.json",
   "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S02-tui-ref-aware-release-navigation/journal.md",
@@ -22,7 +22,13 @@
     "internal/tui/model.go",
     "internal/tui/tui_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/board/discovery.go",
+    "internal/board/oracle.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go"
+  ],
   "test_commands": [
     "go test ./internal/tui ./internal/board ./cmd/sworn",
     "go test ./...",
@@ -51,13 +57,11 @@
     "confirmed_by_implementer": false
   },
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "codex-verifier-2026-07-17-S02",
-    "verifier_verdict_at": "2026-07-17T23:24:36+10:00",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Slice is in state 'in_progress', expected 'implemented'; the required docs(...): start implementation checkpoint is absent (start_commit is null), so verification cannot begin."
-    ]
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent TUI operator sees and opens the same high-water board state as the CLI, including a clear warning when that state has not yet been committed.",
