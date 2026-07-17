@@ -1,0 +1,49 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S24-board-oracle-v1-projection",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T1-foundation",
+  "covers_needs": ["N-16"],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-18T09:00:58+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S24-board-oracle-v1-projection/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S24-board-oracle-v1-projection/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S24-board-oracle-v1-projection/journal.md",
+  "planned_files": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
+    "internal/board/projection.go",
+    "internal/board/projection_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/board ./cmd/sworn", "go test ./...", "go vet ./...", "make build"],
+  "reachability_artifacts": ["built sworn board --json aggregate and named-release invocations demonstrate board-oracle-v1 compatibility and fail-closed malformed projection rejection"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "A new public protocol boundary must preserve compatibility while enforcing cross-node topology and ref-safety semantics.", "confirmed_by_implementer": false},
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Lets every later release-mode adapter consume one portable, safe board projection rather than Sworn-private convenience metadata.",
+  "design_decisions": [
+    {
+      "choice": "Make the Baton board-oracle-v1 projection a shared validated authority with only portable release/track/slice/dependency fields, and make mutable use require an exact verified sourceRef while Git derives optional convenience state.",
+      "stake_class": "Type-1",
+      "options": [
+        "portable aggregate plus named compatibility projection with a reusable validator and guarded sourceRef",
+        "retain separate CLI and TUI-local discovery fallbacks",
+        "serialize worktree paths, convenience state, or unverified revision expressions as mutable authority"
+      ],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-18: carry the Baton v0.16.0 board-oracle release delta into this replan as a distinct, fail-closed protocol slice after exact vendor parity.",
+      "rationale": "One portable validation boundary lets loop, merge, ship, and replan consumers agree on ownership while preventing optional local metadata or an unsafe ref spelling from selecting mutable Git state.",
+      "architecturally_significant": true
+    }
+  ],
+  "validation": {"human_ratified": true, "ratified_by": "Coach", "ratified_at": "2026-07-18T09:00:58+10:00", "positive_scenarios": ["Aggregate and named board output conform to portable v0.16 shapes and release-mode consumers can validate a safe selected topology."], "negative_scenarios": ["Duplicate ownership, row mismatch, dependency inconsistency, unsafe sourceRef, and filesystem-only mutation attempts fail before Git path derivation or mutation."], "benefit_hypothesis": "A validated public projection makes release automation portable across engines without weakening fail-closed topology ownership."}
+}

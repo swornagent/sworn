@@ -1,0 +1,59 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S14-role-lifecycle-recovery",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T5-role-loop",
+  "covers_needs": ["N-05", "N-09", "N-10"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S14-role-lifecycle-recovery/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S14-role-lifecycle-recovery/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S14-role-lifecycle-recovery/journal.md",
+  "planned_files": [
+    "internal/implement/implement.go",
+    "internal/implement/implement_test.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_agentic_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_test.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/loop_sit_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/implement ./internal/verify ./internal/run ./internal/router ./internal/scheduler ./cmd/sworn", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["built sworn loop run over a temporary owner-track remote recording exact Implementer and Verifier dispatch counts across PASS, explicit Coach resume, structured cycle-1 boundary re-slice with zero downstream dispatch, crash, push failure, and target-asserted reset/clean restart"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "The turnkey Sworn loop can progress and recover autonomously without exceeding Baton's role or review budgets.",
+  "design_decisions": [
+    {
+      "choice": "Route every loop role through the shared committed maintainability authority instead of reconstructing lifecycle state inside role adapters.",
+      "stake_class": "Type-1",
+      "options": ["shared maintainability authority for every role", "adapter-local lifecycle reconstruction", "external/manual lifecycle coordination"],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-15: loop, verifier orchestration, and routing must use the dedicated shared maintainability authority with no alternate executable path.",
+      "rationale": "One history-derived authority is necessary for autonomous recovery without extra dispatches or role-specific waivers.",
+      "architecturally_significant": true
+    }
+  ],
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["A clean PASS and one Coach-approved in-boundary remediation traverse the exact Implementer and fresh Verifier states with bounded dispatch."],
+    "negative_scenarios": ["The loop cannot synthesize Coach authority; structured re-slice, resumed boundary expansion, repeated failure, wrong-target cleanup, restart, or stale phase cannot spin, retain uncommitted debris, remediate, redispatch, or let the Verifier repair findings."],
+    "benefit_hypothesis": "Shared durable lifecycle authority turns the role loop from convention into restart-safe automation."
+  }
+}

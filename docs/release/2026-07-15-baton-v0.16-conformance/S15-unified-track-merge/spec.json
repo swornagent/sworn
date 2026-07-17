@@ -1,0 +1,114 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S15-unified-track-merge",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T6-release-adapters",
+  "user_outcome": "CLI, autonomous-loop and MCP track-merge paths use the same provenance, freshness, composition and readiness authorities on normal and idempotent execution.",
+  "rationale": "Sworn currently has three track-merge implementations with different gates. This slice makes one operation own the merge transaction and requires every adapter to pass C-03 and C-07 through C-09 before both a new merge and an already-merged success.",
+  "touchpoints": [
+    "internal/integration/trackmerge.go",
+    "internal/integration/trackmerge_test.go",
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_common.go",
+    "cmd/sworn/merge_track.go",
+    "cmd/sworn/merge_release.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/merge_track_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
+    {"kind": "contract", "contract_id": "C-08"},
+    {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "contract", "contract_id": "C-13"},
+    {"kind": "contract", "contract_id": "C-19"},
+    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
+    {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
+    {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
+    {"kind": "slice", "slice_id": "S12-rollback-readiness"},
+    {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Create one track-merge operation that resolves the committed board, exact retained track ref, release-wt ref, owner-track statuses, reports, evidence intervals, rollback proofs, and C-07 declarations from C-03-authorized refs.",
+    "Require every slice to satisfy C-09, validate C-08 freshness, and compose every declared shared file to its canonical C-07 blob before creating a two-parent integration whose first parent is the validated release-wt head and second parent is the retained board-declared track head.",
+    "Install canonical shared blobs in both index and worktree during forward synchronization or merge, independent of an ordinary Git driver result; block every undeclared production conflict and return it to re-planning.",
+    "Make sworn merge-track, the parallel autonomous loop's ProductionMergeTrack path, and MCP approve_merge call the same operation with equivalent structured outcomes and fail-closed exit or tool behavior.",
+    "When S11 returns the sole recoverable recognized-sync invalidation plan, atomically write the exact status/journal transition, commit it locally on the track branch, preserve remote track and release-wt refs, return non-success, and route to re-plan; this is a lifecycle durability action, not an integration merge.",
+    "On an already-merged or interrupted rerun, revalidate the complete protocol, status, report, freshness, rollback, composition, parent topology, and resulting tree before reporting idempotent success; never short-circuit on ancestry or displayed state alone.",
+    "Validate C-19 before resolving merge topology or a mutable sourceRef; reject an invalid projection before selecting a track or Git object."
+  ],
+  "out_of_scope": [
+    "Release-wt to integration-branch merge belongs to S16-release-ship-transitions.",
+    "Pre-cutover ship and post-deployment status mutation belong to S16-release-ship-transitions.",
+    "The adapter does not resolve undeclared production conflicts, synthesize a shared declaration, rewrite stale reports, or waive readiness.",
+    "Planner mutation and track propagation belong to S17-engine-replan-migration."
+  ],
+  "covers_needs": ["N-06", "N-07", "N-08", "N-09", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Three live entry points must converge on an atomic Git transaction whose parent topology and tree are part of protocol evidence.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "One adapter keeps its legacy state-only or ordinary-git merge path and bypasses canonical readiness or composition.",
+      "mitigation": "Delete adapter-local merge predicates, inject the shared operation, and run one scenario table through CLI, autonomous-loop, and MCP entry points."
+    },
+    {
+      "id": "R-02",
+      "description": "An idempotent rerun trusts that the track is already an ancestor even though evidence or the integration tree was rewritten.",
+      "mitigation": "The idempotent result must re-run C-03/C-07/C-08/C-09 and validate the exact two-parent integration and tree before success."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN sworn merge-track receives a T6 track cut from the exact C-13-activated release-wt head whose slices satisfy C-09 and whose retained head, intervals, sync provenance, rollback facts, and shared declarations satisfy C-03/C-07/C-08 THE SYSTEM SHALL create one two-parent integration with validated release-wt as parent 1, retained track head as parent 2, and the exact canonical composed tree, then return exit 0; planning authority SHALL block before merge (C-03, C-07, C-08, C-09, C-13, N-06, N-07, N-08, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/merge_track_test.go:TestMergeTrackCanonicalAuthorityBinaryReachability"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the autonomous parallel loop and MCP approve_merge execute the same valid fixture THE SYSTEM SHALL call the same track-merge operation, produce the same integration commit parents and tree as AC-01, and expose equivalent success; no adapter SHALL invoke ordinary merge directly (C-07, C-08, C-09, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/parallel_test.go:TestProductionMergeTrackUsesCanonicalOperation", "internal/mcp/tools_test.go:TestApproveMergeUsesCanonicalOperation"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF any slice is not C-09 ready, protocol refs diverge, a report/provenance identity is stale, rollback equality fails, shared composition conflicts, an undeclared conflict exists, or C-08 reports later overlap/unrecognized/shipped authority THEN every CLI, loop, and MCP adapter SHALL block with no lifecycle mutation or ref advance and return the same typed gate; the only exception is AC-06's exact recoverable local invalidation commit (C-03, C-07, C-08, C-09, N-06, N-07, N-08).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/integration/trackmerge_test.go:TestTrackMergeFailsClosedBeforeRefMutation"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN any adapter reruns after the exact track integration already exists THE SYSTEM SHALL revalidate every C-03, C-07, C-08, and C-09 input plus commit parents and tree before returning idempotent success; IF any current authority or integrated identity differs THEN THE SYSTEM SHALL block rather than trust ancestry or displayed state (N-09, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/trackmerge_test.go:TestTrackMergeIdempotencyRegatesAllAuthority"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN a declared shared path's ordinary Git merge conflicts or produces driver-dependent bytes but C-07 produces one canonical blob THE SYSTEM SHALL install that exact blob in index and worktree and complete the valid track integration; IF C-07 itself conflicts THE SYSTEM SHALL abort and preserve the pre-operation ref, index, and worktree (C-07, N-08).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/trackmerge_test.go:TestTrackMergeInstallsCanonicalSharedBlob"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN S11 classifies a recognized intersecting post-frontier synchronization whose invalidated candidate set is disjoint from all later authority THE SYSTEM SHALL preserve ledger/adjudication, clear implementation_head, set maintainability re_slice_required plus overall failed_verification/verification fail, persist exact invalidated_review_head, invalidating_sync_merge, and parent-2 rollback_baseline_commit in status/journal, create one one-parent local track commit, leave the remote track at that commit's parent and release-wt unchanged, return non-success, and route every adapter to re-plan; rerun SHALL revalidate that exact local/remote split without push, and C-12 SHALL preserve the invalidation commit as the re-plan target's expected local parent while compare-and-swap advancing the remote from its separately declared expected parent (C-08, C-12, N-06, N-07, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/trackmerge_test.go:TestRecognizedSyncInvalidationCommitsLocallyWithoutPush"]
+    }
+  ]
+}

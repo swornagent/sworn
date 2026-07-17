@@ -1,0 +1,56 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S23-v016-parity-and-installs",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T1-foundation",
+  "user_outcome": "A protocol maintainer can prove that the Sworn binary, vendored Baton content, and supported Codex and Claude installation mirrors exactly match Baton v0.16.0 without relying on a developer-specific sibling checkout.",
+  "rationale": "Baton v0.16.0 adds the portable board-oracle contract and corrects the installed release-mode surface to include design-review. This slice owns only exact upstream adoption and mirror parity. It retains Sworn's native Go, single-binary, no-runtime-shell boundary; the following S24 owns how the engine emits and validates the new projection. Public artefacts contain only protocol metadata, no credentials or provider payloads. Work is linear in the bounded vendored/archive inventory.",
+  "touchpoints": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/schemas/board-oracle-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/testdata/fixture/baton-v0.16.0.bundle",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/v016-upgrade-decision.md"},
+    {"kind": "slice", "slice_id": "S20-v015-parity-portable-fixture"}
+  ],
+  "in_scope": [
+    "Vendor exact Baton v0.16.0 content from annotated tag v0.16.0 with peeled commit aae82d1, update the adopting VERSION manifest, and include board-oracle-v1.json in the exact schema/embed/manifest classification.",
+    "Build a committed, integrity-pinned v0.16.0 test-only source bundle and use it in clean-CI parity tests; no runtime operation may read a sibling Baton checkout.",
+    "Generate and validate one complete installer-input archive from the exact tagged installers, including all eight release-mode commands and the design-review command, then prove native stdlib installation byte/mode matches isolated tagged Codex and Claude script output under explicit umask 0022.",
+    "Keep vendor writes, VERSION, archive, and supported install roots inside existing transaction/recovery boundaries; any malformed, partial, mismatched, aliased, nested, symlinked, special, or recovery-overlapping target fails closed without real-home mutation.",
+    "Expose exact byte parity through sworn baton vendor --check, sworn baton diff, and sworn doctor while diagnostics exclude mapped payloads and credentials."
+  ],
+  "out_of_scope": [
+    "Changing or interpreting Baton v0.16.0 normative wording and schemas is upstream protocol design.",
+    "Implementing board-oracle projection emission, semantic validation, or release-mode consumer behavior belongs to S24-board-oracle-v1-projection.",
+    "Changing the already-started S20 v0.15.1 lifecycle or reusing its evidence as v0.16.0 authority is prohibited.",
+    "Installing into a real Codex or Claude home, model/provider routing, proxy behavior, pricing, or hosted-service work is not part of this slice."
+  ],
+  "covers_needs": ["N-15"],
+  "effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind", "rationale": "The tagged byte inventory and transaction behavior are knowable but cross vendor, archive, installer, doctor, and clean-CI surfaces.", "confirmed_by_implementer": false},
+  "risks": [
+    {"id": "R-01", "description": "A partial archive or installer upgrade makes the binary report a protocol different from the installed agent surface.", "mitigation": "Use one exact tagged source, archive inventory, byte/mode parity tests, and transactional recovery across all managed roots."},
+    {"id": "R-02", "description": "A clean-CI test silently depends on a local Baton clone.", "mitigation": "Clone only the committed verified test bundle beneath t.TempDir and assert no sibling path is selected."}
+  ],
+  "acceptance_criteria": [
+    {"id": "AC-01", "text": "WHEN the v0.16 parity suite enumerates the live mapping, embedded schema manifest, VERSION manifest, prompts, rules, archive, and fixture THE SYSTEM SHALL prove exact Baton tag v0.16.0 and peeled commit aae82d1, byte-identical mapped normative JSON including board-oracle-v1, and no unclassified mapped schema (N-15).", "ears_pattern": "event-driven", "test_refs": ["internal/baton/records_conformance_test.go:TestBatonV016ExactParity", "internal/baton/manifest_test.go:TestV016SchemaManifestComplete"]},
+    {"id": "AC-02", "text": "WHEN the exact tagged installers and the native archive installer run in isolated temporary Codex and Claude homes under umask 0022 THE SYSTEM SHALL produce byte/mode-identical managed trees with all eight commands including design-review; IF any archive, path, mode, root, sentinel, or recovery boundary is unsafe or mismatched THEN the relevant operation SHALL fail before a real home mutation (N-15).", "ears_pattern": "complex", "test_refs": ["internal/baton/installer_archive_test.go:TestBatonV016CodexAndClaudeMirrorParity", "internal/baton/install_transaction_test.go:TestBatonV016SyncFailsClosed"]},
+    {"id": "AC-03", "text": "WHEN the built sworn binary runs baton vendor --check, baton diff, and doctor against the verified v0.16.0 fixture from a clean checkout with no sibling Baton repository THE SYSTEM SHALL report exact parity and exit 0; IF tag, commit, source bundle, mapped byte, schema, archive, or manifest identity differs THEN it SHALL fail closed with the documented non-zero surface and no write (N-15).", "ears_pattern": "complex", "test_refs": ["cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV016BinaryReachability", "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV016BinaryReachabilityRejectsInvalidBundle"]},
+    {"id": "AC-04", "text": "WHILE performing v0.16 adoption THE SYSTEM SHALL NOT invoke a runtime shell, access credentials, make a provider request, select a real Codex or Claude home, or rewrite the started S20 lifecycle evidence (N-15).", "ears_pattern": "state-driven", "test_refs": ["internal/baton/installer_archive_test.go:TestBatonV016CodexAndClaudeMirrorParity", "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV016BinaryReachability"]}
+  ]
+}

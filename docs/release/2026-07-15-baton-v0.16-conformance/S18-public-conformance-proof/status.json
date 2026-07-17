@@ -1,0 +1,42 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S18-public-conformance-proof",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T7-conformance-proof",
+  "covers_needs": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07", "N-08", "N-09", "N-10", "N-11"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.16-conformance/S18-public-conformance-proof/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.16-conformance/S18-public-conformance-proof/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.16-conformance/S18-public-conformance-proof/journal.md",
+  "planned_files": ["cmd/sworn/conformance_v015_helpers_test.go", "cmd/sworn/conformance_v015_test.go", "cmd/sworn/conformance_v015_tamper_test.go", "cmd/sworn/conformance_v015_restart_test.go", "cmd/sworn/conformance_v015_release_test.go"],
+  "actual_files": [],
+  "test_commands": ["go test ./cmd/sworn -run V015Conformance -count=1", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["go test ./cmd/sworn -run V015Conformance -count=1 builds sworn and drives public CLI and MCP subprocesses through isolated temporary Git repositories, bare remotes, empty-scope PASS, overlay/Coach failures, cycle-1 boundaries, local invalidation, full rollback envelopes, reset/clean restarts, migration, ship, and exact local-only Baton mark-shipped"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "The release has one public, restart-spanning proof that Sworn enforces the exact Baton v0.15 lifecycle rather than merely carrying its schemas.",
+  "design_decisions": [
+    {
+      "choice": "Close the release with one test-only public conformance slice after the five-track implementation graph converges.",
+      "stake_class": "Type-1",
+      "options": ["final public conformance slice over all contracts", "package proofs only", "monolithic out-of-band implementation and retrospective test"],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-15 and the 2026-07-16 orchestrator recommendation: use 18 proof-bounded slices in five tracks with S18 as the final real-binary conformance boundary.",
+      "rationale": "A final public-entry proof is needed to detect adapter and restart gaps without weakening the independently owned product contracts.",
+      "architecturally_significant": true
+    }
+  ],
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["A complete real-binary lifecycle reaches local shipped bookkeeping with exact pin, empty-scope fast path, overlay, Coach, merge, re-plan, Baton ship/status/index identities plus byte-identical pure-plan board, human push/cleanup handoff, and already-shipped no-op."],
+    "negative_scenarios": ["Every overlay/Coach tamper, stale identity, boundary expansion, repeated failure, wrong-target restart cleanup, invalid rollback, partial standalone command, migration mismatch, or undeployed ship attempt fails closed without unauthorized mutation, push, cleanup, or redispatch."],
+    "benefit_hypothesis": "End-to-end public proof catches adapter and recovery gaps that isolated package tests cannot observe."
+  }
+}

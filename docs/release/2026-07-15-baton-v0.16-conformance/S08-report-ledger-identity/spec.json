@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S08-report-ledger-identity",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "An operator's sworn maintainability review validates and reuses an exact committed report without another model dispatch, while missing, rewritten, deleted, duplicate-key, or blob-mismatched authority fails closed before lifecycle transition.",
+  "rationale": "This slice owns C-05 and binds compact status authority to the full committed report rather than trusting self-described JSON. It reads only release-confined public technical evidence from committed Git objects, never the network or credentials, and never logs report prompt/diff payloads on failure. The operation is non-interactive and linear in history entries plus report bytes, with indexed uniqueness checks rather than pairwise scans.",
+  "touchpoints": [
+    "internal/maintainability/ledger/types.go",
+    "internal/maintainability/ledger/report.go",
+    "internal/maintainability/ledger/report_test.go",
+    "internal/maintainability/ledger/blob.go",
+    "internal/maintainability/ledger/blob_test.go",
+    "internal/maintainability/ledger/identity.go",
+    "internal/maintainability/ledger/identity_test.go",
+    "internal/maintainability/ledger/duplicatejson.go",
+    "internal/maintainability/ledger/duplicatejson_test.go",
+    "internal/maintainability/ledger/testdata/report-pass.json",
+    "internal/maintainability/ledger/testdata/report-fail.json",
+    "internal/maintainability/ledger/schemas/sworn-maintainability-raw-response-v1.json",
+    "internal/maintainability/ledger/schemas/sworn-maintainability-report-overlay-v1.json",
+    "internal/maintainability/ledger/schema.go",
+    "internal/maintainability/ledger/schema_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_ledger_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
+    {"kind": "slice", "slice_id": "S07-canonical-semantic-scope"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/sworn-maintainability-raw-response-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.16-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Define full maintainability report and compact status-entry carriers for role, phase, cycle, invocation ID, release/slice/check identity, release-confined report path, report blob OID, review base/head and fingerprint algorithm, input fingerprint, verdict, findings, and exact blocking finding IDs.",
+    "Reject duplicate raw JSON keys before normal decoding; validate raw model output against C-01's exact llm-check-report-v1 plus the committed raw-response disposition constraint that forbids engine provenance, then validate the provenance-injected persisted report against exact Baton plus the committed full overlay, while keeping Baton's closed review_scope and compact status-entry shapes byte-exact and accepting only exact 40- or 64-hex object IDs.",
+    "Resolve report_path lexically and physically beneath the reviewed slice evidence root, read the exact committed blob at the authority head, compute/compare its Git object ID, and reject working-tree-only, missing, deleted, symlinked, rewritten, or non-regular evidence.",
+    "Reject any duplicate decoded finding ID without Unicode normalization or case folding; require every blocking finding to carry structured sworn_disposition with action remediate_in_scope or re_slice and a non-empty, sorted, duplicate-free required_touchpoints array validated through C-02, forbid the member on non-blockers, derive the exact bytewise boundary union, and treat re_slice as boundary-expanding even when all named paths are already spec touchpoints.",
+    "After model validation, add the engine-owned top-level sworn object containing record_version 1, immutable scope_provenance, and the C-04 freshness_frontier; require the compact entry and committed full report to agree exactly on all Baton lifecycle and report identities while report_path/report_blob_oid pin the additive provenance outside closed Baton fields.",
+    "Derive reuse eligibility only when the exact committed full report, compact tuple, immutable C-04 semantic identity, authority head, and lifecycle-requested role/phase/cycle all match and the current moving heads pass freshness-frontier revalidation; return reuse metadata without performing or authorizing model dispatch.",
+    "Provide stable structured failures that identify the field/path class but never echo report prompt, diff, model response, credentials, or blob bytes.",
+    "Extend the real sworn maintainability review command to validate/reuse C-05 after exact C-04 scope construction; after an authoritative report identity it exits non-zero with redacted reason lifecycle_authority_unavailable until S09 lands, with zero additional dispatch or mutation."
+  ],
+  "out_of_scope": [
+    "Constructing C-04 semantic scope belongs to S07; this slice consumes its fingerprint and review head as immutable inputs.",
+    "Determining whether a role/phase/cycle transition is legal belongs to S09-lifecycle-fsm-adjudication.",
+    "Writing, committing, pushing, recovering, or dispatching a report transaction belongs to S13-maintainability-engine-cutover.",
+    "Track freshness, rollback, integration readiness, and release success predicates belong to S11 and S12."
+  ],
+  "covers_needs": ["N-04", "N-05", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Authority spans strict duplicate-safe JSON, schema validation, Git blob identity, full-versus-compact reconciliation, and exact reuse without dispatch.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {"id": "R-01", "description": "A compact status entry is trusted after its full report is rewritten or deleted.", "mitigation": "Read only the committed report blob at the authority head and require its current object ID plus every identity field to equal the compact tuple on every use."},
+    {"id": "R-02", "description": "Duplicate JSON keys let a validator and decoder observe different report identities.", "mitigation": "Reject duplicates recursively from raw bytes before schema validation or typed decoding; mutation-test every authority-bearing object and map."},
+    {"id": "R-03", "description": "Fingerprint equality alone reuses a report for the wrong role, phase, cycle, head, invocation, or stale moving frontier.", "mitigation": "Reuse requires equality of the full C-05 tuple and immutable C-04 identity plus revalidation from the stored freshness frontier, with mismatch tests for every field and a counting dispatcher fixed at zero."}
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN TestReportIdentityFromCommittedHistory validates raw output and a C-05 entry/full report from a real committed repository THE SYSTEM SHALL validate raw exact Baton plus the raw-response constraint before provenance injection, validate persisted exact Baton plus the full Sworn overlay afterward, accept only exact 40- or 64-hex object IDs, and prove report path confinement, blob OID, immutable C-04 scope identity, engine provenance/freshness, lifecycle fields, verdict, dispositions, and blocking IDs all agree (N-04, N-05, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/report_test.go:TestReportIdentityFromCommittedHistory"]
+    },
+    {
+      "id": "AC-02",
+      "text": "IF raw output contains engine-owned sworn provenance, violates exact Baton or the raw-response constraint, or any raw/persisted report or compact entry contains duplicate JSON keys, a 41-through-63-character object ID, any duplicate decoded finding ID, malformed disposition/touchpoints, missing/malformed provenance or freshness, malformed Baton/overlay schema, missing or rewritten blob, unsafe path, OID/verdict/blocking-ID mismatch, or any identity-field mismatch THEN THE SYSTEM SHALL return non-authoritative without a reuse result.",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/maintainability/ledger/blob_test.go:TestCommittedReportBlobFailureMatrix", "internal/maintainability/ledger/duplicatejson_test.go:TestReportDuplicateKeysFailClosed", "internal/maintainability/ledger/identity_test.go:TestFullCompactIdentityMismatchMatrix"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN an existing committed report's complete C-05 tuple and immutable C-04 semantic identity equal the requested review and every current moving head descends through only release-record-only or recognized disjoint synchronization history from the stored freshness frontier THE SYSTEM SHALL return that exact report as reusable and the supplied dispatch counter SHALL remain zero.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/identity_test.go:TestExactCommittedReportReuseHasZeroDispatch"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN any included semantic byte, mode, object ID, scope head, immutable provenance, role, phase, cycle, or invocation identity changes THE SYSTEM SHALL refuse reuse; excluded release-record, declared-generated, exact-lockfile-only, net-zero, or later recognized disjoint synchronization changes MAY reuse only when C-04 emits identical immutable identity, frontier revalidation succeeds, and every other C-05 field still matches.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/identity_test.go:TestReportReuseSemanticAndLifecycleMatrix"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the built sworn binary runs maintainability review for an exact committed C-05 report matching C-04 THE SYSTEM SHALL reach report validation/reuse through the public command, keep the dispatch counter zero, then exit non-zero with redacted reason lifecycle_authority_unavailable and no report/status/journal/ref mutation; rewritten, missing, duplicate-key, stale, or identity-mismatched evidence SHALL fail at C-05 instead (C-04, C-05, N-04, N-05, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/maintainability_ledger_test.go:TestMaintainabilityLedgerBinaryReachability"]
+    }
+  ]
+}

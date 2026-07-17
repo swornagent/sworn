@@ -1,0 +1,77 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-15-baton-v0.16-conformance",
+    "target_version": "v0.2.0",
+    "integration_branch": "release/v0.2.0",
+    "vertical_trace": {
+      "benefit": "A SwornAgent operator can run the complete Baton v0.16 lifecycle with exact protocol authority, portable board-oracle evidence, durable sanitized proof records, deterministic integration, restart-safe recovery, and fail-closed public release commands."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-foundation",
+      "slices": [
+        "S01-vendor-boundary-readiness",
+      "S02-v015-parity-and-installs",
+      "S19-s02-v015-rollback",
+      "S04-typed-reference-ambiguity",
+      "S21-openai-structured-envelope",
+      "S22-openrouter-tool-structured-output",
+      "S20-v015-parity-portable-fixture",
+      "S03-lossless-record-carriers",
+      "S05-protocol-provenance-archive",
+      "S23-v016-parity-and-installs",
+      "S24-board-oracle-v1-projection"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T2-engine-bootstrap",
+      "slices": [
+        "S06-exact-git-object-plumbing",
+        "S10-shared-touchpoint-composition",
+        "S07-canonical-semantic-scope",
+        "S08-report-ledger-identity",
+        "S09-lifecycle-fsm-adjudication",
+        "S11-track-evidence-freshness",
+        "S12-rollback-readiness",
+        "S13-maintainability-engine-cutover"
+      ],
+      "depends_on": [
+        "T1-foundation"
+      ]
+    },
+    {
+      "id": "T5-role-loop",
+      "slices": [
+        "S14-role-lifecycle-recovery"
+      ],
+      "depends_on": [
+        "T2-engine-bootstrap"
+      ]
+    },
+    {
+      "id": "T6-release-adapters",
+      "slices": [
+        "S15-unified-track-merge",
+        "S16-release-ship-transitions",
+        "S17-engine-replan-migration"
+      ],
+      "depends_on": [
+        "T2-engine-bootstrap"
+      ]
+    },
+    {
+      "id": "T7-conformance-proof",
+      "slices": [
+        "S18-public-conformance-proof"
+      ],
+      "depends_on": [
+        "T5-role-loop",
+        "T6-release-adapters"
+      ]
+    }
+  ],
+  "shared_touchpoints": {}
+}
