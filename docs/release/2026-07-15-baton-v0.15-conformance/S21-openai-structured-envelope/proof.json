@@ -1,0 +1,112 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S21-openai-structured-envelope",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "scope": "Introduce a closed-world, exact-identity OpenAI structured-output envelope for generic llm-check reports while retaining the unchanged canonical S04 semantic gate and every non-OpenAI structured-schema path.",
+  "files_changed": [
+    "cmd/sworn/llmcheck_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/status.json",
+    "internal/gate/llmcheck_test.go",
+    "internal/model/config.go",
+    "internal/model/llmcheck_envelope.go",
+    "internal/model/llmcheck_envelope_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/openai_responses.go",
+    "internal/model/openai_responses_test.go",
+    "internal/model/provider.go",
+    "internal/model/structured_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./internal/model -run 'Test(CompileOpenAILLMCheckEnvelopeExactIdentity|OpenAIEnvelopeProfileRejectsUnsupportedCanonicalSchemasBeforeHTTP|OAIChatStructuredUsesLLMCheckEnvelopeOnlyForOpenAICompletions|OpenAIResponsesChatStructuredUsesLLMCheckEnvelope|XAIChatStructuredRetainsRawSchemaProfile|ToolCallChatStructuredRetainsRawSchema|StructuredProviderProfileDefaultsClosed)' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/gate ./cmd/sworn -run 'Test(OpenAIEnvelopeStillFailsFullCanonicalReportViolations|LLMCheckOpenAI)' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go vet ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "make build",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint coverage --slice S21-openai-structured-envelope --release 2026-07-15-baton-v0.15-conformance --base ed0badf68673f0af84834458f07be0792555484f",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint mock --slice S21-openai-structured-envelope --release 2026-07-15-baton-v0.15-conformance --base ed0badf68673f0af84834458f07be0792555484f",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check ed0badf68673f0af84834458f07be0792555484f..HEAD",
+      "passed": true,
+      "exit_code": 0
+    }
+  ],
+  "reachability": {
+    "type": "e2e-test",
+    "evidence": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability and TestLLMCheckOpenAICompletionsStructuredEnvelopeBinaryReachability build and invoke the public sworn llm-check --type ac-satisfaction command against deterministic local Responses text.format and chat/completions response_format endpoints. Each fake inspects the named envelope, returns a real model-shaped ac-satisfaction PASS object, and the built binary exits 0."
+  },
+  "delivered": [
+    {
+      "item": "AC-01: Only exact canonical llm-check-report-v1 bytes select the sealed llm-check-report-v1-openai-envelope on explicitly profiled OpenAI Responses text.format and chat/completions response_format wires.",
+      "evidence": "internal/model/llmcheck_envelope.go; internal/model/llmcheck_envelope_test.go:TestCompileOpenAILLMCheckEnvelopeExactIdentity; internal/model/structured_test.go:TestOAIChatStructuredUsesLLMCheckEnvelopeOnlyForOpenAICompletions; internal/model/openai_responses_test.go:TestOpenAIResponsesChatStructuredUsesLLMCheckEnvelope"
+    },
+    {
+      "item": "AC-02: Direct and proxy construction carry explicit provider profile and wire mode for both retained OpenAI paths, including the deprecated Responses alias and deterministic base-URL override.",
+      "evidence": "internal/model/provider.go; internal/model/config.go; internal/model/oai_test.go:TestStructuredProviderProfileDefaultsClosed; internal/model/oai_test.go:TestFromEnvOpenAIResponsesBaseURLOverride; cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIResponsesStructuredEnvelopeBinaryReachability; cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAICompletionsStructuredEnvelopeBinaryReachability"
+    },
+    {
+      "item": "AC-03: Digest mismatches, future generic-report-family IDs, and the dedicated spec-ambiguity report reject locally before dispatch with deterministic source-free errors and zero fake-endpoint requests.",
+      "evidence": "internal/model/llmcheck_envelope.go; internal/model/llmcheck_envelope_test.go:TestOpenAIEnvelopeProfileRejectsUnsupportedCanonicalSchemasBeforeHTTP; cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIUnsupportedCanonicalSchemaMakesZeroRequests"
+    },
+    {
+      "item": "AC-04 and AC-05: The generic gate continues to receive the canonical source bytes and locally rejects canonical semantic violations or emitted check mismatch; the adapter cannot synthesize or repair a report.",
+      "evidence": "internal/gate/llmcheck.go (unchanged); internal/gate/llmcheck_test.go:TestOpenAIEnvelopeStillFailsFullCanonicalReportViolations; cmd/sworn/llmcheck_test.go:TestLLMCheckOpenAIEnvelopeBinaryRejectsInvalidCanonicalResponse"
+    },
+    {
+      "item": "AC-04: xAI native response_format, forced tool-call, and unprofiled OAI-compatible clients retain their supplied-schema behavior and cannot select the envelope by URL or concrete type.",
+      "evidence": "internal/model/llmcheck_envelope.go; internal/model/structured_test.go:TestXAIChatStructuredRetainsRawSchemaProfile; internal/model/structured_test.go:TestToolCallChatStructuredRetainsRawSchema; internal/model/oai_test.go:TestStructuredProviderProfileDefaultsClosed"
+    },
+    {
+      "item": "AC-06: The proof uses deterministic local transport evidence only; the live diff contains no canonical vendored schema, prompt, or internal/gate/llmcheck.go source change, and S20 remains blocked pending a fresh S21 verifier PASS.",
+      "evidence": "git diff --name-only ed0badf68673f0af84834458f07be0792555484f..HEAD; docs/release/2026-07-15-baton-v0.15-conformance/S21-openai-structured-envelope/status.json"
+    },
+    {
+      "item": "Intentional local fake HTTP test transport is declared with @mock-boundary comments, and the slice mock lint passes without exempting production behavior.",
+      "evidence": "cmd/sworn/llmcheck_test.go; internal/gate/llmcheck_test.go; internal/model/oai_test.go; bin/sworn lint mock --slice S21-openai-structured-envelope --release 2026-07-15-baton-v0.15-conformance --base ed0badf68673f0af84834458f07be0792555484f"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "Credentialed OpenAI acceptance smoke and S20 readiness and maintainability reruns.",
+      "why": "S21 proves only the deterministic provider-envelope boundary. A credentialed emitted result remains S20 evidence after a fresh S21 verifier PASS, so no local fake endpoint is represented as S20 evidence.",
+      "tracking": "S20-v015-parity-portable-fixture after fresh S21-openai-structured-envelope verifier PASS.",
+      "acknowledged": true
+    }
+  ],
+  "divergence": [
+    {
+      "description": "internal/model/structured.go was an anticipated touchpoint but needed no edit: the new closed-world compiler selects the envelope before calling the existing strictProjection, intentionally preserving that generic projection unchanged for every non-selected source and provider."
+    }
+  ]
+}

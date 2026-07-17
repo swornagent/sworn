@@ -5,7 +5,7 @@
     "target_version": "v0.2.0",
     "integration_branch": "release/v0.2.0",
     "vertical_trace": {
-      "benefit": "A SwornAgent operator can run the complete Baton v0.15 lifecycle with exact protocol authority, durable evidence, deterministic integration, restart-safe recovery, and fail-closed public release commands."
+      "benefit": "A SwornAgent operator can run the complete Baton v0.15 lifecycle with exact protocol authority, durable sanitized proof evidence, deterministic integration, restart-safe recovery, and fail-closed public release commands."
     }
   },
   "tracks": [

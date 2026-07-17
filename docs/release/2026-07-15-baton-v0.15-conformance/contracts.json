@@ -244,13 +244,25 @@
       "id": "C-15",
       "kind": "schema-version",
       "surface": "direct-openrouter-tool-structured-output-v1",
-      "shape": "Only a direct `openrouter/` model route may advertise structured output, and it does so solely through the existing OpenAI-compatible forced function named `emit_structured_output`. The exact canonical schema supplied to ChatStructuredJSON becomes that function's parameters without strict projection, OpenAI envelope compilation, source mutation, raw-text fallback, retry, or synthesis. The function choice is forced and a missing/invalid tool call fails locally. `SWORN_OPENROUTER_BASE_URL` is valid only on the direct client path and exists to direct the public command to a local test endpoint; ordinary direct routing uses https://openrouter.ai/api/v1. A Sworn hosted-proxy route for an `openrouter/` model, Ollama, and every other unprofiled provider remain structured-output unsupported. The release proof pins `SWORN_DIRECT=1` and model `openrouter/z-ai/glm-5.2`, but that customer-selected proof input does not establish a Sworn default. After emission, the unchanged canonical Baton validation and S04 requested/emitted check equality are the sole semantic authority.",
+      "shape": "Only a direct `openrouter/` model route may advertise structured output, and it does so solely through the existing OpenAI-compatible forced function named `emit_structured_output`. The exact canonical schema supplied to ChatStructuredJSON becomes that function's parameters without strict projection, OpenAI envelope compilation, source mutation, raw-text fallback, synthesis, or a transport-level retry. The function choice is forced and a missing/invalid tool call fails locally. `SWORN_OPENROUTER_BASE_URL` is valid only on the direct client path and exists to direct the public command to a local test endpoint; ordinary direct routing uses https://openrouter.ai/api/v1. A Sworn hosted-proxy route for an `openrouter/` model, Ollama, and every other unprofiled provider remain structured-output unsupported. The release proof pins `SWORN_DIRECT=1` and model `openrouter/z-ai/glm-5.2`, but that customer-selected proof input does not establish a Sworn default. C-16 alone governs the separate native proof-receipt recovery policy. After emission, the unchanged canonical Baton validation and S04 requested/emitted check equality are the sole semantic authority.",
       "owner": "S22-openrouter-tool-structured-output",
       "consumers": [
         "S20-v015-parity-portable-fixture"
       ],
       "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability",
       "rationale": "The selected provider path needs deterministic transport evidence while preserving the default-deny trust boundary for every other direct and proxied route."
+    },
+    {
+      "id": "C-16",
+      "kind": "schema-version",
+      "surface": "llm-check-proof-receipt-v1",
+      "shape": "The native sworn llm-check --proof-receipt mode is separate from LLMCheckReport and is bound to one selected release, slice, check, model, and immutable status.start_commit. Before provider dispatch it validates every existing receipt binding and atomically persists a private metadata-only reservation by create, fsync, close, rename, and parent-directory sync; preflight failure makes zero requests. It finalizes the same strict receipt atomically and may retain only schema/version, release, slice ID, check type, model ID, immutable start commit, attempt ordinal, classified attempt class, terminal result, and process-exit semantics. A mismatched release, slice, check, model, or start receipt is rejected before dispatch and cannot consume or reuse S22 retry budget. It never stores or renders endpoints, headers, bodies, findings, raw errors, prompts, diffs, credentials, or keys. Locally validated PASS, FAIL, and BLOCKED are final. Attempt 2 is permitted only after attempt 1 is explicitly rate_limit, upstream, transient, network, deadline, runner_failure, or receipt_failure. HTTP 400/401/402, unclassified errors, parse/schema/identity/malformed-tool/opaque/untrusted outcomes are non-retryable. Any attempt-2 outcome stops without a third dispatch. Existing RunLLMCheck and MCP semantics remain unchanged outside this mode, and generic JSON must not serialize raw_response.",
+      "owner": "S22-openrouter-tool-structured-output",
+      "consumers": [
+        "S20-v015-parity-portable-fixture"
+      ],
+      "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability",
+      "rationale": "S22 needs durable, diagnosable proof state without treating raw provider output, a shell convention, or a broad retry heuristic as lifecycle authority."
     }
   ]
 }

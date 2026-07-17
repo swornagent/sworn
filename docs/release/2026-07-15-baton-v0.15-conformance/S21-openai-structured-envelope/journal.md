@@ -41,3 +41,16 @@
 - The next action is a fresh S21 Implementer session on T1-foundation. It must
   begin from the propagated track branch, use deterministic fake endpoints for
   both OpenAI paths, and leave S20 untouched.
+
+## 2026-07-17T20:47:05+10:00 — Planner replan provenance reconciliation
+
+- The release-wt historical view retained S21 as planned while the
+  authoritative T1 track had a fresh verifier PASS. To prevent that stale
+  state from unblocking S22 on status alone, the matching committed
+  proof.json and proof.md were restored byte-for-byte from verifier commit
+  240a2ede9a5fd022ae403ced30a6a5f80d918747 on
+  track/2026-07-15-baton-v0.15-conformance/T1-foundation.
+- This is a documentation provenance restoration, not a rerun or a new
+  verifier claim. The retained S21 immutable start, verifier PASS, proof
+  bundle, and serial T1 order must remain intact before S22 can leave its
+  revised design-review gate.
