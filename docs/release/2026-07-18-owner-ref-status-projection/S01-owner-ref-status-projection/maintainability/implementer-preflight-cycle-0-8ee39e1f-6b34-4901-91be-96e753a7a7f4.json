@@ -1,0 +1,38 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
+  "schema_version": 1,
+  "check": "maintainability-review",
+  "slice_id": "S01-owner-ref-status-projection",
+  "release": "2026-07-18-owner-ref-status-projection",
+  "role": "implementer",
+  "phase": "preflight",
+  "cycle": 0,
+  "invocation_id": "8ee39e1f-6b34-4901-91be-96e753a7a7f4",
+  "verdict": "PASS",
+  "findings": [],
+  "input_fingerprint": "sha256:597016f746483bc29b8eadb60afe5080dd77f0cd2ffef17fa136469bef8723ac",
+  "review_scope": {
+    "base": "68a578b10d9c8c69632aad96301e4fc04dff0de0",
+    "head": "0cffdd93c80a3b5930da4da2e733828f60b91ace",
+    "included_paths": [
+      "cmd/sworn/board.go",
+      "cmd/sworn/board_test.go",
+      "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
+      "internal/board/discovery.go"
+    ],
+    "excluded_paths": [
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/approved-ack.md",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/design.md",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/journal.md",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.md",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/review.md",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/spec.json",
+      "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/status.json",
+      "docs/release/2026-07-18-owner-ref-status-projection/board.json",
+      "docs/release/2026-07-18-owner-ref-status-projection/intake.md"
+    ],
+    "fingerprint_algorithm": "baton-maintainability-v1"
+  },
+  "structured_output_mode": "text_fallback"
+}

@@ -30,3 +30,21 @@
   package passed; the full Go suite, vet, and changed-file formatting checks
   exited 0.
 - `proof.json` and `proof.md` were generated from the live base-to-branch diff.
+
+## 2026-07-18 - maintainability readiness
+
+- The released Sworn v0.2 command returned a model PASS with no findings but did
+  not emit the v0.13.1 scope identity fields. A guaranteed-clean ephemeral Git
+  worktree supplied a synthetic base containing the release records at their
+  current bytes, so the model input contained exactly the four canonical
+  semantic paths and no release-record noise. Cleanup removed the worktree and
+  temporary branch before the command returned.
+- The canonical `baton-maintainability-v1` manifest over base
+  `68a578b10d9c8c69632aad96301e4fc04dff0de0`, proof checkpoint
+  `0cffdd93c80a3b5930da4da2e733828f60b91ace`, and the four included paths hashes
+  to `sha256:597016f746483bc29b8eadb60afe5080dd77f0cd2ffef17fa136469bef8723ac`.
+- The durable full report is blob-pinned in `status.json`. Maintainability moved
+  to `passed`, implementation head is pinned to `0cffdd93`, and the slice moved
+  from `in_progress` to `implemented`. No semantic file changed after the PASS.
+- Verification remains pending. The fresh verifier owns the authoritative
+  maintainability report and final slice verdict.

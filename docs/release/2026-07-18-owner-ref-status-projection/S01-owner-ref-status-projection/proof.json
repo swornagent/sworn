@@ -10,6 +10,7 @@
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/approved-ack.md",
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/design.md",
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/journal.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/maintainability/implementer-preflight-cycle-0-8ee39e1f-6b34-4901-91be-96e753a7a7f4.json",
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json",
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.md",
     "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/review.md",
@@ -73,6 +74,12 @@
       "passed": true,
       "exit_code": 0,
       "output_ref": "journal.md deterministic-gates entry; empty formatter output"
+    },
+    {
+      "command": "canonical scoped maintainability-review preflight against 68a578b1..0cffdd93",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "maintainability/implementer-preflight-cycle-0-8ee39e1f-6b34-4901-91be-96e753a7a7f4.json; PASS with no findings"
     }
   ],
   "reachability": {
