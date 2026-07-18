@@ -281,3 +281,24 @@ this is not a fresh verifier verdict.
   `design_review`. No source, test, provider, model, credential, proof receipt,
   or S20 action occurred. A fresh Captain PROCEED and Coach acknowledgement are
   required before implementation resumes.
+
+## 2026-07-18T14:24:21+10:00 — Fresh Captain PROCEED acknowledged; implementation resumes
+
+- Captain commit `798e114c` reviews design commit `19d2ab1b`, records
+  `DECISION: PROCEED`, and has no escalate pins. Brad acknowledged the verdict
+  and authorized the Implementer to proceed with all six apply-inline pins.
+- Pin 1: add a fail-closed trust guard and deterministic double-fault evidence
+  so an unacknowledged renamed verdict is never accepted.
+- Pin 2: added `internal/mcp/lint.go` and `internal/mcp/lint_test.go` to
+  `planned_files`; their scope is limited to the stable provider-error
+  diagnostic plus registered-tool reachability and leak canaries.
+- Pin 3: re-anchor the active runtime constant, receipt binding, lookup, and
+  tests to v0.16 while retaining v0.15 only as immutable historical provenance.
+- Pin 4: record a cohesion audit for the receipt state-machine, persistence,
+  rendering, and runner seams before completion.
+- Pins 5-6: preserve the narrow typed retry classifier independently of legacy
+  `IsTransient`, and keep `openrouter/z-ai/glm-5.2` proof-only with no model
+  default, catalogue, or routing-policy change.
+- The `beast` effort/complexity rating remains accurate against the live code
+  and is now Implementer-confirmed. The immutable start and empty pending
+  cycle-0 maintainability ledger are preserved byte-for-byte.
