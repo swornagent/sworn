@@ -12,8 +12,8 @@
   ],
   "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "codex-verifier",
-  "last_updated_at": "2026-07-18T22:38:31+10:00",
+  "last_updated_by": "codex-implementer",
+  "last_updated_at": "2026-07-18T22:55:19+10:00",
   "start_commit": "e2e445f0c63e2cf6408755faf259419b5ed621a6",
   "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json",
   "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
@@ -64,9 +64,9 @@
     "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt"
   ],
   "maintainability": {
-    "state": "passed",
+    "state": "re_slice_required",
     "cycle": 0,
-    "implementation_head": "737fb77b3a9a7aba294127a24ec3f7deee11d8a0",
+    "implementation_head": null,
     "rollback_slice_id": null,
     "reports": [
       {

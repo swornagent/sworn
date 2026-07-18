@@ -115,3 +115,18 @@ Violations:
 
 Required to address:
 1. Extend the root `Model.Update`/`Model.View` journey to drive both cursors through their final loaded records across the track boundary and assert the final selected IDs remain visible. Keep the test at the root integration point and retain the existing resize/window assertions.
+
+### 2026-07-18 22:55 +10:00 — re-slice required
+
+- **State**: `failed_verification`
+- **Maintainability**: `re_slice_required`
+- **Notes**:
+  - The verifier requires a semantic edit to `internal/tui/tui_test.go` after the
+    cycle-0 Implementer maintainability PASS froze review head
+    `737fb77b3a9a7aba294127a24ec3f7deee11d8a0`.
+  - The Implementer resume gate forbids reopening a passed semantic boundary
+    under the same slice ID. `maintainability.implementation_head` is cleared,
+    the report ledger remains append-only, and no source or test bytes were
+    changed in this session.
+  - Route to `/replan-release 2026-07-18-tui-bounded-navigation` to ratify a
+    replacement slice for the full-domain root navigation journey.
