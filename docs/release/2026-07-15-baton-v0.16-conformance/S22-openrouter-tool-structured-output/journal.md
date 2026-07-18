@@ -446,3 +446,21 @@ this is not a fresh verifier verdict.
 - Release topology, touchpoints, dependencies, status, historical receipts,
   implementation, and provider/model policy are unchanged. Fresh Implementer
   design and Captain review remain required before source or provider action.
+
+## 2026-07-18T20:38:19+10:00 — Configured-recovery design restored
+
+- Confirmed the Planner's R-05 correction is live on both the track and release
+  refs: attempt 2 remains terminal for the unchanged typed classifier, while
+  the separately ratified administrative gate may authorize only terminal
+  attempt 3 after AC-09/AC-12 prerequisites.
+- Replaced the stale attempt-2 design with a numbered §1–§6 Design TL;DR that
+  carries all three status decisions, the exact config-only v2 attempt-3 file
+  plan, preservation boundaries, acceptance evidence, and explicit no-default,
+  no-fallback, no-attempt-4 policy.
+- `d02899f6` remains an unapproved implementation candidate already present in
+  the live tree. No source, test, proof, provider/model, credential, receipt, or
+  S20 action occurred in this session. The candidate must be assessed only
+  after a fresh Captain PROCEED and Coach acknowledgement.
+- Returned S22 to `design_review` with its immutable start, pending cycle-0
+  maintainability ledger, pending verification record, historical receipts,
+  and configured-recovery authority preserved.
