@@ -44,3 +44,19 @@
 - No semantic bytes changed after the PASS boundary. The slice transitioned
   from `in_progress` to `implemented`; fresh-context verification remains the
   next and only authority for `verified`.
+
+## Verifier verdicts received
+
+### 2026-07-18T14:48:01+10:00
+
+```text
+FAIL
+
+Slice: `S03-tui-live-board-refresh`
+
+Violations:
+1. Gate `2` — The planned touchpoint `internal/tui/tui.go` is absent from the pinned implementation diff, with no Rule-2-complete deferral.
+   Evidence: `spec.json:8-12` names `internal/tui/tui.go`; `git diff adae97743a930fa1e4a2fe8296824ba3a4c1826f..4c163f9215a75db771cec2851eefd16b885a0052 --name-only` does not include it; `proof.json.not_delivered` is empty.
+
+Required to address: Add a Rule-2-complete `proof.json.not_delivered` entry for the unchanged `internal/tui/tui.go` touchpoint, including why no change was required, a resolvable tracker reference, and human acknowledgement.
+```

@@ -4,10 +4,10 @@
   "release": "2026-07-17-ref-aware-board-discovery",
   "track": "T2-tui-live-refresh",
   "covers_needs": ["N-03", "N-04", "N-06"],
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-18T14:25:13+10:00",
+  "state": "failed_verification",
+  "owner": "verifier",
+  "last_updated_by": "codex-verifier",
+  "last_updated_at": "2026-07-18T14:48:01+10:00",
   "start_commit": "adae97743a930fa1e4a2fe8296824ba3a4c1826f",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
@@ -80,11 +80,17 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "codex-verifier-2026-07-18T14:48:01+10:00",
+    "verifier_verdict_at": "2026-07-18T14:48:01+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": "2",
+        "description": "The planned touchpoint internal/tui/tui.go is absent from the pinned implementation diff and proof.json.not_delivered contains no Rule-2-complete deferral for it.",
+        "evidence": "spec.json:8-12 names internal/tui/tui.go; git diff adae97743a930fa1e4a2fe8296824ba3a4c1826f..4c163f9215a75db771cec2851eefd16b885a0052 --name-only does not include it; proof.json has an empty not_delivered array."
+      }
+    ]
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent operator can monitor in-flight release boards in an open TUI and see the newest completed shared-catalog snapshot without restarting or losing navigation context.",
