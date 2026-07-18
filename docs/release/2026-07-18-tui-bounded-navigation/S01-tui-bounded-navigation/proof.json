@@ -1,0 +1,113 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-tui-bounded-navigation",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "scope": "A SwornAgent operator can start from the newest ten releases, load older releases in ten-record bounded transactions, keep release and slice selections reachable inside the terminal height across resize, and navigate between focused panes with Right/Left or Enter/Esc.",
+  "files_changed": [
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.md",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/status.json",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+  ],
+  "test_results": [
+    {
+      "command": "sworn lint coverage --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — 5/5 acceptance checks covered"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — targeted board, TUI, and CLI integration packages passed"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — repository-wide suite passed"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — empty output"
+    },
+    {
+      "command": "test -z \"$(/usr/local/go/bin/gofmt -l .)\"",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — empty output"
+    },
+    {
+      "command": "sworn lint mock --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — zero undeclared mock boundaries"
+    },
+    {
+      "command": "sworn llm-check --type ac-satisfaction --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6 --json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — PASS with no findings"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui -run 'Test(NewRootModelPrimesTenRecentReleases|ReleaseListLoadsTenOlderAsynchronously|CatalogDepth|TwoPaneRenderNeverExceedsTerminalHeight|ReleaseAndBoardScrollWindowsKeepCursorVisible|ResizeReflowsWindowsWithoutSelectionLoss|RootModelArrowPaneNavigationMatchesEnterEscape|BoundedNavigationTerminalFrames)' -count=1",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live targeted reachability run 2026-07-18 — PASS"
+    },
+    {
+      "command": "git diff e2e445f0c63e2cf6408755faf259419b5ed621a6 | sworn verify --spec docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json --diff - --proof docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live first-pass proof-bundle gate 2026-07-18 — PASS, cost_usd 0"
+    }
+  ],
+  "reachability": {
+    "type": "e2e-test",
+    "evidence": "Root Model.Update/Model.View journeys prove bounded startup, asynchronous ten-record growth, non-overlap and generation-plus-limit rejection, cursor-relative scrolling, resize identity, full-frame height, arrow aliases, focus help/borders, and footer states. Visible normal and constrained frames are byte-checked at screenshots/S01-tui-bounded-navigation/*.txt."
+  },
+  "delivered": [
+    {
+      "item": "AC-01 — the board-owned CatalogWindow fixes the newest release-name window before topology/status object reads, reports HasOlder, preserves ascending output, defers excluded malformed canonical validation, and shares all ranking, validation, topology election, and status election with complete DiscoverCatalog.",
+      "evidence": "internal/board/discovery_test.go:TestDiscoverCatalogWindowBoundsMaterializedReleases and TestDiscoverCatalogWindowDefersExcludedCanonicalValidation; existing cmd/sworn board tests passed in the full suite"
+    },
+    {
+      "item": "AC-02 — newRootModel primes exactly ten newest releases; lowercase o returns immediately, renders loading older, installs twenty records atomically with selection preserved, and becomes a no-op with all releases loaded.",
+      "evidence": "internal/tui/tui_test.go:TestNewRootModelPrimesTenRecentReleases, TestReleaseListLoadsTenOlderAsynchronously, and TestReleaseListNoOlderRequestIsNoOp"
+    },
+    {
+      "item": "AC-03 — desired depth is monotonic, discovery never overlaps, every result carries generation plus positive limit, smaller/stale results cannot replace visible state, and errors preserve the last good snapshot and requested retry depth.",
+      "evidence": "internal/tui/tui_test.go:TestCatalogDepthGrowthNeverOverlapsRefresh, TestCatalogRejectsObsoleteSmallerDepth, TestCatalogDepthErrorRetainsLastGoodAndRetries, and existing refresh recovery tests"
+    },
+    {
+      "item": "AC-04 — releases and rendered board lines use independent cursor-relative windows, every loaded row remains reachable across track boundaries, resize preserves IDs/depth/focus, and every positive terminal height is bounded without panic.",
+      "evidence": "internal/tui/tui_test.go:TestTwoPaneRenderNeverExceedsTerminalHeight, TestReleaseAndBoardScrollWindowsKeepCursorVisible, TestResizeReflowsWindowsWithoutSelectionLoss, and TestTinyTerminalHeightDegradesWithoutPanic"
+    },
+    {
+      "item": "AC-05 — Right/Enter share one asynchronous board-open transition, Left/Esc share one return transition, focus controls accent borders and exact state help, and board o retains the existing ToggleSort path.",
+      "evidence": "internal/tui/tui_test.go:TestRootModelArrowPaneNavigationMatchesEnterEscape, TestFocusedPaneBorderAndHelpFollowNavigation, TestBoardOKeyTogglesSort, and TestBoundedNavigationTerminalFrames; screenshots/S01-tui-bounded-navigation/*.txt"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    {
+      "description": "Captain mechanical PIN-3 explicitly required three terminal-frame artefacts under screenshots/S01-tui-bounded-navigation/, adding that proof-only path beyond the production touchpoint list."
+    },
+    {
+      "description": "The planned internal/tui/styles.go touchpoint was unnecessary: the focus-only border-colour helper stays beside root focus state in internal/tui/model.go and changes no pane geometry."
+    }
+  ]
+}
