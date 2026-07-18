@@ -168,6 +168,23 @@ with the left arrow, while the existing Enter and Esc gestures remain valid.
   avoids reintroducing unbounded retained data, and remains correct when help or
   errors add rows.
 
+### 2026-07-18 — retire S01 through rollback and corrected replacement
+
+- **Context**: fresh verification found that S01's root scrolling journey
+  stopped at release 19 of 25 and slice 13 of 18, so it did not prove every
+  loaded row was reachable. Its cycle-0 maintainability PASS had already frozen
+  semantic scope, making an edit under the same slice ID illegal.
+- **Options considered**: reopen the frozen S01 scope; waive the missing endpoint
+  evidence; preserve S01 as terminal history, verify an exact rollback, then
+  implement a corrected replacement on the clean baseline.
+- **Decision**: the repository owner's `/replan-release` invocation ratifies the
+  mandatory third option. Mark S01 deferred with terminal
+  `re_slice_required`; add `S02-tui-bounded-navigation-rollback`; then add
+  `S03-tui-bounded-navigation-replacement` in the same track.
+- **Why**: the sequence preserves the append-only review ledger, prevents failed
+  bytes from becoming the replacement baseline, and makes the previously absent
+  endpoint proof an explicit acceptance criterion.
+
 ## Schema-vs-spec audit notes
 
 - `board.CatalogRecord` is the canonical TUI snapshot input. This release may
@@ -181,29 +198,44 @@ with the left arrow, while the existing Enter and Esc gestures remain valid.
   `shared_touchpoints`. This one-track plan therefore omits both properties and
   records no cross-slice wire contract in `contracts.json`.
 
-## Proposed slice decomposition (confirmed)
+## Revised slice decomposition (confirmed)
 
-`S01-tui-bounded-navigation`  [████████░░░░░░░░░░░░]  estimated 8 files
+`S01-tui-bounded-navigation`  [terminal history]
 
-- A TUI operator in a large project can enter a terminal-height-bounded recent
-  release list, load older releases in bounded batches, scroll both panes while
-  keeping selection visible, resize safely, and move between panes with
-  Right/Left or Enter/Esc.
+- Deferred terminal `re_slice_required` original. It retains its verifier FAIL,
+  immutable report ledger, and link to mandatory rollback S02.
 
-Ceiling: one user journey, one implementer session, one verifier session.
+`S02-tui-bounded-navigation-rollback`  [████░░░░░░░░░░░░░░░░]  10 paths
 
-## Track and touchpoint matrix (draft)
+- Restore the exact seven Go paths and three terminal-frame paths authored by
+  S01 to their immutable start-tree modes, objects, and absences. This slice
+  must verify before S03 starts.
+
+`S03-tui-bounded-navigation-replacement`  [████████░░░░░░░░░░░░]  10 paths
+
+- Re-deliver bounded catalog loading and height-safe navigation on the verified
+  rollback baseline, with root endpoint proof reaching release 25 of 25 and
+  slice 18 of 18 across a track boundary.
+
+Ceiling: one mandatory mechanical rollback plus one replacement user journey,
+each with a separate Implementer and fresh Verifier session.
+
+## Track and touchpoint matrix (revised)
 
 | File / surface | T1-tui-bounded-navigation |
 |---|---|
-| `internal/board/discovery.go` and focused tests | ✓ |
-| `internal/tui/model.go` | ✓ |
-| `internal/tui/releases.go` | ✓ |
-| `internal/tui/board.go` | ✓ |
-| `internal/tui/styles.go` | ✓ |
-| `internal/tui/tui_test.go` | ✓ |
+| `internal/board/discovery.go` | ✓ S01/S02/S03 serial |
+| `internal/board/discovery_test.go` | ✓ S01/S02/S03 serial |
+| `internal/tui/board.go` | ✓ S01/S02/S03 serial |
+| `internal/tui/model.go` | ✓ S01/S02/S03 serial |
+| `internal/tui/releases.go` | ✓ S01/S02/S03 serial |
+| `internal/tui/tui.go` | ✓ S01/S02/S03 serial |
+| `internal/tui/tui_test.go` | ✓ S01/S02/S03 serial |
+| `screenshots/S01-tui-bounded-navigation/*.txt` | ✓ S01/S02 serial |
+| `screenshots/S03-tui-bounded-navigation-replacement/*.txt` | ✓ S03 |
 
-One track owns every production touchpoint; no shared-touchpoint exception or
+One track serialises every overlapping touchpoint in the required
+S01 → S02 rollback → S03 replacement order. No shared-touchpoint exception or
 cross-track dependency exists.
 
 ## Ambiguity register

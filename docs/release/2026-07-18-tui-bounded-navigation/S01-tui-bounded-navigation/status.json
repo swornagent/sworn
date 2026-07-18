@@ -10,10 +10,10 @@
     "N-04",
     "N-05"
   ],
-  "state": "failed_verification",
-  "owner": "implementer",
-  "last_updated_by": "codex-implementer",
-  "last_updated_at": "2026-07-18T22:55:19+10:00",
+  "state": "deferred",
+  "owner": "planner",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-18T23:16:37+10:00",
   "start_commit": "e2e445f0c63e2cf6408755faf259419b5ed621a6",
   "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json",
   "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
@@ -67,7 +67,7 @@
     "state": "re_slice_required",
     "cycle": 0,
     "implementation_head": null,
-    "rollback_slice_id": null,
+    "rollback_slice_id": "S02-tui-bounded-navigation-rollback",
     "reports": [
       {
         "role": "implementer",
@@ -84,7 +84,16 @@
     ],
     "adjudication": null
   },
-  "open_deferrals": [],
+  "open_deferrals": [
+    {
+      "item": "Retire S01 and replace it only after its complete authored semantic envelope is rolled back.",
+      "why": "Fresh verification found that the root navigation journey did not prove reachability of the final loaded release and slice, but the cycle-0 maintainability PASS had already frozen S01's semantic scope.",
+      "tracking": "S02-tui-bounded-navigation-rollback and S03-tui-bounded-navigation-replacement",
+      "acknowledgement": "The repository owner invoked /replan-release after the Implementer surfaced the mandatory re-slice handoff.",
+      "acknowledged_by": "repository owner",
+      "acknowledged_at": "2026-07-18T23:16:37+10:00"
+    }
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

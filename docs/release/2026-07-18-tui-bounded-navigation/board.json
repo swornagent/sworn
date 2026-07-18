@@ -12,7 +12,9 @@
     {
       "id": "T1-tui-bounded-navigation",
       "slices": [
-        "S01-tui-bounded-navigation"
+        "S01-tui-bounded-navigation",
+        "S02-tui-bounded-navigation-rollback",
+        "S03-tui-bounded-navigation-replacement"
       ],
       "depends_on": []
     }

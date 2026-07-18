@@ -130,3 +130,19 @@ Required to address:
     changed in this session.
   - Route to `/replan-release 2026-07-18-tui-bounded-navigation` to ratify a
     replacement slice for the full-domain root navigation journey.
+
+### 2026-07-18 23:16 +10:00 — replacement plan ratified
+
+- **State**: `deferred`
+- **Seed authority**:
+  `track/2026-07-18-tui-bounded-navigation/T1-tui-bounded-navigation`, status
+  blob `d2c563a3a436de13c29bd358bc3a2df483abdd16`.
+- **Notes**:
+  - The repository owner invoked `/replan-release` after the mandatory
+    re-slice handoff, ratifying the lifecycle repair.
+  - `S02-tui-bounded-navigation-rollback` must restore the complete S01
+    semantic envelope to the immutable start tree and verify before any
+    replacement starts.
+  - `S03-tui-bounded-navigation-replacement` then delivers the original user
+    outcome with a root `Model.Update`/`Model.View` journey that reaches release
+    25 of 25 and slice 18 of 18 across a track boundary.
