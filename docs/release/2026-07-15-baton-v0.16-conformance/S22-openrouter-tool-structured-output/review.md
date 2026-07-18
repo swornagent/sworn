@@ -1,57 +1,75 @@
 # Captain review — S22-openrouter-tool-structured-output
-Date: 2026-07-18T20:03:06+10:00
-Design commit: d02899f69905cd875eb123c3b9c3fd677f6927b4
+Date: 2026-07-18
+Design commit: 49f95160e0d74b3ca1f0d83a89e276d62e00ae80
 
 ## Pins
 
-1. [mechanical] §Acceptance trace — Replace the superseded attempt-2 design with the ratified configured-attempt-3 contract.
-   What I observed: `design.md` says attempt 2 is the final allowed dispatch, its retry table says "Any attempt-2 outcome" permits no third request, and its release gate authorizes only attempt 2. Current AC-06/09/10/12 and `status.json` instead preserve immutable attempts 1–2 and authorize exactly one config-resolved, terminal attempt 3 under `llm-check-proof-receipt-v2` with no `--model` override or attempt 4.
-   What to ask the implementer: Rewrite the design around the exact configured-recovery-v2 state machine: immutable v1 attempts 1–2, `config.Load` plus `ResolveVerifierModel("", cfg)`, v2 attempt 3, zero-dispatch rejection for overrides/config/history/S21 mismatches, and terminal exhaustion after every attempt-3 outcome. Re-submit the corrected design for fresh Captain review before any provider action.
+1. [mechanical] §3.3 — Separate immutable GLM history from the config-selected attempt-3 identity.
+   What I observed: §3 says to “validate immutable v1 history” and then select v2, but live candidate `d02899f6` passes one `ProofReceiptBinding`, built from the configured `modelID`, through attempts 1–3. Its tests also configure `s22ProofReceiptModel`, so they neither prove a different configured model can recover nor pin attempt 2 to the exact `opaque/UNPARSEABLE/2` tuple. The selected client is then created through environment-aware `model.FromEnv`, so the design does not yet prove that the dispatched model and v2 receipt model are identical.
+   What to ask the implementer: Use distinct immutable-history and attempt-3 bindings; require the exact attempt-1 and attempt-2 model/class/result/exit tuples; pin client construction to the exact `ResolveVerifierModel("", cfg)` result with no environment model substitution or fallback; add per-field zero-dispatch mutations plus a happy path whose configured model differs from historical GLM.
 
-2. [escalate] §Retry decision table — Reconcile spec Risk R-05 with the acceptance contract for the administrative third attempt.
-   What I observed: Risk R-05's binding mitigation still says to "stop after any attempt-2 non-final outcome without a third call," while AC-09/10/12 and the ratified recovery record explicitly allow one separately governed attempt 3 after the opaque attempt-2 outcome. The design repeats the risk mitigation rather than acknowledging the newer administrative exception.
-   What to ask the implementer: Return this contradiction through `/replan-release` so the Coach can confirm and the Planner can state one coherent rule: opaque remains non-retryable under the typed classifier, but the separately ratified configured-recovery-v2 authority may permit exactly terminal attempt 3 after all gates. Do not make implementation infer precedence between contradictory spec clauses.
+2. [mechanical] §3.1 — Make Captain acknowledgement and proof prerequisites machine-authoritative before reservation.
+   What I observed: AC-09/AC-12 and §4 require fresh Captain acknowledgement plus deterministic tests, full suite, vet, build, and regenerated proof before attempt 3. §3 only says “enforce capability/preflight gates”; live candidate `d02899f6` does not read S22 `state`, the Captain verdict/acknowledgement, or proof evidence, so the public command can reach reservation while the slice is still `design_review`.
+   What to ask the implementer: Name and validate the exact durable lifecycle/proof authorities that permit attempt 3, fail before reservation when any is absent, stale, or mismatched, and add built-command zero-dispatch tests for pre-acknowledgement state and missing/stale proof evidence.
 
-3. [mechanical] §Design-fit gate — Restore the required design structure and carry the new Type-1 decision into it.
-   What I observed: The current document has no numbered §1–§6, no §2 decision list, no §3 file plan, and no §6 questions. Consequently the new Type-1 status decision, "After immutable attempt 2 ended opaque, authorize one config-only administrative recovery outside the typed retry classifier," is absent from the design and its planned touchpoints cannot be checked through the normal ancestry/collision gate.
-   What to ask the implementer: Produce a fresh Design TL;DR with §1 user-visible outcome, all three §2 decisions and their recorded Coach authority, an explicit §3 file plan, §4 exclusions, §5 reachability/evidence, and §6 open questions or an explicit none. Include the configured-attempt-3 options, trade-offs, and prior authority verbatim enough for Rule 9 to be reviewed.
+3. [mechanical] §3.1 — Reject `--configured-recovery` unless `--proof-receipt` owns the invocation.
+   What I observed: §1 defines configured recovery as an explicit proof-receipt mode, but live candidate `d02899f6` registers the flag globally and only consults it inside the `--proof-receipt` branch. Supplying `--configured-recovery` alone falls through to ordinary `llm-check` behavior instead of failing closed.
+   What to ask the implementer: Add the owning-entry-point pairing guard before model setup and a built-command test proving the orphan flag exits non-zero with zero provider requests and no receipt mutation.
 
-4. [mechanical] §Release gate — Restore the design-before-code ordering before any further source or provider action.
-   What I observed: `design.md` says the material rescope "requires a fresh Captain design review before any source or provider action," and AC-12 requires Captain-reviewed design acknowledgement before configured recovery. Nevertheless current HEAD `d02899f6` is `feat(llm-check): add bounded configured recovery for S22`, changing four planned source/test files after the replan and before this review.
-   What to ask the implementer: Freeze provider action and further source changes, treat `d02899f6` only as an unapproved implementation candidate, revise the design against the current configured-recovery contract and live tree, and obtain a fresh Captain verdict/Coach acknowledgement before resuming. The later Verifier must independently assess the already-written code; this review does not retroactively certify it.
+4. [mechanical] §3.5 — Close the v2 schema-to-Go drift surface.
+   What I observed: §3 calls `llm-check-proof-receipt-v2.schema.json` the strict record authority “consumed unchanged,” but the live candidate mirrors its ID/version/shape in Go constants and manual checks; no configured-recovery test reads or cross-validates the declared schema file.
+   What to ask the implementer: Add a deterministic cross-assertion that rendered and decoded attempt-3 records conform to the actual v2 schema authority, including required/additional fields, enums, version, and ordinal, without changing the prohibited embedded Baton schemas.
 
-5. [memory-cited] §Boundary — Preserve customer-configured model choice without creating a default or fallback.
-   What I observed: Status Decision 3 resolves the operator's existing `verifier.model` through the standard config authority, forbids a CLI override/fallback, and records only the resolved model ID. That aligns with the project's ratified no-model-defaults policy: role requirements are capability floors and the customer explicitly chooses the model/provider. The stale design does not yet cite or express this alignment.
-   What to ask the implementer: Confirm `[[no-model-defaults-policy]]` applies in the revised design; keep config consumption read-only, require structured-output capability, and prohibit any hard-coded substitute, fallback, config mutation, or inferred provider/model default.
-   Citation (if [memory-cited]): [[no-model-defaults-policy]]
+5. [mechanical] §1.2 — Make the exact preservation ACs explicit rather than relying only on “remain unchanged.”
+   What I observed: §1 names the direct forced-tool and canonical-validation boundary, but AC-05 endpoint override isolation and the exact AC-07/AC-08 null/non-function tool-call rejections appear only later in §5. Under the §1-to-AC drift check, those preservation commitments are implicit.
+   What to ask the implementer: Carry AC-05, AC-07, and AC-08 explicitly into the implementation checklist/user-visible preservation statement and retain their exact zero-fallback/one-dispatch tests.
+
+6. [memory-cited] §2.2 — Preserve typed provider-error authority outside the administrative exception.
+   What I observed: Decision 2 keeps receipt classification typed and Decision 3 keeps configured recovery outside the retry classifier, aligning with the project decision that retry policy consumes `model.Error{Kind}` rather than raw error text.
+   What to ask the implementer: Confirm the configured-recovery path does not reuse broad legacy `IsTransient`, error strings, or unknown failures as dispatch authority; keep the administrative attempt-3 gate separate from the typed retry taxonomy.
+   Citation (if [memory-cited]): [[project_provider_error_taxonomy]]
+
+7. [memory-cited] §2.3 — Anchor the no-default model decision to the existing capability-policy memory.
+   What I observed: Decision 3 resolves the customer’s configured verifier, applies structured capability as a hard floor, and forbids Sworn-selected fallback, which aligns with the ratified capability-based model-selection policy. The cited alias `[[no-model-defaults-policy]]` does not exist in the project memory index; the existing memory is `[[capability-based-model-selection-ratified]]`.
+   What to ask the implementer: Confirm that memory applies, replace the nonexistent alias with the existing citation, and keep config consumption read-only with no inferred provider/model default.
+   Citation (if [memory-cited]): [[capability-based-model-selection-ratified]]
 
 ## Summary
 
-Pins: 5 total — 3 [mechanical], 1 [memory-cited], 1 [escalate]
-Critical pins (if any): 1, 2, 4
+Pins: 7 total — 5 [mechanical], 2 [memory-cited], 0 [escalate]
+Critical pins (if any): 1, 2, 3
 
 ## Smaller flags (not pins, worth one-line acknowledgement)
 
-No active sibling is `in_progress` or `implemented` on the colliding files: the relevant siblings are verified, deferred, or blocked. S21 remains verified at its declared authoritative status commit, so the upstream dependency is mechanically present; the blocker is contract/design coherence and lifecycle ordering, not sibling sequencing.
+- The project design-fit gate exits 0 as `DESIGNAUDIT EXEMPT — not ui_bearing`.
+- The repository design-review LLM check returned `PASS — no findings`.
+- No sibling in `in_progress` or `implemented` collides with §3; the overlapping S04/S21 slices are verified, and the design explicitly acknowledges candidate `d02899f6`.
 
 ## Suggested acknowledgement reply
+<!-- Human-extractable section: a driver that applies the acknowledgement automatically reads everything
+     between this heading and the next ## heading (or EOF). Keep this content
+     verbatim-pasteable into the Implementer session — no surrounding prose. -->
 
-TL;DR The config-only recovery direction is sound, but its governing spec/design must be made coherent and the design-before-code gate restored. 5 pins + 1 flag:
+TL;DR Sound bounded-recovery direction with the Type-1 choice already ratified; close three critical fail-closed entry/binding gaps inline. 7 pins + 3 flags:
 
-1. **Replace the stale attempt-2 design.** Rewrite the design for immutable v1 attempts 1–2, config-only v2 attempt 3, exact zero-dispatch gates, and terminal exhaustion with no attempt 4; submit it for fresh Captain review before provider action.
-2. **Reconcile Risk R-05 with AC-09/10/12.** Carry the contradiction through `/replan-release` and state explicitly that opaque remains non-retryable while the separately ratified administrative authority permits only terminal attempt 3 after all gates.
-3. **Restore the Design TL;DR contract.** Add numbered §1–§6, all three §2 decisions with Coach authority, an explicit §3 file plan, reachability/evidence, exclusions, and explicit open questions or none.
-4. **Restore design-before-code ordering.** Freeze further source/provider action, treat `d02899f6` as an unapproved candidate, and obtain fresh Captain/Coach acknowledgement before resuming; leave certification to the fresh Verifier.
-5. **Preserve no-model-defaults policy.** Apply `[[no-model-defaults-policy]]`; consume the configured verifier read-only, require capability, and allow no override, fallback, mutation, or inferred default.
+1. **Split historical and attempt-3 identity.** Use an immutable GLM binding for exact attempts 1–2, a separate config-resolved binding for attempt 3, prohibit environment model substitution/fallback, and prove a different configured model plus per-field history mutations.
+2. **Enforce lifecycle/proof authority.** Validate the exact durable Captain acknowledgement, slice state, deterministic/full-suite/vet/build, and fresh proof evidence before reservation; missing or stale evidence must dispatch zero calls.
+3. **Own the flag pair.** Reject `--configured-recovery` without `--proof-receipt` before model setup, with non-zero exit, zero dispatch, and no receipt mutation.
+4. **Cross-check the v2 schema.** Prove rendered/decoded attempt-3 receipts conform to the actual Planner-owned v2 schema without changing embedded Baton schemas.
+5. **Keep preservation ACs explicit.** Carry AC-05, AC-07, and AC-08 into the implementation checklist and retain their exact isolation/malformed-tool tests.
+6. **Preserve typed error policy.** Apply `[[project_provider_error_taxonomy]]`; the administrative attempt-3 gate stays outside retry classification and never derives authority from raw/error-string/unknown outcomes.
+7. **Preserve customer model authority.** Apply `[[capability-based-model-selection-ratified]]`, replace the nonexistent `[[no-model-defaults-policy]]` alias, and keep model selection config-only, capability-gated, read-only, and fallback-free.
 
-Flags (not pins): (a) no active sibling is concurrently implementing a colliding file, and the declared S21 verified/PASS upstream evidence is present.
+Flags (not pins): (a) designaudit is correctly exempt because Sworn is not UI-bearing; (b) the design-review LLM check passed with no findings; (c) S04/S21 overlaps are verified and candidate `d02899f6` remains explicitly uncertified.
 
-Status design decisions 1–3 acknowledged subject to Decision 3 being carried into the revised `design.md`. §6 is absent and must be restored as explicit questions or explicit none.
+§2 Decisions 2 and 3 are acknowledged against `[[project_provider_error_taxonomy]]` and `[[capability-based-model-selection-ratified]]`; Decision 1 is clean. §6 has no open questions and is acknowledged.
 
-Address pins 1–5 through the replan and revised design, then proceed to in_progress.
+Address pins 1–7 inline during implementation, then proceed to in_progress.
+
+## Routing verdict
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
-CONSTITUTIONAL: no
-REASON: Risk R-05 contradicts the ratified attempt-3 acceptance contract, design.md still describes attempt 2, and configured-recovery code landed before the required fresh review.
+DECISION: PROCEED
+CONSTITUTIONAL: yes
+REASON: All seven pins are apply-inline technical corrections or memory confirmations; the Coach-ratified Type-1 recovery direction needs no design re-pick.
 -->
