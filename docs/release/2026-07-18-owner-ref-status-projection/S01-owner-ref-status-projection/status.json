@@ -1,0 +1,83 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-owner-ref-status-projection",
+  "release": "2026-07-18-owner-ref-status-projection",
+  "track": "T1-owner-ref-status",
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
+  "state": "in_progress",
+  "owner": "implementer",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-18T15:48:02+10:00",
+  "start_commit": "68a578b10d9c8c69632aad96301e4fc04dff0de0",
+  "spec_path": "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/spec.json",
+  "proof_path": "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json",
+  "journal_path": "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/journal.md",
+  "planned_files": [
+    "internal/board/discovery.go",
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
+    "docs/release/2026-07-18-owner-ref-status-projection"
+  ],
+  "actual_files": [],
+  "test_commands": [],
+  "reachability_artifacts": [],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Narrow code surface with correctness-sensitive ref authority and provenance behaviour.",
+    "confirmed_by_implementer": true
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent operator sees exact committed owner-track slice state and provenance regardless of the launch worktree or documentation symlink layout.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner through the release orchestrator",
+    "ratified_at": "2026-07-18T15:00:00+10:00",
+    "positive_scenarios": [
+      "A canonical docs symlink release reports the committed owner-track blocked verdict through aggregate and named board JSON.",
+      "A slice without an owner-track status falls back to the selected committed release source."
+    ],
+    "negative_scenarios": [
+      "A farther ghost status on another track cannot override the owner verdict.",
+      "Dirty launch working-tree bytes cannot appear as Git-backed board authority."
+    ],
+    "benefit_hypothesis": "Restoring owner-ref authority removes false lifecycle reports and lets release automation act on the exact committed verdict."
+  },
+  "design_decisions": [
+    {
+      "choice": "Restore topology-derived owner-track status authority inside DiscoverCatalog.",
+      "stake_class": "Type-2",
+      "options": [
+        "owner track then selected release fallback",
+        "cross-ref high-water election",
+        "launch-working-tree override"
+      ],
+      "human_decision": "Apply the already-ratified owner-track-first contract from issue #81.",
+      "rationale": "The change reconciles #123 catalog discovery with the existing ownership authority rather than introducing a new architecture.",
+      "architecturally_significant": false
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-owner-ref-status-projection",
+  "release": "2026-07-18-owner-ref-status-projection",
+  "track": "T1-owner-ref-status",
+  "user_outcome": "A SwornAgent operator receives the exact committed owner-track slice state and provenance from aggregate and named board commands, even when logical documentation is a symlink and other refs or the launch worktree carry divergent copies.",
+  "rationale": "Issue #124 exposed that the all-ref catalog introduced for #123 elected lifecycle high water across every ref and the launch working tree, bypassing #81's owner-track authority and hard-coding the logical docs path. This slice restores one deterministic committed-state rule without changing topology discovery.",
+  "touchpoints": [
+    "internal/board/discovery.go",
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
+    "docs/release/2026-07-18-owner-ref-status-projection"
+  ],
+  "in_scope": [
+    "Resolve a topology-declared slice first from `refs/heads/track/<release>/<owner-track>` and then from the selected release source ref when no valid owner status exists.",
+    "Probe `docs/release` and `apps/docs/content/docs/release` as Git tree prefixes for status records.",
+    "Exclude non-owner ghost copies and launch working-tree bytes from Git-backed catalog status projection.",
+    "Expose top-level `sourceRef` in named JSON output and source-ref text while preserving per-slice `stateSource` and `stateDurability`.",
+    "Exercise the compiled CLI against a temporary Git repository with a committed logical docs symlink, canonical release records, divergent owner and ghost refs, and dirty launch bytes."
+  ],
+  "out_of_scope": [
+    "Baton protocol vendoring and protocol-history retirement mechanics remain owned by issue #124 outside this Sworn projection slice.",
+    "Version bumps, tags, publication, release merge, and TUI redesign are excluded from this feature branch."
+  ],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "The patch is narrow, but authority selection across owner refs, fallback refs, canonical Git paths, and public CLI provenance is correctness-sensitive.",
+    "confirmed_by_implementer": true
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A ghost status copy on another track can outrank the owner verdict.",
+      "mitigation": "Select only the exact derived owner-track ref before the selected release fallback and cover a farther ghost copy in the compiled CLI fixture."
+    },
+    {
+      "id": "R-02",
+      "description": "Logical docs symlink traversal can hide canonical Git-tree release records.",
+      "mitigation": "Probe both supported Git-tree prefixes and commit an actual logical docs symlink in the CLI fixture."
+    },
+    {
+      "id": "R-03",
+      "description": "Adding named source provenance can make aggregate and named output disagree.",
+      "mitigation": "Select both output forms from the same CatalogRecord and assert identical topology and slice provenance."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN a compiled `sworn board --json` command reads a release whose canonical Git records are under `apps/docs/content/docs/release`, logical `docs` is a committed symlink, the owner track records an implemented blocked verdict, a non-owner track records shipped, and the launch working tree records shipped, THE SYSTEM SHALL report the owner verdict with `stateSource` equal to `refs/heads/track/<release>/<owner-track>` and `stateDurability` equal to `committed` (N-01, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN an owning track ref has no valid matching status record, THE SYSTEM SHALL project the matching committed status from the selected release source ref rather than another track or the launch working tree (N-01, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN aggregate and named `sworn board` JSON commands select the same release, THE SYSTEM SHALL expose the same top-level `sourceRef`, owner-ref slice `stateSource`, and `committed` durability in both outputs (N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink",
+        "cmd/sworn/board_test.go:TestBoardCLINamedAndCatalogStateEvidenceAgree"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN the owner-ref board fixtures and repository checks run, THE SYSTEM SHALL pass `go test ./cmd/sworn`, `go test ./internal/board`, `go test ./...`, and `go vet ./...` without a new runtime dependency (N-01, N-02, N-03, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink",
+        "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json"
+      ]
+    }
+  ]
+}
