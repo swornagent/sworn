@@ -102,3 +102,16 @@ description: 'Append-only implementation and verification history for bounded TU
 ## Verifier verdicts received
 
 - None; implementation has not started.
+
+### 2026-07-18 22:38 +10:00 — verifier verdict
+
+FAIL
+
+Slice: `S01-tui-bounded-navigation`
+
+Violations:
+1. Gate `3` — AC-04's root-model scrolling journey does not exercise every loaded release or every ordered slice.
+   Evidence: `internal/tui/tui_test.go:2811-2827` moves to release cursor 18 in a 25-record fixture and board cursor 12 in an 18-slice fixture; a cap after either tested position would still pass.
+
+Required to address:
+1. Extend the root `Model.Update`/`Model.View` journey to drive both cursors through their final loaded records across the track boundary and assert the final selected IDs remain visible. Keep the test at the root integration point and retain the existing resize/window assertions.
