@@ -40,6 +40,17 @@ func writeTestReceipt(t *testing.T, dir string, receipt ProofReceipt) {
 	}
 }
 
+func writeTestReceiptJSON(t *testing.T, dir string, receipt ProofReceipt) {
+	t.Helper()
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proofReceiptPath(dir, receipt.Attempt), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readTestReceipt(t *testing.T, dir string, attempt int) ProofReceipt {
 	t.Helper()
 	receipt, exists, err := readProofReceipt(dir, attempt)
@@ -472,6 +483,163 @@ func TestProofReceiptRetryableAttemptPermitsOnlyAttemptTwo(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProofReceiptConfiguredRecoveryWritesVersionTwoReceipt(t *testing.T) {
+	dir := t.TempDir()
+	binding := testProofReceiptBinding()
+	first := proofReceiptReservation(binding, 1)
+	first.AttemptClass = ProofReceiptReceiptFailure
+	first.ProcessExitCode = ProofReceiptExitUnavailable()
+	writeTestReceipt(t, dir, first)
+
+	second := proofReceiptReservation(binding, 2)
+	second.AttemptClass = ProofReceiptOpaque
+	second.ProcessExitCode = ProofReceiptExitCode(2)
+	writeTestReceipt(t, dir, second)
+
+	var calls atomic.Int32
+	receipt, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, dir, func(context.Context) ProofReceiptOutcome {
+		calls.Add(1)
+		return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("configured recovery dispatches = %d, want 1", calls.Load())
+	}
+	if receipt.Attempt != 3 || receipt.RecordVersion != 2 || receipt.Schema != ProofReceiptSchemaV2 {
+		t.Fatalf("configured recovery receipt = %#v", receipt)
+	}
+	if persisted, _, err := readProofReceipt(dir, 3); err != nil || persisted.RecordVersion != 2 || persisted.Schema != ProofReceiptSchemaV2 || persisted.Attempt != 3 {
+		t.Fatalf("persisted attempt-3 receipt = %#v, err %v", persisted, err)
+	}
+}
+
+func TestProofReceiptConfiguredRecoveryRequiresExactAttemptOneAndTwo(t *testing.T) {
+	binding := testProofReceiptBinding()
+	attemptOne := proofReceiptReservation(binding, 1)
+	attemptOne.AttemptClass = ProofReceiptReceiptFailure
+	attemptTwo := proofReceiptReservation(binding, 2)
+	attemptTwo.AttemptClass = ProofReceiptOpaque
+	attemptTwo.ProcessExitCode = ProofReceiptExitCode(2)
+
+	for _, tt := range []struct {
+		name  string
+		setup func(t *testing.T, dir string, attemptOne, attemptTwo ProofReceipt)
+	}{
+		{
+			name:  "missing attempt one",
+			setup: func(*testing.T, string, ProofReceipt, ProofReceipt) {},
+		},
+		{
+			name: "attempt one not configured",
+			setup: func(t *testing.T, dir string, attemptOne, _ ProofReceipt) {
+				attemptOne.AttemptClass = ProofReceiptFinalVerdict
+				attemptOne.ProcessExitCode = ProofReceiptExitCode(0)
+				writeTestReceiptJSON(t, dir, attemptOne)
+			},
+		},
+		{
+			name: "attempt one exit became available",
+			setup: func(t *testing.T, dir string, attemptOne, _ ProofReceipt) {
+				attemptOne.AttemptClass = ProofReceiptReceiptFailure
+				attemptOne.ProcessExitCode = ProofReceiptExitCode(2)
+				writeTestReceiptJSON(t, dir, attemptOne)
+			},
+		},
+		{
+			name: "missing attempt two",
+			setup: func(t *testing.T, dir string, attemptOne, _ ProofReceipt) {
+				writeTestReceiptJSON(t, dir, attemptOne)
+			},
+		},
+		{
+			name: "attempt two terminal",
+			setup: func(t *testing.T, dir string, attemptOne, attemptTwo ProofReceipt) {
+				writeTestReceiptJSON(t, dir, attemptOne)
+				attemptTwo.AttemptClass = ProofReceiptFinalVerdict
+				attemptTwo.Result = ProofReceiptPass
+				attemptTwo.ProcessExitCode = ProofReceiptExitCode(0)
+				writeTestReceiptJSON(t, dir, attemptTwo)
+			},
+		},
+		{
+			name: "attempt three already present",
+			setup: func(t *testing.T, dir string, attemptOne, attemptTwo ProofReceipt) {
+				writeTestReceiptJSON(t, dir, attemptOne)
+				writeTestReceiptJSON(t, dir, attemptTwo)
+				receipt3 := proofReceiptReservation(binding, 3)
+				receipt3.AttemptClass = ProofReceiptFinalVerdict
+				receipt3.Result = ProofReceiptPass
+				receipt3.ProcessExitCode = ProofReceiptExitCode(0)
+				writeTestReceiptJSON(t, dir, receipt3)
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.setup(t, dir, attemptOne, attemptTwo)
+			before := receiptDirectorySnapshot(t, dir)
+			var calls atomic.Int32
+			_, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, dir, func(context.Context) ProofReceiptOutcome {
+				calls.Add(1)
+				return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
+			})
+			if !errors.Is(err, ErrProofReceiptPreflight) {
+				t.Fatalf("configured recovery accepted invalid history")
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("configured recovery used provider dispatch for invalid history")
+			}
+			if after := receiptDirectorySnapshot(t, dir); before != after {
+				t.Fatal("configured-recovery preflight consumed or rewrote receipt budget")
+			}
+		})
+	}
+}
+
+func TestProofReceiptDecodeEnforcesAttemptSchemaPairs(t *testing.T) {
+	binding := testProofReceiptBinding()
+	validV1 := proofReceiptReservation(binding, 1)
+	validV2 := proofReceiptReservation(binding, 3)
+
+	t.Run("valid v1 attempt", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestReceiptJSON(t, dir, validV1)
+		if _, exists, err := readProofReceipt(dir, 1); err != nil || !exists {
+			t.Fatalf("v1 attempt 1 was not readable: exists=%v err=%v", exists, err)
+		}
+	})
+	t.Run("valid v2 attempt", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestReceiptJSON(t, dir, validV2)
+		if _, exists, err := readProofReceipt(dir, 3); err != nil || !exists {
+			t.Fatalf("v2 attempt 3 was not readable: exists=%v err=%v", exists, err)
+		}
+	})
+	t.Run("schema-version mismatch", func(t *testing.T) {
+		cases := []ProofReceipt{
+			func() ProofReceipt {
+				r := proofReceiptReservation(binding, 1)
+				r.Schema = ProofReceiptSchemaV2
+				return r
+			}(),
+			func() ProofReceipt {
+				r := proofReceiptReservation(binding, 3)
+				r.RecordVersion = 1
+				return r
+			}(),
+		}
+		for _, receipt := range cases {
+			dir := t.TempDir()
+			writeTestReceiptJSON(t, dir, receipt)
+			if _, _, err := readProofReceipt(dir, receipt.Attempt); !errors.Is(err, ErrProofReceiptPreflight) {
+				t.Fatalf("mismatched schema/version pair was accepted: %+v", receipt)
+			}
+		}
+	})
 }
 
 func TestProofReceiptSpecAmbiguityOutcomesAreFailClosed(t *testing.T) {

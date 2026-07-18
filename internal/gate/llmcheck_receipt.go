@@ -21,6 +21,7 @@ import (
 // ProofReceiptSchema is the identity of the deliberately separate, strict
 // receipt record. A proof receipt is never an LLMCheckReport.
 const ProofReceiptSchema = "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json"
+const ProofReceiptSchemaV2 = "https://swornagent.dev/schemas/llm-check-proof-receipt-v2.json"
 
 // ProofReceiptAttemptClass is the complete receipt classification vocabulary.
 // Values are metadata only; no class may contain an error message or payload.
@@ -165,9 +166,22 @@ func RunProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 	return runProofReceipt(ctx, binding, receiptDir, run, atomicWriteProofReceipt)
 }
 
+// RunConfiguredRecoveryProofReceipt executes exactly one configured-recovery attempt.
+// The configured-recovery authority is separate from the retry taxonomy and may only
+// proceed when a legal attempts 1 and 2 history already exists.
+func RunConfiguredRecoveryProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner) (ProofReceipt, error) {
+	return runProofReceiptWithPreflight(ctx, binding, receiptDir, run, preflightConfiguredRecoveryProofReceipt, atomicWriteProofReceipt)
+}
+
 type proofReceiptWriter func(string, ProofReceipt) error
 
+type proofReceiptPreflightFunc func(ProofReceiptBinding, string) (int, error)
+
 func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner, write proofReceiptWriter) (ProofReceipt, error) {
+	return runProofReceiptWithPreflight(ctx, binding, receiptDir, run, preflightProofReceipt, write)
+}
+
+func runProofReceiptWithPreflight(ctx context.Context, binding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner, preflight proofReceiptPreflightFunc, write proofReceiptWriter) (ProofReceipt, error) {
 	if !validProofReceiptBinding(binding) {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
@@ -180,7 +194,7 @@ func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 	}
 	defer unlock()
 
-	attempt, err := preflightProofReceipt(binding, receiptDir)
+	attempt, err := preflight(binding, receiptDir)
 	if err != nil {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
@@ -220,6 +234,38 @@ func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 		return reservation, ErrProofReceiptFinalization
 	}
 	return final, nil
+}
+
+func preflightConfiguredRecoveryProofReceipt(binding ProofReceiptBinding, receiptDir string) (int, error) {
+	if !validProofReceiptBinding(binding) {
+		return 0, ErrProofReceiptPreflight
+	}
+	if info, err := os.Stat(receiptDir); err != nil || !info.IsDir() {
+		return 0, ErrProofReceiptPreflight
+	}
+	first, firstExists, err := readProofReceipt(receiptDir, 1)
+	if err != nil || !firstExists {
+		return 0, ErrProofReceiptPreflight
+	}
+	second, secondExists, err := readProofReceipt(receiptDir, 2)
+	if err != nil || !secondExists {
+		return 0, ErrProofReceiptPreflight
+	}
+	_, thirdExists, err := readProofReceipt(receiptDir, 3)
+	if err != nil || thirdExists {
+		return 0, ErrProofReceiptPreflight
+	}
+	_, firstExitAvailable := first.ProcessExitCode.Code()
+	if first.Attempt != 1 || !receiptMatchesBinding(first, binding, 1) ||
+		first.AttemptClass != ProofReceiptReceiptFailure || first.Result != ProofReceiptUnparseable ||
+		firstExitAvailable {
+		return 0, ErrProofReceiptPreflight
+	}
+	if second.Attempt != 2 || !receiptMatchesBinding(second, binding, 2) || second.AttemptClass == ProofReceiptFinalVerdict ||
+		(second.Result == ProofReceiptPass || second.Result == ProofReceiptFail || second.Result == ProofReceiptBlocked) {
+		return 0, ErrProofReceiptPreflight
+	}
+	return 3, nil
 }
 
 // acquireProofReceiptLock serializes the preflight → reservation transition.
@@ -303,6 +349,30 @@ func RequireHistoricalAttemptOneForAttemptTwo(binding ProofReceiptBinding, recei
 	}
 	_, secondExists, err := readProofReceipt(receiptDir, 2)
 	if err != nil || secondExists {
+		return ErrProofReceiptPreflight
+	}
+	return nil
+}
+
+// RequireHistoricalAttemptOneAndTwoForConfiguredRecovery pins the administratively
+// authorized S22 recovery path to the exact pre-authorized historical binding.
+func RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding ProofReceiptBinding, receiptDir string) error {
+	first, firstExists, err := readProofReceipt(receiptDir, 1)
+	if err != nil || !firstExists || !receiptMatchesBinding(first, binding, 1) ||
+		first.AttemptClass != ProofReceiptReceiptFailure || first.Result != ProofReceiptUnparseable {
+		return ErrProofReceiptPreflight
+	}
+	if _, available := first.ProcessExitCode.Code(); available {
+		return ErrProofReceiptPreflight
+	}
+	second, secondExists, err := readProofReceipt(receiptDir, 2)
+	if err != nil || !secondExists || !receiptMatchesBinding(second, binding, 2) ||
+		second.AttemptClass == ProofReceiptFinalVerdict || second.Result == ProofReceiptPass ||
+		second.Result == ProofReceiptFail || second.Result == ProofReceiptBlocked {
+		return ErrProofReceiptPreflight
+	}
+	_, thirdExists, err := readProofReceipt(receiptDir, 3)
+	if err != nil || thirdExists {
 		return ErrProofReceiptPreflight
 	}
 	return nil
@@ -417,11 +487,11 @@ func decodeProofReceipt(data []byte) (ProofReceipt, error) {
 			return ProofReceipt{}, ErrProofReceiptPreflight
 		}
 	}
-	if receipt.Schema != ProofReceiptSchema || receipt.RecordVersion != 1 ||
+	if !validProofReceiptSchemaForVersion(receipt.Schema, receipt.RecordVersion) ||
 		strings.TrimSpace(receipt.Release) == "" || strings.TrimSpace(receipt.SliceID) == "" ||
 		!ValidCheckTypes[receipt.CheckType] || IsRetiredLLMCheck(receipt.CheckType) ||
 		strings.TrimSpace(receipt.ModelID) == "" || !validProofReceiptCommit(receipt.ImmutableStartCommit) ||
-		(receipt.Attempt != 1 && receipt.Attempt != 2) || !validProofReceiptAttemptClass(receipt.AttemptClass) ||
+		!validProofReceiptAttemptAndVersion(receipt.Attempt, receipt.RecordVersion) || !validProofReceiptAttemptClass(receipt.AttemptClass) ||
 		!validProofReceiptResult(receipt.Result) {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
@@ -436,6 +506,28 @@ func decodeProofReceipt(data []byte) (ProofReceipt, error) {
 		return ProofReceipt{}, ErrProofReceiptPreflight
 	}
 	return receipt, nil
+}
+
+func validProofReceiptSchemaForVersion(schema string, recordVersion int) bool {
+	switch recordVersion {
+	case 1:
+		return schema == ProofReceiptSchema
+	case 2:
+		return schema == ProofReceiptSchemaV2
+	default:
+		return false
+	}
+}
+
+func validProofReceiptAttemptAndVersion(attempt, recordVersion int) bool {
+	switch recordVersion {
+	case 1:
+		return attempt == 1 || attempt == 2
+	case 2:
+		return attempt == 3
+	default:
+		return false
+	}
 }
 
 func validProofReceiptExitSemantics(receipt ProofReceipt) bool {
@@ -464,9 +556,15 @@ func receiptMatchesBinding(receipt ProofReceipt, binding ProofReceiptBinding, at
 }
 
 func proofReceiptReservation(binding ProofReceiptBinding, attempt int) ProofReceipt {
+	schema := ProofReceiptSchema
+	recordVersion := 1
+	if attempt == 3 {
+		schema = ProofReceiptSchemaV2
+		recordVersion = 2
+	}
 	return ProofReceipt{
-		Schema:               ProofReceiptSchema,
-		RecordVersion:        1,
+		Schema:               schema,
+		RecordVersion:        recordVersion,
 		Release:              binding.Release,
 		SliceID:              binding.SliceID,
 		CheckType:            binding.CheckType,

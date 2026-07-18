@@ -957,6 +957,100 @@ func TestLLMCheckProofReceiptTerminalFailuresUseOneDispatch(t *testing.T) {
 	}
 }
 
+func TestLLMCheckProofReceiptConfiguredRecoveryPreservesConfigAndWritesAttemptThree(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "opaque", "UNPARSEABLE", "2")
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.16-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{}}`
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"tool_calls": []any{map[string]any{
+				"id": "call-1", "type": "function", "function": map[string]any{"name": "emit_structured_output", "arguments": arguments},
+			}}}}},
+		})
+	}))
+	defer server.Close()
+
+	configPath := llmCheckConfig(t, s22ProofReceiptModel)
+	exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, configPath, server.URL, "")
+	if exit != 0 {
+		t.Fatalf("configured recovery without --model exit = %d, want 0", exit)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("configured recovery calls = %d, want 1", calls.Load())
+	}
+
+	attempt3, err := os.ReadFile(filepath.Join(sliceDir, "receipts", "attempt-3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt struct {
+		Attempt      int    `json:"attempt"`
+		RecordSchema string `json:"$schema"`
+		Record       int    `json:"record_version"`
+		ModelID      string `json:"model_id"`
+	}
+	if err := json.Unmarshal(attempt3, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Attempt != 3 || receipt.Record != 2 || receipt.RecordSchema != "https://swornagent.dev/schemas/llm-check-proof-receipt-v2.json" || receipt.ModelID != s22ProofReceiptModel {
+		t.Fatalf("configured-recovery receipt = %#v", receipt)
+	}
+}
+
+func TestLLMCheckProofReceiptConfiguredRecoveryRejectsExplicitModel(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "opaque", "UNPARSEABLE", "2")
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer server.Close()
+
+	configPath := llmCheckConfig(t, s22ProofReceiptModel)
+	exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, configPath, server.URL, s22ProofReceiptModel)
+	if exit != 2 {
+		t.Fatalf("configured recovery with explicit model exit = %d, want 2", exit)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("configured recovery with explicit model dispatched %d requests", calls.Load())
+	}
+}
+
+func TestLLMCheckProofReceiptStopsAfterConfiguredAttemptThree(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "opaque", "UNPARSEABLE", "2")
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.16-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{}}`
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"tool_calls": []any{map[string]any{
+				"id": "call-1", "type": "function", "function": map[string]any{"name": "emit_structured_output", "arguments": arguments},
+			}}}}},
+		})
+	}))
+	defer server.Close()
+
+	configPath := llmCheckConfig(t, s22ProofReceiptModel)
+	if exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, configPath, server.URL, ""); exit != 0 {
+		t.Fatalf("configured recovery initial exit = %d, want 0", exit)
+	}
+	if exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, configPath, server.URL, ""); exit != 2 {
+		t.Fatalf("configured recovery second exit = %d, want 2", exit)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("configured recovery issued %d calls after attempt3, want no second call", calls.Load())
+	}
+}
+
 func runProofReceiptCommandFixture(t *testing.T, root, baseURL string) int {
 	t.Helper()
 	oldCwd, err := os.Getwd()
@@ -979,6 +1073,34 @@ func runProofReceiptCommandFixture(t *testing.T, root, baseURL string) int {
 		"--model", s22ProofReceiptModel,
 		"--base", s22ProofReceiptStart,
 	})
+}
+
+func runConfiguredRecoveryProofReceiptCommandFixture(t *testing.T, root, configPath, baseURL, model string) int {
+	t.Helper()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldCwd)
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENROUTER_API_KEY", "S22-SYNTHETIC-KEY-CANARY")
+	t.Setenv("SWORN_OPENROUTER_BASE_URL", baseURL)
+	args := []string{
+		"--proof-receipt",
+		"--configured-recovery",
+		"--type", "spec-ambiguity",
+		"--slice", s22ProofReceiptSlice,
+		"--release", s22ProofReceiptRelease,
+		"--base", s22ProofReceiptStart,
+	}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	return cmdLLMCheck(args)
 }
 
 func proofReceiptCommandFixture(t *testing.T) (string, string) {

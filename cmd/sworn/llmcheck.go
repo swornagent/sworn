@@ -44,6 +44,7 @@ func cmdLLMCheck(args []string) int {
 	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
 	jsonOut := fs.Bool("json", false, "output as JSON")
 	proofReceipt := fs.Bool("proof-receipt", false, "run the native, metadata-only S22 proof receipt mode")
+	configuredRecovery := fs.Bool("configured-recovery", false, "run the configured-recovery S22 proof receipt attempt")
 	_ = fs.Parse(args)
 
 	// --- argument validation ---
@@ -64,7 +65,7 @@ func cmdLLMCheck(args []string) int {
 		return 64
 	}
 	if *proofReceipt {
-		return cmdLLMCheckProofReceipt(ct, *sliceID, *releaseName, *modelID, *baseRef, *jsonOut)
+		return cmdLLMCheckProofReceipt(ct, *sliceID, *releaseName, *modelID, *baseRef, *jsonOut, *configuredRecovery)
 	}
 
 	// --- resolve paths ---
@@ -156,7 +157,7 @@ const (
 // output is deliberately limited to gate.ProofReceipt rendering; neither a
 // provider error nor a model report is permitted to cross this command's
 // stdout/stderr boundary.
-func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, requestedModel, baseRef string, jsonOut bool) int {
+func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, requestedModel, baseRef string, jsonOut bool, configuredRecovery bool) int {
 	if checkType != gate.CheckSpecAmbiguity || os.Getenv("SWORN_DIRECT") != "1" ||
 		releaseName != s22ProofReceiptRelease || sliceID != s22ProofReceiptSlice || baseRef != s22ProofReceiptStart {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
@@ -164,10 +165,37 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 	}
 
 	cfg, _ := config.Load()
-	modelID, err := config.ResolveVerifierModel(requestedModel, cfg)
-	if err != nil || modelID != s22ProofReceiptModel {
-		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+	var modelID string
+	var err error
+	if configuredRecovery {
+		if strings.TrimSpace(requestedModel) != "" {
+			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+			return 2
+		}
+		modelID, err = config.ResolveVerifierModel("", cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+			return 2
+		}
+	} else {
+		modelID, err = config.ResolveVerifierModel(requestedModel, cfg)
+		if err != nil || modelID != s22ProofReceiptModel {
+			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+			return 2
+		}
+	}
+
+	verifier, err := model.FromEnv(modelID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt setup failed")
 		return 2
+	}
+	if configuredRecovery {
+		capabilities, ok := verifier.(model.CapabilityProvider)
+		if !ok || capabilities.Capabilities()&model.CapStructuredOutput == 0 {
+			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+			return 2
+		}
 	}
 
 	releaseDir, err := resolveReleaseDir(releaseName)
@@ -236,7 +264,12 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		ImmutableStartCommit: status.StartCommit,
 	}
 	receiptDir := filepath.Join(sliceDir, "receipts")
-	if err := gate.RequireHistoricalAttemptOneForAttemptTwo(binding, receiptDir); err != nil {
+	if configuredRecovery {
+		if err := gate.RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding, receiptDir); err != nil {
+			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+			return 2
+		}
+	} else if err := gate.RequireHistoricalAttemptOneForAttemptTwo(binding, receiptDir); err != nil {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
@@ -244,18 +277,18 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 	// Client construction and prompt preparation are deterministic preflight.
 	// They make no provider request, so a bad key or endpoint cannot consume the
 	// one bounded dispatch budget.
-	verifier, err := model.FromEnv(modelID)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt setup failed")
-		return 2
-	}
 	runner, err := gate.NewProofReceiptRunner(checkType, sliceDir, verifier)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
 
-	receipt, err := gate.RunProofReceipt(context.Background(), binding, receiptDir, runner)
+	var receipt gate.ProofReceipt
+	if configuredRecovery {
+		receipt, err = gate.RunConfiguredRecoveryProofReceipt(context.Background(), binding, receiptDir, runner)
+	} else {
+		receipt, err = gate.RunProofReceipt(context.Background(), binding, receiptDir, runner)
+	}
 	if receipt.Attempt != 0 {
 		if jsonOut {
 			fmt.Print(gate.JSONProofReceipt(receipt))
