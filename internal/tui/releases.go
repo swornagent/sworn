@@ -45,24 +45,36 @@ func (r *ReleasesList) LoadReleases(repoRoot string) error {
 	if err != nil {
 		return err
 	}
-	if len(catalog) == 0 {
-		return ErrNoReleases
-	}
-
-	releases := make([]ReleaseInfo, 0, len(catalog))
-	for _, rec := range catalog {
-		releases = append(releases, releaseInfoFromCatalog(rec))
-	}
-
-	sort.Slice(releases, func(i, j int) bool {
-		return releases[i].ID < releases[j].ID
-	})
+	releases, err := releaseInfosFromCatalog(catalog)
 
 	r.Releases = releases
 	if r.Cursor >= len(r.Releases) {
 		r.Cursor = len(r.Releases) - 1
 	}
-	return nil
+	if r.Cursor < 0 {
+		r.Cursor = 0
+	}
+	return err
+}
+
+// releaseInfosFromCatalog converts one complete catalog snapshot into the
+// releases-list value installed by the root model. It performs no discovery or
+// status reads, so callers can use the returned value as one immutable refresh
+// transaction. An empty successful catalog returns the established
+// ErrNoReleases presentation while still producing an empty replacement value.
+func releaseInfosFromCatalog(catalog []board.CatalogRecord) ([]ReleaseInfo, error) {
+	releases := make([]ReleaseInfo, 0, len(catalog))
+	for i := range catalog {
+		releases = append(releases, releaseInfoFromCatalog(catalog[i]))
+	}
+
+	sort.Slice(releases, func(i, j int) bool {
+		return releases[i].ID < releases[j].ID
+	})
+	if len(releases) == 0 {
+		return releases, ErrNoReleases
+	}
+	return releases, nil
 }
 
 func releaseInfoFromCatalog(rec board.CatalogRecord) ReleaseInfo {

@@ -12,3 +12,14 @@
 - Ratified outcome: an operator can monitor in-flight releases without
   restarting. Refresh must remain asynchronous, non-overlapping, and sourced
   from the shared board catalog.
+
+## 2026-07-18 — implementation resumed after Captain review
+
+- The repository owner acknowledged `DECISION: PROCEED` and all four inline
+  pins from `review.md`.
+- Declared `internal/tui/board.go` before editing it, as authorised by PIN-1,
+  because pure catalog-only board hydration belongs beside the existing board
+  conversion code. The refresh path will preserve presentation state without
+  calling `LoadBoardFromCatalog`, `ActiveMerges`, or another resolver.
+- The shared catalog remains the sole list-and-board authority: one accepted
+  discovery result will replace both values in one root-model transition.

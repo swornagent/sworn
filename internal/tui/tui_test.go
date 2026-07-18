@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2390,5 +2391,347 @@ func TestGateKeyTriggersAsyncGateLoad(t *testing.T) {
 	}
 	if _, ok := m3.Board.GateResults["S01-first"]; !ok {
 		t.Fatalf("expected GateResults to contain S01-first, got %+v", m3.Board.GateResults)
+	}
+}
+
+// TestCatalogRefreshStartsFromModelInit proves the automatic refresh chain is
+// reachable from Bubble Tea's root integration point.
+func TestCatalogRefreshStartsFromModelInit(t *testing.T) {
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	cmd := m.Init()
+	if cmd == nil || m.refreshGeneration != 1 || m.refreshInFlight {
+		t.Fatalf("Init did not arm generation 1: cmd=%v generation=%d inFlight=%v", cmd != nil, m.refreshGeneration, m.refreshInFlight)
+	}
+}
+
+// TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard is the root-model
+// reachability test for AC-01: one accepted result owns both replacements and
+// preserves presentation-only state without consulting a secondary resolver.
+func TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard(t *testing.T) {
+	initial := refreshCatalogRecord("alpha", "S01-old")
+	m := refreshModel(t, initial)
+	m.Board.MergeActive["T1-core"] = true
+	m.Board.GatesLoaded = true
+	m.Board.GateResults["S01-old"] = GateResult{TraceVerdict: "PASS"}
+	old := m.Board.Slices["S01-old"]
+	old.Gate = m.Board.GateResults["S01-old"]
+	m.Board.Slices["S01-old"] = old
+	m.repoRoot = filepath.Join(t.TempDir(), "must-not-be-read")
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+
+	updated := refreshCatalogRecord("alpha", "S01-old", "S02-new")
+	next, cmd := m.Update(catalogRefreshResultMsg{generation: 1, catalog: []board.CatalogRecord{updated}})
+	m = next.(*Model)
+
+	if cmd == nil {
+		t.Fatal("accepted refresh must schedule exactly one next refresh command")
+	}
+	if len(m.Releases.Releases) != 1 || m.Releases.Releases[0].Catalog.Board.Tracks[0].Slices[1].ID != "S02-new" {
+		t.Fatalf("releases snapshot did not advance atomically: %+v", m.Releases.Releases)
+	}
+	if _, ok := m.Board.Slices["S02-new"]; !ok {
+		t.Fatalf("selected board did not advance from the same snapshot: %+v", m.Board.Slices)
+	}
+	if !m.Board.MergeActive["T1-core"] || !m.Board.GatesLoaded || m.Board.Slices["S01-old"].Gate.TraceVerdict != "PASS" {
+		t.Fatalf("presentation state was not preserved: board=%+v", m.Board)
+	}
+	if m.refreshGeneration != 2 || m.refreshInFlight {
+		t.Fatalf("refresh lifecycle = generation %d inFlight %v", m.refreshGeneration, m.refreshInFlight)
+	}
+}
+
+func TestCatalogRefreshRearmsOnlyAfterCompletion(t *testing.T) {
+	calls := 0
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	m.refreshGeneration = 1
+	m.discoverCatalog = func(string) ([]board.CatalogRecord, error) {
+		calls++
+		return []board.CatalogRecord{refreshCatalogRecord("alpha", "S01-old", "S02-new")}, nil
+	}
+
+	updated, discoverCmd := m.Update(catalogRefreshDueMsg{generation: 1})
+	m = updated.(*Model)
+	if discoverCmd == nil || !m.refreshInFlight || calls != 0 {
+		t.Fatalf("due handling started incorrectly: cmd=%v inFlight=%v calls=%d", discoverCmd != nil, m.refreshInFlight, calls)
+	}
+	updated, duplicateCmd := m.Update(catalogRefreshDueMsg{generation: 1})
+	m = updated.(*Model)
+	if duplicateCmd != nil || calls != 0 {
+		t.Fatalf("duplicate due overlapped discovery: cmd=%v calls=%d", duplicateCmd != nil, calls)
+	}
+
+	result := discoverCmd()
+	if calls != 1 {
+		t.Fatalf("discovery calls=%d, want exactly one", calls)
+	}
+	updated, scheduleCmd := m.Update(result)
+	m = updated.(*Model)
+	if scheduleCmd == nil || m.refreshGeneration != 2 || m.refreshInFlight {
+		t.Fatalf("completion did not re-arm serial chain: cmd=%v generation=%d inFlight=%v", scheduleCmd != nil, m.refreshGeneration, m.refreshInFlight)
+	}
+}
+
+func TestCatalogRefreshNeverOverlapsAndRejectsStaleGeneration(t *testing.T) {
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	m.refreshGeneration = 2
+	m.refreshInFlight = true
+	m.refreshErr = "newest visible error"
+	beforeList := m.Releases.View()
+	beforeBoard := m.Board.View()
+
+	updated, cmd := m.Update(catalogRefreshResultMsg{
+		generation: 1,
+		catalog:    []board.CatalogRecord{refreshCatalogRecord("alpha", "S99-stale")},
+	})
+	m = updated.(*Model)
+	if cmd != nil || m.Releases.View() != beforeList || m.Board.View() != beforeBoard || m.refreshErr != "newest visible error" {
+		t.Fatalf("stale result changed visible state: cmd=%v error=%q", cmd != nil, m.refreshErr)
+	}
+	updated, cmd = m.Update(catalogRefreshDueMsg{generation: 2})
+	m = updated.(*Model)
+	if cmd != nil || !m.refreshInFlight {
+		t.Fatal("an in-flight generation accepted an overlapping due message")
+	}
+}
+
+func TestCatalogRefreshPreservesSelectionByIdentity(t *testing.T) {
+	alpha := refreshCatalogRecord("alpha", "S01-alpha")
+	zeta := refreshCatalogRecord("zeta", "S01-old", "S02-selected")
+	m := refreshModel(t, alpha, zeta)
+	m.Releases.Cursor = 1
+	bv, err := boardViewFromCatalog(zeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bv.Cursor = 1
+	m.Board = bv
+	m.state = viewBoard
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+
+	aardvark := refreshCatalogRecord("aardvark", "S01-new-release")
+	zetaReordered := refreshCatalogRecord("zeta", "S02-selected", "S01-old", "S03-new")
+	updated, _ := m.Update(catalogRefreshResultMsg{generation: 1, catalog: []board.CatalogRecord{zetaReordered, alpha, aardvark}})
+	m = updated.(*Model)
+	if got := m.Releases.Releases[m.Releases.Cursor].ID; got != "zeta" {
+		t.Fatalf("release selection moved to %q, want zeta", got)
+	}
+	if got := m.Board.orderedSlices[m.Board.Cursor]; got != "S02-selected" {
+		t.Fatalf("slice selection moved to %q, want S02-selected", got)
+	}
+}
+
+func TestCatalogRefreshHandlesRemovedSelection(t *testing.T) {
+	alpha := refreshCatalogRecord("alpha", "S01-alpha")
+	zeta := refreshCatalogRecord("zeta", "S01-zeta")
+	m := refreshModel(t, alpha, zeta)
+	m.Releases.Cursor = 1
+	m.Board, _ = boardViewFromCatalog(zeta)
+	m.state = viewBoard
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+
+	updated, _ := m.Update(catalogRefreshResultMsg{generation: 1, catalog: []board.CatalogRecord{alpha}})
+	m = updated.(*Model)
+	if m.state != viewReleases || m.Board.ReleaseName != "" || m.Releases.Cursor != 0 {
+		t.Fatalf("removed selection not cleared/clamped: state=%d board=%+v cursor=%d", m.state, m.Board, m.Releases.Cursor)
+	}
+}
+
+func TestCatalogRefreshHandlesEmptySuccessfulCatalog(t *testing.T) {
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+
+	updated, cmd := m.Update(catalogRefreshResultMsg{generation: 1, catalog: []board.CatalogRecord{}})
+	m = updated.(*Model)
+	if cmd == nil || len(m.Releases.Releases) != 0 || m.Releases.Cursor != 0 {
+		t.Fatalf("empty catalog was not installed safely: cmd=%v releases=%+v cursor=%d", cmd != nil, m.Releases.Releases, m.Releases.Cursor)
+	}
+	if m.Board.ReleaseName != "" || m.state != viewReleases || m.refreshErr != ErrNoReleases.Error() {
+		t.Fatalf("empty catalog semantics: board=%+v state=%d error=%q", m.Board, m.state, m.refreshErr)
+	}
+}
+
+func TestCatalogRefreshErrorRetainsLastGoodAndRecovers(t *testing.T) {
+	initial := refreshCatalogRecord("alpha", "S01-old")
+	m := refreshModel(t, initial)
+	m.state = viewLog
+	m.Log = StartLogView(t.TempDir(), "alpha", "", viewBoard, 10)
+	m.errMsg = "unrelated operator error"
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+	beforeList := m.Releases.View()
+	beforeBoard := m.Board.View()
+
+	updated, retryCmd := m.Update(catalogRefreshResultMsg{generation: 1, err: errors.New("catalog unavailable")})
+	m = updated.(*Model)
+	if retryCmd == nil || m.Releases.View() != beforeList || m.Board.View() != beforeBoard {
+		t.Fatal("refresh error did not retain the complete last-good snapshot and re-arm")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Error: catalog unavailable") || !strings.Contains(view, "Error: unrelated operator error") {
+		t.Fatalf("alternate root view did not render both errors:\n%s", view)
+	}
+
+	m.refreshInFlight = true
+	recovered := refreshCatalogRecord("alpha", "S01-old", "S02-new")
+	updated, _ = m.Update(catalogRefreshResultMsg{generation: 2, catalog: []board.CatalogRecord{recovered}})
+	m = updated.(*Model)
+	if m.refreshErr != "" || m.errMsg != "unrelated operator error" {
+		t.Fatalf("recovery cleared wrong error: refresh=%q root=%q", m.refreshErr, m.errMsg)
+	}
+	if _, ok := m.Board.Slices["S02-new"]; !ok {
+		t.Fatal("recovery did not install the newer snapshot")
+	}
+}
+
+func TestCatalogRefreshErrorVisibleInEveryRootView(t *testing.T) {
+	base := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	base.refreshErr = "refresh failed"
+	base.Live = &LiveView{ReleaseName: "alpha"}
+	base.Log = StartLogView(t.TempDir(), "alpha", "", viewBoard, 10)
+	base.Blocked = &BlockedView{}
+	base.Settings = &SettingsView{fields: make([]settingsField, 4)}
+
+	for _, state := range []viewState{viewReleases, viewBoard, viewLive, viewLog, viewBlocked, viewSettings} {
+		base.state = state
+		if got := base.View(); !strings.Contains(got, "Error: refresh failed") {
+			t.Errorf("state %d hid root refresh error:\n%s", state, got)
+		}
+	}
+}
+
+func TestCatalogRefreshCoexistsWithLiveAndLogTicks(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := db.Open(db.DefaultPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-core", "alpha", "in_progress", "S01-old", "2026-07-18T00:00:00Z",
+	); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+
+	live, err := StartLiveView(dir, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	m.repoRoot = dir
+	m.refreshGeneration = 7
+	m.state = viewLive
+	m.Live = live
+	beforeTicks := live.TickCount
+	updated, liveCmd := m.Update(tickMsg{})
+	m = updated.(*Model)
+	if liveCmd == nil || m.Live.TickCount <= beforeTicks || m.refreshGeneration != 7 || m.refreshInFlight {
+		t.Fatal("catalog scheduling interfered with the live tick chain")
+	}
+
+	m.state = viewLog
+	m.Log = StartLogView(dir, "alpha", "", viewLive, 10)
+	updated, logCmd := m.Update(logTickMsg{})
+	m = updated.(*Model)
+	if logCmd == nil || m.refreshGeneration != 7 || m.refreshInFlight {
+		t.Fatal("catalog scheduling interfered with the log tick chain")
+	}
+	updated, refreshCmd := m.Update(catalogRefreshDueMsg{generation: 7})
+	m = updated.(*Model)
+	if refreshCmd == nil || !m.refreshInFlight {
+		t.Fatal("catalog refresh chain did not remain active in log view")
+	}
+}
+
+func TestCatalogRefreshRenderedFrames(t *testing.T) {
+	m := refreshModel(t, refreshCatalogRecord("alpha", "S01-old"))
+	m.Version = "test"
+	m.Width = 80
+	before := normalizeTerminalFrame(m.View())
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+	updated, _ := m.Update(catalogRefreshResultMsg{
+		generation: 1,
+		catalog:    []board.CatalogRecord{refreshCatalogRecord("alpha", "S01-old", "S02-new")},
+	})
+	m = updated.(*Model)
+	after := normalizeTerminalFrame(m.View())
+	m.refreshGeneration = 2
+	m.refreshInFlight = true
+	updated, _ = m.Update(catalogRefreshResultMsg{generation: 2, err: errors.New("catalog unavailable")})
+	m = updated.(*Model)
+	errorFrame := normalizeTerminalFrame(m.View())
+
+	goldenDir := filepath.Join("..", "..", "docs", "release", "2026-07-17-ref-aware-board-discovery", "screenshots", "S03-tui-live-board-refresh")
+	frames := []struct {
+		name string
+		text string
+	}{
+		{name: "before.txt", text: before},
+		{name: "after.txt", text: after},
+		{name: "error.txt", text: errorFrame},
+	}
+	for _, frame := range frames {
+		want, err := os.ReadFile(filepath.Join(goldenDir, frame.name))
+		if err != nil {
+			t.Errorf("read %s: %v; generated frame: %q", frame.name, err, frame.text)
+			continue
+		}
+		wantFrame := strings.TrimSuffix(string(want), "\n")
+		if frame.text != wantFrame {
+			t.Errorf("%s differs from committed terminal frame\n--- want ---\n%s\n--- got ---\n%s", frame.name, want, frame.text)
+		}
+	}
+}
+
+func normalizeTerminalFrame(frame string) string {
+	lines := strings.Split(frame, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func refreshModel(t *testing.T, catalog ...board.CatalogRecord) *Model {
+	t.Helper()
+	releases, err := releaseInfosFromCatalog(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bv, err := boardViewFromCatalog(catalog[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Model{
+		state:    viewBoard,
+		Releases: &ReleasesList{Releases: releases},
+		Board:    bv,
+	}
+}
+
+func refreshCatalogRecord(release string, sliceIDs ...string) board.CatalogRecord {
+	slices := make([]board.SliceState, 0, len(sliceIDs))
+	for _, id := range sliceIDs {
+		slices = append(slices, board.SliceState{
+			ID:              id,
+			Track:           "T1-core",
+			State:           "verified",
+			StateSource:     "refs/heads/track/" + release + "/T1-core",
+			StateDurability: "committed",
+		})
+	}
+	return board.CatalogRecord{
+		Release:   release,
+		SourceRef: "refs/heads/release-wt/" + release,
+		Board: &board.BoardState{Release: release, Tracks: []board.TrackState{{
+			ID:     "T1-core",
+			State:  "verified",
+			Slices: slices,
+		}}},
 	}
 }

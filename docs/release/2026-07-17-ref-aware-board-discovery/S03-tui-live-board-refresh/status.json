@@ -8,13 +8,14 @@
   "owner": "implementer",
   "last_updated_by": "codex-implementer",
   "last_updated_at": "2026-07-18T14:04:57+10:00",
-  "start_commit": null,
+  "start_commit": "adae97743a930fa1e4a2fe8296824ba3a4c1826f",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
   "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
   "planned_files": [
     "internal/tui/tui.go",
     "internal/tui/model.go",
+    "internal/tui/board.go",
     "internal/tui/releases.go",
     "internal/tui/tui_test.go"
   ],
