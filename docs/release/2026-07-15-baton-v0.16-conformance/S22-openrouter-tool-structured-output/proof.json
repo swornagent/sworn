@@ -28,6 +28,7 @@
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.md",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-1.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-2.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/review.md",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/spec.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/status.json"
@@ -38,7 +39,8 @@
     {"command":"GOFLAGS=-buildvcs=false go vet ./...","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false make build","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false go test ./cmd/sworn -run 'TestLLMCheck(OpenRouterToolStructuredBinaryReachability|ProofReceiptBinaryReachability)$' -count=1 -v","passed":true,"exit_code":0},
-    {"command":"git diff <immutable-start>..HEAD | SWORN_DIRECT=1 OPENROUTER_API_KEY=synthetic SWORN_OPENROUTER_BASE_URL=http://127.0.0.1:1 bin/sworn verify --verifier-model openrouter/z-ai/glm-5.2 --spec <S22 spec> --diff - --proof <S22 proof>","passed":true,"exit_code":0}
+    {"command":"git diff <immutable-start>..HEAD | SWORN_DIRECT=1 OPENROUTER_API_KEY=synthetic SWORN_OPENROUTER_BASE_URL=http://127.0.0.1:1 bin/sworn verify --verifier-model openrouter/z-ai/glm-5.2 --spec <S22 spec> --diff - --proof <S22 proof>","passed":true,"exit_code":0},
+    {"command":"SWORN_DIRECT=1 bin/sworn llm-check --proof-receipt --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model openrouter/z-ai/glm-5.2 --base <immutable-start> --json","passed":false,"exit_code":2}
   ],
   "reachability": {
     "type": "e2e-test",
@@ -56,8 +58,8 @@
   ],
   "not_delivered": [
     {
-      "item": "One authorised native attempt-2 direct spec-ambiguity receipt",
-      "why": "AC-12 requires the deterministic implementation and regenerated proof bundle to be complete first. This pre-dispatch checkpoint makes no completion claim.",
+      "item": "AC-12 valid PASS receipt from the authorised native attempt-2 direct spec-ambiguity proof",
+      "why": "Attempt 2 finalized as sanitized class opaque, result UNPARSEABLE, exit 2. AC-09 and AC-10 make every attempt-2 non-final outcome terminal, so no retry, fallback, or third dispatch is authorised.",
       "tracking": "S22-openrouter-tool-structured-output AC-12",
       "acknowledged": true
     },

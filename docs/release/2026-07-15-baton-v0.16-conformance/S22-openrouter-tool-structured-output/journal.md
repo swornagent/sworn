@@ -330,3 +330,26 @@ this is not a fresh verifier verdict.
 - Deterministic gates passed: targeted S22 tests, `go test ./...`, `go vet
   ./...`, `make build`, and the two built-command reachability tests. No live
   provider/model dispatch or credential inspection occurred.
+
+## 2026-07-18T14:49:34+10:00 — Attempt 2 is terminal; fail-closed Planner handoff
+
+- Proof commit `ba6648a9` durably captured every AC-12 precondition before
+  dispatch: exact fresh S21 evidence, acknowledged Captain PROCEED, targeted and
+  full tests, vet, build, built-command reachability, and the current binary's
+  zero-cost deterministic proof-bundle PASS.
+- The first command omitted the required `SWORN_DIRECT=1` process flag and was
+  rejected during deterministic preflight. It created no reservation, made no
+  provider request, and consumed no retry budget. The corrected invocation was
+  the sole attempt-2 dispatch.
+- Native attempt 2 finalized the strict metadata-only receipt with class
+  `opaque`, result `UNPARSEABLE`, and process exit code 2. No provider payload,
+  endpoint, header, request/response body, finding, prompt, diff, credential, or
+  key was retained or rendered.
+- AC-09/AC-10 make every attempt-2 non-final outcome terminal. The two-attempt
+  budget is exhausted: no retry, fallback, provider/model/transport switch,
+  third dispatch, completion claim, maintainability cycle, verifier dispatch,
+  or S20 activity is authorised.
+- S22 moves to `blocked` with a machine-readable AC-12 violation and is handed
+  to the Planner for explicit re-scope or closure. The deterministic
+  implementation remains committed and all sanitized receipt evidence is
+  preserved.

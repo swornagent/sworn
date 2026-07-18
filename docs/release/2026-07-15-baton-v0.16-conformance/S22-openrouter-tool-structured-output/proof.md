@@ -1,8 +1,8 @@
 # S22-openrouter-tool-structured-output proof bundle
 
-Live-state pre-dispatch checkpoint. The implementation and every deterministic
-precondition for the one authorised native attempt-2 proof are complete. This
-checkpoint is not an `implemented` or verification claim.
+Fail-closed handoff. The implementation and every deterministic precondition
+passed, but the one authorised native attempt-2 proof returned a terminal
+sanitized non-result. This is not an `implemented` or verification claim.
 
 ## Scope
 
@@ -50,6 +50,8 @@ release integration. The S22 implementation/proof scope within that live diff is
 - PASS — current binary deterministic proof-bundle gate with the immutable-start
   diff on stdin, exit 0, verdict PASS, cost USD 0, and an unroutable synthetic
   endpoint proving no provider dispatch.
+- FAIL CLOSED — the sole native attempt-2 direct `spec-ambiguity` proof, exit 2,
+  class `opaque`, result `UNPARSEABLE`; the strict receipt contains no raw data.
 - EXPECTED UNAVAILABLE — `sworn coverage`; the current binary returns unknown
   command, tracked by `sworn#122` and previously acknowledged by the Coach.
 
@@ -95,13 +97,23 @@ and verifies that only the strict metadata receipt is rendered.
 
 ## Not delivered
 
-- The one authorised native attempt-2 direct `spec-ambiguity` receipt has not
-  yet been dispatched at this checkpoint. Why: AC-12 requires every item above
-  to be durably captured first. Tracking: S22 AC-12. Acknowledgement: the Coach
-  explicitly authorised attempt 2 only after these gates; no fallback or third
-  dispatch is authorised.
+- AC-12 did not obtain a valid PASS receipt. Sanitized evidence: release
+  `2026-07-15-baton-v0.16-conformance`, slice
+  `S22-openrouter-tool-structured-output`, check `spec-ambiguity`, model
+  `openrouter/z-ai/glm-5.2`, immutable start
+  `a09b0e46df465862d00469d4aef2a997442b3d5b`, attempt 2, class `opaque`,
+  result `UNPARSEABLE`, exit 2. Why: the provider outcome did not pass the local
+  canonical gate. Tracking: S22 AC-12. Acknowledgement: the Coach authorised no
+  fallback or third dispatch; Planner re-scope is required.
+
+## Sanitized attempt-2 receipt
+
+The durable receipt is `receipts/attempt-2.json`. It contains only the ten
+allowlisted metadata fields. The two-attempt budget is exhausted and S20
+remains untouched.
 
 ## Divergence from plan
 
-None from the acknowledged Captain design. The earlier v0.15 receipt identity
-remains historical provenance only; active runtime and evidence bind v0.16.
+The acknowledged design anticipated PASS as the only route to completion. The
+terminal attempt-2 opaque outcome therefore stops the lifecycle at `blocked`.
+The earlier v0.15 identity remains historical provenance only.
