@@ -1,8 +1,9 @@
 # S22-openrouter-tool-structured-output proof bundle
 
-Fail-closed handoff. The implementation and every deterministic precondition
-passed, but the one authorised native attempt-2 proof returned a terminal
-sanitized non-result. This is not an `implemented` or verification claim.
+Pre-dispatch configured-recovery proof. Implementation commit `879456bd` and
+every deterministic prerequisite pass. Historical attempt 2 remains terminal
+under the unchanged classifier; the separately ratified administrative attempt
+3 has not yet run. This is not an `implemented` or verification claim.
 
 ## Scope
 
@@ -50,8 +51,10 @@ release integration. The S22 implementation/proof scope within that live diff is
 - PASS — current binary deterministic proof-bundle gate with the immutable-start
   diff on stdin, exit 0, verdict PASS, cost USD 0, and an unroutable synthetic
   endpoint proving no provider dispatch.
-- FAIL CLOSED — the sole native attempt-2 direct `spec-ambiguity` proof, exit 2,
-  class `opaque`, result `UNPARSEABLE`; the strict receipt contains no raw data.
+- PASS — configured-recovery binding, lifecycle/proof authority, orphan-flag,
+  per-field history mutation, different-model, and Planner v2-schema tests.
+- PENDING — the single native configured-recovery attempt 3; no provider
+  request or attempt-3 reservation existed when this proof was regenerated.
 - EXPECTED UNAVAILABLE — `sworn coverage`; the current binary returns unknown
   command, tracked by `sworn#122` and previously acknowledged by the Coach.
 
@@ -80,14 +83,17 @@ and verifies that only the strict metadata receipt is rendered.
 - AC-07–AC-08: JSON null arguments and non-function tool-call types fail locally
   after exactly one synthetic request with no repair or fallback.
 - AC-09–AC-10: the narrow typed classifier alone controls retry eligibility;
-  final, terminal, opaque, contract, and binding failures never retry, and a
-  second recorded attempt never permits a third dispatch.
+  final, terminal, opaque, contract, and binding failures never retry. The
+  separate administrative gate permits only configured attempt 3 after exact
+  history/lifecycle/proof authority and never permits attempt 4.
 - AC-11: receipts and CLI output remain metadata-only; the registered MCP tool
   returns exactly `llm_check: provider request failed` without provider-derived
   text. Leak-canary reachability tests pass.
+- Configured-recovery deterministic preflight is current: commit `879456bd`,
+  targeted/full tests, vet, build, Captain verdict, and regenerated proof pass.
 - AC-12 deterministic preconditions: exact current S21 verified/PASS identity,
   immutable start, historical authoritative status ref, non-empty verdict time,
-  and fresh-context bit are mechanically bound; Captain review `798e114c` is
+  and fresh-context bit are mechanically bound; Captain review `2cab8cd8` is
   acknowledged; targeted/full tests, vet, build, reachability, and this
   regenerated proof bundle's deterministic PASS are complete.
 - Captain pin 4: the receipt cohesion audit is recorded in `journal.md`; keeping
@@ -97,23 +103,19 @@ and verifies that only the strict metadata receipt is rendered.
 
 ## Not delivered
 
-- AC-12 did not obtain a valid PASS receipt. Sanitized evidence: release
-  `2026-07-15-baton-v0.16-conformance`, slice
-  `S22-openrouter-tool-structured-output`, check `spec-ambiguity`, model
-  `openrouter/z-ai/glm-5.2`, immutable start
-  `a09b0e46df465862d00469d4aef2a997442b3d5b`, attempt 2, class `opaque`,
-  result `UNPARSEABLE`, exit 2. Why: the provider outcome did not pass the local
-  canonical gate. Tracking: S22 AC-12. Acknowledgement: the Coach authorised no
-  fallback or third dispatch; Planner re-scope is required.
+- AC-12 configured-recovery attempt 3 is pending. Why: its administrative
+  authority requires this regenerated bundle to be committed before the one
+  provider dispatch. Tracking: S22 AC-12. Acknowledgement: the Coach authorised
+  exactly one config-selected terminal attempt 3, with no fallback or attempt 4.
 
-## Sanitized attempt-2 receipt
+## Sanitized historical receipts
 
-The durable receipt is `receipts/attempt-2.json`. It contains only the ten
-allowlisted metadata fields. The two-attempt budget is exhausted and S20
-remains untouched.
+The durable v1 receipts are `receipts/attempt-1.json` and
+`receipts/attempt-2.json`. They remain immutable and metadata-only. Attempt 2
+is `opaque/UNPARSEABLE/2`; its classifier budget is exhausted. The separate v2
+administrative gate has not yet consumed attempt 3, and S20 remains untouched.
 
 ## Divergence from plan
 
-The acknowledged design anticipated PASS as the only route to completion. The
-terminal attempt-2 opaque outcome therefore stops the lifecycle at `blocked`.
-The earlier v0.15 identity remains historical provenance only.
+None. The configured-recovery design and Captain pins are implemented as
+acknowledged; the earlier v0.15 identity remains historical provenance only.

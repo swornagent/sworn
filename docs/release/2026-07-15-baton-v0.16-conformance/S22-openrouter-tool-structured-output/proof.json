@@ -34,7 +34,7 @@
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/status.json"
   ],
   "test_results": [
-    {"command":"GOFLAGS=-buildvcs=false go test ./internal/gate ./internal/mcp ./internal/model ./cmd/sworn -run 'Test(ProofReceipt|LLMCheckProofReceipt|LintTools_LLMCheckProviderError)' -count=1","passed":true,"exit_code":0},
+    {"command":"GOFLAGS=-buildvcs=false go test ./internal/gate ./internal/mcp ./internal/model ./cmd/sworn -run 'Test(ProofReceipt|LLMCheckProofReceipt|LLMCheckConfiguredRecovery|LintTools_LLMCheckProviderError|OpenRouterStructured)' -count=1","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false go test ./...","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false go vet ./...","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false make build","passed":true,"exit_code":0},
@@ -47,19 +47,20 @@
     "evidence": "cmd/sworn/llmcheck_test.go:TestLLMCheckOpenRouterToolStructuredBinaryReachability builds and drives sworn llm-check through the direct OpenRouter forced-tool wire; TestLLMCheckProofReceiptBinaryReachability drives the exact native v0.16 proof-receipt integration point and asserts metadata-only output."
   },
   "delivered": [
+    {"item":"Configured-recovery deterministic preflight is current","evidence":"Commit 879456bd; targeted S22 tests, full go test ./..., go vet ./..., make build, Captain 2cab8cd8, and regenerated proof all pass before provider dispatch"},
     {"item":"AC-01 through AC-05 direct-only capability, exact forced-tool transport, reachability, malformed/canonical fail-closed behavior, and endpoint isolation","evidence":"All named test_refs in spec.json pass under go test ./..."},
     {"item":"AC-06 atomic reservation/finalization and post-rename double-fault distrust","evidence":"TestProofReceiptAtomicReservationAndFinalization; TestProofReceiptPostRenameSyncFailureNeverTrustsFinalVerdict; zero-dispatch preflight and binding tests"},
     {"item":"AC-07 and AC-08 reject JSON null arguments and non-function tool-call types after one request","evidence":"TestOpenRouterStructuredRejectsInvalidToolCall"},
     {"item":"AC-09 and AC-10 narrow typed retry policy and terminal failure behavior","evidence":"TestProofReceiptRetryClassification; TestProofReceiptFinalVerdictsNeverRetry; TestProofReceiptOpaqueAndContractFailuresDoNotRetry; command attempt-budget tests"},
     {"item":"AC-11 metadata-only receipt and stable sanitized MCP diagnostic","evidence":"Proof/CLI leak canaries and TestLintTools_LLMCheckProviderErrorSanitizedReachability plus LeakCanary"},
-    {"item":"AC-12 deterministic prerequisites and exact current S21 evidence binding","evidence":"TestLLMCheckProofReceiptPreflightRequiresFreshS21VerificationEvidence; Captain review 798e114c; full test, vet, build, reachability, and zero-cost deterministic proof-bundle PASS"},
+    {"item":"AC-12 deterministic prerequisites and exact current S21 evidence binding","evidence":"TestLLMCheckProofReceiptPreflightRequiresFreshS21VerificationEvidence; Captain review 2cab8cd8; full test, vet, build, reachability, and regenerated proof-bundle PASS"},
     {"item":"Captain pin 4 receipt-module cohesion audit","evidence":"S22 journal entry 2026-07-18T14:40:15+10:00"},
     {"item":"Captain pins 5 and 6 preserve classifier scope and proof-only GLM selection","evidence":"No classifier broadening and no model default, catalogue, proxy, or routing-policy change in the S22 diff"}
   ],
   "not_delivered": [
     {
-      "item": "AC-12 valid PASS receipt from the authorised native attempt-2 direct spec-ambiguity proof",
-      "why": "Attempt 2 finalized as sanitized class opaque, result UNPARSEABLE, exit 2. AC-09 and AC-10 make every attempt-2 non-final outcome terminal, so no retry, fallback, or third dispatch is authorised.",
+      "item": "AC-12 valid PASS receipt from the authorised native configured-recovery attempt 3",
+      "why": "Attempt 2 remains terminal under the unchanged classifier. The separately ratified configured-recovery-v2 administrative attempt is pending this committed regenerated proof authority; it will be invoked once with no fallback or attempt 4.",
       "tracking": "S22-openrouter-tool-structured-output AC-12",
       "acknowledged": true
     },
