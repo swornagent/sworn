@@ -20,6 +20,38 @@ description: 'Append-only implementation and verification history for bounded TU
     records in release-list focus and retains its existing order meaning in
     board focus.
 
+### 2026-07-18 16:34 +10:00 — spec-ambiguity remediation
+
+- **State**: `planned`
+- **Notes**:
+  - The fresh spec-ambiguity check returned PASS with two non-blocking clarity
+    findings.
+  - AC-02 now names the exact `loading older` footer state.
+  - AC-03 now identifies the existing monotonic `uint64` generation and the
+    positive requested catalog limit as the two-part stale-result identity.
+
+### 2026-07-18 16:35 +10:00 — board-order preservation clarified
+
+- **State**: `planned`
+- **Notes**:
+  - The first remediation recheck treated `o order` as an unspecified new
+    operation because the spec did not name its existing implementation path.
+  - The contract now states that board-state `o` remains the existing
+    `handleBoardKey` to `BoardView.ToggleSort` declaration/dependency-order
+    toggle, and cites its existing reachability test. No scope or behaviour was
+    added.
+
+### 2026-07-18 16:37 +10:00 — ambiguity gate passed
+
+- **State**: `planned`
+- **Notes**:
+  - The final permitted fresh spec-ambiguity pass returned `PASS`.
+  - Its sole remaining finding was low-severity and non-blocking: an implementer
+    may choose an explicit chrome-clipping priority for extremely small positive
+    heights. AC-04 already fixes the observable contract at those heights: the
+    frame stays bounded, dimensions stay non-negative, and rendering does not
+    panic.
+
 ## Open questions
 
 - None.

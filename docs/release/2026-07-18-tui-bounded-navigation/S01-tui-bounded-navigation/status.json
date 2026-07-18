@@ -13,7 +13,7 @@
   "state": "planned",
   "owner": "human",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-18T16:27:35+10:00",
+  "last_updated_at": "2026-07-18T16:37:21+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json",
   "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
