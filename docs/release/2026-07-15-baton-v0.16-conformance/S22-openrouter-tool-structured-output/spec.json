@@ -151,7 +151,7 @@
     {
       "id": "R-05",
       "description": "A generic or ambiguous failure consumes an unbounded retry budget or makes a failed proof look like a model verdict.",
-      "mitigation": "Recognize only enumerated typed/environmental classes, reserve attempts atomically before dispatch, bind receipts to the immutable proof identity, and stop after any attempt-2 non-final outcome without a third call."
+      "mitigation": "Recognize only enumerated typed/environmental classes, reserve attempts atomically before dispatch, bind receipts to the immutable proof identity, and keep every attempt-2 non-final outcome terminal for the unchanged retry classifier. The separately ratified configured-recovery-v2 administrative gate may authorize exactly attempt 3 only after AC-09 and AC-12's historical-binding, Captain-review, and deterministic/proof prerequisites pass; it does not reclassify attempt 2 as retryable. Every attempt-3 outcome is terminal, and no attempt 4 or fallback is permitted."
     },
     {
       "id": "R-06",
