@@ -144,29 +144,16 @@ func topoSortTracks(tracks []TrackInfo) []TrackInfo {
 
 // LoadBoardFromCatalog hydrates the board from a catalog snapshot.
 func (b *BoardView) LoadBoardFromCatalog(repoRoot string, rec board.CatalogRecord) error {
-	if rec.Board == nil {
-		return fmt.Errorf("no board snapshot for release %q", rec.Release)
+	refreshed, err := boardViewFromCatalog(rec)
+	if err != nil {
+		return err
 	}
+	*b = *refreshed
 
-	b.ReleaseName = rec.Release
-	b.SourceRef = rec.SourceRef
-	b.Tracks = nil
-	b.Slices = nil
-	b.Loaded = false
-	b.Loading = false
-
-	b.Tracks = catalogTracksToTrackInfos(rec.Board.Tracks, rec.TrackDependsOn)
-	b.Slices = map[string]SliceBoardInfo{}
-	for _, track := range rec.Board.Tracks {
-		for _, ss := range track.Slices {
-			b.Slices[ss.ID] = sliceBoardInfoFromCatalog(ss)
-		}
-	}
-	b.rebuildOrderedSlices()
-
-	b.GateResults = nil
-	b.GatesLoaded = false
-	b.GatesLoading = false
+	// Startup board loading may decorate the catalog snapshot with live merge
+	// presentation. Background catalog refresh deliberately does not use this
+	// method: it calls boardViewFromCatalog and preserves the prior decoration,
+	// avoiding a second status epoch in the refresh transaction.
 	b.MergeActive = map[string]bool{}
 	for _, mergeTrackID := range ActiveMerges(repoRoot, rec.Release) {
 		trackID := strings.TrimPrefix(mergeTrackID, "merge:")
@@ -174,9 +161,33 @@ func (b *BoardView) LoadBoardFromCatalog(repoRoot string, rec board.CatalogRecor
 			b.MergeActive[trackID] = true
 		}
 	}
-
-	b.Loaded = true
 	return nil
+}
+
+// boardViewFromCatalog performs pure board hydration from one accepted catalog
+// record. It must remain free of discovery, database, and filesystem status
+// reads so a background refresh cannot combine two snapshot epochs.
+func boardViewFromCatalog(rec board.CatalogRecord) (*BoardView, error) {
+	if rec.Board == nil {
+		return nil, fmt.Errorf("no board snapshot for release %q", rec.Release)
+	}
+
+	b := &BoardView{
+		ReleaseName: rec.Release,
+		SourceRef:   rec.SourceRef,
+		Tracks:      catalogTracksToTrackInfos(rec.Board.Tracks, rec.TrackDependsOn),
+		Slices:      map[string]SliceBoardInfo{},
+		MergeActive: map[string]bool{},
+		GateResults: map[string]GateResult{},
+		Loaded:      true,
+	}
+	for _, track := range rec.Board.Tracks {
+		for _, ss := range track.Slices {
+			b.Slices[ss.ID] = sliceBoardInfoFromCatalog(ss)
+		}
+	}
+	b.rebuildOrderedSlices()
+	return b, nil
 }
 
 // LoadBoard preserves the existing public signature but resolves the target board

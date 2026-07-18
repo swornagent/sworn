@@ -1,0 +1,6 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "version": 1,
+  "release": "2026-07-18-tui-bounded-navigation",
+  "contracts": []
+}

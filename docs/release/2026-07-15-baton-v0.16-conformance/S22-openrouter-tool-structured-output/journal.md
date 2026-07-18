@@ -416,3 +416,33 @@ this is not a fresh verifier verdict.
   review. Tracking: S22 AC-12 and the next `/implement-slice` design cycle.
   Acknowledgement: Brad explicitly invoked this replan after requesting the
   configured-values recovery and accepted the fresh-review boundary.
+
+## 2026-07-18T20:32:22+10:00 — R-05 classifier/recovery contradiction corrected
+
+- Reconciled the post-base-sync board projection from live refs: S22 is
+  `failed_verification` with `verification.result: pending` on in-progress
+  T1; S20 remains independently `blocked`; the other four tracks remain
+  planned. All T1 specs have zero release-vs-track drift.
+- Seeded and validated every started T1 lifecycle record from authoritative
+  owner ref
+  `track/2026-07-15-baton-v0.16-conformance/T1-foundation`. Exact status blobs:
+  S01 `db5ecd03c0488e510e0289dcd0335499a7e5fb78`, S02
+  `bc335a082ca08e1b02333901b2f51d5612b7c570`, S19
+  `46ebadb92c46d1767f42b3e4d48f377ab49fff88`, S04
+  `b22b0d7c4b4c5c0853e014fa1988411485fdb3a7`, S21
+  `4788a66e5b4329e4c21d604236065d64c71b3ed4`, S22
+  `5bca502d3aa28bddf79eddcf68eec1d6242fb91b`, and S20
+  `0824242421c09f456197117ad062c808ca1c25c3`. Each release copy already
+  matched its owner blob, so no lifecycle field or maintainability object was
+  changed.
+- Diagnosed the new planner blocker: R-05 still prohibited any third call even
+  though A-23 and AC-06/09/10/12 authorize exactly one separately governed
+  configured-recovery-v2 attempt 3. That wording made the live spec internally
+  contradictory and prevented a valid fresh design.
+- Corrected only R-05's mitigation. Attempt 2 remains terminal and
+  non-retryable under the unchanged classifier; the administrative gate may
+  authorize exactly terminal attempt 3 after the AC-09/AC-12 prerequisites
+  without reclassifying attempt 2. Attempt 4 and fallback remain prohibited.
+- Release topology, touchpoints, dependencies, status, historical receipts,
+  implementation, and provider/model policy are unchanged. Fresh Implementer
+  design and Captain review remain required before source or provider action.
