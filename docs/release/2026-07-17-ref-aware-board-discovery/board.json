@@ -5,7 +5,7 @@
     "target_version": "v0.2.0",
     "integration_branch": "release/v0.2.0",
     "vertical_trace": {
-      "benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board and see whether each farthest advanced slice state is committed or only present in the active working tree."
+      "benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board, monitor in-flight changes without restarting the TUI, and see whether each farthest advanced slice state is committed or only present in the active working tree."
     }
   },
   "tracks": [
@@ -16,6 +16,15 @@
         "S02-tui-ref-aware-release-navigation"
       ],
       "depends_on": []
+    },
+    {
+      "id": "T2-tui-live-refresh",
+      "slices": [
+        "S03-tui-live-board-refresh"
+      ],
+      "depends_on": [
+        "T1-ref-aware-board"
+      ]
     }
   ]
 }

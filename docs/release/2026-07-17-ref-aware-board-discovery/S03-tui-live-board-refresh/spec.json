@@ -1,0 +1,100 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-tui-live-board-refresh",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "track": "T2-tui-live-refresh",
+  "user_outcome": "A SwornAgent operator can keep the TUI open while releases are in flight and see the releases pane and selected board advance to the newest completed shared-catalog snapshot without restarting, losing their selected release, or showing a mixture of old and new catalog state.",
+  "rationale": "S02 made startup discovery and board opening consume one authoritative catalog snapshot, but the root TUI loads that snapshot exactly once. That process-lifetime immutability defeats the operational monitoring journey. This hotfix preserves snapshot immutability per refresh transaction while adding a serial asynchronous refresh lifecycle around the existing board.DiscoverCatalog authority.",
+  "touchpoints": [
+    "internal/tui/tui.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui_test.go"
+  ],
+  "in_scope": [
+    "Start an automatic catalog-refresh chain after the synchronously loaded startup snapshot. Discovery must execute in a Bubble Tea command, never in Model.Update or View, and the next scheduled refresh must be armed only after the current discovery result has been handled so two board.DiscoverCatalog calls cannot overlap.",
+    "Carry a monotonically comparable refresh generation through every scheduled command and result. Model.Update must ignore any result older than the newest accepted or requested generation, including a result delivered after navigation or another refresh result.",
+    "Build each refresh result as one complete immutable catalog-derived releases value. On success, atomically replace the releases pane from that value; do not mutate the visible list record-by-record or independently reload slice state.",
+    "Preserve the operator's release selection by release ID across reorder, insertion, and deletion. If the selected ID remains present, its new index becomes the cursor. If it disappears, clamp to the nearest valid index. An empty successful catalog uses the established no-releases error semantics without panicking.",
+    "When a board has a selected release and the successful snapshot still contains that release, replace BoardView from the exact same new CatalogRecord in the same Update transition, preserving the board slice cursor by slice ID where possible and clamping it otherwise. This refresh path must not call a second catalog/status resolver. When the release no longer exists, clear the obsolete selected board deterministically and return to the releases view when necessary.",
+    "On a background discovery failure, retain the complete last good releases and board snapshot, expose the deterministic error through the existing root error rendering, and continue the refresh chain. A later successful refresh clears that refresh error and replaces the stale snapshot.",
+    "Keep refresh scheduling active while the operator navigates among releases, board, live, log, blocked, and settings views. Existing live-view and log-view tick messages and their no-tick-doubling guarantees remain independent; catalog refresh messages must use distinct types and scheduling state.",
+    "Add deterministic tests using injected refresh commands or catalog results rather than wall-clock sleeps. Tests must prove startup-to-refresh reachability, automatic re-arming, non-overlap, atomic list/board agreement, selection preservation, stale-generation rejection, last-good retention on error, recovery after error, and coexistence with live/log tick chains."
+  ],
+  "out_of_scope": [
+    "Changing board.DiscoverCatalog topology ranking, state-evidence election, provenance, Git source bounds, or CLI output is out of scope; S03 consumes the S01 authority unchanged.",
+    "Fetching remote refs, scanning Git history or sibling worktrees, adding filesystem watchers, push notifications, or a daemon is out of scope.",
+    "A new user-visible keyboard binding, settings control, TUI layout redesign, or configurable polling interval is out of scope for this hotfix.",
+    "Refreshing gates, SQLite live/log data, or rerunning any non-catalog status authority as part of catalog refresh is out of scope."
+  ],
+  "covers_needs": [
+    "N-03",
+    "N-04",
+    "N-06"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The production surface is four TUI files, but asynchronous scheduling, snapshot atomicity, navigation preservation, error recovery, and coexistence with two existing tick chains create a subtle state-machine change."
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A slow all-ref discovery overlaps the next poll and creates unbounded Git work or allows older state to win.",
+      "mitigation": "Re-arm only after handling a result, track one in-flight generation, and reject stale generations."
+    },
+    {
+      "id": "R-02",
+      "description": "The list refreshes but the selected board retains an older catalog record, recreating the CLI/TUI disagreement as a mixed TUI snapshot.",
+      "mitigation": "Derive both values from one completed catalog and replace them in one Model.Update transition, with direct parity assertions."
+    },
+    {
+      "id": "R-03",
+      "description": "Refreshing reorders releases or slices and moves the operator to a different item without warning.",
+      "mitigation": "Capture selected IDs before replacement, restore their new indices, and use deterministic clamping only when an ID disappears."
+    },
+    {
+      "id": "R-04",
+      "description": "A transient Git/catalog error destroys the usable monitoring view or permanently stops future refreshes.",
+      "mitigation": "Retain the last good snapshot, render the error, re-arm the chain, and clear the refresh error after a successful result."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the TUI has started with a catalog in which release `alpha` contains only `S01-old`, AND a later asynchronous refresh completes with one catalog snapshot in which `alpha` contains `S01-old` plus `S02-new`, THE SYSTEM SHALL replace the releases aggregate and the selected `alpha` BoardView from that same completed snapshot in one Model.Update transition, render `S02-new` without a restart or second resolver call, and return exactly one command that schedules the next refresh only after that result is handled (N-03, N-06).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard",
+        "internal/tui/tui_test.go:TestCatalogRefreshRearmsOnlyAfterCompletion"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHILE one catalog discovery generation is in flight, THE SYSTEM SHALL NOT start another discovery. WHEN a result from a generation older than the newest accepted or requested generation is delivered, THE SYSTEM SHALL leave the releases list, selected board, cursors, and visible error unchanged. Catalog refresh messages SHALL remain distinct from `tickMsg` and `logTickMsg`, and forwarding either existing tick through Model.Update SHALL retain its established single-chain behaviour (N-04, N-06).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestCatalogRefreshNeverOverlapsAndRejectsStaleGeneration",
+        "internal/tui/tui_test.go:TestCatalogRefreshCoexistsWithLiveAndLogTicks"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a successful refresh inserts or reorders releases and the previously selected release ID still exists, THE SYSTEM SHALL move the releases cursor to that ID's new index and preserve the selected board release. WHEN the selected board's current slice ID still exists, THE SYSTEM SHALL restore the board cursor to that slice's new index. WHEN either selected ID disappears, THE SYSTEM SHALL clamp the corresponding cursor to a valid deterministic index, and removal of the selected release SHALL clear the obsolete board and return a board-visible operator to the releases view without panic (N-06).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestCatalogRefreshPreservesSelectionByIdentity",
+        "internal/tui/tui_test.go:TestCatalogRefreshHandlesRemovedSelection"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF a background catalog discovery returns an error after at least one good snapshot, THEN THE SYSTEM SHALL retain that complete last good releases list and selected board, render the error through the existing `Error: ` path, and schedule a later refresh. WHEN that later refresh succeeds, THE SYSTEM SHALL atomically install its snapshot and clear the refresh error. `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn`, `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...`, and `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...` SHALL exit 0, and `test -z \"$(/usr/local/go/bin/gofmt -l .)\"` SHALL exit 0 (N-03, N-04, N-06).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestCatalogRefreshErrorRetainsLastGoodAndRecovers"
+      ]
+    }
+  ]
+}

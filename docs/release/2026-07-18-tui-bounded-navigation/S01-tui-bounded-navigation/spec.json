@@ -1,0 +1,132 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-tui-bounded-navigation",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "track": "T1-tui-bounded-navigation",
+  "user_outcome": "A SwornAgent operator can launch the TUI in a project with many releases, load only the recent catalog depth they need, scroll the release and slice panes inside the current terminal height, resize without losing selection, and move between panes with Right/Left or Enter/Esc.",
+  "rationale": "The merged ref-aware TUI owns one authoritative catalog snapshot but still discovers every release synchronously and renders every release and slice row. The same root model already stores terminal height and owns the release/board focus state, so one bounded slice can add a board-owned growing catalog window, two independent visible row windows, and spatial key aliases without introducing another state authority or dependency.",
+  "touchpoints": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/tui.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui_test.go"
+  ],
+  "in_scope": [
+    "Add a board-owned bounded catalog API that accepts a positive newest-release limit and returns a value containing `Records []CatalogRecord` plus `HasOlder bool`. The initial TUI limit is exactly 10 and each older-release request grows the limit by exactly 10.",
+    "Select the newest limit release IDs by the existing bytewise release-name order, return the selected records in the existing ascending catalog order, and read, parse, and elect topology/status objects only for release IDs inside that requested window. Ref/path enumeration may remain project-wide so the window can be chosen deterministically.",
+    "Keep `board.DiscoverCatalog` as the complete, unbounded CLI/automation contract and implement bounded and unbounded discovery through one ranking/election core. Canonical topology skew remains fail closed when its release is inside the requested window; an older excluded release is not parsed until a later larger window or an unbounded caller requests it.",
+    "Make `newRootModel` prime exactly the 10 newest releases through the bounded board API rather than through complete `DiscoverCatalog`. The list must expose whether older releases exist and render one stable footer state: `o older`, `loading older`, or `all releases loaded`.",
+    "Handle lowercase `o` in `viewReleases` as an asynchronous request for ten additional releases. A request must not block `Model.Update`, overlap the existing catalog discovery, or allow a completed smaller-depth result to replace a newer requested depth. If a request arrives while discovery is in flight, retain the larger desired depth and run it after the current transaction completes.",
+    "Carry the current requested depth through the existing serial five-second refresh chain. A successful result atomically replaces the release list and selected board from one bounded snapshot while preserving release and slice selection by ID when still present; a failure retains the last good snapshot and larger requested depth, renders the existing root error, and remains retryable.",
+    "Give `ReleasesList` a render height and a cursor-relative visible row window. Its title and bounded-loading footer remain visible when height permits, only rows that fit are rendered, Up/Down can reach every loaded record, and the selected release is always inside the visible window.",
+    "Give `BoardView` a render height and a cursor-relative visible body window over track headers and slice rows. Its board title remains visible when height permits, Up/Down can reach every ordered slice, and the selected slice is always inside the visible window without changing declaration/dependency ordering or gate/durability rendering.",
+    "For every positive `tea.WindowSizeMsg.Height`, allocate pane height from the actual rendered header, help, root-error, separator, border, and padding rows; pass the same non-negative content height to both panes; and guarantee `lipgloss.Height(Model.View())` never exceeds the reported terminal height. Height zero retains the established legacy test fallback, and tiny positive heights degrade without panic or negative style dimensions.",
+    "Recompute both visible windows after every resize without changing the selected release ID, selected slice ID, requested catalog depth, or focus state. Shrinking keeps the selected row visible; growing reveals more surrounding rows.",
+    "Handle Right in `viewReleases` through the existing asynchronous selected-release open path used by Enter, and handle Left in `viewBoard` through the existing return path used by Esc. Preserve Enter/Esc and all existing live-view transitions. Visibly distinguish the active pane with an accent border and render state-specific help: `right/enter board` plus `o older` for releases, and `left/esc releases` plus `o order` for the board. In board focus, `o order` continues to invoke the existing `handleBoardKey` to `BoardView.ToggleSort` declaration/dependency-order toggle; it is not a new ordering action.",
+    "Add deterministic tests with real temporary Git repositories and root `Model.Update`/`Model.View` journeys. Do not use wall-clock sleeps, network access, token spend, or a new runtime dependency."
+  ],
+  "out_of_scope": [
+    "Changing the complete aggregate or named `sworn board` CLI JSON/text shape is out of scope; those callers continue to receive the unbounded catalog.",
+    "Changing source-ref ranking, high-water state evidence, durability markers, the existing `BoardView.ToggleSort` declaration/dependency ordering semantics, gate computation, or catalog refresh interval is out of scope; board-state `o` and its `o order` help label continue to describe that existing toggle.",
+    "Mouse, click, wheel, touch, fuzzy search, release deletion, and a configurable page size are out of scope.",
+    "A palette, typography, width-ratio, live/log/blocked/settings interaction redesign, or a new full-screen navigation hierarchy is out of scope. The root may clip alternate views to its positive terminal height, but new scrolling semantics are required only for the release and board panes named by issue #125."
+  ],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04",
+    "N-05"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "The change is bounded to eight files and one operator journey, but catalog work selection, an existing asynchronous refresh chain, ANSI-aware height accounting, and two cursor-to-render windows create subtle correctness edges.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A TUI-only slice after complete discovery would shorten the visible list without reducing startup work.",
+      "mitigation": "Choose the release-name window before topology/status object reads and prove an excluded malformed older release is not parsed until depth expands."
+    },
+    {
+      "id": "R-02",
+      "description": "An older ten-release refresh can complete after the operator requests twenty and erase older rows or selection.",
+      "mitigation": "Bind every discovery result to both generation and requested depth, retain the largest desired depth, and reject or immediately supersede obsolete smaller results without overlap."
+    },
+    {
+      "id": "R-03",
+      "description": "Hardcoded row deductions or ANSI byte counts can still make the final frame exceed the terminal when help or errors add rows.",
+      "mitigation": "Use Lip Gloss rendered-height measurements at the root, clamp every derived dimension, and assert full-frame height across normal, help, error, resize, and tiny-height cases."
+    },
+    {
+      "id": "R-04",
+      "description": "Cropping board slices without accounting for track headers can hide the selected slice or misalign cursor order and visual order.",
+      "mitigation": "Build one display-line model from `displayTracks`, map every ordered slice cursor to its rendered line, and test navigation across track boundaries in both sort modes."
+    },
+    {
+      "id": "R-05",
+      "description": "Adding arrows through a separate handler can drift from Enter/Esc loading, stale-result, or live-transition behaviour.",
+      "mitigation": "Route each alias through one shared state transition and prove both key pairs preserve cursors and return equivalent commands/state."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN a repository exposes 25 valid releases with bytewise-ordered IDs and the bounded catalog API is called with limit 10, THE SYSTEM SHALL return only the newest 10 records in the existing ascending output order with `HasOlder == true`, and SHALL read/parse/elect board and status objects only for releases inside that window. WHEN the same API is called with limit 20, THE SYSTEM SHALL return the newest 20; WHEN complete `DiscoverCatalog` is called, THE SYSTEM SHALL retain all 25 and the existing aggregate CLI tests SHALL pass unchanged. IF a canonical board inside the requested window is malformed, THEN discovery SHALL fail closed; a malformed canonical board outside the window SHALL first be surfaced when a larger or unbounded request includes it (N-01).",
+      "ears_pattern": "complex",
+      "test_refs": [
+        "internal/board/discovery_test.go:TestDiscoverCatalogWindowBoundsMaterializedReleases",
+        "internal/board/discovery_test.go:TestDiscoverCatalogWindowDefersExcludedCanonicalValidation",
+        "cmd/sworn/board_test.go existing aggregate and named board integration tests"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the root TUI starts in a repository with at least 25 valid releases, THE SYSTEM SHALL synchronously prime exactly the 10 newest releases and render `o older`. WHEN the operator presses lowercase `o`, THE SYSTEM SHALL return without inline discovery, request a 20-record window, render the exact footer state `loading older`, and atomically install the result while preserving the selected release ID when present. WHEN no older record remains, `o` SHALL dispatch no discovery and the footer SHALL render `all releases loaded` (N-01, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestNewRootModelPrimesTenRecentReleases",
+        "internal/tui/tui_test.go:TestReleaseListLoadsTenOlderAsynchronously",
+        "internal/tui/tui_test.go:TestReleaseListNoOlderRequestIsNoOp"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHILE catalog discovery is in flight, WHEN the operator requests a larger depth or a five-second refresh becomes due, THE SYSTEM SHALL run at most one discovery, retain the largest requested depth, and bind every request/result to the existing monotonically increasing `uint64` refresh generation plus the positive requested catalog limit; a result whose generation is not current or whose limit is smaller than the retained desired limit SHALL NOT replace visible state. WHEN the current transaction completes, THE SYSTEM SHALL immediately service a pending larger depth before re-arming the normal serial refresh. IF bounded discovery fails, THEN the last good releases and board snapshot, selected IDs, and requested depth SHALL remain unchanged, the existing root error SHALL be visible, and a later successful retry at that depth SHALL recover atomically (N-01, N-04).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestCatalogDepthGrowthNeverOverlapsRefresh",
+        "internal/tui/tui_test.go:TestCatalogRejectsObsoleteSmallerDepth",
+        "internal/tui/tui_test.go:TestCatalogDepthErrorRetainsLastGoodAndRetries"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a root model containing more releases and board slices than fit receives any positive terminal height, THE SYSTEM SHALL render a complete frame whose Lip Gloss height is no greater than that terminal height, keep the release and board titles plus the focused selected row visible when the height can contain them, and render only the cursor-relative rows available to each pane. WHEN repeated Up/Down gestures move beyond either initial visible window or cross a board track boundary, THE SYSTEM SHALL make every loaded release and every ordered slice reachable without changing logical order. WHEN the terminal shrinks and grows, THE SYSTEM SHALL preserve selected release/slice IDs, requested depth, and focus while recomputing both windows; tiny positive heights SHALL not panic or derive negative dimensions (N-02, N-03, N-04).",
+      "ears_pattern": "complex",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestTwoPaneRenderNeverExceedsTerminalHeight",
+        "internal/tui/tui_test.go:TestReleaseAndBoardScrollWindowsKeepCursorVisible",
+        "internal/tui/tui_test.go:TestResizeReflowsWindowsWithoutSelectionLoss",
+        "internal/tui/tui_test.go:TestTinyTerminalHeightDegradesWithoutPanic"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the release list is focused and the operator presses Right, THE SYSTEM SHALL use the same asynchronous selected-release open transition as Enter; WHEN the board is focused and the operator presses Left, THE SYSTEM SHALL use the same cursor-preserving return transition as Esc. The active pane SHALL have the accent border, the inactive pane SHALL retain the neutral border, and state-specific help SHALL name `right/enter board` plus `o older` or `left/esc releases` plus `o order`, where board-state `o` continues to invoke the existing `BoardView.ToggleSort` declaration/dependency-order toggle and introduces no new ordering operation. Existing Enter/Esc, board loading staleness, live transition, gate, durability, width, order-toggle, and refresh tests SHALL remain green. `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn`, `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...`, and `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...` SHALL exit 0, and `test -z \"$(/usr/local/go/bin/gofmt -l .)\"` SHALL exit 0 (N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestRootModelArrowPaneNavigationMatchesEnterEscape",
+        "internal/tui/tui_test.go:TestFocusedPaneBorderAndHelpFollowNavigation",
+        "internal/tui/tui_test.go:TestBoardOKeyTogglesSort"
+      ]
+    }
+  ]
+}
