@@ -48,3 +48,25 @@
   from `in_progress` to `implemented`. No semantic file changed after the PASS.
 - Verification remains pending. The fresh verifier owns the authoritative
   maintainability report and final slice verdict.
+
+## Verifier verdicts received
+
+### 2026-07-18 - BLOCKED
+
+BLOCKED
+
+Slice: `S01-owner-ref-status-projection`
+
+Reason: AC-04 requires `go test ./...` to pass, but the ratified committed-only
+`DiscoverCatalog` behaviour breaks the existing TUI live-worktree-state
+invariant while TUI changes are explicitly out of scope and absent from the
+planned touchpoints.
+
+Proposed spec.json amendment: Add `internal/tui/board.go`,
+`internal/tui/releases.go`, and `internal/tui/tui_test.go` to touchpoints;
+replace the broad committed-only `DiscoverCatalog` requirement with an explicit
+committed-status projection mode used by aggregate and named `sworn board`
+commands while preserving the TUI live-worktree overlay; add an acceptance
+criterion requiring
+`TestBoardViewLiveWorktreeStateNotMaskedByLastCommit` and the compiled CLI
+owner-ref fixture to pass together.
