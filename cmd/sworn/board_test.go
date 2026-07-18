@@ -279,6 +279,92 @@ func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
 	}
 }
 
+func TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink(t *testing.T) {
+	const (
+		release = "canonical-docs-release"
+		track   = "T1-owner"
+		slice   = "S01-recovery"
+	)
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, repoDir, "config", "user.name", "sworn test")
+
+	canonicalDocs := filepath.Join(repoDir, "apps", "docs", "content", "docs")
+	releaseDir := filepath.Join(canonicalDocs, "release", release)
+	mustMkdir(t, filepath.Join(releaseDir, slice))
+	if err := os.Symlink("apps/docs/content/docs", filepath.Join(repoDir, "docs")); err != nil {
+		t.Fatalf("symlink logical docs: %v", err)
+	}
+	mustWrite(t, filepath.Join(releaseDir, "board.json"), `{"$schema":"board-v1","release":{"name":"`+release+`"},"tracks":[{"id":"`+track+`","slices":["`+slice+`"]}]}`)
+	mustWrite(t, filepath.Join(releaseDir, slice, "status.json"), `{"slice_id":"`+slice+`","release":"`+release+`","track":"`+track+`","state":"implemented","last_updated_at":"2026-07-18T00:00:00Z","verification":{"result":"pending"}}`)
+	runGit(t, repoDir, "add", "docs", "apps")
+	runGit(t, repoDir, "commit", "-m", "add canonical release topology")
+	runGit(t, repoDir, "branch", "release-wt/"+release)
+
+	// The owner track records the authoritative blocked verifier result.
+	runGit(t, repoDir, "checkout", "-b", "track/"+release+"/"+track, "release-wt/"+release)
+	mustWrite(t, filepath.Join(releaseDir, slice, "status.json"), `{"slice_id":"`+slice+`","release":"`+release+`","track":"`+track+`","state":"implemented","last_updated_at":"2026-07-18T01:00:00Z","verification":{"result":"blocked","violations":["protocol history invalid"],"routing":"needs_planner"}}`)
+	runGit(t, repoDir, "add", "apps")
+	runGit(t, repoDir, "commit", "-m", "record owner verifier verdict")
+
+	// A non-owner branch carries a farther ghost copy and must never win.
+	runGit(t, repoDir, "checkout", "-b", "track/"+release+"/T2-ghost", "release-wt/"+release)
+	mustWrite(t, filepath.Join(releaseDir, slice, "status.json"), `{"slice_id":"`+slice+`","release":"`+release+`","track":"`+track+`","state":"shipped","last_updated_at":"2026-07-18T02:00:00Z","verification":{"result":"pending"}}`)
+	runGit(t, repoDir, "add", "apps")
+	runGit(t, repoDir, "commit", "-m", "add ghost status copy")
+	runGit(t, repoDir, "checkout", "main")
+
+	// Dirty canonical bytes reachable through the logical symlink are launch
+	// worktree state, not board authority.
+	mustWrite(t, filepath.Join(releaseDir, slice, "status.json"), `{"slice_id":"`+slice+`","release":"`+release+`","track":"`+track+`","state":"shipped","last_updated_at":"2026-07-18T03:00:00Z","verification":{"result":"pending"}}`)
+
+	bin := buildSwornBinary(t)
+	type projected struct {
+		SourceRef string `json:"sourceRef"`
+		Tracks    []struct {
+			Slices []struct {
+				State, StateSource, StateDurability string
+				Blocked                             bool
+				BlockedReason                       string `json:"blocked_reason"`
+			}
+		} `json:"tracks"`
+	}
+	assertProjection := func(t *testing.T, got projected) {
+		t.Helper()
+		if got.SourceRef != "refs/heads/release-wt/"+release {
+			t.Fatalf("sourceRef=%q", got.SourceRef)
+		}
+		s := got.Tracks[0].Slices[0]
+		wantOwnerRef := "refs/heads/track/" + release + "/" + track
+		if s.State != "implemented" || !s.Blocked || s.BlockedReason != "protocol history invalid" || s.StateSource != wantOwnerRef || s.StateDurability != "committed" {
+			t.Fatalf("owner projection=%+v, want blocked state from %s", s, wantOwnerRef)
+		}
+	}
+
+	aggregate, stderr, code := runBoard(t, bin, repoDir, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("aggregate exit=%d stderr=%q stdout=%s", code, stderr, aggregate)
+	}
+	var catalog struct {
+		Releases map[string]projected `json:"releases"`
+	}
+	if err := json.Unmarshal([]byte(aggregate), &catalog); err != nil {
+		t.Fatalf("parse aggregate: %v\n%s", err, aggregate)
+	}
+	assertProjection(t, catalog.Releases[release])
+
+	named, stderr, code := runBoard(t, bin, repoDir, "--release", release, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("named exit=%d stderr=%q stdout=%s", code, stderr, named)
+	}
+	var single projected
+	if err := json.Unmarshal([]byte(named), &single); err != nil {
+		t.Fatalf("parse named: %v\n%s", err, named)
+	}
+	assertProjection(t, single)
+}
+
 func TestBoardCLIAllRefsCatalogSourceRef(t *testing.T) {
 	const release = "ranked-release"
 	repoDir := t.TempDir()
