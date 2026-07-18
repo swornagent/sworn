@@ -9,10 +9,10 @@
     "N-13",
     "N-14"
   ],
-  "state": "in_progress",
-  "owner": "implementer",
+  "state": "blocked",
+  "owner": "planner",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-18T07:06:24+10:00",
+  "last_updated_at": "2026-07-18T14:49:34+10:00",
   "upstream_gate": {
     "slice_id": "S21-openai-structured-envelope",
     "required_state": "verified",
@@ -34,6 +34,8 @@
     "internal/gate/llmcheck_receipt.go",
     "internal/gate/llmcheck_receipt_test.go",
     "internal/gate/llmcheck_test.go",
+    "internal/mcp/lint.go",
+    "internal/mcp/lint_test.go",
     "internal/model/config.go",
     "internal/model/errors.go",
     "internal/model/errors_test.go",
@@ -46,16 +48,25 @@
     "internal/model/structured_test.go"
   ],
   "actual_files": [
+    "cmd/sworn/llmcheck.go",
     "cmd/sworn/llmcheck_test.go",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/journal.md",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.md",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-1.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-2.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/spec.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/status.json",
     "docs/release/2026-07-15-baton-v0.16-conformance/index.md",
     "docs/release/2026-07-15-baton-v0.16-conformance/intake.md",
     "internal/gate/llmcheck_test.go",
+    "internal/gate/llmcheck_receipt.go",
+    "internal/gate/llmcheck_receipt_test.go",
+    "internal/mcp/lint.go",
+    "internal/mcp/lint_test.go",
     "internal/model/config.go",
+    "internal/model/errors.go",
+    "internal/model/errors_test.go",
     "internal/model/llmcheck_envelope.go",
     "internal/model/llmcheck_envelope_test.go",
     "internal/model/oai.go",
@@ -74,7 +85,7 @@
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint and asserts the metadata-only receipt, canonical verdict/exit behavior, and no raw output.",
-    "No credentialed provider reachability artifact exists in this Planner replan. The historical receipt at receipts/attempt-1.json records only the ratified non-secret failure class and cannot authorize S20."
+    "receipts/attempt-2.json is the sole credentialed provider reachability artifact: exact v0.16/S22/spec-ambiguity/GLM/start binding, attempt 2, opaque, UNPARSEABLE, exit 2. It is terminal and cannot authorize S20."
   ],
   "maintainability": {
     "state": "pending",
@@ -90,15 +101,22 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "The material re-scope adds a public native proof mode, atomic metadata durability, narrow error classification, confidentiality controls, exact retry bounds, and a fresh review gate while preserving the direct-only transport boundary.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": [],
-    "notes": "The former blocked evidence is retained as the historical attempt-1 receipt_failure in receipts/attempt-1.json. This material re-scope moves only S22 to design_review; it is not a PASS, implementation, or verifier verdict. Fresh Captain design review and acknowledgement are mandatory before source work, and a fresh S22 verifier PASS remains required before S20 can resume."
+    "violations": [
+      {
+        "gate": "AC-12 native proof receipt",
+        "description": "The sole authorised attempt 2 produced no locally valid PASS and exhausted the two-attempt budget.",
+        "evidence": "receipts/attempt-2.json: attempt 2, class opaque, result UNPARSEABLE, process exit code 2",
+        "proposed_amendment": "Planner must explicitly re-scope or close S22; no retry, fallback, third dispatch, verifier run, or S20 activity is authorised."
+      }
+    ],
+    "notes": "This is an Implementer fail-closed handoff, not a fresh verifier verdict. Deterministic implementation evidence passed, but AC-12 did not. Attempt 1 receipt_failure and terminal attempt 2 opaque/UNPARSEABLE are preserved as strict metadata-only receipts; S20 remains blocked."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the selected direct OpenRouter proof produce a durable, bounded, sanitized receipt without weakening the canonical gate, proxy isolation, raw-data protections, or S20's independent verification gate.",
@@ -166,21 +184,19 @@
       "process_exit_code": "unavailable",
       "raw_output_policy": "destroyed; do not seek, reproduce, or retain it"
     },
-    "next_attempt": {
+    "terminal_attempt": {
       "ordinal": 2,
-      "may_dispatch_only_after": [
-        "native receipt implementation and deterministic receipt/error/leak coverage",
-        "full S22 suite, go vet, and build",
-        "regenerated S22 proof bundle",
-        "fresh Captain design review PROCEED and acknowledgement"
-      ],
       "binding": {
         "release": "2026-07-15-baton-v0.16-conformance",
         "slice_id": "S22-openrouter-tool-structured-output",
         "check_type": "spec-ambiguity",
         "model_id": "openrouter/z-ai/glm-5.2",
         "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b"
-      }
+      },
+      "attempt_class": "opaque",
+      "result": "UNPARSEABLE",
+      "process_exit_code": 2,
+      "retry_authority": "none; attempt 2 is terminal"
     },
     "receipt_allowlist": [
       "schema/version",
@@ -226,8 +242,8 @@
     ],
     "captain_review": {
       "required": true,
-      "prior_review": "superseded by this material re-scope",
-      "state": "awaiting_fresh_review"
+      "prior_review": "798e114c reviewed design commit 19d2ab1b",
+      "state": "proceed_acknowledged"
     }
   },
   "preserved_t1_implementation": {

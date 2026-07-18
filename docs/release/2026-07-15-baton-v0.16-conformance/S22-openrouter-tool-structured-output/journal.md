@@ -136,6 +136,61 @@
   this Planner session's scope; this is not a waiver of the one newly
   authorized S22 proof.
 
+## 2026-07-17T18:27:06+10:00 — Implementer recovery guards and deterministic proof preflight
+
+- Added only the two ratified direct-OpenRouter transport guards. `FunctionCall`
+  now retains whether the wire value for `function.arguments` was literal JSON
+  `null`, so direct forced-tool extraction can reject it rather than silently
+  treating it as an empty Go string. The same direct-only extraction now rejects
+  a returned tool call whose `type` is not `function` before canonical report
+  acceptance. Existing legacy forced-tool behavior remains unchanged.
+- `TestOpenRouterStructuredRejectsInvalidToolCall` proves both cases make
+  exactly one provider request and fail locally with no repair, fallback, or
+  second request. The focused model and built-command/gate suites, full
+  `go test ./...`, `go vet ./...`, and `make build` all passed. The full
+  deterministic gates ran in an isolated no-credential, no-model environment;
+  `GOFLAGS=-buildvcs=false` only avoids this host's unrelated VCS-status probe.
+- A local `go test -cover ./internal/model -count=1` measurement passed at
+  81.4% statements. The role-prompt `sworn coverage` command is absent from
+  the current binary (`unknown command`). This is not an S22 blocker: why — a
+  coverage command is unrelated scope; tracking — `sworn#122`; acknowledgement
+  — the Coach explicitly accepted the artifact-specific AC-to-test matrix plus
+  local Go coverage measurement in its place. No command or source was added
+  for coverage.
+- Created a valid pre-live proof bundle with the AC-to-evidence mapping and the
+  two acknowledged Rule-2 entries above. It deliberately does not claim AC-06
+  delivered. The current binary's `verify` wrapper requires a verifier model
+  even for its documented deterministic first-pass, so the isolated preflight
+  used only a synthetic direct OpenRouter construction with an unroutable local
+  endpoint. It returned `PASS` at zero cost; the first-pass does not dispatch
+  its constructed verifier. No real credential, outbound request, or AC-06
+  provider command has run in this recovery session.
+
+## 2026-07-17T18:32:31+10:00 — AC-06 fail-closed handoff
+
+- Check identity: `spec-ambiguity`
+- Model ID: `openrouter/z-ai/glm-5.2`
+- Immutable start commit: `a09b0e46df465862d00469d4aef2a997442b3d5b`
+- Process exit code: `unavailable`
+- Result: `UNPARSEABLE`
+
+The raw temporary file was destroyed. The exactly-one AC-06 budget is consumed:
+there is no retry, fallback, repair, `implemented` or `verified` transition, or
+S20 activity. S22 is blocked and returned to the Planner for a new decision;
+this is not a fresh verifier verdict.
+
+## 2026-07-17T18:44:24+10:00 — Fail-closed handoff state recorded
+
+- `status.json` now records `state: blocked` and `verification.result:
+  blocked`. Its machine-readable AC-06 violation records the exact-one
+  `UNPARSEABLE` result and the absence of a safely available process exit code.
+- Recovery is explicitly routed to new human authority and Planner ratification
+  before any further provider action. The consumed proof budget, no-retry/no-
+  fallback constraint, and S20 hold remain unchanged.
+- The synthetic-only deterministic proof-gate PASS remains evidence of the
+  current binary's no-model-dispatch first pass. It is not AC-06 evidence and
+  is not a reason to alter this blocked handoff.
+
 ## 2026-07-17T20:47:05+10:00 — Planner material replan: native proof receipt
 
 - The Coach ratified a material replacement of the previous shell-style
@@ -167,6 +222,22 @@
   The release-wt copy is corrected to that verified state; S22 must remain
   gated if this upstream evidence is not preserved.
 
+## 2026-07-18T07:03:29+10:00 — Automatic Coach acknowledgement of revised Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the fresh
+  Captain review in commit `223f687` is acknowledged. Its `PROCEED` verdict
+  supersedes the earlier review and has no `[escalate]` pins or new Type-1
+  decision.
+- Apply both inline pins during implementation: keep
+  `openrouter/z-ai/glm-5.2` proof-only (never a default, catalogue, or
+  routing change), and retain the AC-05 direct-base and proxy-isolation
+  regressions in the proof evidence.
+- This acknowledgement authorizes only the normal S22 implementation lifecycle.
+  It does not authorize a provider call until the native receipt facility,
+  deterministic gates, proof bundle, and all S22 preconditions are complete;
+  the one remaining live attempt remains attempt 2 only, with no fallback or
+  third dispatch.
+
 ## 2026-07-18T08:38:47+10:00 - Planner narrow safety replan
 
 - The Coach approved a narrow S22-only correction after pre-live audit found
@@ -195,3 +266,122 @@
   expansion, fallback, or retry-policy broadening occurred. The prior Captain
   review remains superseded; fresh Captain PROCEED and acknowledgement are
   required before implementation resumes.
+
+## 2026-07-18T13:26:43+10:00 — Implementer restores the design-review gate
+
+- The track worktree is clean at the propagated replan commit, the current
+  status validates against `slice-status-v1`, the immutable start resolves and
+  is an ancestor of the track head, and the empty pending cycle-0
+  maintainability record has no exhausted committed history.
+- The existing `review.md` predates the narrow safety replan and is explicitly
+  superseded by the later Planner journal entry. Its design also said MCP
+  semantics were unchanged, which no longer covers AC-11, the AC-06
+  post-rename/restoration double fault, or AC-12's mechanical S21 evidence gate.
+- Refreshed `design.md` to trace all twelve ACs and returned the lifecycle to
+  `design_review`. No source, test, provider, model, credential, proof receipt,
+  or S20 action occurred. A fresh Captain PROCEED and Coach acknowledgement are
+  required before implementation resumes.
+
+## 2026-07-18T14:24:21+10:00 — Fresh Captain PROCEED acknowledged; implementation resumes
+
+- Captain commit `798e114c` reviews design commit `19d2ab1b`, records
+  `DECISION: PROCEED`, and has no escalate pins. Brad acknowledged the verdict
+  and authorized the Implementer to proceed with all six apply-inline pins.
+- Pin 1: add a fail-closed trust guard and deterministic double-fault evidence
+  so an unacknowledged renamed verdict is never accepted.
+- Pin 2: added `internal/mcp/lint.go` and `internal/mcp/lint_test.go` to
+  `planned_files`; their scope is limited to the stable provider-error
+  diagnostic plus registered-tool reachability and leak canaries.
+- Pin 3: re-anchor the active runtime constant, receipt binding, lookup, and
+  tests to v0.16 while retaining v0.15 only as immutable historical provenance.
+- Pin 4: record a cohesion audit for the receipt state-machine, persistence,
+  rendering, and runner seams before completion.
+- Pins 5-6: preserve the narrow typed retry classifier independently of legacy
+  `IsTransient`, and keep `openrouter/z-ai/glm-5.2` proof-only with no model
+  default, catalogue, or routing-policy change.
+- The `beast` effort/complexity rating remains accurate against the live code
+  and is now Implementer-confirmed. The immutable start and empty pending
+  cycle-0 maintainability ledger are preserved byte-for-byte.
+
+## 2026-07-18T14:40:15+10:00 — Receipt cohesion audit and deterministic implementation checkpoint
+
+- Audited `internal/gate/llmcheck_receipt.go` across its state-machine,
+  persistence, rendering, and runner seams. The module remains one cohesive
+  fail-closed aggregate around the private `ProofReceipt` invariant: the runner
+  can return only a sanitized outcome, persistence owns reservation/finalization
+  and the durable trust guard, and rendering accepts only the strict metadata
+  record. Splitting these private responsibilities would require an additional
+  cross-package or exported intermediate contract that could represent an
+  unguarded final verdict, weakening the atomic invariant rather than creating
+  an independently useful seam. The existing seams remain independently
+  exercised through injected runners/writers and public rendering tests, so no
+  module split is warranted for S22.
+- The post-rename plus failed-restoration double fault now leaves a durable
+  metadata-only trust guard; later readers reject the renamed model verdict and
+  the caller sees only `receipt_failure` / `UNPARSEABLE` / unavailable exit
+  semantics. The exact regression passed after one synthetic dispatch.
+- The MCP adapter retains error/non-success semantics while returning exactly
+  `llm_check: provider request failed`; registered-tool reachability and leak
+  canaries passed. The two MCP files remain the only added planned touchpoints.
+- Active runtime binding, S21 receipt/status lookup, and tests are anchored to
+  v0.16. The retry classifier remains the narrow typed proof-only boundary, and
+  `openrouter/z-ai/glm-5.2` remains proof-only with no default, catalogue, or
+  routing-policy change.
+- Deterministic gates passed: targeted S22 tests, `go test ./...`, `go vet
+  ./...`, `make build`, and the two built-command reachability tests. No live
+  provider/model dispatch or credential inspection occurred.
+
+## 2026-07-18T14:49:34+10:00 — Attempt 2 is terminal; fail-closed Planner handoff
+
+- Proof commit `ba6648a9` durably captured every AC-12 precondition before
+  dispatch: exact fresh S21 evidence, acknowledged Captain PROCEED, targeted and
+  full tests, vet, build, built-command reachability, and the current binary's
+  zero-cost deterministic proof-bundle PASS.
+- The first command omitted the required `SWORN_DIRECT=1` process flag and was
+  rejected during deterministic preflight. It created no reservation, made no
+  provider request, and consumed no retry budget. The corrected invocation was
+  the sole attempt-2 dispatch.
+- Native attempt 2 finalized the strict metadata-only receipt with class
+  `opaque`, result `UNPARSEABLE`, and process exit code 2. No provider payload,
+  endpoint, header, request/response body, finding, prompt, diff, credential, or
+  key was retained or rendered.
+- AC-09/AC-10 make every attempt-2 non-final outcome terminal. The two-attempt
+  budget is exhausted: no retry, fallback, provider/model/transport switch,
+  third dispatch, completion claim, maintainability cycle, verifier dispatch,
+  or S20 activity is authorised.
+- S22 moves to `blocked` with a machine-readable AC-12 violation and is handed
+  to the Planner for explicit re-scope or closure. The deterministic
+  implementation remains committed and all sanitized receipt evidence is
+  preserved.
+
+## 2026-07-18T15:15:40+10:00 — Planner reconciliation and configured-values recovery ratification
+
+- The pre-sync and post-sync board-oracle projection integrity gates passed.
+  `release-wt/2026-07-15-baton-v0.16-conformance` is already current with
+  `release/v0.2.0` at Planner start `0611d778a972aace9a3bb0e5e064a876245e45ed`.
+  T1 is the only in-progress track; T2, T5, T6, and T7 remain planned with no
+  materialised track refs. All eleven T1 specs have zero release-vs-track drift.
+- Seeded every started T1 lifecycle record from authoritative owner ref
+  `track/2026-07-15-baton-v0.16-conformance/T1-foundation`. The unchanged
+  status blob ids are S01 `db5ecd03c0488e510e0289dcd0335499a7e5fb78`,
+  S02 `bc335a082ca08e1b02333901b2f51d5612b7c570`, S19
+  `46ebadb92c46d1767f42b3e4d48f377ab49fff88`, S04
+  `b22b0d7c4b4c5c0853e014fa1988411485fdb3a7`, S21
+  `4788a66e5b4329e4c21d604236065d64c71b3ed4`, and S20
+  `0824242421c09f456197117ad062c808ca1c25c3`. S22 was seeded exactly from
+  owner blob `a0964d15580925345ff2e8aed316e6adfb4ff0ec`; its pending cycle-0
+  `maintainability` object is preserved byte-for-byte.
+- Diagnosed trigger: the sole authorised GLM-bound attempt 2 finalized as
+  `opaque` / `UNPARSEABLE` / exit 2, so the former contract correctly blocked
+  all further dispatch. S20 remains independently blocked and untouched behind
+  the fresh-S22-PASS gate.
+- Brad ratified a factual S22 contract correction: preserve attempts 1 and 2
+  byte-for-byte and permit exactly one separately governed attempt 3 using the
+  verifier model resolved from the current standard config, with no CLI model
+  override. The strict receipt records the resolved model ID only; config path,
+  endpoint, credentials, and payload remain excluded.
+- Attempt 3 is not a broad retry-classifier extension. Its authority is the
+  explicit Planner/Coach amendment plus fresh Captain review and deterministic
+  proof gates. Unsupported or unconfigured values reject before dispatch;
+  every attempt-3 outcome is terminal; no fallback, fourth dispatch, or S20
+  activity is authorised before a fresh S22 verifier PASS.
