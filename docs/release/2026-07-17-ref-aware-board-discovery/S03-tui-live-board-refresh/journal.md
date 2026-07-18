@@ -61,6 +61,16 @@ Violations:
 Required to address: Add a Rule-2-complete `proof.json.not_delivered` entry for the unchanged `internal/tui/tui.go` touchpoint, including why no change was required, a resolvable tracker reference, and human acknowledgement.
 ```
 
+### 2026-07-18T15:40:08+10:00
+
+```text
+PASS
+
+Slice: `S03-tui-live-board-refresh`
+Verified against: `338a8c0ee645e6a8a70e9de4ad25344e2fbe8427`
+Verifier session: `fresh, artefact-only`
+```
+
 ## 2026-07-18 — verifier gap closed with explicit Run constructor extraction
 
 - Added the planned but previously missing touchpoint `internal/tui/tui.go` under a small structural refactor:
