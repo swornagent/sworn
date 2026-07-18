@@ -223,6 +223,69 @@ func TestMCPGenericCheckIdentityReachability(t *testing.T) {
 	}
 }
 
+func TestLintTools_LLMCheckProviderErrorSanitizedReachability(t *testing.T) {
+	errText, calls := runMCPProviderErrorFixture(t, `{"error":{"message":"provider body"}}`)
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls)
+	}
+	if errText != "llm_check: provider request failed" {
+		t.Fatalf("public provider diagnostic = %q", errText)
+	}
+}
+
+func TestLintTools_LLMCheckProviderErrorLeakCanary(t *testing.T) {
+	const bodyCanary = "S22-MCP-PROVIDER-BODY-CANARY"
+	errText, calls := runMCPProviderErrorFixture(t, `{"error":{"message":"`+bodyCanary+` key=S22-MCP-KEY-CANARY prompt=S22-MCP-PROMPT-CANARY diff=S22-MCP-DIFF-CANARY"}}`)
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls)
+	}
+	for _, forbidden := range []string{bodyCanary, "S22-MCP-KEY-CANARY", "S22-MCP-PROMPT-CANARY", "S22-MCP-DIFF-CANARY", "http://"} {
+		if strings.Contains(errText, forbidden) {
+			t.Fatalf("public MCP error leaked %q: %q", forbidden, errText)
+		}
+	}
+	if errText != "llm_check: provider request failed" {
+		t.Fatalf("public provider diagnostic = %q", errText)
+	}
+}
+
+func runMCPProviderErrorFixture(t *testing.T, responseBody string) (string, int32) {
+	t.Helper()
+	fr := setupFixtureRelease(t, "2026-07-18-mcp-provider-error")
+	fr.writeSlice(t, "S01-test", `# Slice: S01-test
+
+## Acceptance checks
+
+- [ ] THE SYSTEM SHALL sanitize provider errors at the registered MCP boundary.
+`)
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"version":1,"verifier":{"model":"openai-completions/test-model"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENAI_API_KEY", "S22-MCP-KEY-CANARY")
+	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", server.URL)
+
+	s := New()
+	RegisterLintTools(s, fr.Root)
+	_, err := callRegisteredTool(s, "sworn.llm_check", json.RawMessage(`{"release":"2026-07-18-mcp-provider-error","slice_id":"S01-test","type":"ac-satisfaction","base":"HEAD"}`))
+	if err == nil {
+		t.Fatal("provider failure returned MCP success")
+	}
+	return err.Error(), calls.Load()
+}
+
 // TestMCPGenericMaintainabilityReviewRetiredWithoutDispatch ensures the
 // registered public handler stops before release/model/diff work even when the
 // inputs would otherwise make those steps fail.

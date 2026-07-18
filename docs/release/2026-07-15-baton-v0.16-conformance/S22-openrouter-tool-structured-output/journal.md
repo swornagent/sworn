@@ -302,3 +302,31 @@ this is not a fresh verifier verdict.
 - The `beast` effort/complexity rating remains accurate against the live code
   and is now Implementer-confirmed. The immutable start and empty pending
   cycle-0 maintainability ledger are preserved byte-for-byte.
+
+## 2026-07-18T14:40:15+10:00 — Receipt cohesion audit and deterministic implementation checkpoint
+
+- Audited `internal/gate/llmcheck_receipt.go` across its state-machine,
+  persistence, rendering, and runner seams. The module remains one cohesive
+  fail-closed aggregate around the private `ProofReceipt` invariant: the runner
+  can return only a sanitized outcome, persistence owns reservation/finalization
+  and the durable trust guard, and rendering accepts only the strict metadata
+  record. Splitting these private responsibilities would require an additional
+  cross-package or exported intermediate contract that could represent an
+  unguarded final verdict, weakening the atomic invariant rather than creating
+  an independently useful seam. The existing seams remain independently
+  exercised through injected runners/writers and public rendering tests, so no
+  module split is warranted for S22.
+- The post-rename plus failed-restoration double fault now leaves a durable
+  metadata-only trust guard; later readers reject the renamed model verdict and
+  the caller sees only `receipt_failure` / `UNPARSEABLE` / unavailable exit
+  semantics. The exact regression passed after one synthetic dispatch.
+- The MCP adapter retains error/non-success semantics while returning exactly
+  `llm_check: provider request failed`; registered-tool reachability and leak
+  canaries passed. The two MCP files remain the only added planned touchpoints.
+- Active runtime binding, S21 receipt/status lookup, and tests are anchored to
+  v0.16. The retry classifier remains the narrow typed proof-only boundary, and
+  `openrouter/z-ai/glm-5.2` remains proof-only with no default, catalogue, or
+  routing-policy change.
+- Deterministic gates passed: targeted S22 tests, `go test ./...`, `go vet
+  ./...`, `make build`, and the two built-command reachability tests. No live
+  provider/model dispatch or credential inspection occurred.

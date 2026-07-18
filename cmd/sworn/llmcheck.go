@@ -143,11 +143,13 @@ func cmdLLMCheck(args []string) int {
 }
 
 const (
-	s22ProofReceiptRelease = "2026-07-15-baton-v0.15-conformance"
+	s22ProofReceiptRelease = "2026-07-15-baton-v0.16-conformance"
 	s22ProofReceiptSlice   = "S22-openrouter-tool-structured-output"
 	s22ProofReceiptModel   = "openrouter/z-ai/glm-5.2"
 	s22ProofReceiptStart   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
 	s22UpstreamSlice       = "S21-openai-structured-envelope"
+	s22UpstreamStart       = "ed0badf68673f0af84834458f07be0792555484f"
+	s22UpstreamStatusRef   = "240a2ede9a5fd022ae403ced30a6a5f80d918747"
 )
 
 // cmdLLMCheckProofReceipt owns the one native S22 receipt lifecycle. Its
@@ -180,23 +182,49 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 	}
 
 	var status struct {
-		SliceID     string `json:"slice_id"`
-		Release     string `json:"release"`
-		StartCommit string `json:"start_commit"`
+		SliceID      string `json:"slice_id"`
+		Release      string `json:"release"`
+		StartCommit  string `json:"start_commit"`
+		UpstreamGate struct {
+			SliceID                        string `json:"slice_id"`
+			RequiredState                  string `json:"required_state"`
+			RequiredVerificationResult     string `json:"required_verification_result"`
+			AuthoritativeTrackStatusCommit string `json:"authoritative_track_status_commit"`
+			ImmutableStartCommit           string `json:"immutable_start_commit"`
+			VerifierVerdictAt              string `json:"verifier_verdict_at"`
+		} `json:"upstream_gate"`
 	}
 	statusData, err := os.ReadFile(filepath.Join(sliceDir, "status.json"))
-	if err != nil || json.Unmarshal(statusData, &status) != nil || status.SliceID != sliceID || status.Release != releaseName || status.StartCommit != s22ProofReceiptStart {
+	if err != nil || json.Unmarshal(statusData, &status) != nil ||
+		status.SliceID != sliceID || status.Release != releaseName || status.StartCommit != s22ProofReceiptStart ||
+		status.UpstreamGate.SliceID != s22UpstreamSlice || status.UpstreamGate.RequiredState != "verified" ||
+		status.UpstreamGate.RequiredVerificationResult != "pass" ||
+		status.UpstreamGate.AuthoritativeTrackStatusCommit != s22UpstreamStatusRef ||
+		status.UpstreamGate.ImmutableStartCommit != s22UpstreamStart ||
+		strings.TrimSpace(status.UpstreamGate.VerifierVerdictAt) == "" {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
 	var upstream struct {
+		SliceID      string `json:"slice_id"`
+		Release      string `json:"release"`
 		State        string `json:"state"`
+		StartCommit  string `json:"start_commit"`
 		Verification struct {
-			Result string `json:"result"`
+			Result                  string `json:"result"`
+			VerifierVerdictAt       string `json:"verifier_verdict_at"`
+			VerifierWasFreshContext bool   `json:"verifier_was_fresh_context"`
 		} `json:"verification"`
 	}
 	upstreamData, err := os.ReadFile(filepath.Join(releaseDir, s22UpstreamSlice, "status.json"))
-	if err != nil || json.Unmarshal(upstreamData, &upstream) != nil || upstream.State != "verified" || upstream.Verification.Result != "pass" {
+	if err != nil || json.Unmarshal(upstreamData, &upstream) != nil ||
+		upstream.SliceID != status.UpstreamGate.SliceID || upstream.Release != releaseName ||
+		upstream.State != status.UpstreamGate.RequiredState ||
+		upstream.StartCommit != status.UpstreamGate.ImmutableStartCommit ||
+		upstream.Verification.Result != status.UpstreamGate.RequiredVerificationResult ||
+		upstream.Verification.VerifierVerdictAt != status.UpstreamGate.VerifierVerdictAt ||
+		strings.TrimSpace(upstream.Verification.VerifierVerdictAt) == "" ||
+		!upstream.Verification.VerifierWasFreshContext {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}

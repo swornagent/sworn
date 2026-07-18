@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	receiptTestRelease = "2026-07-15-baton-v0.15-conformance"
+	receiptTestRelease = "2026-07-15-baton-v0.16-conformance"
 	receiptTestSlice   = "S22-openrouter-tool-structured-output"
 	receiptTestModel   = "openrouter/z-ai/glm-5.2"
 	receiptTestStart   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
@@ -185,6 +185,48 @@ func TestProofReceiptPostRenameSyncFailureRestoresReservation(t *testing.T) {
 	}
 }
 
+func TestProofReceiptPostRenameSyncFailureNeverTrustsFinalVerdict(t *testing.T) {
+	dir := t.TempDir()
+	var writes atomic.Int32
+	var calls atomic.Int32
+	receipt, err := runProofReceipt(context.Background(), testProofReceiptBinding(), dir, func(context.Context) ProofReceiptOutcome {
+		calls.Add(1)
+		return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
+	}, func(path string, value ProofReceipt) error {
+		switch writes.Add(1) {
+		case 2:
+			// Rename a final PASS into place, then fail its required directory sync.
+			return atomicWriteProofReceiptWithSync(path, value, func(string) error {
+				return errors.New("test post-rename sync fault")
+			})
+		case 3:
+			// Simulate the independent reservation-restoration fault.
+			return errors.New("test reservation restoration fault")
+		default:
+			return atomicWriteProofReceipt(path, value)
+		}
+	})
+	if !errors.Is(err, ErrProofReceiptFinalization) || calls.Load() != 1 {
+		t.Fatal("double fault did not fail closed after exactly one dispatch")
+	}
+	if receipt.AttemptClass != ProofReceiptReceiptFailure || receipt.Result != ProofReceiptUnparseable {
+		t.Fatalf("double fault surfaced a model verdict: %#v", receipt)
+	}
+	if code, available := receipt.ProcessExitCode.Code(); available || code != 0 {
+		t.Fatalf("double fault exit semantics = (%d, %t), want unavailable", code, available)
+	}
+	if _, err := os.Stat(proofReceiptTrustGuardPath(dir, 1)); err != nil {
+		t.Fatalf("durable trust guard missing after double fault: %v", err)
+	}
+	if _, _, err := readProofReceipt(dir, 1); !errors.Is(err, ErrProofReceiptPreflight) {
+		t.Fatalf("later reader trusted unacknowledged renamed verdict: %v", err)
+	}
+	public := PrintProofReceipt(receipt) + JSONProofReceipt(receipt)
+	if strings.Contains(public, "PASS") || !strings.Contains(public, "receipt_failure") || !strings.Contains(public, "UNPARSEABLE") || !strings.Contains(public, "unavailable") {
+		t.Fatalf("double-fault output was not the sanitized receipt failure: %s", public)
+	}
+}
+
 func TestProofReceiptConcurrentReservationHasOneWinner(t *testing.T) {
 	dir := t.TempDir()
 	binding := testProofReceiptBinding()
@@ -320,7 +362,7 @@ func TestProofReceiptRejectsMismatchedBindingWithoutBudgetConsumption(t *testing
 	}
 }
 
-func TestProofReceiptFinalAndTerminalRecordsNeverRetry(t *testing.T) {
+func TestProofReceiptFinalVerdictsNeverRetry(t *testing.T) {
 	binding := testProofReceiptBinding()
 	tests := []struct {
 		name   string
@@ -364,6 +406,39 @@ func TestProofReceiptFinalAndTerminalRecordsNeverRetry(t *testing.T) {
 	}
 }
 
+func TestProofReceiptOpaqueAndContractFailuresDoNotRetry(t *testing.T) {
+	for _, class := range []ProofReceiptAttemptClass{
+		ProofReceiptHTTPClientError,
+		ProofReceiptParseFailure,
+		ProofReceiptSchemaFailure,
+		ProofReceiptIdentityMismatch,
+		ProofReceiptMalformedTool,
+		ProofReceiptOpaque,
+		ProofReceiptUntrustedBinding,
+		ProofReceiptUnknown,
+	} {
+		t.Run(string(class), func(t *testing.T) {
+			dir := t.TempDir()
+			first := proofReceiptReservation(testProofReceiptBinding(), 1)
+			first.AttemptClass = class
+			first.ProcessExitCode = ProofReceiptExitCode(2)
+			writeTestReceipt(t, dir, first)
+
+			var calls atomic.Int32
+			_, err := RunProofReceipt(context.Background(), testProofReceiptBinding(), dir, func(context.Context) ProofReceiptOutcome {
+				calls.Add(1)
+				return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
+			})
+			if !errors.Is(err, ErrProofReceiptPreflight) {
+				t.Fatalf("class %q error = %v, want preflight rejection", class, err)
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("class %q dispatched %d retries", class, calls.Load())
+			}
+		})
+	}
+}
+
 func TestProofReceiptRetryableAttemptPermitsOnlyAttemptTwo(t *testing.T) {
 	binding := testProofReceiptBinding()
 	for _, class := range []ProofReceiptAttemptClass{
@@ -400,7 +475,7 @@ func TestProofReceiptRetryableAttemptPermitsOnlyAttemptTwo(t *testing.T) {
 }
 
 func TestProofReceiptSpecAmbiguityOutcomesAreFailClosed(t *testing.T) {
-	valid := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.15-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{}}`
+	valid := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.16-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{}}`
 	tests := []struct {
 		name      string
 		raw       string

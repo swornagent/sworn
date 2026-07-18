@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -413,7 +414,7 @@ func RegisterLintTools(s *Server, repoRoot string) {
 
 		report, err := gate.RunLLMCheck(ctx, ct, sliceDir, diffContent, verifier)
 		if err != nil {
-			return nil, fmt.Errorf("llm_check: %w", err)
+			return nil, errors.New("llm_check: provider request failed")
 		}
 
 		b, _ := json.Marshal(report)

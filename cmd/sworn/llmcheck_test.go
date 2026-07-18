@@ -606,8 +606,16 @@ func TestLLMCheckOpenAIEnvelopeBinaryRejectsInvalidCanonicalResponse(t *testing.
 // records only the strict metadata receipt, and proves neither the synthetic
 // credential, endpoint, nor model response reaches public output.
 func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
+	testLLMCheckProofReceiptBinaryReachability(t)
+}
+
+func TestLLMCheckProofReceiptLeakCanaries(t *testing.T) {
+	testLLMCheckProofReceiptBinaryReachability(t)
+}
+
+func testLLMCheckProofReceiptBinaryReachability(t *testing.T) {
 	const (
-		release = "2026-07-15-baton-v0.15-conformance"
+		release = "2026-07-15-baton-v0.16-conformance"
 		slice   = "S22-openrouter-tool-structured-output"
 		start   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
 		modelID = "openrouter/z-ai/glm-5.2"
@@ -629,7 +637,7 @@ func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
 	write(filepath.Join(sliceDir, "spec.json"), `{
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S22-openrouter-tool-structured-output",
-  "release": "2026-07-15-baton-v0.15-conformance",
+  "release": "2026-07-15-baton-v0.16-conformance",
   "user_outcome": "A native receipt records one bounded proof.",
   "covers_needs": ["N-10"],
   "acceptance_criteria": [{"id":"AC-01","text":"WHEN the fixture runs THE SYSTEM SHALL retain only a receipt.","ears_pattern":"event-driven"}],
@@ -638,22 +646,12 @@ func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
   "references": []
 }
 `)
-	write(filepath.Join(sliceDir, "status.json"), `{
-  "slice_id": "S22-openrouter-tool-structured-output",
-  "release": "2026-07-15-baton-v0.15-conformance",
-  "start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b"
-}
-`)
-	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), `{
-  "slice_id": "S21-openai-structured-envelope",
-  "state": "verified",
-  "verification": {"result": "pass"}
-}
-`)
+	write(filepath.Join(sliceDir, "status.json"), proofReceiptS22StatusFixture())
+	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), proofReceiptS21StatusFixture())
 	write(filepath.Join(sliceDir, "receipts", "attempt-1.json"), `{
   "$schema": "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json",
   "record_version": 1,
-  "release": "2026-07-15-baton-v0.15-conformance",
+  "release": "2026-07-15-baton-v0.16-conformance",
   "slice_id": "S22-openrouter-tool-structured-output",
   "check_type": "spec-ambiguity",
   "model_id": "openrouter/z-ai/glm-5.2",
@@ -688,7 +686,7 @@ func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
 			t.Error("proof receipt did not use the direct forced-tool contract")
 			return
 		}
-		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.15-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{"s22.advisory":{"id":"F-01","severity":"info","title":"advisory","detail":"S22-RESPONSE-CANARY","criterion_id":"AC-01","ambiguity_kind":"vague-language","observable_divergence":"fixture evidence","contract_surface":"verification-evidence","semantic_subject":"fixture","suggested_resolution":"none"}}}`
+		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.16-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{"s22.advisory":{"id":"F-01","severity":"info","title":"advisory","detail":"S22-RESPONSE-CANARY","criterion_id":"AC-01","ambiguity_kind":"vague-language","observable_divergence":"fixture evidence","contract_surface":"verification-evidence","semantic_subject":"fixture","suggested_resolution":"none"}}}`
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"tool_calls": []any{map[string]any{
@@ -735,9 +733,9 @@ func TestLLMCheckProofReceiptBinaryReachability(t *testing.T) {
 	}
 }
 
-func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
+func TestLLMCheckProofReceiptPreflightRequiresFreshS21VerificationEvidence(t *testing.T) {
 	const (
-		release = "2026-07-15-baton-v0.15-conformance"
+		release = "2026-07-15-baton-v0.16-conformance"
 		slice   = "S22-openrouter-tool-structured-output"
 		start   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
 		modelID = "openrouter/z-ai/glm-5.2"
@@ -753,6 +751,7 @@ func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
 		name        string
 		prepare     func(t *testing.T, root, sliceDir string)
 		base        string
+		releaseArg  string
 		wantAttempt bool
 	}{
 		{
@@ -763,6 +762,14 @@ func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
 			name: "mismatched historical model",
 			prepare: func(t *testing.T, _ string, sliceDir string) {
 				writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), "openrouter/other", 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+			},
+		},
+		{
+			name: "historical v0.15 receipt binding",
+			prepare: func(t *testing.T, _ string, sliceDir string) {
+				path := filepath.Join(sliceDir, "receipts", "attempt-1.json")
+				writeProofReceiptFixture(t, path, modelID, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+				replaceProofReceiptFixture(t, path, "2026-07-15-baton-v0.16-conformance", "2026-07-15-baton-v0.15-conformance")
 			},
 		},
 		{
@@ -780,6 +787,46 @@ func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
+		},
+		{
+			name: "upstream S21 release mismatch",
+			prepare: func(t *testing.T, root, _ string) {
+				path := filepath.Join(root, "docs", "release", release, "S21-openai-structured-envelope", "status.json")
+				replaceProofReceiptFixture(t, path, release, "2026-07-15-baton-v0.15-conformance")
+			},
+		},
+		{
+			name: "upstream S21 start mismatch",
+			prepare: func(t *testing.T, root, _ string) {
+				path := filepath.Join(root, "docs", "release", release, "S21-openai-structured-envelope", "status.json")
+				replaceProofReceiptFixture(t, path, "ed0badf68673f0af84834458f07be0792555484f", strings.Repeat("b", 40))
+			},
+		},
+		{
+			name: "upstream S21 verdict time missing",
+			prepare: func(t *testing.T, root, _ string) {
+				path := filepath.Join(root, "docs", "release", release, "S21-openai-structured-envelope", "status.json")
+				replaceProofReceiptFixture(t, path, "2026-07-17T09:32:45+10:00", "")
+			},
+		},
+		{
+			name: "upstream S21 not fresh context",
+			prepare: func(t *testing.T, root, _ string) {
+				path := filepath.Join(root, "docs", "release", release, "S21-openai-structured-envelope", "status.json")
+				replaceProofReceiptFixture(t, path, `"verifier_was_fresh_context":true`, `"verifier_was_fresh_context":false`)
+			},
+		},
+		{
+			name: "S22 authoritative status reference mismatch",
+			prepare: func(t *testing.T, _ string, sliceDir string) {
+				path := filepath.Join(sliceDir, "status.json")
+				replaceProofReceiptFixture(t, path, "240a2ede9a5fd022ae403ced30a6a5f80d918747", strings.Repeat("c", 40))
+			},
+		},
+		{
+			name:       "v0.15 invocation release",
+			prepare:    func(*testing.T, string, string) {},
+			releaseArg: "2026-07-15-baton-v0.15-conformance",
 		},
 		{
 			name: "mismatched explicit base",
@@ -808,7 +855,11 @@ func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
 			if tt.base != "" {
 				base = tt.base
 			}
-			if got := cmdLLMCheck([]string{"--proof-receipt", "--type", "spec-ambiguity", "--slice", slice, "--release", release, "--model", modelID, "--base", base}); got != 2 {
+			releaseValue := release
+			if tt.releaseArg != "" {
+				releaseValue = tt.releaseArg
+			}
+			if got := cmdLLMCheck([]string{"--proof-receipt", "--type", "spec-ambiguity", "--slice", slice, "--release", releaseValue, "--model", modelID, "--base", base}); got != 2 {
 				t.Fatalf("preflight exit = %d, want 2", got)
 			}
 			if hits.Load() != 0 {
@@ -826,14 +877,118 @@ func TestLLMCheckProofReceiptPreflightRejectsBeforeDispatch(t *testing.T) {
 	}
 }
 
+func TestLLMCheckProofReceiptPreflightWriteFailureHasZeroDispatch(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	receiptPath := filepath.Join(sliceDir, "receipts", "attempt-1.json")
+	writeProofReceiptFixture(t, receiptPath, s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	receiptDir := filepath.Dir(receiptPath)
+	if err := os.Chmod(receiptDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(receiptDir, 0o700) })
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer server.Close()
+	if got := runProofReceiptCommandFixture(t, root, server.URL); got != 2 {
+		t.Fatalf("preflight write failure exit = %d, want 2", got)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("preflight write failure dispatched %d provider requests", hits.Load())
+	}
+}
+
+func TestLLMCheckProofReceiptMismatchedBindingHasZeroDispatch(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	receiptPath := filepath.Join(sliceDir, "receipts", "attempt-1.json")
+	writeProofReceiptFixture(t, receiptPath, s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	replaceProofReceiptFixture(t, receiptPath, s22ProofReceiptRelease, "2026-07-15-baton-v0.15-conformance")
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer server.Close()
+	if got := runProofReceiptCommandFixture(t, root, server.URL); got != 2 {
+		t.Fatalf("mismatched binding exit = %d, want 2", got)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("mismatched binding dispatched %d provider requests", hits.Load())
+	}
+}
+
+func TestLLMCheckProofReceiptStopsAfterTwoAttempts(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "upstream", "UNPARSEABLE", "2")
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer server.Close()
+	if got := runProofReceiptCommandFixture(t, root, server.URL); got != 2 {
+		t.Fatalf("exhausted attempt budget exit = %d, want 2", got)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("exhausted two-attempt budget dispatched %d third requests", hits.Load())
+	}
+}
+
+func TestLLMCheckProofReceiptTerminalFailuresUseOneDispatch(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"S22-TERMINAL-BODY-CANARY"}}`))
+	}))
+	defer server.Close()
+	if got := runProofReceiptCommandFixture(t, root, server.URL); got != 2 {
+		t.Fatalf("terminal provider failure exit = %d, want 2", got)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("terminal provider failure dispatched %d requests, want 1", hits.Load())
+	}
+	if got := runProofReceiptCommandFixture(t, root, server.URL); got != 2 {
+		t.Fatalf("repeated terminal invocation exit = %d, want 2", got)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("terminal receipt allowed retry; provider requests = %d", hits.Load())
+	}
+}
+
+func runProofReceiptCommandFixture(t *testing.T, root, baseURL string) int {
+	t.Helper()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldCwd)
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWORN_CONFIG_PATH", filepath.Join(t.TempDir(), "missing-config.json"))
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENROUTER_API_KEY", "S22-SYNTHETIC-KEY-CANARY")
+	t.Setenv("SWORN_OPENROUTER_BASE_URL", baseURL)
+	return cmdLLMCheck([]string{
+		"--proof-receipt",
+		"--type", "spec-ambiguity",
+		"--slice", s22ProofReceiptSlice,
+		"--release", s22ProofReceiptRelease,
+		"--model", s22ProofReceiptModel,
+		"--base", s22ProofReceiptStart,
+	})
+}
+
 func proofReceiptCommandFixture(t *testing.T) (string, string) {
 	t.Helper()
 	const (
-		release = "2026-07-15-baton-v0.15-conformance"
+		release = "2026-07-15-baton-v0.16-conformance"
 		slice   = "S22-openrouter-tool-structured-output"
 		start   = "a09b0e46df465862d00469d4aef2a997442b3d5b"
 	)
-	root := t.TempDir()
+	root := llmCheckRepoFixture(t)
 	releaseDir := filepath.Join(root, "docs", "release", release)
 	sliceDir := filepath.Join(releaseDir, slice)
 	write := func(path, body string) {
@@ -846,8 +1001,20 @@ func proofReceiptCommandFixture(t *testing.T) (string, string) {
 		}
 	}
 	write(filepath.Join(releaseDir, "index.md"), "# fixture\n")
-	write(filepath.Join(sliceDir, "status.json"), `{"slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.15-conformance","start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b"}`)
-	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), `{"state":"verified","verification":{"result":"pass"}}`)
+	write(filepath.Join(sliceDir, "spec.json"), `{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "user_outcome": "A native receipt records one bounded proof.",
+  "covers_needs": ["N-10"],
+  "acceptance_criteria": [{"id":"AC-01","text":"WHEN the fixture runs THE SYSTEM SHALL retain only a receipt.","ears_pattern":"event-driven"}],
+  "in_scope": [],
+  "out_of_scope": [],
+  "references": []
+}
+`)
+	write(filepath.Join(sliceDir, "status.json"), proofReceiptS22StatusFixture())
+	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), proofReceiptS21StatusFixture())
 	if err := os.MkdirAll(filepath.Join(sliceDir, "receipts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -855,10 +1022,55 @@ func proofReceiptCommandFixture(t *testing.T) (string, string) {
 	return root, sliceDir
 }
 
+func proofReceiptS22StatusFixture() string {
+	return `{
+  "slice_id":"S22-openrouter-tool-structured-output",
+  "release":"2026-07-15-baton-v0.16-conformance",
+  "start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b",
+  "upstream_gate":{
+    "slice_id":"S21-openai-structured-envelope",
+    "required_state":"verified",
+    "required_verification_result":"pass",
+    "authoritative_track_status_commit":"240a2ede9a5fd022ae403ced30a6a5f80d918747",
+    "immutable_start_commit":"ed0badf68673f0af84834458f07be0792555484f",
+    "verifier_verdict_at":"2026-07-17T09:32:45+10:00"
+  }
+}`
+}
+
+func proofReceiptS21StatusFixture() string {
+	return `{
+  "slice_id":"S21-openai-structured-envelope",
+  "release":"2026-07-15-baton-v0.16-conformance",
+  "state":"verified",
+  "start_commit":"ed0badf68673f0af84834458f07be0792555484f",
+  "verification":{
+    "result":"pass",
+    "verifier_verdict_at":"2026-07-17T09:32:45+10:00",
+    "verifier_was_fresh_context":true
+  }
+}`
+}
+
 func writeProofReceiptFixture(t *testing.T, path, model string, attempt int, class, result, exit string) {
 	t.Helper()
-	body := `{"$schema":"https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json","record_version":1,"release":"2026-07-15-baton-v0.15-conformance","slice_id":"S22-openrouter-tool-structured-output","check_type":"spec-ambiguity","model_id":"` + model + `","immutable_start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b","attempt":` + strconv.Itoa(attempt) + `,"attempt_class":"` + class + `","result":"` + result + `","process_exit_code":` + exit + `}`
+	body := `{"$schema":"https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json","record_version":1,"release":"2026-07-15-baton-v0.16-conformance","slice_id":"S22-openrouter-tool-structured-output","check_type":"spec-ambiguity","model_id":"` + model + `","immutable_start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b","attempt":` + strconv.Itoa(attempt) + `,"attempt_class":"` + class + `","result":"` + result + `","process_exit_code":` + exit + `}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func replaceProofReceiptFixture(t *testing.T, path, old, replacement string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), old, replacement, 1)
+	if updated == string(data) {
+		t.Fatalf("fixture replacement %q not found in %s", old, path)
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

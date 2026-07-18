@@ -196,14 +196,27 @@ func runProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 	final.AttemptClass = outcome.AttemptClass
 	final.Result = outcome.Result
 	final.ProcessExitCode = outcome.ProcessExitCode
+	if err := armProofReceiptTrustGuard(receiptDir, attempt); err != nil {
+		return reservation, ErrProofReceiptFinalization
+	}
 	if err := write(path, final); err != nil {
 		// A directory sync can fail after rename, leaving the final bytes visible
-		// even though they were not durably acknowledged. Restore the already
-		// valid conservative reservation before returning. If restoration itself
-		// cannot complete, the caller still fails closed and never makes another
-		// provider request; a later run sees the durable state rather than trusting
-		// this process's model result.
-		_ = write(path, reservation)
+		// even though they were not durably acknowledged. The already-durable
+		// trust guard makes every later reader reject those bytes. Restore the
+		// conservative reservation when possible; clear the guard only after that
+		// safe record is durable. A failed restoration leaves the guard armed.
+		if write(path, reservation) == nil {
+			_ = clearProofReceiptTrustGuard(receiptDir, attempt)
+		}
+		return reservation, ErrProofReceiptFinalization
+	}
+	if err := clearProofReceiptTrustGuard(receiptDir, attempt); err != nil {
+		// A final receipt whose guard cannot be durably cleared is not trusted by
+		// this process. Prefer restoring the conservative reservation; whether or
+		// not that succeeds, return only receipt_failure/UNPARSEABLE.
+		if write(path, reservation) == nil {
+			_ = clearProofReceiptTrustGuard(receiptDir, attempt)
+		}
 		return reservation, ErrProofReceiptFinalization
 	}
 	return final, nil
@@ -320,6 +333,10 @@ func proofReceiptPath(dir string, attempt int) string {
 }
 
 func readProofReceipt(dir string, attempt int) (ProofReceipt, bool, error) {
+	guarded, err := proofReceiptTrustGuardExists(dir, attempt)
+	if err != nil || guarded {
+		return ProofReceipt{}, false, ErrProofReceiptPreflight
+	}
 	data, err := os.ReadFile(proofReceiptPath(dir, attempt))
 	if errors.Is(err, os.ErrNotExist) {
 		return ProofReceipt{}, false, nil
@@ -332,6 +349,58 @@ func readProofReceipt(dir string, attempt int) (ProofReceipt, bool, error) {
 		return ProofReceipt{}, false, ErrProofReceiptPreflight
 	}
 	return receipt, true, nil
+}
+
+func proofReceiptTrustGuardPath(dir string, attempt int) string {
+	return filepath.Join(dir, fmt.Sprintf(".attempt-%d.untrusted", attempt))
+}
+
+// armProofReceiptTrustGuard durably records that the next rename is not yet
+// acknowledged. The guard is deliberately separate from the strict receipt
+// schema: it carries no provider or model data and exists only to make a
+// post-rename double fault fail closed across processes.
+func armProofReceiptTrustGuard(dir string, attempt int) error {
+	path := proofReceiptTrustGuardPath(dir, attempt)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return ErrProofReceiptFinalization
+	}
+	if _, err := file.WriteString("untrusted\n"); err != nil {
+		file.Close()
+		return ErrProofReceiptFinalization
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return ErrProofReceiptFinalization
+	}
+	if err := file.Close(); err != nil {
+		return ErrProofReceiptFinalization
+	}
+	if err := syncProofReceiptDirectory(dir); err != nil {
+		return ErrProofReceiptFinalization
+	}
+	return nil
+}
+
+func clearProofReceiptTrustGuard(dir string, attempt int) error {
+	if err := os.Remove(proofReceiptTrustGuardPath(dir, attempt)); err != nil {
+		return ErrProofReceiptFinalization
+	}
+	if err := syncProofReceiptDirectory(dir); err != nil {
+		return ErrProofReceiptFinalization
+	}
+	return nil
+}
+
+func proofReceiptTrustGuardExists(dir string, attempt int) (bool, error) {
+	info, err := os.Lstat(proofReceiptTrustGuardPath(dir, attempt))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info != nil, nil
 }
 
 func decodeProofReceipt(data []byte) (ProofReceipt, error) {
