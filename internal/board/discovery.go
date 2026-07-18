@@ -128,7 +128,7 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 		if err != nil {
 			return nil, fmt.Errorf("release %q ref %s: %w", release, selected.ref, err)
 		}
-		bs, err := electBoard(repo, statusRefs, objects, release, tracks)
+		bs, err := electBoard(objects, release, selected.ref, tracks)
 		if err != nil {
 			return nil, err
 		}
@@ -404,7 +404,7 @@ func parseTopologyRaw(raw string, c topologyCandidate, release string) ([]TrackI
 	return ParseTracks(extractFrontmatterBody(raw)), nil
 }
 
-func electBoard(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects map[string]string, release string, tracks []TrackInfo) (*BoardState, error) {
+func electBoard(statusObjects map[string]string, release, releaseRef string, tracks []TrackInfo) (*BoardState, error) {
 	trackMap := make(map[string]TrackInfo, len(tracks))
 	for _, t := range tracks {
 		trackMap[t.ID] = t
@@ -416,7 +416,7 @@ func electBoard(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects
 			WorktreeBranch: t.WorktreeBranch,
 		}
 		for _, sid := range t.Slices {
-			winner, err := electSlice(repo, statusRefs, statusObjects, release, sid, t.ID, trackMap)
+			winner, err := electSlice(statusObjects, release, releaseRef, sid, t.ID, trackMap)
 			if err != nil {
 				return nil, err
 			}
@@ -436,37 +436,39 @@ type evidence struct {
 	timestamp               int64
 }
 
-func electSlice(repo *gitpkg.Repo, statusRefs map[string][]string, statusObjects map[string]string, release, sid, track string, trackMap map[string]TrackInfo) (SliceState, error) {
-	path := filepath.ToSlash(filepath.Join("docs", "release", release, sid, "status.json"))
-	var candidates []evidence
-	for _, ref := range statusRefs[path] {
-		raw, ok := statusObjects[ref+":"+path]
-		if !ok {
-			continue
-		}
-		if e, ok := validEvidence(raw, ref, "committed", release, sid, track); ok {
-			candidates = append(candidates, e)
-		}
+func electSlice(statusObjects map[string]string, release, releaseRef, sid, track string, trackMap map[string]TrackInfo) (SliceState, error) {
+	ownerRef := "refs/heads/" + TrackWorktreeBranch(release, track)
+	w, ok := evidenceFromRef(statusObjects, ownerRef, release, sid, track)
+	if !ok {
+		w, ok = evidenceFromRef(statusObjects, releaseRef, release, sid, track)
 	}
-	if raw, err := os.ReadFile(filepath.Join(repo.Dir, filepath.FromSlash(path))); err == nil {
-		head, headErr := repo.Show("HEAD", path)
-		if headErr != nil || string(raw) != head {
-			if e, ok := validEvidence(string(raw), "working-tree", "uncommitted", release, sid, track); ok {
-				candidates = append(candidates, e)
-			}
-		}
-	}
-	if len(candidates) == 0 {
+	if !ok {
 		return SliceState{ID: sid, Track: track, State: "unknown"}, nil
 	}
-	sort.SliceStable(candidates, func(i, j int) bool { return better(candidates[i], candidates[j]) })
-	w := candidates[0]
 	ss, err := parseStatusJSON(w.raw, sid, track, trackMap)
 	if err != nil {
 		return SliceState{}, err
 	}
 	ss.StateSource, ss.StateDurability = w.source, w.durability
 	return ss, nil
+}
+
+// evidenceFromRef resolves a status only from the named committed ref. Both
+// supported Git-tree prefixes are probed because a logical docs symlink is a
+// blob in Git, not a traversable tree path. The owning track ref is therefore
+// authoritative without consulting ghost copies or the launch working tree.
+func evidenceFromRef(statusObjects map[string]string, ref, release, sid, track string) (evidence, bool) {
+	for _, prefix := range docsPrefixes {
+		path := filepath.ToSlash(filepath.Join(prefix, release, sid, "status.json"))
+		raw, exists := statusObjects[ref+":"+path]
+		if !exists {
+			continue
+		}
+		if e, valid := validEvidence(raw, ref, "committed", release, sid, track); valid {
+			return e, true
+		}
+	}
+	return evidence{}, false
 }
 
 func validEvidence(raw, source, durability, release, sid, track string) (evidence, bool) {

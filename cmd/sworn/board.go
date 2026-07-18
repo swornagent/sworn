@@ -51,22 +51,24 @@ func cmdBoard(args []string) int {
 		}
 		return 0
 	}
-	var boardState *board.BoardState
+	var selected *board.CatalogRecord
 	for _, record := range catalog {
 		if record.Release == *releaseName {
-			boardState = record.Board
+			recordCopy := record
+			selected = &recordCopy
 			break
 		}
 	}
-	if boardState == nil {
+	if selected == nil {
 		fmt.Fprintf(os.Stderr, "sworn board: release %q not found\n", *releaseName)
 		return 2
 	}
 
 	if *asJSON {
-		return printBoardJSON(boardState)
+		return printBoardJSON(selected.Board, selected.SourceRef)
 	}
-	return printBoardText(boardState)
+	fmt.Printf("Source ref: %s\n", selected.SourceRef)
+	return printBoardText(selected.Board)
 }
 
 // oracleReader adapts *git.Repo to board.gitContentReader for ReadBoard.
@@ -138,13 +140,14 @@ func printCatalogJSON(catalog []board.CatalogRecord) int {
 	return 0
 }
 
-func printBoardJSON(bs *board.BoardState) int {
+func printBoardJSON(bs *board.BoardState, sourceRef string) int {
 	type boardJSON struct {
-		Release string      `json:"release"`
-		Tracks  []trackJSON `json:"tracks"`
+		Release   string      `json:"release"`
+		SourceRef string      `json:"sourceRef"`
+		Tracks    []trackJSON `json:"tracks"`
 	}
 
-	bj := boardJSON{Release: bs.Release}
+	bj := boardJSON{Release: bs.Release, SourceRef: sourceRef}
 	bj.Tracks = projectTracks(bs)
 
 	enc := json.NewEncoder(os.Stdout)

@@ -587,31 +587,31 @@ func TestBoardCLIStateEvidenceProvenance(t *testing.T) {
 
 	statusPath := filepath.Join(repoDir, "docs", "release", "alpha-release", "S01-alpha", "status.json")
 	mustMkdir(t, filepath.Dir(statusPath))
-	// Exact normal-state/timestamp ties preserve the committed evidence.
+	// Launch working-tree bytes never participate in Git-backed projection.
 	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"verified","owner":"dirty","last_updated_at":"2026-01-02T00:00:00Z","verification":{"result":"pending"}}`)
 	state, source, durability, _, _ = runNamed()
 	if state != "verified" || source != "refs/heads/track/alpha-release/T1-alpha" || durability != "committed" {
-		t.Fatalf("committed tie winner = %q %q %q", state, source, durability)
+		t.Fatalf("dirty tie projection = %q %q %q", state, source, durability)
 	}
 
 	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"shipped","last_updated_at":"2026-01-03T00:00:00Z","verification":{"result":"pending"}}`)
 	state, source, durability, _, _ = runNamed()
-	if state != "shipped" || source != "working-tree" || durability != "uncommitted" {
-		t.Fatalf("dirty high-water state = %q %q %q", state, source, durability)
+	if state != "verified" || source != "refs/heads/track/alpha-release/T1-alpha" || durability != "committed" {
+		t.Fatalf("dirty high-water projection = %q %q %q", state, source, durability)
 	}
 	text, stderr, code := runBoard(t, bin, repoDir, "--release", "alpha-release")
-	if code != 0 || stderr != "" || !strings.Contains(text, "[uncommitted]") {
-		t.Fatalf("uncommitted text output=%q stderr=%q exit=%d", text, stderr, code)
+	if code != 0 || stderr != "" || strings.Contains(text, "[uncommitted]") {
+		t.Fatalf("committed text output=%q stderr=%q exit=%d", text, stderr, code)
 	}
 
 	mustWrite(t, statusPath, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"implemented","last_updated_at":"2026-01-04T00:00:00Z","verification":{"result":"blocked","violations":["late attention"],"routing":"needs_planner"}}`)
 	state, source, durability, blocked, reason = runNamed()
-	if state != "implemented" || source != "working-tree" || durability != "uncommitted" || !blocked || reason != "late attention" {
-		t.Fatalf("attention winner = %q %q %q blocked=%v reason=%q", state, source, durability, blocked, reason)
+	if state != "verified" || source != "refs/heads/track/alpha-release/T1-alpha" || durability != "committed" || blocked || reason != "" {
+		t.Fatalf("dirty attention projection = %q %q %q blocked=%v reason=%q", state, source, durability, blocked, reason)
 	}
 	text, stderr, code = runBoard(t, bin, repoDir, "--release", "alpha-release")
-	if code != 0 || stderr != "" || !strings.Contains(text, "[uncommitted]") {
-		t.Fatalf("blocked uncommitted text output=%q stderr=%q exit=%d", text, stderr, code)
+	if code != 0 || stderr != "" || strings.Contains(text, "[uncommitted]") {
+		t.Fatalf("dirty attention text output=%q stderr=%q exit=%d", text, stderr, code)
 	}
 }
 
@@ -630,7 +630,7 @@ func TestBoardCLINamedReleaseJSONShapeCompatibility(t *testing.T) {
 	if err := json.Unmarshal([]byte(named), &namedShape); err != nil {
 		t.Fatalf("parse named shape: %v\n%s", err, named)
 	}
-	if len(namedShape) != 2 || namedShape["release"] == nil || namedShape["tracks"] == nil || namedShape["releases"] != nil || namedShape["sourceRef"] != nil {
+	if len(namedShape) != 3 || namedShape["release"] == nil || namedShape["tracks"] == nil || namedShape["sourceRef"] == nil || namedShape["releases"] != nil {
 		t.Fatalf("named top-level shape changed: %s", named)
 	}
 
