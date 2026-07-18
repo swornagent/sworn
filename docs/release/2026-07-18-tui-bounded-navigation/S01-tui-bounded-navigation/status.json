@@ -10,11 +10,11 @@
     "N-04",
     "N-05"
   ],
-  "state": "planned",
-  "owner": "human",
+  "state": "deferred",
+  "owner": "planner",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-18T16:37:21+10:00",
-  "start_commit": null,
+  "last_updated_at": "2026-07-18T23:16:37+10:00",
+  "start_commit": "e2e445f0c63e2cf6408755faf259419b5ed621a6",
   "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json",
   "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
   "journal_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
@@ -28,40 +28,91 @@
     "internal/tui/styles.go",
     "internal/tui/tui_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/maintainability/implementer-preflight-cycle-0-6b274c57.json",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.md",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/status.json",
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+  ],
   "test_commands": [
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
-    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\"",
+    "sworn lint coverage --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6",
+    "sworn lint mock --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6",
+    "sworn llm-check --type ac-satisfaction --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6 --json"
   ],
   "reachability_artifacts": [
     "internal/tui/tui_test.go:TestNewRootModelPrimesTenRecentReleases",
     "internal/tui/tui_test.go:TestRootModelArrowPaneNavigationMatchesEnterEscape",
-    "internal/tui/tui_test.go:TestTwoPaneRenderNeverExceedsTerminalHeight"
+    "internal/tui/tui_test.go:TestTwoPaneRenderNeverExceedsTerminalHeight",
+    "internal/tui/tui_test.go:TestBoundedNavigationTerminalFrames",
+    "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+    "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt"
   ],
   "maintainability": {
-    "state": "pending",
+    "state": "re_slice_required",
     "cycle": 0,
     "implementation_head": null,
-    "rollback_slice_id": null,
-    "reports": [],
+    "rollback_slice_id": "S02-tui-bounded-navigation-rollback",
+    "reports": [
+      {
+        "role": "implementer",
+        "phase": "preflight",
+        "cycle": 0,
+        "invocation_id": "6b274c57-8218-4682-bea5-1516e3609fee",
+        "report_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/maintainability/implementer-preflight-cycle-0-6b274c57.json",
+        "report_blob_oid": "5a9619b1a8d7ed49e7f7e657c1388935b22ac882",
+        "review_scope_head": "737fb77b3a9a7aba294127a24ec3f7deee11d8a0",
+        "input_fingerprint": "sha256:502df76d7a889aa73050feb2cb3f713dd59bb38e3bd309d3fc54286c65be6619",
+        "verdict": "PASS",
+        "blocking_finding_ids": []
+      }
+    ],
     "adjudication": null
   },
-  "open_deferrals": [],
+  "open_deferrals": [
+    {
+      "item": "Retire S01 and replace it only after its complete authored semantic envelope is rolled back.",
+      "why": "Fresh verification found that the root navigation journey did not prove reachability of the final loaded release and slice, but the cycle-0 maintainability PASS had already frozen S01's semantic scope.",
+      "tracking": "S02-tui-bounded-navigation-rollback and S03-tui-bounded-navigation-replacement",
+      "acknowledgement": "The repository owner invoked /replan-release after the Implementer surfaced the mandatory re-slice handoff.",
+      "acknowledged_by": "repository owner",
+      "acknowledged_at": "2026-07-18T23:16:37+10:00"
+    }
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
     "quadrant": "puzzle",
     "rationale": "One bounded TUI journey across eight files; concurrency identity and terminal layout arithmetic make it a small but subtle puzzle.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-07-18T22:38:31+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": "Gate 3",
+        "description": "AC-04's root-model scrolling journey does not exercise the full bounded domains it claims to prove: it stops at release cursor 18 of 25 and board cursor 12 of 18, so a cap after either tested position would still pass while violating the requirement that every loaded release and ordered slice is reachable.",
+        "evidence": "internal/tui/tui_test.go:2811-2827"
+      }
+    ]
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent operator can navigate many releases and slices inside a terminal-height-bounded TUI that loads only the recent catalog depth they need.",

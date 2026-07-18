@@ -1,0 +1,87 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-tui-bounded-navigation-rollback",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "track": "T1-tui-bounded-navigation",
+  "user_outcome": "A release operator can remove every unverified semantic byte authored by S01 and return the track to S01's immutable start tree before a corrected bounded-navigation replacement begins.",
+  "rationale": "S01 reached a terminal re_slice_required lifecycle after fresh verification found incomplete full-domain reachability evidence. Baton requires a verified rollback before replacement functionality may use the track as a baseline.",
+  "touchpoints": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+  ],
+  "in_scope": [
+    "Restore the exact Git mode and object identity of internal/board/discovery.go, internal/board/discovery_test.go, internal/tui/board.go, internal/tui/model.go, internal/tui/releases.go, internal/tui/tui.go, and internal/tui/tui_test.go to their values at S01 start commit e2e445f0c63e2cf6408755faf259419b5ed621a6.",
+    "Restore the three screenshots/S01-tui-bounded-navigation/*.txt paths to their absence at S01 start commit e2e445f0c63e2cf6408755faf259419b5ed621a6.",
+    "Derive and prove the rollback envelope from Git, covering every non-release-record path changed between S01 start commit e2e445f0c63e2cf6408755faf259419b5ed621a6 and preserved review scope 737fb77b3a9a7aba294127a24ec3f7deee11d8a0; fail if that candidate set differs from the ten declared touchpoints.",
+    "Run the targeted board/TUI/CLI tests, full Go suite, go vet, and gofmt check after restoration so the exact start-tree content remains buildable and test-clean.",
+    "Emit a reachability artefact containing the live git diff/tree-equality command and exit code; this rollback is not integration-ready until a fresh verifier returns PASS."
+  ],
+  "out_of_scope": [
+    "Reimplementing bounded catalog discovery, height-aware pane windows, directional focus navigation, or terminal-frame evidence is owned by S03-tui-bounded-navigation-replacement and cannot begin before this rollback verifies.",
+    "Editing S01 release records or erasing its maintainability report ledger is forbidden; S01 remains a deferred terminal re_slice_required historical record linked to this rollback.",
+    "Changing any path outside the ten Git-derived S01 semantic touchpoints is out of scope."
+  ],
+  "covers_needs": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "The exact target modes, objects, and absences are immutable Git facts over ten paths, and the rollback adds no new behaviour.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A hand-selected rollback could leave an S01-authored path behind and let failed bytes become S03's baseline.",
+      "mitigation": "Derive the complete candidate set from the immutable start and preserved review head, compare it to the declared touchpoints, and require exact mode/object/absence equality."
+    },
+    {
+      "id": "R-02",
+      "description": "The rollback could erase lifecycle evidence instead of only semantic bytes.",
+      "mitigation": "Exclude docs/release/2026-07-18-tui-bounded-navigation/** from the semantic envelope and preserve S01's status, journal, proof, and maintainability report ledger."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the rollback candidate set is derived with Git from S01 start commit e2e445f0c63e2cf6408755faf259419b5ed621a6 through preserved review scope 737fb77b3a9a7aba294127a24ec3f7deee11d8a0 while excluding docs/release/2026-07-18-tui-bounded-navigation/**, THE SYSTEM SHALL identify exactly the seven internal Go paths and three screenshots/S01-tui-bounded-navigation/*.txt paths declared in touchpoints, with no missing or extra path.",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "git diff --name-only e2e445f0c63e2cf6408755faf259419b5ed621a6 737fb77b3a9a7aba294127a24ec3f7deee11d8a0 -- . ':(exclude)docs/release/2026-07-18-tui-bounded-navigation/**'"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN S02 reaches its implementation head, THE SYSTEM SHALL make every declared rollback touchpoint byte-for-byte and mode-for-mode equal to S01 start commit e2e445f0c63e2cf6408755faf259419b5ed621a6, including absence of all three screenshots, and `git diff --exit-code e2e445f0c63e2cf6408755faf259419b5ed621a6 <implementation-head> -- <all ten touchpoints>` SHALL exit 0.",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "S02 proof.json reachability tree-equality command"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN the exact rollback tree is present, THE SYSTEM SHALL make `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn`, `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...`, `env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...`, and `test -z \"$(/usr/local/go/bin/gofmt -l .)\"` exit 0 without network access, token spend, or a new runtime dependency.",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "S02 proof.json deterministic test results"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN S02 is inspected after implementation, THE SYSTEM SHALL retain S01 as state deferred with maintainability.state re_slice_required, rollback_slice_id S02-tui-bounded-navigation-rollback, the original report ledger unchanged, and verification.result fail; S03-tui-bounded-navigation-replacement SHALL remain planned and SHALL NOT have a start_commit until S02 is freshly verified.",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/status.json",
+        "docs/release/2026-07-18-tui-bounded-navigation/S03-tui-bounded-navigation-replacement/status.json"
+      ]
+    }
+  ]
+}

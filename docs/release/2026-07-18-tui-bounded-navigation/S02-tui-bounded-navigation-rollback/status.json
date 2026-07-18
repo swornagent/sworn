@@ -1,0 +1,73 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-tui-bounded-navigation-rollback",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "track": "T1-tui-bounded-navigation",
+  "covers_needs": [],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-18T23:16:37+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S02-tui-bounded-navigation-rollback/spec.json",
+  "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S02-tui-bounded-navigation-rollback/proof.json",
+  "journal_path": "docs/release/2026-07-18-tui-bounded-navigation/S02-tui-bounded-navigation-rollback/journal.md",
+  "planned_files": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+    "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+  ],
+  "reachability_artifacts": [],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "A mechanically bounded ten-path restoration to immutable Git objects.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A verified rollback prevents failed bounded-navigation bytes from becoming the baseline of their corrected replacement.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-18T23:16:37+10:00",
+    "positive_scenarios": [
+      "Every S01 semantic touchpoint matches its exact start-tree mode, object, or absence before S03 begins."
+    ],
+    "negative_scenarios": [
+      "A partial rollback or retained S01 screenshot cannot pass tree-equality proof."
+    ],
+    "benefit_hypothesis": "A clean verified baseline makes the replacement independently reviewable and prevents failed bytes from inheriting authority."
+  },
+  "design_decisions": []
+}

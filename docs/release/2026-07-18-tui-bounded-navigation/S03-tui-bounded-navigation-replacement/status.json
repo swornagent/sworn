@@ -1,0 +1,120 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-tui-bounded-navigation-replacement",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "track": "T1-tui-bounded-navigation",
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04",
+    "N-05"
+  ],
+  "state": "planned",
+  "owner": "unassigned",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-18T23:16:37+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S03-tui-bounded-navigation-replacement/spec.json",
+  "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S03-tui-bounded-navigation-replacement/proof.json",
+  "journal_path": "docs/release/2026-07-18-tui-bounded-navigation/S03-tui-bounded-navigation-replacement/journal.md",
+  "planned_files": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "screenshots/S03-tui-bounded-navigation-replacement/constrained-releases-loading-older.txt",
+    "screenshots/S03-tui-bounded-navigation-replacement/normal-board-all-loaded.txt",
+    "screenshots/S03-tui-bounded-navigation-replacement/normal-releases-o-older.txt"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+  ],
+  "reachability_artifacts": [],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "A bounded but concurrency- and terminal-layout-sensitive replacement with explicit full-domain proof.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent operator can navigate every loaded release and slice inside a height-bounded TUI without unbounded startup discovery.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-18T23:16:37+10:00",
+    "positive_scenarios": [
+      "A 25-release project starts with ten records and exposes twenty after one explicit older request.",
+      "A short terminal reaches and visibly renders release 25 of 25 and slice 18 of 18 across a track boundary.",
+      "Right/Left and Enter/Esc navigate identical root focus transitions."
+    ],
+    "negative_scenarios": [
+      "Excluded malformed older boards are not parsed before their window is requested.",
+      "A stale smaller-depth result cannot replace the desired larger snapshot.",
+      "A root scrolling test that stops before either final fixture row cannot satisfy AC-04."
+    ],
+    "benefit_hypothesis": "Bounded discovery plus complete root-level reachability evidence keeps the TUI fast and navigable as release history grows."
+  },
+  "design_decisions": [
+    {
+      "choice": "Prime ten releases and grow depth by ten on lowercase o.",
+      "stake_class": "Type-2",
+      "options": [
+        "five records with automatic loading",
+        "ten records with explicit lowercase o",
+        "ten records with PageDown loading"
+      ],
+      "human_decision": "The repository owner ratified the existing ten-record explicit-loading contract through the replacement replan.",
+      "rationale": "The interaction is bounded, predictable, and already represented by focus-specific help.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Measure terminal chrome and use independent cursor-relative pane windows.",
+      "stake_class": "Type-2",
+      "options": [
+        "fixed row deductions",
+        "measured rendered chrome",
+        "render all rows then truncate"
+      ],
+      "human_decision": "The repository owner ratified measured height allocation through the replacement replan.",
+      "rationale": "Measured allocation preserves selection-aware rendering across help and error states.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Retain Enter/Esc and add Right/Left aliases through shared transitions.",
+      "stake_class": "Type-2",
+      "options": [
+        "replace Enter/Esc",
+        "retain only Enter/Esc",
+        "add Right/Left aliases"
+      ],
+      "human_decision": "The repository owner ratified the existing alias contract through the replacement replan.",
+      "rationale": "Spatial navigation improves discoverability without breaking existing keyboard behaviour.",
+      "architecturally_significant": false
+    }
+  ]
+}
