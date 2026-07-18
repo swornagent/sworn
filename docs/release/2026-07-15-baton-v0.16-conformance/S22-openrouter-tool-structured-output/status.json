@@ -9,10 +9,10 @@
     "N-13",
     "N-14"
   ],
-  "state": "in_progress",
+  "state": "blocked",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-18T22:34:24+10:00",
+  "last_updated_at": "2026-07-18T22:55:40+10:00",
   "upstream_gate": {
     "slice_id": "S21-openai-structured-envelope",
     "required_state": "verified",
@@ -110,7 +110,7 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": [],
-    "notes": "Planner corrected the blocked S22 contract after Brad explicitly requested a configured-values recovery. Attempts 1 and 2 remain immutable. The existing implementation does not yet satisfy configured-recovery attempt 3, so S22 returns to the Implementer in failed_verification with verification pending. Fresh design/Captain review, deterministic/proof gates, and one terminal attempt 3 are required; S20 remains blocked."
+    "notes": "Configured-recovery implementation and every deterministic/proof prerequisite passed. The one Coach-authorized terminal attempt 3 used config-selected openrouter/google/gemini-3.5-flash and finalized as parse_failure/UNPARSEABLE/1. Attempt 4 and fallback are prohibited, so S22 requires Planner adjudication; S20 remains blocked."
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Lets the delivered direct OpenRouter path retain its deterministic transport proof while one explicitly governed config-selected verifier attempt can produce durable sanitized lifecycle evidence without weakening the canonical gate, raw-data protections, or S20's independent verification gate.",
@@ -224,6 +224,13 @@
         "full S22 suite, go vet, build, and regenerated proof bundle",
         "fresh Captain design review PROCEED and Coach acknowledgement"
       ],
+      "outcome": {
+        "model_id": "openrouter/google/gemini-3.5-flash",
+        "attempt_class": "parse_failure",
+        "result": "UNPARSEABLE",
+        "process_exit_code": 1,
+        "receipt": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-3.json"
+      },
       "terminal_policy": "every result or error is terminal; no fallback or attempt 4"
     },
     "receipt_allowlist": [

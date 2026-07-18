@@ -1,9 +1,9 @@
 # S22-openrouter-tool-structured-output proof bundle
 
-Pre-dispatch configured-recovery proof. Implementation commit `879456bd` and
-every deterministic prerequisite pass. Historical attempt 2 remains terminal
-under the unchanged classifier; the separately ratified administrative attempt
-3 has not yet run. This is not an `implemented` or verification claim.
+Fail-closed configured-recovery handoff. Implementation commit `879456bd` and
+every deterministic prerequisite passed. The separately ratified terminal
+attempt 3 finalized as `parse_failure/UNPARSEABLE/1`; no fallback or attempt 4
+is authorized. This is not an `implemented` or verification claim.
 
 ## Scope
 
@@ -53,8 +53,9 @@ release integration. The S22 implementation/proof scope within that live diff is
   endpoint proving no provider dispatch.
 - PASS — configured-recovery binding, lifecycle/proof authority, orphan-flag,
   per-field history mutation, different-model, and Planner v2-schema tests.
-- PENDING — the single native configured-recovery attempt 3; no provider
-  request or attempt-3 reservation existed when this proof was regenerated.
+- FAIL CLOSED — the single native configured-recovery attempt 3 used configured
+  `openrouter/google/gemini-3.5-flash` and finalized as `parse_failure`, result
+  `UNPARSEABLE`, exit 1. The strict v2 receipt contains no raw data.
 - EXPECTED UNAVAILABLE — `sworn coverage`; the current binary returns unknown
   command, tracked by `sworn#122` and previously acknowledged by the Coach.
 
@@ -103,19 +104,22 @@ and verifies that only the strict metadata receipt is rendered.
 
 ## Not delivered
 
-- AC-12 configured-recovery attempt 3 is pending. Why: its administrative
-  authority requires this regenerated bundle to be committed before the one
-  provider dispatch. Tracking: S22 AC-12. Acknowledgement: the Coach authorised
-  exactly one config-selected terminal attempt 3, with no fallback or attempt 4.
+- AC-12 did not obtain a valid PASS receipt. Sanitized evidence: configured
+  `openrouter/google/gemini-3.5-flash`, attempt 3, class `parse_failure`, result
+  `UNPARSEABLE`, exit 1. Why: the provider output did not pass local parsing.
+  Tracking: S22 AC-12. Acknowledgement: the Coach authorised exactly one
+  config-selected terminal attempt 3, with no fallback or attempt 4.
 
 ## Sanitized historical receipts
 
 The durable v1 receipts are `receipts/attempt-1.json` and
 `receipts/attempt-2.json`. They remain immutable and metadata-only. Attempt 2
-is `opaque/UNPARSEABLE/2`; its classifier budget is exhausted. The separate v2
-administrative gate has not yet consumed attempt 3, and S20 remains untouched.
+is `opaque/UNPARSEABLE/2`; its classifier budget is exhausted. The v2 receipt
+is `receipts/attempt-3.json`, finalized as `parse_failure/UNPARSEABLE/1`. Every
+dispatch budget is now exhausted, and S20 remains untouched.
 
 ## Divergence from plan
 
-None. The configured-recovery design and Captain pins are implemented as
-acknowledged; the earlier v0.15 identity remains historical provenance only.
+The configured-recovery design and Captain pins were implemented as
+acknowledged, but the only permitted live attempt did not produce a canonical
+PASS. The earlier v0.15 identity remains historical provenance only.

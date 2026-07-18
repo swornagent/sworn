@@ -503,3 +503,19 @@ this is not a fresh verifier verdict.
 - Targeted S22 tests, the full Go suite, `go vet ./...`, `make build`, and the
   exact AC-05/07/08 endpoint-isolation and malformed-tool preservation tests
   all passed. No provider request or attempt-3 receipt has occurred yet.
+
+## 2026-07-18T22:55:40+10:00 — Terminal configured recovery failed closed
+
+- Committed regenerated proof authority at `1581449d`, then invoked the exact
+  native `--proof-receipt --configured-recovery` command once with no model
+  override. The config-selected model was
+  `openrouter/google/gemini-3.5-flash`; historical GLM receipts remained
+  unchanged.
+- Atomic attempt 3 finalized in the strict metadata-only v2 receipt as class
+  `parse_failure`, result `UNPARSEABLE`, process exit 1. The conservative
+  reservation existed while the request was in flight, and the receipt lock
+  cleared on finalization. No raw provider data was retained or surfaced.
+- The attempt is terminal under the ratified administrative policy. No retry,
+  fallback, provider/model switch, config mutation, or attempt 4 occurred or is
+  authorized. AC-12 therefore lacks its required PASS receipt and the slice is
+  blocked for Planner adjudication; S20 remains untouched.

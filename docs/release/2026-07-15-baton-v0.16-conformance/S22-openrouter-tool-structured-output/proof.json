@@ -40,7 +40,8 @@
     {"command":"GOFLAGS=-buildvcs=false make build","passed":true,"exit_code":0},
     {"command":"GOFLAGS=-buildvcs=false go test ./cmd/sworn -run 'TestLLMCheck(OpenRouterToolStructuredBinaryReachability|ProofReceiptBinaryReachability)$' -count=1 -v","passed":true,"exit_code":0},
     {"command":"git diff <immutable-start>..HEAD | SWORN_DIRECT=1 OPENROUTER_API_KEY=synthetic SWORN_OPENROUTER_BASE_URL=http://127.0.0.1:1 bin/sworn verify --verifier-model openrouter/z-ai/glm-5.2 --spec <S22 spec> --diff - --proof <S22 proof>","passed":true,"exit_code":0},
-    {"command":"SWORN_DIRECT=1 bin/sworn llm-check --proof-receipt --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model openrouter/z-ai/glm-5.2 --base <immutable-start> --json","passed":false,"exit_code":2}
+    {"command":"SWORN_DIRECT=1 bin/sworn llm-check --proof-receipt --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model openrouter/z-ai/glm-5.2 --base <immutable-start> --json","passed":false,"exit_code":2},
+    {"command":"SWORN_DIRECT=1 bin/sworn llm-check --proof-receipt --configured-recovery --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --base <immutable-start> --json","passed":false,"exit_code":1}
   ],
   "reachability": {
     "type": "e2e-test",
@@ -60,7 +61,7 @@
   "not_delivered": [
     {
       "item": "AC-12 valid PASS receipt from the authorised native configured-recovery attempt 3",
-      "why": "Attempt 2 remains terminal under the unchanged classifier. The separately ratified configured-recovery-v2 administrative attempt is pending this committed regenerated proof authority; it will be invoked once with no fallback or attempt 4.",
+      "why": "The one config-selected attempt 3 finalized as sanitized class parse_failure, result UNPARSEABLE, exit 1. It is terminal; fallback and attempt 4 are prohibited.",
       "tracking": "S22-openrouter-tool-structured-output AC-12",
       "acknowledged": true
     },

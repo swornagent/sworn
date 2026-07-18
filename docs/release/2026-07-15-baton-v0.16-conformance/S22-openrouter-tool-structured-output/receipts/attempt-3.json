@@ -1,0 +1,13 @@
+{
+  "$schema": "https://swornagent.dev/schemas/llm-check-proof-receipt-v2.json",
+  "record_version": 2,
+  "release": "2026-07-15-baton-v0.16-conformance",
+  "slice_id": "S22-openrouter-tool-structured-output",
+  "check_type": "spec-ambiguity",
+  "model_id": "openrouter/google/gemini-3.5-flash",
+  "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b",
+  "attempt": 3,
+  "attempt_class": "parse_failure",
+  "result": "UNPARSEABLE",
+  "process_exit_code": 1
+}
