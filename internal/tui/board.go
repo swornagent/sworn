@@ -56,6 +56,7 @@ type BoardView struct {
 	// SortMode controls track display order in View(): "" (zero value) is
 	// declaration order; trackSortDeps is dependency order.
 	SortMode string
+	Height   int
 }
 
 // trackSortDeps is the BoardView.SortMode value for dependency-order display.
@@ -316,21 +317,22 @@ func (b *BoardView) View() string {
 			EmptyMessage.Render("Select a release from the left pane")
 	}
 
-	var sb strings.Builder
 	title := "Board: " + b.ReleaseName
 	if b.SortMode == trackSortDeps {
 		title += "  (sorted: dependency order)"
 	} else {
 		title += "  (sorted: declaration order)"
 	}
-	sb.WriteString(BoardTitle.Render(title))
-	sb.WriteString("\n\n")
-
 	if len(b.Tracks) == 0 {
-		sb.WriteString(EmptyMessage.Render("No tracks defined"))
-		return sb.String()
+		return BoardTitle.Render(title) + "\n" + EmptyMessage.Render("No tracks defined")
 	}
 
+	lines := make([]string, 0, len(b.orderedSlices)+len(b.Tracks)*2)
+	selectedLine := 0
+	selectedID := ""
+	if b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) {
+		selectedID = b.orderedSlices[b.Cursor]
+	}
 	for _, track := range b.displayTracks() {
 		stateCol := StateColor(track.State)
 		header := fmt.Sprintf("▸ %s  [%s]", track.ID, stateCol)
@@ -340,8 +342,7 @@ func (b *BoardView) View() string {
 		if b.MergeActive[track.ID] {
 			header += " " + MergeBadge.Render("⟪merge⟫")
 		}
-		sb.WriteString(TrackHeader.Render(header))
-		sb.WriteString("\n")
+		lines = append(lines, TrackHeader.Render(header))
 		for _, sliceID := range track.Slices {
 			si, ok := b.Slices[sliceID]
 			if !ok {
@@ -354,13 +355,35 @@ func (b *BoardView) View() string {
 				line += " [uncommitted]"
 			}
 			if len(b.orderedSlices) > 0 && b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) && b.orderedSlices[b.Cursor] == sliceID {
-				sb.WriteString(BoardItemSelected.Render("▸" + line[1:]))
+				selectedLine = len(lines)
+				lines = append(lines, BoardItemSelected.Render("▸"+line[1:]))
 			} else {
-				sb.WriteString(SliceItem.Render(line))
+				lines = append(lines, SliceItem.Render(line))
 			}
+		}
+		lines = append(lines, "")
+	}
+	if b.Height > 0 && len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if selectedID == "" {
+		selectedLine = 0
+	}
+
+	if b.Height > 0 {
+		budget := max(0, b.Height-1)
+		start, end := cursorWindow(len(lines), selectedLine, budget)
+		lines = lines[start:end]
+	}
+
+	var sb strings.Builder
+	sb.WriteString(BoardTitle.Render(title))
+	if len(lines) > 0 {
+		sb.WriteString("\n")
+		if b.Height == 0 {
 			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
+		sb.WriteString(strings.Join(lines, "\n"))
 	}
 
 	return sb.String()

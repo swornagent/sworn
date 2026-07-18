@@ -24,8 +24,11 @@ type ReleaseInfo struct {
 // ReleasesList is a Bubble Tea component embedded in the root model.
 // It holds all discovered releases and a cursor for navigation.
 type ReleasesList struct {
-	Releases []ReleaseInfo
-	Cursor   int
+	Releases     []ReleaseInfo
+	Cursor       int
+	Height       int
+	HasOlder     bool
+	LoadingOlder bool
 
 	// Width is the pane box width (from Model.View via paneWidths). When > 0
 	// each release label is ellipsis-truncated to fit the pane on one line
@@ -48,6 +51,30 @@ func (r *ReleasesList) LoadReleases(repoRoot string) error {
 	releases, err := releaseInfosFromCatalog(catalog)
 
 	r.Releases = releases
+	if r.Cursor >= len(r.Releases) {
+		r.Cursor = len(r.Releases) - 1
+	}
+	if r.Cursor < 0 {
+		r.Cursor = 0
+	}
+	return err
+}
+
+// LoadReleaseWindow primes the TUI from a bounded board-owned snapshot.
+func (r *ReleasesList) LoadReleaseWindow(repoRoot string, limit int) error {
+	window, err := board.DiscoverCatalogWindow(git.New(repoRoot), limit)
+	if err != nil {
+		return err
+	}
+	return r.InstallWindow(window)
+}
+
+// InstallWindow replaces the list from one immutable bounded snapshot.
+func (r *ReleasesList) InstallWindow(window board.CatalogWindow) error {
+	releases, err := releaseInfosFromCatalog(window.Records)
+	r.Releases = releases
+	r.HasOlder = window.HasOlder
+	r.LoadingOlder = false
 	if r.Cursor >= len(r.Releases) {
 		r.Cursor = len(r.Releases) - 1
 	}
@@ -120,10 +147,7 @@ func (r *ReleasesList) View() string {
 			EmptyMessage.Render("No releases found")
 	}
 
-	var b strings.Builder
-	b.WriteString(ReleaseListTitle.Render("Releases"))
-	b.WriteString("\n")
-
+	rows := make([]string, 0, len(r.Releases))
 	for i, rel := range r.Releases {
 		stateStr := rel.AggregatedState()
 		label := fmt.Sprintf("%s  %s (%d tracks, %s)",
@@ -142,11 +166,57 @@ func (r *ReleasesList) View() string {
 			label = ansi.Truncate(label, budget, "…")
 		}
 		if i == r.Cursor {
-			b.WriteString(ReleaseItemSelected.Render("▸ " + label))
+			rows = append(rows, ReleaseItemSelected.Render("▸ "+label))
 		} else {
-			b.WriteString(ReleaseItem.Render("  " + label))
+			rows = append(rows, ReleaseItem.Render("  "+label))
 		}
+	}
+
+	footer := "all releases loaded"
+	if r.LoadingOlder {
+		footer = "loading older"
+	} else if r.HasOlder {
+		footer = "o older"
+	}
+	if r.Height > 0 {
+		rowBudget := max(0, r.Height-2) // title + footer
+		start, end := cursorWindow(len(rows), r.Cursor, rowBudget)
+		rows = rows[start:end]
+	}
+
+	var b strings.Builder
+	b.WriteString(ReleaseListTitle.Render("Releases"))
+	if r.Height == 1 {
+		return b.String()
+	}
+	if len(rows) > 0 {
 		b.WriteString("\n")
+		b.WriteString(strings.Join(rows, "\n"))
+		if r.Height == 0 {
+			b.WriteString("\n")
+		}
+	}
+	if r.Height >= 2 {
+		b.WriteString("\n")
+		b.WriteString(EmptyMessage.Render(footer))
 	}
 	return b.String()
+}
+
+func cursorWindow(length, cursor, budget int) (int, int) {
+	if budget <= 0 || length == 0 {
+		return 0, 0
+	}
+	if budget >= length {
+		return 0, length
+	}
+	cursor = max(0, min(cursor, length-1))
+	start := cursor - budget/2
+	if start < 0 {
+		start = 0
+	}
+	if start+budget > length {
+		start = length - budget
+	}
+	return start, start + budget
 }

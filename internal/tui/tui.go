@@ -42,15 +42,18 @@ func newRootModel(version string) (*Model, error) {
 	}
 
 	m := &Model{
-		state:    viewReleases,
-		repoRoot: repoRoot,
-		Version:  version,
-		Releases: &ReleasesList{},
-		Board:    &BoardView{},
+		state:                viewReleases,
+		repoRoot:             repoRoot,
+		Version:              version,
+		Releases:             &ReleasesList{},
+		Board:                &BoardView{},
+		desiredCatalogLimit:  initialCatalogLimit,
+		acceptedCatalogLimit: initialCatalogLimit,
 	}
 
-	// Load releases before starting.
-	if err := m.Releases.LoadReleases(repoRoot); err != nil {
+	// Prime only the newest bounded catalog before starting. Complete catalog
+	// discovery remains available to CLI and automation callers.
+	if err := m.Releases.LoadReleaseWindow(repoRoot, initialCatalogLimit); err != nil {
 		m.errMsg = err.Error()
 	}
 

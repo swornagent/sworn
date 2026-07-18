@@ -1,7 +1,9 @@
 package board
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,6 +81,106 @@ func TestDiscoverCatalogFilesystemFallbackWithoutUsableHead(t *testing.T) {
 	if ss.ID != "S01-alpha" || ss.State != "verified" || ss.StateSource != "working-tree" || ss.StateDurability != "uncommitted" {
 		t.Fatalf("alpha state = %+v", ss)
 	}
+}
+
+func TestDiscoverCatalogWindowBoundsMaterializedReleases(t *testing.T) {
+	root, releases := writeGitCatalogFixture(t, 25)
+	repo := gitpkg.New(root)
+
+	window, err := DiscoverCatalogWindow(repo, 10)
+	if err != nil {
+		t.Fatalf("DiscoverCatalogWindow(10): %v", err)
+	}
+	if !window.HasOlder {
+		t.Fatal("HasOlder = false, want true")
+	}
+	if got, want := strings.Join(catalogReleaseIDs(window.Records), ","), strings.Join(releases[15:], ","); got != want {
+		t.Fatalf("window releases = %s, want %s", got, want)
+	}
+
+	window, err = DiscoverCatalogWindow(repo, 20)
+	if err != nil {
+		t.Fatalf("DiscoverCatalogWindow(20): %v", err)
+	}
+	if got, want := strings.Join(catalogReleaseIDs(window.Records), ","), strings.Join(releases[5:], ","); got != want {
+		t.Fatalf("window releases = %s, want %s", got, want)
+	}
+
+	complete, err := DiscoverCatalog(repo)
+	if err != nil {
+		t.Fatalf("DiscoverCatalog: %v", err)
+	}
+	if got, want := strings.Join(catalogReleaseIDs(complete), ","), strings.Join(releases, ","); got != want {
+		t.Fatalf("complete releases = %s, want %s", got, want)
+	}
+}
+
+func TestDiscoverCatalogWindowDefersExcludedCanonicalValidation(t *testing.T) {
+	root, releases := writeGitCatalogFixture(t, 25)
+	malformed := releases[9]
+	boardPath := filepath.Join(root, "docs", "release", malformed, "board.json")
+	if err := os.WriteFile(boardPath, []byte(`{"release":{"name":"wrong-release"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "malform excluded canonical board")
+	for _, release := range releases {
+		runGit(t, root, "branch", "-f", "release-wt/"+release, "HEAD")
+	}
+
+	window, err := DiscoverCatalogWindow(gitpkg.New(root), 10)
+	if err != nil {
+		t.Fatalf("newest 10 parsed excluded malformed board: %v", err)
+	}
+	if got := len(window.Records); got != 10 {
+		t.Fatalf("newest window size = %d, want 10", got)
+	}
+
+	if _, err := DiscoverCatalogWindow(gitpkg.New(root), 20); err == nil || !strings.Contains(err.Error(), malformed) {
+		t.Fatalf("larger window error = %v, want canonical failure for %s", err, malformed)
+	}
+	if _, err := DiscoverCatalog(gitpkg.New(root)); err == nil || !strings.Contains(err.Error(), malformed) {
+		t.Fatalf("complete catalog error = %v, want canonical failure for %s", err, malformed)
+	}
+}
+
+func TestDiscoverCatalogWindowRejectsNonPositiveLimit(t *testing.T) {
+	if _, err := DiscoverCatalogWindow(gitpkg.New(t.TempDir()), 0); err == nil {
+		t.Fatal("expected non-positive limit error")
+	}
+}
+
+func writeGitCatalogFixture(t *testing.T, count int) (string, []string) {
+	t.Helper()
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+
+	releases := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		release := fmt.Sprintf("2026-01-%02d-release", i)
+		sliceID := fmt.Sprintf("S%02d-slice", i)
+		releases = append(releases, release)
+		writeFilesystemCatalogFixture(t, root, release, "T1-core", sliceID, "planned")
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "catalog fixture")
+	for _, release := range releases {
+		runGit(t, root, "branch", "release-wt/"+release, "HEAD")
+	}
+	return root, releases
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func writeFilesystemCatalogFixture(t *testing.T, root, release, track, sliceID, sliceState string) {

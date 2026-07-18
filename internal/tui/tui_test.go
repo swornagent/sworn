@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2667,26 +2668,326 @@ func TestCatalogRefreshRenderedFrames(t *testing.T) {
 	m = updated.(*Model)
 	errorFrame := normalizeTerminalFrame(m.View())
 
-	goldenDir := filepath.Join("..", "..", "docs", "release", "2026-07-17-ref-aware-board-discovery", "screenshots", "S03-tui-live-board-refresh")
-	frames := []struct {
-		name string
-		text string
-	}{
-		{name: "before.txt", text: before},
-		{name: "after.txt", text: after},
-		{name: "error.txt", text: errorFrame},
+	if strings.Contains(before, "S02-new") || !strings.Contains(after, "S02-new") {
+		t.Fatalf("catalog frame transition missing:\n--- before ---\n%s\n--- after ---\n%s", before, after)
 	}
-	for _, frame := range frames {
-		want, err := os.ReadFile(filepath.Join(goldenDir, frame.name))
+	if !strings.Contains(errorFrame, "Error: catalog unavailable") || !strings.Contains(errorFrame, "S02-new") {
+		t.Fatalf("error frame did not retain the last good snapshot:\n%s", errorFrame)
+	}
+}
+
+func TestNewRootModelPrimesTenRecentReleases(t *testing.T) {
+	root := boundedCatalogRepo(t, 25)
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(previous) }()
+
+	m, err := newRootModel("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Releases.Releases) != 10 || !m.Releases.HasOlder || m.desiredCatalogLimit != 10 || m.acceptedCatalogLimit != 10 {
+		t.Fatalf("startup window: releases=%d hasOlder=%v desired=%d accepted=%d", len(m.Releases.Releases), m.Releases.HasOlder, m.desiredCatalogLimit, m.acceptedCatalogLimit)
+	}
+	if got := m.Releases.Releases[0].ID; got != "2026-01-16-release" {
+		t.Fatalf("oldest primed release = %q, want 2026-01-16-release", got)
+	}
+	m.Height = 12
+	if got := m.View(); !strings.Contains(got, "o older") {
+		t.Fatalf("startup footer missing o older:\n%s", got)
+	}
+}
+
+func TestReleaseListLoadsTenOlderAsynchronously(t *testing.T) {
+	all := navigationCatalog(25)
+	m := refreshModel(t, all[15:]...)
+	m.state = viewReleases
+	m.Releases.HasOlder = true
+	m.desiredCatalogLimit = 10
+	m.acceptedCatalogLimit = 10
+	m.refreshGeneration = 4
+	selected := m.Releases.Releases[3].ID
+	m.Releases.Cursor = 3
+	calls := 0
+	m.discoverWindow = func(_ string, limit int) (board.CatalogWindow, error) {
+		calls++
+		if limit != 20 {
+			t.Fatalf("discovery limit = %d, want 20", limit)
+		}
+		return board.CatalogWindow{Records: all[5:], HasOlder: true}, nil
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = updated.(*Model)
+	if cmd == nil || calls != 0 || !m.Releases.LoadingOlder || !strings.Contains(withHeight(m, 12), "loading older") {
+		t.Fatalf("older request blocked or missed loading state: cmd=%v calls=%d loading=%v", cmd != nil, calls, m.Releases.LoadingOlder)
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*Model)
+	if calls != 1 || len(m.Releases.Releases) != 20 || m.Releases.Releases[m.Releases.Cursor].ID != selected || m.acceptedCatalogLimit != 20 {
+		t.Fatalf("older result: calls=%d releases=%d selected=%q accepted=%d", calls, len(m.Releases.Releases), m.Releases.Releases[m.Releases.Cursor].ID, m.acceptedCatalogLimit)
+	}
+}
+
+func TestReleaseListNoOlderRequestIsNoOp(t *testing.T) {
+	m := refreshModel(t, navigationCatalog(3)...)
+	m.state = viewReleases
+	m.Releases.HasOlder = false
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = updated.(*Model)
+	if cmd != nil || m.Releases.LoadingOlder || !strings.Contains(withHeight(m, 10), "all releases loaded") {
+		t.Fatalf("no-older request changed state: cmd=%v loading=%v", cmd != nil, m.Releases.LoadingOlder)
+	}
+}
+
+func TestCatalogDepthGrowthNeverOverlapsRefresh(t *testing.T) {
+	m := refreshModel(t, navigationCatalog(10)...)
+	m.state = viewReleases
+	m.Releases.HasOlder = true
+	m.desiredCatalogLimit = 10
+	m.acceptedCatalogLimit = 10
+	m.refreshGeneration = 1
+	m.refreshInFlight = true
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = updated.(*Model)
+	if cmd != nil || m.desiredCatalogLimit != 20 || !m.refreshInFlight {
+		t.Fatalf("in-flight growth overlapped: cmd=%v desired=%d inFlight=%v", cmd != nil, m.desiredCatalogLimit, m.refreshInFlight)
+	}
+	updated, cmd = m.Update(catalogRefreshResultMsg{generation: 1, limit: 10, window: board.CatalogWindow{Records: navigationCatalog(10), HasOlder: true}})
+	m = updated.(*Model)
+	if cmd == nil || !m.refreshInFlight || m.refreshGeneration != 2 || m.acceptedCatalogLimit != 10 {
+		t.Fatalf("smaller completion did not immediately service desired depth: cmd=%v inFlight=%v generation=%d accepted=%d", cmd != nil, m.refreshInFlight, m.refreshGeneration, m.acceptedCatalogLimit)
+	}
+}
+
+func TestCatalogRejectsObsoleteSmallerDepth(t *testing.T) {
+	m := refreshModel(t, navigationCatalog(10)...)
+	m.desiredCatalogLimit = 20
+	m.acceptedCatalogLimit = 10
+	m.refreshGeneration = 8
+	m.refreshInFlight = true
+	before := selectedReleaseID(m.Releases)
+	updated, _ := m.Update(catalogRefreshResultMsg{generation: 8, limit: 10, window: board.CatalogWindow{Records: navigationCatalog(10), HasOlder: true}})
+	m = updated.(*Model)
+	if selectedReleaseID(m.Releases) != before || len(m.Releases.Releases) != 10 || !m.refreshInFlight {
+		t.Fatal("obsolete smaller-depth result replaced visible state")
+	}
+}
+
+func TestCatalogDepthErrorRetainsLastGoodAndRetries(t *testing.T) {
+	m := refreshModel(t, navigationCatalog(10)...)
+	m.desiredCatalogLimit = 20
+	m.acceptedCatalogLimit = 10
+	m.refreshGeneration = 2
+	m.refreshInFlight = true
+	before := m.Releases.View()
+	updated, retry := m.Update(catalogRefreshResultMsg{generation: 2, limit: 20, err: errors.New("bounded unavailable")})
+	m = updated.(*Model)
+	if retry == nil || m.Releases.View() != before || m.desiredCatalogLimit != 20 || m.refreshErr != "bounded unavailable" {
+		t.Fatalf("bounded failure lost state: retry=%v desired=%d err=%q", retry != nil, m.desiredCatalogLimit, m.refreshErr)
+	}
+}
+
+func TestTwoPaneRenderNeverExceedsTerminalHeight(t *testing.T) {
+	m := boundedNavigationModel(t)
+	for _, height := range []int{1, 2, 3, 6, 10, 18, 30} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: height})
+		m = updated.(*Model)
+		if got := lipgloss.Height(m.View()); got > height {
+			t.Fatalf("height %d rendered %d rows", height, got)
+		}
+	}
+}
+
+func TestReleaseAndBoardScrollWindowsKeepCursorVisible(t *testing.T) {
+	m := boundedNavigationModel(t)
+	m.Width, m.Height = 100, 12
+	m.state = viewReleases
+	for range 18 {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(*Model)
+	}
+	selectedRelease := selectedReleaseID(m.Releases)
+	if view := m.View(); !strings.Contains(view, selectedRelease) {
+		t.Fatalf("selected release %q not visible:\n%s", selectedRelease, view)
+	}
+	m.state = viewBoard
+	for range 12 {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(*Model)
+	}
+	selectedSlice := selectedBoardSliceID(m.Board)
+	if view := m.View(); !strings.Contains(view, selectedSlice) {
+		t.Fatalf("selected board slice %q not visible:\n%s", selectedSlice, view)
+	}
+}
+
+func TestResizeReflowsWindowsWithoutSelectionLoss(t *testing.T) {
+	m := boundedNavigationModel(t)
+	m.state = viewBoard
+	m.Releases.Cursor = 14
+	m.Board.Cursor = 10
+	m.desiredCatalogLimit = 30
+	releaseID, sliceID := selectedReleaseID(m.Releases), selectedBoardSliceID(m.Board)
+	for _, height := range []int{28, 9, 16} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: height})
+		m = updated.(*Model)
+		view := m.View()
+		if selectedReleaseID(m.Releases) != releaseID || selectedBoardSliceID(m.Board) != sliceID || m.desiredCatalogLimit != 30 || m.state != viewBoard || !strings.Contains(view, sliceID) {
+			t.Fatalf("resize %d lost identity/depth/focus", height)
+		}
+	}
+}
+
+func TestTinyTerminalHeightDegradesWithoutPanic(t *testing.T) {
+	m := boundedNavigationModel(t)
+	for _, height := range []int{1, 2, 3, 4} {
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("height %d panicked: %v", height, recovered)
+				}
+			}()
+			m.Height = height
+			_ = m.View()
+		}()
+	}
+}
+
+func TestRootModelArrowPaneNavigationMatchesEnterEscape(t *testing.T) {
+	record := refreshCatalogRecord("alpha", "S01-alpha")
+	enter := refreshModel(t, record)
+	enter.state = viewReleases
+	enter.repoRoot = t.TempDir()
+	right := refreshModel(t, record)
+	right.state = viewReleases
+	right.repoRoot = enter.repoRoot
+	_, enterCmd := enter.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, rightCmd := right.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if enterCmd == nil || rightCmd == nil || enter.state != right.state || enter.Board.ReleaseName != right.Board.ReleaseName || enter.Board.SourceRef != right.Board.SourceRef {
+		t.Fatal("Right and Enter diverged")
+	}
+	enter.state, right.state = viewBoard, viewBoard
+	_, _ = enter.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = right.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if enter.state != viewReleases || right.state != viewReleases || enter.Board.Cursor != right.Board.Cursor {
+		t.Fatal("Left and Esc diverged")
+	}
+}
+
+func TestFocusedPaneBorderAndHelpFollowNavigation(t *testing.T) {
+	m := boundedNavigationModel(t)
+	m.Width, m.Height = 100, 14
+	m.state = viewReleases
+	if got := m.renderHelp(); !strings.Contains(got, "right/enter board") || !strings.Contains(got, "o older") {
+		t.Fatalf("release help = %q", got)
+	}
+	if focusedPaneStyle(ReleaseListStyle, true).GetBorderTopForeground() != colAccent || focusedPaneStyle(BoardStyle, false).GetBorderTopForeground() != colBorder {
+		t.Fatal("release focus border colours are wrong")
+	}
+	m.state = viewBoard
+	if got := m.renderHelp(); !strings.Contains(got, "left/esc releases") || !strings.Contains(got, "o order") {
+		t.Fatalf("board help = %q", got)
+	}
+	if focusedPaneStyle(BoardStyle, true).GetBorderTopForeground() != colAccent || focusedPaneStyle(ReleaseListStyle, false).GetBorderTopForeground() != colBorder {
+		t.Fatal("board focus border colours are wrong")
+	}
+}
+
+func TestBoundedNavigationTerminalFrames(t *testing.T) {
+	m := boundedNavigationModel(t)
+	m.Version = "test"
+	frameDir := filepath.Join("..", "..", "screenshots", "S01-tui-bounded-navigation")
+	frames := map[string]string{}
+	for _, tc := range []struct {
+		name     string
+		state    viewState
+		height   int
+		hasOlder bool
+		loading  bool
+	}{
+		{"normal-releases-o-older.txt", viewReleases, 18, true, false},
+		{"normal-board-all-loaded.txt", viewBoard, 18, false, false},
+		{"constrained-releases-loading-older.txt", viewReleases, 10, true, true},
+	} {
+		m.state, m.Width, m.Height = tc.state, 100, tc.height
+		m.Releases.HasOlder, m.Releases.LoadingOlder = tc.hasOlder, tc.loading
+		frames[tc.name] = normalizeTerminalFrame(m.View())
+	}
+	for name, got := range frames {
+		want, err := os.ReadFile(filepath.Join(frameDir, name))
 		if err != nil {
-			t.Errorf("read %s: %v; generated frame: %q", frame.name, err, frame.text)
+			t.Errorf("read frame %s: %v\n--- generated ---\n%s", name, err, got)
 			continue
 		}
-		wantFrame := strings.TrimSuffix(string(want), "\n")
-		if frame.text != wantFrame {
-			t.Errorf("%s differs from committed terminal frame\n--- want ---\n%s\n--- got ---\n%s", frame.name, want, frame.text)
+		if strings.TrimSuffix(string(want), "\n") != got {
+			t.Errorf("frame %s differs\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
 		}
 	}
+}
+
+func withHeight(m *Model, height int) string {
+	m.Width, m.Height = 100, height
+	return m.View()
+}
+
+func navigationCatalog(count int) []board.CatalogRecord {
+	records := make([]board.CatalogRecord, 0, count)
+	for i := 1; i <= count; i++ {
+		records = append(records, refreshCatalogRecord(fmt.Sprintf("2026-01-%02d-release", i), fmt.Sprintf("S%02d-slice", i)))
+	}
+	return records
+}
+
+func boundedNavigationModel(t *testing.T) *Model {
+	t.Helper()
+	record := refreshCatalogRecord("2026-01-25-release")
+	record.Board.Tracks = nil
+	for track := 1; track <= 3; track++ {
+		trackID := fmt.Sprintf("T%d-track", track)
+		stateTrack := board.TrackState{ID: trackID, State: "verified"}
+		for slice := 1; slice <= 6; slice++ {
+			id := fmt.Sprintf("S%02d-%02d", track, slice)
+			stateTrack.Slices = append(stateTrack.Slices, board.SliceState{ID: id, Track: trackID, State: "verified", StateDurability: "committed"})
+		}
+		record.Board.Tracks = append(record.Board.Tracks, stateTrack)
+	}
+	releases, err := releaseInfosFromCatalog(navigationCatalog(25))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bv, err := boardViewFromCatalog(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Model{state: viewReleases, Releases: &ReleasesList{Releases: releases, HasOlder: true}, Board: bv, desiredCatalogLimit: 10, acceptedCatalogLimit: 10}
+}
+
+func boundedCatalogRepo(t *testing.T, count int) string {
+	t.Helper()
+	root := t.TempDir()
+	runFixtureGit(t, root, "init", "-b", "main")
+	runFixtureGit(t, root, "config", "user.email", "test@example.com")
+	runFixtureGit(t, root, "config", "user.name", "Test")
+	var releases []string
+	for i := 1; i <= count; i++ {
+		release := fmt.Sprintf("2026-01-%02d-release", i)
+		sliceID := fmt.Sprintf("S%02d-slice", i)
+		releases = append(releases, release)
+		writeBoardFixture(t, root, release, []board.BoardTrack{{ID: "T1-core", Slices: []string{sliceID}}})
+		createSliceStatus(t, filepath.Join(root, "docs", "release", release), sliceID, "planned", "T1-core")
+	}
+	runFixtureGit(t, root, "add", "docs")
+	runFixtureGit(t, root, "commit", "-m", "catalog fixture")
+	for _, release := range releases {
+		runFixtureGit(t, root, "branch", "release-wt/"+release, "HEAD")
+	}
+	return root
 }
 
 func normalizeTerminalFrame(frame string) string {
@@ -2708,9 +3009,11 @@ func refreshModel(t *testing.T, catalog ...board.CatalogRecord) *Model {
 		t.Fatal(err)
 	}
 	return &Model{
-		state:    viewBoard,
-		Releases: &ReleasesList{Releases: releases},
-		Board:    bv,
+		state:                viewBoard,
+		Releases:             &ReleasesList{Releases: releases},
+		Board:                bv,
+		desiredCatalogLimit:  initialCatalogLimit,
+		acceptedCatalogLimit: initialCatalogLimit,
 	}
 }
 

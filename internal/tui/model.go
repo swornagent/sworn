@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,7 +11,11 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 )
 
-const catalogRefreshInterval = 5 * time.Second
+const (
+	catalogRefreshInterval = 5 * time.Second
+	initialCatalogLimit    = 10
+	catalogLimitIncrement  = 10
+)
 
 type catalogRefreshDueMsg struct {
 	generation uint64
@@ -18,8 +23,12 @@ type catalogRefreshDueMsg struct {
 
 type catalogRefreshResultMsg struct {
 	generation uint64
-	catalog    []board.CatalogRecord
-	err        error
+	limit      int
+	window     board.CatalogWindow
+	// catalog is retained for deterministic legacy tests that inject complete
+	// snapshots; production commands always populate window.
+	catalog []board.CatalogRecord
+	err     error
 }
 
 // viewState is the root model's state machine.
@@ -57,9 +66,12 @@ type Model struct {
 	// Catalog refresh is a serial completion-relative chain. generation names
 	// the sole requested/accepted transaction and refreshInFlight prevents a
 	// duplicate due message from starting overlapping discovery.
-	refreshGeneration uint64
-	refreshInFlight   bool
-	discoverCatalog   func(string) ([]board.CatalogRecord, error)
+	refreshGeneration    uint64
+	refreshInFlight      bool
+	discoverCatalog      func(string) ([]board.CatalogRecord, error)
+	discoverWindow       func(string, int) (board.CatalogWindow, error)
+	desiredCatalogLimit  int
+	acceptedCatalogLimit int
 
 	// Credit balance (loaded at startup from ~/.config/sworn/credits.json).
 	creditBalance string
@@ -106,6 +118,9 @@ func (m *Model) Init() tea.Cmd {
 	if m.refreshGeneration == 0 {
 		m.refreshGeneration = 1
 	}
+	if m.desiredCatalogLimit == 0 {
+		m.desiredCatalogLimit = initialCatalogLimit
+	}
 	return scheduleCatalogRefreshCmd(m.refreshGeneration)
 }
 
@@ -148,15 +163,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.refreshInFlight = true
-		return m, discoverCatalogCmd(m.repoRoot, msg.generation, m.discoverCatalog)
+		m.Releases.LoadingOlder = m.desiredCatalogLimit > m.acceptedCatalogLimit
+		return m, discoverCatalogWindowCmd(m.repoRoot, msg.generation, m.desiredCatalogLimit, m.discoverWindow, m.discoverCatalog)
 	case catalogRefreshResultMsg:
+		limit := msg.limit
+		if limit <= 0 {
+			limit = m.desiredCatalogLimit
+			if limit <= 0 {
+				limit = initialCatalogLimit
+				m.desiredCatalogLimit = limit
+			}
+		}
+		window := msg.window
+		if window.Records == nil && msg.catalog != nil {
+			window.Records = msg.catalog
+		}
 		if msg.generation != m.refreshGeneration || !m.refreshInFlight {
 			return m, nil
 		}
 		m.refreshInFlight = false
+		if limit < m.desiredCatalogLimit {
+			m.refreshGeneration++
+			m.refreshInFlight = true
+			m.Releases.LoadingOlder = true
+			return m, discoverCatalogWindowCmd(m.repoRoot, m.refreshGeneration, m.desiredCatalogLimit, m.discoverWindow, m.discoverCatalog)
+		}
+		m.Releases.LoadingOlder = false
 		if msg.err != nil {
 			m.refreshErr = msg.err.Error()
-		} else if err := m.applyCatalogRefresh(msg.catalog); err != nil {
+		} else if err := m.applyCatalogRefresh(window, limit); err != nil {
 			m.refreshErr = err.Error()
 		} else {
 			m.refreshErr = ""
@@ -179,6 +214,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		msg.board.Loading = false
+		msg.board.Height = m.Board.Height
 		m.Board = msg.board
 		return m, nil
 	case gatesLoadedMsg:
@@ -212,22 +248,22 @@ func (m *Model) View() string {
 		body += "\n" + m.renderCreditBar()
 		body = m.appendRootErrors(body)
 		help := m.renderHelp()
-		return body + "\n" + help
+		return m.boundHeight(body + "\n" + help)
 	}
 
 	// Log view replaces the two-pane layout entirely.
 	if m.state == viewLog && m.Log != nil {
-		return m.appendRootErrors(m.Log.View()) + "\n" + m.renderHelp()
+		return m.boundHeight(m.appendRootErrors(m.Log.View()) + "\n" + m.renderHelp())
 	}
 
 	// Blocked view replaces the two-pane layout entirely.
 	if m.state == viewBlocked && m.Blocked != nil {
-		return m.appendRootErrors(m.Blocked.View())
+		return m.boundHeight(m.appendRootErrors(m.Blocked.View()))
 	}
 
 	// Settings view replaces the two-pane layout entirely.
 	if m.state == viewSettings && m.Settings != nil {
-		return m.appendRootErrors(m.Settings.View())
+		return m.boundHeight(m.appendRootErrors(m.Settings.View()))
 	}
 	// Size the two panes from the real terminal width (S03). paneWidths
 	// reserves the border columns and floors the left pane; ReleasesList.View
@@ -238,31 +274,74 @@ func (m *Model) View() string {
 	} else {
 		m.Releases.Width = 0
 	}
+	header := m.renderHeader()
+	help := m.renderHelp()
+	errors := m.renderRootErrors()
+	contentHeight := 0
+	if m.Height > 0 {
+		separators := 2
+		if errors != "" {
+			separators++
+		}
+		contentHeight = max(0, m.Height-lipgloss.Height(header)-lipgloss.Height(help)-lipgloss.Height(errors)-separators-2)
+	}
+	m.Releases.Height = contentHeight
+	m.Board.Height = contentHeight
 	left := m.Releases.View()
 	right := m.Board.View()
+	leftStyle := focusedPaneStyle(ReleaseListStyle, m.state == viewReleases).Width(leftW)
+	rightStyle := focusedPaneStyle(BoardStyle, m.state == viewBoard).Width(rightW)
+	if m.Height > 0 {
+		leftStyle = leftStyle.Height(contentHeight)
+		rightStyle = rightStyle.Height(contentHeight)
+	}
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		ReleaseListStyle.Copy().Width(leftW).Render(left),
-		BoardStyle.Copy().Width(rightW).Render(right),
+		leftStyle.Render(left),
+		rightStyle.Render(right),
 	)
+	parts := []string{header, body}
+	if errors != "" {
+		parts = append(parts, errors)
+	}
+	parts = append(parts, help)
+	return m.boundHeight(strings.Join(parts, "\n"))
+}
 
-	body = m.appendRootErrors(body)
+func focusedPaneStyle(base lipgloss.Style, focused bool) lipgloss.Style {
+	colour := colBorder
+	if focused {
+		colour = colAccent
+	}
+	return base.Copy().BorderForeground(colour)
+}
 
-	header := m.renderHeader()
-	help := m.renderHelp()
-	return header + "\n" + body + "\n" + help
+func (m *Model) renderRootErrors() string {
+	errStyle := lipgloss.NewStyle().Foreground(colFail).Bold(true).Padding(0, 2)
+	var lines []string
+	for _, message := range []string{m.errMsg, m.refreshErr} {
+		if message != "" {
+			lines = append(lines, errStyle.Render("Error: "+message))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) boundHeight(view string) string {
+	if m.Height <= 0 || lipgloss.Height(view) <= m.Height {
+		return view
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) > m.Height {
+		lines = lines[:m.Height]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) appendRootErrors(body string) string {
-	errStyle := lipgloss.NewStyle().
-		Foreground(colFail).
-		Bold(true).
-		Padding(0, 2)
-	for _, message := range []string{m.errMsg, m.refreshErr} {
-		if message != "" {
-			body += "\n" + errStyle.Render("Error: "+message)
-		}
+	if errors := m.renderRootErrors(); errors != "" {
+		body += "\n" + errors
 	}
 	return body
 }
@@ -273,15 +352,19 @@ func scheduleCatalogRefreshCmd(generation uint64) tea.Cmd {
 	})
 }
 
-func discoverCatalogCmd(repoRoot string, generation uint64, discover func(string) ([]board.CatalogRecord, error)) tea.Cmd {
-	if discover == nil {
-		discover = func(root string) ([]board.CatalogRecord, error) {
-			return board.DiscoverCatalog(git.New(root))
-		}
-	}
+func discoverCatalogWindowCmd(repoRoot string, generation uint64, limit int, discoverWindow func(string, int) (board.CatalogWindow, error), discoverComplete func(string) ([]board.CatalogRecord, error)) tea.Cmd {
 	return func() tea.Msg {
-		catalog, err := discover(repoRoot)
-		return catalogRefreshResultMsg{generation: generation, catalog: catalog, err: err}
+		var window board.CatalogWindow
+		var err error
+		switch {
+		case discoverWindow != nil:
+			window, err = discoverWindow(repoRoot, limit)
+		case discoverComplete != nil:
+			window.Records, err = discoverComplete(repoRoot)
+		default:
+			window, err = board.DiscoverCatalogWindow(git.New(repoRoot), limit)
+		}
+		return catalogRefreshResultMsg{generation: generation, limit: limit, window: window, err: err}
 	}
 }
 
@@ -289,7 +372,8 @@ func discoverCatalogCmd(repoRoot string, generation uint64, discover func(string
 // model, then installs them together. The accepted catalog is the only state
 // authority consulted; presentation-only merge/gate decorations are copied
 // from the prior board for identities that still exist.
-func (m *Model) applyCatalogRefresh(catalog []board.CatalogRecord) error {
+func (m *Model) applyCatalogRefresh(window board.CatalogWindow, limit int) error {
+	catalog := window.Records
 	releases, conversionErr := releaseInfosFromCatalog(catalog)
 	if conversionErr != nil && conversionErr != ErrNoReleases {
 		return conversionErr
@@ -319,6 +403,9 @@ func (m *Model) applyCatalogRefresh(catalog []board.CatalogRecord) error {
 
 	m.Releases.Releases = releases
 	m.Releases.Cursor = newReleaseIndex
+	m.Releases.HasOlder = window.HasOlder
+	m.Releases.LoadingOlder = false
+	m.acceptedCatalogLimit = limit
 	if refreshedBoard != nil {
 		m.Board = refreshedBoard
 	} else if selectedBoardRelease != "" {
@@ -475,54 +562,65 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		if m.Releases.Cursor > 0 {
 			m.Releases.Cursor--
 		}
-	case "enter":
-		if len(m.Releases.Releases) > 0 {
-			sel := m.Releases.Releases[m.Releases.Cursor]
-			if sel.Catalog == nil {
-				m.errMsg = "no catalog snapshot for selected release"
-				return m, nil
-			}
-
-			// sworn#82: board loading is dispatched as a tea.Cmd, never run
-			// inline here — LoadBoard used to execute synchronously inside
-			// this handler (plus eagerly recompute gates), which blocked
-			// bubbletea's repaint for up to 21.5s on a 73-slice release
-			// (measured; gates alone were 21.3s of it). Reset the board to
-			// a "loading" placeholder now; loadBoardCmd's boardLoadedMsg
-			// populates the real data once it lands.
-			m.Board.ReleaseName = sel.ID
-			m.Board.SourceRef = sel.SourceRef
-			m.Board.Loaded = false
-			m.Board.Loading = true
-			m.Board.GateResults = nil
-			m.Board.GatesLoaded = false
-			m.Board.GatesLoading = false
-			m.state = viewBoard
-			cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, *sel.Catalog)}
-
-			// Auto-transition to live view if tracks are in-progress. This
-			// check stays synchronous — HasInProgressTracks is a single
-			// indexed SQLite COUNT(*), not a git shell-out, and must not
-			// wait on the (possibly slower) board load Cmd above.
-			if HasInProgressTracks(m.repoRoot, sel.ID) {
-				lv, err := StartLiveView(m.repoRoot, sel.ID)
-				if err == nil {
-					m.Live = lv
-					m.state = viewLive
-					cmds = append(cmds, lv.Init())
-				}
-			}
-			return m, tea.Batch(cmds...)
-		}
+	case "enter", "right":
+		return m.openSelectedRelease()
+	case "o":
+		return m.requestOlderCatalog()
 	case "esc":
 	}
 	return m, nil
 }
 
+func (m *Model) openSelectedRelease() (*Model, tea.Cmd) {
+	if len(m.Releases.Releases) == 0 {
+		return m, nil
+	}
+	sel := m.Releases.Releases[m.Releases.Cursor]
+	if sel.Catalog == nil {
+		m.errMsg = "no catalog snapshot for selected release"
+		return m, nil
+	}
+	m.Board.ReleaseName = sel.ID
+	m.Board.SourceRef = sel.SourceRef
+	m.Board.Loaded = false
+	m.Board.Loading = true
+	m.Board.GateResults = nil
+	m.Board.GatesLoaded = false
+	m.Board.GatesLoading = false
+	m.state = viewBoard
+	cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, *sel.Catalog)}
+	if HasInProgressTracks(m.repoRoot, sel.ID) {
+		lv, err := StartLiveView(m.repoRoot, sel.ID)
+		if err == nil {
+			m.Live = lv
+			m.state = viewLive
+			cmds = append(cmds, lv.Init())
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) requestOlderCatalog() (*Model, tea.Cmd) {
+	if !m.Releases.HasOlder {
+		return m, nil
+	}
+	if m.desiredCatalogLimit <= 0 {
+		m.desiredCatalogLimit = initialCatalogLimit
+	}
+	m.desiredCatalogLimit += catalogLimitIncrement
+	m.Releases.LoadingOlder = true
+	if m.refreshInFlight {
+		return m, nil
+	}
+	m.refreshGeneration++
+	m.refreshInFlight = true
+	return m, discoverCatalogWindowCmd(m.repoRoot, m.refreshGeneration, m.desiredCatalogLimit, m.discoverWindow, m.discoverCatalog)
+}
+
 // handleBoardKey handles keyboard input in the board view.
 func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
+	case "esc", "left":
 		m.state = viewReleases
 		return m, nil
 	case "j", "down":
@@ -741,6 +839,20 @@ func (m *Model) renderHelp() string {
 	if m.showHelp {
 		return bar.Render(`
 	? help     ↑/k up     ↓/j down     enter select     l live     L logs     b board     g gates     o order     s settings     esc back     q quit`)
+	}
+	if m.state == viewReleases {
+		return bar.Render(fmt.Sprintf(
+			"%s help  %s up  %s down  %s  %s  %s quit",
+			HelpKey.Render("?"), HelpKey.Render("↑/k"), HelpKey.Render("↓/j"),
+			HelpKey.Render("right/enter board"), HelpKey.Render("o older"), HelpKey.Render("q"),
+		))
+	}
+	if m.state == viewBoard {
+		return bar.Render(fmt.Sprintf(
+			"%s help  %s up  %s down  %s  %s  %s gates  %s quit",
+			HelpKey.Render("?"), HelpKey.Render("↑/k"), HelpKey.Render("↓/j"),
+			HelpKey.Render("left/esc releases"), HelpKey.Render("o order"), HelpKey.Render("g"), HelpKey.Render("q"),
+		))
 	}
 	return bar.Render(fmt.Sprintf(
 		"%s help  %s up  %s down  %s select  %s live  %s logs  %s board  %s gates  %s order  %s settings  %s back  %s quit",

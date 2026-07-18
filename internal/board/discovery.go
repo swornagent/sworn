@@ -22,22 +22,47 @@ type CatalogRecord struct {
 	TrackDependsOn map[string][]string `json:"-"`
 }
 
+// CatalogWindow is a bounded, ascending catalog snapshot. HasOlder reports
+// whether release IDs exist before Records without materialising their board or
+// status objects.
+type CatalogWindow struct {
+	Records  []CatalogRecord
+	HasOlder bool
+}
+
 type topologyCandidate struct{ ref, path string }
 
 func (c topologyCandidate) objectSpec() string { return c.ref + ":" + c.path }
 
 // DiscoverCatalog discovers all release plans on locally available branch tips.
 func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
+	window, err := discoverCatalog(repo, 0)
+	return window.Records, err
+}
+
+// DiscoverCatalogWindow discovers only the newest limit release IDs. The
+// selected records retain the complete catalog's ascending bytewise order.
+func DiscoverCatalogWindow(repo *gitpkg.Repo, limit int) (CatalogWindow, error) {
+	if limit <= 0 {
+		return CatalogWindow{}, fmt.Errorf("catalog limit must be positive")
+	}
+	return discoverCatalog(repo, limit)
+}
+
+// discoverCatalog is the single ranking, topology validation/election, and
+// status-election authority for bounded and unbounded callers. A zero limit is
+// the private spelling of the complete catalog used by DiscoverCatalog.
+func discoverCatalog(repo *gitpkg.Repo, limit int) (CatalogWindow, error) {
 	if _, err := repo.RevParse("HEAD"); err != nil {
 		if headIsUnavailable(err) {
-			return discoverFilesystemCatalog(repo.Dir)
+			return discoverFilesystemCatalog(repo.Dir, limit)
 		}
-		return nil, fmt.Errorf("resolve HEAD: %w", err)
+		return CatalogWindow{}, fmt.Errorf("resolve HEAD: %w", err)
 	}
 
 	refs, err := repo.ListRefs()
 	if err != nil {
-		return nil, fmt.Errorf("list refs: %w", err)
+		return CatalogWindow{}, fmt.Errorf("list refs: %w", err)
 	}
 	type scanResult struct {
 		paths []string
@@ -60,7 +85,7 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 	statusRefs := map[string][]string{}
 	for i, ref := range refs {
 		if scans[i].err != nil {
-			return nil, fmt.Errorf("scan %s: %w", ref, scans[i].err)
+			return CatalogWindow{}, fmt.Errorf("scan %s: %w", ref, scans[i].err)
 		}
 		for _, p := range scans[i].paths {
 			for _, prefix := range docsPrefixes {
@@ -83,13 +108,29 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 			}
 		}
 	}
+	names := make([]string, 0, len(byRelease))
+	for name := range byRelease {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	names, hasOlder := newestReleaseWindow(names, limit)
+	included := make(map[string]bool, len(names))
+	for _, name := range names {
+		included[name] = true
+	}
 	var objectSpecs []string
 	for path, pathRefs := range statusRefs {
+		if !included[releaseFromCatalogPath(path)] {
+			continue
+		}
 		for _, ref := range pathRefs {
 			objectSpecs = append(objectSpecs, ref+":"+path)
 		}
 	}
-	for _, candidates := range byRelease {
+	for release, candidates := range byRelease {
+		if !included[release] {
+			continue
+		}
 		for _, candidate := range candidates {
 			objectSpecs = append(objectSpecs, candidate.objectSpec())
 		}
@@ -97,18 +138,13 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 	sort.Strings(objectSpecs)
 	objects, err := repo.ReadObjects(objectSpecs)
 	if err != nil {
-		return nil, fmt.Errorf("read catalog objects: %w", err)
+		return CatalogWindow{}, fmt.Errorf("read catalog objects: %w", err)
 	}
-	names := make([]string, 0, len(byRelease))
-	for name := range byRelease {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	out := make([]CatalogRecord, 0, len(names))
 	for _, release := range names {
 		candidates, err := validTopologyCandidates(release, byRelease[release], objects)
 		if err != nil {
-			return nil, err
+			return CatalogWindow{}, err
 		}
 		if len(candidates) == 0 && !hasCanonicalTopologyRef(refs, release) {
 			// A historical noncanonical ref is not authoritative. Without a
@@ -118,19 +154,19 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 		}
 		selected, err := selectTopology(release, refs, candidates)
 		if err != nil {
-			return nil, err
+			return CatalogWindow{}, err
 		}
 		raw, ok := objects[selected.objectSpec()]
 		if !ok {
-			return nil, fmt.Errorf("release %q ref %s: selected board record disappeared", release, selected.ref)
+			return CatalogWindow{}, fmt.Errorf("release %q ref %s: selected board record disappeared", release, selected.ref)
 		}
 		tracks, err := parseTopologyRaw(raw, selected, release)
 		if err != nil {
-			return nil, fmt.Errorf("release %q ref %s: %w", release, selected.ref, err)
+			return CatalogWindow{}, fmt.Errorf("release %q ref %s: %w", release, selected.ref, err)
 		}
 		bs, err := electBoard(repo, statusRefs, objects, release, tracks)
 		if err != nil {
-			return nil, err
+			return CatalogWindow{}, err
 		}
 		out = append(out, CatalogRecord{
 			Release:        release,
@@ -139,7 +175,27 @@ func DiscoverCatalog(repo *gitpkg.Repo) ([]CatalogRecord, error) {
 			TrackDependsOn: trackDependencies(tracks),
 		})
 	}
-	return out, nil
+	return CatalogWindow{Records: out, HasOlder: hasOlder}, nil
+}
+
+func newestReleaseWindow(names []string, limit int) ([]string, bool) {
+	if limit <= 0 || len(names) <= limit {
+		return names, false
+	}
+	return names[len(names)-limit:], true
+}
+
+func releaseFromCatalogPath(path string) string {
+	for _, prefix := range docsPrefixes {
+		rel := strings.TrimPrefix(path, prefix+"/")
+		if rel == path {
+			continue
+		}
+		if release, _, ok := strings.Cut(rel, "/"); ok {
+			return release
+		}
+	}
+	return ""
 }
 
 func headIsUnavailable(err error) bool {
@@ -159,12 +215,12 @@ func headIsUnavailable(err error) bool {
 	return false
 }
 
-func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
+func discoverFilesystemCatalog(repoRoot string, limit int) (CatalogWindow, error) {
 	type filesystemTopology struct {
 		release string
 		prefix  string
-		path    string
-		raw     string
+		board   string
+		index   string
 	}
 
 	byRelease := map[string]filesystemTopology{}
@@ -175,7 +231,7 @@ func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return nil, fmt.Errorf("read release directory %s: %w", root, err)
+			return CatalogWindow{}, fmt.Errorf("read release directory %s: %w", root, err)
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
@@ -189,18 +245,22 @@ func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
 			boardPath := filepath.Join(releaseDir, "board.json")
 			indexPath := filepath.Join(releaseDir, "index.md")
 
-			path, raw, err := readFilesystemTopology(boardPath, indexPath)
-			if err != nil {
-				return nil, fmt.Errorf("release %q filesystem: %w", release, err)
+			_, boardErr := os.Stat(boardPath)
+			if boardErr != nil && !os.IsNotExist(boardErr) {
+				return CatalogWindow{}, fmt.Errorf("release %q filesystem: stat board.json: %w", release, boardErr)
 			}
-			if path == "" {
+			_, indexErr := os.Stat(indexPath)
+			if indexErr != nil && !os.IsNotExist(indexErr) {
+				return CatalogWindow{}, fmt.Errorf("release %q filesystem: stat index.md: %w", release, indexErr)
+			}
+			if os.IsNotExist(boardErr) && os.IsNotExist(indexErr) {
 				continue
 			}
 			byRelease[release] = filesystemTopology{
 				release: release,
 				prefix:  prefix,
-				path:    filepath.ToSlash(path),
-				raw:     raw,
+				board:   boardPath,
+				index:   indexPath,
 			}
 		}
 	}
@@ -210,17 +270,22 @@ func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
 		names = append(names, release)
 	}
 	sort.Strings(names)
+	names, hasOlder := newestReleaseWindow(names, limit)
 
 	out := make([]CatalogRecord, 0, len(names))
 	for _, release := range names {
 		topology := byRelease[release]
-		tracks, err := parseTopologyRaw(topology.raw, topologyCandidate{path: topology.path}, release)
+		path, raw, err := readFilesystemTopology(topology.board, topology.index)
 		if err != nil {
-			return nil, fmt.Errorf("release %q filesystem: %w", release, err)
+			return CatalogWindow{}, fmt.Errorf("release %q filesystem: %w", release, err)
+		}
+		tracks, err := parseTopologyRaw(raw, topologyCandidate{path: filepath.ToSlash(path)}, release)
+		if err != nil {
+			return CatalogWindow{}, fmt.Errorf("release %q filesystem: %w", release, err)
 		}
 		boardState, err := filesystemBoard(repoRoot, topology.prefix, release, tracks)
 		if err != nil {
-			return nil, err
+			return CatalogWindow{}, err
 		}
 		out = append(out, CatalogRecord{
 			Release:        release,
@@ -228,7 +293,7 @@ func discoverFilesystemCatalog(repoRoot string) ([]CatalogRecord, error) {
 			TrackDependsOn: trackDependencies(tracks),
 		})
 	}
-	return out, nil
+	return CatalogWindow{Records: out, HasOlder: hasOlder}, nil
 }
 
 func trackDependencies(tracks []TrackInfo) map[string][]string {

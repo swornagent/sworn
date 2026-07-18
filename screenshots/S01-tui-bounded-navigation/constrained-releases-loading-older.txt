@@ -1,0 +1,7 @@
+  sworn test  •  2026-01-25-release
+╭────────────────────────────────╮╭────────────────────────────────────────────────────────────────╮
+│  Releases                      ││  Board: 2026-01-25-release  (sorted: declaration order)        │
+│  ▸ 2026-01-01-release  ─ (1 …  ││ ▸ T1-track  [verified]                                         │
+│   loading older                ││ ▸ S01-01  verified  (—)  [· press g]                           │
+╰────────────────────────────────╯╰────────────────────────────────────────────────────────────────╯
+  ? help  ↑/k up  ↓/j down  right/enter board  o older  q quit

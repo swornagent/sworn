@@ -1,0 +1,15 @@
+  sworn test  •  2026-01-25-release
+╭────────────────────────────────╮╭────────────────────────────────────────────────────────────────╮
+│  Releases                      ││  Board: 2026-01-25-release  (sorted: declaration order)        │
+│  ▸ 2026-01-01-release  ─ (1 …  ││ ▸ T1-track  [verified]                                         │
+│    2026-01-02-release  ─ (1 …  ││ ▸ S01-01  verified  (—)  [· press g]                           │
+│    2026-01-03-release  ─ (1 …  ││   S01-02  verified  (—)  [· press g]                           │
+│    2026-01-04-release  ─ (1 …  ││   S01-03  verified  (—)  [· press g]                           │
+│    2026-01-05-release  ─ (1 …  ││   S01-04  verified  (—)  [· press g]                           │
+│    2026-01-06-release  ─ (1 …  ││   S01-05  verified  (—)  [· press g]                           │
+│    2026-01-07-release  ─ (1 …  ││   S01-06  verified  (—)  [· press g]                           │
+│    2026-01-08-release  ─ (1 …  ││                                                                │
+│    2026-01-09-release  ─ (1 …  ││ ▸ T2-track  [verified]                                         │
+│   o older                      ││   S02-01  verified  (—)  [· press g]                           │
+╰────────────────────────────────╯╰────────────────────────────────────────────────────────────────╯
+  ? help  ↑/k up  ↓/j down  right/enter board  o older  q quit

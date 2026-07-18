@@ -49,8 +49,27 @@ description: 'Append-only implementation and verification history for bounded TU
   - Its sole remaining finding was low-severity and non-blocking: an implementer
     may choose an explicit chrome-clipping priority for extremely small positive
     heights. AC-04 already fixes the observable contract at those heights: the
-    frame stays bounded, dimensions stay non-negative, and rendering does not
-    panic.
+  frame stays bounded, dimensions stay non-negative, and rendering does not
+  panic.
+
+### 2026-07-18 20:43 +10:00 — implementation checkpoint
+
+- **State**: `in_progress`
+- **Start commit**: `e2e445f0c63e2cf6408755faf259419b5ed621a6`
+- **Notes**:
+  - The human Coach acknowledged Captain commit `ec7ba142` and authorized all
+    three pins inline: one shared bounded/unbounded discovery authority,
+    snapshot-pure refresh hydration through `boardViewFromCatalog`, and visible
+    normal/constrained terminal-frame proof.
+  - Bounded discovery now fixes the newest release-name window before topology
+    and status object reads, while complete `DiscoverCatalog` delegates to the
+    same ranking, validation, and election core.
+  - Root-model tests cover non-overlapping depth growth, generation-plus-limit
+    stale rejection, selection-preserving pane windows, resize, height bounds,
+    arrow aliases, focus help/borders, and all three footer states.
+  - Captain-authorized proof frames are stored under
+    `screenshots/S01-tui-bounded-navigation/`; this proof-only path is the
+    explicit mechanical review pin beyond the production touchpoint list.
 
 ## Open questions
 
