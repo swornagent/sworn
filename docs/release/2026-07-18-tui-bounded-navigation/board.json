@@ -1,0 +1,21 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-18-tui-bounded-navigation",
+    "target_version": "v0.2.0",
+    "integration_branch": "release/v0.2.0",
+    "vertical_trace": {
+      "benefit": "A SwornAgent operator can navigate many releases and slices inside a terminal-height-bounded TUI that loads only the recent catalog depth they need."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-tui-bounded-navigation",
+      "slices": [
+        "S01-tui-bounded-navigation"
+      ],
+      "depends_on": []
+    }
+  ],
+  "shared_touchpoints": {}
+}
