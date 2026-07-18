@@ -464,3 +464,20 @@ this is not a fresh verifier verdict.
 - Returned S22 to `design_review` with its immutable start, pending cycle-0
   maintainability ledger, pending verification record, historical receipts,
   and configured-recovery authority preserved.
+
+## 2026-07-18T22:34:24+10:00 — Captain PROCEED acknowledged; implementation resumes
+
+- Captain commit `2cab8cd8` records `DECISION: PROCEED`, `CONSTITUTIONAL: yes`,
+  five mechanical pins, two memory-cited pins, and no escalation. Brad supplied
+  the acknowledgement and directed all seven pins to be applied inline.
+- Critical implementation gates are: separate immutable GLM attempt-1/2
+  identity from the config-selected attempt-3 identity; make the durable
+  Captain/lifecycle/proof prerequisites authoritative before reservation; and
+  reject orphan `--configured-recovery` before model setup.
+- Additional gates cross-validate attempt-3 records against the Planner-owned
+  v2 schema, retain exact AC-05/07/08 tests, keep typed provider errors separate
+  from administrative authority, and use
+  `[[capability-based-model-selection-ratified]]` for config-only selection.
+- Transitioned to `in_progress` with immutable start
+  `a09b0e46df465862d00469d4aef2a997442b3d5b`, empty pending cycle-0
+  maintainability, pending verification, and historical receipts unchanged.
