@@ -69,7 +69,26 @@ description: 'Append-only implementation and verification history for bounded TU
     arrow aliases, focus help/borders, and all three footer states.
   - Captain-authorized proof frames are stored under
     `screenshots/S01-tui-bounded-navigation/`; this proof-only path is the
-    explicit mechanical review pin beyond the production touchpoint list.
+  explicit mechanical review pin beyond the production touchpoint list.
+
+### 2026-07-18 20:56 +10:00 — maintainability PASS and implemented transition
+
+- **State**: `implemented`
+- **Notes**:
+  - Implementer preflight invocation
+    `6b274c57-8218-4682-bea5-1516e3609fee` returned `PASS` with one
+    non-blocking informational finding for the exact committed semantic scope
+    at `737fb77b3a9a7aba294127a24ec3f7deee11d8a0`.
+  - Canonical fingerprint:
+    `sha256:502df76d7a889aa73050feb2cb3f713dd59bb38e3bd309d3fc54286c65be6619`.
+    The immutable report blob is
+    `5a9619b1a8d7ed49e7f7e657c1388935b22ac882`.
+  - The installed engine's legacy JSON lacks current scope identity, so the
+    valid report records the exact isolated semantic commit
+    `9aa3a778a05df2e066e0eaab0090c6255e815d4a` and the validated raw response.
+    No semantic bytes changed after that PASS boundary.
+  - The slice transitioned from `in_progress` to `implemented`; only a fresh
+    Verifier may move it to `verified`.
 
 ## Open questions
 

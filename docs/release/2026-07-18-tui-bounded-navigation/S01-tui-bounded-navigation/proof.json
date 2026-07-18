@@ -5,6 +5,7 @@
   "scope": "A SwornAgent operator can start from the newest ten releases, load older releases in ten-record bounded transactions, keep release and slice selections reachable inside the terminal height across resize, and navigate between focused panes with Right/Left or Enter/Esc.",
   "files_changed": [
     "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
+    "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/maintainability/implementer-preflight-cycle-0-6b274c57.json",
     "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
     "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.md",
     "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/status.json",
@@ -73,6 +74,12 @@
       "passed": true,
       "exit_code": 0,
       "output_ref": "live first-pass proof-bundle gate 2026-07-18 — PASS, cost_usd 0"
+    },
+    {
+      "command": "sworn llm-check --type maintainability-review --slice S01-tui-bounded-navigation --release 2026-07-18-tui-bounded-navigation --base e2e445f0c63e2cf6408755faf259419b5ed621a6 --json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "implementer preflight 6b274c57-8218-4682-bea5-1516e3609fee — PASS for canonical fingerprint sha256:502df76d7a889aa73050feb2cb3f713dd59bb38e3bd309d3fc54286c65be6619"
     }
   ],
   "reachability": {

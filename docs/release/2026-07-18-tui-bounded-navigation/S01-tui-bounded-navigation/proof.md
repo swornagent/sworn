@@ -26,6 +26,9 @@ and the three Captain-required terminal frames listed in `proof.json`.
 - Required board/TUI/CLI package tests and the repository-wide `go test ./...` suite passed.
 - `go vet ./...` passed and `gofmt -l .` produced no output.
 - The configured AC-satisfaction check returned `PASS` with no findings.
+- The Implementer maintainability preflight returned `PASS` for the canonical semantic scope at
+  `737fb77b3a9a7aba294127a24ec3f7deee11d8a0`; its immutable report and fingerprint are pinned in
+  `status.json`.
 
 ## Reachability artefact
 
