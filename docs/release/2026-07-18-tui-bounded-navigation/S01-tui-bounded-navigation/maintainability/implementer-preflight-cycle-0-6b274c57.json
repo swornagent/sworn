@@ -1,0 +1,75 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
+  "schema_version": 1,
+  "check": "maintainability-review",
+  "slice_id": "S01-tui-bounded-navigation",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "role": "implementer",
+  "phase": "preflight",
+  "cycle": 0,
+  "invocation_id": "6b274c57-8218-4682-bea5-1516e3609fee",
+  "verdict": "PASS",
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "info",
+      "blocking": false,
+      "title": "Clean pagination structure with cursorWindow",
+      "detail": "The cursorWindow helper function simplifies cursor-relative list truncation across both the Releases and Board views, reducing layout logic clutter and ensuring consistent TUI scrolling behavior."
+    }
+  ],
+  "input_fingerprint": "sha256:502df76d7a889aa73050feb2cb3f713dd59bb38e3bd309d3fc54286c65be6619",
+  "review_scope": {
+    "base": "e2e445f0c63e2cf6408755faf259419b5ed621a6",
+    "head": "737fb77b3a9a7aba294127a24ec3f7deee11d8a0",
+    "included_paths": [
+      "internal/board/discovery.go",
+      "internal/board/discovery_test.go",
+      "internal/tui/board.go",
+      "internal/tui/model.go",
+      "internal/tui/releases.go",
+      "internal/tui/tui.go",
+      "internal/tui/tui_test.go",
+      "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+      "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+      "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+    ],
+    "excluded_paths": [
+      "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
+      "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
+      "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.md",
+      "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/status.json"
+    ],
+    "fingerprint_algorithm": "baton-maintainability-v1"
+  },
+  "model_id_confirmed": "openrouter/google/gemini-3.5-flash",
+  "structured_output_mode": "text_fallback",
+  "adapter_evidence": {
+    "engine": "sworn 0.2.0 / Baton v0.13.1",
+    "isolated_review_commit": "9aa3a778a05df2e066e0eaab0090c6255e815d4a",
+    "isolated_diff_paths": [
+      "internal/board/discovery.go",
+      "internal/board/discovery_test.go",
+      "internal/tui/board.go",
+      "internal/tui/model.go",
+      "internal/tui/releases.go",
+      "internal/tui/tui.go",
+      "internal/tui/tui_test.go",
+      "screenshots/S01-tui-bounded-navigation/constrained-releases-loading-older.txt",
+      "screenshots/S01-tui-bounded-navigation/normal-board-all-loaded.txt",
+      "screenshots/S01-tui-bounded-navigation/normal-releases-o-older.txt"
+    ],
+    "raw_validated_response": {
+      "verdict": "PASS",
+      "findings": [
+        {
+          "id": "F-01",
+          "severity": "info",
+          "blocking": false,
+          "title": "Clean pagination structure with cursorWindow",
+          "detail": "The cursorWindow helper function simplifies cursor-relative list truncation across both the Releases and Board views, reducing layout logic clutter and ensuring consistent TUI scrolling behavior."
+        }
+      ]
+    }
+  }
+}
