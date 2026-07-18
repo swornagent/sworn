@@ -1,0 +1,106 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S03-tui-live-board-refresh",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "scope": "A SwornAgent operator can leave the TUI open and receive serial, non-overlapping catalog refreshes that atomically advance the releases pane and selected board from one shared snapshot while preserving identity selection, retaining the last good state on failure, and rendering recovery errors in every root view.",
+  "files_changed": [
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/status.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/after.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/before.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/error.txt",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — all three packages passed"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — repository-wide suite passed"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18"
+    },
+    {
+      "command": "test -z \"$(/usr/local/go/bin/gofmt -l .)\"",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — empty output"
+    },
+    {
+      "command": "sworn lint coverage --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — 4/4 acceptance checks covered"
+    },
+    {
+      "command": "sworn lint mock --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — no undeclared mock boundaries"
+    },
+    {
+      "command": "sworn llm-check --type ac-satisfaction --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f --json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live completion run 2026-07-18 — PASS with no findings"
+    },
+    {
+      "command": "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui -run 'TestCatalogRefresh' -count=1",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live reachability run 2026-07-18 — all catalog-refresh integration and terminal-frame tests passed"
+    },
+    {
+      "command": "git diff adae97743a930fa1e4a2fe8296824ba3a4c1826f | sworn verify --spec docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/spec.json --diff - --proof docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "live first-pass proof-bundle gate 2026-07-18 — PASS, cost_usd 0"
+    }
+  ],
+  "reachability": {
+    "type": "e2e-test",
+    "evidence": "The root Model.Init/Update/View tests drive startup scheduling, due/result delivery, atomic list-plus-board replacement, alternate root views, recovery, and independent live/log ticks. Deterministic visible frames are committed at docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/{before,after,error}.txt and are asserted byte-for-byte by TestCatalogRefreshRenderedFrames."
+  },
+  "delivered": [
+    {
+      "item": "AC-01 — Model.Init arms a serial background chain; one accepted CatalogRecord aggregate atomically replaces both releases and the selected board, renders S02-new, preserves merge/gate presentation, and re-arms only after completion without a secondary resolver read.",
+      "evidence": "internal/tui/tui_test.go:TestCatalogRefreshStartsFromModelInit, TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard, TestCatalogRefreshRearmsOnlyAfterCompletion; screenshots/S03-tui-live-board-refresh/{before,after}.txt"
+    },
+    {
+      "item": "AC-02 — in-flight state prevents overlap, monotonically comparable generations reject stale delivery without visible mutation, refresh messages remain distinct, and live/log tick chains retain their single-chain behavior.",
+      "evidence": "internal/tui/tui_test.go:TestCatalogRefreshNeverOverlapsAndRejectsStaleGeneration and TestCatalogRefreshCoexistsWithLiveAndLogTicks"
+    },
+    {
+      "item": "AC-03 — release and slice cursors follow stable IDs across insertion/reorder and clamp deterministically when identities disappear; removing the selected board clears it and returns a board-visible operator to releases without panic.",
+      "evidence": "internal/tui/tui_test.go:TestCatalogRefreshPreservesSelectionByIdentity, TestCatalogRefreshHandlesRemovedSelection, and TestCatalogRefreshHandlesEmptySuccessfulCatalog"
+    },
+    {
+      "item": "AC-04 — discovery failure retains the complete last-good snapshot, renders refresh errors alongside unrelated errors in releases, board, live, log, blocked, and settings, re-arms, and clears only the refresh error on recovery.",
+      "evidence": "internal/tui/tui_test.go:TestCatalogRefreshErrorRetainsLastGoodAndRecovers, TestCatalogRefreshErrorVisibleInEveryRootView, and TestCatalogRefreshRenderedFrames; screenshots/S03-tui-live-board-refresh/error.txt"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    {
+      "description": "Captain PIN-1 authorised and required adding internal/tui/board.go so pure catalog-only board hydration could be separated from startup-only ActiveMerges decoration; the touchpoint was declared in status.json before editing."
+    },
+    {
+      "description": "Captain PIN-4 added committed deterministic terminal frames under the release screenshots directory as visible reachability evidence."
+    }
+  ]
+}

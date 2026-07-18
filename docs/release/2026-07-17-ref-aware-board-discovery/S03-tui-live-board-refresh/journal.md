@@ -23,3 +23,12 @@
   calling `LoadBoardFromCatalog`, `ActiveMerges`, or another resolver.
 - The shared catalog remains the sole list-and-board authority: one accepted
   discovery result will replace both values in one root-model transition.
+
+## 2026-07-18 — stable implementation and proof checkpoint
+
+- Committed and pushed the semantic implementation at `c99972fb66e2fab159746f292afb4fc0a31c95a1`.
+- Required package tests, the repository-wide suite, vet, formatting, 4/4 AC
+  coverage, mock lint, and the AC-satisfaction LLM check passed from live state.
+- The Rule 6 proof-bundle gate returned `PASS` with exit code 0 and zero model
+  cost. The committed terminal frames visibly demonstrate before, after, and
+  deterministic refresh-error states.
