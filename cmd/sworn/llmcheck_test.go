@@ -647,6 +647,8 @@ func testLLMCheckProofReceiptBinaryReachability(t *testing.T) {
 }
 `)
 	write(filepath.Join(sliceDir, "status.json"), proofReceiptS22StatusFixture())
+	write(filepath.Join(sliceDir, "review.md"), "<!-- CAPTAIN-VERDICT\nDECISION: PROCEED\nCONSTITUTIONAL: yes\n-->\n")
+	write(filepath.Join(sliceDir, "proof.json"), proofReceiptConfiguredRecoveryProofFixture())
 	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), proofReceiptS21StatusFixture())
 	write(filepath.Join(sliceDir, "receipts", "attempt-1.json"), `{
   "$schema": "https://swornagent.dev/schemas/llm-check-proof-receipt-v1.json",
@@ -958,13 +960,20 @@ func TestLLMCheckProofReceiptTerminalFailuresUseOneDispatch(t *testing.T) {
 }
 
 func TestLLMCheckProofReceiptConfiguredRecoveryPreservesConfigAndWritesAttemptThree(t *testing.T) {
+	const configuredModel = "openrouter/example/configured-recovery"
 	root, sliceDir := proofReceiptCommandFixture(t)
 	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
 	writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "opaque", "UNPARSEABLE", "2")
 
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		var request struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Model != "example/configured-recovery" {
+			t.Errorf("configured recovery request model = %q", request.Model)
+		}
 		arguments := `{"$schema":"https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json","schema_version":1,"check":"spec-ambiguity","slice_id":"S22-openrouter-tool-structured-output","release":"2026-07-15-baton-v0.16-conformance","verdict":"PASS","blocking_findings":{},"advisory_findings":{}}`
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -975,7 +984,8 @@ func TestLLMCheckProofReceiptConfiguredRecoveryPreservesConfigAndWritesAttemptTh
 	}))
 	defer server.Close()
 
-	configPath := llmCheckConfig(t, s22ProofReceiptModel)
+	configPath := llmCheckConfig(t, configuredModel)
+	t.Setenv("SWORN_VERIFIER_MODEL", "openrouter/environment-must-not-substitute")
 	exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, configPath, server.URL, "")
 	if exit != 0 {
 		t.Fatalf("configured recovery without --model exit = %d, want 0", exit)
@@ -997,7 +1007,7 @@ func TestLLMCheckProofReceiptConfiguredRecoveryPreservesConfigAndWritesAttemptTh
 	if err := json.Unmarshal(attempt3, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Attempt != 3 || receipt.Record != 2 || receipt.RecordSchema != "https://swornagent.dev/schemas/llm-check-proof-receipt-v2.json" || receipt.ModelID != s22ProofReceiptModel {
+	if receipt.Attempt != 3 || receipt.Record != 2 || receipt.RecordSchema != "https://swornagent.dev/schemas/llm-check-proof-receipt-v2.json" || receipt.ModelID != configuredModel {
 		t.Fatalf("configured-recovery receipt = %#v", receipt)
 	}
 }
@@ -1018,6 +1028,79 @@ func TestLLMCheckProofReceiptConfiguredRecoveryRejectsExplicitModel(t *testing.T
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("configured recovery with explicit model dispatched %d requests", calls.Load())
+	}
+}
+
+func TestLLMCheckConfiguredRecoveryRequiresProofReceiptOwner(t *testing.T) {
+	root, sliceDir := proofReceiptCommandFixture(t)
+	before, err := os.ReadDir(filepath.Join(sliceDir, "receipts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer server.Close()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldCwd)
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWORN_CONFIG_PATH", llmCheckConfig(t, s22ProofReceiptModel))
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("OPENROUTER_API_KEY", "synthetic")
+	t.Setenv("SWORN_OPENROUTER_BASE_URL", server.URL)
+	if exit := cmdLLMCheck([]string{"--configured-recovery", "--type", "spec-ambiguity", "--slice", s22ProofReceiptSlice, "--release", s22ProofReceiptRelease}); exit == 0 {
+		t.Fatal("orphan configured-recovery flag exited zero")
+	}
+	after, err := os.ReadDir(filepath.Join(sliceDir, "receipts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 0 || len(after) != len(before) {
+		t.Fatalf("orphan flag dispatched %d calls or mutated receipts", calls.Load())
+	}
+}
+
+func TestLLMCheckProofReceiptConfiguredRecoveryRequiresLifecycleAndProofAuthorities(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		mutate func(t *testing.T, sliceDir string)
+	}{
+		{name: "slice not in progress", mutate: func(t *testing.T, dir string) {
+			replaceProofReceiptFixture(t, filepath.Join(dir, "status.json"), `"state":"in_progress"`, `"state":"design_review"`)
+		}},
+		{name: "Captain not acknowledged", mutate: func(t *testing.T, dir string) {
+			replaceProofReceiptFixture(t, filepath.Join(dir, "status.json"), `"state":"acknowledged"`, `"state":"pending"`)
+		}},
+		{name: "Captain verdict missing", mutate: func(t *testing.T, dir string) {
+			replaceProofReceiptFixture(t, filepath.Join(dir, "review.md"), "DECISION: PROCEED", "DECISION: BLOCK")
+		}},
+		{name: "targeted tests stale", mutate: func(t *testing.T, dir string) {
+			replaceProofReceiptFixture(t, filepath.Join(dir, "proof.json"), `"passed":true`, `"passed":false`)
+		}},
+		{name: "preflight evidence missing", mutate: func(t *testing.T, dir string) {
+			replaceProofReceiptFixture(t, filepath.Join(dir, "proof.json"), configuredRecoveryProofItem, "stale preflight")
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root, sliceDir := proofReceiptCommandFixture(t)
+			writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-1.json"), s22ProofReceiptModel, 1, "receipt_failure", "UNPARSEABLE", `"unavailable"`)
+			writeProofReceiptFixture(t, filepath.Join(sliceDir, "receipts", "attempt-2.json"), s22ProofReceiptModel, 2, "opaque", "UNPARSEABLE", "2")
+			tt.mutate(t, sliceDir)
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+			defer server.Close()
+			exit := runConfiguredRecoveryProofReceiptCommandFixture(t, root, llmCheckConfig(t, "openrouter/example/recovery"), server.URL, "")
+			if exit != 2 || calls.Load() != 0 {
+				t.Fatalf("invalid authority exit=%d calls=%d, want 2/0", exit, calls.Load())
+			}
+			if _, err := os.Stat(filepath.Join(sliceDir, "receipts", "attempt-3.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("invalid authority reserved attempt 3")
+			}
+		})
 	}
 }
 
@@ -1136,6 +1219,8 @@ func proofReceiptCommandFixture(t *testing.T) (string, string) {
 }
 `)
 	write(filepath.Join(sliceDir, "status.json"), proofReceiptS22StatusFixture())
+	write(filepath.Join(sliceDir, "review.md"), "<!-- CAPTAIN-VERDICT\nDECISION: PROCEED\nCONSTITUTIONAL: yes\n-->\n")
+	write(filepath.Join(sliceDir, "proof.json"), proofReceiptConfiguredRecoveryProofFixture())
 	write(filepath.Join(releaseDir, "S21-openai-structured-envelope", "status.json"), proofReceiptS21StatusFixture())
 	if err := os.MkdirAll(filepath.Join(sliceDir, "receipts"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1146,9 +1231,11 @@ func proofReceiptCommandFixture(t *testing.T) (string, string) {
 
 func proofReceiptS22StatusFixture() string {
 	return `{
-  "slice_id":"S22-openrouter-tool-structured-output",
-  "release":"2026-07-15-baton-v0.16-conformance",
-  "start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b",
+	  "slice_id":"S22-openrouter-tool-structured-output",
+	  "release":"2026-07-15-baton-v0.16-conformance",
+	  "state":"in_progress",
+	  "start_commit":"a09b0e46df465862d00469d4aef2a997442b3d5b",
+	  "recovery":{"captain_review":{"required":true,"state":"acknowledged","review_commit":"2cab8cd8b438140b459ec03b7ff1d77455bc20d1","acknowledged_by":"Coach","acknowledged_at":"2026-07-18T22:34:24+10:00"}},
   "upstream_gate":{
     "slice_id":"S21-openai-structured-envelope",
     "required_state":"verified",
@@ -1157,6 +1244,26 @@ func proofReceiptS22StatusFixture() string {
     "immutable_start_commit":"ed0badf68673f0af84834458f07be0792555484f",
     "verifier_verdict_at":"2026-07-17T09:32:45+10:00"
   }
+}`
+}
+
+func proofReceiptConfiguredRecoveryProofFixture() string {
+	return `{
+  "$schema":"https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id":"S22-openrouter-tool-structured-output",
+  "release":"2026-07-15-baton-v0.16-conformance",
+  "scope":"configured recovery",
+  "files_changed":[],
+  "test_results":[
+    {"command":"go test ./internal/gate ./cmd/sworn -run TestProofReceipt -count=1","passed":true},
+    {"command":"go test ./...","passed":true},
+    {"command":"go vet ./...","passed":true},
+    {"command":"make build","passed":true}
+  ],
+  "reachability":{"type":"e2e-test","evidence":"configured recovery command fixture"},
+  "delivered":[{"item":"Configured-recovery deterministic preflight is current","evidence":"test gates"}],
+  "not_delivered":[],
+  "divergence":[]
 }`
 }
 

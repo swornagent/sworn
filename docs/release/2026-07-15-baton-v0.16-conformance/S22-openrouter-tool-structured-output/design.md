@@ -15,7 +15,10 @@ fallback, provider/model switch, or attempt 4.
 
 The direct-only OpenRouter forced-tool transport, local canonical validation,
 S04 requested/emitted identity authority, ordinary `RunLLMCheck` behavior,
-stable MCP diagnostic, and v1 attempts 1–2 remain unchanged.
+stable MCP diagnostic, and v1 attempts 1–2 remain unchanged. In particular,
+AC-05 keeps endpoint overrides isolated to direct OpenRouter with zero fallback;
+AC-07 keeps JSON `null` tool arguments fail-closed after one dispatch; and AC-08
+keeps non-`function` tool calls fail-closed after one dispatch.
 
 ## §2 Design decisions
 
@@ -40,8 +43,8 @@ stable MCP diagnostic, and v1 attempts 1–2 remain unchanged.
    S21, Captain-review, deterministic-test, build, and proof gates pass. The
    selected model comes solely from the customer's current verifier config,
    with no CLI override, default, config mutation, or fallback. This applies
-   `[[no-model-defaults-policy]]`: capability is a floor; Sworn does not choose
-   a provider/model for the customer.
+   `[[capability-based-model-selection-ratified]]`: capability is a floor;
+   Sworn does not choose a provider/model for the customer.
 
 The alternatives for Decision 3 were to leave S22 permanently blocked, retry
 or silently replace GLM, or delete/reset the receipts. The Coach selected the
@@ -57,7 +60,9 @@ Configured-recovery semantic implementation is confined to:
   authority, enforce capability/preflight gates, and select terminal attempt 3.
 - `cmd/sworn/llmcheck_test.go` — built-command coverage for config-only
   resolution, override/unconfigured/incapable/history/S21/attempt-4
-  zero-dispatch rejection, terminal attempt 3, and public-output leak canaries.
+  zero-dispatch rejection, terminal attempt 3, public-output leak canaries, and
+  explicit preservation of AC-05 endpoint isolation plus AC-07/AC-08 malformed
+  tool-call rejection.
 - `internal/gate/llmcheck_receipt.go` — validate immutable v1 history, select
   the v2 attempt-3 schema/version, and preserve terminal exhaustion without
   changing the typed retry classifier.

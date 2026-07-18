@@ -169,8 +169,14 @@ func RunProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDi
 // RunConfiguredRecoveryProofReceipt executes exactly one configured-recovery attempt.
 // The configured-recovery authority is separate from the retry taxonomy and may only
 // proceed when a legal attempts 1 and 2 history already exists.
-func RunConfiguredRecoveryProofReceipt(ctx context.Context, binding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner) (ProofReceipt, error) {
-	return runProofReceiptWithPreflight(ctx, binding, receiptDir, run, preflightConfiguredRecoveryProofReceipt, atomicWriteProofReceipt)
+func RunConfiguredRecoveryProofReceipt(ctx context.Context, historicalBinding, recoveryBinding ProofReceiptBinding, receiptDir string, run ProofReceiptRunner) (ProofReceipt, error) {
+	if !sameProofReceiptAuthority(historicalBinding, recoveryBinding) {
+		return ProofReceipt{}, ErrProofReceiptPreflight
+	}
+	preflight := func(_ ProofReceiptBinding, dir string) (int, error) {
+		return preflightConfiguredRecoveryProofReceipt(historicalBinding, recoveryBinding, dir)
+	}
+	return runProofReceiptWithPreflight(ctx, recoveryBinding, receiptDir, run, preflight, atomicWriteProofReceipt)
 }
 
 type proofReceiptWriter func(string, ProofReceipt) error
@@ -236,8 +242,9 @@ func runProofReceiptWithPreflight(ctx context.Context, binding ProofReceiptBindi
 	return final, nil
 }
 
-func preflightConfiguredRecoveryProofReceipt(binding ProofReceiptBinding, receiptDir string) (int, error) {
-	if !validProofReceiptBinding(binding) {
+func preflightConfiguredRecoveryProofReceipt(historicalBinding, recoveryBinding ProofReceiptBinding, receiptDir string) (int, error) {
+	if !validProofReceiptBinding(historicalBinding) || !validProofReceiptBinding(recoveryBinding) ||
+		!sameProofReceiptAuthority(historicalBinding, recoveryBinding) {
 		return 0, ErrProofReceiptPreflight
 	}
 	if info, err := os.Stat(receiptDir); err != nil || !info.IsDir() {
@@ -256,13 +263,15 @@ func preflightConfiguredRecoveryProofReceipt(binding ProofReceiptBinding, receip
 		return 0, ErrProofReceiptPreflight
 	}
 	_, firstExitAvailable := first.ProcessExitCode.Code()
-	if first.Attempt != 1 || !receiptMatchesBinding(first, binding, 1) ||
+	if first.Attempt != 1 || !receiptMatchesBinding(first, historicalBinding, 1) ||
 		first.AttemptClass != ProofReceiptReceiptFailure || first.Result != ProofReceiptUnparseable ||
 		firstExitAvailable {
 		return 0, ErrProofReceiptPreflight
 	}
-	if second.Attempt != 2 || !receiptMatchesBinding(second, binding, 2) || second.AttemptClass == ProofReceiptFinalVerdict ||
-		(second.Result == ProofReceiptPass || second.Result == ProofReceiptFail || second.Result == ProofReceiptBlocked) {
+	secondExit, secondExitAvailable := second.ProcessExitCode.Code()
+	if second.Attempt != 2 || !receiptMatchesBinding(second, historicalBinding, 2) ||
+		second.AttemptClass != ProofReceiptOpaque || second.Result != ProofReceiptUnparseable ||
+		!secondExitAvailable || secondExit != 2 {
 		return 0, ErrProofReceiptPreflight
 	}
 	return 3, nil
@@ -356,9 +365,13 @@ func RequireHistoricalAttemptOneForAttemptTwo(binding ProofReceiptBinding, recei
 
 // RequireHistoricalAttemptOneAndTwoForConfiguredRecovery pins the administratively
 // authorized S22 recovery path to the exact pre-authorized historical binding.
-func RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding ProofReceiptBinding, receiptDir string) error {
+func RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(historicalBinding, recoveryBinding ProofReceiptBinding, receiptDir string) error {
+	if !validProofReceiptBinding(historicalBinding) || !validProofReceiptBinding(recoveryBinding) ||
+		!sameProofReceiptAuthority(historicalBinding, recoveryBinding) {
+		return ErrProofReceiptPreflight
+	}
 	first, firstExists, err := readProofReceipt(receiptDir, 1)
-	if err != nil || !firstExists || !receiptMatchesBinding(first, binding, 1) ||
+	if err != nil || !firstExists || !receiptMatchesBinding(first, historicalBinding, 1) ||
 		first.AttemptClass != ProofReceiptReceiptFailure || first.Result != ProofReceiptUnparseable {
 		return ErrProofReceiptPreflight
 	}
@@ -366,9 +379,10 @@ func RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding ProofReceipt
 		return ErrProofReceiptPreflight
 	}
 	second, secondExists, err := readProofReceipt(receiptDir, 2)
-	if err != nil || !secondExists || !receiptMatchesBinding(second, binding, 2) ||
-		second.AttemptClass == ProofReceiptFinalVerdict || second.Result == ProofReceiptPass ||
-		second.Result == ProofReceiptFail || second.Result == ProofReceiptBlocked {
+	secondExit, secondExitAvailable := second.ProcessExitCode.Code()
+	if err != nil || !secondExists || !receiptMatchesBinding(second, historicalBinding, 2) ||
+		second.AttemptClass != ProofReceiptOpaque || second.Result != ProofReceiptUnparseable ||
+		!secondExitAvailable || secondExit != 2 {
 		return ErrProofReceiptPreflight
 	}
 	_, thirdExists, err := readProofReceipt(receiptDir, 3)
@@ -376,6 +390,11 @@ func RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding ProofReceipt
 		return ErrProofReceiptPreflight
 	}
 	return nil
+}
+
+func sameProofReceiptAuthority(a, b ProofReceiptBinding) bool {
+	return a.Release == b.Release && a.SliceID == b.SliceID && a.CheckType == b.CheckType &&
+		a.ImmutableStartCommit == b.ImmutableStartCommit
 }
 
 func validProofReceiptBinding(binding ProofReceiptBinding) bool {

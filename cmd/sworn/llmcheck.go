@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/model"
@@ -62,6 +64,10 @@ func cmdLLMCheck(args []string) int {
 	}
 	if gate.IsRetiredLLMCheck(ct) {
 		fmt.Fprintf(os.Stderr, "sworn llm-check: %s\n", gate.RetiredMaintainabilityGuidance)
+		return 64
+	}
+	if *configuredRecovery && !*proofReceipt {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: --configured-recovery requires --proof-receipt")
 		return 64
 	}
 	if *proofReceipt {
@@ -164,7 +170,11 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		return 2
 	}
 
-	cfg, _ := config.Load()
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+		return 2
+	}
 	var modelID string
 	var err error
 	if configuredRecovery {
@@ -210,9 +220,19 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 	}
 
 	var status struct {
-		SliceID      string `json:"slice_id"`
-		Release      string `json:"release"`
-		StartCommit  string `json:"start_commit"`
+		SliceID     string `json:"slice_id"`
+		Release     string `json:"release"`
+		State       string `json:"state"`
+		StartCommit string `json:"start_commit"`
+		Recovery    struct {
+			CaptainReview struct {
+				Required       bool   `json:"required"`
+				State          string `json:"state"`
+				ReviewCommit   string `json:"review_commit"`
+				AcknowledgedBy string `json:"acknowledged_by"`
+				AcknowledgedAt string `json:"acknowledged_at"`
+			} `json:"captain_review"`
+		} `json:"recovery"`
 		UpstreamGate struct {
 			SliceID                        string `json:"slice_id"`
 			RequiredState                  string `json:"required_state"`
@@ -230,6 +250,13 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		status.UpstreamGate.AuthoritativeTrackStatusCommit != s22UpstreamStatusRef ||
 		status.UpstreamGate.ImmutableStartCommit != s22UpstreamStart ||
 		strings.TrimSpace(status.UpstreamGate.VerifierVerdictAt) == "" {
+		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
+		return 2
+	}
+	if configuredRecovery && !configuredRecoveryAuthoritiesValid(sliceDir, status.State,
+		status.Recovery.CaptainReview.Required, status.Recovery.CaptainReview.State,
+		status.Recovery.CaptainReview.ReviewCommit, status.Recovery.CaptainReview.AcknowledgedBy,
+		status.Recovery.CaptainReview.AcknowledgedAt) {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
@@ -256,20 +283,22 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
-	binding := gate.ProofReceiptBinding{
+	recoveryBinding := gate.ProofReceiptBinding{
 		Release:              releaseName,
 		SliceID:              sliceID,
 		CheckType:            checkType,
 		ModelID:              modelID,
 		ImmutableStartCommit: status.StartCommit,
 	}
+	historicalBinding := recoveryBinding
+	historicalBinding.ModelID = s22ProofReceiptModel
 	receiptDir := filepath.Join(sliceDir, "receipts")
 	if configuredRecovery {
-		if err := gate.RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(binding, receiptDir); err != nil {
+		if err := gate.RequireHistoricalAttemptOneAndTwoForConfiguredRecovery(historicalBinding, recoveryBinding, receiptDir); err != nil {
 			fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 			return 2
 		}
-	} else if err := gate.RequireHistoricalAttemptOneForAttemptTwo(binding, receiptDir); err != nil {
+	} else if err := gate.RequireHistoricalAttemptOneForAttemptTwo(recoveryBinding, receiptDir); err != nil {
 		fmt.Fprintln(os.Stderr, "sworn llm-check: proof receipt preflight rejected")
 		return 2
 	}
@@ -285,9 +314,9 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 
 	var receipt gate.ProofReceipt
 	if configuredRecovery {
-		receipt, err = gate.RunConfiguredRecoveryProofReceipt(context.Background(), binding, receiptDir, runner)
+		receipt, err = gate.RunConfiguredRecoveryProofReceipt(context.Background(), historicalBinding, recoveryBinding, receiptDir, runner)
 	} else {
-		receipt, err = gate.RunProofReceipt(context.Background(), binding, receiptDir, runner)
+		receipt, err = gate.RunProofReceipt(context.Background(), recoveryBinding, receiptDir, runner)
 	}
 	if receipt.Attempt != 0 {
 		if jsonOut {
@@ -304,6 +333,66 @@ func cmdLLMCheckProofReceipt(checkType gate.CheckType, sliceID, releaseName, req
 		return code
 	}
 	return 2
+}
+
+const configuredRecoveryProofItem = "Configured-recovery deterministic preflight is current"
+
+func configuredRecoveryAuthoritiesValid(sliceDir, state string, captainRequired bool, captainState, reviewCommit, acknowledgedBy, acknowledgedAt string) bool {
+	if state != "in_progress" || !captainRequired || captainState != "acknowledged" ||
+		!gateCommit(reviewCommit) || strings.TrimSpace(acknowledgedBy) == "" || strings.TrimSpace(acknowledgedAt) == "" {
+		return false
+	}
+	review, err := os.ReadFile(filepath.Join(sliceDir, "review.md"))
+	if err != nil || !bytes.Contains(review, []byte("DECISION: PROCEED")) {
+		return false
+	}
+	var proof struct {
+		SliceID     string `json:"slice_id"`
+		Release     string `json:"release"`
+		TestResults []struct {
+			Command string `json:"command"`
+			Passed  bool   `json:"passed"`
+		} `json:"test_results"`
+		Delivered []struct {
+			Item string `json:"item"`
+		} `json:"delivered"`
+	}
+	data, err := os.ReadFile(filepath.Join(sliceDir, "proof.json"))
+	if err != nil || baton.ValidateSchema("proof-v1", data) != nil || json.Unmarshal(data, &proof) != nil ||
+		proof.SliceID != s22ProofReceiptSlice || proof.Release != s22ProofReceiptRelease {
+		return false
+	}
+	required := []string{"go test ./internal/gate", "go test ./...", "go vet ./...", "make build"}
+	for _, want := range required {
+		found := false
+		for _, result := range proof.TestResults {
+			if result.Passed && strings.Contains(result.Command, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	for _, delivered := range proof.Delivered {
+		if delivered.Item == configuredRecoveryProofItem {
+			return true
+		}
+	}
+	return false
+}
+
+func gateCommit(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, c := range value {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // getDiff runs `git diff <ref>..HEAD` and returns the output.

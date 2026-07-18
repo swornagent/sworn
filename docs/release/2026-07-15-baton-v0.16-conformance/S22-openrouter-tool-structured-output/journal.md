@@ -481,3 +481,25 @@ this is not a fresh verifier verdict.
 - Transitioned to `in_progress` with immutable start
   `a09b0e46df465862d00469d4aef2a997442b3d5b`, empty pending cycle-0
   maintainability, pending verification, and historical receipts unchanged.
+
+## 2026-07-18T22:49:18+10:00 — Captain pins closed deterministically
+
+- Split configured recovery into an immutable GLM history binding and a
+  separately config-resolved attempt-3 binding. Attempts 1 and 2 now require
+  the exact `receipt_failure/UNPARSEABLE/unavailable` and
+  `opaque/UNPARSEABLE/2` tuples; per-field mutations dispatch zero calls.
+- Made `in_progress`, durable Captain acknowledgement and PROCEED verdict, a
+  schema-valid current proof bundle, and passing targeted/full-suite/vet/build
+  evidence mandatory before attempt-3 reservation. Orphan
+  `--configured-recovery` now exits before model setup.
+- Cross-asserted rendered and decoded v2 receipts against the Planner-owned
+  schema's strict fields, constants, enums, and additional-property ban. The
+  administrative gate remains separate from the unchanged typed retry
+  classifier and does not consult raw errors, `IsTransient`, or unknown
+  outcomes for authority.
+- Proved a configured attempt-3 model different from historical GLM is the
+  exact request/receipt model even when `SWORN_VERIFIER_MODEL` names another
+  value. Config remains read-only, capability-gated, and fallback-free.
+- Targeted S22 tests, the full Go suite, `go vet ./...`, `make build`, and the
+  exact AC-05/07/08 endpoint-isolation and malformed-tool preservation tests
+  all passed. No provider request or attempt-3 receipt has occurred yet.

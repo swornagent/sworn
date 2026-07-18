@@ -488,6 +488,8 @@ func TestProofReceiptRetryableAttemptPermitsOnlyAttemptTwo(t *testing.T) {
 func TestProofReceiptConfiguredRecoveryWritesVersionTwoReceipt(t *testing.T) {
 	dir := t.TempDir()
 	binding := testProofReceiptBinding()
+	recoveryBinding := binding
+	recoveryBinding.ModelID = "openrouter/configured-recovery-model"
 	first := proofReceiptReservation(binding, 1)
 	first.AttemptClass = ProofReceiptReceiptFailure
 	first.ProcessExitCode = ProofReceiptExitUnavailable()
@@ -499,7 +501,7 @@ func TestProofReceiptConfiguredRecoveryWritesVersionTwoReceipt(t *testing.T) {
 	writeTestReceipt(t, dir, second)
 
 	var calls atomic.Int32
-	receipt, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, dir, func(context.Context) ProofReceiptOutcome {
+	receipt, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, recoveryBinding, dir, func(context.Context) ProofReceiptOutcome {
 		calls.Add(1)
 		return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
 	})
@@ -512,6 +514,9 @@ func TestProofReceiptConfiguredRecoveryWritesVersionTwoReceipt(t *testing.T) {
 	if receipt.Attempt != 3 || receipt.RecordVersion != 2 || receipt.Schema != ProofReceiptSchemaV2 {
 		t.Fatalf("configured recovery receipt = %#v", receipt)
 	}
+	if receipt.ModelID != recoveryBinding.ModelID {
+		t.Fatalf("configured recovery model = %q, want %q", receipt.ModelID, recoveryBinding.ModelID)
+	}
 	if persisted, _, err := readProofReceipt(dir, 3); err != nil || persisted.RecordVersion != 2 || persisted.Schema != ProofReceiptSchemaV2 || persisted.Attempt != 3 {
 		t.Fatalf("persisted attempt-3 receipt = %#v, err %v", persisted, err)
 	}
@@ -519,6 +524,8 @@ func TestProofReceiptConfiguredRecoveryWritesVersionTwoReceipt(t *testing.T) {
 
 func TestProofReceiptConfiguredRecoveryRequiresExactAttemptOneAndTwo(t *testing.T) {
 	binding := testProofReceiptBinding()
+	recoveryBinding := binding
+	recoveryBinding.ModelID = "openrouter/configured-recovery-model"
 	attemptOne := proofReceiptReservation(binding, 1)
 	attemptOne.AttemptClass = ProofReceiptReceiptFailure
 	attemptTwo := proofReceiptReservation(binding, 2)
@@ -570,7 +577,7 @@ func TestProofReceiptConfiguredRecoveryRequiresExactAttemptOneAndTwo(t *testing.
 			setup: func(t *testing.T, dir string, attemptOne, attemptTwo ProofReceipt) {
 				writeTestReceiptJSON(t, dir, attemptOne)
 				writeTestReceiptJSON(t, dir, attemptTwo)
-				receipt3 := proofReceiptReservation(binding, 3)
+				receipt3 := proofReceiptReservation(recoveryBinding, 3)
 				receipt3.AttemptClass = ProofReceiptFinalVerdict
 				receipt3.Result = ProofReceiptPass
 				receipt3.ProcessExitCode = ProofReceiptExitCode(0)
@@ -583,7 +590,7 @@ func TestProofReceiptConfiguredRecoveryRequiresExactAttemptOneAndTwo(t *testing.
 			tt.setup(t, dir, attemptOne, attemptTwo)
 			before := receiptDirectorySnapshot(t, dir)
 			var calls atomic.Int32
-			_, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, dir, func(context.Context) ProofReceiptOutcome {
+			_, err := RunConfiguredRecoveryProofReceipt(context.Background(), binding, recoveryBinding, dir, func(context.Context) ProofReceiptOutcome {
 				calls.Add(1)
 				return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
 			})
@@ -598,6 +605,154 @@ func TestProofReceiptConfiguredRecoveryRequiresExactAttemptOneAndTwo(t *testing.
 			}
 		})
 	}
+}
+
+func TestProofReceiptConfiguredRecoveryRejectsPerFieldHistoryMutation(t *testing.T) {
+	historical := testProofReceiptBinding()
+	recovery := historical
+	recovery.ModelID = "openrouter/example/recovery"
+	first := proofReceiptReservation(historical, 1)
+	first.AttemptClass = ProofReceiptReceiptFailure
+	first.ProcessExitCode = ProofReceiptExitUnavailable()
+	second := proofReceiptReservation(historical, 2)
+	second.AttemptClass = ProofReceiptOpaque
+	second.ProcessExitCode = ProofReceiptExitCode(2)
+	tests := []struct {
+		name   string
+		mutate func(*ProofReceipt, *ProofReceipt)
+	}{
+		{name: "release", mutate: func(a, _ *ProofReceipt) { a.Release = "other" }},
+		{name: "slice", mutate: func(a, _ *ProofReceipt) { a.SliceID = "S99-other" }},
+		{name: "check", mutate: func(a, _ *ProofReceipt) { a.CheckType = CheckSecurityReview }},
+		{name: "model", mutate: func(a, _ *ProofReceipt) { a.ModelID = "openrouter/other" }},
+		{name: "start", mutate: func(a, _ *ProofReceipt) { a.ImmutableStartCommit = strings.Repeat("b", 40) }},
+		{name: "attempt one ordinal", mutate: func(a, _ *ProofReceipt) { a.Attempt = 2 }},
+		{name: "attempt one class", mutate: func(a, _ *ProofReceipt) { a.AttemptClass = ProofReceiptOpaque }},
+		{name: "attempt one result", mutate: func(a, _ *ProofReceipt) { a.Result = ProofReceiptPass }},
+		{name: "attempt one exit", mutate: func(a, _ *ProofReceipt) { a.ProcessExitCode = ProofReceiptExitCode(2) }},
+		{name: "attempt two release", mutate: func(_, b *ProofReceipt) { b.Release = "other" }},
+		{name: "attempt two model", mutate: func(_, b *ProofReceipt) { b.ModelID = "openrouter/other" }},
+		{name: "attempt two ordinal", mutate: func(_, b *ProofReceipt) { b.Attempt = 1 }},
+		{name: "attempt two class", mutate: func(_, b *ProofReceipt) { b.AttemptClass = ProofReceiptUpstream }},
+		{name: "attempt two result", mutate: func(_, b *ProofReceipt) { b.Result = ProofReceiptPass }},
+		{name: "attempt two exit", mutate: func(_, b *ProofReceipt) { b.ProcessExitCode = ProofReceiptExitCode(1) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			a, b := first, second
+			tt.mutate(&a, &b)
+			for ordinal, receipt := range map[int]ProofReceipt{1: a, 2: b} {
+				data, err := json.Marshal(receipt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(proofReceiptPath(dir, ordinal), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var calls atomic.Int32
+			_, err := RunConfiguredRecoveryProofReceipt(context.Background(), historical, recovery, dir, func(context.Context) ProofReceiptOutcome {
+				calls.Add(1)
+				return testProofReceiptOutcome(ProofReceiptFinalVerdict, ProofReceiptPass, 0)
+			})
+			if !errors.Is(err, ErrProofReceiptPreflight) || calls.Load() != 0 {
+				t.Fatalf("mutated history err=%v calls=%d", err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestProofReceiptVersionTwoMatchesPlannerSchema(t *testing.T) {
+	path := filepath.Join("..", "..", "docs", "release", receiptTestRelease, receiptTestSlice, "llm-check-proof-receipt-v2.schema.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	wantFields := []string{"$schema", "record_version", "release", "slice_id", "check_type", "model_id", "immutable_start_commit", "attempt", "attempt_class", "result", "process_exit_code"}
+	if schema.AdditionalProperties || len(schema.Required) != len(wantFields) || len(schema.Properties) != len(wantFields) {
+		t.Fatalf("v2 schema shape drifted: required=%d properties=%d additional=%v", len(schema.Required), len(schema.Properties), schema.AdditionalProperties)
+	}
+	for _, field := range wantFields {
+		if _, ok := schema.Properties[field]; !ok || !containsString(schema.Required, field) {
+			t.Fatalf("v2 schema missing required field %q", field)
+		}
+	}
+	binding := testProofReceiptBinding()
+	binding.ModelID = "openrouter/example/recovery"
+	receipt := proofReceiptReservation(binding, 3)
+	rendered := []byte(JSONProofReceipt(receipt))
+	decoded, err := decodeProofReceipt(rendered)
+	if err != nil || decoded != receipt {
+		t.Fatalf("rendered v2 receipt failed strict decode: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(rendered, &fields); err != nil || len(fields) != len(wantFields) {
+		t.Fatalf("rendered v2 fields drifted: %v", err)
+	}
+	var schemaConst string
+	var versionConst, attemptConst int
+	if json.Unmarshal(schema.Properties["$schema"], &struct {
+		Const *string `json:"const"`
+	}{Const: &schemaConst}) != nil ||
+		json.Unmarshal(schema.Properties["record_version"], &struct {
+			Const *int `json:"const"`
+		}{Const: &versionConst}) != nil ||
+		json.Unmarshal(schema.Properties["attempt"], &struct {
+			Const *int `json:"const"`
+		}{Const: &attemptConst}) != nil ||
+		schemaConst != receipt.Schema || versionConst != receipt.RecordVersion || attemptConst != receipt.Attempt {
+		t.Fatal("v2 schema constants do not match rendered receipt")
+	}
+	var classRule, resultRule struct {
+		Enum []string `json:"enum"`
+	}
+	if json.Unmarshal(schema.Properties["attempt_class"], &classRule) != nil ||
+		json.Unmarshal(schema.Properties["result"], &resultRule) != nil {
+		t.Fatal("v2 schema enums are unreadable")
+	}
+	wantClasses := []ProofReceiptAttemptClass{
+		ProofReceiptFinalVerdict, ProofReceiptRateLimit, ProofReceiptUpstream, ProofReceiptTransient,
+		ProofReceiptNetwork, ProofReceiptDeadline, ProofReceiptRunnerFailure, ProofReceiptReceiptFailure,
+		ProofReceiptHTTPClientError, ProofReceiptParseFailure, ProofReceiptSchemaFailure,
+		ProofReceiptIdentityMismatch, ProofReceiptMalformedTool, ProofReceiptOpaque,
+		ProofReceiptUntrustedBinding, ProofReceiptUnknown,
+	}
+	if len(classRule.Enum) != len(wantClasses) {
+		t.Fatalf("v2 attempt_class enum count = %d, want %d", len(classRule.Enum), len(wantClasses))
+	}
+	for _, class := range wantClasses {
+		if !containsString(classRule.Enum, string(class)) {
+			t.Fatalf("v2 schema missing attempt class %q", class)
+		}
+	}
+	for _, result := range []ProofReceiptResult{ProofReceiptPass, ProofReceiptFail, ProofReceiptBlocked, ProofReceiptUnparseable} {
+		if !containsString(resultRule.Enum, string(result)) {
+			t.Fatalf("v2 schema missing result %q", result)
+		}
+	}
+	withExtra := bytes.TrimSuffix(rendered, []byte("\n"))
+	withExtra = append(bytes.TrimSuffix(withExtra, []byte("}")), []byte(`,"extra":true}`)...)
+	if _, err := decodeProofReceipt(withExtra); !errors.Is(err, ErrProofReceiptPreflight) {
+		t.Fatal("v2 decoder accepted a field prohibited by the Planner schema")
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProofReceiptDecodeEnforcesAttemptSchemaPairs(t *testing.T) {
