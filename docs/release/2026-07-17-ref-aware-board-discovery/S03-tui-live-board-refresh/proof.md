@@ -16,7 +16,7 @@ preserves identity selection and presentation state, and retains the last good s
 
 ## Files changed
 
-`git diff --name-only adae97743a930fa1e4a2fe8296824ba3a4c1826f` identifies the four TUI
+`git diff --name-only adae97743a930fa1e4a2fe8296824ba3a4c1826f` identifies the five TUI
 implementation/test surfaces, the Captain-authorised pure board hydration surface, this slice's
 proof/status/journal, and the three deterministic terminal frames listed in `proof.json`.
 

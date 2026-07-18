@@ -13,6 +13,7 @@
     "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/before.txt",
     "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/error.txt",
     "internal/tui/board.go",
+    "internal/tui/tui.go",
     "internal/tui/model.go",
     "internal/tui/releases.go",
     "internal/tui/tui_test.go"
