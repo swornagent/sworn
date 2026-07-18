@@ -266,3 +266,18 @@ this is not a fresh verifier verdict.
   expansion, fallback, or retry-policy broadening occurred. The prior Captain
   review remains superseded; fresh Captain PROCEED and acknowledgement are
   required before implementation resumes.
+
+## 2026-07-18T13:26:43+10:00 — Implementer restores the design-review gate
+
+- The track worktree is clean at the propagated replan commit, the current
+  status validates against `slice-status-v1`, the immutable start resolves and
+  is an ancestor of the track head, and the empty pending cycle-0
+  maintainability record has no exhausted committed history.
+- The existing `review.md` predates the narrow safety replan and is explicitly
+  superseded by the later Planner journal entry. Its design also said MCP
+  semantics were unchanged, which no longer covers AC-11, the AC-06
+  post-rename/restoration double fault, or AC-12's mechanical S21 evidence gate.
+- Refreshed `design.md` to trace all twelve ACs and returned the lifecycle to
+  `design_review`. No source, test, provider, model, credential, proof receipt,
+  or S20 action occurred. A fresh Captain PROCEED and Coach acknowledgement are
+  required before implementation resumes.
