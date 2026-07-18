@@ -20,3 +20,13 @@
 - No Baton vendoring, version bump, tag, publication, or merge was performed.
 - The implementer will leave the slice at `implemented` with verification
   pending. A fresh verifier must certify or reject it.
+
+## 2026-07-18 - deterministic gates
+
+- `sworn lint ac` passed with 4 of 4 event-driven ACs well formed.
+- `sworn lint trace` passed with 4 needs and 4 ACs traced.
+- `sworn reqvalidate` and `sworn designfit` passed for the slice.
+- The three focused compiled CLI fixtures passed in 7.588 seconds; the board
+  package passed; the full Go suite, vet, and changed-file formatting checks
+  exited 0.
+- `proof.json` and `proof.md` were generated from the live base-to-branch diff.

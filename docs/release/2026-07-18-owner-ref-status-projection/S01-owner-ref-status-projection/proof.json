@@ -1,0 +1,106 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-owner-ref-status-projection",
+  "release": "2026-07-18-owner-ref-status-projection",
+  "scope": "Board discovery projects exact committed owner-track status through canonical Git documentation paths and reports matching topology and slice provenance in aggregate and named CLI output.",
+  "files_changed": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/approved-ack.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/design.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/journal.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/review.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/spec.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/status.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/board.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/intake.md",
+    "internal/board/discovery.go"
+  ],
+  "test_results": [
+    {
+      "command": "GOFLAGS=-buildvcs=false go run ./cmd/sworn lint ac 2026-07-18-owner-ref-status-projection",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go run ./cmd/sworn lint trace 2026-07-18-owner-ref-status-projection",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry; 4 needs and 4 ACs traced"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go run ./cmd/sworn reqvalidate 2026-07-18-owner-ref-status-projection",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go run ./cmd/sworn designfit 2026-07-18-owner-ref-status-projection",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./cmd/sworn -run 'TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink|TestBoardCLINamedAndCatalogStateEvidenceAgree|TestBoardCLIAllRefsCatalogStateEvidenceReachability' -count=1 -v",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry; three compiled CLI fixtures passed"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./internal/board -count=1",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go test ./... -count=1",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "GOFLAGS=-buildvcs=false go vet ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry"
+    },
+    {
+      "command": "test -z \"$(gofmt -l cmd/sworn/board.go cmd/sworn/board_test.go internal/board/discovery.go)\"",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "journal.md deterministic-gates entry; empty formatter output"
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "`TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink` builds the public binary and runs aggregate and named board commands from a temporary consumer repository with a committed logical docs symlink, canonical Git records, divergent owner and ghost refs, and dirty launch bytes. Both commands exit 0 and report the implemented blocked owner verdict from `refs/heads/track/<release>/<owner-track>` with committed durability and the selected release `sourceRef`. Before commit 60ff1e59, this fixture failed because the command reported shipped from working-tree with uncommitted durability. A separate live consumer-project run of the built feature binary also reported its blocked slice from the exact owner track with committed durability; unrelated private identifiers and content are intentionally omitted from this public record."
+  },
+  "delivered": [
+    {
+      "item": "AC-01: canonical Git-tree documentation records and a logical docs symlink resolve the committed blocked owner-track verdict while ghost and dirty shipped copies are ignored.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink"
+    },
+    {
+      "item": "AC-02: absent owner status falls back to the selected committed release source.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability and internal/board/discovery.go:evidenceFromRef"
+    },
+    {
+      "item": "AC-03: aggregate and named CLI output expose matching topology source, owner state source, and durability.",
+      "evidence": "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink and TestBoardCLINamedAndCatalogStateEvidenceAgree"
+    },
+    {
+      "item": "AC-04: targeted fixtures, board package, full Go suite, vet, trace, requirements validation, design fit, and formatting gates pass.",
+      "evidence": "proof.json test_results and journal.md deterministic-gates entry"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    {
+      "description": "The Baton release records were recovered after implementation checkpoints fd3cf540 and 60ff1e59. The immutable start commit is the integration base, so proof and fresh verification cover the complete code history rather than presenting the later documentation checkpoint as the implementation start."
+    }
+  ]
+}

@@ -24,9 +24,36 @@
     "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
     "docs/release/2026-07-18-owner-ref-status-projection"
   ],
-  "actual_files": [],
-  "test_commands": [],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "docs/captures/2026-07-18-owner-ref-status-projection-plan.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/approved-ack.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/design.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/journal.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/proof.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/review.md",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/spec.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/S01-owner-ref-status-projection/status.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/board.json",
+    "docs/release/2026-07-18-owner-ref-status-projection/intake.md",
+    "internal/board/discovery.go"
+  ],
+  "test_commands": [
+    "GOFLAGS=-buildvcs=false go run ./cmd/sworn lint ac 2026-07-18-owner-ref-status-projection",
+    "GOFLAGS=-buildvcs=false go run ./cmd/sworn lint trace 2026-07-18-owner-ref-status-projection",
+    "GOFLAGS=-buildvcs=false go run ./cmd/sworn reqvalidate 2026-07-18-owner-ref-status-projection",
+    "GOFLAGS=-buildvcs=false go run ./cmd/sworn designfit 2026-07-18-owner-ref-status-projection",
+    "GOFLAGS=-buildvcs=false go test ./cmd/sworn -run 'TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink|TestBoardCLINamedAndCatalogStateEvidenceAgree|TestBoardCLIAllRefsCatalogStateEvidenceReachability' -count=1 -v",
+    "GOFLAGS=-buildvcs=false go test ./internal/board -count=1",
+    "GOFLAGS=-buildvcs=false go test ./... -count=1",
+    "GOFLAGS=-buildvcs=false go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/board_test.go:TestBoardCLIOwnerRefStatusProjectionThroughLogicalDocsSymlink",
+    "proof.md: public-safe live consumer CLI observation"
+  ],
   "maintainability": {
     "state": "pending",
     "cycle": 0,
