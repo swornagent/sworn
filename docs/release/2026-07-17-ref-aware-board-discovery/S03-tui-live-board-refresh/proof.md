@@ -27,6 +27,8 @@ proof/status/journal, and the three deterministic terminal frames listed in `pro
 - Static checks passed: `go vet ./...`; `gofmt -l .` produced no output.
 - Coverage passed with 4/4 ACs mapped to tests; mock lint found no undeclared boundary.
 - The configured AC-satisfaction check returned `PASS` with no findings.
+- The Implementer maintainability preflight returned `PASS` for the exact four-path semantic scope;
+  its immutable report and canonical fingerprint are recorded in `status.json`.
 
 ## Reachability artefact
 
