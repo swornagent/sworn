@@ -255,8 +255,8 @@
     {
       "id": "C-16",
       "kind": "schema-version",
-      "surface": "llm-check-proof-receipt-v1/v2",
-      "shape": "The native sworn llm-check --proof-receipt mode is separate from LLMCheckReport and is bound to release, slice, check, resolved model, and immutable status.start_commit. Before provider dispatch it validates every receipt binding, mechanically confirms declared verified/fresh S21 identity, and atomically persists a private metadata-only reservation by create, fsync, close, rename, and parent-directory sync; preflight failure makes zero requests. Historical attempts 1 and 2 remain byte-for-byte llm-check-proof-receipt-v1 records bound to openrouter/z-ai/glm-5.2; the typed retry rule remains terminal at attempt 2. One human-ratified --configured-recovery may create exactly attempt 3 as llm-check-proof-receipt-v2, whose record_version is 2 and attempt is const 3 but whose metadata allowlist is otherwise unchanged. It rejects a --model override, resolves verifier.model through config.Load plus ResolveVerifierModel with an empty flag, records only that model ID, and rejects unconfigured, unsupported, incapable, mismatched, or already-consumed state before dispatch. This administrative recovery does not classify opaque as retryable. Every attempt-3 outcome is terminal; no fallback or attempt 4 exists. The trust guard prevents a post-rename double fault from leaving a trusted verdict. No receipt or public output stores config paths/content, endpoints, headers, bodies, findings, raw errors, prompts, diffs, credentials, or keys. Existing RunLLMCheck semantics remain unchanged outside this mode; C-17 alone governs MCP provider-error text.",
+      "surface": "llm-check-proof-receipt-v1/v2/v3",
+      "shape": "The native sworn llm-check --proof-receipt lifecycle is separate from LLMCheckReport and binds every record to release, slice, check, explicit or historically resolved model, and immutable status.start_commit. Historical attempts 1 and 2 remain byte-for-byte v1; configured attempt 3 remains byte-for-byte v2. New certification generations use v3 and additionally bind exact implementation_head and certification_generation, with attempt ordinals monotonically greater than 3. Before the sole provider call for one certification command, the system validates all historical records, current verified/fresh S21 identity, a same-head/model diagnostic PASS under C-20, a relevant changed source/test head after any failed certification, full deterministic/proof gates, and fresh Captain/Coach authority, then atomically reserves by create, fsync, close, rename, and parent-directory sync. Preflight failure makes zero requests. One implementation head can certify once; a failed generation is terminal for that head and cannot be retried blindly. A later generation requires a relevant changed implementation/test head plus renewed diagnostics and gates. This is administrative entry-point authority, never typed retry classification or fallback. The trust guard prevents a post-rename double fault from leaving a trusted verdict. No receipt or public output stores config paths/content, endpoints, headers, bodies, arguments, findings, raw errors, prompts, diffs, credentials, or keys. Existing RunLLMCheck semantics remain unchanged outside this mode; C-17 alone governs MCP provider-error text.",
       "owner": "S22-openrouter-tool-structured-output",
       "consumers": [
         "S20-v015-parity-portable-fixture"
@@ -301,6 +301,18 @@
       ],
       "live_test": "cmd/sworn/board_test.go:TestBoardCLIBoardOracleV1BinaryReachability",
       "rationale": "Release-mode commands need one portable, fail-closed projection boundary instead of depending on Sworn-only convenience fields or a launch-directory board copy."
+    },
+    {
+      "id": "C-20",
+      "kind": "schema-version",
+      "surface": "direct-openrouter-driver-diagnostic-v1",
+      "shape": "sworn llm-check --proof-receipt --driver-diagnostic requires exactly one explicit direct openrouter/ --model plus the exact S22 release, slice, spec-ambiguity check, immutable base, current implementation head, and acknowledged diagnostic design. Each command makes at most one provider call and atomically appends one llm-check-driver-diagnostic-v1 record in a namespace separate from proof attempts. The operator may explicitly invoke later commands with the same or another capable direct OpenRouter model; there is no automatic loop, fallback, config-selected default, or classifier-derived retry. A record contains only schema/version, release, slice, check, model, immutable start, implementation head, diagnostic ordinal, enumerated processing stage, enumerated response-shape class, sanitized attempt class, result, and exit semantics. Provider content is classified in memory and destroyed: request/response bodies, tool arguments, prompts, findings, endpoints, headers, credentials, keys, raw errors, and config paths/content never enter records or public output. A diagnostic PASS authorizes no S20 action; it is only a prerequisite for C-16 certification of the exact same head/model/transport.",
+      "owner": "S22-openrouter-tool-structured-output",
+      "consumers": [
+        "S20-v015-parity-portable-fixture"
+      ],
+      "live_test": "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverDiagnosticRepeatedExplicitModels",
+      "rationale": "Driver troubleshooting needs repeatable structural evidence and model comparison without consuming certification history or retaining sensitive provider payloads."
     }
   ]
 }

@@ -71,11 +71,13 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   structured check only through a direct, forced-function transport that keeps
   the canonical Baton schema and local semantic gate authoritative. Sworn's
   hosted proxy, Ollama, and every unprofiled provider remain default-deny.
-- N-14: **Sanitized bounded proof-receipt recovery.** A release operator can
-  retain only a strict metadata-only proof receipt, reserve it atomically
-  before dispatch, and make at most one classified recovery attempt without
-  exposing provider data, broadening ordinary retry behavior, or weakening
-  canonical report validation and the independent S20 gate.
+- N-14: **Sanitized driver diagnosis and head-bound certification.** A release
+  operator can explicitly probe direct OpenRouter structured-output behavior
+  across customer-selected models until a driver defect is reproduced and
+  fixed, retaining only strict structural metadata. Certification remains a
+  separate atomic receipt bound to the changed implementation head, with one
+  certification call per head and no blind retry, payload exposure, ordinary
+  retry broadening, canonical-validation weakening, or premature S20 resume.
 - N-15: **Exact v0.16 protocol and installer parity.** After the immutable
   v0.15.1 bootstrap reaches a lawful boundary, Sworn vendors exact Baton
   `v0.16.0` content, including its board-oracle schema, and proves its native
@@ -1384,6 +1386,8 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-22 | Whether to rewrite the in-progress S20 v0.15.1 bootstrap in place for v0.16.0 | Lifecycle immutability, rollback evidence, S04 overlap, and exact tagged parity | Ratified 2026-07-18: do not rewrite S20. It has a non-null start and committed implementation interval, so changing its pin would fabricate lifecycle evidence and requires an unsafe topology reconstruction. Complete or fail S22/S20 under their existing contract, then append S23 and S24 as fresh v0.16.0 tail slices. |
 | A-23 | Whether S22 may bypass its exhausted hard-coded GLM receipt budget by using the verifier values currently configured for Sworn | Receipt history, model authority, provider dispatch count, confidentiality, and S20 sequencing | Ratified by Brad 2026-07-18: correct S22's blocked contract in place because it is unmerged and the existing implementation does not yet satisfy the new recovery. Preserve attempts 1-2 byte-for-byte; authorize exactly attempt 3 only after fresh Captain review and deterministic/proof gates; resolve `verifier.model` via `config.Load` plus `ResolveVerifierModel("", cfg)` with no CLI model override; persist only the resolved model ID in the strict receipt; preflight-reject unsupported/unconfigured values with zero dispatch; make every attempt-3 outcome terminal; forbid fallback, a fourth dispatch, and S20 activity before a fresh S22 PASS. |
 | A-24 | Whether S22 R-05's historical two-attempt mitigation overrides A-23 and AC-06/09/10/12 | Retry-classifier authority, administrative recovery authority, and implementer design readiness | Clarified by Brad 2026-07-18: no. The typed classifier remains unchanged and treats attempt 2 as terminal and non-retryable. A-23's separately ratified configured-recovery-v2 administrative gate may authorize exactly terminal attempt 3 after its explicit prerequisites without reclassifying attempt 2; attempt 4 and fallback remain forbidden. Correct R-05 to state that distinction before fresh design review. |
+| A-25 | Whether S22 certification attempts should also be the driver-debugging loop after three sanitized failures | OpenRouter model compatibility, dispatch authority, immutable receipts, cost control, confidentiality, and S20 sequencing | Ratified by Brad 2026-07-18: no. Preserve attempts 1-3 exactly. Re-scope unmerged S22 in place because appending replacement slices after already-started blocked S20 would deadlock T1 ordering. Add an explicit one-call-per-command diagnostic mode that may be invoked repeatedly with a human-selected direct OpenRouter model and retains only strict response-shape metadata. A certification generation is separate and may run once per changed implementation head only after a same-head/model diagnostic PASS, deterministic regression fixture, full gates, fresh Captain acknowledgement, and regenerated proof. A failed certification requires another relevant driver/test change before a later generation; no blind retry or model fallback is authority. |
+| A-26 | Whether the final S22 ambiguity finding blocks the replan when it quotes superseded text absent from the current spec | Planner convergence, stale model output, current AC-06 authority, and handoff readiness | Ratified by Brad 2026-07-19: reject F-01 as stale. The finding quotes the removed `--configured-recovery` contract rather than current AC-06, while the current spec names the diagnostic/certification modes, normative v1/v2/v3 schemas, exact binding fields, and zero-dispatch gates. Preserve both sanitized reports in the journal, treat the human rejection as the convergence decision, and continue commit and propagation without weakening any current AC. |
 
 ## Screenshots / references
 

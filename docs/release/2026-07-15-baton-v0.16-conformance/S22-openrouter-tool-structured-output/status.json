@@ -9,10 +9,10 @@
     "N-13",
     "N-14"
   ],
-  "state": "blocked",
+  "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-18T22:55:40+10:00",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-19T00:09:09+10:00",
   "upstream_gate": {
     "slice_id": "S21-openai-structured-envelope",
     "required_state": "verified",
@@ -30,6 +30,8 @@
     "cmd/sworn/llmcheck.go",
     "cmd/sworn/llmcheck_test.go",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v2.schema.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-driver-diagnostic-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v3.schema.json",
     "internal/gate/llmcheck.go",
     "internal/gate/llmcheck_live_test.go",
     "internal/gate/llmcheck_receipt.go",
@@ -82,7 +84,8 @@
     "go test ./... -count=1",
     "go vet ./...",
     "make build",
-    "CONDITIONAL ONLY AFTER revised implementation, fresh Captain PROCEED, deterministic evidence, proof bundle, and explicit implementation authority: bin/sworn llm-check --proof-receipt --configured-recovery --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --base a09b0e46df465862d00469d4aef2a997442b3d5b (no --model and no proof-specific provider override)"
+    "AFTER revised implementation and fresh Captain PROCEED; explicit one-call diagnostic, repeatable only by another human invocation: bin/sworn llm-check --proof-receipt --driver-diagnostic --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model <explicit-direct-openrouter-model> --base a09b0e46df465862d00469d4aef2a997442b3d5b",
+    "CONDITIONAL ONLY AFTER same-head/model diagnostic PASS, relevant regression fixture, deterministic evidence, full gates, proof bundle, and fresh Captain/Coach authority: bin/sworn llm-check --proof-receipt --certify-driver --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model <diagnostic-pass-model> --base a09b0e46df465862d00469d4aef2a997442b3d5b"
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint and asserts the metadata-only receipt, canonical verdict/exit behavior, and no raw output.",
@@ -110,10 +113,10 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": [],
-    "notes": "Configured-recovery implementation and every deterministic/proof prerequisite passed. The one Coach-authorized terminal attempt 3 used config-selected openrouter/google/gemini-3.5-flash and finalized as parse_failure/UNPARSEABLE/1. Attempt 4 and fallback are prohibited, so S22 requires Planner adjudication; S20 remains blocked."
+    "notes": "Planner seeded exact owner-track status blob e9a78deabc640b88f1db913aef1c6c122645f636, preserved attempts 1-3 and the complete maintainability object, then ratified a diagnostic-v1/certification-v3 correction. S22 returns to implementation and fresh design review: explicit one-call diagnostics may repeat across human-selected direct OpenRouter models; certification is one call per relevant changed implementation head after same-head/model diagnostic PASS and full gates. S20 remains blocked until fresh S22 verifier PASS."
   },
   "release_base": "release/v0.2.0",
-  "release_benefit": "Lets the delivered direct OpenRouter path retain its deterministic transport proof while one explicitly governed config-selected verifier attempt can produce durable sanitized lifecycle evidence without weakening the canonical gate, raw-data protections, or S20's independent verification gate.",
+  "release_benefit": "Lets an operator troubleshoot the delivered direct OpenRouter driver with repeatable sanitized structural evidence, then certify a changed implementation head separately without weakening the canonical gate, raw-data protections, typed retry policy, or S20's independent verification gate.",
   "design_decisions": [
     {
       "choice": "Use an explicit direct-only OpenRouter forced-function route for the Coach-selected GLM-5.2 proof model, while retaining every proxy and unprofiled provider as structured-output unsupported.",
@@ -153,33 +156,47 @@
       "human_decision": "Ratified by Brad (Coach), 2026-07-18: try the proof with the currently configured values through a formal replan. Preserve attempts 1 and 2, make config-only attempt 3 explicit and bounded, and retain no fallback or fourth dispatch.",
       "rationale": "The failed proof exposed a policy binding problem rather than a deterministic transport defect. Resolving the customer-selected verifier model through Sworn's single config authority removes the proof-specific hard-code while immutable receipts and a separate administrative gate prevent the exception from broadening normal retry classification.",
       "architecturally_significant": true
+    },
+    {
+      "choice": "Separate repeatable driver diagnostics from head-bound certification after immutable attempts 1-3 failed to yield canonical evidence.",
+      "stake_class": "Type-1",
+      "options": [
+        "explicit one-call diagnostic commands across human-selected direct OpenRouter models plus one certification call per relevant changed implementation head",
+        "continue consuming proof ordinals as the debugging loop",
+        "append replacement slices after already-started blocked S20 and deadlock T1 ordering",
+        "choose a model automatically or retain raw provider payloads for debugging"
+      ],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-18: troubleshooting a driver requires repeated experiments until the cause is fixed. Preserve attempts 1-3, re-scope S22 in place, keep diagnostic invocations explicit and sanitized, and keep certification separate from the debugging loop.",
+      "rationale": "A strict proof receipt establishes whether certification passed but intentionally lacks the response detail needed to isolate a driver-shape assumption. Enumerated structural diagnostics allow iterative evidence without retaining sensitive payloads; binding certification to a relevant changed head prevents random retry from masquerading as engineering progress.",
+      "architecturally_significant": true
     }
   ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-18T15:15:40+10:00",
+    "ratified_at": "2026-07-18T23:18:34+10:00",
     "positive_scenarios": [
       "The serial T1 gate preserves S21-openai-structured-envelope verified/PASS from its immutable start before S22 design review, implementation, or proof-receipt dispatch.",
       "A built direct proof-receipt command reaches a local OpenRouter-shaped endpoint, reserves then finalizes one strict metadata-only record bound to the exact release, slice, check, model, and immutable start, and accepts a valid canonical result through the unchanged local gate.",
       "An explicit 429, 5xx, normalized network/deadline, runner, or receipt failure on attempt 1 permits exactly one second dispatch; a valid final result is then terminal.",
-      "The historical attempt-1 receipt_failure is bound to the selected release, slice, check, model, and immutable start commit and is eligible only for the revised native attempt-2 gate."
-      ,
-      "After exact attempts 1 and 2 and fresh configured-recovery review gates, attempt 3 resolves verifier.model from config with no model flag, records only that model ID, and is terminal."
+      "Historical attempts 1-3 remain byte-for-byte bound to their exact schema, identity and outcomes while diagnostic records use a separate ordinal namespace.",
+      "An operator can explicitly run one sanitized diagnostic call, then run later diagnostic commands with the same or another direct OpenRouter model until a synthetic fixture reproduces the structural failure and the driver is fixed.",
+      "After same-head/model diagnostic PASS plus full proof and review gates, one certification call writes the next v3 generation and a PASS can proceed to fresh verification."
     ],
     "negative_scenarios": [
       "If S21 no longer has its verified/PASS status, S22 remains gated with no implementation or proof-receipt dispatch.",
       "Preflight write failure, a mismatched release/slice/check/model/immutable-start binding, a final prior verdict, invalid receipt path, or exhausted budget makes zero provider requests and cannot consume or reuse S22 retry budget.",
-      "HTTP 400/401/402, unknown/local errors, parse/schema/identity/malformed-tool/opaque outcomes, and all attempt-2 non-final outcomes make no additional request.",
-      "Outside the ratified administrative attempt-3 authority, opaque remains non-retryable; attempt 3 cannot be repeated and attempt 4 is impossible.",
+      "HTTP 400/401/402, unknown/local errors, parse/schema/identity/malformed-tool/opaque outcomes, and every historical proof outcome remain non-retryable under the typed classifier.",
+      "A diagnostic command without an explicit capable direct OpenRouter model, with stale identity, or with conflicting flags makes zero requests and mutates no prior record.",
+      "A failed certification cannot be repeated at the same implementation head; a later generation requires a relevant driver/test change and renewed same-head/model diagnostic and proof authority.",
       "Config paths/content, raw payloads, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys remain excluded from receipts, normal output, JSON, journals, docs, and Git-visible artifacts; S20 remains blocked until a fresh S22 verifier PASS."
     ],
-    "benefit_hypothesis": "A native receipt-bound config-only attempt 3 can recover from the hard-coded proof-model dead end without deleting history, inventing a default, broadening retry classification, or exposing provider/config data."
+    "benefit_hypothesis": "Separating repeatable sanitized structural diagnostics from one-per-changed-head certification will let the operator fix the actual OpenRouter driver incompatibility without deleting history, inventing a default, broadening retry classification, or exposing provider data."
   },
   "recovery": {
     "authorized_by": "Coach",
-    "authorized_at": "2026-07-18T15:15:40+10:00",
-    "policy_revision": "llm-check-proof-receipt-configured-recovery-v2",
+    "authorized_at": "2026-07-18T23:18:34+10:00",
+    "policy_revision": "openrouter-driver-diagnostic-v1-and-head-certification-v3",
     "scope": "S22-openrouter-tool-structured-output only",
     "historical_attempt_receipt": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-1.json",
     "historical_attempt": {
@@ -231,7 +248,26 @@
         "process_exit_code": 1,
         "receipt": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-3.json"
       },
-      "terminal_policy": "every result or error is terminal; no fallback or attempt 4"
+      "terminal_policy": "attempt 3 is immutable and terminal under configured-recovery-v2; it grants no retry authority"
+    },
+    "driver_diagnostics": {
+      "schema": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-driver-diagnostic-v1.schema.json",
+      "entry_point": "sworn llm-check --proof-receipt --driver-diagnostic",
+      "model_authority": "one explicit human-supplied direct openrouter/ --model per invocation; no config default, fallback, or automatic loop",
+      "dispatch_policy": "exactly one provider call per valid command; another diagnostic requires another explicit command",
+      "evidence_policy": "append-only ordinal bound to immutable start and current implementation head; retain only enumerated stage/shape metadata and destroy provider content"
+    },
+    "head_certification": {
+      "schema": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v3.schema.json",
+      "entry_point": "sworn llm-check --proof-receipt --certify-driver",
+      "eligibility": [
+        "same implementation-head/model/check/release/slice/start direct diagnostic PASS",
+        "committed synthetic regression fixture for the diagnosed structural case",
+        "targeted deterministic tests, full suite, go vet, build, and regenerated proof",
+        "fresh Captain PROCEED and Coach acknowledgement"
+      ],
+      "generation_policy": "one provider call per relevant changed implementation head; failure is terminal for that head and a later generation requires another relevant driver/test commit plus renewed diagnostics and gates",
+      "success_policy": "only v3 PASS plus fresh artefact-only S22 verifier PASS may unblock S20"
     },
     "receipt_allowlist": [
       "schema/version",
@@ -265,24 +301,21 @@
       "malformed tool result",
       "opaque output",
       "untrusted receipt binding",
-      "any attempt-2 outcome under the typed classifier; the configured-recovery-v2 administrative authority is separate"
+      "every attempt-2 and attempt-3 outcome under the typed classifier; diagnostic and certification entry points are separate administrative authority"
     ],
     "prohibitions": [
       "provider or model call in this Planner session",
-      "any model/provider/transport selection other than the one value resolved from current verifier config for attempt 3",
+      "implicit, config-default, or Sworn-selected model/provider substitution for diagnostics or certification",
       "generic automatic retry policy",
       "raw provider data in any artifact or output",
-      "proof-specific model override or fallback after config resolution",
-      "fourth provider dispatch",
+      "automatic model fallback or repeated certification at one implementation head",
+      "certification without same-head/model diagnostic PASS and a relevant regression fixture",
       "S20 activity before fresh S22 verifier PASS"
     ],
     "captain_review": {
       "required": true,
-      "prior_review": "798e114c is superseded by the configured-recovery-v2 material re-scope",
-      "state": "acknowledged",
-      "review_commit": "2cab8cd8b438140b459ec03b7ff1d77455bc20d1",
-      "acknowledged_by": "Coach",
-      "acknowledged_at": "2026-07-18T22:34:24+10:00"
+      "prior_review": "2cab8cd8 is superseded by the diagnostic-v1/certification-v3 material re-scope",
+      "state": "awaiting_fresh_review"
     }
   },
   "preserved_t1_implementation": {

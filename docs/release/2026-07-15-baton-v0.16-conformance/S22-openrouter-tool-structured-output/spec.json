@@ -3,12 +3,14 @@
   "slice_id": "S22-openrouter-tool-structured-output",
   "release": "2026-07-15-baton-v0.16-conformance",
   "track": "T1-foundation",
-  "user_outcome": "A Sworn release operator can prove the delivered direct OpenRouter structured path through a native atomic sanitized receipt, and after the historical GLM proof ends opaquely can make one explicitly governed recovery using the verifier model currently selected in Sworn config, without a model flag, payload disclosure, fallback, or unbounded retry.",
-  "rationale": "S22 already delivers the direct-only OpenRouter forced-tool transport and the native fail-closed receipt facility. Historical attempts 1 and 2 are immutable: attempt 1 is receipt_failure/UNPARSEABLE with unavailable exit semantics, and attempt 2 is openrouter/z-ai/glm-5.2 opaque/UNPARSEABLE with exit 2. The former contract correctly made attempt 2 terminal. Brad has now ratified a factual contract correction rather than an implicit retry: one separately governed attempt 3 may resolve verifier.model only through config.Load plus ResolveVerifierModel with an empty flag, record the resolved model ID in the same strict metadata receipt, and dispatch only after fresh Captain review and all deterministic/proof gates. Unsupported or unconfigured values fail before reservation or dispatch. This does not broaden the typed retry classifier, establish a provider/model default, reuse a CLI model override, expose config paths or provider data, or permit fallback or attempt 4. The direct OpenRouter transport, canonical schema validation, S04 requested/emitted identity authority, MCP fixed diagnostic, S21 freshness gate, and post-rename trust guard remain unchanged.",
+  "user_outcome": "A Sworn release operator can repeatedly diagnose direct OpenRouter structured-output compatibility across explicitly selected models using sanitized structural evidence, fix the driver against deterministic fixtures, and separately certify each changed implementation head through one atomic metadata-only call without payload disclosure, automatic fallback, or blind retry.",
+  "rationale": "S22 already delivers the direct-only OpenRouter forced-tool transport and the native fail-closed receipt facility. Historical receipts remain immutable: attempt 1 is receipt_failure/UNPARSEABLE/unavailable, attempt 2 is GLM opaque/UNPARSEABLE/2, and config-selected attempt 3 is Gemini parse_failure/UNPARSEABLE/1. Those calls established that certification receipts are the wrong debugging loop: their deliberately minimal metadata can prove failure but cannot isolate the response-shape assumption. Brad therefore ratified a material in-place correction for this unmerged started slice. Diagnostics become an explicit one-call-per-command operator action over a human-selected direct OpenRouter model, append only strict stage/shape metadata, and may repeat until a driver defect is reproduced, captured as a synthetic regression fixture, and fixed. Certification is separate: one call per relevant changed implementation head, only after a same-head/model diagnostic PASS, full deterministic/proof gates, and fresh Captain acknowledgement. A failed certification requires another relevant driver/test change before a later generation. This does not broaden the typed retry classifier, establish a model default, create automatic fallback, retain provider payloads, weaken S04 canonical authority, or let S20 resume without a fresh S22 verifier PASS.",
   "touchpoints": [
     "cmd/sworn/llmcheck.go",
     "cmd/sworn/llmcheck_test.go",
     "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v2.schema.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-driver-diagnostic-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v3.schema.json",
     "internal/gate/llmcheck.go",
     "internal/gate/llmcheck_live_test.go",
     "internal/gate/llmcheck_receipt.go",
@@ -45,6 +47,10 @@
       "contract_id": "C-17"
     },
     {
+      "kind": "contract",
+      "contract_id": "C-20"
+    },
+    {
       "kind": "slice",
       "slice_id": "S04-typed-reference-ambiguity"
     },
@@ -63,6 +69,14 @@
     {
       "kind": "file",
       "path": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v2.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-driver-diagnostic-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v3.schema.json"
     },
     {
       "kind": "file",
@@ -96,14 +110,14 @@
   "in_scope": [
     "S22 is serially gated after S21-openai-structured-envelope in T1-foundation. Before any proof-receipt dispatch, preflight must mechanically read S22's upstream_gate and the resolved S21 status, require their slice/release identity, immutable start ed0badf68673f0af84834458f07be0792555484f, authoritative-status reference, verified state, pass result, non-empty verifier verdict time, and verifier_was_fresh_context true to agree, and reject every absent, stale, or mismatched fact with zero provider dispatch.",
     "Preserve the delivered direct-only provider split: only a direct openrouter/ model route uses StructuredToolCall and the one forced emit_structured_output function with the canonical schema as parameters. Proxy-routed OpenRouter, Ollama, generic OAI-compatible endpoints, and every unprofiled provider remain structured-output unsupported. The S21 envelope, source-schema rewrites, response_format, raw Verify, fallback, and unconstrained-text repair remain prohibited.",
-    "Add a native sworn llm-check --proof-receipt mode for a proof bound to the selected check, model, slice, release, and immutable status.start_commit. It owns the receipt lifecycle rather than accepting a shell-redirection convention. It must reject an implicit or mismatched base, an invalid receipt directory, a malformed historical receipt, a changed check/model/slice/release/start binding, a final prior verdict, an opaque prior outcome, or an exhausted budget before any provider dispatch or retry-budget consumption.",
+    "Extend native sworn llm-check --proof-receipt with two explicit, mutually exclusive S22 operations. --driver-diagnostic requires a non-empty operator-supplied --model and performs exactly one direct OpenRouter call per command. --certify-driver requires the selected model and performs exactly one certification call for the pinned implementation head. Either mode rejects an implicit/mismatched base, unsupported route/capability, invalid evidence directory, malformed immutable history, stale S21 authority, or incompatible flag combination before dispatch.",
     "Make proof-receipt mode preflight and atomically persist a private metadata-only attempt reservation before dispatch using create, fsync, close, rename, and parent-directory sync. It must finalize the same attempt atomically to the version-appropriate strict v1 or v2 receipt. If finalization fails after a rename and restoring the reservation also fails, no final model verdict may remain trusted: the facility must retain or surface a durable receipt_failure/UNPARSEABLE record with unavailable exit semantics, fail closed, and preserve no raw payload. Receipt failure remains the only receipt-write condition eligible under the typed retry classifier.",
-    "Keep historical attempts 1 and 2 under immutable llm-check-proof-receipt-v1. Define configured attempt 3 under llm-check-proof-receipt-v2 with the same complete metadata allowlist and record_version 2 plus attempt const 3; neither schema is an LLMCheckReport. Both exclude config paths/content, endpoints, headers, request bodies, response bodies, findings, raw errors, prompts, diffs, credentials, and keys from receipts, normal output, Git, docs, and status/journal evidence.",
-    "Preserve the typed retry classifier unchanged: a locally validated PASS, FAIL, or BLOCKED is final, and attempt 2 was eligible only because attempt 1 was receipt_failure. HTTP 400/401/402, unclassified, parse, schema, identity, malformed-tool, opaque, and untrusted outcomes remain non-retryable. The only post-attempt-2 dispatch authority is the separate human-ratified configured-recovery-v2 administrative gate; it does not change any classifier result and can authorize only terminal attempt 3.",
+    "Keep historical attempts 1 and 2 byte-for-byte under llm-check-proof-receipt-v1 and attempt 3 byte-for-byte under llm-check-proof-receipt-v2. New diagnostic records use llm-check-driver-diagnostic-v1; new certification generations use llm-check-proof-receipt-v3 with the existing metadata plus exact implementation_head and certification_generation. None is an LLMCheckReport. Every record excludes config paths/content, endpoints, headers, request/response bodies, arguments, findings, raw errors, prompts, diffs, credentials, and keys from files, normal output, Git, docs, and status/journal evidence.",
+    "Preserve the typed retry classifier unchanged: a locally validated PASS, FAIL, or BLOCKED is final, attempt 2 was eligible only because attempt 1 was receipt_failure, and HTTP 400/401/402, unclassified, parse, schema, identity, malformed-tool, opaque, and untrusted outcomes remain non-retryable. Diagnostic and certification invocations are explicit administrative entry-point authority, never classifier-driven retry or fallback. Each command dispatches at most once.",
     "Add a narrow model error classifier for the proof receipt policy that recognizes only the explicit retryable classes above. It must not reuse the broader legacy IsTransient treatment of unknown errors. Existing RunLLMCheck semantics remain unchanged outside proof-receipt mode; generic JSON must no longer serialize raw_response and a malformed generic response must not place raw content in a rendered finding or test failure output. MCP retains its in-process error/non-success semantics, but when sworn.llm_check reaches a provider/model error its public text must be the stable diagnostic llm_check: provider request failed and must contain no endpoint, header, request, response, prompt, diff, credential, key, or provider-body content.",
-    "Add deterministic local coverage with synthetic keys and local endpoints for final PASS, FAIL, and BLOCKED; 429, 5xx, normalized network/deadline, runner, and receipt failure; 400, 401, 402, parse, schema, identity, malformed-tool, opaque, and unknown failures; atomic preflight/finalization and post-rename restoration failure; mismatched receipt/S21 facts that make zero dispatches; unchanged two-attempt classifier behavior; exact configured attempt-3 historical/config binding; model-override and attempt-4 zero-dispatch rejection; MCP provider-error reachability; and request/response/config/key leak canaries across receipts and public output.",
-    "Preserve attempts 1 and 2 byte-for-byte as historical bindings. Add an explicit configured-recovery proof mode that rejects any non-empty --model override, resolves verifier.model using config.Load and ResolveVerifierModel with an empty flag, records only the resolved provider/model ID in attempt 3, and preflight-rejects an unconfigured, unsupported, incapable, stale-S21, changed-history, or already-present-attempt-3 state before provider dispatch. Config file paths, endpoints, credentials, and config contents must never enter receipts or public output.",
-    "Before the configured recovery, require this revised source implementation, deterministic tests proving config-only resolution and zero-dispatch rejection, full suite, vet, build, regenerated proof bundle, and a fresh Captain design review plus acknowledgement. Only then may the native command make exactly attempt 3 against immutable start a09b0e46df465862d00469d4aef2a997442b3d5b. Every attempt-3 outcome is terminal and no attempt 4, fallback, provider/model switch, or generic retry is permitted. A PASS still requires a fresh artefact-only S22 verifier PASS before S20 may resume; every other result leaves S22 and S20 blocked."
+    "Add deterministic local coverage with synthetic keys and local endpoints for final PASS, FAIL, and BLOCKED; every sanitized diagnostic stage/shape; repeated explicit model selections; one-dispatch-per-command behavior; 429, 5xx, normalized network/deadline, runner, and receipt failure; 400/401/402, parse, schema, identity, malformed-tool, opaque, and unknown failures; atomic reservation/finalization and post-rename restoration failure; mismatched history/S21/head/model facts that make zero dispatches; same-head certification replay rejection; a later relevant changed-head certification generation; unchanged typed classifier behavior; MCP provider-error reachability; and payload/config/key leak canaries.",
+    "Preserve attempts 1-3 byte-for-byte and validate them before every new diagnostic or certification dispatch. Diagnostic ordinals are a separate namespace from proof attempt ordinals. The operator may issue another --driver-diagnostic command with the same or a different explicit direct OpenRouter model after any outcome; the command makes one call and appends one strict sanitized record. It never edits config, chooses a model, falls back, or automatically loops.",
+    "A --certify-driver command is eligible only after a diagnostic PASS for the exact current implementation head, model, check, release, slice, immutable start, and direct transport; a committed synthetic regression fixture representing the diagnosed structural case; targeted deterministic tests, full suite, vet, build, regenerated proof; and fresh Captain PROCEED plus Coach acknowledgement. It atomically writes one v3 receipt. The same implementation head cannot certify twice, and after a failed certification a later generation requires a new relevant non-merge implementation/test commit plus renewed same-head diagnostics and proof. Only a certification PASS followed by fresh artefact-only S22 verifier PASS may unblock S20."
   ],
   "out_of_scope": [
     "Changing internal/baton/schemas/llm-check-report-v1.json, internal/baton/schemas/spec-ambiguity-report-v1.json, embedded schema bytes, Baton prompts, rules, or S04 semantic parser and requested/emitted-check equality is prohibited.",
@@ -111,8 +125,8 @@
     "Enabling structured generic checks through the Sworn hosted proxy for OpenRouter model IDs, Ollama, a generic OAI-compatible endpoint, or any other provider is prohibited. Each remains a separate provider-and-transport decision requiring its own plan and evidence.",
     "Changing model defaults, configured verifier values, model catalogue or pricing, hosted-service behavior, customer key handling, or commercial policy is prohibited. GLM remains the immutable historical S22/S20 proof input; attempt 3 consumes but never edits or replaces the operator's current verifier configuration.",
     "Adding a generic automatic retry policy, changing ordinary RunLLMCheck behavior or MCP control/error semantics beyond the specified stable public provider-error diagnostic, retaining model/provider payloads, or using error-message text as a retry classifier is prohibited.",
-    "Making a provider or model call in this Planner session, running S20 readiness/maintainability/ac-satisfaction, changing S20 source/start/semantic commits/proof, touching real Codex or Claude homes, or resuming S20 before fresh S22 verification is prohibited.",
-    "A proof-specific --model override, a fallback after config resolution, raw-text repair, a generic retry-classifier expansion, or any fourth provider call is prohibited. Attempts 1 and 2 plus the single ratified config-only attempt 3 are the complete S22 proof budget."
+    "Making a driver-diagnostic or certification call in this Planner session, running S20 readiness/maintainability/ac-satisfaction, changing S20 source/start/semantic commits/proof, touching real Codex or Claude homes, or resuming S20 before fresh S22 verification is prohibited. The Planner's ordinary required spec-ambiguity gate is separate and grants no driver/proof authority.",
+    "Automatic retries, implicit/config-default model selection in diagnostic or certification mode, fallback after explicit selection, raw-text repair, generic retry-classifier expansion, repeated certification at one implementation head, and certification without same-head/model diagnostic PASS are prohibited. Explicit diagnostic calls are not certification attempts and never authorize S20."
   ],
   "covers_needs": [
     "N-02",
@@ -151,7 +165,7 @@
     {
       "id": "R-05",
       "description": "A generic or ambiguous failure consumes an unbounded retry budget or makes a failed proof look like a model verdict.",
-      "mitigation": "Recognize only enumerated typed/environmental classes, reserve attempts atomically before dispatch, bind receipts to the immutable proof identity, and keep every attempt-2 non-final outcome terminal for the unchanged retry classifier. The separately ratified configured-recovery-v2 administrative gate may authorize exactly attempt 3 only after AC-09 and AC-12's historical-binding, Captain-review, and deterministic/proof prerequisites pass; it does not reclassify attempt 2 as retryable. Every attempt-3 outcome is terminal, and no attempt 4 or fallback is permitted."
+      "mitigation": "Keep the typed retry classifier unchanged and all historical attempts immutable. Driver diagnostics require an explicit operator command and model and make one call each; they may repeat only through another human invocation and never count as proof. Certification is one atomic call per relevant changed implementation head after same-head/model diagnostic PASS and full gates. A failed certification requires another relevant driver/test change before a later generation, preventing blind retry while allowing troubleshooting to continue."
     },
     {
       "id": "R-06",
@@ -203,7 +217,7 @@
     },
     {
       "id": "AC-05",
-      "text": "WHEN SWORN_OPENROUTER_BASE_URL is unset THE SYSTEM SHALL retain https://openrouter.ai/api/v1 for direct OpenRouter; IF it is invalid, a Sworn proxy route is selected, or a different provider is selected THEN the override SHALL not redirect a request and the affected setup SHALL fail closed or retain its existing endpoint behavior (N-10, N-13).",
+      "text": "WHEN SWORN_OPENROUTER_BASE_URL is unset THE SYSTEM SHALL retain https://openrouter.ai/api/v1 for direct OpenRouter; IF url.Parse rejects the override, the parsed URL is not absolute, Host is empty, or Scheme is neither http nor https for a direct OpenRouter selection THEN setup SHALL return non-success before any request; WHEN a Sworn proxy route or a different provider is selected THE SYSTEM SHALL ignore SWORN_OPENROUTER_BASE_URL and retain that route's existing endpoint behavior without redirecting it (N-10, N-13).",
       "ears_pattern": "complex",
       "test_refs": [
         "internal/model/oai_test.go:TestFromEnvOpenRouterDirectBaseURLOverride",
@@ -212,7 +226,7 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN a proof-receipt invocation supplies the selected check, resolved model, slice, release, and exact immutable S22 start commit THE SYSTEM SHALL preflight and atomically create a private metadata-only reservation before provider dispatch, then atomically finalize attempts 1-2 as immutable llm-check-proof-receipt-v1 or configured attempt 3 as llm-check-proof-receipt-v2 using only schema/version, release, slice ID, check type, model ID, immutable start, attempt ordinal, class, result, and exit semantics; IF reservation or finalization fails THEN the system SHALL retain or surface only receipt_failure/UNPARSEABLE, infer no model verdict, expose no payload, and make no provider request when preflight failed; IF finalization fails after rename and reservation restoration also fails THEN no final verdict SHALL remain trusted and the system SHALL retain or surface a durable receipt_failure with unavailable exit semantics; IF any persisted receipt has a mismatched version/ordinal/check/model/slice/release/start binding THEN it SHALL reject before dispatch (N-10, N-14).",
+      "text": "WHEN proof-receipt diagnostic or certification mode supplies the selected check, explicit model, slice, release, exact immutable S22 start, and current implementation head THE SYSTEM SHALL preflight and atomically create a private metadata-only reservation before its sole provider dispatch, then atomically finalize historical attempts 1-2 as immutable v1, historical attempt 3 as immutable v2, a diagnostic as driver-diagnostic-v1, or a certification generation as proof-receipt-v3 using only its schema allowlist; IF reservation or finalization fails THEN the system SHALL retain or surface only receipt_failure/UNPARSEABLE, infer no model verdict, expose no payload, and make zero provider calls when preflight failed; IF finalization fails after rename and reservation restoration also fails THEN no final verdict SHALL remain trusted and a durable receipt_failure/UNPARSEABLE record whose process_exit_code is the literal JSON string \"unavailable\" SHALL remain; IF any persisted record has a mismatched schema/version/ordinal/generation/check/model/slice/release/start/head binding THEN it SHALL reject before dispatch (N-10, N-14).",
       "ears_pattern": "complex",
       "test_refs": [
         "internal/gate/llmcheck_receipt_test.go:TestProofReceiptAtomicReservationAndFinalization",
@@ -240,19 +254,19 @@
     },
     {
       "id": "AC-09",
-      "text": "WHEN proof-receipt mode reads attempts 1 and 2 THE SYSTEM SHALL preserve the original typed retry rule unchanged: attempt 2 was permitted only because attempt 1 was receipt_failure, and attempt 2 remains terminal for that classifier; IF AND ONLY IF the exact immutable historical receipts are followed by the ratified configured-recovery authority, fresh Captain acknowledgement, and deterministic/proof gates THEN the system SHALL permit separately governed attempt 3 without treating attempt-2 opaque as retryable; IF any historical check, model, slice, release, start, ordinal, class, result, or exit binding differs, or attempt 3 already exists, THEN it SHALL reject before dispatch; every attempt-3 outcome SHALL be terminal with no attempt 4 (N-10, N-14).",
+      "text": "WHEN proof-receipt mode reads attempts 1-3 THE SYSTEM SHALL preserve the original typed retry rule and all three historical files unchanged: attempt 2 was permitted only because attempt 1 was receipt_failure, attempt 2 remains terminal for that classifier, and configured attempt 3 remains a consumed terminal administrative generation; WHEN an operator explicitly invokes driver diagnostics or a head-bound certification THE SYSTEM SHALL derive authority only from that entry point and its exact gates, never by reclassifying any prior outcome; each invocation SHALL make at most one provider call and no result SHALL trigger an automatic second call or fallback (N-10, N-14).",
       "ears_pattern": "complex",
       "test_refs": [
       "internal/model/errors_test.go:TestProofReceiptRetryClassification",
       "internal/gate/llmcheck_receipt_test.go:TestProofReceiptFinalVerdictsNeverRetry",
         "internal/gate/llmcheck_receipt_test.go:TestProofReceiptRejectsMismatchedBindingWithoutBudgetConsumption",
-        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptConfiguredRecoveryPreservesHistory",
-        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptStopsAfterConfiguredAttemptThree"
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptPreservesHistoricalAttempts",
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverModesNeverUseRetryClassifier"
       ]
     },
     {
       "id": "AC-10",
-      "text": "IF a proof result is HTTP 400, 401, or 402; an unclassified error; a parse, schema, requested/emitted identity, malformed-tool, or opaque result; or a receipt whose binding is invalid THEN THE SYSTEM SHALL record a non-retryable sanitized class and never use an error message or raw content to infer retry eligibility; the sole exception SHALL be the human-ratified configured-recovery authority for historical attempt 2, which is administrative authority outside the typed classifier and may create only attempt 3 after all exact gates; no other such outcome may cause an additional provider call (N-02, N-10, N-14).",
+      "text": "IF a diagnostic or certification result is HTTP 400, 401, or 402; an unclassified error; a parse, schema, requested/emitted identity, malformed-tool, opaque, or invalid-binding result THEN THE SYSTEM SHALL record only the properties and permitted values declared by the applicable Planner-owned llm-check-driver-diagnostic-v1.schema.json or llm-check-proof-receipt-v3.schema.json, including the diagnostic stage, response_shape, attempt_class, result, and process_exit_code enums, and never use error text or raw content to infer retry eligibility; that invocation SHALL be terminal after one provider call. A later diagnostic exists only because the operator explicitly invokes another command, and a later certification exists only after a relevant changed implementation head plus renewed same-head/model gates; neither is typed retry authority (N-02, N-10, N-14).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": [
         "internal/model/errors_test.go:TestProofReceiptRetryClassification",
@@ -263,7 +277,7 @@
     },
     {
       "id": "AC-11",
-      "text": "WHEN proof-receipt mode or generic llm-check JSON renders a provider outcome THE SYSTEM SHALL exclude raw_response, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys from receipt files and normal output; malformed generic output SHALL render a stable non-raw diagnostic; IF sworn.llm_check reaches a provider/model error THEN MCP SHALL retain its error/non-success semantics and return exactly llm_check: provider request failed as public text, with no endpoint, header, request, response, prompt, diff, credential, key, or provider-body content (N-02, N-10, N-14).",
+      "text": "WHEN proof-receipt mode or generic llm-check JSON renders a provider outcome THE SYSTEM SHALL exclude raw_response, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys from receipt files and normal output; IF generic output is malformed THEN the CLI SHALL write exactly sworn llm-check: check did not complete plus one trailing newline to stderr, write nothing to stdout, and exit 2; IF sworn.llm_check reaches a provider/model error THEN MCP SHALL retain its error/non-success semantics and return exactly llm_check: provider request failed as public text, with no endpoint, header, request, response, prompt, diff, credential, key, or provider-body content (N-02, N-10, N-14).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/gate/llmcheck_test.go:TestLLMCheckPublicOutputExcludesRawResponse",
@@ -275,14 +289,34 @@
     },
     {
       "id": "AC-12",
-      "text": "WHEN S21-openai-structured-envelope remains freshly verified and S22 preflight mechanically confirms its declared S21 identity, immutable start, authoritative status reference, verified/pass result, non-empty verifier verdict time, and verifier_was_fresh_context true, and the configured-recovery implementation, Captain-reviewed design acknowledgement, deterministic S22 tests, full suite, vet, build, and regenerated proof bundle pass THE IMPLEMENTER MAY invoke exactly native attempt 3 with --proof-receipt --configured-recovery, no --model value, config.Load plus ResolveVerifierModel(\"\", cfg), and immutable start a09b0e46df465862d00469d4aef2a997442b3d5b; THE SYSTEM SHALL persist the resolved configured model ID but no config path/content, endpoint, credential, or payload; IF config or S21 evidence is absent, unsupported, stale, or mismatched THEN S22 SHALL remain gated with zero proof dispatch; IF attempt 3 is PASS and a fresh artefact-only S22 verifier separately records PASS THEN and only then may S20 resume (N-10, N-13, N-14).",
+      "text": "WHEN S21 remains freshly verified and S22 preflight mechanically confirms its declared S21 identity, immutable start, authoritative status reference, verified/pass result, non-empty verifier verdict time, and fresh-context bit, and a diagnostic PASS exists for the exact current implementation head, explicit model, check, release, slice, start, and direct transport, and a committed synthetic regression fixture plus targeted S22 tests, full suite, vet, build, regenerated proof, fresh Captain PROCEED, and Coach acknowledgement all pass THE IMPLEMENTER MAY invoke exactly one --proof-receipt --certify-driver call for that head/model and atomically persist the next v3 generation; IF any authority is absent, stale, unchanged since a failed certification, unsupported, or mismatched THEN it SHALL dispatch zero calls; IF certification is PASS and a fresh artefact-only S22 verifier separately records PASS THEN and only then may S20 resume (N-10, N-13, N-14).",
       "ears_pattern": "complex",
       "test_refs": [
         "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability",
         "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptPreflightRequiresFreshS21VerificationEvidence",
-        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptConfiguredRecoveryUsesConfigOnly",
-        "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptConfiguredRecoveryRejectsModelOverride",
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverCertificationRequiresSameHeadModelDiagnosticPass",
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverCertificationRequiresRelevantChangedHeadAfterFailure",
         "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/proof.md"
+      ]
+    },
+    {
+      "id": "AC-13",
+      "text": "WHEN an operator invokes sworn llm-check --proof-receipt --driver-diagnostic with one explicit direct openrouter/ --model and the exact S22 release/slice/check/base, and status.json recovery.captain_review has state acknowledged, a full review_commit, acknowledged_by Coach, and a non-empty acknowledged_at THE SYSTEM SHALL make exactly one provider call, atomically append the next diagnostic ordinal bound to the current implementation head, and retain only the exact required properties declared by llm-check-driver-diagnostic-v1.schema.json: $schema, record_version, release, slice_id, check_type, model_id, immutable_start_commit, implementation_head, diagnostic_ordinal, stage, response_shape, attempt_class, result, and process_exit_code; WHEN the operator invokes the command again with the same or another explicit capable direct OpenRouter model THE SYSTEM SHALL independently append one later ordinal; IF --model is missing, proxy/unprofiled/incapable, flags conflict, identity is stale, Captain acknowledgement is absent or malformed, or reservation fails THEN it SHALL make zero provider calls and mutate no prior record (N-10, N-13, N-14).",
+      "ears_pattern": "complex",
+      "test_refs": [
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverDiagnosticRepeatedExplicitModels",
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverDiagnosticRejectsInvalidAuthorityWithoutDispatch",
+        "internal/gate/llmcheck_receipt_test.go:TestDriverDiagnosticRecordMatchesPlannerSchema"
+      ]
+    },
+    {
+      "id": "AC-14",
+      "text": "IF diagnostic handling observes provider content THEN THE SYSTEM SHALL derive only the enumerated stage and response-shape class in memory and SHALL NOT persist or render response text, tool arguments, request body, prompt, finding, endpoint, header, credential, key, raw error, or config content/path; deterministic leak-canary tests SHALL cover every diagnostic renderer, record, CLI failure, and MCP boundary, and a synthetic fixture SHALL reproduce each driver shape used to justify a source change without embedding the live provider payload (N-10, N-14).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "cmd/sworn/llmcheck_test.go:TestLLMCheckDriverDiagnosticLeakCanaries",
+        "internal/gate/llmcheck_receipt_test.go:TestDriverDiagnosticShapeClassification",
+        "internal/mcp/lint_test.go:TestLintTools_LLMCheckProviderErrorLeakCanary"
       ]
     }
   ]

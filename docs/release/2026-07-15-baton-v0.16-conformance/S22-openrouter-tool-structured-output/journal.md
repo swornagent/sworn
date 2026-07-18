@@ -519,3 +519,79 @@ this is not a fresh verifier verdict.
   fallback, provider/model switch, config mutation, or attempt 4 occurred or is
   authorized. AC-12 therefore lacks its required PASS receipt and the slice is
   blocked for Planner adjudication; S20 remains untouched.
+
+## 2026-07-18T23:18:34+10:00 — Driver diagnostics separated from certification
+
+- Reconciled 24 slices across five tracks after confirming release-wt is
+  already current with `release/v0.2.0`. T1 is in progress; the other tracks
+  remain planned. No T1 spec drift or malformed board projection was found.
+- Seeded every started T1 status from authoritative owner ref
+  `track/2026-07-15-baton-v0.16-conformance/T1-foundation`. Exact blobs: S01
+  `db5ecd03c0488e510e0289dcd0335499a7e5fb78`, S02
+  `bc335a082ca08e1b02333901b2f51d5612b7c570`, S19
+  `46ebadb92c46d1767f42b3e4d48f377ab49fff88`, S04
+  `b22b0d7c4b4c5c0853e014fa1988411485fdb3a7`, S21
+  `4788a66e5b4329e4c21d604236065d64c71b3ed4`, S22
+  `e9a78deabc640b88f1db913aef1c6c122645f636`, and S20
+  `0824242421c09f456197117ad062c808ca1c25c3`. Only S22 differed on
+  release-wt; its complete owner record, including the maintainability object,
+  was matched exactly before this amendment.
+- Diagnosed the blocker from immutable attempt 3: configured
+  `openrouter/google/gemini-3.5-flash` finalized as
+  `parse_failure/UNPARSEABLE/1`. The receipt correctly proved failure but its
+  confidentiality boundary intentionally retained too little information to
+  isolate the driver response-shape assumption.
+- Brad ratified an in-place S22 correction. Attempts 1-3 remain immutable.
+  Explicit `--driver-diagnostic` commands may repeat across human-selected
+  direct OpenRouter models, one call per command, and retain only enumerated
+  stage/shape metadata. `--certify-driver` is separate and may run once per
+  relevant changed implementation head after same-head/model diagnostic PASS,
+  a synthetic regression fixture, full gates, and fresh review authority.
+- Appending replacement slices after S20 was rejected because S20 is already
+  started and blocked; T1's predecessor gate would deadlock them. Board order,
+  track dependencies, and shared-touchpoint declarations remain unchanged.
+  S22 returns to `failed_verification` for fresh design/implementation; S20
+  remains blocked until fresh S22 verifier PASS.
+- No production code, driver-diagnostic/certification call, configuration,
+  receipt, proof, or historical maintainability evidence changed in this
+  Planner session. The required ordinary spec-ambiguity planning gate remains
+  separate and grants no driver/proof authority.
+
+## 2026-07-18T23:38:29+10:00 — Spec-ambiguity convergence stopped on stale finding
+
+- Deterministic planning gates pass after the amendment: `sworn lint ac`
+  (151 ACs), `sworn lint trace` (16 needs / 151 ACs), `sworn reqvalidate`
+  (24/24), `sworn specquality` (24/24), and `sworn designfit` (24/24).
+- The initial ordinary spec-ambiguity report identified ambiguous endpoint,
+  unavailable-exit, and public-error wording. Remediation made the direct URL
+  predicate, literal unavailable value, and exact CLI error contract explicit.
+- Recheck 1 identified the diagnostic acknowledgement, record field names,
+  URL predicate, and schema allowlist as underspecified. Remediation now names
+  the exact acknowledgement fields, schema properties, normative schema files,
+  and absolute HTTP(S) URL predicate.
+- The configured OpenRouter recheck then failed before verdict with a truncated
+  JSON envelope. Explicit current tool-capable OpenRouter alternatives returned
+  an empty-choice shape or timed out. OpenAI failed on account quota, Groq
+  rejected prompt length, and Mistral returned HTTP 400. These failures created
+  no planning verdict and no S22 diagnostic/certification receipt.
+- The next completed report, from explicit `xai/grok-4.3`, returned one blocking
+  finding that quotes a superseded AC-06 about `--configured-recovery`, revised
+  implementation, and fresh Captain review. None of that quoted text exists in
+  the current AC-06, which instead normatively binds diagnostic/certification
+  records to the v1/v2/v3 schemas and exact preflight fields.
+- The second completed recheck therefore ended FAIL on a demonstrably stale
+  finding. Per the two-cycle convergence limit, planning stopped without a
+  completion commit or track propagation pending Brad's explicit decision to
+  reject the false positive, split S22, or extract another normative contract.
+
+## 2026-07-19T00:09:09+10:00 — Stale F-01 rejected by human authority
+
+- Brad explicitly directed: `Reject F-01 as stale; continue the replan.`
+- The rejection is evidence-based: F-01 quotes superseded
+  `--configured-recovery` wording that is absent from current AC-06. Current
+  AC-06 instead binds diagnostics and certification to the Planner-owned
+  driver-diagnostic-v1 and proof-receipt-v3 schemas, immutable historical
+  v1/v2 receipts, exact preflight identity, and zero-dispatch rejection.
+- No acceptance criterion was weakened or edited in response to the stale
+  finding. The ratified human decision closes the convergence choice and
+  authorizes the validated planning commit and Step-6 track propagation.

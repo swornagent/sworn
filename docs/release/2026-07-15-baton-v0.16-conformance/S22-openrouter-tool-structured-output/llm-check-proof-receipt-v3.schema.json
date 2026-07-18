@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/llm-check-proof-receipt-v3.json",
+  "title": "LLM check proof receipt v3",
+  "description": "A strict metadata-only S22 certification receipt. Historical v1/v2 receipts remain immutable; each v3 generation is bound to one changed implementation head and one explicit operator-selected model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "record_version", "release", "slice_id", "check_type", "model_id", "immutable_start_commit", "implementation_head", "certification_generation", "attempt", "attempt_class", "result", "process_exit_code"],
+  "properties": {
+    "$schema": {"const": "https://swornagent.dev/schemas/llm-check-proof-receipt-v3.json"},
+    "record_version": {"const": 3},
+    "release": {"type": "string", "minLength": 1},
+    "slice_id": {"type": "string", "minLength": 1},
+    "check_type": {"type": "string", "minLength": 1},
+    "model_id": {"type": "string", "minLength": 1},
+    "immutable_start_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "implementation_head": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "certification_generation": {"type": "integer", "minimum": 1},
+    "attempt": {"type": "integer", "minimum": 4},
+    "attempt_class": {"enum": ["final_verdict", "rate_limit", "upstream", "transient", "network", "deadline", "runner_failure", "receipt_failure", "http_client_error", "parse_failure", "schema_failure", "identity_mismatch", "malformed_tool", "opaque", "untrusted_binding", "unknown"]},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED", "UNPARSEABLE"]},
+    "process_exit_code": {"oneOf": [{"type": "integer", "minimum": 0, "maximum": 255}, {"const": "unavailable"}]}
+  }
+}

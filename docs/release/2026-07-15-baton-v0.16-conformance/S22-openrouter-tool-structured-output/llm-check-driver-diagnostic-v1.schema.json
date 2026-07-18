@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/llm-check-driver-diagnostic-v1.json",
+  "title": "LLM check driver diagnostic v1",
+  "description": "A strict sanitized structural record for one explicit S22 OpenRouter driver-diagnostic call. It contains no provider payload, prompt, finding, endpoint, header, credential, or raw error.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "record_version", "release", "slice_id", "check_type", "model_id", "immutable_start_commit", "implementation_head", "diagnostic_ordinal", "stage", "response_shape", "attempt_class", "result", "process_exit_code"],
+  "properties": {
+    "$schema": {"const": "https://swornagent.dev/schemas/llm-check-driver-diagnostic-v1.json"},
+    "record_version": {"const": 1},
+    "release": {"type": "string", "minLength": 1},
+    "slice_id": {"type": "string", "minLength": 1},
+    "check_type": {"type": "string", "minLength": 1},
+    "model_id": {"type": "string", "minLength": 1},
+    "immutable_start_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "implementation_head": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "diagnostic_ordinal": {"type": "integer", "minimum": 1},
+    "stage": {"enum": ["request_setup", "transport", "envelope", "tool_selection", "arguments_json", "canonical_validation", "complete"]},
+    "response_shape": {"enum": ["unavailable", "no_tool_call", "multiple_tool_calls", "non_function_tool", "wrong_function_name", "missing_arguments", "null_arguments", "non_object_arguments", "object_arguments"]},
+    "attempt_class": {"enum": ["final_verdict", "rate_limit", "upstream", "transient", "network", "deadline", "runner_failure", "receipt_failure", "http_client_error", "parse_failure", "schema_failure", "identity_mismatch", "malformed_tool", "opaque", "untrusted_binding", "unknown"]},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED", "UNPARSEABLE"]},
+    "process_exit_code": {"oneOf": [{"type": "integer", "minimum": 0, "maximum": 255}, {"const": "unavailable"}]}
+  }
+}
