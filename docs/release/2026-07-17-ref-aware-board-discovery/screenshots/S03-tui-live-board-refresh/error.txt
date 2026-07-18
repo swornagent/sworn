@@ -1,0 +1,13 @@
+  sworn test  •  alpha
+╭──────────────────────────╮╭──────────────────────────────────────────────────╮
+│  Releases                ││  Board: alpha  (sorted: declaration order)       │
+│  ▸ alpha  ─ (1 tracks,…  ││                                                  │
+│                          ││ ▸ T1-core  [verified]                            │
+╰──────────────────────────╯│ ▸ S01-old  verified  (—)  [· press g]            │
+                            │   S02-new  verified  (—)  [· press g]            │
+                            │                                                  │
+                            │                                                  │
+                            ╰──────────────────────────────────────────────────╯
+  Error: catalog unavailable
+  ? help  ↑/k up  ↓/j down  enter select  l live  L logs  b board  g gates  o
+  order  s settings  esc back  q quit

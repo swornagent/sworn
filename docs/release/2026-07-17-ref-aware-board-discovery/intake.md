@@ -42,6 +42,10 @@ a crashed process before it was written to either location.
 - N-05: **Durability provenance.** A caller can distinguish a state supported
   by a committed ref from one supported only by an uncommitted working-tree
   record, including in machine-readable output and visible TUI/text rendering.
+- N-06: **Live-session board freshness.** An operator can leave the TUI open
+  while releases are in flight and see a completed catalog discovery replace
+  both the releases pane and selected board without restarting, losing the
+  selected release, or accepting an older asynchronous result.
 
 ## Source of truth
 
@@ -64,6 +68,8 @@ a crashed process before it was written to either location.
 - **TUI operator**: launches `sworn`, selects a release that exists only on a
   non-HEAD ref, and opens its board from the same catalog snapshot as the CLI.
   A slice whose selected high-water state is uncommitted is visibly marked.
+  While the TUI remains open, the operator sees in-flight release topology and
+  state changes after a background catalog refresh completes.
 
 ## What's currently broken or missing
 
@@ -79,6 +85,9 @@ a crashed process before it was written to either location.
 - `internal/tui/board.go` separately loads the selected plan and elects a
   live-status override. That creates a second state authority and can make the
   CLI and TUI disagree about both the farthest state and whether it is durable.
+- After S02, the TUI calls `LoadReleases` only during startup. Its catalog
+  record is immutable for the process lifetime, so an operator monitoring an
+  in-flight release sees stale tracks and slices until they quit and restart.
 
 ## What the human wants
 
@@ -100,6 +109,10 @@ a crashed process before it was written to either location.
 - Make the TUI list and open the same catalog and state snapshot. A release-list
   aggregate visibly indicates uncommitted evidence when any selected slice
   evidence is uncommitted.
+- Refresh that shared catalog automatically for the lifetime of the TUI. Each
+  discovery runs asynchronously and never overlaps another. A successful
+  result atomically replaces the release list and selected board while
+  preserving selection by release ID; an error keeps the last good snapshot.
 - Discover only refs already available locally, including remote-tracking refs;
   never fetch or mutate Git state as a side effect of discovery.
 - Do not promise recovery of a state that was never committed and no longer
@@ -165,6 +178,11 @@ a crashed process before it was written to either location.
   user outcome is discovery, evidence visibility, and board opening, not a new
   interaction model. **Tracking**: [sworn#123](https://github.com/swornagent/sworn/issues/123).
   **Acknowledged**: repository owner, 2026-07-17.
+- **Push notifications, filesystem watchers, and remote-ref fetching**:
+  deferred because this hotfix only needs bounded polling of the existing
+  read-only catalog authority. **Tracking**:
+  [sworn#123](https://github.com/swornagent/sworn/issues/123). **Acknowledged**:
+  repository owner, 2026-07-18.
 
 ## Decisions made during planning
 
@@ -235,6 +253,24 @@ a crashed process before it was written to either location.
   keeps the repair in the already-serial T1 track, and gives the implementer a
   legal touchpoint for the prerequisite needed by S02 AC-03.
 
+### 2026-07-18 — reopen the merged release with a live-session TUI hotfix
+
+- **Context**: after T1 was verified and merged, a live TUI session showed an
+  older catalog while a direct named board query showed newly added slices.
+  Inspection confirmed that the TUI discovers the catalog once at startup and
+  never refreshes it.
+- **Options considered**: require restart or a manual refresh gesture; poll the
+  shared catalog with overlapping fixed ticks; run one asynchronous discovery
+  at a time and re-arm only after it completes.
+- **Decision**: add `S03-tui-live-board-refresh` in a new dependent track. The
+  TUI automatically runs non-overlapping background catalog refreshes,
+  atomically applies a successful snapshot to the list and selected board, and
+  retains the last good snapshot on a refresh error. Poll delay is a reversible
+  design-level choice to be calibrated against catalog cost.
+- **Why**: an operator monitoring in-flight work needs eventual freshness
+  without UI stalls or restarts. Serial discovery bounds load, while atomic
+  replacement preserves CLI/TUI authority parity and avoids mixed snapshots.
+
 ## Schema-vs-spec audit notes
 
 - The current `spec-v1` record has no typed `references` field in this branch,
@@ -257,19 +293,22 @@ a crashed process before it was written to either location.
 - `S02-tui-ref-aware-release-navigation` — a TUI operator can list and open a
   ref-only release using the S01 catalog snapshot and visibly render its elected
   state durability without re-resolving it.
+- `S03-tui-live-board-refresh` — a TUI operator can leave the application open
+  and see in-flight catalog changes replace the releases pane and selected board
+  from one newer shared snapshot without restart, overlap, or selection loss.
 
 ## Track and touchpoint matrix
 
-| File / surface | T1-ref-aware-board |
-|---|---|
-| `internal/git/git.go` and `internal/git/git_test.go` | ✓ |
-| `internal/board/` catalog and state-evidence oracle/tests | ✓ |
-| `cmd/sworn/board.go` and `cmd/sworn/board_test.go` | ✓ |
-| `internal/tui/releases.go`, `internal/tui/board.go`, and TUI tests | ✓ |
+| File / surface | T1-ref-aware-board | T2-tui-live-refresh |
+|---|---|---|
+| `internal/git/git.go` and `internal/git/git_test.go` | ✓ | — |
+| `internal/board/` catalog and state-evidence oracle/tests | ✓ | — |
+| `cmd/sworn/board.go` and `cmd/sworn/board_test.go` | ✓ | — |
+| `internal/tui/tui.go` | — | ✓ |
+| `internal/tui/model.go`, `internal/tui/releases.go`, and TUI tests | ✓ | ✓ |
 
-One track is intentional: S02 consumes S01's catalog snapshot and overlaps the
-board/TUI state-authority boundary established by S01. No other track may run
-in parallel with it.
+T2 depends on merged T1 because its refresh state machine consumes the catalog
+record and TUI projection created there, and because the touchpoints overlap.
 
 ## Ambiguity register
 
@@ -279,6 +318,7 @@ in parallel with it.
 | A-02 | What happens when a canonical release-worktree ref exists but its board is missing or malformed? | N-02, S01 AC-03 | Resolved: report a deterministic error and return non-zero; never omit or retarget silently. |
 | A-03 | Which status is authoritative when lifecycle progress is split across refs and an uncommitted current working tree? | N-03, N-05, S01 AC-04, S02 AC-02 | Resolved: S01 elects valid topology-matching candidates using the lifecycle, attention, timestamp, durability, and source tie rules above; S02 and both CLI modes render that selected evidence unchanged. |
 | A-04 | Can a process-local state lost before commit be recovered after a crash? | N-03, N-04 | Resolved: no. The oracle reports only current local ref-tip and active-working-tree evidence; historical reconstruction is explicitly deferred above. |
+| A-05 | How does an open TUI refresh without overlapping a slow all-ref discovery or mixing snapshots? | N-03, N-04, N-06, S03 AC-01, S03 AC-02 | Resolved: one asynchronous discovery at a time; re-arm only after completion; atomically replace list and board from one accepted generation. |
 
 ## Planning-gate triage
 
