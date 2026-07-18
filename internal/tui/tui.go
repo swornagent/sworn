@@ -22,9 +22,23 @@ import (
 // shown in the TUI header (S03, AC-03). Returns an error only if the TUI
 // cannot start (not on user quit).
 func Run(version string) error {
+	m, err := newRootModel(version)
+	if err != nil {
+		return err
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err = p.Run()
+	return err
+}
+
+// newRootModel constructs the root Bubble Tea model used by Run. A tiny
+// constructor helper makes the startup contract explicit and keeps Run focused on
+// process launch, not model shape.
+func newRootModel(version string) (*Model, error) {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
-		return fmt.Errorf("finding repo root: %w", err)
+		return nil, fmt.Errorf("finding repo root: %w", err)
 	}
 
 	m := &Model{
@@ -40,9 +54,7 @@ func Run(version string) error {
 		m.errMsg = err.Error()
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err = p.Run()
-	return err
+	return m, nil
 }
 
 // findRepoRoot runs git rev-parse --show-toplevel to find the repo root.

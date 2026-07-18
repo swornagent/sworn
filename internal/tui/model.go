@@ -2,10 +2,25 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 )
+
+const catalogRefreshInterval = 5 * time.Second
+
+type catalogRefreshDueMsg struct {
+	generation uint64
+}
+
+type catalogRefreshResultMsg struct {
+	generation uint64
+	catalog    []board.CatalogRecord
+	err        error
+}
 
 // viewState is the root model's state machine.
 type viewState int
@@ -35,6 +50,16 @@ type Model struct {
 	repoRoot string
 	// Error message (shown when something fails).
 	errMsg string
+	// refreshErr is owned exclusively by the catalog-refresh chain. A later
+	// successful refresh clears it without masking an unrelated root error.
+	refreshErr string
+
+	// Catalog refresh is a serial completion-relative chain. generation names
+	// the sole requested/accepted transaction and refreshInFlight prevents a
+	// duplicate due message from starting overlapping discovery.
+	refreshGeneration uint64
+	refreshInFlight   bool
+	discoverCatalog   func(string) ([]board.CatalogRecord, error)
 
 	// Credit balance (loaded at startup from ~/.config/sworn/credits.json).
 	creditBalance string
@@ -78,7 +103,10 @@ type Model struct {
 func (m *Model) Init() tea.Cmd {
 	bal, _ := CreditFileBalance()
 	m.creditBalance = bal
-	return nil
+	if m.refreshGeneration == 0 {
+		m.refreshGeneration = 1
+	}
+	return scheduleCatalogRefreshCmd(m.refreshGeneration)
 }
 
 // Update implements tea.Model.
@@ -115,6 +143,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case catalogRefreshDueMsg:
+		if msg.generation != m.refreshGeneration || m.refreshInFlight {
+			return m, nil
+		}
+		m.refreshInFlight = true
+		return m, discoverCatalogCmd(m.repoRoot, msg.generation, m.discoverCatalog)
+	case catalogRefreshResultMsg:
+		if msg.generation != m.refreshGeneration || !m.refreshInFlight {
+			return m, nil
+		}
+		m.refreshInFlight = false
+		if msg.err != nil {
+			m.refreshErr = msg.err.Error()
+		} else if err := m.applyCatalogRefresh(msg.catalog); err != nil {
+			m.refreshErr = err.Error()
+		} else {
+			m.refreshErr = ""
+		}
+		m.refreshGeneration++
+		return m, scheduleCatalogRefreshCmd(m.refreshGeneration)
 	case boardLoadedMsg:
 		// Delivered by loadBoardCmd (sworn#82). Discard a stale load — the
 		// user may have navigated to a different release or catalog ref before
@@ -162,23 +210,24 @@ func (m *Model) View() string {
 	if m.state == viewLive {
 		body := m.Live.View()
 		body += "\n" + m.renderCreditBar()
+		body = m.appendRootErrors(body)
 		help := m.renderHelp()
 		return body + "\n" + help
 	}
 
 	// Log view replaces the two-pane layout entirely.
 	if m.state == viewLog && m.Log != nil {
-		return m.Log.View() + "\n" + m.renderHelp()
+		return m.appendRootErrors(m.Log.View()) + "\n" + m.renderHelp()
 	}
 
 	// Blocked view replaces the two-pane layout entirely.
 	if m.state == viewBlocked && m.Blocked != nil {
-		return m.Blocked.View()
+		return m.appendRootErrors(m.Blocked.View())
 	}
 
 	// Settings view replaces the two-pane layout entirely.
 	if m.state == viewSettings && m.Settings != nil {
-		return m.Settings.View()
+		return m.appendRootErrors(m.Settings.View())
 	}
 	// Size the two panes from the real terminal width (S03). paneWidths
 	// reserves the border columns and floors the left pane; ReleasesList.View
@@ -198,17 +247,169 @@ func (m *Model) View() string {
 		BoardStyle.Copy().Width(rightW).Render(right),
 	)
 
-	if m.errMsg != "" {
-		errStyle := lipgloss.NewStyle().
-			Foreground(colFail).
-			Bold(true).
-			Padding(0, 2)
-		body += "\n" + errStyle.Render("Error: "+m.errMsg)
-	}
+	body = m.appendRootErrors(body)
 
 	header := m.renderHeader()
 	help := m.renderHelp()
 	return header + "\n" + body + "\n" + help
+}
+
+func (m *Model) appendRootErrors(body string) string {
+	errStyle := lipgloss.NewStyle().
+		Foreground(colFail).
+		Bold(true).
+		Padding(0, 2)
+	for _, message := range []string{m.errMsg, m.refreshErr} {
+		if message != "" {
+			body += "\n" + errStyle.Render("Error: "+message)
+		}
+	}
+	return body
+}
+
+func scheduleCatalogRefreshCmd(generation uint64) tea.Cmd {
+	return tea.Tick(catalogRefreshInterval, func(time.Time) tea.Msg {
+		return catalogRefreshDueMsg{generation: generation}
+	})
+}
+
+func discoverCatalogCmd(repoRoot string, generation uint64, discover func(string) ([]board.CatalogRecord, error)) tea.Cmd {
+	if discover == nil {
+		discover = func(root string) ([]board.CatalogRecord, error) {
+			return board.DiscoverCatalog(git.New(root))
+		}
+	}
+	return func() tea.Msg {
+		catalog, err := discover(repoRoot)
+		return catalogRefreshResultMsg{generation: generation, catalog: catalog, err: err}
+	}
+}
+
+// applyCatalogRefresh prepares both replacement components before mutating the
+// model, then installs them together. The accepted catalog is the only state
+// authority consulted; presentation-only merge/gate decorations are copied
+// from the prior board for identities that still exist.
+func (m *Model) applyCatalogRefresh(catalog []board.CatalogRecord) error {
+	releases, conversionErr := releaseInfosFromCatalog(catalog)
+	if conversionErr != nil && conversionErr != ErrNoReleases {
+		return conversionErr
+	}
+
+	previousReleaseIndex := m.Releases.Cursor
+	selectedReleaseID := selectedReleaseID(m.Releases)
+	selectedBoardRelease := m.Board.ReleaseName
+	selectedSliceID := selectedBoardSliceID(m.Board)
+
+	newReleaseIndex := clampIndex(previousReleaseIndex, len(releases))
+	if idx := releaseIndexByID(releases, selectedReleaseID); idx >= 0 {
+		newReleaseIndex = idx
+	}
+
+	var refreshedBoard *BoardView
+	if selectedBoardRelease != "" {
+		if rec, ok := catalogRecordByRelease(catalog, selectedBoardRelease); ok {
+			var err error
+			refreshedBoard, err = boardViewFromCatalog(rec)
+			if err != nil {
+				return err
+			}
+			preserveBoardPresentation(refreshedBoard, m.Board, selectedSliceID)
+		}
+	}
+
+	m.Releases.Releases = releases
+	m.Releases.Cursor = newReleaseIndex
+	if refreshedBoard != nil {
+		m.Board = refreshedBoard
+	} else if selectedBoardRelease != "" {
+		m.Board = &BoardView{}
+		if m.state == viewBoard {
+			m.state = viewReleases
+		}
+	}
+
+	return conversionErr
+}
+
+func selectedReleaseID(releases *ReleasesList) string {
+	if releases != nil && releases.Cursor >= 0 && releases.Cursor < len(releases.Releases) {
+		return releases.Releases[releases.Cursor].ID
+	}
+	return ""
+}
+
+func selectedBoardSliceID(boardView *BoardView) string {
+	if boardView != nil && boardView.Cursor >= 0 && boardView.Cursor < len(boardView.orderedSlices) {
+		return boardView.orderedSlices[boardView.Cursor]
+	}
+	return ""
+}
+
+func releaseIndexByID(releases []ReleaseInfo, id string) int {
+	for i := range releases {
+		if releases[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func catalogRecordByRelease(catalog []board.CatalogRecord, release string) (board.CatalogRecord, bool) {
+	for i := range catalog {
+		if catalog[i].Release == release {
+			return catalog[i], true
+		}
+	}
+	return board.CatalogRecord{}, false
+}
+
+func clampIndex(index, length int) int {
+	if length == 0 || index < 0 {
+		return 0
+	}
+	if index >= length {
+		return length - 1
+	}
+	return index
+}
+
+func preserveBoardPresentation(refreshed, previous *BoardView, selectedSliceID string) {
+	refreshed.SortMode = previous.SortMode
+	refreshed.MergeActive = make(map[string]bool)
+	for _, track := range refreshed.Tracks {
+		if previous.MergeActive[track.ID] {
+			refreshed.MergeActive[track.ID] = true
+		}
+	}
+
+	refreshed.GatesLoaded = previous.GatesLoaded
+	refreshed.GatesLoading = previous.GatesLoading
+	refreshed.GateResults = make(map[string]GateResult)
+	for id, slice := range refreshed.Slices {
+		if old, ok := previous.Slices[id]; ok {
+			slice.Gate = old.Gate
+			refreshed.Slices[id] = slice
+		}
+		if gate, ok := previous.GateResults[id]; ok {
+			refreshed.GateResults[id] = gate
+		}
+	}
+
+	refreshed.rebuildOrderedSlices()
+	if idx := boardSliceIndex(refreshed, selectedSliceID); idx >= 0 {
+		refreshed.Cursor = idx
+	} else {
+		refreshed.Cursor = clampIndex(previous.Cursor, len(refreshed.orderedSlices))
+	}
+}
+
+func boardSliceIndex(boardView *BoardView, id string) int {
+	for i, candidate := range boardView.orderedSlices {
+		if candidate == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // renderHeader renders the top header bar (S03, AC-03): the sworn version and

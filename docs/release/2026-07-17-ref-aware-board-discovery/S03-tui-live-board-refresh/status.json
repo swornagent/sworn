@@ -4,37 +4,72 @@
   "release": "2026-07-17-ref-aware-board-discovery",
   "track": "T2-tui-live-refresh",
   "covers_needs": ["N-03", "N-04", "N-06"],
-  "state": "planned",
-  "owner": "unassigned",
-  "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-18T06:47:15+10:00",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "codex-implementer",
+  "last_updated_at": "2026-07-18T15:05:39+10:00",
+  "start_commit": "adae97743a930fa1e4a2fe8296824ba3a4c1826f",
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
   "journal_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
   "planned_files": [
     "internal/tui/tui.go",
     "internal/tui/model.go",
+    "internal/tui/board.go",
     "internal/tui/releases.go",
     "internal/tui/tui_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/maintainability/implementer-preflight-cycle-0-a245e265.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.md",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/status.json",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/after.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/before.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/error.txt",
+    "internal/tui/board.go",
+    "internal/tui/tui.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui_test.go"
+  ],
   "test_commands": [
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/tui ./internal/board ./cmd/sworn",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
     "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
-    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\"",
+    "sworn lint coverage --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f",
+    "sworn lint mock --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f",
+    "sworn llm-check --type ac-satisfaction --slice S03-tui-live-board-refresh --release 2026-07-17-ref-aware-board-discovery --base adae97743a930fa1e4a2fe8296824ba3a4c1826f --json"
   ],
   "reachability_artifacts": [
     "internal/tui/tui_test.go:TestCatalogRefreshAtomicallyUpdatesListAndSelectedBoard",
-    "internal/tui/tui_test.go:TestCatalogRefreshErrorRetainsLastGoodAndRecovers"
+    "internal/tui/tui_test.go:TestCatalogRefreshErrorRetainsLastGoodAndRecovers",
+    "internal/tui/tui_test.go:TestCatalogRefreshRenderedFrames",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/before.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/after.txt",
+    "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/error.txt"
   ],
   "maintainability": {
-    "state": "pending",
+    "state": "passed",
     "cycle": 0,
-    "implementation_head": null,
+    "implementation_head": "338a8c0ee645e6a8a70e9de4ad25344e2fbe8427",
     "rollback_slice_id": null,
-    "reports": [],
+    "reports": [
+      {
+        "role": "implementer",
+        "phase": "preflight",
+        "cycle": 0,
+        "invocation_id": "a245e265-4e34-4c4b-8b7b-df1f896b6251",
+        "report_path": "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/maintainability/implementer-preflight-cycle-0-a245e265.json",
+        "report_blob_oid": "c8c1d5261c5d894575515a24fa63b36d7eb53601",
+        "review_scope_head": "4c163f9215a75db771cec2851eefd16b885a0052",
+        "input_fingerprint": "sha256:ee4d5f4d3e75b23110fe82da56e5e912326ee327e7a12d4ada85473ced468bd5",
+        "verdict": "PASS",
+        "blocking_finding_ids": []
+      }
+    ],
     "adjudication": null
   },
   "open_deferrals": [],
@@ -43,13 +78,13 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "See spec.json; the file surface is bounded, but refresh scheduling and atomic navigation-safe snapshot replacement are state-machine work.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
+    "result": "pass",
+    "verifier_session_id": "codex-verifier-2026-07-18T15:40:08+10:00",
+    "verifier_verdict_at": "2026-07-18T15:40:08+10:00",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.2.0",

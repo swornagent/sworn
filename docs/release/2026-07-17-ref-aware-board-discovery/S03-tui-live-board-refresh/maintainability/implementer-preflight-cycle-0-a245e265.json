@@ -1,0 +1,50 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
+  "schema_version": 1,
+  "check": "maintainability-review",
+  "slice_id": "S03-tui-live-board-refresh",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "role": "implementer",
+  "phase": "preflight",
+  "cycle": 0,
+  "invocation_id": "a245e265-4e34-4c4b-8b7b-df1f896b6251",
+  "verdict": "PASS",
+  "findings": [],
+  "input_fingerprint": "sha256:ee4d5f4d3e75b23110fe82da56e5e912326ee327e7a12d4ada85473ced468bd5",
+  "review_scope": {
+    "base": "adae97743a930fa1e4a2fe8296824ba3a4c1826f",
+    "head": "4c163f9215a75db771cec2851eefd16b885a0052",
+    "included_paths": [
+      "internal/tui/board.go",
+      "internal/tui/model.go",
+      "internal/tui/releases.go",
+      "internal/tui/tui_test.go"
+    ],
+    "excluded_paths": [
+      "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/journal.md",
+      "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.json",
+      "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/proof.md",
+      "docs/release/2026-07-17-ref-aware-board-discovery/S03-tui-live-board-refresh/status.json",
+      "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/after.txt",
+      "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/before.txt",
+      "docs/release/2026-07-17-ref-aware-board-discovery/screenshots/S03-tui-live-board-refresh/error.txt"
+    ],
+    "fingerprint_algorithm": "baton-maintainability-v1"
+  },
+  "model_id_confirmed": "openrouter/google/gemini-3.5-flash",
+  "structured_output_mode": "text_fallback",
+  "adapter_evidence": {
+    "engine": "sworn 0.2.0 / Baton v0.13.1",
+    "isolated_review_commit": "4d815153a36454a1754945c41502aa127e52e442",
+    "isolated_diff_paths": [
+      "internal/tui/board.go",
+      "internal/tui/model.go",
+      "internal/tui/releases.go",
+      "internal/tui/tui_test.go"
+    ],
+    "raw_validated_response": {
+      "verdict": "PASS",
+      "findings": []
+    }
+  }
+}
