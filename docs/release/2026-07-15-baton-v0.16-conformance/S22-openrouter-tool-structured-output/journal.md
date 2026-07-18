@@ -385,3 +385,34 @@ this is not a fresh verifier verdict.
   proof gates. Unsupported or unconfigured values reject before dispatch;
   every attempt-3 outcome is terminal; no fallback, fourth dispatch, or S20
   activity is authorised before a fresh S22 verifier PASS.
+
+## 2026-07-18T15:26:22+10:00 — Configured-recovery-v2 contract emitted
+
+- Corrected S22 in place because the inbound BLOCKED diagnosis identified a
+  contract-bound proof-model dead end, Brad explicitly ratified the correction,
+  S22 is unmerged, and the existing implementation does not yet satisfy it.
+  `verification.result` is cleared to `pending`; lifecycle becomes
+  `failed_verification` for a fresh Implementer design/implementation cycle.
+- Historical attempts 1 and 2 remain immutable v1 receipts. Added a separate
+  `llm-check-proof-receipt-v2` planning schema with the identical metadata
+  allowlist, `record_version: 2`, and `attempt: 3` constant. This prevents the
+  replan from silently changing the schema beneath historical evidence.
+- C-16 and AC-06/09/10/12 now distinguish unchanged typed retry classification
+  from the one administrative configured recovery. Attempt 3 rejects a model
+  flag, resolves only `verifier.model` from standard config, persists only the
+  resolved model ID, and is terminal. Attempt 4 and every fallback remain
+  prohibited.
+- The release topology is unchanged: 24 slices, five tracks, no dependency or
+  shared-touchpoint change. The rendered matrix adds only the S22 v2 schema
+  path under T1.
+- Deterministic planning gates passed: `sworn lint ac` (149 ACs), `sworn lint
+  trace` (16 needs / 149 ACs), `sworn reqvalidate` (24/24), `sworn specquality`
+  (24/24), and `sworn designfit` (24/24). All edited JSON parses and the
+  rendered `index.md` was regenerated from the unchanged board plus revised
+  spec/status.
+- No model/provider call ran in this Planner session. Why: the ratified safety
+  boundary reserves configured model dispatch for the native attempt-3 receipt
+  only after revised implementation, deterministic proof, and fresh Captain
+  review. Tracking: S22 AC-12 and the next `/implement-slice` design cycle.
+  Acknowledgement: Brad explicitly invoked this replan after requesting the
+  configured-values recovery and accepted the fresh-review boundary.

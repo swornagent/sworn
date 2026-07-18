@@ -9,10 +9,10 @@
     "N-13",
     "N-14"
   ],
-  "state": "blocked",
-  "owner": "planner",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-18T14:49:34+10:00",
+  "state": "failed_verification",
+  "owner": "implementer",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-18T15:19:30+10:00",
   "upstream_gate": {
     "slice_id": "S21-openai-structured-envelope",
     "required_state": "verified",
@@ -29,6 +29,7 @@
   "planned_files": [
     "cmd/sworn/llmcheck.go",
     "cmd/sworn/llmcheck_test.go",
+    "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/llm-check-proof-receipt-v2.schema.json",
     "internal/gate/llmcheck.go",
     "internal/gate/llmcheck_live_test.go",
     "internal/gate/llmcheck_receipt.go",
@@ -81,7 +82,7 @@
     "go test ./... -count=1",
     "go vet ./...",
     "make build",
-    "CONDITIONAL ONLY AFTER fresh Captain PROCEED, deterministic evidence, proof bundle, and explicit implementation authority: SWORN_DIRECT=1 bin/sworn llm-check --proof-receipt --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --model openrouter/z-ai/glm-5.2 --base a09b0e46df465862d00469d4aef2a997442b3d5b"
+    "CONDITIONAL ONLY AFTER revised implementation, fresh Captain PROCEED, deterministic evidence, proof bundle, and explicit implementation authority: bin/sworn llm-check --proof-receipt --configured-recovery --type spec-ambiguity --slice S22-openrouter-tool-structured-output --release 2026-07-15-baton-v0.16-conformance --base a09b0e46df465862d00469d4aef2a997442b3d5b (no --model and no proof-specific provider override)"
   ],
   "reachability_artifacts": [
     "cmd/sworn/llmcheck_test.go:TestLLMCheckProofReceiptBinaryReachability drives the built binary through direct OpenRouter configuration into a local fake chat-completions endpoint and asserts the metadata-only receipt, canonical verdict/exit behavior, and no raw output.",
@@ -101,25 +102,18 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "The material re-scope adds a public native proof mode, atomic metadata durability, narrow error classification, confidentiality controls, exact retry bounds, and a fresh review gate while preserving the direct-only transport boundary.",
-    "confirmed_by_implementer": true
+    "confirmed_by_implementer": false
   },
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": [
-      {
-        "gate": "AC-12 native proof receipt",
-        "description": "The sole authorised attempt 2 produced no locally valid PASS and exhausted the two-attempt budget.",
-        "evidence": "receipts/attempt-2.json: attempt 2, class opaque, result UNPARSEABLE, process exit code 2",
-        "proposed_amendment": "Planner must explicitly re-scope or close S22; no retry, fallback, third dispatch, verifier run, or S20 activity is authorised."
-      }
-    ],
-    "notes": "This is an Implementer fail-closed handoff, not a fresh verifier verdict. Deterministic implementation evidence passed, but AC-12 did not. Attempt 1 receipt_failure and terminal attempt 2 opaque/UNPARSEABLE are preserved as strict metadata-only receipts; S20 remains blocked."
+    "violations": [],
+    "notes": "Planner corrected the blocked S22 contract after Brad explicitly requested a configured-values recovery. Attempts 1 and 2 remain immutable. The existing implementation does not yet satisfy configured-recovery attempt 3, so S22 returns to the Implementer in failed_verification with verification pending. Fresh design/Captain review, deterministic/proof gates, and one terminal attempt 3 are required; S20 remains blocked."
   },
   "release_base": "release/v0.2.0",
-  "release_benefit": "Lets the selected direct OpenRouter proof produce a durable, bounded, sanitized receipt without weakening the canonical gate, proxy isolation, raw-data protections, or S20's independent verification gate.",
+  "release_benefit": "Lets the delivered direct OpenRouter path retain its deterministic transport proof while one explicitly governed config-selected verifier attempt can produce durable sanitized lifecycle evidence without weakening the canonical gate, raw-data protections, or S20's independent verification gate.",
   "design_decisions": [
     {
       "choice": "Use an explicit direct-only OpenRouter forced-function route for the Coach-selected GLM-5.2 proof model, while retaining every proxy and unprofiled provider as structured-output unsupported.",
@@ -146,30 +140,46 @@
       "human_decision": "Ratified by the Coach, 2026-07-17: record the destroyed-output historical invocation only as attempt 1 receipt_failure/UNPARSEABLE and permit an attempt 2 only under the strict native facility, deterministic evidence, and a fresh Captain design review. No fallback, model default change, generic retry, or S20 activity is authorized.",
       "rationale": "A private metadata-only record makes proof state durable without preserving raw provider data. Atomic pre-dispatch reservation prevents an unevidenced dispatch; a narrow allowlist prevents error text, unknown failures, or invalid model output from becoming retry authority.",
       "architecturally_significant": true
+    },
+    {
+      "choice": "After immutable attempt 2 ended opaque, authorize one config-only administrative recovery outside the typed retry classifier.",
+      "stake_class": "Type-1",
+      "options": [
+        "resolve verifier.model from standard config with no CLI override, persist only the resolved model ID, and permit exactly terminal attempt 3 after fresh review and gates",
+        "leave S22 permanently blocked on the hard-coded GLM proof",
+        "silently retry the GLM or choose another model/provider in the command",
+        "reset or delete prior receipts and restart the attempt count"
+      ],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-18: try the proof with the currently configured values through a formal replan. Preserve attempts 1 and 2, make config-only attempt 3 explicit and bounded, and retain no fallback or fourth dispatch.",
+      "rationale": "The failed proof exposed a policy binding problem rather than a deterministic transport defect. Resolving the customer-selected verifier model through Sworn's single config authority removes the proof-specific hard-code while immutable receipts and a separate administrative gate prevent the exception from broadening normal retry classification.",
+      "architecturally_significant": true
     }
   ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-17T20:47:05+10:00",
+    "ratified_at": "2026-07-18T15:15:40+10:00",
     "positive_scenarios": [
       "The serial T1 gate preserves S21-openai-structured-envelope verified/PASS from its immutable start before S22 design review, implementation, or proof-receipt dispatch.",
       "A built direct proof-receipt command reaches a local OpenRouter-shaped endpoint, reserves then finalizes one strict metadata-only record bound to the exact release, slice, check, model, and immutable start, and accepts a valid canonical result through the unchanged local gate.",
       "An explicit 429, 5xx, normalized network/deadline, runner, or receipt failure on attempt 1 permits exactly one second dispatch; a valid final result is then terminal.",
       "The historical attempt-1 receipt_failure is bound to the selected release, slice, check, model, and immutable start commit and is eligible only for the revised native attempt-2 gate."
+      ,
+      "After exact attempts 1 and 2 and fresh configured-recovery review gates, attempt 3 resolves verifier.model from config with no model flag, records only that model ID, and is terminal."
     ],
     "negative_scenarios": [
       "If S21 no longer has its verified/PASS status, S22 remains gated with no implementation or proof-receipt dispatch.",
       "Preflight write failure, a mismatched release/slice/check/model/immutable-start binding, a final prior verdict, invalid receipt path, or exhausted budget makes zero provider requests and cannot consume or reuse S22 retry budget.",
       "HTTP 400/401/402, unknown/local errors, parse/schema/identity/malformed-tool/opaque outcomes, and all attempt-2 non-final outcomes make no additional request.",
-      "Hosted proxy, Ollama, unknown providers, raw payloads, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys remain excluded from receipts, normal output, JSON, journals, docs, and Git-visible artifacts; S20 remains blocked until a fresh S22 verifier PASS."
+      "Outside the ratified administrative attempt-3 authority, opaque remains non-retryable; attempt 3 cannot be repeated and attempt 4 is impossible.",
+      "Config paths/content, raw payloads, endpoints, headers, request/response bodies, findings, prompts, diffs, credentials, and keys remain excluded from receipts, normal output, JSON, journals, docs, and Git-visible artifacts; S20 remains blocked until a fresh S22 verifier PASS."
     ],
-    "benefit_hypothesis": "A native, receipt-bound evidence path makes the user-selected proof diagnosable and recoverable exactly once without changing model/provider authority or exposing provider data."
+    "benefit_hypothesis": "A native receipt-bound config-only attempt 3 can recover from the hard-coded proof-model dead end without deleting history, inventing a default, broadening retry classification, or exposing provider/config data."
   },
   "recovery": {
     "authorized_by": "Coach",
-    "authorized_at": "2026-07-17T20:47:05+10:00",
-    "policy_revision": "llm-check-proof-receipt-v1",
+    "authorized_at": "2026-07-18T15:15:40+10:00",
+    "policy_revision": "llm-check-proof-receipt-configured-recovery-v2",
     "scope": "S22-openrouter-tool-structured-output only",
     "historical_attempt_receipt": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-1.json",
     "historical_attempt": {
@@ -196,7 +206,25 @@
       "attempt_class": "opaque",
       "result": "UNPARSEABLE",
       "process_exit_code": 2,
-      "retry_authority": "none; attempt 2 is terminal"
+      "retry_authority": "none under the typed classifier; superseded only by the separately ratified configured-recovery-v2 administrative authority"
+    },
+    "terminal_attempt_receipt": "docs/release/2026-07-15-baton-v0.16-conformance/S22-openrouter-tool-structured-output/receipts/attempt-2.json",
+    "configured_recovery_attempt": {
+      "ordinal": 3,
+      "binding": {
+        "release": "2026-07-15-baton-v0.16-conformance",
+        "slice_id": "S22-openrouter-tool-structured-output",
+        "check_type": "spec-ambiguity",
+        "model_source": "config.Load then ResolveVerifierModel with an empty flag; no --model override",
+        "immutable_start_commit": "a09b0e46df465862d00469d4aef2a997442b3d5b"
+      },
+      "may_dispatch_only_after": [
+        "exact immutable attempt-1 and attempt-2 receipt validation",
+        "configured-recovery source implementation and deterministic zero-dispatch/config-only/leak coverage",
+        "full S22 suite, go vet, build, and regenerated proof bundle",
+        "fresh Captain design review PROCEED and Coach acknowledgement"
+      ],
+      "terminal_policy": "every result or error is terminal; no fallback or attempt 4"
     },
     "receipt_allowlist": [
       "schema/version",
@@ -230,20 +258,21 @@
       "malformed tool result",
       "opaque output",
       "untrusted receipt binding",
-      "any attempt-2 outcome"
+      "any attempt-2 outcome under the typed classifier; the configured-recovery-v2 administrative authority is separate"
     ],
     "prohibitions": [
       "provider or model call in this Planner session",
-      "fallback or another provider/model/transport",
+      "any model/provider/transport selection other than the one value resolved from current verifier config for attempt 3",
       "generic automatic retry policy",
       "raw provider data in any artifact or output",
-      "third provider dispatch",
+      "proof-specific model override or fallback after config resolution",
+      "fourth provider dispatch",
       "S20 activity before fresh S22 verifier PASS"
     ],
     "captain_review": {
       "required": true,
-      "prior_review": "798e114c reviewed design commit 19d2ab1b",
-      "state": "proceed_acknowledged"
+      "prior_review": "798e114c is superseded by the configured-recovery-v2 material re-scope",
+      "state": "awaiting_fresh_review"
     }
   },
   "preserved_t1_implementation": {
