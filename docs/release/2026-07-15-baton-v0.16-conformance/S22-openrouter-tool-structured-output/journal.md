@@ -595,3 +595,27 @@ this is not a fresh verifier verdict.
 - No acceptance criterion was weakened or edited in response to the stale
   finding. The ratified human decision closes the convergence choice and
   authorizes the validated planning commit and Step-6 track propagation.
+
+## 2026-07-19T07:32:03+10:00 — Diagnostic/certification design gate restored
+
+- The aggregate board oracle passed projection-integrity checks and resolved
+  S22 uniquely to `T1-foundation`. Every predecessor is integration-ready,
+  including deferred S02 with its verified S19 rollback. The track worktree is
+  clean, current with its remote, and the target status validates against
+  `slice-status-v1`.
+- The complete first-parent status history preserves immutable start
+  `a09b0e46df465862d00469d4aef2a997442b3d5b`, an empty pending cycle-0
+  maintainability ledger, null adjudication, and no terminal maintainability
+  transition. No BLOCKED verifier result is open.
+- The live `spec.json` passes `spec-v1`, EARS AC lint, trace, requirements
+  validation, design-fit, and spec-quality gates. Its 14 ACs are concrete and
+  ratified.
+- The checked-in design and Captain review still described the superseded
+  configured-recovery attempt 3. Replaced `design.md` with the ratified
+  diagnostic-v1/certification-v3 plan, including separate record families,
+  explicit direct-model authority, head-bound replay prevention, sanitized
+  stage/shape metadata, file scope, all-AC traceability, and four Captain pins.
+- Returned S22 to `design_review`. No source, test, schema, proof, receipt,
+  provider/model, configuration, credential, or S20 action occurred. A fresh
+  Captain `PROCEED` and Coach acknowledgement are required before implementation
+  resumes.
