@@ -138,6 +138,36 @@ with the left arrow, while the existing Enter and Esc gestures remain valid.
 - **Why**: directional navigation matches the spatial model without breaking
   the learned keyboard contract.
 
+### 2026-07-18 — use a growing ten-release catalog window
+
+- **Context**: the human delegated an initial batch of five or ten releases and
+  required a way to reach older releases. The existing board `o` binding is
+  state-specific and therefore does not conflict on the release-list screen.
+- **Options considered**: five releases with automatic loading at the list end;
+  ten releases with explicit `o` loading; ten releases with PageDown loading.
+- **Decision**: load the ten newest release IDs initially and grow the requested
+  catalog depth by ten whenever the operator presses `o` in the release list.
+  The release help bar labels the action `o older`; the board continues to label
+  the same state-specific key `o order`.
+- **Why**: ten gives useful recent context without materialising the project,
+  while an explicit, labelled action makes extra Git work predictable.
+
+### 2026-07-18 — preserve requested depth across refresh and measure chrome
+
+- **Context**: the existing five-second refresh chain atomically replaces the
+  current catalog, and header/help/error rows change the height left for panes.
+- **Options considered**: reset to ten on every refresh; append stale older
+  records forever; retain a requested depth and re-query that bounded window.
+- **Decision**: retain the current requested depth across background refresh,
+  reject a result for an obsolete smaller depth, and continue preserving
+  release/slice selection by identity where the refreshed window still contains
+  it. Compute available pane height from the actual rendered header, help, error,
+  separator, padding, and border rows on every render rather than hardcoding one
+  terminal profile.
+- **Why**: this preserves S03's one-snapshot authority and non-overlap guarantee,
+  avoids reintroducing unbounded retained data, and remains correct when help or
+  errors add rows.
+
 ## Schema-vs-spec audit notes
 
 - `board.CatalogRecord` is the canonical TUI snapshot input. This release may
@@ -146,10 +176,14 @@ with the left arrow, while the existing Enter and Esc gestures remain valid.
 - `Model` already stores the latest `tea.WindowSizeMsg` width and height. The
   missing contract is allocation and clipping of that height, not a new terminal
   size source.
+- The vendored `spec-v1` on `release/v0.2.0` does not yet admit the newer typed
+  `references` property, and the vendored `board-v1` does not admit
+  `shared_touchpoints`. This one-track plan therefore omits both properties and
+  records no cross-slice wire contract in `contracts.json`.
 
 ## Proposed slice decomposition (confirmed)
 
-`S01-tui-bounded-navigation`  [██████░░░░░░░░░░░░░░]  estimated 6 files
+`S01-tui-bounded-navigation`  [████████░░░░░░░░░░░░]  estimated 8 files
 
 - A TUI operator in a large project can enter a terminal-height-bounded recent
   release list, load older releases in bounded batches, scroll both panes while
@@ -176,9 +210,9 @@ cross-track dependency exists.
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | Is the initial and incremental release batch five or ten records, and which gesture requests another batch? | N-01 | Planner to resolve from current catalog and keybinding architecture before emitting the final spec. |
-| A-02 | How are header, border, error, and help rows deducted from terminal height, especially at very small sizes? | N-02, N-04 | Planner to derive one deterministic layout budget from current Lip Gloss rendering and pin it in the spec. |
-| A-03 | Does background catalog refresh preserve the operator's expanded older-release depth? | N-01, N-04 | Planner recommendation: preserve the requested depth and selection by identity; confirm against the existing refresh state machine before emitting the spec. |
+| A-01 | Is the initial and incremental release batch five or ten records, and which gesture requests another batch? | N-01 | Resolved: ten initially; lowercase `o` requests ten more and is labelled `older` only in release-list help. |
+| A-02 | How are header, border, error, and help rows deducted from terminal height, especially at very small sizes? | N-02, N-04 | Resolved: measure actual rendered chrome each frame, allocate a non-negative pane content height, and guarantee the final frame does not exceed a positive reported terminal height. |
+| A-03 | Does background catalog refresh preserve the operator's expanded older-release depth? | N-01, N-04 | Resolved: yes; refresh re-queries the retained bounded depth and cannot accept an obsolete smaller-depth result. Selection remains identity-based within the returned window. |
 
 ## Screenshots / references
 

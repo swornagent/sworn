@@ -1,0 +1,122 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-tui-bounded-navigation",
+  "release": "2026-07-18-tui-bounded-navigation",
+  "track": "T1-tui-bounded-navigation",
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04",
+    "N-05"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-18T16:27:35+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/spec.json",
+  "proof_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/proof.json",
+  "journal_path": "docs/release/2026-07-18-tui-bounded-navigation/S01-tui-bounded-navigation/journal.md",
+  "planned_files": [
+    "internal/board/discovery.go",
+    "internal/board/discovery_test.go",
+    "internal/tui/tui.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./internal/board ./internal/tui ./cmd/sworn",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go test ./...",
+    "env GOFLAGS=-buildvcs=false /usr/local/go/bin/go vet ./...",
+    "test -z \"$(/usr/local/go/bin/gofmt -l .)\""
+  ],
+  "reachability_artifacts": [
+    "internal/tui/tui_test.go:TestNewRootModelPrimesTenRecentReleases",
+    "internal/tui/tui_test.go:TestRootModelArrowPaneNavigationMatchesEnterEscape",
+    "internal/tui/tui_test.go:TestTwoPaneRenderNeverExceedsTerminalHeight"
+  ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "One bounded TUI journey across eight files; concurrency identity and terminal layout arithmetic make it a small but subtle puzzle.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent operator can navigate many releases and slices inside a terminal-height-bounded TUI that loads only the recent catalog depth they need.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-18T16:27:35+10:00",
+    "positive_scenarios": [
+      "A project with 25 releases opens with only the newest 10 materialised, then exposes 20 after one explicit older request.",
+      "A short terminal keeps both pane cursors reachable, and shrinking or growing it preserves selected IDs.",
+      "Right/Left and Enter/Esc navigate the same release-list and board focus states."
+    ],
+    "negative_scenarios": [
+      "A hidden slice of a complete catalog cannot masquerade as bounded work; excluded board/status objects are not materialised.",
+      "A stale smaller-depth refresh cannot erase older rows after the operator requests a larger depth.",
+      "Help, errors, borders, or tiny heights cannot push the final rendered frame beyond a positive reported terminal height."
+    ],
+    "benefit_hypothesis": "Bounding both discovery work and rendered rows turns the ref-aware TUI into a fast, reachable navigation surface even as a repository accumulates releases and slices."
+  },
+  "design_decisions": [
+    {
+      "choice": "Prime 10 newest releases and let lowercase o grow the requested depth by 10.",
+      "stake_class": "Type-2",
+      "options": [
+        "five releases with automatic end-of-list loading",
+        "ten releases with explicit lowercase o loading",
+        "ten releases with PageDown loading"
+      ],
+      "human_decision": "The repository owner delegated a five-or-ten batch and required older access; the planner selected the explicit ten-record option from the current keybinding architecture.",
+      "rationale": "It is bounded, predictable, discoverable in help, and does not collide because o is interpreted by focus state.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Use measured terminal chrome and independent cursor-relative row windows for the two panes.",
+      "stake_class": "Type-2",
+      "options": [
+        "hardcode fixed row deductions",
+        "measure rendered chrome and clamp derived heights",
+        "render everything and truncate the final string only"
+      ],
+      "human_decision": "The repository owner required terminal-height reflow and scroll regions for both releases and board slices.",
+      "rationale": "Measured allocation keeps selection-aware components in control and remains correct when help or error rows change.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Add Right/Left as aliases while preserving Enter/Esc and one shared transition per direction.",
+      "stake_class": "Type-2",
+      "options": [
+        "replace Enter/Esc",
+        "retain only Enter/Esc",
+        "add Right/Left aliases"
+      ],
+      "human_decision": "The repository owner explicitly requested Right into the board and Left back to releases as well as Esc.",
+      "rationale": "Spatial navigation becomes natural without breaking the existing keyboard contract.",
+      "architecturally_significant": false
+    }
+  ]
+}
