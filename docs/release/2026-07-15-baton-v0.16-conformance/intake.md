@@ -1295,6 +1295,12 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   uses the existing forced-function transport for the selected GLM proof path;
   it passes the canonical schema to the tool unchanged, leaves proxy and other
   provider routes default-deny, and retains the full S04 local gate.
+- `S22-openrouter-tool-structured-output` configured-values recovery (ratified
+  2026-07-18): preserve attempts 1 and 2 as immutable historical receipts, then
+  permit one separately authorised attempt 3 that resolves the verifier model
+  only through the standard current config with no proof-specific model flag.
+  Record the resolved model ID but no config path, endpoint, credential, or
+  payload. Attempt 3 is terminal and no fourth dispatch or fallback exists.
 - `S05-protocol-provenance-archive`: An operator can inspect historical records
   read-only with committed version evidence, while every live operation fails
   before side effects unless its exact protocol marker matches the binary and
@@ -1376,6 +1382,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-20 | Whether a sanitized receipt is sufficient when MCP can wrap provider-response-derived errors, or when a second receipt recovery write fails | Public MCP error surface, atomic finalization, S21 freshness proof, retry authority, and S20 sequencing | Ratified: extend only S22 with C-17's fixed MCP provider-error diagnostic and deterministic canaries; make post-rename restoration failure fail closed without trusting a final verdict; mechanically bind the S21 identity/start/PASS/time/fresh-context facts. No model/provider policy or proof budget changes. |
 | A-21 | Whether the active release keeps a v0.15-derived name after Baton v0.16.0 is released | Operator clarity, release refs/worktrees, board discovery, and historical evidence | Ratified 2026-07-18: rename the active release, release-wt ref and T1 ref/worktree to `2026-07-15-baton-v0.16-conformance`; retain the old identifier only in Git history and the explicit migration record. The rename alters no source claim, started status, or verifier result. |
 | A-22 | Whether to rewrite the in-progress S20 v0.15.1 bootstrap in place for v0.16.0 | Lifecycle immutability, rollback evidence, S04 overlap, and exact tagged parity | Ratified 2026-07-18: do not rewrite S20. It has a non-null start and committed implementation interval, so changing its pin would fabricate lifecycle evidence and requires an unsafe topology reconstruction. Complete or fail S22/S20 under their existing contract, then append S23 and S24 as fresh v0.16.0 tail slices. |
+| A-23 | Whether S22 may bypass its exhausted hard-coded GLM receipt budget by using the verifier values currently configured for Sworn | Receipt history, model authority, provider dispatch count, confidentiality, and S20 sequencing | Ratified by Brad 2026-07-18: correct S22's blocked contract in place because it is unmerged and the existing implementation does not yet satisfy the new recovery. Preserve attempts 1-2 byte-for-byte; authorize exactly attempt 3 only after fresh Captain review and deterministic/proof gates; resolve `verifier.model` via `config.Load` plus `ResolveVerifierModel("", cfg)` with no CLI model override; persist only the resolved model ID in the strict receipt; preflight-reject unsupported/unconfigured values with zero dispatch; make every attempt-3 outcome terminal; forbid fallback, a fourth dispatch, and S20 activity before a fresh S22 PASS. |
 
 ## Screenshots / references
 
