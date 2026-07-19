@@ -147,7 +147,7 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		t.Fatalf("RunLocal() = %#v, %v", produced, err)
 	}
 	authorityPointer := putAuthorityApproval(t, ctx, control)
-	work := protocol.AdmittedWork{
+	work := protocol.StructuralWork{
 		DeliveryID: "delivery-1", WorkID: "work-1", PlanDigest: testPlanDigest,
 		ContractDigest: testContractDigest, Repository: "repo-01", TargetRef: "refs/heads/main",
 		Scope: repo.Scope{Include: []string{"."}}, PolicyRef: "policy:standard", PolicyDigest: testPolicyDigest,

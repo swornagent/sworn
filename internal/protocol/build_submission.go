@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -38,10 +36,11 @@ type BaselineCheck struct {
 	Evidence   EvidenceRequirement
 }
 
-// AdmittedWork contains facts already admitted from an exact plan, contract,
-// policy, and current authority source. The walking skeleton deliberately
-// supports only dependency-free Standard work and local test producers.
-type AdmittedWork struct {
+// StructuralWork contains caller-supplied projections used by the measured
+// submission walking skeleton. It is deliberately not authority, admission,
+// or reducer input. Authenticated plan approval and later journal/runtime gates
+// must independently bind these facts before a submission becomes reviewable.
+type StructuralWork struct {
 	DeliveryID            string
 	WorkID                string
 	PlanDigest            string
@@ -61,7 +60,7 @@ type AdmittedWork struct {
 type SubmissionInput struct {
 	Attempt          int64
 	CreatedAt        time.Time
-	Work             AdmittedWork
+	Work             StructuralWork
 	AuthorityReceipt Artifact
 	Builder          BuilderRun
 	Candidate        repo.Candidate
@@ -71,7 +70,7 @@ type SubmissionInput struct {
 
 // PreparedSubmission is an opaque construction capability minted only after
 // BuildSubmission has re-bound immutable Git and artifact bytes to
-// structurally pre-admitted work, authority, and producer facts. It is not an
+// structural work, authority-receipt, and producer projections. It is not an
 // authenticated authority or journal-registration proof; those later engine
 // boundaries must precede reviewable/PASS state.
 type PreparedSubmission struct {
@@ -95,7 +94,7 @@ func (prepared PreparedSubmission) Dependencies() []Artifact {
 }
 
 // BuildSubmission rechecks Git and every raw artifact, then constructs a
-// Standard submission from structurally pre-admitted work and producer facts.
+// Standard submission from structural work projections and producer facts.
 // It performs no authentication, journal lookup, storage, clock read, state
 // transition, or external effect.
 func BuildSubmission(
@@ -107,11 +106,11 @@ func BuildSubmission(
 	if repository == nil || artifacts == nil {
 		return PreparedSubmission{}, errors.New("submission requires repository and artifact readers")
 	}
-	if err := validateAdmittedWork(input.Work); err != nil {
+	if err := validateStructuralWork(input.Work); err != nil {
 		return PreparedSubmission{}, err
 	}
 	if input.Candidate.RepositoryID != input.Work.Repository || input.Candidate.TargetRef != input.Work.TargetRef {
-		return PreparedSubmission{}, errors.New("candidate does not match admitted repository and target")
+		return PreparedSubmission{}, errors.New("candidate does not match structural repository and target")
 	}
 	if err := repository.VerifyCandidate(ctx, input.Candidate, input.Work.Scope); err != nil {
 		return PreparedSubmission{}, fmt.Errorf("verify submission candidate: %w", err)
@@ -136,7 +135,7 @@ func BuildSubmission(
 		checksByID[check.ID] = check
 	}
 	if len(checksByID) != len(input.Work.BaselineChecks) {
-		return PreparedSubmission{}, errors.New("measured checks do not exactly cover the admitted baseline")
+		return PreparedSubmission{}, errors.New("measured checks do not exactly cover the projected baseline")
 	}
 	evidenceByID := make(map[string]Evidence, len(input.Evidence))
 	for _, evidence := range input.Evidence {
@@ -146,7 +145,7 @@ func BuildSubmission(
 		evidenceByID[evidence.ID] = evidence
 	}
 	if len(evidenceByID) != len(input.Work.BaselineChecks) {
-		return PreparedSubmission{}, errors.New("measured evidence does not exactly cover the admitted baseline")
+		return PreparedSubmission{}, errors.New("measured evidence does not exactly cover the projected baseline")
 	}
 
 	orderedChecks := make([]Check, 0, len(input.Work.BaselineChecks))
@@ -212,7 +211,7 @@ func BuildSubmission(
 		}
 		evidence, exists := evidenceByID[baseline.Evidence.ID]
 		if !exists {
-			return PreparedSubmission{}, fmt.Errorf("check %q lacks admitted evidence %q", baseline.ID, baseline.Evidence.ID)
+			return PreparedSubmission{}, fmt.Errorf("check %q lacks projected evidence %q", baseline.ID, baseline.Evidence.ID)
 		}
 		if err := bindEvidence(evidence, check, baseline, input.Candidate.Tree); err != nil {
 			return PreparedSubmission{}, err
@@ -289,26 +288,26 @@ func cloneSubmission(submission Submission) Submission {
 	return submission
 }
 
-func validateAdmittedWork(work AdmittedWork) error {
+func validateStructuralWork(work StructuralWork) error {
 	if !protocolIDPattern.MatchString(work.DeliveryID) || !protocolIDPattern.MatchString(work.WorkID) {
-		return errors.New("admitted work requires valid delivery and work ids")
+		return errors.New("structural work requires valid delivery and work ids")
 	}
 	for name, digest := range map[string]string{
 		"plan": work.PlanDigest, "contract": work.ContractDigest, "policy": work.PolicyDigest,
 		"authority": work.AuthorityDigest, "authority source": work.AuthoritySourceDigest,
 	} {
 		if !digestPattern.MatchString(digest) {
-			return fmt.Errorf("admitted work has invalid %s digest", name)
+			return fmt.Errorf("structural work has invalid %s digest", name)
 		}
 	}
 	if !nonEmpty(work.Repository) || !validBranchRef(work.TargetRef) || !nonEmpty(work.PolicyRef) || !nonEmpty(work.AuthoritySourceRef) {
-		return errors.New("admitted work has invalid repository, target, policy, or authority source")
+		return errors.New("structural work has invalid repository, target, policy, or authority source")
 	}
 	if err := work.Scope.Validate(); err != nil {
 		return err
 	}
 	if len(work.Acceptance) == 0 || len(work.BaselineChecks) == 0 {
-		return errors.New("admitted work requires acceptance and baseline checks")
+		return errors.New("structural work requires acceptance and baseline checks")
 	}
 	acceptance := make(map[string]string, len(work.Acceptance))
 	for _, requirement := range work.Acceptance {
@@ -324,7 +323,7 @@ func validateAdmittedWork(work AdmittedWork) error {
 	evidence := make(map[string]struct{}, len(work.BaselineChecks))
 	for _, check := range work.BaselineChecks {
 		if !protocolIDPattern.MatchString(check.ID) || check.Definition.MediaType != "application/json" {
-			return fmt.Errorf("invalid admitted baseline check %q", check.ID)
+			return fmt.Errorf("invalid projected baseline check %q", check.ID)
 		}
 		if err := validateArtifact(check.Definition, "baseline check definition"); err != nil {
 			return err
@@ -340,7 +339,7 @@ func validateAdmittedWork(work AdmittedWork) error {
 			return fmt.Errorf("baseline check %q has invalid evidence semantics", check.ID)
 		}
 		if _, exists := evidence[requirement.ID]; exists {
-			return fmt.Errorf("duplicate admitted evidence id %q", requirement.ID)
+			return fmt.Errorf("duplicate projected evidence id %q", requirement.ID)
 		}
 		evidence[requirement.ID] = struct{}{}
 		if duplicateStrings(requirement.AcceptanceIDs) || !slices.IsSorted(requirement.AcceptanceIDs) {
@@ -405,60 +404,15 @@ func (resolver *artifactResolver) resolve(ctx context.Context, pointer Artifact)
 	return contents, nil
 }
 
-type authorityApproval struct {
-	SchemaVersion   string            `json:"schema_version"`
-	Kind            string            `json:"kind"`
-	ReceiptID       string            `json:"receipt_id"`
-	PlanDigest      string            `json:"plan_digest"`
-	AuthorityDigest string            `json:"authority_digest"`
-	SourceRef       string            `json:"source_ref"`
-	SourceDigest    string            `json:"source_digest"`
-	Grants          []json.RawMessage `json:"grants"`
-	Repository      string            `json:"repository"`
-	TargetRef       string            `json:"target_ref"`
-	AuthorizerRef   string            `json:"authorizer_ref"`
-	ApprovedAt      string            `json:"approved_at"`
-}
-
-func parseAuthorityApproval(contents []byte) (authorityApproval, error) {
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
-	var receipt authorityApproval
-	if err := decoder.Decode(&receipt); err != nil {
-		return authorityApproval{}, fmt.Errorf("decode authority approval: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return authorityApproval{}, errors.New("authority approval has trailing input")
-	}
-	return receipt, nil
-}
-
-// AuthorityApprovalReceiptID extracts the write-once control identity from an
-// exact approval artifact. Persistence uses it to prevent the same receipt ID
-// from being rebound to different bytes.
-func AuthorityApprovalReceiptID(contents []byte) (string, error) {
-	receipt, err := parseAuthorityApproval(contents)
-	if err != nil {
-		return "", err
-	}
-	if receipt.SchemaVersion != "control-receipt-v1" || receipt.Kind != "authority_approval" ||
-		!protocolIDPattern.MatchString(receipt.ReceiptID) {
-		return "", errors.New("artifact is not an identified authority approval")
-	}
-	return receipt.ReceiptID, nil
-}
-
-func validateAuthorityApproval(contents []byte, work AdmittedWork, builder BuilderRun) error {
-	receipt, err := parseAuthorityApproval(contents)
+func validateAuthorityApproval(contents []byte, work StructuralWork, builder BuilderRun) error {
+	receipt, err := ParseAuthorityApproval(contents)
 	if err != nil {
 		return err
 	}
-	if receipt.SchemaVersion != "control-receipt-v1" || receipt.Kind != "authority_approval" ||
-		!protocolIDPattern.MatchString(receipt.ReceiptID) || !nonEmpty(receipt.AuthorizerRef) ||
-		receipt.PlanDigest != work.PlanDigest || receipt.AuthorityDigest != work.AuthorityDigest ||
+	if receipt.PlanDigest != work.PlanDigest || receipt.AuthorityDigest != work.AuthorityDigest ||
 		receipt.SourceRef != work.AuthoritySourceRef || receipt.SourceDigest != work.AuthoritySourceDigest ||
 		receipt.Repository != work.Repository || receipt.TargetRef != work.TargetRef {
-		return errors.New("authority approval does not match admitted work")
+		return errors.New("authority approval does not match structural work")
 	}
 	approvedAt, err := parseRecordTime(receipt.ApprovedAt, "authority approval")
 	if err != nil {
@@ -471,47 +425,22 @@ func validateAuthorityApproval(contents []byte, work AdmittedWork, builder Build
 	required := map[string]bool{"inspect": false, "edit": false, "execute": false, "commit": false}
 	seenGrants := make(map[string]struct{}, len(receipt.Grants))
 	for _, raw := range receipt.Grants {
-		canonicalGrant, err := CanonicalizeJSON(raw)
+		grant, err := ParseAuthorityGrant(raw)
 		if err != nil {
 			return errors.New("authority approval contains an invalid grant")
 		}
+		canonicalGrant := grant.CanonicalJSON()
 		if _, exists := seenGrants[string(canonicalGrant)]; exists {
 			return errors.New("authority approval contains a duplicate grant")
 		}
 		seenGrants[string(canonicalGrant)] = struct{}{}
-		var grant struct {
-			Action string          `json:"action"`
-			Target json.RawMessage `json:"target"`
-		}
-		grantDecoder := json.NewDecoder(bytes.NewReader(raw))
-		grantDecoder.DisallowUnknownFields()
-		if err := grantDecoder.Decode(&grant); err != nil {
-			return errors.New("authority approval contains an invalid grant")
-		}
-		if err := grantDecoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return errors.New("authority approval grant has trailing input")
-		}
-		if _, exists := required[grant.Action]; exists {
-			if !bytes.Equal(bytes.TrimSpace(grant.Target), []byte(`"workspace"`)) {
-				return fmt.Errorf("authority %s grant has an invalid target", grant.Action)
-			}
-			required[grant.Action] = true
+		if _, exists := required[grant.Action()]; exists {
+			required[grant.Action()] = true
 			continue
 		}
-		if grant.Action != "integrate" {
-			return fmt.Errorf("authority approval has unknown grant action %q", grant.Action)
-		}
-		var target struct {
-			Repository string `json:"repository"`
-			Ref        string `json:"ref"`
-		}
-		targetDecoder := json.NewDecoder(bytes.NewReader(grant.Target))
-		targetDecoder.DisallowUnknownFields()
-		if err := targetDecoder.Decode(&target); err != nil || target.Repository != work.Repository || target.Ref != work.TargetRef {
-			return errors.New("authority integration grant does not match the admitted target")
-		}
-		if err := targetDecoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return errors.New("authority integration target has trailing input")
+		target, integration := grant.Integration()
+		if !integration || target.Repository != work.Repository || target.Ref != work.TargetRef {
+			return errors.New("authority integration grant does not match the structural target")
 		}
 	}
 	for action, present := range required {
@@ -528,7 +457,7 @@ func bindBaselineDefinition(definition LocalCheckDefinition, baseline BaselineCh
 	if evidence.ID != requirement.ID || !slices.Equal(evidence.AcceptanceIDs, requirement.AcceptanceIDs) ||
 		evidence.Boundary != requirement.Boundary || evidence.UsesMocks != requirement.UsesMocks ||
 		evidence.Observed != requirement.Observed {
-		return fmt.Errorf("check %q definition does not match admitted policy semantics", baseline.ID)
+		return fmt.Errorf("check %q definition does not match projected policy semantics", baseline.ID)
 	}
 	return nil
 }
@@ -582,7 +511,7 @@ func bindEvidence(evidence Evidence, check Check, baseline BaselineCheck, candid
 		evidence.ProducerRunID != check.RunID || evidence.CandidateTree != candidateTree ||
 		evidence.CapturedAt != check.CompletedAt || evidence.Artifact != check.Receipt ||
 		evidence.Observed != requirement.Observed || evidence.Notes != "" {
-		return fmt.Errorf("evidence %q does not match admitted producer semantics", evidence.ID)
+		return fmt.Errorf("evidence %q does not match projected producer semantics", evidence.ID)
 	}
 	return nil
 }

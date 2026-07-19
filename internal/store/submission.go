@@ -48,14 +48,9 @@ func (s *Store) putPreparedSubmission(
 		return "", fmt.Errorf("begin submission storage: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
-	var authorityBytes []byte
 	for _, artifact := range artifacts {
-		contents, err := verifySubmissionArtifact(ctx, transaction, artifact)
-		if err != nil {
+		if _, err := verifySubmissionArtifact(ctx, transaction, artifact); err != nil {
 			return "", err
-		}
-		if artifact == submission.AuthorityReceipt {
-			authorityBytes = contents
 		}
 	}
 	now := s.now().UTC().UnixMicro()
@@ -77,11 +72,7 @@ func (s *Store) putPreparedSubmission(
 	if storedKind != record.Kind || !bytes.Equal(storedJSON, record.CanonicalJSON) {
 		return "", fmt.Errorf("submission record conflict for %s", record.Digest)
 	}
-	reservations, err := submissionIdentityReservations(submission, authorityBytes, record.Digest)
-	if err != nil {
-		return "", err
-	}
-	for _, reservation := range reservations {
+	for _, reservation := range submissionIdentityReservations(submission, record.Digest) {
 		if err := reserveProtocolIdentity(ctx, transaction, reservation); err != nil {
 			return "", err
 		}
@@ -236,25 +227,17 @@ type protocolIdentityReservation struct {
 
 func submissionIdentityReservations(
 	submission protocol.Submission,
-	authorityBytes []byte,
 	recordDigest string,
-) ([]protocolIdentityReservation, error) {
-	authorityID, err := protocol.AuthorityApprovalReceiptID(authorityBytes)
-	if err != nil {
-		return nil, fmt.Errorf("identify submission authority receipt: %w", err)
-	}
+) []protocolIdentityReservation {
 	reservations := []protocolIdentityReservation{{
-		kind: "authority_approval", id: authorityID, bindingDigest: submission.AuthorityReceipt.Digest,
-	}}
-	reservations = append(reservations, protocolIdentityReservation{
 		kind: "builder_run", id: submission.Builder.RunID, bindingDigest: recordDigest,
-	})
+	}}
 	for _, check := range submission.Checks {
 		reservations = append(reservations, protocolIdentityReservation{
 			kind: "producer_run", id: check.RunID, bindingDigest: recordDigest,
 		})
 	}
-	return reservations, nil
+	return reservations
 }
 
 func reserveProtocolIdentity(

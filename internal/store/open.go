@@ -28,6 +28,7 @@ var migrationFiles embed.FS
 var migrationNames = []string{
 	"migrations/001_initial.sql",
 	"migrations/002_submission_identity.sql",
+	"migrations/003_plan_authority.sql",
 }
 
 type Store struct {
