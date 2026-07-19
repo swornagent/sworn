@@ -42,4 +42,22 @@ func TestRecordsAndArtifactsAreContentAddressedAndImmutable(t *testing.T) {
 	if _, err := control.db.Exec("DELETE FROM artifacts WHERE digest = ?", artifactDigest); err == nil {
 		t.Fatal("artifact delete bypassed immutability trigger")
 	}
+
+	if _, err := control.PutRecord(ctx, "example-v1", []byte(`{"value":1,"schema_version":"example-v1"}`)); err == nil {
+		t.Fatal("non-canonical record was accepted")
+	}
+	if _, err := control.PutArtifact(ctx, "Application/JSON", []byte(`{}`)); err == nil {
+		t.Fatal("non-canonical media type was accepted")
+	}
+	if _, err := control.PutArtifact(ctx, "application/json", []byte(`{"value":1,"value":2}`)); err == nil {
+		t.Fatal("non-strict JSON artifact was accepted")
+	}
+	emptyDigest, err := control.PutArtifact(ctx, "application/octet-stream", nil)
+	if err != nil {
+		t.Fatalf("put empty artifact: %v", err)
+	}
+	_, empty, err := control.Artifact(ctx, emptyDigest)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty artifact = %x, %v", empty, err)
+	}
 }

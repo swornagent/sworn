@@ -69,6 +69,38 @@ type Candidate struct {
 	ChangedPaths []string `json:"changed_paths"`
 }
 
+// CandidateWorkspace is a fresh plain-tree materialization for read-only
+// checks or review. Unlike Workspace, it is not a builder input and cannot be
+// passed back to Capture as a new candidate.
+type CandidateWorkspace struct {
+	repositoryID string
+	path         string
+	candidate    Candidate
+	manifest     string
+}
+
+func (workspace CandidateWorkspace) RepositoryID() string { return workspace.repositoryID }
+func (workspace CandidateWorkspace) Path() string         { return workspace.path }
+func (workspace CandidateWorkspace) Candidate() Candidate { return cloneCandidate(workspace.candidate) }
+func (workspace CandidateWorkspace) Manifest() string     { return workspace.manifest }
+
+func cloneCandidate(candidate Candidate) Candidate {
+	candidate.ChangedPaths = append([]string(nil), candidate.ChangedPaths...)
+	return candidate
+}
+
+type MaterializeLimits struct {
+	Bytes   uint64
+	Entries uint64
+}
+
+func (limits MaterializeLimits) validate() error {
+	if limits.Bytes == 0 || limits.Entries == 0 {
+		return errors.New("candidate materialization requires byte and entry ceilings")
+	}
+	return nil
+}
+
 // CaptureOptions contains only engine-owned commit metadata and approved path
 // scope. Candidate identities and changed paths always come from Git.
 type CaptureOptions struct {
@@ -165,8 +197,8 @@ func validatePathPrefix(prefix string) error {
 func validGitPath(gitPath string) bool {
 	if gitPath == "" || gitPath == "." || !utf8.ValidString(gitPath) ||
 		strings.HasPrefix(gitPath, "/") || strings.HasSuffix(gitPath, "/") ||
-		strings.Contains(gitPath, "\x00") || strings.Contains(gitPath, "\\") ||
-		strings.Contains(gitPath, "//") || strings.TrimSpace(gitPath) == "" {
+		strings.Contains(gitPath, "\x00") || strings.Contains(gitPath, "//") ||
+		strings.TrimSpace(gitPath) == "" {
 		return false
 	}
 	for _, segment := range strings.Split(gitPath, "/") {

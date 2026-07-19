@@ -35,8 +35,10 @@ valid. Those capabilities remain gated below.
   cancellation, resource/output ceilings, and process-tree cleanup.
 - [x] Add bounded writable builder handoff and safe measured workspace export;
   keep it inside the same executor boundary.
-- [ ] Produce a submission from measured Git facts and content-addressed local
-  check evidence.
+- [x] Prepare canonical submission bytes from measured Git facts and
+  content-addressed local check evidence.
+- [ ] Admit a reviewable submission only from authenticated authority,
+  journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects.
 
 The Git-truth boundary is implemented internally on `feat/exact-local-candidate`.
@@ -49,6 +51,13 @@ modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
 live cgroup resource bounds, post-quiescence measurement, generation-bound
 validation and digest-independent cleanup. It is not yet connected to an engine
 effect or adapter; see [Contained executor](contained-executor.md).
+
+The prepared Standard path now rechecks a retained candidate, runs one
+policy-bound local producer through read-only containment, stores one reusable
+content-addressed receipt, builds strict canonical Baton bytes, and reserves
+submission and run identities transactionally. It remains evaluation-only: the
+host runtime is unbound, authority is not authenticated here, and runs are not
+yet journal-registered. See [Prepared local submission](measured-submission.md).
 
 ## 3. Fresh independent verdict
 

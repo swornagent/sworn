@@ -14,6 +14,7 @@ import (
 const (
 	InvocationSchemaVersion      = "sworn-executor-invocation-v1"
 	WorkspaceExportSchemaVersion = "sworn-workspace-export-v1"
+	ContainmentPolicyVersion     = "sworn-linux-containment-v1"
 )
 
 const (
@@ -245,10 +246,8 @@ func validateArgv(argv []string) error {
 		return errors.New("invocation argv must contain 1 to 256 entries")
 	}
 	if !filepath.IsAbs(argv[0]) || filepath.Clean(argv[0]) != argv[0] ||
-		(!strings.HasPrefix(argv[0], "/usr/bin/") &&
-			!strings.HasPrefix(argv[0], "/usr/local/bin/") &&
-			!strings.HasPrefix(argv[0], "/bin/")) {
-		return errors.New("invocation executable must be a clean absolute /usr/bin, /usr/local/bin, or /bin path")
+		(!strings.HasPrefix(argv[0], "/usr/") && !strings.HasPrefix(argv[0], "/bin/")) {
+		return errors.New("invocation executable must be a clean absolute path beneath the mounted /usr trust root")
 	}
 	var total int
 	for _, argument := range argv {
@@ -262,6 +261,10 @@ func validateArgv(argv []string) error {
 	}
 	return nil
 }
+
+// ValidateArgv lets policy and receipt admission reject execution shapes that
+// the contained boundary cannot run, before any producer effect is attempted.
+func ValidateArgv(argv []string) error { return validateArgv(argv) }
 
 func validateAbsoluteDirectory(path, label string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {

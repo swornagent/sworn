@@ -32,6 +32,11 @@ func TestInvocationValidationAdmitsOnlyExplicitBoundary(t *testing.T) {
 	if err := valid.validate(options); err != nil {
 		t.Fatalf("validate admitted invocation: %v", err)
 	}
+	goTool := valid
+	goTool.Argv = []string{"/usr/local/go/bin/go", "test", "./..."}
+	if err := goTool.validate(options); err != nil {
+		t.Fatalf("validate executable beneath mounted /usr: %v", err)
+	}
 
 	tests := []struct {
 		name   string
@@ -40,6 +45,7 @@ func TestInvocationValidationAdmitsOnlyExplicitBoundary(t *testing.T) {
 	}{
 		{"unknown schema", func(inv *Invocation, _ *Options) { inv.SchemaVersion = "future" }, "unknown invocation schema"},
 		{"relative executable", func(inv *Invocation, _ *Options) { inv.Argv[0] = "python3" }, "absolute"},
+		{"outside runtime root", func(inv *Invocation, _ *Options) { inv.Argv[0] = "/opt/tool" }, "mounted /usr"},
 		{"unlisted environment", func(inv *Invocation, _ *Options) { inv.Environment = map[string]string{"SECRET": "x"} }, "not allowlisted"},
 		{"reserved environment", func(inv *Invocation, _ *Options) { inv.Environment = map[string]string{"HOME": "/outside"} }, "invalid invocation environment"},
 		{"host network", func(inv *Invocation, _ *Options) { inv.Network = NetworkHost }, "host network is not admitted"},

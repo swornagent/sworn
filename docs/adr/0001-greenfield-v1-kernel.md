@@ -40,7 +40,9 @@ internal/engine/    command service, reducer, retry policy
 internal/store/     transactional commands, events, effects, records
 internal/effects/   effect execution and reconciliation
 internal/repo/      Git workspaces, candidates, compare-and-swap integration
+internal/workspace/ shared plain-tree manifest and staging
 internal/executor/  contained subprocess and process-lifetime boundary
+internal/producer/  measured local check receipts and evidence facts
 internal/adapter/   runner argv construction and result decoding
 internal/policy/    authority, checks, and assurance selection
 internal/board/     read-only projection

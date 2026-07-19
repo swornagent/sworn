@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	workspacemanifest "github.com/swornagent/sworn/internal/workspace"
 )
 
 var fixedCandidateTime = time.Date(2026, 7, 19, 8, 0, 0, 0, time.UTC)
@@ -140,6 +142,117 @@ func TestCaptureCreatesExactCandidateWithoutTouchingSourceIndex(t *testing.T) {
 	tampered.ChangedPaths = []string{"src/new.txt"}
 	if err := repository.EnsureCandidate(ctx, tampered); err == nil || !strings.Contains(err.Error(), "changed paths mismatch") {
 		t.Fatalf("tampered candidate error = %v", err)
+	}
+}
+
+func TestMaterializeCandidateUsesRetainedFactsAfterTargetMoves(t *testing.T) {
+	ctx := context.Background()
+	source := newTestRepository(t)
+	repository, target := openTestRepository(t, source)
+	builder, err := repository.Materialize(ctx, target, filepath.Join(t.TempDir(), "builder"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(builder.Path, "src", "candidate.txt"), []byte("candidate\n"), 0o644)
+	writeFile(t, filepath.Join(builder.Path, `src`, `literal\backslash.txt`), []byte("literal\n"), 0o644)
+	candidate, err := repository.Capture(ctx, builder, CaptureOptions{
+		Scope:     Scope{Include: []string{"."}},
+		Timestamp: fixedCandidateTime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(source, "target-moved.txt"), []byte("later\n"), 0o644)
+	commitAll(t, source, "move target")
+	limits := MaterializeLimits{Bytes: 1 << 20, Entries: 100}
+	checked, err := repository.MaterializeCandidate(ctx, candidate, filepath.Join(t.TempDir(), "checked"), limits)
+	if err != nil {
+		t.Fatalf("materialize retained candidate after target move: %v", err)
+	}
+	if checked.Candidate().Commit != candidate.Commit || checked.RepositoryID() != candidate.RepositoryID {
+		t.Fatalf("candidate workspace = %#v, want candidate %#v", checked, candidate)
+	}
+	if got := string(readFile(t, filepath.Join(checked.Path(), "src", "candidate.txt"))); got != "candidate\n" {
+		t.Fatalf("materialized candidate bytes = %q", got)
+	}
+	if !contains(append([]string(nil), candidate.ChangedPaths...), `src/literal\backslash.txt`) {
+		t.Fatalf("literal backslash path missing from changed paths: %#v", candidate.ChangedPaths)
+	}
+	if _, err := os.Lstat(filepath.Join(checked.Path(), "target-moved.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("materialization used moved target bytes: %v", err)
+	}
+	if err := repository.VerifyCandidateWorkspace(ctx, checked); err != nil {
+		t.Fatalf("verify exact candidate workspace: %v", err)
+	}
+	objectsBeforeRejectedProof := runTestGit(t, source, "count-objects", "-v")
+	if err := os.Mkdir(filepath.Join(checked.Path(), "empty-extra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if observed, _, err := workspacemanifest.Measure(ctx, checked.Path(), limits.Bytes); err != nil || observed == checked.Manifest() {
+		t.Fatalf("empty directory manifest = %q, %v; want change from %q", observed, err, checked.Manifest())
+	}
+	if err := os.Remove(filepath.Join(checked.Path(), "empty-extra")); err != nil {
+		t.Fatal(err)
+	}
+	candidatePath := filepath.Join(checked.Path(), "src", "candidate.txt")
+	if err := os.Chmod(candidatePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if observed, _, err := workspacemanifest.Measure(ctx, checked.Path(), limits.Bytes); err != nil || observed == checked.Manifest() {
+		t.Fatalf("permission-change manifest = %q, %v; want change from %q", observed, err, checked.Manifest())
+	}
+	if err := os.Chmod(candidatePath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(checked.Path(), "scratch.log"), []byte("extra\n"), 0o644)
+	if observed, _, err := workspacemanifest.Measure(ctx, checked.Path(), limits.Bytes); err != nil || observed == checked.Manifest() {
+		t.Fatalf("ignored-extra manifest = %q, %v; want change from %q", observed, err, checked.Manifest())
+	}
+	if objectsAfter := runTestGit(t, source, "count-objects", "-v"); objectsAfter != objectsBeforeRejectedProof {
+		t.Fatalf("read-side workspace proof wrote Git objects:\nbefore: %s\nafter: %s", objectsBeforeRejectedProof, objectsAfter)
+	}
+	if err := os.Remove(filepath.Join(checked.Path(), "scratch.log")); err != nil {
+		t.Fatal(err)
+	}
+
+	runTestGit(t, source, "update-ref", "-d", candidate.Ref)
+	if _, err := repository.MaterializeCandidate(ctx, candidate, filepath.Join(t.TempDir(), "missing-ref"), limits); err == nil || !strings.Contains(err.Error(), "retention ref is missing") {
+		t.Fatalf("missing retention ref error = %v", err)
+	}
+	if err := repository.EnsureCandidate(ctx, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.MaterializeCandidate(ctx, candidate, filepath.Join(t.TempDir(), "reconciled"), limits); err != nil {
+		t.Fatalf("materialize reconciled candidate: %v", err)
+	}
+	if _, err := repository.MaterializeCandidate(ctx, candidate, filepath.Join(t.TempDir(), "too-small"), MaterializeLimits{Bytes: 1, Entries: 100}); err == nil || !strings.Contains(err.Error(), "byte materialization ceiling") {
+		t.Fatalf("candidate byte-ceiling error = %v", err)
+	}
+}
+
+func TestMaterializeCandidateRejectsSymlinksForLocalChecks(t *testing.T) {
+	ctx := context.Background()
+	source := newTestRepository(t)
+	repository, target := openTestRepository(t, source)
+	workspace, err := repository.Materialize(ctx, target, filepath.Join(t.TempDir(), "builder"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/bin/true", filepath.Join(workspace.Path, "external-link")); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := repository.Capture(ctx, workspace, CaptureOptions{
+		Scope: Scope{Include: []string{"."}}, Timestamp: fixedCandidateTime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = repository.MaterializeCandidate(ctx, candidate, filepath.Join(t.TempDir(), "checked"), MaterializeLimits{
+		Bytes: 1 << 20, Entries: 100,
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlinks") {
+		t.Fatalf("candidate symlink error = %v", err)
 	}
 }
 

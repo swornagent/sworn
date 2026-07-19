@@ -17,8 +17,9 @@ trusted schema behavior, waits for a bounded busy timeout, uses rollback-journal
 SQLite `application_id` and a forward-only `user_version`; an unknown non-zero
 application ID or newer schema version fails closed.
 
-The initial schema stores commands, immutable events, current run snapshots,
-pending and resolved effects, canonical records, and raw artifacts. A state
+The schema stores commands, immutable events, current run snapshots, pending
+and resolved effects, canonical records, raw artifacts, and write-once Baton
+submission, work-attempt, approval, and run identity bindings. A state
 transition, its event, command result, and newly pending effects commit in one
 transaction. Effect execution happens only after commit. Mutable effect status
 is the journal of external reality; it is not delivery state.
