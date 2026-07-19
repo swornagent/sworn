@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,7 @@ func TestGenericRecordsRestoreOnlyWhenKindAndPlanAreValid(t *testing.T) {
 		control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 		t.Cleanup(func() { _ = control.Close() })
 		record := exampleExactPlan(t).Record()
-		digest, err := control.PutRecord(ctx, record.Kind, record.CanonicalJSON)
+		digest, err := putTestRecord(ctx, control, record)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +87,10 @@ func TestGenericRecordsRestoreOnlyWhenKindAndPlanAreValid(t *testing.T) {
 		ctx := context.Background()
 		control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 		t.Cleanup(func() { _ = control.Close() })
-		digest, err := control.PutRecord(ctx, protocol.DeliveryPlanSchemaVersion, []byte(`{"schema_version":"delivery-plan-v1"}`))
+		canonical := []byte(`{"schema_version":"delivery-plan-v1"}`)
+		digest, err := putTestRecord(ctx, control, protocol.EncodedRecord{
+			Kind: protocol.DeliveryPlanSchemaVersion, CanonicalJSON: canonical, Digest: protocol.RawDigest(canonical),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +104,8 @@ func TestGenericRecordsRestoreOnlyWhenKindAndPlanAreValid(t *testing.T) {
 		control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 		t.Cleanup(func() { _ = control.Close() })
 		record := exampleExactPlan(t).Record()
-		digest, err := control.PutRecord(ctx, "not-a-delivery-plan", record.CanonicalJSON)
+		record.Kind = "not-a-delivery-plan"
+		digest, err := putTestRecord(ctx, control, record)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,6 +113,25 @@ func TestGenericRecordsRestoreOnlyWhenKindAndPlanAreValid(t *testing.T) {
 			t.Fatalf("wrong-kind restore error = %v", err)
 		}
 	})
+}
+
+func putTestRecord(
+	ctx context.Context,
+	control *Store,
+	record protocol.EncodedRecord,
+) (string, error) {
+	transaction, err := control.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer transaction.Rollback() //nolint:errcheck
+	if err := putRecordTransaction(ctx, transaction, record, control.now().UTC().UnixMicro(), "test"); err != nil {
+		return "", err
+	}
+	if err := transaction.Commit(); err != nil {
+		return "", err
+	}
+	return record.Digest, nil
 }
 
 func exampleExactPlan(t *testing.T) protocol.ExactPlan {

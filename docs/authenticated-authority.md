@@ -52,5 +52,8 @@ does not claim the source is current.
 
 Builder dispatch, verifier dispatch, accepting `PASS`, and integration will
 require separate short-lived gate-specific revalidation. No such permit exists
-in this slice. The earlier measured-submission input is now `StructuralWork`:
-an evaluation projection, not authority or reducer admission.
+in this slice. Prepared-submission construction now consumes the opaque
+`ExactPlan` directly and structurally compares its approval receipt with that
+plan. This removes a second caller-authored projection of plan facts, but it
+still does not authenticate the receipt, prove journal provenance, or admit the
+submission to the reducer.

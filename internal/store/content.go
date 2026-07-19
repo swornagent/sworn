@@ -4,50 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/swornagent/sworn/internal/protocol"
 )
-
-func (s *Store) PutRecord(ctx context.Context, kind string, canonicalJSON []byte) (string, error) {
-	if s.readOnly {
-		return "", errors.New("control store is read-only")
-	}
-	if strings.TrimSpace(kind) == "" || !json.Valid(canonicalJSON) {
-		return "", errors.New("record requires a kind and valid canonical JSON")
-	}
-	normalized, err := protocol.CanonicalizeJSON(canonicalJSON)
-	if err != nil {
-		return "", fmt.Errorf("record requires strict I-JSON: %w", err)
-	}
-	if !bytes.Equal(normalized, canonicalJSON) {
-		return "", errors.New("record JSON is not RFC 8785 canonical")
-	}
-	recordDigest := digest(canonicalJSON)
-	now := s.now().UTC().UnixMicro()
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(digest) DO NOTHING`,
-		recordDigest, kind, canonicalJSON, len(canonicalJSON), now,
-	); err != nil {
-		return "", fmt.Errorf("put record %s: %w", recordDigest, err)
-	}
-	var storedKind string
-	var stored []byte
-	if err := s.db.QueryRowContext(ctx,
-		"SELECT kind, canonical_json FROM records WHERE digest = ?", recordDigest,
-	).Scan(&storedKind, &stored); err != nil {
-		return "", fmt.Errorf("verify record %s: %w", recordDigest, err)
-	}
-	if storedKind != kind || !bytes.Equal(stored, canonicalJSON) {
-		return "", fmt.Errorf("record digest collision or kind conflict for %s", recordDigest)
-	}
-	return recordDigest, nil
-}
 
 func (s *Store) Record(ctx context.Context, recordDigest string) (kind string, canonicalJSON []byte, err error) {
 	err = s.db.QueryRowContext(ctx,
