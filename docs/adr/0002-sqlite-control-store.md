@@ -53,6 +53,14 @@ at <https://www.sqlite.org/pragma.html>. Driver documentation is at
 - A process interruption after an effect starts produces `unknown`, never an
   automatic retry. Only external reconciliation may prove success, failure, or
   that no effect occurred.
+- Every claim mints a store-local, attempt-bound lease. Completion uses that
+  lease in an effect/owner/attempt compare-and-swap; a stale worker cannot close
+  a later attempt after `not_applied` reconciliation and reclaim.
+- Reconciliation names the exact unknown attempt it observed, so a delayed
+  reconciler cannot resolve a later retry of the same effect.
+- The derived effect ID is the only future Baton invocation run ID. Generic
+  effect receipt JSON is not journal provenance until a kind-specific receipt
+  validator is implemented.
 - Commands, events, canonical records, and artifacts are append-only at the SQL
   boundary. Only run snapshots and effect-journal status are mutable.
 - The board reads committed run snapshots and cannot write or migrate.

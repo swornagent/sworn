@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -25,7 +26,7 @@ var ErrNoPendingEffect = errors.New("no pending effect")
 
 type Effect struct {
 	ID            string          `json:"id"`
-	RunID         string          `json:"run_id"`
+	DeliveryRunID string          `json:"delivery_run_id"`
 	CommandID     string          `json:"command_id"`
 	Ordinal       int64           `json:"ordinal"`
 	Kind          string          `json:"kind"`
@@ -38,6 +39,33 @@ type Effect struct {
 	CreatedAtUS   int64           `json:"created_at_us"`
 	StartedAtUS   int64           `json:"started_at_us,omitempty"`
 	CompletedAtUS int64           `json:"completed_at_us,omitempty"`
+}
+
+// leaseIssuer binds an effect lease to the Store instance that minted it. A
+// process restart therefore cannot reuse an in-memory lease: recovery must move
+// the running effect to unknown and reconcile it first.
+type leaseIssuer struct{ marker byte }
+
+// EffectLease is an opaque, store-issued capability for exactly one claimed
+// effect attempt. Completion consumes its effect ID, owner and attempt as one
+// compare-and-swap boundary, closing stale-worker and same-owner ABA races.
+type EffectLease struct {
+	issuer *leaseIssuer
+	effect Effect
+}
+
+func (lease EffectLease) EffectID() string      { return lease.effect.ID }
+func (lease EffectLease) DeliveryRunID() string { return lease.effect.DeliveryRunID }
+func (lease EffectLease) Attempt() int64        { return lease.effect.Attempt }
+func (lease EffectLease) Kind() string          { return lease.effect.Kind }
+func (lease EffectLease) Request() json.RawMessage {
+	return append(json.RawMessage(nil), lease.effect.Request...)
+}
+
+// ProtocolRunID is the engine-owned invocation identity to use in Baton
+// builder or producer records. Callers never select a separate run ID.
+func (lease EffectLease) ProtocolRunID() string {
+	return lease.effect.ID
 }
 
 func (s *Store) Effects(ctx context.Context, state EffectState) ([]Effect, error) {
@@ -64,16 +92,16 @@ func (s *Store) Effects(ctx context.Context, state EffectState) ([]Effect, error
 	return effects, nil
 }
 
-func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (Effect, error) {
+func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLease, error) {
 	if s.readOnly {
-		return Effect{}, errors.New("control store is read-only")
+		return EffectLease{}, errors.New("control store is read-only")
 	}
 	if !engine.ValidID(ownerID) {
-		return Effect{}, errors.New("valid effect owner id is required")
+		return EffectLease{}, errors.New("valid effect owner id is required")
 	}
 	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return Effect{}, fmt.Errorf("begin effect claim: %w", err)
+		return EffectLease{}, fmt.Errorf("begin effect claim: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
 	var effectID string
@@ -82,10 +110,10 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (Effect, er
 		WHERE state = 'pending'
 		ORDER BY created_at_us, effect_id LIMIT 1`).Scan(&effectID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Effect{}, ErrNoPendingEffect
+		return EffectLease{}, ErrNoPendingEffect
 	}
 	if err != nil {
-		return Effect{}, fmt.Errorf("select pending effect: %w", err)
+		return EffectLease{}, fmt.Errorf("select pending effect: %w", err)
 	}
 	now := s.now().UTC().UnixMicro()
 	result, err := transaction.ExecContext(ctx, `
@@ -94,35 +122,39 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (Effect, er
 		    started_at_us = ?, completed_at_us = NULL, receipt_json = NULL, last_error = NULL
 		WHERE effect_id = ? AND state = 'pending'`, ownerID, now, effectID)
 	if err != nil {
-		return Effect{}, fmt.Errorf("claim effect %q: %w", effectID, err)
+		return EffectLease{}, fmt.Errorf("claim effect %q: %w", effectID, err)
 	}
 	changed, err := result.RowsAffected()
 	if err != nil || changed != 1 {
-		return Effect{}, fmt.Errorf("claim effect %q lost ownership race", effectID)
+		return EffectLease{}, fmt.Errorf("claim effect %q lost ownership race", effectID)
 	}
 	effect, err := loadEffect(ctx, transaction, effectID)
 	if err != nil {
-		return Effect{}, err
+		return EffectLease{}, err
 	}
 	if err := insertObservation(ctx, transaction, effect, "claimed", nil, "", now); err != nil {
-		return Effect{}, err
+		return EffectLease{}, err
 	}
 	if err := transaction.Commit(); err != nil {
-		return Effect{}, fmt.Errorf("commit effect claim: %w", err)
+		return EffectLease{}, fmt.Errorf("commit effect claim: %w", err)
 	}
-	return effect, nil
+	return EffectLease{issuer: s.leaseIssuer, effect: cloneEffect(effect)}, nil
 }
 
 func (s *Store) CompleteEffect(
 	ctx context.Context,
-	effectID string,
-	ownerID string,
+	lease EffectLease,
 	succeeded bool,
 	receipt json.RawMessage,
 	detail string,
 ) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
+	}
+	if lease.issuer == nil || lease.issuer != s.leaseIssuer ||
+		lease.effect.State != EffectRunning || !engine.ValidID(lease.effect.ID) ||
+		!engine.ValidID(lease.effect.OwnerID) || lease.effect.Attempt < 1 {
+		return errors.New("effect completion requires a current store-issued lease")
 	}
 	if !json.Valid(receipt) {
 		return errors.New("effect completion requires a JSON receipt")
@@ -135,12 +167,19 @@ func (s *Store) CompleteEffect(
 		return fmt.Errorf("begin effect completion: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
-	effect, err := loadEffect(ctx, transaction, effectID)
+	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
 	if err != nil {
 		return err
 	}
-	if effect.State != EffectRunning || effect.OwnerID != ownerID {
-		return fmt.Errorf("effect %q is not running for owner %q", effectID, ownerID)
+	if effect.State != EffectRunning || effect.OwnerID != lease.effect.OwnerID || effect.Attempt != lease.effect.Attempt {
+		return fmt.Errorf(
+			"effect %q is not running for lease owner %q at attempt %d",
+			lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
+		)
+	}
+	if effect.DeliveryRunID != lease.effect.DeliveryRunID || effect.CommandID != lease.effect.CommandID ||
+		effect.Kind != lease.effect.Kind || !bytes.Equal(effect.Request, lease.effect.Request) {
+		return fmt.Errorf("effect %q no longer matches its issued lease", lease.effect.ID)
 	}
 	now := s.now().UTC().UnixMicro()
 	state, observation := EffectFailed, "failed"
@@ -153,13 +192,14 @@ func (s *Store) CompleteEffect(
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE effects
 		SET state = ?, receipt_json = ?, last_error = ?, completed_at_us = ?
-		WHERE effect_id = ? AND state = 'running' AND owner_id = ?`,
-		state, receiptValue, errorValue, now, effectID, ownerID,
+		WHERE effect_id = ? AND state = 'running' AND owner_id = ? AND attempt = ?`,
+		state, receiptValue, errorValue, now,
+		lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
 	)
 	if err != nil {
-		return fmt.Errorf("complete effect %q: %w", effectID, err)
+		return fmt.Errorf("complete effect %q: %w", lease.effect.ID, err)
 	}
-	if err := requireOneRow(result, "complete effect "+effectID); err != nil {
+	if err := requireOneRow(result, "complete effect "+lease.effect.ID); err != nil {
 		return err
 	}
 	effect.State, effect.Receipt, effect.LastError, effect.CompletedAtUS = state, receipt, detail, now
@@ -242,6 +282,7 @@ const (
 func (s *Store) ReconcileUnknownEffect(
 	ctx context.Context,
 	effectID string,
+	expectedAttempt int64,
 	reconcilerID string,
 	resolution Reconciliation,
 	receipt json.RawMessage,
@@ -252,6 +293,9 @@ func (s *Store) ReconcileUnknownEffect(
 	}
 	if !engine.ValidID(reconcilerID) {
 		return errors.New("valid reconciler id is required")
+	}
+	if expectedAttempt < 1 {
+		return errors.New("positive effect attempt is required for reconciliation")
 	}
 	if !json.Valid(receipt) {
 		return errors.New("effect reconciliation requires a JSON receipt")
@@ -271,8 +315,11 @@ func (s *Store) ReconcileUnknownEffect(
 	if err != nil {
 		return err
 	}
-	if effect.State != EffectUnknown {
-		return fmt.Errorf("effect %q is %s, want unknown", effectID, effect.State)
+	if effect.State != EffectUnknown || effect.Attempt != expectedAttempt {
+		return fmt.Errorf(
+			"effect %q is %s at attempt %d, want unknown at attempt %d",
+			effectID, effect.State, effect.Attempt, expectedAttempt,
+		)
 	}
 	now := s.now().UTC().UnixMicro()
 	var result sql.Result
@@ -282,17 +329,17 @@ func (s *Store) ReconcileUnknownEffect(
 			UPDATE effects
 			SET state = 'pending', owner_id = NULL, started_at_us = NULL,
 			    receipt_json = NULL, last_error = NULL, completed_at_us = NULL
-			WHERE effect_id = ? AND state = 'unknown'`, effectID)
+			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, effectID, expectedAttempt)
 	case ReconcileSucceeded:
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE effects
 			SET state = 'succeeded', receipt_json = ?, last_error = NULL, completed_at_us = ?
-			WHERE effect_id = ? AND state = 'unknown'`, []byte(receipt), now, effectID)
+			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, []byte(receipt), now, effectID, expectedAttempt)
 	case ReconcileFailed:
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE effects
 			SET state = 'failed', receipt_json = NULL, last_error = ?, completed_at_us = ?
-			WHERE effect_id = ? AND state = 'unknown'`, detail, now, effectID)
+			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, detail, now, effectID, expectedAttempt)
 	}
 	if err != nil {
 		return fmt.Errorf("reconcile effect %q: %w", effectID, err)
@@ -328,7 +375,7 @@ func scanEffect(row rowScanner) (Effect, error) {
 	var owner, receipt, lastError sql.NullString
 	var started, completed sql.NullInt64
 	if err := row.Scan(
-		&effect.ID, &effect.RunID, &effect.CommandID, &effect.Ordinal,
+		&effect.ID, &effect.DeliveryRunID, &effect.CommandID, &effect.Ordinal,
 		&effect.Kind, &effect.Request, &effect.State, &effect.Attempt,
 		&owner, &receipt, &lastError, &effect.CreatedAtUS, &started, &completed,
 	); err != nil {
@@ -350,6 +397,12 @@ func scanEffect(row rowScanner) (Effect, error) {
 		effect.CompletedAtUS = completed.Int64
 	}
 	return effect, nil
+}
+
+func cloneEffect(effect Effect) Effect {
+	effect.Request = append(json.RawMessage(nil), effect.Request...)
+	effect.Receipt = append(json.RawMessage(nil), effect.Receipt...)
+	return effect
 }
 
 func insertObservation(

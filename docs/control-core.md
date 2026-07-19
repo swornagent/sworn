@@ -10,14 +10,25 @@ algorithm:
 3. Commit the command result, next state snapshot, immutable event, and any
    pending effect requests together.
 4. Only after commit may an executor claim a pending effect.
-5. Record each claim and outcome as an immutable effect observation.
-6. If a process ends while an effect is running, change it to `unknown`. Never
-   claim it again until a named reconciler supplies a JSON observation proving
-   success, failure, or that the effect was not applied.
+5. A claim returns an opaque lease bound to that store instance, effect,
+   owner, and monotonically increasing attempt. Only that exact lease may
+   complete the effect.
+6. Record each claim and outcome as an immutable effect observation.
+7. If a process ends while an effect is running, change it to `unknown`. Never
+   claim it again until a named reconciler supplies an attempt-bound JSON
+   observation proving success, failure, or that the effect was not applied.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
 roll back and remain errors; they are not converted into domain outcomes. Reuse
 of an idempotency key with different request bytes fails closed.
+
+The store-derived effect ID is also the eventual Baton builder or producer run
+ID. `effects.run_id` remains the enclosing delivery-engine run in SQLite and is
+called `delivery_run_id` by Go and JSON APIs. A dispatch payload cannot choose a
+second invocation identity. Completion compare-and-swaps effect ID, owner, and
+attempt together, so an old worker cannot complete a reconciled retry even when
+the same owner name is reused. Reconciliation compare-and-swaps the observed
+unknown attempt for the same reason.
 
 ## SQLite ownership
 
@@ -55,3 +66,6 @@ and prepared records without creating a second control path. `sworn board` remai
 the only new CLI command and opens the control store in read-only mode. The
 reducer's activation and build-dispatch transitions exist to prove the
 command/effect boundary; they are unreachable from the CLI.
+The current generic effect completion JSON is operational journal history only;
+until kind-specific builder and producer receipts exist and are rebound from
+SQLite, it is not evidence of a journal-registered Baton run.
