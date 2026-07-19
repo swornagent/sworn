@@ -1,0 +1,19 @@
+{
+  "schema_version": "control-receipt-v1",
+  "kind": "integration",
+  "effect_id": "integrate-example-release-health-1",
+  "repository": "local:example",
+  "target_ref": "refs/heads/main",
+  "expected_target": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "submission_digest": "sha256:51532765e47ad1d3414a7753e025ac17646cbbae70cd8ec63f5f3487b125a2f6",
+  "verdict_digest": "sha256:4f1e638be19a8fa258aed350a10006a9eca169bf98952d4bbed8e4e3edf5dc0d",
+  "authority_receipt_digest": "sha256:27d399f256917b52d6e0cdc845a34f9281d30cf3637003bd4ba9a32c5fe59492",
+  "authority_source_ref": "examples/authority-source.json",
+  "authority_source_digest": "sha256:d21cef146645aef455a3ce750c19c705ae2d75c3a74ef22baae3bfb94132c839",
+  "authorized_at": "2026-07-19T00:07:10Z",
+  "started_at": "2026-07-19T00:07:11Z",
+  "completed_at": "2026-07-19T00:07:12Z",
+  "result": "updated",
+  "observed_target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

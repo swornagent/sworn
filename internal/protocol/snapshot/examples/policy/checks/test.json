@@ -1,0 +1,8 @@
+{
+  "schema_version": "example-check-definition-v1",
+  "argv": ["go", "test", "./..."],
+  "working_directory": ".",
+  "timeout_seconds": 120,
+  "environment_allowlist": [],
+  "maximum_evidence_boundary": "assembled"
+}

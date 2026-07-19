@@ -1,0 +1,41 @@
+{
+  "schema_version": "delivery-verdict-v1",
+  "verdict_id": "invalid-pass",
+  "submission_id": "example-release.health-endpoint.1",
+  "submission_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "delivery_id": "example-release",
+  "work_id": "health-endpoint",
+  "review": {
+    "run_id": "verifier-run-1",
+    "agent": "codex",
+    "fresh_context": true,
+    "dispatch_receipt": {
+      "ref": "artifact:dispatch/verifier-run-1.json",
+      "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "started_at": "2026-07-19T00:06:00Z",
+    "completed_at": "2026-07-19T00:07:00Z"
+  },
+  "outcome": "PASS",
+  "summary": "This cannot be a pass while a blocking finding exists.",
+  "acceptance_results": [
+    {
+      "acceptance_id": "AC1",
+      "outcome": "pass",
+      "evidence_ids": ["health-smoke"],
+      "summary": "Evidence was present."
+    }
+  ],
+  "assurance_results": [],
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "implementation",
+      "principle": "B3",
+      "severity": "blocking",
+      "summary": "Observed behavior is incorrect.",
+      "acceptance_ids": ["AC1"],
+      "evidence_ids": ["health-smoke"]
+    }
+  ]
+}

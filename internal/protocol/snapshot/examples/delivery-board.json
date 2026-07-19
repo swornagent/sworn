@@ -1,0 +1,21 @@
+{
+  "schema_version": "delivery-board-v1",
+  "delivery_id": "example-release",
+  "plan_digest": "sha256:5f44521823b466b350b572813c7aa8677a5e487e4eadfc8f35fde23580f5422f",
+  "source_revision": 12,
+  "state": "integrated",
+  "work": [
+    {
+      "id": "health-endpoint",
+      "state": "integrated",
+      "attempt": 1,
+      "submission_id": "example-release.health-endpoint.1",
+      "submission_digest": "sha256:51532765e47ad1d3414a7753e025ac17646cbbae70cd8ec63f5f3487b125a2f6",
+      "candidate_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "verdict_id": "verdict-example-release-health-1",
+      "verdict_digest": "sha256:4f1e638be19a8fa258aed350a10006a9eca169bf98952d4bbed8e4e3edf5dc0d",
+      "verdict": "PASS",
+      "next_action": "none"
+    }
+  ]
+}

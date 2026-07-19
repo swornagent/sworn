@@ -1,0 +1,39 @@
+{
+  "schema_version": "submission-v1",
+  "submission_id": "invalid-submission",
+  "delivery_id": "example-release",
+  "work_id": "health-endpoint",
+  "attempt": 1,
+  "created_at": "2026-07-19T00:05:00Z",
+  "plan_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "contract_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "authority_receipt": {
+    "ref": "examples/artifacts/authority/plan-approval.json",
+    "digest": "sha256:cb3f7af0dd6ee1c498fee926970ecf353cf357079fefc3f974d7f6b58e30d2a4"
+  },
+  "builder": {
+    "run_id": "builder-run-1",
+    "agent": "codex",
+    "started_at": "2026-07-19T00:01:00Z",
+    "completed_at": "2026-07-19T00:04:30Z"
+  },
+  "base": {
+    "repository": "local:example",
+    "ref": "refs/heads/main",
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "candidate": {
+    "repository": "local:example",
+    "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tree": "cccccccccccccccccccccccccccccccccccccccc"
+  },
+  "assurance": {
+    "profile": "standard",
+    "packs": [],
+    "policy_ref": "examples/assurance-policy.json",
+    "policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "changed_paths": ["src/server.go"],
+  "checks": [],
+  "evidence": []
+}

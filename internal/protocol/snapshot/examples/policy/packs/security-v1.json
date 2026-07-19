@@ -1,0 +1,13 @@
+{
+  "schema_version": "example-pack-definition-v1",
+  "required_checks": ["test"],
+  "required_evidence": [
+    {
+      "kind": "test",
+      "minimum_boundary": "assembled"
+    }
+  ],
+  "verifier_questions": [
+    "Does the candidate preserve the declared trust boundary?"
+  ]
+}

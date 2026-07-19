@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/control-receipt-v1.json",
+  "title": "Baton control receipt v1",
+  "description": "Strict non-delivery receipts stamped by the delivery engine.",
+  "oneOf": [
+    { "$ref": "#/$defs/authority_approval" },
+    { "$ref": "#/$defs/verifier_dispatch" },
+    { "$ref": "#/$defs/integration" }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$(?![\\s\\S])"
+    },
+    "non_empty": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$(?![\\s\\S])"
+    },
+    "branch_ref": {
+      "type": "string",
+      "pattern": "^refs/heads/(?!.*//)(?!.*\\.\\.)(?!.*(?:^|/)\\.)(?!.*\\.lock(?:/|$))[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9_-])?$(?![\\s\\S])"
+    },
+    "grant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "target"],
+          "properties": {
+            "action": { "enum": ["inspect", "edit", "execute", "commit"] },
+            "target": { "const": "workspace" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "target"],
+          "properties": {
+            "action": { "const": "integrate" },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "ref"],
+              "properties": {
+                "repository": { "$ref": "#/$defs/non_empty" },
+                "ref": { "$ref": "#/$defs/branch_ref" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "commit": { "$ref": "#/$defs/oid" },
+        "tree": { "$ref": "#/$defs/oid" }
+      }
+    },
+    "authority_approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "kind", "receipt_id", "plan_digest",
+        "authority_digest", "source_ref", "source_digest", "grants",
+        "repository", "target_ref", "authorizer_ref", "approved_at"
+      ],
+      "properties": {
+        "schema_version": { "const": "control-receipt-v1" },
+        "kind": { "const": "authority_approval" },
+        "receipt_id": { "$ref": "#/$defs/id" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "authority_digest": { "$ref": "#/$defs/digest" },
+        "source_ref": { "$ref": "#/$defs/non_empty" },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "grants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/grant" }
+        },
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "target_ref": { "$ref": "#/$defs/branch_ref" },
+        "authorizer_ref": { "$ref": "#/$defs/non_empty" },
+        "approved_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "verifier_dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "kind", "dispatch_id", "role",
+        "submission_digest", "candidate", "workspace", "fresh_context",
+        "builder_transcript_included", "target_ref_writable",
+        "remotes_present", "write_credentials_present", "created_at"
+      ],
+      "properties": {
+        "schema_version": { "const": "control-receipt-v1" },
+        "kind": { "const": "verifier_dispatch" },
+        "dispatch_id": { "$ref": "#/$defs/id" },
+        "role": { "const": "verifier" },
+        "submission_digest": { "$ref": "#/$defs/digest" },
+        "candidate": { "$ref": "#/$defs/candidate" },
+        "workspace": { "$ref": "#/$defs/non_empty" },
+        "fresh_context": { "const": true },
+        "builder_transcript_included": { "const": false },
+        "target_ref_writable": { "const": false },
+        "remotes_present": { "const": false },
+        "write_credentials_present": { "const": false },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "kind", "effect_id", "repository", "target_ref",
+        "expected_target", "candidate_commit", "submission_digest",
+        "verdict_digest", "authority_receipt_digest", "authority_source_ref",
+        "authority_source_digest", "authorized_at", "started_at",
+        "completed_at", "result", "observed_target"
+      ],
+      "properties": {
+        "schema_version": { "const": "control-receipt-v1" },
+        "kind": { "const": "integration" },
+        "effect_id": { "$ref": "#/$defs/id" },
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "target_ref": { "$ref": "#/$defs/branch_ref" },
+        "expected_target": { "$ref": "#/$defs/oid" },
+        "candidate_commit": { "$ref": "#/$defs/oid" },
+        "submission_digest": { "$ref": "#/$defs/digest" },
+        "verdict_digest": { "$ref": "#/$defs/digest" },
+        "authority_receipt_digest": { "$ref": "#/$defs/digest" },
+        "authority_source_ref": { "$ref": "#/$defs/non_empty" },
+        "authority_source_digest": { "$ref": "#/$defs/digest" },
+        "authorized_at": { "type": "string", "format": "date-time" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "result": { "enum": ["updated", "already_observed"] },
+        "observed_target": { "$ref": "#/$defs/oid" }
+      }
+    }
+  }
+}
