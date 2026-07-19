@@ -33,7 +33,7 @@ valid. Those capabilities remain gated below.
 - [x] Create exact single-parent candidates and retain safe engine refs.
 - [x] Add the read-only Linux containment foundation with immutable staging,
   cancellation, resource/output ceilings, and process-tree cleanup.
-- [ ] Add bounded writable builder handoff and safe measured workspace export;
+- [x] Add bounded writable builder handoff and safe measured workspace export;
   keep it inside the same executor boundary.
 - [ ] Produce a submission from measured Git facts and content-addressed local
   check evidence.
@@ -44,10 +44,11 @@ It has no CLI mutation path and does not yet persist its binding in runtime
 configuration or record a candidate in the control store. See
 [Exact local candidate](exact-candidate.md).
 
-The read-only containment foundation is implemented internally on
-`feat/contained-executor`. It is Linux-only and not yet connected to an engine
-effect or adapter. The writable builder/export half remains deliberately open;
-see [Contained executor](contained-executor.md).
+The contained executor now implements distinct read-only and writable-export
+modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
+live cgroup resource bounds, post-quiescence measurement, generation-bound
+validation and digest-independent cleanup. It is not yet connected to an engine
+effect or adapter; see [Contained executor](contained-executor.md).
 
 ## 3. Fresh independent verdict
 

@@ -1,14 +1,23 @@
 # Contained executor
 
 `internal/executor` is Sworn's sole subprocess and process-lifetime boundary.
-This slice implements its read-only Linux foundation. It is a real containment
-backend, but it is not yet the writable builder handoff.
+It has two explicit entry points over the same Linux containment path:
+
+- `read_only` stages an immutable workspace for inspection or verification; and
+- `writable_export` stages a fresh writable copy for a builder and may return a
+  quarantined, measured workspace.
+
+The access mode is part of both the invocation and raw completion. Calling the
+wrong entry point fails before dispatch. Neither mode exposes the source
+workspace, repository metadata, target refs, the control database, or engine
+state to the contained process.
 
 ## Admitted invocation
 
 An invocation is rejected before dispatch unless it provides:
 
-- the exact v1 schema, invocation identity, role, and finite timeout;
+- the exact v1 schema, invocation identity, role, workspace access, and finite
+  timeout;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
 - a bounded, explicit argv with a clean absolute `/usr/bin`, `/usr/local/bin`,
   or `/bin` executable;
@@ -18,17 +27,25 @@ An invocation is rejected before dispatch unless it provides:
 
 Sworn never parses or constructs a shell command: argv is passed literally. An
 adapter may explicitly select a shell or interpreter, but that choice remains
-visible in the immutable dispatch instead of being an executor side effect.
-Environment defaults are fixed by the executor, reserved loader, Git, locale,
+visible in the immutable dispatch instead of becoming an executor side effect.
+Environment defaults are fixed by the executor; reserved loader, Git, locale,
 home, path, and temporary-directory variables cannot be supplied by an
-invocation, and networking is absent by default.
+invocation. Networking is absent by default.
 
-Before execution, Sworn copies the workspace and every admitted input into a
-private runtime directory. The versioned `sworn-workspace-manifest-v1` digest
-binds relative paths, entry types, Unix permission bits, symlink targets, and
-regular-file bytes. It excludes timestamps and ownership. Git metadata, special
-files, changed files during staging, excess bytes, and excess entries fail
+Before execution, Sworn copies the workspace and every admitted input. The
+versioned `sworn-workspace-manifest-v1` digest binds relative paths, entry types,
+ordinary rwx permission bits, symlink targets, and regular-file bytes. It excludes
+timestamps, ownership, and inode alias topology. Git metadata, special files,
+changed files during staging, excess logical bytes, and excess entries fail
 closed. The staged manifest must exactly match the invocation digest.
+
+Writable execution never binds the source workspace and never copies changes
+back over it. The initial tree is copied into a private host-visible directory
+on a finite tmpfs, then only that copy is mounted read-write. Source hardlinks
+are broken by the copy. Builder-created hardlinks inside the isolated tree are
+hashed conservatively once per path and are later normalized by Git candidate
+capture; the sandbox cannot link them to a separate read-only mount or an
+unexposed host sibling.
 
 ## Linux boundary
 
@@ -42,40 +59,112 @@ successful result for that executor instance. The required floor is:
 
 Each invocation runs as one transient user service. systemd owns the complete
 cgroup and applies runtime, memory, swap, task, CPU, file-size, and descriptor
-ceilings. Bubblewrap creates fresh user, PID, IPC, UTS, cgroup, and,
-by default, network namespaces; drops all capabilities; disables further user
-namespaces; and presents a temporary root containing only:
+ceilings. Bubblewrap creates fresh user, PID, IPC, UTS, cgroup, and, by default,
+network namespaces; drops all capabilities; disables further user namespaces;
+and presents a temporary root containing only:
 
 - read-only host `/usr` as the configured runtime trust root;
-- the staged workspace at read-only `/workspace`;
+- the staged workspace at `/workspace`, read-only or read-write exactly as the
+  invocation declares;
 - pinned files at read-only `/inputs/<name>`;
 - minimal `/proc` and `/dev`; and
 - size-bounded temporary `/tmp` and `/home/sworn` filesystems.
 
-Host paths, repository metadata, the control database, credentials, the source
-workspace, and engine state are not mounted. Host networking requires both an
-invocation request and executor-level admission; it is intentionally a broad
-exception, not a domain firewall.
+Host networking requires both an invocation request and executor-level
+admission. It is intentionally a broad exception, not a domain firewall.
 
-## Lifetime and result
+## Writable resource claim
+
+The writable root must be a clean, private, current-user-owned directory on a
+finite tmpfs that permits execution. Writable dispatch is serialized inside one
+executor instance so staging and free-capacity admission cannot race each other
+in the initial serial kernel.
+
+The live and retained bounds are deliberately separate:
+
+- `InputBytes` bounds the logical bytes copied before the service starts.
+- cgroup `MemoryMax` and `MemorySwapMax` collectively bound new service-charged
+  anonymous memory, tmpfs pages, and accounted kernel memory while the process
+  runs. `/workspace`, `/tmp`, `/home/sworn`, and the process itself compete
+  inside that service ceiling. Linux documents tmpfs/shared-memory and kernel
+  accounting in [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+- `FileBytes` is a per-file `RLIMIT_FSIZE` ceiling.
+- after the complete service is quiescent, `WorkspaceBytes` and the 100,000
+  entry ceiling bound the logical tree Sworn is willing to retain and expose.
+- the finite host tmpfs remains the global physical backstop.
+
+This is not a dedicated per-workspace tmpfs quota. Initial copied pages are
+charged to the engine rather than the service, sparse logical files need little
+physical memory, and the workspace competes with process memory while live.
+The exact claim is a hard live resource ceiling plus a separately measured
+logical export ceiling. The initial v1 kernel also assumes one Sworn executor
+process owns the configured root; cross-process capacity reservations are not
+implemented.
+
+## Lifetime, start proof, and quiescence
 
 The Sworn engine holds a private pipe open to a tiny hidden shim for the whole
-invocation. EOF means the engine died. The shim terminates Bubblewrap and exits,
-after which systemd removes every process in the service cgroup. The same cgroup
+invocation. EOF means the engine died. The shim terminates Bubblewrap, after
+which systemd removes every process in the service cgroup. The same cgroup
 cleanup runs on explicit cancellation, timeout, and stdout or stderr overflow.
-Unit names are deterministic opaque hashes of invocation IDs, so a still-live
-duplicate cannot be mistaken for a fresh run.
+Unit names are deterministic opaque hashes of the executor's private runtime
+root and invocation ID. A still-live duplicate within one engine cannot be
+mistaken for a fresh run, while independent executor roots sharing one user
+systemd manager do not collide.
 
-The executor returns only raw, bounded stdout and stderr, exit status, timing,
-cancellation/timeout/truncation flags, and the workspace and input bindings it
-actually staged. It does not interpret success, create evidence, manufacture a
-submission, or advance engine state.
+Bubblewrap reports its child start over a private JSON status descriptor. The
+shim writes a private host marker only after that event, and the executor checks
+the marker before accepting a completion. Missing systemd units, a failed shim,
+Bubblewrap setup errors, and target exec failures therefore cannot masquerade as
+ordinary target exit codes or produce an export.
 
-## Deliberate non-claims
+For writable runs, measurement begins only after `systemd-run --wait` returns
+and the deterministic unit is confirmed inactive or absent. Tests cover a
+session-detached child that attempts a delayed write: all service writers are
+gone and the measured tree remains unchanged.
+
+## Raw completion and measured export
+
+The executor returns raw, bounded stdout and stderr, exit status, timing,
+cancellation/timeout/truncation flags, declared workspace access, and the input
+bindings it actually staged. It does not interpret semantic success, create
+evidence, manufacture a submission, or advance engine state.
+
+A writable run yields no export after cancellation, timeout, output overflow,
+control-start failure, an unsafe tree, or an excessive tree. An ordinary
+non-zero target exit may still yield a measured workspace for diagnosis or a
+later explicit engine decision. Its presence never means candidate-ready or
+successful.
+
+`WorkspaceExport` is a versioned, quarantined handle binding the invocation,
+fresh random generation, source digest, exact host path, final manifest digest,
+and logical bytes. `ValidateExport` confirms the unit is quiescent and
+remeasures the tree immediately before handoff. `DiscardExport` checks only
+executor ownership and quiescence, then removes the tree without requiring its
+contents to match; a rejected or externally changed export therefore remains
+cleanable. Generation-specific paths make a stale handle harmless if an
+invocation ID is ever reused.
+
+Failure-path cleanup uses a fresh bounded context and removes a writable tree
+only after service quiescence is proven. If systemd state cannot be established,
+Sworn leaves the generation-bound residue for reconciliation instead of racing
+a possible writer.
+
+The exact-candidate boundary independently scans and stages Git-visible bytes.
+The tested handoff clones the original repository `Workspace` binding, replaces
+only its path with the validated export path, and calls `repo.Capture`. The
+executor digest is structural evidence, never Git candidate identity or a
+quality verdict.
+
+## Trust boundary and deliberate non-claims
+
+The private roots exclude other host users. A malicious process already running
+as the same host UID is inside the engine's trust boundary; it could race or
+alter any same-UID filesystem object. Sworn does not claim to defend itself from
+its own host account or administrator.
 
 This package is not connected to an engine effect or public command yet. It
-does not provide a writable workspace, export edits, run a native agent adapter,
-pin the bytes of the host `/usr` runtime, filter an admitted host network, or
-make a semantic quality claim from a zero exit status. The next executor slice
-must add a size-bounded writable builder layer and measured export without
-adding a second subprocess path or weakening this read-only boundary.
+does not run a native agent adapter, pin the bytes of host `/usr`, filter an
+admitted host network, or infer quality from an exit status. If the engine dies,
+the shim and cgroup still stop all writers, but reclaiming the generation-bound
+host workspace is part of the later interrupted-effect reconciliation slice.

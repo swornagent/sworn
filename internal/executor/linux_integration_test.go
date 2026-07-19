@@ -49,6 +49,7 @@ func TestExecutorEngineProcess(t *testing.T) {
 		Role:            "builder",
 		Workspace:       arguments[1],
 		WorkspaceDigest: arguments[2],
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv: []string{
 			"/usr/bin/python3",
 			"-c",
@@ -62,6 +63,40 @@ func TestExecutorEngineProcess(t *testing.T) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+func TestLinuxExecutorEntryPointsBindWorkspaceAccess(t *testing.T) {
+	executor := &LinuxExecutor{options: Options{Limits: DefaultLimits()}}
+	invocation := Invocation{
+		SchemaVersion:   InvocationSchemaVersion,
+		ID:              "workspace-access-binding",
+		Role:            "builder",
+		Workspace:       "/work/source",
+		WorkspaceDigest: testDigest("a"),
+		WorkspaceAccess: WorkspaceWritableExport,
+		Argv:            []string{"/usr/bin/true"},
+		Network:         NetworkNone,
+		Timeout:         time.Minute,
+	}
+	if _, err := executor.RunContained(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "entry point") {
+		t.Fatalf("read-only entry point admitted writable access: %v", err)
+	}
+	invocation.WorkspaceAccess = WorkspaceReadOnly
+	if _, err := executor.RunWritable(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "entry point") {
+		t.Fatalf("writable entry point admitted read-only access: %v", err)
+	}
+}
+
+func TestExecutorUnitNamesBindRuntimeRootAndInvocation(t *testing.T) {
+	first := &LinuxExecutor{options: Options{RuntimeRoot: "/run/user/1000/sworn/first"}}
+	second := &LinuxExecutor{options: Options{RuntimeRoot: "/run/user/1000/sworn/second"}}
+	firstUnit := first.unitName("invocation-1")
+	if firstUnit != first.unitName("invocation-1") {
+		t.Fatal("unit name is not deterministic")
+	}
+	if firstUnit == first.unitName("invocation-2") || firstUnit == second.unitName("invocation-1") {
+		t.Fatal("unit name does not bind runtime root and invocation")
+	}
 }
 
 func TestLinuxExecutorContainsReadOnlyInvocation(t *testing.T) {
@@ -107,6 +142,7 @@ func TestLinuxExecutorContainsReadOnlyInvocation(t *testing.T) {
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: workspaceDigest,
+		WorkspaceAccess: WorkspaceReadOnly,
 		Inputs: []Input{{
 			Name:   "task",
 			Path:   inputPath,
@@ -143,6 +179,7 @@ func TestLinuxExecutorBoundsOutputAndStopsInvocation(t *testing.T) {
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: digest,
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv:            []string{"/usr/bin/python3", "-c", "import os,time; os.write(1,b'x'*4096); time.sleep(60)"},
 		Network:         NetworkNone,
 		Timeout:         20 * time.Second,
@@ -171,6 +208,7 @@ func TestLinuxExecutorCancellationStopsServiceCgroup(t *testing.T) {
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: digest,
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv: []string{
 			"/usr/bin/python3",
 			"-c",
@@ -200,6 +238,7 @@ func TestLinuxExecutorMarksInvocationTimeout(t *testing.T) {
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: digest,
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv:            []string{"/usr/bin/sleep", "60"},
 		Network:         NetworkNone,
 		Timeout:         300 * time.Millisecond,
@@ -217,7 +256,7 @@ func TestLinuxExecutorEngineDeathStopsServiceCgroup(t *testing.T) {
 	executor := requireLinuxExecutor(t)
 	workspace, digest := emptyTestWorkspace(t, executor)
 	invocationID := "integration-engine-death"
-	unit := UnitName(invocationID)
+	unit := executor.unitName(invocationID)
 	var output bytes.Buffer
 	testBinary, err := filepath.Abs(os.Args[0])
 	if err != nil {
@@ -281,6 +320,7 @@ func TestBuiltSwornBinaryProvidesExecutorShim(t *testing.T) {
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: digest,
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv:            []string{"/usr/bin/true"},
 		Network:         NetworkNone,
 		Timeout:         10 * time.Second,
@@ -306,6 +346,10 @@ func requireLinuxExecutor(t *testing.T) *LinuxExecutor {
 }
 
 func newTestExecutor(runtimeRoot string) (*LinuxExecutor, error) {
+	return newTestExecutorWithWritableRoot(runtimeRoot, "")
+}
+
+func newTestExecutorWithWritableRoot(runtimeRoot, writableRoot string) (*LinuxExecutor, error) {
 	if err := os.Chmod(runtimeRoot, 0o700); err != nil {
 		return nil, err
 	}
@@ -321,10 +365,12 @@ func newTestExecutor(runtimeRoot string) (*LinuxExecutor, error) {
 	limits.TempBytes = 32 << 20
 	limits.HomeBytes = 16 << 20
 	limits.InputBytes = 32 << 20
+	limits.WorkspaceBytes = 32 << 20
 	limits.StdoutBytes = 32 << 10
 	limits.StderrBytes = 32 << 10
 	return NewLinux(Options{
 		RuntimeRoot:        runtimeRoot,
+		WritableRoot:       writableRoot,
 		ShimArgv:           []string{testBinary, "-test.run=^TestExecutorShimProcess$", "--", shimTestSentinel},
 		Limits:             limits,
 		AllowedEnvironment: []string{"FEATURE_FLAG", "HOST_SECRET", "HOST_NET_NS"},

@@ -18,7 +18,7 @@ The v1 foundation establishes the trust boundary:
 - a `sworn version` command that reports the snapshot digest;
 - one transactional control store and pure reducer;
 - exact local Git candidate primitives;
-- a contained, read-only Linux subprocess boundary; and
+- a contained Linux subprocess boundary with measured writable export; and
 - v1-specific CI.
 
 The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
@@ -27,17 +27,18 @@ there are no compatibility shims.
 
 ## Current implementation
 
-The transactional control core, exact local candidate boundary, and read-only
-Linux executor foundation are implemented internally. Together they provide
+The transactional control core, exact local candidate boundary, and contained
+Linux executor are implemented internally. Together they provide
 atomic command/event/effect commits, content-addressed records, unknown-effect
 reconciliation, live Git measurement, plain workspaces, exact single-parent
-candidates, immutable executor staging, default-denied networking, finite
-resource/output ceilings, and process-tree cleanup after cancellation, timeout,
-output overflow, or engine death.
+candidates, immutable or fresh writable executor staging, default-denied
+networking, finite live resource and retained-output ceilings, process-tree
+cleanup, and quiescent measured workspace export. A real-boundary test carries
+that export through exact Git candidate capture.
 
 No mutating command is exposed by the CLI yet. The executor is not connected to
-the command service or a native agent adapter, and it intentionally does not yet
-offer a writable builder workspace or candidate export. See
+the command service or a native agent adapter, so writable export remains an
+internal primitive rather than a delivery loop. See
 [Exact local candidate](docs/exact-candidate.md) and
 [Contained executor](docs/contained-executor.md).
 

@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -27,9 +26,10 @@ const (
 )
 
 type LinuxExecutor struct {
-	options    Options
-	probeMutex sync.Mutex
-	probe      *ProbeReport
+	options       Options
+	probeMutex    sync.Mutex
+	probe         *ProbeReport
+	writableMutex sync.Mutex
 }
 
 func NewLinux(options Options) (*LinuxExecutor, error) {
@@ -65,6 +65,11 @@ func NewLinux(options Options) (*LinuxExecutor, error) {
 	}
 	if err := ensurePrivateRuntimeRoot(options.RuntimeRoot); err != nil {
 		return nil, err
+	}
+	if options.WritableRoot != "" {
+		if err := ensureWritableRoot(options.WritableRoot); err != nil {
+			return nil, err
+		}
 	}
 	return &LinuxExecutor{options: options}, nil
 }
@@ -116,7 +121,7 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 	defer cancel()
 	probeArgs := executor.bubblewrapBaseArgs(NetworkNone, 1<<20, 1<<20)
 	probeArgs = append(probeArgs, "--", "/usr/bin/true")
-	unit := UnitName(fmt.Sprintf("probe-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	unit := executor.unitName(fmt.Sprintf("probe-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	serviceArgs := []string{
 		"--user",
 		"--wait",
@@ -156,9 +161,27 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 	return report, nil
 }
 
-func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invocation) (completion RawCompletion, resultErr error) {
+func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invocation) (RawCompletion, error) {
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly)
+}
+
+func (executor *LinuxExecutor) runInvocation(
+	ctx context.Context,
+	invocation Invocation,
+	expectedAccess WorkspaceAccess,
+) (completion RawCompletion, resultErr error) {
 	if err := invocation.validate(executor.options); err != nil {
 		return RawCompletion{}, err
+	}
+	if invocation.WorkspaceAccess != expectedAccess {
+		return RawCompletion{}, fmt.Errorf(
+			"invocation workspace access %q does not match executor entry point %q",
+			invocation.WorkspaceAccess, expectedAccess,
+		)
+	}
+	writable := expectedAccess == WorkspaceWritableExport
+	if writable && executor.options.WritableRoot == "" {
+		return RawCompletion{}, errors.New("writable executor root is not configured")
 	}
 	if _, err := executor.Probe(ctx); err != nil {
 		return RawCompletion{}, err
@@ -178,9 +201,54 @@ func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invo
 		}
 	}()
 	workspacePath := filepath.Join(runRoot, "workspace")
-	workspaceDigest, workspaceBytes, err := stageWorkspace(
-		ctx, invocation.Workspace, workspacePath, executor.options.Limits.InputBytes,
-	)
+	workspaceOwned := false
+	keepWorkspace := false
+	workspaceGeneration := ""
+	unit := ""
+	if writable {
+		workspacePath, workspaceGeneration, err = executor.createWritableWorkspace(invocation.ID)
+		if err != nil {
+			return RawCompletion{}, err
+		}
+		workspaceOwned = true
+		defer func() {
+			if workspaceOwned && !keepWorkspace {
+				if unit != "" {
+					cleanupContext, cancel := context.WithTimeout(context.Background(), shutdownGrace+2*time.Second)
+					quiescenceErr := executor.waitUnitQuiescent(cleanupContext, unit)
+					cancel()
+					if quiescenceErr != nil {
+						cleanupErr := fmt.Errorf("retain writable workspace because service quiescence is unproven: %w", quiescenceErr)
+						if resultErr == nil {
+							resultErr = cleanupErr
+						} else {
+							resultErr = errors.Join(resultErr, cleanupErr)
+						}
+						return
+					}
+				}
+				if err := removePrivateTree(workspacePath); err != nil {
+					cleanupErr := fmt.Errorf("remove writable workspace: %w", err)
+					if resultErr == nil {
+						resultErr = cleanupErr
+					} else {
+						resultErr = errors.Join(resultErr, cleanupErr)
+					}
+				}
+			}
+		}()
+	}
+	var workspaceDigest string
+	var workspaceBytes uint64
+	if writable {
+		workspaceDigest, workspaceBytes, err = walkWorkspace(
+			ctx, invocation.Workspace, workspacePath, executor.options.Limits.InputBytes,
+		)
+	} else {
+		workspaceDigest, workspaceBytes, err = stageWorkspace(
+			ctx, invocation.Workspace, workspacePath, executor.options.Limits.InputBytes,
+		)
+	}
 	if err != nil {
 		return RawCompletion{}, err
 	}
@@ -189,6 +257,14 @@ func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invo
 			"workspace digest mismatch: observed %s, want %s",
 			workspaceDigest, invocation.WorkspaceDigest,
 		)
+	}
+	if writable {
+		if workspaceBytes > executor.options.Limits.WorkspaceBytes {
+			return RawCompletion{}, fmt.Errorf(
+				"initial workspace exceeds %d-byte writable export ceiling",
+				executor.options.Limits.WorkspaceBytes,
+			)
+		}
 	}
 	inputsPath := filepath.Join(runRoot, "inputs")
 	if err := os.Mkdir(inputsPath, 0o700); err != nil {
@@ -206,32 +282,75 @@ func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invo
 		remaining -= bound.Size
 		boundInputs = append(boundInputs, bound)
 	}
+	if writable {
+		if err := ensureWritableCapacity(executor.options.WritableRoot, executor.options.Limits); err != nil {
+			return RawCompletion{}, err
+		}
+	}
 	bubblewrapArgv := append(
 		[]string{executor.options.BubblewrapPath},
-		executor.bubblewrapArgs(invocation, workspacePath, inputsPath)...,
+		executor.bubblewrapArgs(invocation, workspacePath, inputsPath, writable)...,
 	)
-	unit := UnitName(invocation.ID)
-	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv)
+	unit = executor.unitName(invocation.ID)
+	startMarker := filepath.Join(runRoot, "contained.started")
+	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv, startMarker)
 	completion.WorkspaceDigest = workspaceDigest
 	completion.Inputs = boundInputs
+	if resultErr != nil || !writable || completion.Cancelled || completion.TimedOut || completion.OutputTruncated {
+		return completion, resultErr
+	}
+	live, err := executor.unitLive(ctx, unit)
+	if err != nil {
+		return completion, err
+	}
+	if live {
+		return completion, errors.New("writable workspace service remained live after completion")
+	}
+	exportDigest, exportBytes, err := MeasureWorkspace(
+		ctx, workspacePath, executor.options.Limits.WorkspaceBytes,
+	)
+	if err != nil {
+		return completion, fmt.Errorf("measure writable workspace export: %w", err)
+	}
+	completion.Export = &WorkspaceExport{
+		SchemaVersion: WorkspaceExportSchemaVersion,
+		InvocationID:  invocation.ID,
+		Generation:    workspaceGeneration,
+		BaseDigest:    workspaceDigest,
+		Path:          workspacePath,
+		Digest:        exportDigest,
+		Bytes:         exportBytes,
+	}
+	keepWorkspace = true
 	return completion, resultErr
 }
 
-func UnitName(invocationID string) string {
-	digest := sha256.Sum256([]byte(invocationID))
+func (executor *LinuxExecutor) unitName(invocationID string) string {
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte("sworn-executor-unit-v1"))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(executor.options.RuntimeRoot))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(invocationID))
+	digest := hasher.Sum(nil)
 	return "sworn-v1-" + hex.EncodeToString(digest[:12]) + ".service"
 }
 
 func (executor *LinuxExecutor) bubblewrapArgs(
 	invocation Invocation,
 	workspacePath, inputsPath string,
+	writable bool,
 ) []string {
 	args := executor.bubblewrapBaseArgs(
 		invocation.Network,
 		executor.options.Limits.TempBytes,
 		executor.options.Limits.HomeBytes,
 	)
-	args = append(args, "--ro-bind", workspacePath, "/workspace", "--dir", "/inputs")
+	workspaceMount := "--ro-bind"
+	if writable {
+		workspaceMount = "--bind"
+	}
+	args = append(args, workspaceMount, workspacePath, "/workspace", "--dir", "/inputs")
 	for _, input := range invocation.Inputs {
 		args = append(args, "--ro-bind", filepath.Join(inputsPath, input.Name), "/inputs/"+input.Name)
 	}
@@ -297,8 +416,9 @@ func (executor *LinuxExecutor) runService(
 	invocation Invocation,
 	unit string,
 	bubblewrapArgv []string,
+	startMarker string,
 ) (RawCompletion, error) {
-	serviceArgv := executor.systemdRunArgs(invocation, unit, bubblewrapArgv)
+	serviceArgv := executor.systemdRunArgs(invocation, unit, bubblewrapArgv, startMarker)
 	command := exec.Command(executor.options.SystemdRunPath, serviceArgv...)
 	command.Env = controlEnvironment()
 	watchReader, watchWriter, err := os.Pipe()
@@ -320,10 +440,11 @@ func (executor *LinuxExecutor) runService(
 	}
 	_ = watchReader.Close()
 	completion := RawCompletion{
-		InvocationID: invocation.ID,
-		Unit:         unit,
-		StartedAt:    time.Now().UTC(),
-		ExitCode:     -1,
+		InvocationID:    invocation.ID,
+		Unit:            unit,
+		WorkspaceAccess: invocation.WorkspaceAccess,
+		StartedAt:       time.Now().UTC(),
+		ExitCode:        -1,
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
@@ -351,7 +472,25 @@ func (executor *LinuxExecutor) runService(
 	if runErr != nil && completion.ExitCode == -1 {
 		return completion, fmt.Errorf("wait for transient executor service: %w", runErr)
 	}
+	if !completion.Cancelled && !completion.TimedOut && !completion.OutputTruncated {
+		if err := validateStartMarker(startMarker); err != nil {
+			return completion, fmt.Errorf("contained target did not start: %w", err)
+		}
+		if completion.ExitCode != 0 && hasControlDiagnostic(completion.Stderr) {
+			return completion, errors.New("contained target failed before exec")
+		}
+	}
 	return completion, nil
+}
+
+func hasControlDiagnostic(stderr []byte) bool {
+	for _, line := range bytes.Split(stderr, []byte{'\n'}) {
+		if bytes.HasPrefix(line, []byte("sworn executor shim:")) ||
+			bytes.HasPrefix(line, []byte("bwrap:")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (executor *LinuxExecutor) waitOrKill(
@@ -382,6 +521,7 @@ func (executor *LinuxExecutor) systemdRunArgs(
 	invocation Invocation,
 	unit string,
 	bubblewrapArgv []string,
+	startMarker string,
 ) []string {
 	runtimeLimit := invocation.Timeout + shutdownGrace
 	properties := executor.serviceProperties(runtimeLimit)
@@ -400,6 +540,7 @@ func (executor *LinuxExecutor) systemdRunArgs(
 	}
 	args = append(args, "--")
 	args = append(args, executor.options.ShimArgv...)
+	args = append(args, shimStartMarkerArgument, startMarker)
 	args = append(args, bubblewrapArgv...)
 	return args
 }
@@ -503,31 +644,7 @@ func validateShimArgv(argv []string) error {
 }
 
 func ensurePrivateRuntimeRoot(root string) error {
-	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
-		return errors.New("executor runtime root must be a clean absolute path")
-	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return fmt.Errorf("create executor runtime root: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return fmt.Errorf("resolve executor runtime root: %w", err)
-	}
-	if filepath.Clean(resolved) != root {
-		return errors.New("executor runtime root contains a symbolic-link remap")
-	}
-	info, err := os.Stat(root)
-	if err != nil {
-		return fmt.Errorf("inspect executor runtime root: %w", err)
-	}
-	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return errors.New("executor runtime root must be private")
-	}
-	statistics, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(statistics.Uid) != os.Geteuid() {
-		return errors.New("executor runtime root must be owned by the current user")
-	}
-	return nil
+	return ensurePrivateRoot(root, "executor runtime")
 }
 
 func runProbe(ctx context.Context, path string, args ...string) ([]byte, error) {
