@@ -5,22 +5,27 @@ may extend a record or reducer path, but may not introduce a second engine.
 
 ## 0. Protocol and repository boundary
 
-- [x] Start from a fresh clone on disconnected orphan branch `v1`.
+- [x] Start from a fresh clone on disconnected orphan branch `release/v1.0.0`.
 - [x] Preserve and restoration-test v0 archaeology.
 - [x] Embed and checksum the admitted Baton snapshot.
 - [x] Install v1-specific CI before any kernel implementation.
 
 ## 1. Transactional control core
 
-- [ ] Choose the SQLite driver in an ADR and add forward-only migrations.
-- [ ] Store commands, immutable events, records, artifacts, and pending effects
+- [x] Choose the SQLite driver in an ADR and add forward-only migrations.
+- [x] Store commands, immutable events, records, artifacts, and pending effects
   in one database.
-- [ ] Implement the pure reducer with expected revisions and idempotency keys.
-- [ ] Derive a read-only JSON board from committed truth.
-- [ ] Prove duplicate-command, crash-before-effect, crash-after-effect, and
+- [x] Implement the pure reducer with expected revisions and idempotency keys.
+- [x] Derive a read-only JSON board from committed truth.
+- [x] Prove duplicate-command, crash-before-effect, crash-after-effect, and
   unknown-state recovery behavior.
 
 No agent subprocess or remote mutation is permitted in this milestone.
+
+Implemented on `feat/transactional-control-core`. The state machine and store
+are internal only: no mutating CLI command is enabled, no effect executor exists,
+and an authority receipt digest is not treated as proof that the receipt is
+valid. Those capabilities remain gated below.
 
 ## 2. Exact local candidate
 

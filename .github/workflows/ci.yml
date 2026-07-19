@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [v1]
+    branches: [release/v1.0.0]
   pull_request:
-    branches: [v1]
+    branches: [release/v1.0.0]
 
 permissions:
   contents: read
@@ -23,5 +23,9 @@ jobs:
         run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - name: Test
         run: go test ./...
+      - name: Race test
+        run: go test -race ./...
       - name: Vet
         run: go vet ./...
+      - name: Build without CGO
+        run: CGO_ENABLED=0 go build ./cmd/sworn
