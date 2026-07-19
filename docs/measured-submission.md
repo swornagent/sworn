@@ -30,18 +30,21 @@ The initial Standard path is deliberately narrow:
    acceptance-linked evidence entry. Both point to that same receipt. There is
    no duplicate evidence bundle and no human command string that could erase
    argv boundaries.
-6. `protocol.BuildSubmission` structurally rebinds caller-supplied work projections, approval,
-   definitions, environment, receipts, streams, policy coverage, candidate,
-   timestamps, and exact artifact bytes. It constructs and RFC
-   8785-canonicalizes the Baton record, but does not authenticate authority or
-   prove that supplied run facts came from the effect journal.
+6. `protocol.BuildSubmission` takes an opaque `ExactPlan` and work ID. It
+   derives target, scope, acceptance, assurance, contract, and authority facts
+   from that capability; resolves the plan-selected `assurance-policy-v1`
+   registry and its baseline definitions by digest; then rebinds approval,
+   environment, receipts, streams, policy coverage, candidate, timestamps, and
+   exact artifact bytes. It constructs and RFC 8785-canonicalizes the Baton
+   record, but does not authenticate authority or prove that supplied run facts
+   came from the effect journal.
 7. `store.PutSubmission` accepts only that opaque prepared capability. In one
    transaction it verifies the complete resolved artifact closure, writes the
    canonical record, and reserves global submission, delivery/work/attempt,
-   builder-run, and producer-run identities. Its caller-supplied structural
-   approval receipt is shape-checked but cannot reserve or preempt an authority
-   identity; only authenticated authority persistence can do that. Exact retries
-   are idempotent, while rebinding an owned identity fails closed.
+   builder-run, and producer-run identities. The structurally checked approval
+   receipt cannot reserve or preempt an authority identity; only authenticated
+   authority persistence can do that. Exact retries are idempotent, while
+   rebinding an owned identity fails closed.
 
 Records accept only strict I-JSON already in RFC 8785 canonical form. JSON and
 `+json` artifacts must be strict I-JSON too, but retain their exact original
@@ -66,11 +69,14 @@ This slice accepts only dependency-free Standard work with:
   input, or network; and
 - one evidence declaration per required baseline check.
 
-Evidence semantics come from projected policy facts, never subprocess
-output. Mocked evidence is component-only. The approval receipt must be strict,
-CAS-resolved, and structurally match the projected plan, authority source,
-repository, target, and builder grants. Authentication against a capability
-outside autonomous write scope is deliberately not claimed here.
+Evidence semantics come from the policy-selected definitions, never subprocess
+output. The plan binds the registry's RFC 8785 canonical digest, so Sworn's CAS
+requires that registry to be stored as canonical JSON at that digest. Definition
+locators remain source/audit metadata; construction resolves their exact raw bytes
+by digest. Mocked evidence is component-only. The approval receipt must be
+strict, CAS-resolved, and structurally match the exact plan's digest, authority
+source and digest, repository, target, and ordered grants. Authentication and
+journal provenance are deliberately not claimed here.
 
 A timeout, cancellation, or output overflow stores a `not_admitted` execution
 receipt and creates no Baton check, evidence, or submission. A non-zero exit is

@@ -40,6 +40,9 @@ valid. Those capabilities remain gated below.
 - [x] Parse and persist exact canonical Baton plans and work-contract digests.
 - [x] Authenticate exact plan approval with a pinned Ed25519 root and persist
   its complete source/proof/receipt closure atomically.
+- [x] Derive prepared Standard submissions from the exact plan and its strict,
+  canonical, digest-selected assurance-policy registry rather than caller
+  projections.
 - [ ] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects.
@@ -66,6 +69,12 @@ Exact-plan and historical approval capabilities now survive restart through the
 single control store. This is not current effect authority: source re-resolution
 before dispatch, accepting `PASS`, and integration remains milestone 4. See
 [Exact plan and authenticated authority](authenticated-authority.md).
+
+Prepared-submission construction now resolves policy and check definitions from
+the exact plan and rejects caller-selected substitutes. It remains deliberately
+non-reviewable until typed effect provenance and the content-bound runtime feed
+one atomic admission transaction; see
+[ADR 0003](adr/0003-reviewable-admission-contraction.md).
 
 ## 3. Fresh independent verdict
 

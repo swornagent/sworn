@@ -14,16 +14,16 @@ func TestRecordsAndArtifactsAreContentAddressedAndImmutable(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 
-	record := []byte(`{"schema_version":"example-v1","value":1}`)
-	recordDigest, err := control.PutRecord(ctx, "example-v1", record)
+	record := exampleExactPlan(t).Record()
+	recordDigest, err := control.PutPlan(ctx, exampleExactPlan(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if duplicate, err := control.PutRecord(ctx, "example-v1", record); err != nil || duplicate != recordDigest {
+	if duplicate, err := control.PutPlan(ctx, exampleExactPlan(t)); err != nil || duplicate != recordDigest {
 		t.Fatalf("duplicate record = %q, %v", duplicate, err)
 	}
 	kind, storedRecord, err := control.Record(ctx, recordDigest)
-	if err != nil || kind != "example-v1" || !bytes.Equal(storedRecord, record) {
+	if err != nil || kind != record.Kind || !bytes.Equal(storedRecord, record.CanonicalJSON) {
 		t.Fatalf("record = %q %q, %v", kind, storedRecord, err)
 	}
 	if _, err := control.db.Exec("UPDATE records SET kind = 'changed' WHERE digest = ?", recordDigest); err == nil {
@@ -43,9 +43,6 @@ func TestRecordsAndArtifactsAreContentAddressedAndImmutable(t *testing.T) {
 		t.Fatal("artifact delete bypassed immutability trigger")
 	}
 
-	if _, err := control.PutRecord(ctx, "example-v1", []byte(`{"value":1,"schema_version":"example-v1"}`)); err == nil {
-		t.Fatal("non-canonical record was accepted")
-	}
 	if _, err := control.PutArtifact(ctx, "Application/JSON", []byte(`{}`)); err == nil {
 		t.Fatal("non-canonical media type was accepted")
 	}

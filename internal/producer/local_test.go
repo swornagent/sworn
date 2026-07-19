@@ -19,10 +19,6 @@ import (
 )
 
 var (
-	testPlanDigest        = fixedDigest("a")
-	testContractDigest    = fixedDigest("b")
-	testPolicyDigest      = fixedDigest("c")
-	testAuthorityDigest   = fixedDigest("d")
 	testSourceDigest      = fixedDigest("e")
 	testBuilderStart      = time.Date(2026, 7, 19, 1, 0, 0, 0, time.UTC)
 	testBuilderCompletion = time.Date(2026, 7, 19, 1, 1, 0, 0, time.UTC)
@@ -125,6 +121,7 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		t.Fatal(err)
 	}
 	definitionPointer := protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest}
+	plan := putSubmissionPlan(t, ctx, control, definitionPointer)
 	runner := fakeRunner{completion: func(invocation executor.Invocation) executor.RawCompletion {
 		contents, err := os.ReadFile(filepath.Join(invocation.Workspace, "value.txt"))
 		if err != nil || string(contents) != "candidate\n" {
@@ -146,30 +143,45 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	if err != nil || produced.Check == nil || produced.Evidence == nil {
 		t.Fatalf("RunLocal() = %#v, %v", produced, err)
 	}
-	authorityPointer := putAuthorityApproval(t, ctx, control)
-	work := protocol.StructuralWork{
-		DeliveryID: "delivery-1", WorkID: "work-1", PlanDigest: testPlanDigest,
-		ContractDigest: testContractDigest, Repository: "repo-01", TargetRef: "refs/heads/main",
-		Scope: repo.Scope{Include: []string{"."}}, PolicyRef: "policy:standard", PolicyDigest: testPolicyDigest,
-		AuthorityDigest: testAuthorityDigest, AuthoritySourceRef: "authority-source",
-		AuthoritySourceDigest: testSourceDigest,
-		Acceptance:            []protocol.AcceptanceRequirement{{ID: "AC1", Boundary: "component"}},
-		BaselineChecks: []protocol.BaselineCheck{{
-			ID: "candidate", Definition: definitionPointer,
-			Evidence: protocol.EvidenceRequirement{
-				ID: "candidate-check", AcceptanceIDs: []string{"AC1"}, Boundary: "component",
-				Observed: "The registered candidate check exited successfully.",
-			},
-		}},
-	}
+	authorityPointer := putAuthorityApproval(t, ctx, control, plan)
 	builder := protocol.BuilderRun{
 		RunID: "builder-run-1", Agent: "codex", StartedAt: formatTime(testBuilderStart),
 		CompletedAt: formatTime(testBuilderCompletion),
 	}
 	submissionInput := protocol.SubmissionInput{
-		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Work: work,
+		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Plan: plan, WorkID: "work-1",
 		AuthorityReceipt: authorityPointer, Builder: builder, Candidate: candidate,
 		Checks: []protocol.Check{*produced.Check}, Evidence: []protocol.Evidence{*produced.Evidence},
+	}
+	unknownWork := submissionInput
+	unknownWork.WorkID = "missing-work"
+	if _, err := protocol.BuildSubmission(ctx, repository, control, unknownWork); err == nil {
+		t.Fatal("work absent from the exact plan was admitted")
+	}
+	_, authorityBytes, err := control.Artifact(ctx, authorityPointer.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedApproval, err := protocol.ParseAuthorityApproval(authorityBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedApproval.Grants = append([]json.RawMessage(nil), driftedApproval.Grants...)
+	driftedApproval.Grants[0], driftedApproval.Grants[1] = driftedApproval.Grants[1], driftedApproval.Grants[0]
+	driftedRecord, err := protocol.EncodeAuthorityApproval(driftedApproval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedDigest, err := control.PutArtifact(ctx, "application/json", driftedRecord.CanonicalJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedAuthority := submissionInput
+	driftedAuthority.AuthorityReceipt = protocol.Artifact{
+		Ref: driftedDigest, MediaType: "application/json", Digest: driftedDigest,
+	}
+	if _, err := protocol.BuildSubmission(ctx, repository, control, driftedAuthority); err == nil {
+		t.Fatal("approval with grants reordered from the exact plan was admitted")
 	}
 	_, receiptBytes, err := control.Artifact(ctx, produced.Receipt.Digest)
 	if err != nil {
@@ -238,10 +250,8 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	changedDefinitionReceipt := measuredReceipt
 	changedDefinitionReceipt.Definition = changedDefinitionPointer
 	changedDefinitionInput := withReceipt(t, changedDefinitionReceipt)
-	changedDefinitionInput.Work.BaselineChecks = append([]protocol.BaselineCheck(nil), work.BaselineChecks...)
-	changedDefinitionInput.Work.BaselineChecks[0].Definition = changedDefinitionPointer
 	if _, err := protocol.BuildSubmission(ctx, repository, control, changedDefinitionInput); err == nil {
-		t.Fatal("definition with different admitted evidence semantics was admitted")
+		t.Fatal("definition outside the exact policy registry was admitted")
 	}
 	falseAuthorityRef := submissionInput
 	falseAuthorityRef.AuthorityReceipt.Ref = "artifact:false"
@@ -262,6 +272,11 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		base: control, digest: produced.Receipt.Digest,
 	}, submissionInput); err == nil {
 		t.Fatal("changed receipt bytes were admitted")
+	}
+	if _, err := protocol.BuildSubmission(ctx, repository, corruptArtifactReader{
+		base: control, digest: plan.Policy().Digest,
+	}, submissionInput); err == nil {
+		t.Fatal("changed exact policy bytes were admitted")
 	}
 	incomplete, err := store.Open(ctx, filepath.Join(t.TempDir(), "incomplete.db"))
 	if err != nil {
@@ -346,27 +361,89 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 	}
 }
 
-func putAuthorityApproval(t *testing.T, ctx context.Context, control *store.Store) protocol.Artifact {
+func putSubmissionPlan(
+	t *testing.T,
+	ctx context.Context,
+	control *store.Store,
+	definition protocol.Artifact,
+) protocol.ExactPlan {
 	t.Helper()
-	receipt := map[string]any{
-		"schema_version": "control-receipt-v1", "kind": "authority_approval",
-		"receipt_id": "authority-1", "plan_digest": testPlanDigest,
-		"authority_digest": testAuthorityDigest, "source_ref": "authority-source",
-		"source_digest": testSourceDigest,
-		"grants": []any{
-			map[string]any{"action": "inspect", "target": "workspace"},
-			map[string]any{"action": "edit", "target": "workspace"},
-			map[string]any{"action": "execute", "target": "workspace"},
-			map[string]any{"action": "commit", "target": "workspace"},
-		},
-		"repository": "repo-01", "target_ref": "refs/heads/main",
-		"authorizer_ref": "identity:test", "approved_at": formatTime(testBuilderStart.Add(-time.Second)),
-	}
-	contents, err := protocol.EncodeCanonical(receipt)
+	policyBytes, err := protocol.EncodeCanonical(map[string]any{
+		"schema_version": protocol.AssurancePolicySchemaVersion,
+		"policy_id":      "standard",
+		"checks": []any{map[string]any{
+			"id": "candidate",
+			"definition": map[string]any{
+				"ref": "policy/checks/candidate.json", "media_type": "application/json", "digest": definition.Digest,
+			},
+		}},
+		"packs": []any{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := control.PutArtifact(ctx, "application/json", contents)
+	policyDigest, err := control.PutArtifact(ctx, "application/json", policyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes, err := protocol.EncodeCanonical(map[string]any{
+		"schema_version": "delivery-plan-v1", "delivery_id": "delivery-1",
+		"outcome": "Produce the exact candidate.", "created_at": "2026-07-19T00:00:00Z",
+		"assurance_policy": map[string]any{"ref": "policy:standard", "digest": policyDigest},
+		"target":           map[string]any{"repository": "repo-01", "ref": "refs/heads/main"},
+		"authority": map[string]any{
+			"ref": "authority-source",
+			"grants": []any{
+				map[string]any{"action": "inspect", "target": "workspace"},
+				map[string]any{"action": "edit", "target": "workspace"},
+				map[string]any{"action": "execute", "target": "workspace"},
+				map[string]any{"action": "commit", "target": "workspace"},
+			},
+		},
+		"work": []any{map[string]any{
+			"id": "work-1", "outcome": "Produce the exact candidate.",
+			"scope": map[string]any{"include": []string{"."}, "exclude": []string{}},
+			"acceptance": []any{map[string]any{
+				"id": "AC1", "criterion": "The registered candidate check passes.", "evidence_level": "component",
+			}},
+			"depends_on": []string{},
+			"assurance":  map[string]any{"profile": "standard", "packs": []string{}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := protocol.ParseDeliveryPlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func putAuthorityApproval(
+	t *testing.T,
+	ctx context.Context,
+	control *store.Store,
+	plan protocol.ExactPlan,
+) protocol.Artifact {
+	t.Helper()
+	authority := plan.Authority()
+	grants := make([]json.RawMessage, 0, len(authority.Grants))
+	for _, grant := range authority.Grants {
+		grants = append(grants, json.RawMessage(grant.CanonicalJSON()))
+	}
+	target := plan.Target()
+	receipt, err := protocol.EncodeAuthorityApproval(protocol.AuthorityApproval{
+		SchemaVersion: protocol.ControlReceiptSchemaVersion, Kind: protocol.AuthorityApprovalKind,
+		ReceiptID: "authority-1", PlanDigest: plan.Record().Digest, AuthorityDigest: authority.Digest,
+		SourceRef: authority.SourceRef, SourceDigest: testSourceDigest, Grants: grants,
+		Repository: target.Repository, TargetRef: target.Ref, AuthorizerRef: "identity:test",
+		ApprovedAt: formatTime(testBuilderStart.Add(-time.Second)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := control.PutArtifact(ctx, "application/json", receipt.CanonicalJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
