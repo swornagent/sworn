@@ -27,19 +27,22 @@ there are no compatibility shims.
 
 ## Current implementation
 
-The transactional control core, exact local candidate boundary, and contained
-Linux executor are implemented internally. Together they provide
+The transactional control core, exact-plan authority boundary, exact local
+candidate path, and contained Linux executor are implemented internally.
+Together they provide
 atomic command/event/effect commits, content-addressed records, unknown-effect
 reconciliation, live Git measurement, plain workspaces, exact single-parent
 candidates, immutable or fresh writable executor staging, default-denied
 networking, finite live resource and retained-output ceilings, process-tree
-cleanup, quiescent measured workspace export, and an explicit content-bound
-local-check runtime. Real-boundary tests prove both staged runtime execution and
-the writable-export handoff into exact Git candidate capture.
+cleanup, quiescent measured workspace export, typed lease-bound effect results,
+and an explicit content-bound local-check runtime. Real-boundary tests prove
+both staged runtime execution and the writable-export handoff into exact Git
+candidate capture.
 
 No mutating command is exposed by the CLI yet. The executor is not connected to
-the command service or a native agent adapter, so writable export remains an
-internal primitive rather than a delivery loop. See
+the command service or a native agent adapter, and no reducer transition yet
+derives a local-check dispatch from the exact plan. These remain internal
+primitives rather than a delivery loop. See
 [Exact local candidate](docs/exact-candidate.md) and
 [Contained executor](docs/contained-executor.md).
 

@@ -302,36 +302,6 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	}, submissionInput); err == nil {
 		t.Fatal("changed exact policy bytes were admitted")
 	}
-	incomplete, err := store.Open(ctx, filepath.Join(t.TempDir(), "incomplete.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = incomplete.Close() })
-	for _, pointer := range []protocol.Artifact{authorityPointer, produced.Receipt} {
-		mediaType, contents, err := control.Artifact(ctx, pointer.Digest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := incomplete.PutArtifact(ctx, mediaType, contents); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := incomplete.PutSubmission(ctx, built); err == nil || !strings.Contains(err.Error(), "unavailable") {
-		t.Fatalf("incomplete destination artifact closure error = %v", err)
-	}
-	digest, err := control.PutSubmission(ctx, built)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := built.Record()
-	submission := built.Submission()
-	if digest != record.Digest {
-		t.Fatalf("stored digest = %q, built digest %q", digest, record.Digest)
-	}
-	storedDigest, canonical, err := control.SubmissionRecord(ctx, submission.SubmissionID)
-	if err != nil || storedDigest != digest || !bytes.Equal(canonical, record.CanonicalJSON) {
-		t.Fatalf("stored record = %q %q, %v", storedDigest, canonical, err)
-	}
 	for _, pointer := range built.Dependencies() {
 		mediaType, contents, err := control.Artifact(ctx, pointer.Digest)
 		if err != nil || mediaType != pointer.MediaType || protocol.RawDigest(contents) != pointer.Digest {
@@ -379,9 +349,6 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 	receipt, err := protocol.ParseLocalCheckReceipt(raw)
 	if err != nil || receipt.Outcome != "not_admitted" || receipt.ExitCode != 7 {
 		t.Fatalf("non-pass receipt = %#v, %v", receipt, err)
-	}
-	if _, _, err := control.SubmissionRecord(ctx, "anything"); err == nil {
-		t.Fatal("non-pass execution created a submission")
 	}
 }
 

@@ -13,10 +13,14 @@ algorithm:
 5. A claim returns an opaque lease bound to that store instance, effect,
    owner, and monotonically increasing attempt. Only that exact lease may
    complete the effect.
-6. Record each claim and outcome as an immutable effect observation.
-7. If a process ends while an effect is running, change it to `unknown`. Never
-   claim it again until a named reconciler supplies an attempt-bound JSON
-   observation proving success, failure, or that the effect was not applied.
+6. Bind one kind-specific typed result to the effect row under that live lease,
+   then complete the effect in a separate compare-and-swap. The result slot may
+   move once from empty to populated and is immutable thereafter.
+7. Record each claim, interruption, reconciliation, and terminal outcome as an
+   immutable effect observation.
+8. If a process ends while an effect is running, change it to `unknown`.
+   Successful reconciliation requires the already-bound result. Requeueing via
+   `ReconcileNotApplied` is an explicit manual assertion, not autonomous proof.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
 roll back and remain errors; they are not converted into domain outcomes. Reuse
@@ -29,6 +33,18 @@ second invocation identity. Completion compare-and-swaps effect ID, owner, and
 attempt together, so an old worker cannot complete a reconciled retry even when
 the same owner name is reused. Reconciliation compare-and-swaps the observed
 unknown attempt for the same reason.
+
+`BindEffectResult` validates and stores the typed result before
+`CompleteEffect` may close the lease. Normal completion and reconciliation to
+`succeeded` use the same kind-specific validator and artifact-closure checks.
+A missing result is not evidence that an external action did not happen, and an
+orphaned content-addressed artifact is not an effect result. Neither condition
+by itself permits successful reconciliation or autonomous retry.
+`ReconcileNotApplied` may manually requeue such an attempt, but its required
+detail is an audit note, not machine proof. No autonomous path may select it
+until the effect kind supplies attempt-bound external evidence of non-application.
+This matters because an effect ID is stable across retries: arbitrary text
+cannot safely separate a late result from an earlier attempt.
 
 ## SQLite ownership
 
@@ -43,14 +59,14 @@ The database contains:
 - `runs` — current snapshots indexed by immutable delivery, repository, target,
   plan, and revision facts;
 - `commands` and `events` — append-only control history;
-- `effects` — the current external-effect journal;
+- `effects` — the current external-effect journal, including one immutable
+  typed result slot per effect;
 - `effect_observations` — append-only claim, interruption, reconciliation, and
   completion facts;
 - `records` and `artifacts` — immutable content-addressed JSON and raw bytes;
 - `submission_records` — immutable global submission and work-attempt identity
-  reservations bound to canonical record digests; and
-- `protocol_identities` — write-once approval, builder-run, and producer-run
-  bindings for prepared submissions.
+  reservations bound to canonical record digests, written only by the future
+  final admission transaction.
 
 SQL triggers forbid mutation of immutable history, illegal revision jumps,
 effect request rewrites, effect deletion, and invalid effect-state transitions.
@@ -59,13 +75,27 @@ same repository and target.
 
 ## Current boundary
 
-The transactional reducer still does not validate Baton plans, resolve current
-authority, run checks or coding agents, inspect Git, execute effects, or mutate
-a target. Later internal slices may use the same store for measured artifacts
-and prepared records without creating a second control path. `sworn board` remains
-the only new CLI command and opens the control store in read-only mode. The
-reducer's activation and build-dispatch transitions exist to prove the
-command/effect boundary; they are unreachable from the CLI.
-The current generic effect completion JSON is operational journal history only;
-until kind-specific builder and producer receipts exist and are rebound from
-SQLite, it is not evidence of a journal-registered Baton run.
+The journal now understands typed builder results and typed `check.local`
+results. The local-check worker accepts its candidate only through the succeeded
+builder effect, invokes only the content-bound executor, and returns the minimal
+outcome and receipt reference. The worker materializes the builder candidate
+from Git, while the executor stages and remeasures the candidate workspace and
+content runtime before execution.
+
+The store performs a narrower durable rebind. It matches the receipt's candidate
+identifiers to the succeeded builder result; resolves and validates the receipt,
+definition, environment, stdout, and stderr CAS objects; matches the exact
+definition fields and measured runtime/output ceilings; and requires the
+environment's runtime-manifest digest to equal the request. It does not
+rematerialize Git, remeasure a workspace or runtime, or compare the
+environment's embedded protocol-snapshot digest. Final admission must close
+those remaining protocol and submission checks.
+
+That worker is deliberately unreachable. No reducer transition yet derives a
+`check.local` request from the exact plan, so neither the public CLI nor an
+autonomous loop can dispatch it without inventing authority outside the engine.
+`sworn board` remains read-only, and no path integrates a target.
+
+Structural submission persistence and its parallel builder/producer identity
+registry have been removed. A future atomic admission transaction will recheck
+the journal and artifact closure and become the sole submission writer.

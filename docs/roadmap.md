@@ -23,9 +23,9 @@ may extend a record or reducer path, but may not introduce a second engine.
 No agent subprocess or remote mutation is permitted in this milestone.
 
 Implemented on `feat/transactional-control-core`. The state machine and store
-are internal only: no mutating CLI command is enabled, no effect executor exists,
-and an authority receipt digest is not treated as proof that the receipt is
-valid. Those capabilities remain gated below.
+remain internal: no mutating CLI command is enabled, and an authority receipt
+digest is not treated as proof that the receipt is valid. Later internal effect
+work does not change that public boundary.
 
 ## 2. Exact local candidate
 
@@ -46,9 +46,17 @@ valid. Those capabilities remain gated below.
 - [x] Add an explicit content-bound local-check runtime that stages,
   remeasures, executes, and receipts one exact runtime tree without upgrading
   the evaluation-only host-runtime path.
+- [x] Add one immutable typed result slot per effect, with lease-bound binding,
+  shared completion/reconciliation validation, and fail-closed unknown recovery.
+- [x] Add an internal content-bound-only `check.local` worker whose minimal
+  result rebinds receipt candidate identifiers to the builder result and
+  validates the definition, environment, and output CAS closure, including
+  requested runtime-manifest equality.
+- [ ] Derive `check.local` dispatch from the exact plan in the reducer.
 - [ ] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
-- [ ] Reconcile interrupted workspace and Git effects.
+- [ ] Reconcile interrupted workspace and Git effects with kind-specific,
+  attempt-bound external evidence before any autonomous retry.
 
 The Git-truth boundary is implemented internally on `feat/exact-local-candidate`.
 It has no CLI mutation path and does not yet persist its binding in runtime
@@ -58,15 +66,16 @@ configuration or record a candidate in the control store. See
 The contained executor now implements distinct read-only and writable-export
 modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
 live cgroup resource bounds, post-quiescence measurement, generation-bound
-validation and digest-independent cleanup. It is not yet connected to an engine
-effect or adapter; see [Contained executor](contained-executor.md).
+validation and digest-independent cleanup. The read-only content-bound path is
+used by an internal local-check effect worker, but no reducer transition can
+dispatch that worker yet; see [Contained executor](contained-executor.md).
 
 The prepared Standard path now rechecks a retained candidate, runs one
 policy-bound local producer through read-only containment, stores one reusable
-content-addressed receipt, builds strict canonical Baton bytes, and reserves
-submission and run identities transactionally. It remains evaluation-only: the
-host runtime is unbound, authority is not authenticated here, and runs are not
-yet journal-registered. See [Prepared local submission](measured-submission.md).
+content-addressed receipt, and builds strict canonical Baton bytes. Structural
+submission persistence and its parallel run-identity registry have been
+removed. Final atomic admission will be the sole submission writer. See
+[Prepared local submission](measured-submission.md).
 
 Exact-plan and historical approval capabilities now survive restart through the
 single control store. This is not current effect authority: source re-resolution
@@ -79,9 +88,20 @@ non-reviewable until typed effect provenance and the content-bound runtime feed
 one atomic admission transaction; see
 [ADR 0003](adr/0003-reviewable-admission-contraction.md).
 
-The content-bound producer path now binds one exact runtime manifest through
-invocation, raw completion, local environment, and receipt. It remains an
-internal prerequisite: no effect owns the producer run yet, and the board stays
+The effect journal now binds one immutable kind-specific result before
+completion. Its `check.local` worker admits only a content-bound runtime and
+stores a minimal outcome plus receipt. The worker materializes the builder
+candidate, and the executor remeasures the workspace and runtime. The store then
+rebinds receipt candidate identifiers to the succeeded builder result, validates
+the immutable receipt/definition/environment/output CAS closure, and checks the
+requested runtime-manifest equality when binding and reconciling success. It
+does not repeat Git or runtime measurement or compare the embedded protocol
+snapshot; final admission remains future. Absence of a bound result, or an
+orphan receipt in content-addressed storage, cannot authorize autonomous retry
+or success.
+
+This remains an internal prerequisite. Until a lawful plan-derived reducer edge
+creates the check request, the worker is unreachable and the board stays
 `active`.
 
 ## 3. Fresh independent verdict

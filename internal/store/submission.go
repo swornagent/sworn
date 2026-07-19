@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"database/sql"
@@ -11,110 +10,6 @@ import (
 
 	"github.com/swornagent/sworn/internal/protocol"
 )
-
-// PutSubmission atomically persists the opaque construction capability minted
-// by protocol.BuildSubmission. Raw, independently constructible Baton records
-// are deliberately not accepted by this control boundary.
-func (s *Store) PutSubmission(ctx context.Context, prepared protocol.PreparedSubmission) (string, error) {
-	if s.readOnly {
-		return "", errors.New("control store is read-only")
-	}
-	submission := prepared.Submission()
-	record := prepared.Record()
-	dependencies := prepared.Dependencies()
-	reencoded, err := protocol.EncodeSubmission(submission)
-	if err != nil {
-		return "", err
-	}
-	if record.Kind != reencoded.Kind || record.Digest != reencoded.Digest ||
-		!bytes.Equal(record.CanonicalJSON, reencoded.CanonicalJSON) {
-		return "", errors.New("submission capability does not match its canonical record")
-	}
-	return s.putPreparedSubmission(ctx, submission, record, dependencies)
-}
-
-func (s *Store) putPreparedSubmission(
-	ctx context.Context,
-	submission protocol.Submission,
-	record protocol.EncodedRecord,
-	dependencies []protocol.Artifact,
-) (string, error) {
-	artifacts, err := completeSubmissionArtifacts(submission, dependencies)
-	if err != nil {
-		return "", err
-	}
-	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return "", fmt.Errorf("begin submission storage: %w", err)
-	}
-	defer transaction.Rollback() //nolint:errcheck
-	for _, artifact := range artifacts {
-		if _, err := verifySubmissionArtifact(ctx, transaction, artifact); err != nil {
-			return "", err
-		}
-	}
-	now := s.now().UTC().UnixMicro()
-	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(digest) DO NOTHING`,
-		record.Digest, record.Kind, record.CanonicalJSON, len(record.CanonicalJSON), now,
-	); err != nil {
-		return "", fmt.Errorf("put submission record %s: %w", record.Digest, err)
-	}
-	var storedKind string
-	var storedJSON []byte
-	if err := transaction.QueryRowContext(ctx,
-		"SELECT kind, canonical_json FROM records WHERE digest = ?", record.Digest,
-	).Scan(&storedKind, &storedJSON); err != nil {
-		return "", fmt.Errorf("verify submission record %s: %w", record.Digest, err)
-	}
-	if storedKind != record.Kind || !bytes.Equal(storedJSON, record.CanonicalJSON) {
-		return "", fmt.Errorf("submission record conflict for %s", record.Digest)
-	}
-	for _, reservation := range submissionIdentityReservations(submission, record.Digest) {
-		if err := reserveProtocolIdentity(ctx, transaction, reservation); err != nil {
-			return "", err
-		}
-	}
-	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO submission_records (submission_id, delivery_id, work_id, attempt, digest)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING`,
-		submission.SubmissionID, submission.DeliveryID, submission.WorkID, submission.Attempt, record.Digest,
-	); err != nil {
-		return "", fmt.Errorf("reserve submission identity: %w", err)
-	}
-	var deliveryID, workID, digest string
-	var attempt int64
-	err = transaction.QueryRowContext(ctx, `
-		SELECT delivery_id, work_id, attempt, digest
-		FROM submission_records WHERE submission_id = ?`, submission.SubmissionID,
-	).Scan(&deliveryID, &workID, &attempt, &digest)
-	if errors.Is(err, sql.ErrNoRows) {
-		var occupiedID string
-		pairErr := transaction.QueryRowContext(ctx, `
-			SELECT submission_id FROM submission_records
-			WHERE delivery_id = ? AND work_id = ? AND attempt = ?`,
-			submission.DeliveryID, submission.WorkID, submission.Attempt,
-		).Scan(&occupiedID)
-		if pairErr == nil {
-			return "", fmt.Errorf("work attempt is already bound to submission %q", occupiedID)
-		}
-		return "", errors.New("submission identity reservation was not recorded")
-	}
-	if err != nil {
-		return "", fmt.Errorf("verify submission identity: %w", err)
-	}
-	if deliveryID != submission.DeliveryID || workID != submission.WorkID ||
-		attempt != submission.Attempt || digest != record.Digest {
-		return "", fmt.Errorf("submission id %q is already bound to different canonical bytes", submission.SubmissionID)
-	}
-	if err := transaction.Commit(); err != nil {
-		return "", fmt.Errorf("commit submission storage: %w", err)
-	}
-	return record.Digest, nil
-}
 
 // SubmissionRecord reads the immutable canonical record bound to one global
 // submission ID.
@@ -217,52 +112,4 @@ func verifySubmissionArtifact(ctx context.Context, transaction *sql.Tx, pointer 
 		return nil, fmt.Errorf("submission artifact %s does not match its pointer", pointer.Digest)
 	}
 	return contents, nil
-}
-
-type protocolIdentityReservation struct {
-	kind          string
-	id            string
-	bindingDigest string
-}
-
-func submissionIdentityReservations(
-	submission protocol.Submission,
-	recordDigest string,
-) []protocolIdentityReservation {
-	reservations := []protocolIdentityReservation{{
-		kind: "builder_run", id: submission.Builder.RunID, bindingDigest: recordDigest,
-	}}
-	for _, check := range submission.Checks {
-		reservations = append(reservations, protocolIdentityReservation{
-			kind: "producer_run", id: check.RunID, bindingDigest: recordDigest,
-		})
-	}
-	return reservations
-}
-
-func reserveProtocolIdentity(
-	ctx context.Context,
-	transaction *sql.Tx,
-	reservation protocolIdentityReservation,
-) error {
-	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO protocol_identities (identity_kind, identity_id, binding_digest)
-		VALUES (?, ?, ?)
-		ON CONFLICT DO NOTHING`,
-		reservation.kind, reservation.id, reservation.bindingDigest,
-	); err != nil {
-		return fmt.Errorf("reserve %s %q: %w", reservation.kind, reservation.id, err)
-	}
-	var bindingDigest string
-	if err := transaction.QueryRowContext(ctx, `
-		SELECT binding_digest FROM protocol_identities
-		WHERE identity_kind = ? AND identity_id = ?`,
-		reservation.kind, reservation.id,
-	).Scan(&bindingDigest); err != nil {
-		return fmt.Errorf("verify %s %q: %w", reservation.kind, reservation.id, err)
-	}
-	if bindingDigest != reservation.bindingDigest {
-		return fmt.Errorf("%s %q is already bound to different bytes or effects", reservation.kind, reservation.id)
-	}
-	return nil
 }

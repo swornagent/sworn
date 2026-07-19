@@ -14,6 +14,16 @@ root, checks its configured manifest digest, remeasures the staged bytes, and
 mounts only that copy at `/usr`. There is no flag or empty-value fallback from
 the content-bound path to host `/usr`.
 
+The internal `check.local` effect worker calls only `RunContentBound`. Its
+request binds the exact runtime-manifest and check-definition digests and names
+a succeeded builder effect as the sole candidate source. The worker materializes
+that candidate from Git; the executor then stages and remeasures the workspace
+and exact runtime. The typed result keeps only the outcome and receipt reference.
+The journal matches the receipt's candidate identifiers to the builder result,
+validates its definition, environment, and output CAS closure, and requires the
+environment runtime-manifest digest to match the request. It does not repeat Git
+materialization or runtime measurement.
+
 The access mode is part of both the invocation and raw completion. Calling the
 wrong entry point fails before dispatch. Neither mode exposes the source
 workspace, repository metadata, target refs, the control database, or engine
@@ -177,12 +187,16 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is not connected to an engine effect or public command yet. The
-internal [measured local submission](measured-submission.md) path can exercise
-either the evaluation-only host runtime or an exact content runtime, but neither
-proves journal ownership. A content-bound runtime proves which bytes executed;
-it does not retain those bytes or claim hermetic reproduction. The kernel, CPU,
-and containment implementation remain host facts.
+This package is connected to an internal `check.local` worker, but no reducer
+transition yet derives that effect from an exact plan. The worker is therefore
+deliberately unreachable from the public command surface and autonomous engine
+flow. The separate [measured local submission](measured-submission.md) path can
+still exercise the evaluation-only host runtime, but that path cannot qualify
+for admission. A content-bound runtime proves which bytes executed; it does not
+retain those bytes or claim hermetic reproduction. The kernel, CPU, and
+containment implementation remain host facts. The effect-result validator also
+does not compare the environment's embedded protocol-snapshot digest; the
+future final admission transaction must close that protocol binding.
 The executor also does not run a native agent adapter, filter an admitted host
 network, or infer quality from an exit status. If the engine dies, the shim and
 cgroup still stop all writers, but reclaiming a generation-bound writable

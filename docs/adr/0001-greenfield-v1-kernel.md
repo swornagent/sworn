@@ -73,8 +73,9 @@ they pass through the real Sworn binary.
    authorizer before activation.
 2. Each accepted command has an idempotency identity and expected revision.
    The state transition and pending effect are committed atomically.
-3. Effects execute outside the transaction and record an immutable receipt.
-   Unknown completion is reconciled from the external system before retry.
+3. Effects execute outside the transaction and bind one immutable typed result.
+   Unknown completion is reconciled from that result or an explicit external
+   determination before retry.
 4. Builder and verifier receive immutable dispatches. A verdict is fresh only
    when it binds the dispatched candidate, submission, policy, and verifier
    identity.
