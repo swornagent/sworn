@@ -31,6 +31,22 @@ var (
 // performing or persisting work.
 func ValidID(value string) bool { return protocolIDPattern.MatchString(value) }
 
+// ValidDigest reports whether value is a canonical Baton SHA-256 identifier.
+func ValidDigest(value string) bool { return digestPattern.MatchString(value) }
+
+// ValidBranchRef reports whether value is a complete Baton target branch ref.
+func ValidBranchRef(value string) bool { return validBranchRef(value) }
+
+// ValidNonEmpty reports whether value satisfies Baton's non-empty string
+// profile.
+func ValidNonEmpty(value string) bool { return nonEmpty(value) }
+
+// ValidPositiveSafeInteger reports whether value is positive and remains exact
+// in every Baton I-JSON implementation.
+func ValidPositiveSafeInteger(value int64) bool {
+	return value > 0 && value <= maximumSafeInteger
+}
+
 type Artifact struct {
 	Ref       string `json:"ref"`
 	MediaType string `json:"media_type"`
@@ -498,6 +514,27 @@ func parseRecordTime(value, label string) (recordTime, error) {
 	}
 	fraction := strings.TrimRight(strings.TrimPrefix(parts[5], "."), "0")
 	return recordTime{wholeSeconds: parsed.Unix(), fraction: fraction}, nil
+}
+
+// CompareDateTimes validates and compares two Baton date-time values by their
+// exact instants, including fractions longer than time.Time can represent.
+func CompareDateTimes(left, right string) (int, error) {
+	leftTime, err := parseRecordTime(left, "left")
+	if err != nil {
+		return 0, err
+	}
+	rightTime, err := parseRecordTime(right, "right")
+	if err != nil {
+		return 0, err
+	}
+	return leftTime.compare(rightTime), nil
+}
+
+// ValidDateTime reports whether value satisfies Baton's asserted date-time
+// profile, including the lexical leap-second exclusion.
+func ValidDateTime(value string) bool {
+	_, err := parseRecordTime(value, "record")
+	return err == nil
 }
 
 func nonEmpty(value string) bool {

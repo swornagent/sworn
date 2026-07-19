@@ -35,13 +35,40 @@ func TestScopeUsesLiteralPrefixSemantics(t *testing.T) {
 }
 
 func TestScopeRejectsInvalidAndDuplicatePrefixes(t *testing.T) {
-	for _, prefix := range []string{"", "/abs", "trailing/", "a//b", "a/./b", "a/../b", "*", `a\\b`, "   "} {
+	for _, prefix := range []string{"", "/abs", "trailing/", "a//b", "a/./b", "a/../b", "*", `a\\b`, "   ", "a\nb", "a\rb", "a\u2028b", "a\u2029b"} {
 		if err := (Scope{Include: []string{prefix}}).Validate(); err == nil {
 			t.Errorf("prefix %q was accepted", prefix)
 		}
 	}
-	if err := (Scope{Include: []string{"src"}, Exclude: []string{"src"}}).Validate(); err == nil {
-		t.Fatal("duplicate prefix was accepted")
+	for _, scope := range []Scope{
+		{Include: []string{"src", "src"}},
+		{Include: []string{"src"}, Exclude: []string{"vendor", "vendor"}},
+	} {
+		if err := scope.Validate(); err == nil {
+			t.Fatal("duplicate prefix within one list was accepted")
+		}
+	}
+}
+
+func TestScopeAllowsIncludeExcludeOverlapWithExclusionWinning(t *testing.T) {
+	scope := Scope{Include: []string{"src"}, Exclude: []string{"src"}}
+	if err := scope.Validate(); err != nil {
+		t.Fatalf("Baton permits an include/exclude overlap: %v", err)
+	}
+	if scope.Allows("src/main.go") {
+		t.Fatal("exclusion did not win over the overlapping inclusion")
+	}
+}
+
+func TestScopeWholeRepositoryAllowsLiteralWhitespaceAndLineTerminatorPaths(t *testing.T) {
+	scope := Scope{Include: []string{"."}}
+	if err := scope.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"   ", "line\nbreak", "line\u2028break"} {
+		if !scope.Allows(path) {
+			t.Errorf("whole-repository scope rejected schema-valid Git path %q", path)
+		}
 	}
 }
 

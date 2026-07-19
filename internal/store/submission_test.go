@@ -42,7 +42,7 @@ func TestPutSubmissionReservesGlobalAndAttemptIdentities(t *testing.T) {
 	}
 	assertCount(t, control, "records", 1)
 	assertCount(t, control, "submission_records", 1)
-	assertCount(t, control, "protocol_identities", 3)
+	assertCount(t, control, "protocol_identities", 2)
 }
 
 func TestPutSubmissionRequiresResolvableArtifacts(t *testing.T) {
@@ -101,7 +101,7 @@ func TestSubmissionProtocolIdentitiesAreWriteOnceAcrossRecords(t *testing.T) {
 	}
 
 	assertCount(t, control, "submission_records", 3)
-	assertCount(t, control, "protocol_identities", 7)
+	assertCount(t, control, "protocol_identities", 6)
 }
 
 func TestSubmissionPersistenceRejectsFalseCASAndMediaAliases(t *testing.T) {

@@ -37,6 +37,9 @@ valid. Those capabilities remain gated below.
   keep it inside the same executor boundary.
 - [x] Prepare canonical submission bytes from measured Git facts and
   content-addressed local check evidence.
+- [x] Parse and persist exact canonical Baton plans and work-contract digests.
+- [x] Authenticate exact plan approval with a pinned Ed25519 root and persist
+  its complete source/proof/receipt closure atomically.
 - [ ] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects.
@@ -58,6 +61,11 @@ content-addressed receipt, builds strict canonical Baton bytes, and reserves
 submission and run identities transactionally. It remains evaluation-only: the
 host runtime is unbound, authority is not authenticated here, and runs are not
 yet journal-registered. See [Prepared local submission](measured-submission.md).
+
+Exact-plan and historical approval capabilities now survive restart through the
+single control store. This is not current effect authority: source re-resolution
+before dispatch, accepting `PASS`, and integration remains milestone 4. See
+[Exact plan and authenticated authority](authenticated-authority.md).
 
 ## 3. Fresh independent verdict
 

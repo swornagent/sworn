@@ -127,8 +127,8 @@ func (scope Scope) Validate() error {
 	if len(scope.Include) == 0 {
 		return errors.New("scope requires at least one included prefix")
 	}
-	seen := make(map[string]struct{}, len(scope.Include)+len(scope.Exclude))
 	for _, group := range [][]string{scope.Include, scope.Exclude} {
+		seen := make(map[string]struct{}, len(group))
 		for _, prefix := range group {
 			if err := validatePathPrefix(prefix); err != nil {
 				return fmt.Errorf("invalid scope prefix %q: %w", prefix, err)
@@ -188,6 +188,9 @@ func validatePathPrefix(prefix string) error {
 	if !validGitPath(prefix) {
 		return errors.New("prefix is not a normalized Git path")
 	}
+	if strings.ContainsAny(prefix, "\r\n\u2028\u2029") || strings.TrimSpace(prefix) == "" {
+		return errors.New("prefix contains only whitespace or a line terminator")
+	}
 	if strings.ContainsAny(prefix, `*?[]\`) {
 		return errors.New("glob metacharacters and backslashes are forbidden")
 	}
@@ -197,8 +200,7 @@ func validatePathPrefix(prefix string) error {
 func validGitPath(gitPath string) bool {
 	if gitPath == "" || gitPath == "." || !utf8.ValidString(gitPath) ||
 		strings.HasPrefix(gitPath, "/") || strings.HasSuffix(gitPath, "/") ||
-		strings.Contains(gitPath, "\x00") || strings.Contains(gitPath, "//") ||
-		strings.TrimSpace(gitPath) == "" {
+		strings.Contains(gitPath, "\x00") || strings.Contains(gitPath, "//") {
 		return false
 	}
 	for _, segment := range strings.Split(gitPath, "/") {
