@@ -31,8 +31,10 @@ valid. Those capabilities remain gated below.
 
 - [x] Bind immutable repository identity, base commit, target ref, and worktree.
 - [x] Create exact single-parent candidates and retain safe engine refs.
-- [ ] Add one contained subprocess executor with cancellation and process-tree
-  cleanup.
+- [x] Add the read-only Linux containment foundation with immutable staging,
+  cancellation, resource/output ceilings, and process-tree cleanup.
+- [ ] Add bounded writable builder handoff and safe measured workspace export;
+  keep it inside the same executor boundary.
 - [ ] Produce a submission from measured Git facts and content-addressed local
   check evidence.
 - [ ] Reconcile interrupted workspace and Git effects.
@@ -41,6 +43,11 @@ The Git-truth boundary is implemented internally on `feat/exact-local-candidate`
 It has no CLI mutation path and does not yet persist its binding in runtime
 configuration or record a candidate in the control store. See
 [Exact local candidate](exact-candidate.md).
+
+The read-only containment foundation is implemented internally on
+`feat/contained-executor`. It is Linux-only and not yet connected to an engine
+effect or adapter. The writable builder/export half remains deliberately open;
+see [Contained executor](contained-executor.md).
 
 ## 3. Fresh independent verdict
 
