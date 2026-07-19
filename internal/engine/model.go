@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	StateSchemaVersion = "sworn-engine-state-v1"
-	NoRevision         = int64(-1)
+	StateSchemaVersion              = "sworn-engine-state-v1"
+	BuildEffectRequestSchemaVersion = "sworn-build-effect-request-v1"
+	NoRevision                      = int64(-1)
 )
 
 type Phase string
@@ -75,6 +76,31 @@ type ActivatePayload struct {
 type DispatchBuildPayload struct {
 	WorkID         string `json:"work_id"`
 	DispatchDigest string `json:"dispatch_digest"`
+}
+
+// BuildEffectRequest is the strict engine-owned input for one builder effect.
+// Its delivery run ID is control-state identity, not the Baton builder run ID:
+// the store-derived effect ID becomes that invocation identity when claimed.
+type BuildEffectRequest struct {
+	SchemaVersion  string `json:"schema_version"`
+	DeliveryRunID  string `json:"delivery_run_id"`
+	DeliveryID     string `json:"delivery_id"`
+	WorkID         string `json:"work_id"`
+	WorkAttempt    int64  `json:"work_attempt"`
+	DispatchDigest string `json:"dispatch_digest"`
+}
+
+func ParseBuildEffectRequest(encoded json.RawMessage) (BuildEffectRequest, error) {
+	request, err := decodePayload[BuildEffectRequest](encoded)
+	if err != nil {
+		return BuildEffectRequest{}, fmt.Errorf("decode build effect request: %w", err)
+	}
+	if request.SchemaVersion != BuildEffectRequestSchemaVersion ||
+		!ValidID(request.DeliveryRunID) || !ValidID(request.DeliveryID) || !ValidID(request.WorkID) ||
+		request.WorkAttempt < 1 || !ValidDigest(request.DispatchDigest) {
+		return BuildEffectRequest{}, errors.New("invalid build effect request")
+	}
+	return request, nil
 }
 
 type Work struct {

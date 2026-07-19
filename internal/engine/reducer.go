@@ -113,6 +113,7 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 	}
 	next := cloneState(current)
 	found := false
+	var workAttempt int64
 	for index := range next.Work {
 		if next.Work[index].ID != payload.WorkID {
 			continue
@@ -124,6 +125,7 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 		next.Work[index].State = WorkActive
 		next.Work[index].Attempt++
 		next.Work[index].NextAction = ActionWait
+		workAttempt = next.Work[index].Attempt
 	}
 	if !found {
 		return Decision{}, reject("work_not_found", "work is not part of this delivery")
@@ -132,11 +134,14 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 	if err := next.Validate(); err != nil {
 		return Decision{}, fmt.Errorf("reducer produced invalid state: %w", err)
 	}
-	request, err := json.Marshal(struct {
-		RunID          string `json:"run_id"`
-		WorkID         string `json:"work_id"`
-		DispatchDigest string `json:"dispatch_digest"`
-	}{current.RunID, payload.WorkID, payload.DispatchDigest})
+	request, err := json.Marshal(BuildEffectRequest{
+		SchemaVersion:  BuildEffectRequestSchemaVersion,
+		DeliveryRunID:  current.RunID,
+		DeliveryID:     current.DeliveryID,
+		WorkID:         payload.WorkID,
+		WorkAttempt:    workAttempt,
+		DispatchDigest: payload.DispatchDigest,
+	})
 	if err != nil {
 		return Decision{}, fmt.Errorf("encode build effect: %w", err)
 	}

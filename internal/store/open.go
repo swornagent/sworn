@@ -31,9 +31,10 @@ var migrationNames = []string{
 }
 
 type Store struct {
-	db       *sql.DB
-	readOnly bool
-	now      func() time.Time
+	db          *sql.DB
+	readOnly    bool
+	now         func() time.Time
+	leaseIssuer *leaseIssuer
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -41,7 +42,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: database, now: time.Now}
+	store := &Store{db: database, now: time.Now, leaseIssuer: &leaseIssuer{}}
 	if err := store.migrate(ctx); err != nil {
 		_ = database.Close()
 		return nil, err
@@ -56,7 +57,7 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: database, readOnly: true, now: time.Now}
+	store := &Store{db: database, readOnly: true, now: time.Now, leaseIssuer: &leaseIssuer{}}
 	if err := store.verifyIdentity(ctx, true); err != nil {
 		_ = database.Close()
 		return nil, err
