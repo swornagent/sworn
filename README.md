@@ -10,13 +10,16 @@ disconnected history. Sworn v0 remains available as protected archaeology at
 `legacy/v0` and `legacy/v0-final`; it is not an implementation base for this
 branch.
 
-The first commit establishes only the trust boundary:
+The v1 foundation establishes the trust boundary:
 
 - a Baton 1.0 release-candidate snapshot pinned to commit
   `732ba47672e12edb55494d120bb7325850187643`;
 - checksum verification for every embedded protocol file;
-- a minimal `sworn version` command that reports the snapshot digest; and
-- v1-specific CI with no production dependencies.
+- a `sworn version` command that reports the snapshot digest;
+- one transactional control store and pure reducer;
+- exact local Git candidate primitives;
+- a contained, read-only Linux subprocess boundary; and
+- v1-specific CI.
 
 The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
 `integrate`, `doctor`, and `version`. Unimplemented commands fail explicitly;
@@ -24,20 +27,24 @@ there are no compatibility shims.
 
 ## Current implementation
 
-The transactional control core is implemented. It contains one pure reducer,
-one forward-only SQLite schema, atomic command/event/effect commits,
-content-addressed records and artifacts, explicit unknown-effect reconciliation,
-and a read-only `board` command. No mutation command is exposed by the CLI yet;
-the internal activation transition accepts only the digest of an authority
-receipt whose cryptographic resolution is a later gated milestone.
+The transactional control core, exact local candidate boundary, and read-only
+Linux executor foundation are implemented internally. Together they provide
+atomic command/event/effect commits, content-addressed records, unknown-effect
+reconciliation, live Git measurement, plain workspaces, exact single-parent
+candidates, immutable executor staging, default-denied networking, finite
+resource/output ceilings, and process-tree cleanup after cancellation, timeout,
+output overflow, or engine death.
 
-The next internal slice binds live Git repository and target facts, materializes
-a plain isolated workspace, creates exact single-parent candidates, derives
-literal changed paths, and safely retains candidate refs. It is not yet wired to
-the command service or a runner; see [Exact local candidate](docs/exact-candidate.md).
+No mutating command is exposed by the CLI yet. The executor is not connected to
+the command service or a native agent adapter, and it intentionally does not yet
+offer a writable builder workspace or candidate export. See
+[Exact local candidate](docs/exact-candidate.md) and
+[Contained executor](docs/contained-executor.md).
 
-SQLite is the sole production dependency. There is no ORM, workflow framework,
-provider SDK, LangChain/LangGraph runtime, or telemetry control path.
+SQLite is the sole Go production dependency. Linux execution relies on the
+host's systemd user manager, cgroup v2, and Bubblewrap; it fails closed when that
+capability floor is absent. There is no ORM, workflow framework, provider SDK,
+LangChain/LangGraph runtime, or telemetry control path.
 
 ## Development
 
@@ -49,7 +56,12 @@ go test ./...
 go test -race ./...
 go vet ./...
 go run ./cmd/sworn version --json
+SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
 ```
+
+The last command is the fail-if-unavailable real containment suite; it requires
+the Linux capability floor described in the executor document. Ordinary tests
+skip those integration cases on hosts that cannot run user services.
 
 See [ADR 0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries
 and [the implementation sequence](docs/roadmap.md) for the walking skeleton.

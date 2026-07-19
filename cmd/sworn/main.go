@@ -8,6 +8,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/buildinfo"
+	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/store"
 )
 
@@ -22,6 +23,9 @@ The delivery commands are not implemented in this walking-skeleton milestone.
 `
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__executor-shim" {
+		os.Exit(executor.RunShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
