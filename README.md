@@ -24,12 +24,17 @@ there are no compatibility shims.
 
 ## Current implementation
 
-The transactional control core is under review. It contains one pure reducer,
+The transactional control core is implemented. It contains one pure reducer,
 one forward-only SQLite schema, atomic command/event/effect commits,
-content-addressed records and artifacts, explicit unknown-effect
-reconciliation, and a read-only `board` command. No mutation command is exposed
-by the CLI yet; the internal activation transition accepts only the digest of an
-authority receipt whose cryptographic resolution is a later gated milestone.
+content-addressed records and artifacts, explicit unknown-effect reconciliation,
+and a read-only `board` command. No mutation command is exposed by the CLI yet;
+the internal activation transition accepts only the digest of an authority
+receipt whose cryptographic resolution is a later gated milestone.
+
+The next internal slice binds live Git repository and target facts, materializes
+a plain isolated workspace, creates exact single-parent candidates, derives
+literal changed paths, and safely retains candidate refs. It is not yet wired to
+the command service or a runner; see [Exact local candidate](docs/exact-candidate.md).
 
 SQLite is the sole production dependency. There is no ORM, workflow framework,
 provider SDK, LangChain/LangGraph runtime, or telemetry control path.
