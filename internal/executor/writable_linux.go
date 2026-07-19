@@ -29,7 +29,7 @@ func (executor *LinuxExecutor) RunWritable(ctx context.Context, invocation Invoc
 	// both admit against the same free pages.
 	executor.writableMutex.Lock()
 	defer executor.writableMutex.Unlock()
-	return executor.runInvocation(ctx, invocation, WorkspaceWritableExport)
+	return executor.runInvocation(ctx, invocation, WorkspaceWritableExport, nil)
 }
 
 func (executor *LinuxExecutor) ValidateExport(ctx context.Context, export WorkspaceExport) error {

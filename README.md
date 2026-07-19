@@ -33,8 +33,9 @@ atomic command/event/effect commits, content-addressed records, unknown-effect
 reconciliation, live Git measurement, plain workspaces, exact single-parent
 candidates, immutable or fresh writable executor staging, default-denied
 networking, finite live resource and retained-output ceilings, process-tree
-cleanup, and quiescent measured workspace export. A real-boundary test carries
-that export through exact Git candidate capture.
+cleanup, quiescent measured workspace export, and an explicit content-bound
+local-check runtime. Real-boundary tests prove both staged runtime execution and
+the writable-export handoff into exact Git candidate capture.
 
 No mutating command is exposed by the CLI yet. The executor is not connected to
 the command service or a native agent adapter, so writable export remains an

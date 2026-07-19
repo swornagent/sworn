@@ -1,11 +1,18 @@
 # Contained executor
 
 `internal/executor` is Sworn's sole subprocess and process-lifetime boundary.
-It has two explicit entry points over the same Linux containment path:
+It has two workspace modes over the same Linux containment path:
 
 - `read_only` stages an immutable workspace for inspection or verification; and
 - `writable_export` stages a fresh writable copy for a builder and may return a
   quarantined, measured workspace.
+
+Read-only execution has two deliberately separate runtime paths. `RunContained`
+mounts host `/usr` for evaluation only. `RunContentBound` requires an opaque
+internal runtime capability, copies that tree into the private invocation
+root, checks its configured manifest digest, remeasures the staged bytes, and
+mounts only that copy at `/usr`. There is no flag or empty-value fallback from
+the content-bound path to host `/usr`.
 
 The access mode is part of both the invocation and raw completion. Calling the
 wrong entry point fails before dispatch. Neither mode exposes the source
@@ -18,6 +25,7 @@ An invocation is rejected before dispatch unless it provides:
 
 - the exact v1 schema, invocation identity, role, workspace access, and finite
   timeout;
+- the exact runtime manifest digest when the content-bound entry point is used;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
 - a bounded, explicit argv with a clean absolute executable beneath the
   read-only `/usr` runtime trust root (`/bin` is its sandbox alias);
@@ -32,7 +40,9 @@ Environment defaults are fixed by the executor; reserved loader, Git, locale,
 home, path, and temporary-directory variables cannot be supplied by an
 invocation. Networking is absent by default.
 
-Before execution, Sworn copies the workspace and every admitted input. The
+Before execution, Sworn copies the workspace and every admitted input. A
+content-bound invocation also copies and remeasures its runtime under a
+capability ceiling narrowed by the executor's shared input-byte ceiling. The
 versioned `sworn-workspace-manifest-v1` digest binds relative paths, entry types,
 ordinary rwx permission bits, symlink targets, and regular-file bytes. It excludes
 timestamps, ownership, and inode alias topology. Git metadata, special files,
@@ -63,7 +73,8 @@ ceilings. Bubblewrap creates fresh user, PID, IPC, UTS, cgroup, and, by default,
 network namespaces; drops all capabilities; disables further user namespaces;
 and presents a temporary root containing only:
 
-- read-only host `/usr` as the configured runtime trust root;
+- either evaluation-only host `/usr` or the exact staged content runtime,
+  read-only at `/usr`;
 - the staged workspace at `/workspace`, read-only or read-write exactly as the
   invocation declares;
 - pinned files at read-only `/inputs/<name>`;
@@ -127,7 +138,10 @@ gone and the measured tree remains unchanged.
 
 The executor returns raw, bounded stdout and stderr, exit status, timing,
 cancellation/timeout/truncation flags, declared workspace access, and the input
-bindings it actually staged. It does not interpret semantic success, create
+bindings it actually staged. Content-bound completion also returns the exact
+runtime manifest digest observed while staging; the producer requires it to
+match the invocation before storing an environment or receipt. It does not
+interpret semantic success, create
 evidence, manufacture a submission, or advance engine state.
 
 A writable run yields no export after cancellation, timeout, output overflow,
@@ -164,10 +178,12 @@ alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
 This package is not connected to an engine effect or public command yet. The
-internal [measured local submission](measured-submission.md) path now uses its
-read-only entry point for policy-bound checks, but the executor still does not
-run a native agent adapter, pin the bytes of host `/usr`, filter an admitted
-host network, or infer quality from an exit status. The prepared-submission path
-is therefore evaluation-only. If the engine dies, the shim and cgroup still
-stop all writers, but reclaiming the generation-bound host workspace is part of
-the later interrupted-effect reconciliation slice.
+internal [measured local submission](measured-submission.md) path can exercise
+either the evaluation-only host runtime or an exact content runtime, but neither
+proves journal ownership. A content-bound runtime proves which bytes executed;
+it does not retain those bytes or claim hermetic reproduction. The kernel, CPU,
+and containment implementation remain host facts.
+The executor also does not run a native agent adapter, filter an admitted host
+network, or infer quality from an exit status. If the engine dies, the shim and
+cgroup still stop all writers, but reclaiming a generation-bound writable
+workspace is part of the later interrupted-effect reconciliation slice.

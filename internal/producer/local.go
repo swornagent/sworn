@@ -35,6 +35,11 @@ type Runner interface {
 	RunContained(context.Context, executor.Invocation) (executor.RawCompletion, error)
 }
 
+type ContentBoundRunner interface {
+	Runner
+	RunContentBound(context.Context, executor.Invocation, executor.RuntimeTree) (executor.RawCompletion, error)
+}
+
 type ArtifactStore interface {
 	PutArtifact(context.Context, string, []byte) (string, error)
 	Artifact(context.Context, string) (mediaType string, contents []byte, err error)
@@ -67,6 +72,32 @@ func RunLocal(
 	runner Runner,
 	artifacts ArtifactStore,
 	request Request,
+) (Result, error) {
+	return runLocal(ctx, runner, artifacts, request, nil)
+}
+
+// RunLocalContentBound is the only local producer entry point that can create
+// a runtime-bound environment. RunLocal deliberately retains host-/usr
+// evaluation semantics and cannot be upgraded by a flag or empty value.
+func RunLocalContentBound(
+	ctx context.Context,
+	runner ContentBoundRunner,
+	artifacts ArtifactStore,
+	request Request,
+	runtime executor.RuntimeTree,
+) (Result, error) {
+	if runtime.Digest() == "" {
+		return Result{}, errors.New("content-bound local producer requires a runtime capability")
+	}
+	return runLocal(ctx, runner, artifacts, request, &runtime)
+}
+
+func runLocal(
+	ctx context.Context,
+	runner Runner,
+	artifacts ArtifactStore,
+	request Request,
+	runtime *executor.RuntimeTree,
 ) (Result, error) {
 	if runner == nil || artifacts == nil || request.Repository == nil {
 		return Result{}, errors.New("local producer requires runner, artifact store, and repository")
@@ -104,14 +135,15 @@ func RunLocal(
 	if err != nil {
 		return Result{}, fmt.Errorf("probe local check executor: %w", err)
 	}
-	environment, err := storeEnvironment(ctx, artifacts, probe, effectiveLimits)
-	if err != nil {
-		return Result{}, err
+	runtimeDigest := ""
+	if runtime != nil {
+		runtimeDigest = runtime.Digest()
 	}
 	invocation := executor.Invocation{
 		SchemaVersion:   executor.InvocationSchemaVersion,
 		ID:              request.RunID,
 		Role:            "producer",
+		RuntimeDigest:   runtimeDigest,
 		Workspace:       request.Workspace.Path(),
 		WorkspaceDigest: workspaceDigest,
 		WorkspaceAccess: executor.WorkspaceReadOnly,
@@ -119,11 +151,24 @@ func RunLocal(
 		Network:         executor.NetworkNone,
 		Timeout:         timeout,
 	}
-	completion, err := runner.RunContained(ctx, invocation)
+	var completion executor.RawCompletion
+	if runtime == nil {
+		completion, err = runner.RunContained(ctx, invocation)
+	} else {
+		contentRunner, ok := runner.(ContentBoundRunner)
+		if !ok {
+			return Result{}, errors.New("local producer runner lacks content-bound execution")
+		}
+		completion, err = contentRunner.RunContentBound(ctx, invocation, *runtime)
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("run local check %q: %w", request.CheckID, err)
 	}
 	if err := validateCompletion(invocation, completion); err != nil {
+		return Result{}, err
+	}
+	environment, err := storeEnvironment(ctx, artifacts, probe, effectiveLimits, completion.RuntimeDigest)
+	if err != nil {
 		return Result{}, err
 	}
 	stdout, err := storeCapture(ctx, artifacts, completion.Stdout)
@@ -225,6 +270,7 @@ func storeEnvironment(
 	artifacts ArtifactStore,
 	probe executor.ProbeReport,
 	limits executor.Limits,
+	runtimeDigest string,
 ) (protocol.Environment, error) {
 	snapshotDigest, err := protocol.SnapshotDigest()
 	if err != nil {
@@ -232,8 +278,12 @@ func storeEnvironment(
 	}
 	probe.Controllers = append([]string(nil), probe.Controllers...)
 	slices.Sort(probe.Controllers)
+	schemaVersion := protocol.LocalEnvironmentSchemaVersion
+	if runtimeDigest != "" {
+		schemaVersion = protocol.ContentEnvironmentSchemaVersion
+	}
 	contents, err := protocol.EncodeCanonical(protocol.LocalEnvironment{
-		SchemaVersion:          protocol.LocalEnvironmentSchemaVersion,
+		SchemaVersion:          schemaVersion,
 		ProtocolSnapshotDigest: "sha256:" + snapshotDigest,
 		EngineRuntime:          runtime.Version(),
 		OS:                     runtime.GOOS,
@@ -260,10 +310,11 @@ func storeEnvironment(
 			StdoutBytes:        int64(limits.StdoutBytes),
 			StderrBytes:        int64(limits.StderrBytes),
 		},
-		RuntimeTrustRoot:  "/usr",
-		HermeticToolchain: false,
-		WorkspaceAccess:   string(executor.WorkspaceReadOnly),
-		Network:           string(executor.NetworkNone),
+		RuntimeTrustRoot:      "/usr",
+		RuntimeManifestDigest: runtimeDigest,
+		HermeticToolchain:     false,
+		WorkspaceAccess:       string(executor.WorkspaceReadOnly),
+		Network:               string(executor.NetworkNone),
 	})
 	if err != nil {
 		return protocol.Environment{}, err
@@ -331,7 +382,8 @@ func resolveArtifact(
 }
 
 func validateCompletion(invocation executor.Invocation, completion executor.RawCompletion) error {
-	if completion.InvocationID != invocation.ID || completion.WorkspaceDigest != invocation.WorkspaceDigest ||
+	if completion.InvocationID != invocation.ID || completion.RuntimeDigest != invocation.RuntimeDigest ||
+		completion.WorkspaceDigest != invocation.WorkspaceDigest ||
 		completion.WorkspaceAccess != executor.WorkspaceReadOnly || len(completion.Inputs) != 0 || completion.Export != nil ||
 		completion.StartedAt.IsZero() || completion.CompletedAt.IsZero() || completion.CompletedAt.Before(completion.StartedAt) {
 		return errors.New("local check completion does not match its invocation")
