@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func (s *Store) PutRecord(ctx context.Context, kind string, canonicalJSON []byte) (string, error) {
@@ -16,6 +18,13 @@ func (s *Store) PutRecord(ctx context.Context, kind string, canonicalJSON []byte
 	}
 	if strings.TrimSpace(kind) == "" || !json.Valid(canonicalJSON) {
 		return "", errors.New("record requires a kind and valid canonical JSON")
+	}
+	normalized, err := protocol.CanonicalizeJSON(canonicalJSON)
+	if err != nil {
+		return "", fmt.Errorf("record requires strict I-JSON: %w", err)
+	}
+	if !bytes.Equal(normalized, canonicalJSON) {
+		return "", errors.New("record JSON is not RFC 8785 canonical")
 	}
 	recordDigest := digest(canonicalJSON)
 	now := s.now().UTC().UnixMicro()
@@ -60,9 +69,12 @@ func (s *Store) PutArtifact(ctx context.Context, mediaType string, content []byt
 	if s.readOnly {
 		return "", errors.New("control store is read-only")
 	}
-	if strings.TrimSpace(mediaType) == "" {
-		return "", errors.New("artifact media type is required")
+	if err := protocol.ValidateArtifactContent(mediaType, content); err != nil {
+		return "", err
 	}
+	// database/sql maps a nil byte slice to SQL NULL. Empty artifact bytes are
+	// valid and must remain an empty BLOB under their well-known SHA-256 digest.
+	content = append([]byte{}, content...)
 	artifactDigest := digest(content)
 	now := s.now().UTC().UnixMicro()
 	if _, err := s.db.ExecContext(ctx, `

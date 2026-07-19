@@ -46,9 +46,13 @@ binding with only its path replaced, then captures the exact candidate here.
 The executor digest remains structural handoff evidence; `Capture` still derives
 candidate identity and changed paths independently from Git.
 
-The two packages are not connected to the transactional effect path yet. This
-slice does not run a native agent adapter, create a Baton submission, store a
-candidate pointer in SQLite, execute checks, or integrate a target.
+The Git and executor packages are still not connected to the transactional
+effect path. The internal [measured local submission](measured-submission.md)
+path can now revalidate and freshly materialize a retained candidate, execute a
+policy-bound read-only check, and persist a structurally prepared Baton record.
+It is not reviewable until authority and run provenance are engine-bound. No
+native coding agent adapter, public mutation command, reducer transition, or
+target integration invokes it yet.
 
 The target is rechecked immediately before candidate retention. Any movement
 afterward is still external reality and must be handled by the later integration

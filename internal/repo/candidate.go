@@ -9,9 +9,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/workspace"
 )
 
 const candidateRefPrefix = "refs/sworn/v1/candidates/"
@@ -30,37 +33,189 @@ func (repository *Repository) Materialize(
 	if err := repository.rejectGitlinks(ctx, target.Tree); err != nil {
 		return Workspace{}, err
 	}
-	destination, err = repository.prepareDestination(destination)
+	destination, err = repository.materializeTree(ctx, target.Tree, destination)
 	if err != nil {
 		return Workspace{}, err
 	}
-	created := true
-	defer func() {
-		if err != nil && created {
-			_ = os.RemoveAll(destination)
-		}
-	}()
-	operation, cleanup, err := repository.newGitOperation(ctx)
-	if err != nil {
-		return Workspace{}, err
-	}
-	defer cleanup()
-	if _, err := operation.git(ctx, "", nil, nil, "read-tree", target.Tree); err != nil {
-		return Workspace{}, fmt.Errorf("read target tree into isolated index: %w", err)
-	}
-	prefix := destination + string(filepath.Separator)
-	if _, err := operation.git(ctx, destination, nil, nil, "checkout-index", "--all", "--force", "--prefix="+prefix); err != nil {
-		return Workspace{}, fmt.Errorf("materialize target tree: %w", err)
-	}
-	if err := scanWorkspace(destination); err != nil {
-		return Workspace{}, err
-	}
-	created = false
 	return Workspace{
 		RepositoryID: repository.binding.RepositoryID,
 		Path:         destination,
 		Target:       target,
 	}, nil
+}
+
+// MaterializeCandidate recreates the exact retained candidate in a fresh
+// plain workspace. It validates candidate objects, diff facts, and the durable
+// retention ref, but deliberately does not require the mutable target branch to
+// remain at the candidate's base commit.
+func (repository *Repository) MaterializeCandidate(
+	ctx context.Context,
+	candidate Candidate,
+	destination string,
+	limits MaterializeLimits,
+) (CandidateWorkspace, error) {
+	if err := limits.validate(); err != nil {
+		return CandidateWorkspace{}, err
+	}
+	if err := repository.verifyCandidateObjects(ctx, candidate); err != nil {
+		return CandidateWorkspace{}, err
+	}
+	if err := repository.assertCandidateRetained(ctx, candidate); err != nil {
+		return CandidateWorkspace{}, err
+	}
+	if err := repository.rejectGitlinks(ctx, candidate.Tree); err != nil {
+		return CandidateWorkspace{}, err
+	}
+	if err := repository.preflightTree(ctx, candidate.Tree, limits); err != nil {
+		return CandidateWorkspace{}, err
+	}
+	destination, err := repository.materializeTree(ctx, candidate.Tree, destination)
+	if err != nil {
+		return CandidateWorkspace{}, err
+	}
+	manifest, _, err := workspace.Measure(ctx, destination, limits.Bytes)
+	if err != nil {
+		_ = os.RemoveAll(destination)
+		return CandidateWorkspace{}, fmt.Errorf("measure fresh candidate workspace: %w", err)
+	}
+	return CandidateWorkspace{
+		repositoryID: repository.binding.RepositoryID,
+		path:         destination,
+		candidate:    cloneCandidate(candidate),
+		manifest:     manifest,
+	}, nil
+}
+
+// VerifyCandidate rederives immutable Git, retention, changed-path, and scope
+// facts immediately before another protocol boundary admits the candidate.
+func (repository *Repository) VerifyCandidate(
+	ctx context.Context,
+	candidate Candidate,
+	scope Scope,
+) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if err := repository.verifyCandidateObjects(ctx, candidate); err != nil {
+		return err
+	}
+	if err := repository.assertCandidateRetained(ctx, candidate); err != nil {
+		return err
+	}
+	if err := repository.rejectGitlinks(ctx, candidate.Tree); err != nil {
+		return err
+	}
+	return outOfScope(scope, candidate.ChangedPaths)
+}
+
+// VerifyCandidateWorkspace revalidates the opaque materialization handle and
+// its immutable Git facts. The contained executor performs the definitive
+// current-byte proof while staging and must match workspace.manifest before it
+// starts a subprocess.
+func (repository *Repository) VerifyCandidateWorkspace(
+	ctx context.Context,
+	workspace CandidateWorkspace,
+) error {
+	if workspace.repositoryID != repository.binding.RepositoryID ||
+		workspace.candidate.RepositoryID != repository.binding.RepositoryID {
+		return errors.New("candidate workspace repository identity does not match binding")
+	}
+	workspacePath, err := canonicalDirectory(workspace.path)
+	if err != nil {
+		return fmt.Errorf("resolve checked candidate workspace: %w", err)
+	}
+	if workspacePath != workspace.path {
+		return errors.New("candidate workspace path no longer matches its canonical binding")
+	}
+	if err := repository.rejectWorkspaceOverlap(workspacePath); err != nil {
+		return err
+	}
+	if err := repository.verifyCandidateObjects(ctx, workspace.candidate); err != nil {
+		return err
+	}
+	if err := repository.assertCandidateRetained(ctx, workspace.candidate); err != nil {
+		return err
+	}
+	if err := repository.rejectGitlinks(ctx, workspace.candidate.Tree); err != nil {
+		return err
+	}
+	if len(workspace.manifest) != len("sha256:")+64 || !strings.HasPrefix(workspace.manifest, "sha256:") {
+		return errors.New("candidate workspace lacks its materialization manifest binding")
+	}
+	return nil
+}
+
+func (repository *Repository) preflightTree(
+	ctx context.Context,
+	tree string,
+	limits MaterializeLimits,
+) error {
+	result, err := repository.git(ctx, nil, "ls-tree", "-r", "-t", "-l", "-z", tree)
+	if err != nil {
+		return fmt.Errorf("preflight candidate tree: %w", err)
+	}
+	var entries uint64
+	var bytes uint64
+	for _, raw := range strings.Split(strings.TrimSuffix(string(result.stdout), "\x00"), "\x00") {
+		if raw == "" {
+			continue
+		}
+		entries++
+		if entries > limits.Entries {
+			return fmt.Errorf("candidate tree exceeds %d-entry materialization ceiling", limits.Entries)
+		}
+		metadata, _, found := strings.Cut(raw, "\t")
+		fields := strings.Fields(metadata)
+		if !found || len(fields) != 4 || (fields[1] != "blob" && fields[1] != "tree") {
+			return errors.New("Git returned an unsupported candidate tree entry")
+		}
+		if fields[1] == "tree" {
+			if fields[3] != "-" {
+				return errors.New("Git returned an invalid candidate tree size")
+			}
+			continue
+		}
+		if fields[0] == "120000" {
+			return errors.New("candidate symlinks are outside the initial local-check capability")
+		}
+		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
+		if parseErr != nil || size > limits.Bytes-bytes {
+			return fmt.Errorf("candidate tree exceeds %d-byte materialization ceiling", limits.Bytes)
+		}
+		bytes += size
+	}
+	return nil
+}
+
+func (repository *Repository) materializeTree(
+	ctx context.Context,
+	tree, destination string,
+) (materialized string, err error) {
+	destination, err = repository.prepareDestination(destination)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(destination)
+		}
+	}()
+	operation, cleanup, err := repository.newGitOperation(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	if _, err := operation.git(ctx, "", nil, nil, "read-tree", tree); err != nil {
+		return "", fmt.Errorf("read tree into isolated index: %w", err)
+	}
+	prefix := destination + string(filepath.Separator)
+	if _, err := operation.git(ctx, destination, nil, nil, "checkout-index", "--all", "--force", "--prefix="+prefix); err != nil {
+		return "", fmt.Errorf("materialize tree: %w", err)
+	}
+	if err := scanWorkspace(destination); err != nil {
+		return "", err
+	}
+	return destination, nil
 }
 
 func (repository *Repository) Capture(
@@ -159,6 +314,20 @@ func (repository *Repository) EnsureCandidate(ctx context.Context, candidate Can
 		return err
 	}
 	return repository.retainCandidate(ctx, candidate)
+}
+
+func (repository *Repository) assertCandidateRetained(ctx context.Context, candidate Candidate) error {
+	commit, found, err := repository.readRef(ctx, candidate.Ref)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("candidate retention ref is missing")
+	}
+	if commit != candidate.Commit {
+		return fmt.Errorf("candidate retention ref points to %s, want %s", commit, candidate.Commit)
+	}
+	return nil
 }
 
 func (repository *Repository) verifyCandidateObjects(ctx context.Context, candidate Candidate) error {

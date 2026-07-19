@@ -19,8 +19,8 @@ An invocation is rejected before dispatch unless it provides:
 - the exact v1 schema, invocation identity, role, workspace access, and finite
   timeout;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
-- a bounded, explicit argv with a clean absolute `/usr/bin`, `/usr/local/bin`,
-  or `/bin` executable;
+- a bounded, explicit argv with a clean absolute executable beneath the
+  read-only `/usr` runtime trust root (`/bin` is its sandbox alias);
 - only explicitly allowlisted environment names;
 - individually named, SHA-256-pinned regular-file inputs; and
 - either no network or an executor-enabled host-network exception.
@@ -163,8 +163,11 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is not connected to an engine effect or public command yet. It
-does not run a native agent adapter, pin the bytes of host `/usr`, filter an
-admitted host network, or infer quality from an exit status. If the engine dies,
-the shim and cgroup still stop all writers, but reclaiming the generation-bound
-host workspace is part of the later interrupted-effect reconciliation slice.
+This package is not connected to an engine effect or public command yet. The
+internal [measured local submission](measured-submission.md) path now uses its
+read-only entry point for policy-bound checks, but the executor still does not
+run a native agent adapter, pin the bytes of host `/usr`, filter an admitted
+host network, or infer quality from an exit status. The prepared-submission path
+is therefore evaluation-only. If the engine dies, the shim and cgroup still
+stop all writers, but reclaiming the generation-bound host workspace is part of
+the later interrupted-effect reconciliation slice.

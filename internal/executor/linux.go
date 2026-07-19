@@ -161,6 +161,8 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 	return report, nil
 }
 
+func (executor *LinuxExecutor) EffectiveLimits() Limits { return executor.options.Limits }
+
 func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invocation) (RawCompletion, error) {
 	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly)
 }

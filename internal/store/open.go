@@ -25,7 +25,10 @@ const (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = []string{"migrations/001_initial.sql"}
+var migrationNames = []string{
+	"migrations/001_initial.sql",
+	"migrations/002_submission_identity.sql",
+}
 
 type Store struct {
 	db       *sql.DB
