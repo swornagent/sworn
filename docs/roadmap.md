@@ -29,12 +29,18 @@ valid. Those capabilities remain gated below.
 
 ## 2. Exact local candidate
 
-- [ ] Bind immutable repository identity, base commit, target ref, and worktree.
+- [x] Bind immutable repository identity, base commit, target ref, and worktree.
+- [x] Create exact single-parent candidates and retain safe engine refs.
 - [ ] Add one contained subprocess executor with cancellation and process-tree
   cleanup.
 - [ ] Produce a submission from measured Git facts and content-addressed local
   check evidence.
 - [ ] Reconcile interrupted workspace and Git effects.
+
+The Git-truth boundary is implemented internally on `feat/exact-local-candidate`.
+It has no CLI mutation path and does not yet persist its binding in runtime
+configuration or record a candidate in the control store. See
+[Exact local candidate](exact-candidate.md).
 
 ## 3. Fresh independent verdict
 
