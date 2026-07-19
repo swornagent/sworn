@@ -39,11 +39,16 @@ or Gitlinks fail as unsupported instead of weakening the claim.
 
 This package exposes primitives to the later command/effect path; no mutating
 CLI command calls them yet. The runtime config must persist the discovered
-binding before activation. A separate [read-only Linux containment
-foundation](contained-executor.md) now exists, but it is not wired to this
-package and cannot yet return bounded builder changes. This slice does not run a
-builder, create a Baton submission, store a candidate pointer in SQLite, execute
-checks, or integrate a target.
+binding before activation. The [contained Linux executor](contained-executor.md)
+can now return a bounded, quiescent, measured writable export. A real-boundary
+test validates that export immediately before cloning the original `Workspace`
+binding with only its path replaced, then captures the exact candidate here.
+The executor digest remains structural handoff evidence; `Capture` still derives
+candidate identity and changed paths independently from Git.
+
+The two packages are not connected to the transactional effect path yet. This
+slice does not run a native agent adapter, create a Baton submission, store a
+candidate pointer in SQLite, execute checks, or integrate a target.
 
 The target is rechecked immediately before candidate retention. Any movement
 afterward is still external reality and must be handled by the later integration

@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const InvocationSchemaVersion = "sworn-executor-invocation-v1"
+const (
+	InvocationSchemaVersion      = "sworn-executor-invocation-v1"
+	WorkspaceExportSchemaVersion = "sworn-workspace-export-v1"
+)
 
 const (
 	maximumInvocationInputs        = 256
@@ -27,6 +30,13 @@ const (
 	NetworkHost NetworkMode = "host"
 )
 
+type WorkspaceAccess string
+
+const (
+	WorkspaceReadOnly       WorkspaceAccess = "read_only"
+	WorkspaceWritableExport WorkspaceAccess = "writable_export"
+)
+
 type Input struct {
 	Name   string `json:"name"`
 	Path   string `json:"path"`
@@ -39,6 +49,7 @@ type Invocation struct {
 	Role            string            `json:"role"`
 	Workspace       string            `json:"workspace"`
 	WorkspaceDigest string            `json:"workspace_digest"`
+	WorkspaceAccess WorkspaceAccess   `json:"workspace_access"`
 	Inputs          []Input           `json:"inputs,omitempty"`
 	Argv            []string          `json:"argv"`
 	Environment     map[string]string `json:"environment,omitempty"`
@@ -56,30 +67,34 @@ type Limits struct {
 	TempBytes   uint64
 	HomeBytes   uint64
 	InputBytes  uint64
-	StdoutBytes int
-	StderrBytes int
+	// WorkspaceBytes is the admitted post-run logical manifest ceiling. Live
+	// allocation is bounded separately by the service cgroup and host tmpfs.
+	WorkspaceBytes uint64
+	StdoutBytes    int
+	StderrBytes    int
 }
 
 func DefaultLimits() Limits {
 	return Limits{
-		Runtime:     5 * time.Minute,
-		MemoryBytes: 2 << 30,
-		SwapBytes:   0,
-		Tasks:       256,
-		CPUPercent:  100,
-		FileBytes:   64 << 20,
-		TempBytes:   512 << 20,
-		HomeBytes:   128 << 20,
-		InputBytes:  1 << 30,
-		StdoutBytes: 4 << 20,
-		StderrBytes: 4 << 20,
+		Runtime:        5 * time.Minute,
+		MemoryBytes:    2 << 30,
+		SwapBytes:      0,
+		Tasks:          256,
+		CPUPercent:     100,
+		FileBytes:      64 << 20,
+		TempBytes:      512 << 20,
+		HomeBytes:      128 << 20,
+		InputBytes:     1 << 30,
+		WorkspaceBytes: 1 << 30,
+		StdoutBytes:    4 << 20,
+		StderrBytes:    4 << 20,
 	}
 }
 
 func (limits Limits) Validate() error {
 	if limits.Runtime <= 0 || limits.MemoryBytes == 0 || limits.Tasks == 0 ||
 		limits.CPUPercent == 0 || limits.FileBytes == 0 || limits.TempBytes == 0 ||
-		limits.HomeBytes == 0 || limits.InputBytes == 0 ||
+		limits.HomeBytes == 0 || limits.InputBytes == 0 || limits.WorkspaceBytes == 0 ||
 		limits.StdoutBytes <= 0 || limits.StderrBytes <= 0 {
 		return errors.New("executor limits must be finite and non-zero")
 	}
@@ -91,6 +106,7 @@ func (limits Limits) Validate() error {
 
 type Options struct {
 	RuntimeRoot        string
+	WritableRoot       string
 	ShimArgv           []string
 	BubblewrapPath     string
 	SystemdRunPath     string
@@ -106,19 +122,33 @@ type BoundInput struct {
 	Size   uint64 `json:"size"`
 }
 
+// WorkspaceExport is a quarantined measured filesystem handle. It does not
+// imply target success, scope admission, candidate identity, or quality.
+type WorkspaceExport struct {
+	SchemaVersion string `json:"schema_version"`
+	InvocationID  string `json:"invocation_id"`
+	Generation    string `json:"generation"`
+	BaseDigest    string `json:"base_digest"`
+	Path          string `json:"path"`
+	Digest        string `json:"digest"`
+	Bytes         uint64 `json:"bytes"`
+}
+
 type RawCompletion struct {
-	InvocationID    string       `json:"invocation_id"`
-	Unit            string       `json:"unit"`
-	WorkspaceDigest string       `json:"workspace_digest"`
-	Inputs          []BoundInput `json:"inputs,omitempty"`
-	StartedAt       time.Time    `json:"started_at"`
-	CompletedAt     time.Time    `json:"completed_at"`
-	ExitCode        int          `json:"exit_code"`
-	Stdout          []byte       `json:"stdout,omitempty"`
-	Stderr          []byte       `json:"stderr,omitempty"`
-	Cancelled       bool         `json:"cancelled,omitempty"`
-	TimedOut        bool         `json:"timed_out,omitempty"`
-	OutputTruncated bool         `json:"output_truncated,omitempty"`
+	InvocationID    string           `json:"invocation_id"`
+	Unit            string           `json:"unit"`
+	WorkspaceDigest string           `json:"workspace_digest"`
+	WorkspaceAccess WorkspaceAccess  `json:"workspace_access"`
+	Inputs          []BoundInput     `json:"inputs,omitempty"`
+	StartedAt       time.Time        `json:"started_at"`
+	CompletedAt     time.Time        `json:"completed_at"`
+	ExitCode        int              `json:"exit_code"`
+	Stdout          []byte           `json:"stdout,omitempty"`
+	Stderr          []byte           `json:"stderr,omitempty"`
+	Cancelled       bool             `json:"cancelled,omitempty"`
+	TimedOut        bool             `json:"timed_out,omitempty"`
+	OutputTruncated bool             `json:"output_truncated,omitempty"`
+	Export          *WorkspaceExport `json:"export,omitempty"`
 }
 
 type ProbeReport struct {
@@ -140,6 +170,9 @@ func (invocation Invocation) validate(options Options) error {
 	}
 	if !idPattern.MatchString(invocation.ID) || !idPattern.MatchString(invocation.Role) {
 		return errors.New("invocation requires valid id and role")
+	}
+	if invocation.WorkspaceAccess != WorkspaceReadOnly && invocation.WorkspaceAccess != WorkspaceWritableExport {
+		return fmt.Errorf("unsupported workspace access %q", invocation.WorkspaceAccess)
 	}
 	if invocation.Timeout <= 0 || invocation.Timeout > options.Limits.Runtime {
 		return errors.New("invocation timeout is absent or exceeds the executor ceiling")

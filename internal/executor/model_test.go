@@ -18,6 +18,7 @@ func TestInvocationValidationAdmitsOnlyExplicitBoundary(t *testing.T) {
 		Role:            "builder",
 		Workspace:       "/work/source",
 		WorkspaceDigest: testDigest("a"),
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv:            []string{"/usr/bin/python3", "-c", "print('ok')"},
 		Environment:     map[string]string{"FEATURE_FLAG": "enabled"},
 		Network:         NetworkNone,
@@ -45,6 +46,7 @@ func TestInvocationValidationAdmitsOnlyExplicitBoundary(t *testing.T) {
 		{"runtime ceiling", func(inv *Invocation, _ *Options) { inv.Timeout = 6 * time.Minute }, "timeout"},
 		{"unclean workspace", func(inv *Invocation, _ *Options) { inv.Workspace = "/work/../source" }, "clean absolute"},
 		{"invalid digest", func(inv *Invocation, _ *Options) { inv.WorkspaceDigest = "sha256:no" }, "exact sha256"},
+		{"unknown workspace access", func(inv *Invocation, _ *Options) { inv.WorkspaceAccess = "future" }, "workspace access"},
 		{"duplicate input", func(inv *Invocation, _ *Options) { inv.Inputs = append(inv.Inputs, inv.Inputs[0]) }, "duplicate input"},
 	}
 	for _, test := range tests {
@@ -71,6 +73,7 @@ func TestHostNetworkRequiresExecutorAndInvocationOptIn(t *testing.T) {
 		Role:            "builder",
 		Workspace:       "/work/source",
 		WorkspaceDigest: testDigest("a"),
+		WorkspaceAccess: WorkspaceReadOnly,
 		Argv:            []string{"/usr/bin/true"},
 		Network:         NetworkHost,
 		Timeout:         time.Minute,
