@@ -5,9 +5,10 @@ turns an approved Baton plan into an exact Git candidate, obtains a fresh
 independent verdict, recovers external effects safely, and exposes a truthful
 board.
 
-This `v1` branch is a greenfield, pre-alpha implementation with disconnected
-history. Sworn v0 remains available as protected archaeology at `legacy/v0` and
-`legacy/v0-final`; it is not an implementation base for this branch.
+The `release/v1.0.0` branch is a greenfield, pre-alpha implementation with
+disconnected history. Sworn v0 remains available as protected archaeology at
+`legacy/v0` and `legacy/v0-final`; it is not an implementation base for this
+branch.
 
 The first commit establishes only the trust boundary:
 

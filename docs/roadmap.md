@@ -5,7 +5,7 @@ may extend a record or reducer path, but may not introduce a second engine.
 
 ## 0. Protocol and repository boundary
 
-- [x] Start from a fresh clone on disconnected orphan branch `v1`.
+- [x] Start from a fresh clone on disconnected orphan branch `release/v1.0.0`.
 - [x] Preserve and restoration-test v0 archaeology.
 - [x] Embed and checksum the admitted Baton snapshot.
 - [x] Install v1-specific CI before any kernel implementation.
