@@ -28,6 +28,48 @@ func stageWorkspace(ctx context.Context, source, destination string, maximumByte
 	return workspace.StageInto(ctx, source, destination, maximumBytes)
 }
 
+func stageRuntime(
+	ctx context.Context,
+	runtime RuntimeTree,
+	destination string,
+	executorMaximum uint64,
+) (string, uint64, error) {
+	if runtime.root == "" || runtime.maximumBytes == 0 || executorMaximum == 0 ||
+		runtime.identity == nil || !validDigest(runtime.digest) {
+		return "", 0, errors.New("content runtime capability is invalid")
+	}
+	resolved, err := filepath.EvalSymlinks(runtime.root)
+	if err != nil || resolved != runtime.root || beneathPath("/usr", resolved) {
+		return "", 0, errors.New("content runtime source identity changed")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !os.SameFile(runtime.identity, info) {
+		return "", 0, errors.New("content runtime source identity changed")
+	}
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		return "", 0, fmt.Errorf("create staged content runtime: %w", err)
+	}
+	maximumBytes := min(runtime.maximumBytes, executorMaximum)
+	digest, size, err := workspace.StageInto(ctx, runtime.root, destination, maximumBytes)
+	if err != nil {
+		return "", 0, fmt.Errorf("stage content runtime: %w", err)
+	}
+	if digest != runtime.digest {
+		return "", 0, fmt.Errorf("content runtime digest mismatch: observed %s, want %s", digest, runtime.digest)
+	}
+	remeasured, remeasuredSize, err := workspace.Measure(ctx, destination, maximumBytes)
+	if err != nil {
+		return "", 0, fmt.Errorf("remeasure staged content runtime: %w", err)
+	}
+	if remeasured != digest || remeasuredSize != size {
+		return "", 0, errors.New("staged content runtime does not match its source measurement")
+	}
+	if err := validateRuntimeSymlinks(destination); err != nil {
+		return "", 0, err
+	}
+	return digest, size, nil
+}
+
 func walkWorkspace(ctx context.Context, source, destination string, maximumBytes uint64) (string, uint64, error) {
 	return workspace.StageInto(ctx, source, destination, maximumBytes)
 }

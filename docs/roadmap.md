@@ -43,6 +43,9 @@ valid. Those capabilities remain gated below.
 - [x] Derive prepared Standard submissions from the exact plan and its strict,
   canonical, digest-selected assurance-policy registry rather than caller
   projections.
+- [x] Add an explicit content-bound local-check runtime that stages,
+  remeasures, executes, and receipts one exact runtime tree without upgrading
+  the evaluation-only host-runtime path.
 - [ ] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects.
@@ -75,6 +78,11 @@ the exact plan and rejects caller-selected substitutes. It remains deliberately
 non-reviewable until typed effect provenance and the content-bound runtime feed
 one atomic admission transaction; see
 [ADR 0003](adr/0003-reviewable-admission-contraction.md).
+
+The content-bound producer path now binds one exact runtime manifest through
+invocation, raw completion, local environment, and receipt. It remains an
+internal prerequisite: no effect owns the producer run yet, and the board stays
+`active`.
 
 ## 3. Fresh independent verdict
 

@@ -119,7 +119,7 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 	}
 	probeContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	probeArgs := executor.bubblewrapBaseArgs(NetworkNone, 1<<20, 1<<20)
+	probeArgs := executor.bubblewrapBaseArgs("/usr", NetworkNone, 1<<20, 1<<20)
 	probeArgs = append(probeArgs, "--", "/usr/bin/true")
 	unit := executor.unitName(fmt.Sprintf("probe-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	serviceArgs := []string{
@@ -164,13 +164,25 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 func (executor *LinuxExecutor) EffectiveLimits() Limits { return executor.options.Limits }
 
 func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invocation) (RawCompletion, error) {
-	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly)
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, nil)
+}
+
+// RunContentBound executes a read-only invocation with an exact runtime tree
+// staged at /usr. RunContained remains the explicitly evaluation-only host-/usr
+// path and cannot accept a runtime digest.
+func (executor *LinuxExecutor) RunContentBound(
+	ctx context.Context,
+	invocation Invocation,
+	runtime RuntimeTree,
+) (RawCompletion, error) {
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime)
 }
 
 func (executor *LinuxExecutor) runInvocation(
 	ctx context.Context,
 	invocation Invocation,
 	expectedAccess WorkspaceAccess,
+	runtime *RuntimeTree,
 ) (completion RawCompletion, resultErr error) {
 	if err := invocation.validate(executor.options); err != nil {
 		return RawCompletion{}, err
@@ -180,6 +192,12 @@ func (executor *LinuxExecutor) runInvocation(
 			"invocation workspace access %q does not match executor entry point %q",
 			invocation.WorkspaceAccess, expectedAccess,
 		)
+	}
+	if runtime == nil && invocation.RuntimeDigest != "" {
+		return RawCompletion{}, errors.New("host-runtime execution cannot claim a content runtime digest")
+	}
+	if runtime != nil && (expectedAccess != WorkspaceReadOnly || invocation.RuntimeDigest != runtime.digest) {
+		return RawCompletion{}, errors.New("content-bound execution requires the exact runtime digest and read-only workspace")
 	}
 	writable := expectedAccess == WorkspaceWritableExport
 	if writable && executor.options.WritableRoot == "" {
@@ -202,6 +220,21 @@ func (executor *LinuxExecutor) runInvocation(
 			}
 		}
 	}()
+	runtimePath := "/usr"
+	observedRuntimeDigest := ""
+	remainingInputBytes := executor.options.Limits.InputBytes
+	if runtime != nil {
+		runtimePath = filepath.Join(runRoot, "runtime")
+		var runtimeBytes uint64
+		observedRuntimeDigest, runtimeBytes, err = stageRuntime(ctx, *runtime, runtimePath, remainingInputBytes)
+		if err != nil {
+			return RawCompletion{}, err
+		}
+		if runtimeBytes >= remainingInputBytes {
+			return RawCompletion{}, errors.New("content runtime leaves no input budget for the workspace")
+		}
+		remainingInputBytes -= runtimeBytes
+	}
 	workspacePath := filepath.Join(runRoot, "workspace")
 	workspaceOwned := false
 	keepWorkspace := false
@@ -244,11 +277,11 @@ func (executor *LinuxExecutor) runInvocation(
 	var workspaceBytes uint64
 	if writable {
 		workspaceDigest, workspaceBytes, err = walkWorkspace(
-			ctx, invocation.Workspace, workspacePath, executor.options.Limits.InputBytes,
+			ctx, invocation.Workspace, workspacePath, remainingInputBytes,
 		)
 	} else {
 		workspaceDigest, workspaceBytes, err = stageWorkspace(
-			ctx, invocation.Workspace, workspacePath, executor.options.Limits.InputBytes,
+			ctx, invocation.Workspace, workspacePath, remainingInputBytes,
 		)
 	}
 	if err != nil {
@@ -272,7 +305,7 @@ func (executor *LinuxExecutor) runInvocation(
 	if err := os.Mkdir(inputsPath, 0o700); err != nil {
 		return RawCompletion{}, fmt.Errorf("create staged inputs: %w", err)
 	}
-	remaining := executor.options.Limits.InputBytes - workspaceBytes
+	remaining := remainingInputBytes - workspaceBytes
 	inputs := append([]Input(nil), invocation.Inputs...)
 	sort.Slice(inputs, func(left, right int) bool { return inputs[left].Name < inputs[right].Name })
 	boundInputs := make([]BoundInput, 0, len(inputs))
@@ -291,11 +324,12 @@ func (executor *LinuxExecutor) runInvocation(
 	}
 	bubblewrapArgv := append(
 		[]string{executor.options.BubblewrapPath},
-		executor.bubblewrapArgs(invocation, workspacePath, inputsPath, writable)...,
+		executor.bubblewrapArgs(invocation, runtimePath, workspacePath, inputsPath, writable)...,
 	)
 	unit = executor.unitName(invocation.ID)
 	startMarker := filepath.Join(runRoot, "contained.started")
 	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv, startMarker)
+	completion.RuntimeDigest = observedRuntimeDigest
 	completion.WorkspaceDigest = workspaceDigest
 	completion.Inputs = boundInputs
 	if resultErr != nil || !writable || completion.Cancelled || completion.TimedOut || completion.OutputTruncated {
@@ -340,10 +374,11 @@ func (executor *LinuxExecutor) unitName(invocationID string) string {
 
 func (executor *LinuxExecutor) bubblewrapArgs(
 	invocation Invocation,
-	workspacePath, inputsPath string,
+	runtimePath, workspacePath, inputsPath string,
 	writable bool,
 ) []string {
 	args := executor.bubblewrapBaseArgs(
+		runtimePath,
 		invocation.Network,
 		executor.options.Limits.TempBytes,
 		executor.options.Limits.HomeBytes,
@@ -364,7 +399,11 @@ func (executor *LinuxExecutor) bubblewrapArgs(
 	return args
 }
 
-func (executor *LinuxExecutor) bubblewrapBaseArgs(network NetworkMode, tempBytes, homeBytes uint64) []string {
+func (executor *LinuxExecutor) bubblewrapBaseArgs(
+	runtimePath string,
+	network NetworkMode,
+	tempBytes, homeBytes uint64,
+) []string {
 	args := []string{
 		"--die-with-parent",
 		"--new-session",
@@ -384,7 +423,7 @@ func (executor *LinuxExecutor) bubblewrapBaseArgs(network NetworkMode, tempBytes
 		"--tmpfs", "/",
 		"--proc", "/proc",
 		"--dev", "/dev",
-		"--ro-bind", "/usr", "/usr",
+		"--ro-bind", runtimePath, "/usr",
 		"--symlink", "usr/bin", "/bin",
 		"--symlink", "usr/lib", "/lib",
 		"--symlink", "usr/lib64", "/lib64",

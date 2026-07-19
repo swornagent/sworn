@@ -16,6 +16,7 @@ import (
 	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
 	"github.com/swornagent/sworn/internal/store"
+	"github.com/swornagent/sworn/internal/workspace"
 )
 
 var (
@@ -29,6 +30,8 @@ var (
 type fakeRunner struct {
 	completion func(executor.Invocation) executor.RawCompletion
 }
+
+type contentOnlyRunner struct{ fakeRunner }
 
 type corruptArtifactReader struct {
 	base   protocol.ArtifactReader
@@ -57,6 +60,18 @@ func (fakeRunner) EffectiveLimits() executor.Limits { return executor.DefaultLim
 
 func (runner fakeRunner) RunContained(_ context.Context, invocation executor.Invocation) (executor.RawCompletion, error) {
 	return runner.completion(invocation), nil
+}
+
+func (runner fakeRunner) RunContentBound(
+	_ context.Context,
+	invocation executor.Invocation,
+	_ executor.RuntimeTree,
+) (executor.RawCompletion, error) {
+	return runner.completion(invocation), nil
+}
+
+func (contentOnlyRunner) RunContained(context.Context, executor.Invocation) (executor.RawCompletion, error) {
+	return executor.RawCompletion{}, errors.New("content test invoked the host-runtime entry point")
 }
 
 func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
@@ -142,6 +157,15 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	})
 	if err != nil || produced.Check == nil || produced.Evidence == nil {
 		t.Fatalf("RunLocal() = %#v, %v", produced, err)
+	}
+	_, hostEnvironmentBytes, err := control.Artifact(ctx, produced.Check.Environment.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostEnvironment, err := protocol.ParseLocalEnvironment(hostEnvironmentBytes)
+	if err != nil || hostEnvironment.SchemaVersion != protocol.LocalEnvironmentSchemaVersion ||
+		hostEnvironment.RuntimeManifestDigest != "" || bytes.Contains(hostEnvironmentBytes, []byte("runtime_manifest_digest")) {
+		t.Fatalf("host evaluation environment = %#v, %v", hostEnvironment, err)
 	}
 	authorityPointer := putAuthorityApproval(t, ctx, control, plan)
 	builder := protocol.BuilderRun{
@@ -358,6 +382,147 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 	}
 	if _, _, err := control.SubmissionRecord(ctx, "anything"); err == nil {
 		t.Fatal("non-pass execution created a submission")
+	}
+}
+
+func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
+	ctx := context.Background()
+	repository, candidate, checked := prepareProducerCandidate(t)
+	control, err := store.Open(ctx, filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	definitionBytes, err := protocol.EncodeCanonical(LocalCheckDefinition{
+		SchemaVersion: LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/check"},
+		WorkingDirectory: ".", TimeoutSeconds: 10,
+		Evidence: EvidenceDefinition{ID: "evidence", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "passed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitionDigest, err := control.PutArtifact(ctx, "application/json", definitionBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeSource := t.TempDir()
+	writeProducerFile(t, filepath.Join(runtimeSource, "bin", "check"), []byte("runtime"))
+	if err := os.Chmod(filepath.Join(runtimeSource, "bin", "check"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDigest, _, err := workspace.Measure(ctx, runtimeSource, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeTree, err := executor.NewRuntimeTree(runtimeSource, runtimeDigest, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		CheckID: "candidate", RunID: "content-check-run",
+		Definition: protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest},
+		Repository: repository, Candidate: candidate, Workspace: checked,
+	}
+	runner := contentOnlyRunner{fakeRunner: fakeRunner{
+		completion: func(invocation executor.Invocation) executor.RawCompletion {
+			return executor.RawCompletion{
+				InvocationID: invocation.ID, RuntimeDigest: invocation.RuntimeDigest,
+				WorkspaceDigest: invocation.WorkspaceDigest, WorkspaceAccess: executor.WorkspaceReadOnly,
+				StartedAt: testCheckStart, CompletedAt: testCheckCompletion, ExitCode: 0,
+			}
+		},
+	}}
+	result, err := RunLocalContentBound(ctx, runner, control, request, runtimeTree)
+	if err != nil || result.Check == nil || result.Evidence == nil {
+		t.Fatalf("content-bound result = %#v, %v", result, err)
+	}
+	_, environmentBytes, err := control.Artifact(ctx, result.Check.Environment.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := protocol.ParseLocalEnvironment(environmentBytes)
+	if err != nil || environment.SchemaVersion != protocol.ContentEnvironmentSchemaVersion ||
+		environment.RuntimeManifestDigest != runtimeDigest || environment.HermeticToolchain {
+		t.Fatalf("content environment = %#v, %v", environment, err)
+	}
+	for name, mutate := range map[string]func(*protocol.LocalEnvironment){
+		"missing digest": func(value *protocol.LocalEnvironment) { value.RuntimeManifestDigest = "" },
+		"v1 with runtime digest": func(value *protocol.LocalEnvironment) {
+			value.SchemaVersion = protocol.LocalEnvironmentSchemaVersion
+		},
+		"hermetic overclaim": func(value *protocol.LocalEnvironment) { value.HermeticToolchain = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := environment
+			mutate(&changed)
+			encoded, err := protocol.EncodeCanonical(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := protocol.ParseLocalEnvironment(encoded); err == nil {
+				t.Fatal("invalid content environment was accepted")
+			}
+		})
+	}
+	plan := putSubmissionPlan(t, ctx, control, request.Definition)
+	prepared, err := protocol.BuildSubmission(ctx, repository, control, protocol.SubmissionInput{
+		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Plan: plan, WorkID: "work-1",
+		AuthorityReceipt: putAuthorityApproval(t, ctx, control, plan),
+		Builder: protocol.BuilderRun{
+			RunID: "content-builder-run", Agent: "codex", StartedAt: formatTime(testBuilderStart),
+			CompletedAt: formatTime(testBuilderCompletion),
+		},
+		Candidate: candidate, Checks: []protocol.Check{*result.Check}, Evidence: []protocol.Evidence{*result.Evidence},
+	})
+	if err != nil || prepared.Record().Digest == "" {
+		t.Fatalf("content-bound prepared submission = %#v, %v", prepared, err)
+	}
+
+	badRunner := contentOnlyRunner{fakeRunner: fakeRunner{
+		completion: func(invocation executor.Invocation) executor.RawCompletion {
+			return executor.RawCompletion{
+				InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
+				WorkspaceAccess: executor.WorkspaceReadOnly, StartedAt: testCheckStart,
+				CompletedAt: testCheckCompletion, ExitCode: 0,
+			}
+		},
+	}}
+	request.RunID = "content-check-mismatch"
+	if result, err := RunLocalContentBound(ctx, badRunner, control, request, runtimeTree); err == nil ||
+		result.Receipt.Digest != "" || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("runtime-mismatched result = %#v, %v", result, err)
+	}
+	nonPassRunner := contentOnlyRunner{fakeRunner: fakeRunner{
+		completion: func(invocation executor.Invocation) executor.RawCompletion {
+			return executor.RawCompletion{
+				InvocationID: invocation.ID, RuntimeDigest: invocation.RuntimeDigest,
+				WorkspaceDigest: invocation.WorkspaceDigest, WorkspaceAccess: executor.WorkspaceReadOnly,
+				StartedAt: testCheckStart, CompletedAt: testCheckCompletion, ExitCode: 7,
+			}
+		},
+	}}
+	request.RunID = "content-check-non-pass"
+	nonPass, err := RunLocalContentBound(ctx, nonPassRunner, control, request, runtimeTree)
+	if !errors.Is(err, ErrCheckNotAdmitted) || nonPass.Receipt.Digest == "" ||
+		nonPass.Check != nil || nonPass.Evidence != nil {
+		t.Fatalf("content non-pass = %#v, %v", nonPass, err)
+	}
+	_, receiptBytes, err := control.Artifact(ctx, nonPass.Receipt.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := protocol.ParseLocalCheckReceipt(receiptBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, nonPassEnvironmentBytes, err := control.Artifact(ctx, receipt.Environment.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonPassEnvironment, err := protocol.ParseLocalEnvironment(nonPassEnvironmentBytes)
+	if err != nil || nonPassEnvironment.SchemaVersion != protocol.ContentEnvironmentSchemaVersion ||
+		nonPassEnvironment.RuntimeManifestDigest != runtimeDigest {
+		t.Fatalf("content non-pass environment = %#v, %v", nonPassEnvironment, err)
 	}
 }
 

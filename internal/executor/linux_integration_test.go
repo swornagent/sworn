@@ -5,6 +5,8 @@ package executor
 import (
 	"bytes"
 	"context"
+	"debug/elf"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +20,7 @@ const (
 	requireLinuxExecutorEnvironment = "SWORN_REQUIRE_LINUX_EXECUTOR"
 	shimTestSentinel                = "__sworn_executor_shim_test__"
 	engineTestSentinel              = "__sworn_executor_engine_test__"
+	runtimeTestSentinel             = "__sworn_content_runtime_test__"
 )
 
 func TestExecutorShimProcess(t *testing.T) {
@@ -65,6 +68,27 @@ func TestExecutorEngineProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestContentRuntimeHelperProcess(t *testing.T) {
+	if argumentIndex(os.Args, runtimeTestSentinel) < 0 {
+		return
+	}
+	contents, err := os.ReadFile("/workspace/value.txt")
+	if err != nil || string(contents) != "candidate\n" {
+		fmt.Fprintf(os.Stderr, "runtime helper workspace: %q, %v\n", contents, err)
+		os.Exit(1)
+	}
+	if _, err := os.Stat("/usr/bin/python3"); !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "runtime helper observed host tool: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile("/workspace/forbidden", []byte("write"), 0o600); err == nil {
+		fmt.Fprintln(os.Stderr, "runtime helper wrote read-only workspace")
+		os.Exit(1)
+	}
+	fmt.Println("content-bound")
+	os.Exit(0)
+}
+
 func TestLinuxExecutorEntryPointsBindWorkspaceAccess(t *testing.T) {
 	executor := &LinuxExecutor{options: Options{Limits: DefaultLimits()}}
 	invocation := Invocation{
@@ -84,6 +108,29 @@ func TestLinuxExecutorEntryPointsBindWorkspaceAccess(t *testing.T) {
 	invocation.WorkspaceAccess = WorkspaceReadOnly
 	if _, err := executor.RunWritable(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "entry point") {
 		t.Fatalf("writable entry point admitted read-only access: %v", err)
+	}
+}
+
+func TestLinuxExecutorSeparatesHostAndContentRuntimeEntryPoints(t *testing.T) {
+	executor := &LinuxExecutor{options: Options{Limits: DefaultLimits()}}
+	invocation := Invocation{
+		SchemaVersion:   InvocationSchemaVersion,
+		ID:              "runtime-binding",
+		Role:            "producer",
+		RuntimeDigest:   testDigest("a"),
+		Workspace:       "/work/source",
+		WorkspaceDigest: testDigest("b"),
+		WorkspaceAccess: WorkspaceReadOnly,
+		Argv:            []string{"/usr/bin/true"},
+		Network:         NetworkNone,
+		Timeout:         time.Minute,
+	}
+	if _, err := executor.RunContained(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "host-runtime") {
+		t.Fatalf("host entry point accepted a runtime digest: %v", err)
+	}
+	if _, err := executor.RunContentBound(context.Background(), invocation, RuntimeTree{}); err == nil ||
+		!strings.Contains(err.Error(), "exact runtime digest") {
+		t.Fatalf("content entry point accepted a zero runtime capability: %v", err)
 	}
 }
 
@@ -165,6 +212,96 @@ func TestLinuxExecutorContainsReadOnlyInvocation(t *testing.T) {
 	}
 	if completion.WorkspaceDigest != workspaceDigest || len(completion.Inputs) != 1 {
 		t.Fatalf("completion bindings = %#v", completion)
+	}
+}
+
+func TestLinuxExecutorRunsOnlyStagedContentRuntime(t *testing.T) {
+	executor := requireLinuxExecutor(t)
+	ctx := context.Background()
+	runtimeSource := t.TempDir()
+	testBinary, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStaticRuntimeHelper(t, testBinary)
+	binary, err := os.ReadFile(testBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRuntimeFile(t, filepath.Join(runtimeSource, "bin", "runtime-helper"), binary, 0o755)
+	runtimeDigest, _, err := MeasureWorkspace(ctx, runtimeSource, 16<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntimeTree(runtimeSource, runtimeDigest, 16<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	writeTestFile(t, filepath.Join(workspace, "value.txt"), []byte("candidate\n"), 0o600)
+	workspaceDigest, _, err := MeasureWorkspace(ctx, workspace, executor.options.Limits.InputBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := executor.RunContentBound(ctx, Invocation{
+		SchemaVersion:   InvocationSchemaVersion,
+		ID:              "integration-content-runtime",
+		Role:            "producer",
+		RuntimeDigest:   runtimeDigest,
+		Workspace:       workspace,
+		WorkspaceDigest: workspaceDigest,
+		WorkspaceAccess: WorkspaceReadOnly,
+		Argv: []string{
+			"/usr/bin/runtime-helper", "-test.run=^TestContentRuntimeHelperProcess$", "--", runtimeTestSentinel,
+		},
+		Network: NetworkNone,
+		Timeout: 10 * time.Second,
+	}, runtime)
+	if err != nil {
+		t.Fatalf("run content-bound: %v; stderr=%s", err, completion.Stderr)
+	}
+	if completion.ExitCode != 0 || string(completion.Stdout) != "content-bound\n" ||
+		completion.RuntimeDigest != runtimeDigest {
+		t.Fatalf("content completion = %#v", completion)
+	}
+	wrongDigest := testDigest("f")
+	wrongRuntime, err := NewRuntimeTree(runtimeSource, wrongDigest, 16<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executor.RunContentBound(ctx, Invocation{
+		SchemaVersion: InvocationSchemaVersion, ID: "integration-content-runtime-mismatch", Role: "producer",
+		RuntimeDigest: wrongDigest, Workspace: workspace, WorkspaceDigest: workspaceDigest,
+		WorkspaceAccess: WorkspaceReadOnly, Argv: []string{"/usr/bin/runtime-helper"},
+		Network: NetworkNone, Timeout: 10 * time.Second,
+	}, wrongRuntime); err == nil || !strings.Contains(err.Error(), "runtime digest mismatch") {
+		t.Fatalf("wrong content runtime error = %v", err)
+	}
+	entries, err := os.ReadDir(executor.options.RuntimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "invocation-") {
+			t.Fatalf("failed content runtime left private invocation %q", entry.Name())
+		}
+	}
+}
+
+func requireStaticRuntimeHelper(t *testing.T, path string) {
+	t.Helper()
+	binary, err := elf.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binary.Close() //nolint:errcheck
+	for _, program := range binary.Progs {
+		if program.Type == elf.PT_INTERP {
+			if os.Getenv(requireLinuxExecutorEnvironment) == "1" {
+				t.Fatal("required content runtime helper is dynamically linked")
+			}
+			t.Skip("content runtime integration helper is dynamically linked")
+		}
 	}
 }
 

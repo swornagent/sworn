@@ -48,6 +48,7 @@ type Invocation struct {
 	SchemaVersion   string            `json:"schema_version"`
 	ID              string            `json:"id"`
 	Role            string            `json:"role"`
+	RuntimeDigest   string            `json:"runtime_digest,omitempty"`
 	Workspace       string            `json:"workspace"`
 	WorkspaceDigest string            `json:"workspace_digest"`
 	WorkspaceAccess WorkspaceAccess   `json:"workspace_access"`
@@ -138,6 +139,7 @@ type WorkspaceExport struct {
 type RawCompletion struct {
 	InvocationID    string           `json:"invocation_id"`
 	Unit            string           `json:"unit"`
+	RuntimeDigest   string           `json:"runtime_digest,omitempty"`
 	WorkspaceDigest string           `json:"workspace_digest"`
 	WorkspaceAccess WorkspaceAccess  `json:"workspace_access"`
 	Inputs          []BoundInput     `json:"inputs,omitempty"`
@@ -171,6 +173,9 @@ func (invocation Invocation) validate(options Options) error {
 	}
 	if !idPattern.MatchString(invocation.ID) || !idPattern.MatchString(invocation.Role) {
 		return errors.New("invocation requires valid id and role")
+	}
+	if invocation.RuntimeDigest != "" && !validDigest(invocation.RuntimeDigest) {
+		return errors.New("invocation has an invalid content runtime digest")
 	}
 	if invocation.WorkspaceAccess != WorkspaceReadOnly && invocation.WorkspaceAccess != WorkspaceWritableExport {
 		return fmt.Errorf("unsupported workspace access %q", invocation.WorkspaceAccess)

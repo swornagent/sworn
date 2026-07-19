@@ -17,6 +17,7 @@ import (
 const (
 	LocalCheckDefinitionSchemaVersion = "sworn-local-check-v1"
 	LocalEnvironmentSchemaVersion     = "sworn-local-environment-v1"
+	ContentEnvironmentSchemaVersion   = "sworn-local-environment-v2"
 	LocalEnvironmentMediaType         = "application/vnd.sworn.local-environment+json"
 	MaximumLocalCheckDefinitionBytes  = 256 << 10
 	MaximumLocalEnvironmentBytes      = 64 << 10
@@ -118,6 +119,7 @@ type LocalEnvironment struct {
 	ExecutorPolicyVersion  string               `json:"executor_policy_version"`
 	Limits                 LocalExecutionLimits `json:"limits"`
 	RuntimeTrustRoot       string               `json:"runtime_trust_root"`
+	RuntimeManifestDigest  string               `json:"runtime_manifest_digest,omitempty"`
 	HermeticToolchain      bool                 `json:"hermetic_toolchain"`
 	WorkspaceAccess        string               `json:"workspace_access"`
 	Network                string               `json:"network"`
@@ -147,10 +149,13 @@ func ParseLocalEnvironment(contents []byte) (LocalEnvironment, error) {
 	}
 	probe := environment.Executor
 	limits := environment.Limits
-	if environment.SchemaVersion != LocalEnvironmentSchemaVersion ||
+	contentRuntime := environment.SchemaVersion == ContentEnvironmentSchemaVersion
+	validRuntime := environment.RuntimeTrustRoot == "/usr" && !environment.HermeticToolchain &&
+		((contentRuntime && digestPattern.MatchString(environment.RuntimeManifestDigest)) ||
+			(environment.SchemaVersion == LocalEnvironmentSchemaVersion && environment.RuntimeManifestDigest == ""))
+	if !validRuntime ||
 		!digestPattern.MatchString(environment.ProtocolSnapshotDigest) ||
 		!nonEmpty(environment.EngineRuntime) || !nonEmpty(environment.OS) || !nonEmpty(environment.Architecture) ||
-		environment.RuntimeTrustRoot != "/usr" || environment.HermeticToolchain ||
 		environment.WorkspaceAccess != "read_only" || environment.Network != "none" ||
 		!nonEmpty(probe.BubblewrapVersion) || !nonEmpty(probe.SystemdVersion) || !probe.CgroupV2 ||
 		(probe.UserManager != "running" && probe.UserManager != "degraded") || len(probe.Controllers) == 0 ||
@@ -171,6 +176,10 @@ func ParseLocalEnvironment(contents []byte) (LocalEnvironment, error) {
 		if !ValidID(controller) {
 			return LocalEnvironment{}, errors.New("local environment has an invalid executor controller")
 		}
+	}
+	reencoded, err := EncodeCanonical(environment)
+	if err != nil || !bytes.Equal(contents, reencoded) {
+		return LocalEnvironment{}, errors.New("local environment does not use its schema's exact field shape")
 	}
 	return environment, nil
 }

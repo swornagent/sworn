@@ -54,10 +54,15 @@ The local environment artifact binds the admitted Baton snapshot, Go runtime,
 OS and architecture, executor probe, containment-policy version, all effective
 resource and output limits, read-only access, and no-network mode.
 
-It also records an important reproducibility limitation: host `/usr` is the
-runtime trust root and is not content-bound. Read-only mounting prevents check
-writes, but the executable, libraries, interpreter, and subtools can drift.
-Runtime pinning remains an assurance gate before unattended use.
+`RunLocal` retains that original evaluation-only shape: host `/usr` is read-only
+but its executable, libraries, interpreter, and subtools can drift.
+`RunLocalContentBound` instead requires an opaque runtime capability, executes a
+private staged copy, and records `sworn-local-environment-v2` with the exact
+runtime manifest digest. The receipt binds that environment transitively. This
+closes runtime-byte ambiguity without claiming a hermetic toolchain or journal
+provenance. The current internal caller still supplies the capability; the next
+typed effect request must bind the configured digest before this fact can be
+admission-eligible.
 
 ## Initial capability and fail-closed behavior
 
@@ -87,8 +92,9 @@ belong to the effect/reconciliation path; ambiguity cannot spend a verifier run.
 
 Before this path can feed the reducer, authenticated authority and
 journal-registered builder/producer effects must become opaque engine-owned
-capabilities. A content-bound runtime is also required for reproducible
-unattended assurance. Structural consistency is groundwork, not provenance.
+capabilities. Admission must require the content-bound environment explicitly;
+the host-runtime environment can never qualify. Structural consistency is
+groundwork, not provenance.
 
 ## Proof
 
@@ -106,8 +112,8 @@ Tests cover:
   global identity reuse; and
 - repeatable empty-artifact and exact-submission persistence.
 
-The next admission work binds authority and run provenance; runtime pinning and
-effect reconciliation then make assurance reproducible and recovery durable.
+The next admission work binds builder and producer results to the effect journal;
+effect reconciliation then makes recovery durable.
 Until that wiring exists, these primitives are unreachable from the public
 mutating surface and Sworn makes no unattended-delivery claim.
 

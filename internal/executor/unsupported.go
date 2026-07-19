@@ -26,6 +26,10 @@ func (*LinuxExecutor) RunContained(context.Context, Invocation) (RawCompletion, 
 	return RawCompletion{}, errLinuxRequired
 }
 
+func (*LinuxExecutor) RunContentBound(context.Context, Invocation, RuntimeTree) (RawCompletion, error) {
+	return RawCompletion{}, errLinuxRequired
+}
+
 func (*LinuxExecutor) RunWritable(context.Context, Invocation) (RawCompletion, error) {
 	return RawCompletion{}, errLinuxRequired
 }
