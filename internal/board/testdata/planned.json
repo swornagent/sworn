@@ -1,0 +1,15 @@
+{
+  "schema_version": "delivery-board-v1",
+  "delivery_id": "delivery-1",
+  "plan_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_revision": 0,
+  "state": "planned",
+  "work": [
+    {
+      "id": "work-1",
+      "state": "waiting",
+      "attempt": 0,
+      "next_action": "wait"
+    }
+  ]
+}

@@ -21,12 +21,26 @@ The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
 `integrate`, `doctor`, and `version`. Unimplemented commands fail explicitly;
 there are no compatibility shims.
 
+## Current implementation
+
+The transactional control core is under review. It contains one pure reducer,
+one forward-only SQLite schema, atomic command/event/effect commits,
+content-addressed records and artifacts, explicit unknown-effect
+reconciliation, and a read-only `board` command. No mutation command is exposed
+by the CLI yet; the internal activation transition accepts only the digest of an
+authority receipt whose cryptographic resolution is a later gated milestone.
+
+SQLite is the sole production dependency. There is no ORM, workflow framework,
+provider SDK, LangChain/LangGraph runtime, or telemetry control path.
+
 ## Development
 
-Go 1.26 or newer is required.
+Go 1.26.5 or newer is required so release binaries include the current Go 1.26
+security fixes.
 
 ```sh
 go test ./...
+go test -race ./...
 go vet ./...
 go run ./cmd/sworn version --json
 ```

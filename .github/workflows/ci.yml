@@ -23,5 +23,9 @@ jobs:
         run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - name: Test
         run: go test ./...
+      - name: Race test
+        run: go test -race ./...
       - name: Vet
         run: go vet ./...
+      - name: Build without CGO
+        run: CGO_ENABLED=0 go build ./cmd/sworn
