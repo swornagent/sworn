@@ -41,14 +41,14 @@ func TestLocalProducerUsesRealContainedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	definitionBytes, err := protocol.EncodeCanonical(LocalCheckDefinition{
-		SchemaVersion: LocalCheckDefinitionSchemaVersion,
+	definitionBytes, err := protocol.EncodeCanonical(protocol.LocalCheckDefinition{
+		SchemaVersion: protocol.LocalCheckDefinitionSchemaVersion,
 		Argv: []string{
 			"/usr/bin/python3", "-c",
 			"from pathlib import Path; assert Path('value.txt').read_text() == 'candidate\\n'; print('measured')",
 		},
 		WorkingDirectory: ".", TimeoutSeconds: 10,
-		Evidence: EvidenceDefinition{
+		Evidence: protocol.LocalEvidenceDefinition{
 			ID: "real-check", AcceptanceIDs: []string{"AC1"}, Boundary: "component",
 			Observed: "The real contained check exited successfully.",
 		},
@@ -65,7 +65,7 @@ func TestLocalProducerUsesRealContainedBoundary(t *testing.T) {
 		Definition: protocol.Artifact{Ref: digest, MediaType: "application/json", Digest: digest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	})
-	if err != nil || result.Check == nil || result.Evidence == nil {
+	if err != nil || result.Receipt.Digest == "" {
 		t.Fatalf("real RunLocal = %#v, %v", result, err)
 	}
 	_, receiptBytes, err := control.Artifact(ctx, result.Receipt.Digest)
@@ -123,11 +123,11 @@ func requireProducerLinuxExecutor(t *testing.T) *executor.LinuxExecutor {
 }
 
 func ExampleLocalCheckDefinition() {
-	definition := LocalCheckDefinition{
-		SchemaVersion:    LocalCheckDefinitionSchemaVersion,
+	definition := protocol.LocalCheckDefinition{
+		SchemaVersion:    protocol.LocalCheckDefinitionSchemaVersion,
 		Argv:             []string{"/usr/local/go/bin/go", "test", "./..."},
 		WorkingDirectory: ".", TimeoutSeconds: 120,
-		Evidence: EvidenceDefinition{
+		Evidence: protocol.LocalEvidenceDefinition{
 			ID: "tests", AcceptanceIDs: []string{"AC1"}, Boundary: "component",
 			Observed: "The registered project check passed over the fresh candidate.",
 		},

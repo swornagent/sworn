@@ -3,6 +3,8 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // Reduce is pure: it performs no I/O, does not observe time, and never mutates
@@ -35,6 +37,8 @@ func Reduce(current *State, command Command) (Decision, error) {
 		return activate(*current, command)
 	case CommandDispatchBuild:
 		return dispatchBuild(*current, command)
+	case CommandDispatchChecks:
+		return dispatchChecks(*current, command)
 	default:
 		return Decision{}, reject("unsupported_command", fmt.Sprintf("unsupported command kind %q", command.Kind))
 	}
@@ -112,24 +116,18 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 		return Decision{}, reject("invalid_payload", "build dispatch requires valid work and dispatch identities")
 	}
 	next := cloneState(current)
-	found := false
-	var workAttempt int64
-	for index := range next.Work {
-		if next.Work[index].ID != payload.WorkID {
-			continue
-		}
-		found = true
-		if next.Work[index].State != WorkReady {
-			return Decision{}, reject("invalid_transition", "work is not ready to build")
-		}
-		next.Work[index].State = WorkActive
-		next.Work[index].Attempt++
-		next.Work[index].NextAction = ActionWait
-		workAttempt = next.Work[index].Attempt
-	}
-	if !found {
+	work := workByID(next.Work, payload.WorkID)
+	if work == nil {
 		return Decision{}, reject("work_not_found", "work is not part of this delivery")
 	}
+	if work.State != WorkReady {
+		return Decision{}, reject("invalid_transition", "work is not ready to build")
+	}
+	nextAttempt := work.Attempt + 1
+	if nextAttempt <= work.Attempt || !protocol.ValidPositiveSafeInteger(nextAttempt) {
+		return Decision{}, reject("invalid_transition", "work attempt exceeds the interoperable integer ceiling")
+	}
+	work.State, work.Attempt, work.NextAction = WorkActive, nextAttempt, ActionWait
 	next.Revision++
 	if err := next.Validate(); err != nil {
 		return Decision{}, fmt.Errorf("reducer produced invalid state: %w", err)
@@ -139,7 +137,7 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 		DeliveryRunID:  current.RunID,
 		DeliveryID:     current.DeliveryID,
 		WorkID:         payload.WorkID,
-		WorkAttempt:    workAttempt,
+		WorkAttempt:    work.Attempt,
 		DispatchDigest: payload.DispatchDigest,
 	})
 	if err != nil {
@@ -152,6 +150,62 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 	}, nil
 }
 
+func dispatchChecks(current State, command Command) (Decision, error) {
+	if current.Phase != PhaseActive {
+		return Decision{}, reject("invalid_transition", "only an active delivery can dispatch checks")
+	}
+	if err := validateStrictJSON(command.Payload); err != nil {
+		return Decision{}, reject("invalid_payload", err.Error())
+	}
+	payload, err := decodePayload[DispatchChecksPayload](command.Payload)
+	if err != nil || !ValidID(payload.WorkID) || !ValidID(payload.BuilderEffectID) ||
+		!ValidDigest(payload.RuntimeManifestDigest) || len(payload.Checks) == 0 ||
+		len(payload.Checks) > MaximumCheckFanout {
+		return Decision{}, reject("invalid_payload", "check dispatch requires valid work, builder, runtime, and bounded checks")
+	}
+	next := cloneState(current)
+	work := workByID(next.Work, payload.WorkID)
+	if work == nil {
+		return Decision{}, reject("work_not_found", "work is not part of this delivery")
+	}
+	if work.State != WorkActive {
+		return Decision{}, reject("invalid_transition", "work is not active for check dispatch")
+	}
+	work.State, work.NextAction = WorkChecking, ActionWait
+	next.Revision++
+	if err := next.Validate(); err != nil {
+		return Decision{}, fmt.Errorf("reducer produced invalid state: %w", err)
+	}
+	request := LocalCheckEffectRequest{
+		SchemaVersion:         LocalCheckEffectRequestSchemaVersion,
+		DeliveryRunID:         current.RunID,
+		DeliveryID:            current.DeliveryID,
+		WorkID:                payload.WorkID,
+		WorkAttempt:           work.Attempt,
+		BuilderEffectID:       payload.BuilderEffectID,
+		RuntimeManifestDigest: payload.RuntimeManifestDigest,
+	}
+	effects := make([]Effect, len(payload.Checks))
+	seen := make(map[string]struct{}, len(payload.Checks))
+	for index, check := range payload.Checks {
+		if _, exists := seen[check.CheckID]; exists {
+			return Decision{}, reject("invalid_payload", "check dispatch contains duplicate check ids")
+		}
+		seen[check.CheckID] = struct{}{}
+		request.CheckID, request.DefinitionDigest = check.CheckID, check.DefinitionDigest
+		encoded, err := EncodeLocalCheckEffectRequest(request)
+		if err != nil {
+			return Decision{}, reject("invalid_payload", fmt.Sprintf("invalid check selection %d: %v", index, err))
+		}
+		effects[index] = Effect{Kind: EffectLocalCheck, Request: encoded}
+	}
+	return Decision{
+		State:   next,
+		Event:   Event{Kind: "checks.dispatched", Data: cloneJSON(command.Payload)},
+		Effects: effects,
+	}, nil
+}
+
 func reject(code, message string) error {
 	return &Rejection{Code: code, Message: message}
 }
@@ -160,6 +214,15 @@ func cloneState(current State) State {
 	next := current
 	next.Work = append([]Work(nil), current.Work...)
 	return next
+}
+
+func workByID(work []Work, id string) *Work {
+	for index := range work {
+		if work[index].ID == id {
+			return &work[index]
+		}
+	}
+	return nil
 }
 
 func cloneJSON(value json.RawMessage) json.RawMessage {

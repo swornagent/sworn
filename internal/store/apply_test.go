@@ -171,7 +171,7 @@ func TestSQLBoundaryRejectsHistoryMutationAndIllegalEffectTransition(t *testing.
 	if _, err := control.db.Exec("DELETE FROM effects WHERE effect_id = ?", effectID); err == nil {
 		t.Fatal("effect deletion bypassed history trigger")
 	}
-	if claimed, err := control.ClaimNextEffect(ctx, "worker-1"); err != nil || claimed.EffectID() != effectID {
+	if claimed, err := control.ClaimNextEffect(ctx, "worker-1"); err != nil || claimed.Invocation().ID != effectID {
 		t.Fatalf("valid claim after rejected mutations = %+v, %v", claimed, err)
 	}
 }

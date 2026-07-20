@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,23 +34,13 @@ type SubmissionInput struct {
 // It is not an authenticated authority or journal-registration proof; those
 // later engine boundaries must precede reviewable/PASS state.
 type PreparedSubmission struct {
-	submission   Submission
-	record       EncodedRecord
-	dependencies []Artifact
-}
-
-func (prepared PreparedSubmission) Submission() Submission {
-	return cloneSubmission(prepared.submission)
+	record EncodedRecord
 }
 
 func (prepared PreparedSubmission) Record() EncodedRecord {
 	record := prepared.record
 	record.CanonicalJSON = append([]byte(nil), record.CanonicalJSON...)
 	return record
-}
-
-func (prepared PreparedSubmission) Dependencies() []Artifact {
-	return slices.Clone(prepared.dependencies)
 }
 
 // BuildSubmission rechecks Git and every raw artifact, then constructs a
@@ -68,18 +57,12 @@ func BuildSubmission(
 	if repository == nil || artifacts == nil {
 		return PreparedSubmission{}, errors.New("submission requires repository and artifact readers")
 	}
-	planRecord := input.Plan.Record()
-	if planRecord.Kind != DeliveryPlanSchemaVersion || !ValidDigest(planRecord.Digest) {
-		return PreparedSubmission{}, errors.New("submission requires an exact delivery plan")
-	}
-	contract, exists := input.Plan.Work(input.WorkID)
-	if !exists {
-		return PreparedSubmission{}, fmt.Errorf("work %q is absent from the exact plan", input.WorkID)
-	}
-	work := contract.View()
-	if err := validateInitialContract(len(input.Plan.WorkIDs()), work); err != nil {
+	resolver := artifactResolver{reader: artifacts, cached: make(map[string]resolvedArtifact)}
+	localChecks, err := resolveExactLocalChecks(ctx, &resolver, input.Plan, input.WorkID)
+	if err != nil {
 		return PreparedSubmission{}, err
 	}
+	work := localChecks.contract.View()
 	target := input.Plan.Target()
 	if input.Candidate.RepositoryID != target.Repository || input.Candidate.TargetRef != target.Ref {
 		return PreparedSubmission{}, errors.New("candidate does not match the exact plan target")
@@ -87,18 +70,7 @@ func BuildSubmission(
 	if err := repository.VerifyCandidate(ctx, input.Candidate, work.Scope); err != nil {
 		return PreparedSubmission{}, fmt.Errorf("verify submission candidate: %w", err)
 	}
-	resolver := artifactResolver{reader: artifacts, cached: make(map[string]resolvedArtifact)}
 	planPolicy := input.Plan.Policy()
-	policyBytes, err := resolver.resolve(ctx, Artifact{
-		Ref: planPolicy.Digest, MediaType: "application/json", Digest: planPolicy.Digest,
-	})
-	if err != nil {
-		return PreparedSubmission{}, fmt.Errorf("resolve exact assurance policy: %w", err)
-	}
-	policy, err := parseAssurancePolicyRegistry(policyBytes)
-	if err != nil {
-		return PreparedSubmission{}, err
-	}
 	authorityBytes, err := resolver.resolve(ctx, input.AuthorityReceipt)
 	if err != nil {
 		return PreparedSubmission{}, fmt.Errorf("resolve authority receipt: %w", err)
@@ -106,7 +78,7 @@ func BuildSubmission(
 	if input.AuthorityReceipt.MediaType != "application/json" {
 		return PreparedSubmission{}, errors.New("authority receipt must be application/json")
 	}
-	if err := validateAuthorityApproval(authorityBytes, input.Plan, input.Builder); err != nil {
+	if err := ValidateAuthorityApprovalForBuilder(authorityBytes, input.Plan, input.Builder); err != nil {
 		return PreparedSubmission{}, err
 	}
 
@@ -117,7 +89,7 @@ func BuildSubmission(
 		}
 		checksByID[check.ID] = check
 	}
-	if len(checksByID) != len(policy.checks) {
+	if len(checksByID) != len(localChecks.requirements) {
 		return PreparedSubmission{}, errors.New("measured checks do not exactly cover the exact policy baseline")
 	}
 	evidenceByID := make(map[string]Evidence, len(input.Evidence))
@@ -128,85 +100,62 @@ func BuildSubmission(
 		evidenceByID[evidence.ID] = evidence
 	}
 
-	acceptance := make(map[string]PlanAcceptance, len(work.Acceptance))
-	for _, requirement := range work.Acceptance {
-		acceptance[requirement.ID] = requirement
-	}
-	usedEvidence := make(map[string]struct{}, len(policy.checks))
-	orderedChecks := make([]Check, 0, len(policy.checks))
-	orderedEvidence := make([]Evidence, 0, len(policy.checks))
-	for _, baseline := range policy.checks {
-		definitionPointer := Artifact{
-			Ref: baseline.definition.Digest, MediaType: baseline.definition.MediaType,
-			Digest: baseline.definition.Digest,
-		}
-		definitionBytes, err := resolver.resolve(ctx, definitionPointer)
-		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve check %q definition: %w", baseline.id, err)
-		}
-		definition, err := ParseLocalCheckDefinition(definitionBytes)
-		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("parse check %q definition: %w", baseline.id, err)
-		}
-		for _, acceptanceID := range definition.Evidence.AcceptanceIDs {
-			if _, exists := acceptance[acceptanceID]; !exists {
-				return PreparedSubmission{}, fmt.Errorf("check %q names unknown exact-plan acceptance %q", baseline.id, acceptanceID)
-			}
-		}
-		if _, duplicate := usedEvidence[definition.Evidence.ID]; duplicate {
-			return PreparedSubmission{}, fmt.Errorf("exact policy checks reuse evidence id %q", definition.Evidence.ID)
-		}
-		usedEvidence[definition.Evidence.ID] = struct{}{}
-		check, exists := checksByID[baseline.id]
+	orderedChecks := make([]Check, 0, len(localChecks.requirements))
+	orderedEvidence := make([]Evidence, 0, len(localChecks.requirements))
+	for _, baseline := range localChecks.requirements {
+		checkID := baseline.CheckID
+		definitionPointer := baseline.Definition
+		definition := baseline.definition
+		check, exists := checksByID[checkID]
 		if !exists || check.Outcome != "pass" {
-			return PreparedSubmission{}, fmt.Errorf("required baseline check %q is absent or did not pass", baseline.id)
+			return PreparedSubmission{}, fmt.Errorf("required baseline check %q is absent or did not pass", checkID)
 		}
 		if check.Receipt.Ref != check.Receipt.Digest || check.Receipt.MediaType != "application/vnd.sworn.local-check-receipt+json" {
-			return PreparedSubmission{}, fmt.Errorf("check %q does not use a local CAS receipt", baseline.id)
+			return PreparedSubmission{}, fmt.Errorf("check %q does not use a local CAS receipt", checkID)
 		}
 		receiptBytes, err := resolver.resolve(ctx, check.Receipt)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve check %q receipt: %w", baseline.id, err)
+			return PreparedSubmission{}, fmt.Errorf("resolve check %q receipt: %w", checkID, err)
 		}
 		receipt, err := ParseLocalCheckReceipt(receiptBytes)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("parse check %q receipt: %w", baseline.id, err)
+			return PreparedSubmission{}, fmt.Errorf("parse check %q receipt: %w", checkID, err)
 		}
-		if err := bindCheckReceipt(check, receipt, baseline.id, definitionPointer, definition, input.Candidate); err != nil {
+		if err := bindCheckReceipt(check, receipt, checkID, definitionPointer, definition, input.Candidate); err != nil {
 			return PreparedSubmission{}, err
 		}
 		for name, capture := range map[string]CapturedArtifact{"stdout": receipt.Stdout, "stderr": receipt.Stderr} {
 			contents, err := resolver.resolve(ctx, capture.Pointer())
 			if err != nil {
-				return PreparedSubmission{}, fmt.Errorf("resolve check %q %s: %w", baseline.id, name, err)
+				return PreparedSubmission{}, fmt.Errorf("resolve check %q %s: %w", checkID, name, err)
 			}
 			if int64(len(contents)) != capture.Size {
-				return PreparedSubmission{}, fmt.Errorf("check %q %s size does not match its receipt", baseline.id, name)
+				return PreparedSubmission{}, fmt.Errorf("check %q %s size does not match its receipt", checkID, name)
 			}
 		}
 		if !digestPattern.MatchString(check.Environment.Ref) {
-			return PreparedSubmission{}, fmt.Errorf("check %q has a non-content-addressed environment", baseline.id)
+			return PreparedSubmission{}, fmt.Errorf("check %q has a non-content-addressed environment", checkID)
 		}
 		environmentBytes, err := resolver.resolve(ctx, Artifact{
 			Ref: check.Environment.Ref, MediaType: "application/vnd.sworn.local-environment+json", Digest: check.Environment.Ref,
 		})
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve check %q environment: %w", baseline.id, err)
+			return PreparedSubmission{}, fmt.Errorf("resolve check %q environment: %w", checkID, err)
 		}
 		environment, err := ParseLocalEnvironment(environmentBytes)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("parse check %q environment: %w", baseline.id, err)
+			return PreparedSubmission{}, fmt.Errorf("parse check %q environment: %w", checkID, err)
 		}
 		snapshotDigest, err := SnapshotDigest()
 		if err != nil {
 			return PreparedSubmission{}, fmt.Errorf("measure embedded protocol snapshot: %w", err)
 		}
 		if environment.ProtocolSnapshotDigest != "sha256:"+snapshotDigest {
-			return PreparedSubmission{}, fmt.Errorf("check %q environment names a different protocol snapshot", baseline.id)
+			return PreparedSubmission{}, fmt.Errorf("check %q environment names a different protocol snapshot", checkID)
 		}
 		evidence, exists := evidenceByID[definition.Evidence.ID]
 		if !exists {
-			return PreparedSubmission{}, fmt.Errorf("check %q lacks policy-defined evidence %q", baseline.id, definition.Evidence.ID)
+			return PreparedSubmission{}, fmt.Errorf("check %q lacks policy-defined evidence %q", checkID, definition.Evidence.ID)
 		}
 		if err := bindEvidence(evidence, check, definition.Evidence, input.Candidate.Tree); err != nil {
 			return PreparedSubmission{}, err
@@ -217,7 +166,7 @@ func BuildSubmission(
 		orderedChecks = append(orderedChecks, check)
 		orderedEvidence = append(orderedEvidence, evidence)
 	}
-	if len(evidenceByID) != len(usedEvidence) {
+	if len(evidenceByID) != len(localChecks.requirements) {
 		return PreparedSubmission{}, errors.New("measured evidence does not exactly cover the exact policy baseline")
 	}
 	slices.SortFunc(orderedEvidence, func(left, right Evidence) int { return bytes.Compare([]byte(left.ID), []byte(right.ID)) })
@@ -239,8 +188,8 @@ func BuildSubmission(
 		WorkID:           work.ID,
 		Attempt:          input.Attempt,
 		CreatedAt:        formatRecordTime(createdAt),
-		PlanDigest:       planRecord.Digest,
-		ContractDigest:   contract.Digest(),
+		PlanDigest:       input.Plan.Record().Digest,
+		ContractDigest:   localChecks.ContractDigest(),
 		AuthorityReceipt: input.AuthorityReceipt,
 		Builder:          input.Builder,
 		Base: GitPoint{
@@ -267,23 +216,7 @@ func BuildSubmission(
 	if err != nil {
 		return PreparedSubmission{}, err
 	}
-	return PreparedSubmission{
-		submission:   cloneSubmission(submission),
-		record:       record,
-		dependencies: resolver.dependencies(),
-	}, nil
-}
-
-func cloneSubmission(submission Submission) Submission {
-	submission.Assurance.Packs = slices.Clone(submission.Assurance.Packs)
-	submission.ChangedPaths = slices.Clone(submission.ChangedPaths)
-	submission.Checks = slices.Clone(submission.Checks)
-	submission.Evidence = slices.Clone(submission.Evidence)
-	for index := range submission.Evidence {
-		submission.Evidence[index].AcceptanceIDs = slices.Clone(submission.Evidence[index].AcceptanceIDs)
-		submission.Evidence[index].PackIDs = slices.Clone(submission.Evidence[index].PackIDs)
-	}
-	return submission
+	return PreparedSubmission{record: record}, nil
 }
 
 func validateInitialContract(workCount int, work PlanWorkView) error {
@@ -309,19 +242,6 @@ type resolvedArtifact struct {
 type artifactResolver struct {
 	reader ArtifactReader
 	cached map[string]resolvedArtifact
-}
-
-func (resolver *artifactResolver) dependencies() []Artifact {
-	dependencies := make([]Artifact, 0, len(resolver.cached))
-	for digest, resolved := range resolver.cached {
-		dependencies = append(dependencies, Artifact{
-			Ref: digest, MediaType: resolved.mediaType, Digest: digest,
-		})
-	}
-	slices.SortFunc(dependencies, func(left, right Artifact) int {
-		return cmp.Compare(left.Digest, right.Digest)
-	})
-	return dependencies
 }
 
 func (resolver *artifactResolver) resolve(ctx context.Context, pointer Artifact) ([]byte, error) {
@@ -351,7 +271,10 @@ func (resolver *artifactResolver) resolve(ctx context.Context, pointer Artifact)
 	return contents, nil
 }
 
-func validateAuthorityApproval(contents []byte, plan ExactPlan, builder BuilderRun) error {
+// ValidateAuthorityApprovalForBuilder proves that exact receipt bytes match the
+// exact plan and precede the builder run. Authentication of those bytes remains
+// the authority service and store closure's responsibility.
+func ValidateAuthorityApprovalForBuilder(contents []byte, plan ExactPlan, builder BuilderRun) error {
 	receipt, err := ParseAuthorityApproval(contents)
 	if err != nil {
 		return err
@@ -452,16 +375,30 @@ func bindEvidence(evidence Evidence, check Check, requirement LocalEvidenceDefin
 
 func validateAcceptanceCoverage(requirements []PlanAcceptance, evidence []Evidence) error {
 	rank := map[string]int{"component": 0, "assembled": 1}
+	required := make(map[string]int, len(requirements))
 	for _, requirement := range requirements {
-		covered := false
-		for _, item := range evidence {
-			if slices.Contains(item.AcceptanceIDs, requirement.ID) && rank[item.Boundary] >= rank[requirement.EvidenceLevel] {
-				covered = true
-				break
+		required[requirement.ID] = rank[requirement.EvidenceLevel]
+	}
+	seenEvidence := make(map[string]struct{}, len(evidence))
+	covered := make(map[string]struct{}, len(requirements))
+	for _, item := range evidence {
+		if _, duplicate := seenEvidence[item.ID]; duplicate {
+			return fmt.Errorf("coverage inputs reuse evidence id %q", item.ID)
+		}
+		seenEvidence[item.ID] = struct{}{}
+		for _, acceptanceID := range item.AcceptanceIDs {
+			minimum, exists := required[acceptanceID]
+			if !exists {
+				return fmt.Errorf("evidence %q names unknown exact-plan acceptance %q", item.ID, acceptanceID)
+			}
+			if rank[item.Boundary] >= minimum {
+				covered[acceptanceID] = struct{}{}
 			}
 		}
-		if !covered {
-			return fmt.Errorf("acceptance %q lacks sufficient measured evidence", requirement.ID)
+	}
+	for _, requirement := range requirements {
+		if _, exists := covered[requirement.ID]; !exists {
+			return fmt.Errorf("acceptance %q lacks sufficient evidence coverage", requirement.ID)
 		}
 	}
 	return nil

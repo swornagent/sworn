@@ -46,6 +46,47 @@ func (reader corruptArtifactReader) Artifact(ctx context.Context, digest string)
 	return mediaType, contents, err
 }
 
+func submissionFacts(
+	t testing.TB,
+	ctx context.Context,
+	artifacts protocol.ArtifactReader,
+	receiptPointer protocol.Artifact,
+) (protocol.Check, protocol.Evidence, protocol.LocalCheckReceipt) {
+	t.Helper()
+	mediaType, contents, err := artifacts.Artifact(ctx, receiptPointer.Digest)
+	if err != nil || mediaType != receiptPointer.MediaType || protocol.RawDigest(contents) != receiptPointer.Digest {
+		t.Fatalf("resolve measured receipt = %q %x, %v", mediaType, contents, err)
+	}
+	receipt, err := protocol.ParseLocalCheckReceipt(contents)
+	if err != nil || receipt.Outcome != "pass" {
+		t.Fatalf("parse admitted receipt = %#v, %v", receipt, err)
+	}
+	mediaType, contents, err = artifacts.Artifact(ctx, receipt.Definition.Digest)
+	if err != nil || mediaType != receipt.Definition.MediaType || protocol.RawDigest(contents) != receipt.Definition.Digest {
+		t.Fatalf("resolve exact definition = %q %x, %v", mediaType, contents, err)
+	}
+	definition, err := protocol.ParseLocalCheckDefinition(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitCode := receipt.ExitCode
+	check := protocol.Check{
+		ID: receipt.CheckID, Outcome: receipt.Outcome, RunID: receipt.RunID,
+		CandidateTree: receipt.Candidate.Tree, Environment: receipt.Environment,
+		StartedAt: receipt.StartedAt, CompletedAt: receipt.CompletedAt,
+		ExitCode: &exitCode, Receipt: receiptPointer,
+	}
+	evidence := protocol.Evidence{
+		ID:            definition.Evidence.ID,
+		AcceptanceIDs: append([]string(nil), definition.Evidence.AcceptanceIDs...),
+		Kind:          "test", Boundary: definition.Evidence.Boundary, Environment: receipt.Environment,
+		UsesMocks: definition.Evidence.UsesMocks, ProducerRunID: receipt.RunID,
+		CandidateTree: receipt.Candidate.Tree, CapturedAt: receipt.CompletedAt,
+		Artifact: receiptPointer, Observed: definition.Evidence.Observed,
+	}
+	return check, evidence, receipt
+}
+
 func (fakeRunner) Probe(context.Context) (executor.ProbeReport, error) {
 	return executor.ProbeReport{
 		BubblewrapVersion: "bubblewrap 0.9.0",
@@ -117,12 +158,12 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	definition := LocalCheckDefinition{
-		SchemaVersion:    LocalCheckDefinitionSchemaVersion,
+	definition := protocol.LocalCheckDefinition{
+		SchemaVersion:    protocol.LocalCheckDefinitionSchemaVersion,
 		Argv:             []string{"/usr/bin/true"},
 		WorkingDirectory: ".",
 		TimeoutSeconds:   10,
-		Evidence: EvidenceDefinition{
+		Evidence: protocol.LocalEvidenceDefinition{
 			ID: "candidate-check", AcceptanceIDs: []string{"AC1"}, Boundary: "component",
 			UsesMocks: false, Observed: "The registered candidate check exited successfully.",
 		},
@@ -155,10 +196,11 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		CheckID: "candidate", RunID: "check-run-1", Definition: definitionPointer,
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	})
-	if err != nil || produced.Check == nil || produced.Evidence == nil {
+	if err != nil || produced.Receipt.Digest == "" {
 		t.Fatalf("RunLocal() = %#v, %v", produced, err)
 	}
-	_, hostEnvironmentBytes, err := control.Artifact(ctx, produced.Check.Environment.Ref)
+	check, evidence, measuredReceipt := submissionFacts(t, ctx, control, produced.Receipt)
+	_, hostEnvironmentBytes, err := control.Artifact(ctx, check.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +217,7 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	submissionInput := protocol.SubmissionInput{
 		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Plan: plan, WorkID: "work-1",
 		AuthorityReceipt: authorityPointer, Builder: builder, Candidate: candidate,
-		Checks: []protocol.Check{*produced.Check}, Evidence: []protocol.Evidence{*produced.Evidence},
+		Checks: []protocol.Check{check}, Evidence: []protocol.Evidence{evidence},
 	}
 	unknownWork := submissionInput
 	unknownWork.WorkID = "missing-work"
@@ -206,14 +248,6 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	}
 	if _, err := protocol.BuildSubmission(ctx, repository, control, driftedAuthority); err == nil {
 		t.Fatal("approval with grants reordered from the exact plan was admitted")
-	}
-	_, receiptBytes, err := control.Artifact(ctx, produced.Receipt.Digest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	measuredReceipt, err := protocol.ParseLocalCheckReceipt(receiptBytes)
-	if err != nil {
-		t.Fatal(err)
 	}
 	withReceipt := func(test testing.TB, receipt protocol.LocalCheckReceipt) protocol.SubmissionInput {
 		test.Helper()
@@ -282,9 +316,40 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	if _, err := protocol.BuildSubmission(ctx, repository, control, falseAuthorityRef); err == nil {
 		t.Fatal("false non-CAS authority reference was admitted")
 	}
-	built, err := protocol.BuildSubmission(ctx, repository, control, submissionInput)
+	prepared, err := protocol.BuildSubmission(ctx, repository, control, submissionInput)
 	if err != nil {
 		t.Fatal(err)
+	}
+	record := prepared.Record()
+	if record.Kind != protocol.SubmissionSchemaVersion || !protocol.ValidDigest(record.Digest) ||
+		protocol.CanonicalDigest(record.CanonicalJSON) != record.Digest {
+		t.Fatalf("prepared submission record = %#v", record)
+	}
+	var submission protocol.Submission
+	if err := json.Unmarshal(record.CanonicalJSON, &submission); err != nil {
+		t.Fatal(err)
+	}
+	contract, _ := plan.Work("work-1")
+	if submission.DeliveryID != plan.DeliveryID() || submission.WorkID != submissionInput.WorkID ||
+		submission.Attempt != submissionInput.Attempt || submission.PlanDigest != plan.Record().Digest ||
+		submission.ContractDigest != contract.Digest() || len(submission.Checks) != 1 ||
+		len(submission.Evidence) != 1 || submission.Checks[0].RunID != measuredReceipt.RunID ||
+		submission.Checks[0].Receipt != produced.Receipt || submission.Evidence[0].Artifact != produced.Receipt {
+		t.Fatalf("prepared submission projection = %#v", submission)
+	}
+	reencoded, err := protocol.EncodeSubmission(submission)
+	if err != nil || reencoded.Digest != record.Digest ||
+		!bytes.Equal(reencoded.CanonicalJSON, record.CanonicalJSON) {
+		t.Fatalf("re-encoded prepared submission = %#v, %v; want %#v", reencoded, err, record)
+	}
+	if len(record.CanonicalJSON) == 0 {
+		t.Fatal("prepared submission has empty canonical bytes")
+	}
+	record.CanonicalJSON[0] ^= 0xff
+	repeated := prepared.Record()
+	if repeated.Kind != reencoded.Kind || repeated.Digest != reencoded.Digest ||
+		!bytes.Equal(repeated.CanonicalJSON, reencoded.CanonicalJSON) {
+		t.Fatalf("prepared submission record was mutated through returned bytes: %#v", repeated)
 	}
 	badBinding := submissionInput
 	badBinding.Evidence = append([]protocol.Evidence(nil), submissionInput.Evidence...)
@@ -302,12 +367,6 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	}, submissionInput); err == nil {
 		t.Fatal("changed exact policy bytes were admitted")
 	}
-	for _, pointer := range built.Dependencies() {
-		mediaType, contents, err := control.Artifact(ctx, pointer.Digest)
-		if err != nil || mediaType != pointer.MediaType || protocol.RawDigest(contents) != pointer.Digest {
-			t.Fatalf("artifact %s = %q %x, %v", pointer.Digest, mediaType, contents, err)
-		}
-	}
 }
 
 func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
@@ -318,10 +377,10 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	definitionBytes, _ := protocol.EncodeCanonical(LocalCheckDefinition{
-		SchemaVersion: LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/false"},
+	definitionBytes, _ := protocol.EncodeCanonical(protocol.LocalCheckDefinition{
+		SchemaVersion: protocol.LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/false"},
 		WorkingDirectory: ".", TimeoutSeconds: 10,
-		Evidence: EvidenceDefinition{ID: "evidence", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "passed"},
+		Evidence: protocol.LocalEvidenceDefinition{ID: "evidence", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "passed"},
 	})
 	digest, err := control.PutArtifact(ctx, "application/json", definitionBytes)
 	if err != nil {
@@ -339,7 +398,7 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 		Definition: protocol.Artifact{Ref: digest, MediaType: "application/json", Digest: digest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	})
-	if !errors.Is(err, ErrCheckNotAdmitted) || result.Check != nil || result.Evidence != nil || result.Receipt.Digest == "" {
+	if !errors.Is(err, ErrCheckNotAdmitted) || result.Receipt.Digest == "" {
 		t.Fatalf("non-pass result = %#v, %v", result, err)
 	}
 	_, raw, err := control.Artifact(ctx, result.Receipt.Digest)
@@ -360,11 +419,12 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	definitionBytes, err := protocol.EncodeCanonical(LocalCheckDefinition{
-		SchemaVersion: LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/check"},
+	definition := protocol.LocalCheckDefinition{
+		SchemaVersion: protocol.LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/check"},
 		WorkingDirectory: ".", TimeoutSeconds: 10,
-		Evidence: EvidenceDefinition{ID: "evidence", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "passed"},
-	})
+		Evidence: protocol.LocalEvidenceDefinition{ID: "evidence", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "passed"},
+	}
+	definitionBytes, err := protocol.EncodeCanonical(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,10 +460,11 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		},
 	}}
 	result, err := RunLocalContentBound(ctx, runner, control, request, runtimeTree)
-	if err != nil || result.Check == nil || result.Evidence == nil {
+	if err != nil || result.Receipt.Digest == "" {
 		t.Fatalf("content-bound result = %#v, %v", result, err)
 	}
-	_, environmentBytes, err := control.Artifact(ctx, result.Check.Environment.Ref)
+	check, evidence, _ := submissionFacts(t, ctx, control, result.Receipt)
+	_, environmentBytes, err := control.Artifact(ctx, check.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +500,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 			RunID: "content-builder-run", Agent: "codex", StartedAt: formatTime(testBuilderStart),
 			CompletedAt: formatTime(testBuilderCompletion),
 		},
-		Candidate: candidate, Checks: []protocol.Check{*result.Check}, Evidence: []protocol.Evidence{*result.Evidence},
+		Candidate: candidate, Checks: []protocol.Check{check}, Evidence: []protocol.Evidence{evidence},
 	})
 	if err != nil || prepared.Record().Digest == "" {
 		t.Fatalf("content-bound prepared submission = %#v, %v", prepared, err)
@@ -470,8 +531,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 	}}
 	request.RunID = "content-check-non-pass"
 	nonPass, err := RunLocalContentBound(ctx, nonPassRunner, control, request, runtimeTree)
-	if !errors.Is(err, ErrCheckNotAdmitted) || nonPass.Receipt.Digest == "" ||
-		nonPass.Check != nil || nonPass.Evidence != nil {
+	if !errors.Is(err, ErrCheckNotAdmitted) || nonPass.Receipt.Digest == "" {
 		t.Fatalf("content non-pass = %#v, %v", nonPass, err)
 	}
 	_, receiptBytes, err := control.Artifact(ctx, nonPass.Receipt.Digest)
@@ -667,7 +727,7 @@ func TestDefinitionRejectsUnknownOrAmbiguousEvidence(t *testing.T) {
 		"invalid acceptance id": `{"schema_version":"sworn-local-check-v1","argv":["/usr/bin/true"],"working_directory":".","timeout_seconds":1,"evidence":{"id":"e","acceptance_ids":["bad/id"],"boundary":"component","uses_mocks":false,"observed":"ok"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := parseDefinition([]byte(input)); err == nil {
+			if _, err := protocol.ParseLocalCheckDefinition([]byte(input)); err == nil {
 				t.Fatal("invalid definition was accepted")
 			}
 		})
@@ -677,25 +737,25 @@ func TestDefinitionRejectsUnknownOrAmbiguousEvidence(t *testing.T) {
 	for index := 1; index < len(arguments); index++ {
 		arguments[index] = "argument"
 	}
-	contents, err := protocol.EncodeCanonical(LocalCheckDefinition{
-		SchemaVersion: LocalCheckDefinitionSchemaVersion, Argv: arguments,
+	contents, err := protocol.EncodeCanonical(protocol.LocalCheckDefinition{
+		SchemaVersion: protocol.LocalCheckDefinitionSchemaVersion, Argv: arguments,
 		WorkingDirectory: ".", TimeoutSeconds: 1,
-		Evidence: EvidenceDefinition{ID: "e", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "ok"},
+		Evidence: protocol.LocalEvidenceDefinition{ID: "e", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "ok"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseDefinition(contents); err == nil || !strings.Contains(err.Error(), "256") {
+	if _, err := protocol.ParseLocalCheckDefinition(contents); err == nil || !strings.Contains(err.Error(), "256") {
 		t.Fatalf("oversized argv error = %v", err)
 	}
 }
 
 func TestLocalCheckDefinitionJSONIsStable(t *testing.T) {
 	t.Parallel()
-	definition := LocalCheckDefinition{
-		SchemaVersion: LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/true"},
+	definition := protocol.LocalCheckDefinition{
+		SchemaVersion: protocol.LocalCheckDefinitionSchemaVersion, Argv: []string{"/usr/bin/true"},
 		WorkingDirectory: ".", TimeoutSeconds: 1,
-		Evidence: EvidenceDefinition{ID: "e", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "ok"},
+		Evidence: protocol.LocalEvidenceDefinition{ID: "e", AcceptanceIDs: []string{"AC1"}, Boundary: "component", Observed: "ok"},
 	}
 	contents, err := json.Marshal(definition)
 	if err != nil || !json.Valid(contents) {

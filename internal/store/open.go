@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/swornagent/sworn/internal/engine"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -33,18 +35,44 @@ var migrationNames = []string{
 }
 
 type Store struct {
-	db          *sql.DB
-	readOnly    bool
-	now         func() time.Time
-	leaseIssuer *leaseIssuer
+	db                              *sql.DB
+	readOnly                        bool
+	now                             func() time.Time
+	leaseIssuer                     *leaseIssuer
+	localCheckRuntimeManifestDigest string
+}
+
+// ControlConfiguration contains immutable process configuration used by
+// mutating command gates. Values are fixed for the lifetime of an opened
+// Store; command payloads cannot replace them.
+type ControlConfiguration struct {
+	LocalCheckRuntimeManifestDigest string
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, ControlConfiguration{})
+}
+
+// OpenConfigured opens the mutating control store with the exact local-check
+// runtime selected by the process composition root. The ordinary Open remains
+// useful for control operations that do not dispatch local checks, which fail
+// closed while this configuration is absent.
+func OpenConfigured(ctx context.Context, path string, configuration ControlConfiguration) (*Store, error) {
+	if !engine.ValidDigest(configuration.LocalCheckRuntimeManifestDigest) {
+		return nil, errors.New("configured control store requires a valid local-check runtime manifest digest")
+	}
+	return open(ctx, path, configuration)
+}
+
+func open(ctx context.Context, path string, configuration ControlConfiguration) (*Store, error) {
 	database, err := openDatabase(ctx, path, false)
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: database, now: time.Now, leaseIssuer: &leaseIssuer{}}
+	store := &Store{
+		db: database, now: time.Now, leaseIssuer: &leaseIssuer{},
+		localCheckRuntimeManifestDigest: configuration.LocalCheckRuntimeManifestDigest,
+	}
 	if err := store.migrate(ctx); err != nil {
 		_ = database.Close()
 		return nil, err

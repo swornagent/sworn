@@ -26,18 +26,19 @@ The initial Standard path is deliberately narrow:
    definition, producer run, candidate commit and tree, workspace manifest,
    local environment, exact argv, timestamps, exit and control flags, and both
    output artifacts.
-5. An unambiguous exit-zero completion creates one Baton check and one
-   acceptance-linked evidence entry. Both point to that same receipt. There is
-   no duplicate evidence bundle and no human command string that could erase
-   argv boundaries.
+5. An unambiguous exit-zero completion returns only that canonical receipt with
+   a `pass` outcome. The producer does not mint a second Baton check or evidence
+   projection. Prepared construction rebinds its temporary Baton inputs to the
+   stored receipt and exact definition; final admission will derive those facts
+   from the journal instead of trusting a caller.
 6. `protocol.BuildSubmission` takes an opaque `ExactPlan` and work ID. It
    derives target, scope, acceptance, assurance, contract, and authority facts
    from that capability; resolves the plan-selected `assurance-policy-v1`
    registry and its baseline definitions by digest; then rebinds approval,
    environment, receipts, streams, policy coverage, candidate, timestamps, and
-   exact artifact bytes. It constructs and RFC 8785-canonicalizes the Baton
-   record, but does not authenticate authority or prove that supplied run facts
-   came from the effect journal.
+   exact artifact bytes. It returns only the RFC 8785-canonical Baton record,
+   not a second submission view or dependency list, but does not authenticate
+   authority or prove that supplied run facts came from the effect journal.
 7. Structural submission persistence and its parallel builder/producer run
    identity registry have been removed. The future final admission transaction
    will reverify the complete artifact closure and be the sole writer of the
@@ -107,12 +108,16 @@ executor does not yet prove whether every non-zero status was a normal target
 exit, signal, or resource termination. Typed termination and repair routing
 belong to the effect/reconciliation path; ambiguity cannot spend a verifier run.
 
-The worker remains deliberately unreachable because no reducer transition yet
-derives its request from the exact plan. Admission must require the content-bound
+The reducer can now schedule one bounded, policy-ordered check batch after the
+store transaction rebinds the exact plan, policy, definitions, historical
+approval, succeeded builder, and configured content runtime. Effect claims are
+serial within that batch. The production binary still exposes no mutating
+command or worker loop, and historical approval is not a current execution
+permit. Admission must require the content-bound
 environment explicitly; the host-runtime environment can never qualify. The
-remaining path is plan-derived dispatch followed by one atomic admission that
-revalidates authenticated authority, typed journal results, and the complete
-artifact closure. Structural consistency alone is not provenance.
+remaining path is one atomic admission that revalidates authority, typed journal
+results, and the complete artifact closure. Structural consistency alone is not
+provenance.
 
 ## Proof
 
@@ -131,9 +136,9 @@ Tests cover:
 - repeatable empty-artifact handling and exact prepared-submission construction.
 
 Typed builder and local-check results now bind to the effect journal, including
-recovery through the same validator. Plan-derived check dispatch and final
-atomic admission do not yet exist, so these primitives remain unreachable from
-the public mutating surface and Sworn makes no unattended-delivery claim.
+recovery through the same validator. Plan-derived check scheduling exists
+internally; final atomic admission, current execution authority, and the public
+mutating surface do not, so Sworn makes no unattended-delivery claim.
 
 Exact plan parsing and historical signed approval are now implemented separately
 from this structural path; see [Exact plan and authenticated authority](authenticated-authority.md).

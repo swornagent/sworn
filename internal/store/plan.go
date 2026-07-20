@@ -57,7 +57,11 @@ func putPlanTransaction(
 // Plan restores a structural exact-plan capability from any canonical record
 // with the delivery-plan kind that still passes the complete strict parser.
 func (s *Store) Plan(ctx context.Context, planDigest string) (protocol.ExactPlan, error) {
-	kind, canonical, err := s.Record(ctx, planDigest)
+	return loadExactPlan(ctx, s.db, planDigest)
+}
+
+func loadExactPlan(ctx context.Context, query rowQuerier, planDigest string) (protocol.ExactPlan, error) {
+	kind, canonical, err := loadRecord(ctx, query, planDigest)
 	if err != nil {
 		return protocol.ExactPlan{}, err
 	}
