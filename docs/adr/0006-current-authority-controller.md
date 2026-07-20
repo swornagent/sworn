@@ -106,6 +106,25 @@ Add one internal current-authority controller with this order:
    controller ownership. The journal remains truthful and the next owner must
    repeat the recovery barrier through ADR 0005.
 
+The production authority-source follow-on keeps that policy boundary and adds
+one deliberately narrow Linux file-bundle resolver. Immutable startup
+configuration binds each exact logical source reference to an authorizer,
+public key, and absolute clean bundle directory. The resolver retains that
+directory identity, selects one source-and-proof file by exact plan digest, and
+freshly reads its strict bounded contents through one open at every authority
+gate. The writer must publish each file atomically. The resolver never treats a
+source reference as a path and has no cache or fallback.
+
+Private signing material, interactive prompts, environment or stdin authority,
+and arbitrary command resolvers remain outside the engine. Deployment must keep
+the startup configuration and bundle directory outside caller, builder, and
+verifier write authority; the API validates filesystem shape but cannot infer a
+repository root or prove that deployment precondition. A future public command
+may compose with an external interactive or remote authorizer, but the
+authorizer's signing capability and approval policy must remain outside Sworn
+and every delivery agent. The file-bundle resolver is internal composition and
+does not make a mutating path reachable from the shipped binary.
+
 The slice adds no durable owner row, heartbeat, scheduler, polling loop, public
 mutation command, CLI adapter, verifier, generic permit framework, retry policy,
 check runner, integration path, schema migration, or runtime dependency. SQLite
@@ -147,6 +166,13 @@ physical production Go lines, a delta of +298 / +329: +257 / +281 for the exact
 Store projection and +41 / +48 for controller convergence. The amendment adds
 no schema migration, workflow framework, or runtime dependency.
 
+The authority-bundle amendment starts from that 14,030 semantic / 15,506
+physical production-line base. The final tree is 14,366 semantic / 15,900
+physical production Go lines, a delta of +336 / +394 for immutable trust-root
+composition, retained Linux directory handles, strict bounded bundle decoding,
+and explicit ordered resource cleanup. It adds no database schema, signer,
+public command, framework, or runtime dependency.
+
 ## Consequences
 
 Within the shipped Store and control composition, only the recovery-phase owner
@@ -175,11 +201,12 @@ remains historical truth and can be replayed without minting a permit; that
 observation cannot authorize a fresh dispatch, claim, or worker entry.
 
 This is still not an autonomous product loop. Current authority has not been
-extended to checks, verifier dispatch, accepting `PASS`, or integration. There
-is no production authority-source configuration, native agent-CLI adapter,
-fresh verdict, bounded outcome routing, public `sworn run`, or target update.
-Controlled dispatch can now recover an exact committed result before fresh
-authority or in one bounded post-error probe, including after controller restart
-when the caller reuses its stable command ID. This closes the dispatch
+extended to checks, verifier dispatch, accepting `PASS`, or integration. The
+file-bundle configuration and resolver remain internal; there is no native
+agent-CLI adapter, external interactive or remote authorizer transport, fresh
+verdict, bounded outcome routing, public `sworn run`, or target update.
+Controlled dispatch can recover an exact committed result before fresh
+authority or in one bounded post-error probe, including after controller
+restart when the caller reuses its stable command ID. This closes the dispatch
 commit-ambiguity gate without introducing a scheduler or retry framework; the
 remaining product-loop boundaries above are unchanged.

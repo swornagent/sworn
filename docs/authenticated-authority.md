@@ -29,6 +29,51 @@ The signature therefore approves the whole exact plan. The source's maximum
 grants are only a ceiling, and may be empty for total revocation. The generated
 Baton receipt preserves the plan's grant order.
 
+## Configured file-bundle source
+
+Startup configuration maps each exact, logical source reference to one
+authorizer identity, Ed25519 public key, and absolute trusted bundle directory.
+The key identifier remains derived from the public key. Configuration cannot
+carry private signing material, and neither a delivery plan nor a per-operation
+input can replace this mapping.
+
+On Linux, the resolver retains the identity of the configured absolute, clean
+directory instead of reopening a caller-selected path. It derives the bundle
+selection from the exact plan digest; the source reference is never interpreted
+as a filename. The writer must atomically publish one regular-file bundle
+containing the exact source and detached proof bytes. The resolver opens that
+file once, so one read cannot mix two publication generations. Every
+current-authority gate opens and reads the bundle again with strict fields and
+bounded envelope, source, and proof sizes. Missing, malformed, oversized,
+symlinked, non-regular, or multiply linked bundles fail closed without a cache
+or fallback.
+
+The transport contract is intentionally small. The filename is the plan's 64
+lowercase digest characters followed by `.json`; its strict I-JSON object has
+exactly these fields:
+
+```json
+{"proof":"<unpadded-base64url exact proof bytes>","schema_version":"sworn-authority-bundle-v1","source":"<unpadded-base64url exact source bytes>"}
+```
+
+The envelope is capped at 108 KiB and preserves the exact signed source and
+proof bytes rather than normalizing either artifact.
+
+Closing the configured authority is ordered resource cleanup, not revocation.
+Composition must first stop dependent controllers and wait for authority calls
+to finish. A signed newer source and the Store high-water assertion remain the
+only way to revoke current authority; closing a directory handle does not
+invalidate a permit which was already minted.
+
+Deployment must keep the startup configuration and bundle directory outside the
+write authority of the caller, builder, and verifier. The resolver validates
+its filesystem shape; it does not infer a repository root or prove that the
+chosen directory satisfies this deployment boundary. Sworn neither prompts for
+approval nor holds a signing key, and the resolver accepts no authority content
+from environment values, stdin, TTY identity, or arbitrary helper commands. A
+later external interactive or remote authorizer may publish a valid bundle, but
+its signing capability and approval policy remain outside Sworn.
+
 ## Durable historical truth
 
 One SQLite transaction retains the authenticated source/proof observation,
@@ -65,12 +110,13 @@ fails authentication before persistence; a rollback or fork is rejected
 atomically. Resolver failure creates no source claim; persistence failure
 creates no permit.
 
-“Current” has a deliberately exact local meaning: the source was freshly
-returned and authenticated for this gate, and it is not below the highest
-version this Store has observed. It cannot prove that a resolver withheld a
-newer remote version which Sworn has never seen. The Store reasserts the
-permit's version and digest against that durable high-water mark inside each
-dispatch and claim transaction, so a locally observed later revocation wins.
+“Current” has a deliberately exact local meaning: the source was freshly read
+and authenticated for this gate, and it is not below the highest version this
+Store has observed. It cannot prove that the configured source withheld a newer
+version which Sworn has never seen. The Store high-water mark rejects rollback
+only after a later authenticated version has been observed. It reasserts the
+permit's version and digest inside each dispatch and claim transaction, so a
+locally observed later revocation wins.
 
 Dispatch convergence is historical rather than current authority. Under active
 ownership, `DispatchBuild` probes the caller's stable command ID before
