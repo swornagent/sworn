@@ -28,10 +28,10 @@ func TestLocalCheckResultClosesEveryKnownOutcome(t *testing.T) {
 
 			fixture := newLocalCheckEffectFixture(t, outcome)
 			lease, result := fixture.insertAndClaim(t)
-			if err := fixture.control.BindEffectResult(context.Background(), lease, result); err != nil {
+			if err := fixture.control.bindEffectResultForStoreTest(context.Background(), lease, result); err != nil {
 				t.Fatalf("bind %s result: %v", outcome, err)
 			}
-			if err := fixture.control.CompleteEffect(context.Background(), lease); err != nil {
+			if err := fixture.control.completeEffectForStoreTest(context.Background(), lease); err != nil {
 				t.Fatalf("complete %s result: %v", outcome, err)
 			}
 
@@ -124,7 +124,7 @@ func TestLocalCheckResultRejectsBrokenArtifactClosure(t *testing.T) {
 			fixture := newLocalCheckEffectFixture(t, engine.LocalCheckOutcomeNotAdmitted)
 			mutate(t, fixture)
 			lease, result := fixture.insertAndClaim(t)
-			if err := fixture.control.BindEffectResult(context.Background(), lease, result); err == nil {
+			if err := fixture.control.bindEffectResultForStoreTest(context.Background(), lease, result); err == nil {
 				t.Fatal("effect result with a broken closure was bound")
 			}
 			running, err := listEffects(context.Background(), fixture.control, EffectRunning)
@@ -145,12 +145,12 @@ func TestOrphanLocalCheckReceiptCannotReconcileSuccess(t *testing.T) {
 	); err != nil || mediaType != localCheckReceiptMediaType || len(contents) == 0 {
 		t.Fatalf("orphan receipt fixture = %q, %d bytes, %v", mediaType, len(contents), err)
 	}
-	if recovered, err := fixture.control.RecoverInterruptedEffects(
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(
 		context.Background(), "worker exited after writing an unbound receipt artifact",
 	); err != nil || recovered != 1 {
 		t.Fatalf("recover unbound check attempt = %d, %v", recovered, err)
 	}
-	if err := fixture.control.RecoverBoundEffect(
+	if err := fixture.control.recoverBoundEffectForStoreTest(
 		context.Background(), fixture.effectID, lease.Invocation().Attempt, "reconciler-1",
 	); err == nil {
 		t.Fatal("orphan receipt artifact reconciled an unbound check effect as succeeded")
@@ -167,10 +167,10 @@ func TestBoundLocalCheckResultRecoversAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	fixture := newLocalCheckEffectFixture(t, engine.LocalCheckOutcomePass)
 	lease, result := fixture.insertAndClaim(t)
-	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "worker exited after binding"); err != nil || recovered != 1 {
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "worker exited after binding"); err != nil || recovered != 1 {
 		t.Fatalf("mark check unknown = %d, %v", recovered, err)
 	}
 	if err := fixture.control.Close(); err != nil {
@@ -178,11 +178,11 @@ func TestBoundLocalCheckResultRecoversAfterRestart(t *testing.T) {
 	}
 	fixture.control = openTestStore(t, fixture.path)
 	t.Cleanup(func() { _ = fixture.control.Close() })
-	if err := fixture.control.RecoverBoundEffect(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
+	if err := fixture.control.recoverBoundEffectForStoreTest(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
 		t.Fatalf("recover bound check: %v", err)
 	}
 	assertCount(t, fixture.control, "effect_observations", 5)
-	if err := fixture.control.RecoverBoundEffect(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-2"); err != nil {
+	if err := fixture.control.recoverBoundEffectForStoreTest(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-2"); err != nil {
 		t.Fatalf("replay bound check recovery: %v", err)
 	}
 	assertCount(t, fixture.control, "effect_observations", 5)
@@ -209,15 +209,15 @@ func newLocalCheckEffectFixture(t *testing.T, outcome string) *localCheckEffectF
 	t.Cleanup(func() { _ = control.Close() })
 
 	builderEffectID := createActivateAndDispatch(t, control)
-	builderLease, err := control.ClaimNextEffect(ctx, "builder-worker")
+	builderLease, err := control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatalf("claim builder: %v", err)
 	}
 	builderResult := validBuildResult(t, builderEffectID, "sworn-builder/1")
-	if err := control.BindEffectResult(ctx, builderLease, builderResult); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, builderLease, builderResult); err != nil {
 		t.Fatalf("bind builder: %v", err)
 	}
-	if err := control.CompleteEffect(ctx, builderLease); err != nil {
+	if err := control.completeEffectForStoreTest(ctx, builderLease); err != nil {
 		t.Fatalf("complete builder: %v", err)
 	}
 	parsedBuilder, err := engine.ParseBuildEffectResult(builderResult)
@@ -313,7 +313,7 @@ func (fixture *localCheckEffectFixture) insertAndClaim(t *testing.T) (EffectLeas
 	); err != nil {
 		t.Fatalf("insert local check effect: %v", err)
 	}
-	lease, err := fixture.control.ClaimNextEffect(context.Background(), "check-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(context.Background(), "check-worker")
 	if err != nil || lease.Invocation().ID != fixture.effectID {
 		t.Fatalf("claim local check effect = %+v, %v", lease, err)
 	}

@@ -55,10 +55,46 @@ under Sworn's single-writer boundary, never through a stored boolean.
 Historical approval proves what was approved at the recorded time. It does not
 claim the source is current.
 
-Builder execution, check execution, verifier dispatch, accepting `PASS`, and
-integration will require separate short-lived gate-specific revalidation. No
-such permit exists yet. Check scheduling and admission require the receipt to
-identify the immutable authenticated approval for the exact plan and require
-its recorded approval time to precede the succeeded builder. That is provenance,
-not freshness, and the journal does not provide a shared cryptographic clock
-between authority authentication and later effect execution.
+## Current build authority
+
+The internal builder controller re-resolves the configured source before
+scheduling a ready build and again before claiming its pending effect. Every
+authenticated non-rollback, non-fork source is durably observed first,
+including a revoked, expired, or grant-reducing source. A future-dated approval
+fails authentication before persistence; a rollback or fork is rejected
+atomically. Resolver failure creates no source claim; persistence failure
+creates no permit.
+
+“Current” has a deliberately exact local meaning: the source was freshly
+returned and authenticated for this gate, and it is not below the highest
+version this Store has observed. It cannot prove that a resolver withheld a
+newer remote version which Sworn has never seen. The Store reasserts the
+permit's version and digest against that durable high-water mark inside each
+dispatch and claim transaction, so a locally observed later revocation wins.
+
+An active source may mint one opaque `CurrentBuildPermit`. It is bound to the
+exact Authority instance, controller, delivery run, state revision, plan,
+work, work attempt, work-contract digest, builder profile, source version, and
+source digest. It expires at 30 seconds or at the source validity boundary,
+whichever comes first. The exact plan and current source must both contain the
+workspace `inspect`, `edit`, `execute`, and `commit` grants. A public facts view
+cannot reconstruct the capability.
+
+The permit is process-local and is not durable authority. The state revision
+makes the pre-scheduling permit unusable after dispatch; a restart must resolve
+authority again before claiming the pending build. The Store revalidates the
+permit and durable source head in the successful preparation transaction
+immediately before `BuilderService` invokes agent code. That commit is the
+logical build-start authorization and linearization point in the shipped
+sequence. Store then replaces the expiring permit with an opaque
+prepared-attempt capability. A legitimately long-running build may therefore
+bind and complete its exact attempt after 30 seconds, but that capability does
+not prove the runner executed an instruction and cannot claim or start another
+effect. The raw internal worker remains a privileged trusted-computing-base seam
+until its execution and recovery methods consume one-shot Store capabilities.
+
+Check execution, verifier dispatch, accepting `PASS`, and integration still
+require their own short-lived gate-specific revalidation. Check scheduling and
+admission currently use the approval receipt only as historical provenance and
+remain unreachable from a public autonomous controller. See [ADR
+0006](adr/0006-current-authority-controller.md).

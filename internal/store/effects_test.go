@@ -51,7 +51,7 @@ func TestInterruptedUnboundEffectNeverRetriesBlindly(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].ID != effectID {
 		t.Fatalf("pending after reopen = %+v, %v", pending, err)
 	}
-	claimed, err := control.ClaimNextEffect(ctx, "worker-1")
+	claimed, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil || claimed.Invocation().ID != effectID ||
 		claimed.Invocation().DeliveryRunID != "run-1" || claimed.Invocation().Attempt != 1 ||
 		claimed.Invocation().Kind != engine.EffectBuild {
@@ -72,10 +72,10 @@ func TestInterruptedUnboundEffectNeverRetriesBlindly(t *testing.T) {
 
 	control = openTestStore(t, path)
 	t.Cleanup(func() { _ = control.Close() })
-	if _, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+	if _, err := control.claimNextEffectForStoreTest(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("running effect was claimable after restart: %v", err)
 	}
-	recovered, err := control.RecoverInterruptedEffects(ctx, "previous process ended before result binding")
+	recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "previous process ended before result binding")
 	if err != nil || recovered != 1 {
 		t.Fatalf("RecoverInterruptedEffects = %d, %v", recovered, err)
 	}
@@ -83,11 +83,11 @@ func TestInterruptedUnboundEffectNeverRetriesBlindly(t *testing.T) {
 	if err != nil || len(unknown) != 1 {
 		t.Fatalf("unknown = %+v, %v", unknown, err)
 	}
-	if _, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+	if _, err := control.claimNextEffectForStoreTest(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("unknown effect was claimable: %v", err)
 	}
 
-	if err := control.RecoverBoundEffect(ctx, effectID, unknown[0].Attempt, "reconciler-1"); err == nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, unknown[0].Attempt, "reconciler-1"); err == nil {
 		t.Fatal("unbound interrupted effect recovered without external evidence")
 	}
 	if _, err := control.db.ExecContext(ctx, `
@@ -96,7 +96,7 @@ func TestInterruptedUnboundEffectNeverRetriesBlindly(t *testing.T) {
 		!strings.Contains(err.Error(), "invalid effect transition") {
 		t.Fatalf("SQL boundary admitted unknown retry: %v", err)
 	}
-	if _, err := control.ClaimNextEffect(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
+	if _, err := control.claimNextEffectForStoreTest(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("rejected recovery made effect claimable: %v", err)
 	}
 }
@@ -108,18 +108,18 @@ func TestInterruptedLeaseCannotPublishLateResult(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker ownership ended"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "worker ownership ended"); err != nil || recovered != 1 {
 		t.Fatalf("mark lease unknown = %d, %v", recovered, err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
-	if err := control.BindEffectResult(ctx, lease, result); err == nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err == nil {
 		t.Fatal("interrupted lease bound a late result")
 	}
-	if err := control.CompleteEffect(ctx, lease); err == nil {
+	if err := control.completeEffectForStoreTest(ctx, lease); err == nil {
 		t.Fatal("interrupted lease completed late")
 	}
 	unknown, err := listEffects(ctx, control, EffectUnknown)
@@ -147,24 +147,46 @@ func TestClaimNextEffectSerializesSameCommandOrdinals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := control.ClaimNextEffect(ctx, "worker-1")
+	first, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil || first.Invocation().ID != firstID {
 		t.Fatalf("first ordinal lease = %q, %v; want %q", first.Invocation().ID, err, firstID)
 	}
-	if lease, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+	if lease, err := control.claimNextEffectForStoreTest(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("later sibling leased while first was running: %+v, %v", lease, err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker-1 was interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "worker-1 was interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("recover first ordinal = %d, %v", recovered, err)
 	}
-	if lease, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+	if lease, err := control.claimNextEffectForStoreTest(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("later sibling leased while first was unknown: %+v, %v", lease, err)
 	}
-	if err := control.RecoverBoundEffect(ctx, firstID, first.Invocation().Attempt, "reconciler-1"); err == nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, firstID, first.Invocation().Attempt, "reconciler-1"); err == nil {
 		t.Fatal("unbound first ordinal recovered")
 	}
-	if lease, err := control.ClaimNextEffect(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
+	if lease, err := control.claimNextEffectForStoreTest(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("later sibling leased after rejected recovery: %+v, %v", lease, err)
+	}
+}
+
+func TestClaimPendingBuildScopesAuthorityToExactRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
+	t.Cleanup(func() { _ = control.Close() })
+	effectID := createActivateAndDispatch(t, control)
+
+	if _, err := control.claimPendingBuildForStoreTest(ctx, "other-run", "builder-worker"); !errors.Is(err, ErrNoPendingEffect) {
+		t.Fatalf("foreign run claim error = %v", err)
+	}
+	if _, err := control.claimPendingBuildForStoreTest(ctx, "../run-1", "builder-worker"); err == nil ||
+		!strings.Contains(err.Error(), "delivery run id") {
+		t.Fatalf("invalid run claim error = %v", err)
+	}
+	lease, err := control.claimPendingBuildForStoreTest(ctx, "run-1", "builder-worker")
+	if err != nil || lease.Invocation().ID != effectID ||
+		lease.Invocation().DeliveryRunID != "run-1" || lease.Invocation().Kind != engine.EffectBuild {
+		t.Fatalf("scoped build claim = %+v, %v", lease.Invocation(), err)
 	}
 }
 
@@ -175,7 +197,7 @@ func TestOrphanResultJSONCannotReconcileSuccess(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,10 +205,10 @@ func TestOrphanResultJSONCannotReconcileSuccess(t *testing.T) {
 	if _, err := control.PutArtifact(ctx, "application/json", result); err != nil {
 		t.Fatalf("store orphan result JSON: %v", err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "result was never bound to the lease"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "result was never bound to the lease"); err != nil || recovered != 1 {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil {
 		t.Fatal("orphan result artifact reconciled an unbound effect as succeeded")
 	}
 	unknown, err := listEffects(ctx, control, EffectUnknown)
@@ -202,21 +224,21 @@ func TestBoundResultCannotBeDiscardedOrRecoveredWithoutGitTruth(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.FailEffect(ctx, lease, "runner disconnected after returning a result"); err == nil {
+	if err := control.failEffectForStoreTest(ctx, lease, "runner disconnected after returning a result"); err == nil {
 		t.Fatal("infrastructure failure discarded a bound domain result")
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "completion interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "completion interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
 		!strings.Contains(err.Error(), "configured repository") {
 		t.Fatalf("bound build recovered without Git truth: %v", err)
 	}
@@ -233,17 +255,17 @@ func TestFailedEffectRequiresCurrentLeaseDetailAndNoBoundResult(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil || lease.Invocation().ID != effectID {
 		t.Fatalf("lease = %+v, %v", lease, err)
 	}
-	if err := control.FailEffect(ctx, EffectLease{}, "failed"); err == nil {
+	if err := control.failEffectForStoreTest(ctx, EffectLease{}, "failed"); err == nil {
 		t.Fatal("zero lease failed effect")
 	}
-	if err := control.FailEffect(ctx, lease, ""); err == nil {
+	if err := control.failEffectForStoreTest(ctx, lease, ""); err == nil {
 		t.Fatal("failure without detail was accepted")
 	}
-	if err := control.FailEffect(ctx, lease, "runner exited before producing a result"); err != nil {
+	if err := control.failEffectForStoreTest(ctx, lease, "runner exited before producing a result"); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := listEffects(ctx, control, EffectFailed)
@@ -259,25 +281,25 @@ func TestEffectResultBindingIsIdempotentAndImmutable(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatalf("initial bind: %v", err)
 	}
-	if err := control.BindEffectResult(ctx, lease, append(json.RawMessage(nil), result...)); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, append(json.RawMessage(nil), result...)); err != nil {
 		t.Fatalf("exact idempotent bind: %v", err)
 	}
 	different := validBuildResult(t, effectID, "sworn-builder/2")
 	if bytes.Equal(result, different) {
 		t.Fatal("different fixture encoded to identical bytes")
 	}
-	if err := control.BindEffectResult(ctx, lease, different); err == nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, different); err == nil {
 		t.Fatal("effect result was rebound to different canonical bytes")
 	}
-	if err := control.CompleteEffect(ctx, lease); err != nil {
+	if err := control.completeEffectForStoreTest(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
 	succeeded, err := listEffects(ctx, control, EffectSucceeded)
@@ -293,12 +315,12 @@ func TestTypedResultTriggerFreezesLifecycleOwnershipAndTiming(t *testing.T) {
 	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
 	assertRejected := func(name, update string) {
@@ -322,7 +344,7 @@ func TestTypedResultTriggerFreezesLifecycleOwnershipAndTiming(t *testing.T) {
 	} {
 		assertRejected(name, update)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker stopped after binding"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "worker stopped after binding"); err != nil || recovered != 1 {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
 	for name, update := range map[string]string{
@@ -349,11 +371,11 @@ func TestEffectLeaseRejectsForeignStoreAndProtectsRequestBytes(t *testing.T) {
 	if firstID != secondID {
 		t.Fatalf("fixture effect ids differ: %q != %q", firstID, secondID)
 	}
-	firstLease, err := first.ClaimNextEffect(ctx, "worker-1")
+	firstLease, err := first.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondLease, err := second.ClaimNextEffect(ctx, "worker-1")
+	secondLease, err := second.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,19 +385,19 @@ func TestEffectLeaseRejectsForeignStoreAndProtectsRequestBytes(t *testing.T) {
 		t.Fatal("caller mutation escaped through lease request accessor")
 	}
 	result := validBuildResult(t, secondID, "sworn-builder/1")
-	if err := second.BindEffectResult(ctx, firstLease, result); err == nil {
+	if err := second.bindEffectResultForStoreTest(ctx, firstLease, result); err == nil {
 		t.Fatal("lease from another store bound an effect result")
 	}
-	if err := second.CompleteEffect(ctx, secondLease); err == nil {
+	if err := second.completeEffectForStoreTest(ctx, secondLease); err == nil {
 		t.Fatal("effect completed without a bound result")
 	}
-	if err := second.BindEffectResult(ctx, secondLease, result); err != nil {
+	if err := second.bindEffectResultForStoreTest(ctx, secondLease, result); err != nil {
 		t.Fatalf("bind store-owned lease: %v", err)
 	}
-	if err := second.CompleteEffect(ctx, secondLease); err != nil {
+	if err := second.completeEffectForStoreTest(ctx, secondLease); err != nil {
 		t.Fatalf("complete store-owned lease: %v", err)
 	}
-	if err := second.CompleteEffect(ctx, secondLease); err == nil {
+	if err := second.completeEffectForStoreTest(ctx, secondLease); err == nil {
 		t.Fatal("one lease completed the same effect twice")
 	}
 }
@@ -388,12 +410,12 @@ func TestCompletionAndRecoveryRaceConvergesBoundResult(t *testing.T) {
 	control := openRecoveryTestStore(t, filepath.Join(t.TempDir(), "control.db"), repository)
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatchForRepository(t, control, repository.Binding().RepositoryID)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate)
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
 	type recoveryResult struct {
@@ -405,11 +427,11 @@ func TestCompletionAndRecoveryRaceConvergesBoundResult(t *testing.T) {
 	recovery := make(chan recoveryResult, 1)
 	go func() {
 		<-start
-		completion <- control.CompleteEffect(ctx, lease)
+		completion <- control.completeEffectForStoreTest(ctx, lease)
 	}()
 	go func() {
 		<-start
-		count, err := control.RecoverInterruptedEffects(ctx, "process ownership changed")
+		count, err := control.recoverInterruptedEffectsForStoreTest(ctx, "process ownership changed")
 		recovery <- recoveryResult{count: count, err: err}
 	}()
 	close(start)
@@ -430,7 +452,7 @@ func TestCompletionAndRecoveryRaceConvergesBoundResult(t *testing.T) {
 		if err != nil || len(unknown) != 1 {
 			t.Fatalf("recovery winner state = %+v, %v", unknown, err)
 		}
-		if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
+		if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
 			t.Fatalf("reconcile recovery winner: %v", err)
 		}
 	}
@@ -448,15 +470,15 @@ func TestBoundBuildRecoveryRepairsGitAndIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control.db")
 	control := openRecoveryTestStore(t, path, repository)
 	effectID := createActivateAndDispatchForRepository(t, control, repository.Binding().RepositoryID)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate)
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker exited after binding"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "worker exited after binding"); err != nil || recovered != 1 {
 		t.Fatalf("mark bound build unknown = %d, %v", recovered, err)
 	}
 	if err := control.Close(); err != nil {
@@ -466,10 +488,10 @@ func TestBoundBuildRecoveryRepairsGitAndIsIdempotent(t *testing.T) {
 
 	control = openRecoveryTestStore(t, path, repository)
 	t.Cleanup(func() { _ = control.Close() })
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt+1, "reconciler-1"); err == nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt+1, "reconciler-1"); err == nil {
 		t.Fatal("stale attempt recovered bound build")
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
 		t.Fatalf("recover bound build: %v", err)
 	}
 	if got := strings.TrimSpace(runAtomicAdmissionGit(t, repository.Root(), "rev-parse", candidate.Ref)); got != candidate.Commit {
@@ -477,7 +499,7 @@ func TestBoundBuildRecoveryRepairsGitAndIsIdempotent(t *testing.T) {
 	}
 	assertCount(t, control, "effect_observations", 3)
 	runAtomicAdmissionGit(t, repository.Root(), "update-ref", "-d", candidate.Ref)
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-2"); err != nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-2"); err != nil {
 		t.Fatalf("idempotent recovery replay: %v", err)
 	}
 	if got := strings.TrimSpace(runAtomicAdmissionGit(t, repository.Root(), "rev-parse", candidate.Ref)); got != candidate.Commit {
@@ -498,15 +520,15 @@ func TestBoundBuildRecoveryFailureNeverProjectsSuccess(t *testing.T) {
 	control := openRecoveryTestStore(t, filepath.Join(t.TempDir(), "control.db"), repository)
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatchForRepository(t, control, repository.Binding().RepositoryID)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate)
-	if err := control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "completion interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "completion interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("mark build unknown = %d, %v", recovered, err)
 	}
 	runAtomicAdmissionGit(t, repository.Root(), "update-ref", "-d", candidate.Ref)
@@ -517,7 +539,7 @@ func TestBoundBuildRecoveryFailureNeverProjectsSuccess(t *testing.T) {
 		END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil {
 		t.Fatal("bound recovery survived injected persistence failure")
 	}
 	unknown, err := listEffects(ctx, control, EffectUnknown)
@@ -528,7 +550,7 @@ func TestBoundBuildRecoveryFailureNeverProjectsSuccess(t *testing.T) {
 	if _, err := control.db.ExecContext(ctx, "DROP TRIGGER fail_bound_recovery_observation"); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
 		t.Fatalf("retry recovery after persistence restored: %v", err)
 	}
 }
@@ -541,20 +563,20 @@ func TestBoundBuildRecoveryRejectsCandidateRefCollision(t *testing.T) {
 	control := openRecoveryTestStore(t, filepath.Join(t.TempDir(), "control.db"), repository)
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatchForRepository(t, control, repository.Binding().RepositoryID)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.BindEffectResult(
+	if err := control.bindEffectResultForStoreTest(
 		ctx, lease, validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "completion interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "completion interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("mark build unknown = %d, %v", recovered, err)
 	}
 	runAtomicAdmissionGit(t, repository.Root(), "update-ref", candidate.Ref, candidate.BaseCommit, candidate.Commit)
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
 		!strings.Contains(err.Error(), "candidate ref collision") {
 		t.Fatalf("candidate ref collision recovery error = %v", err)
 	}
@@ -572,20 +594,20 @@ func TestBoundBuildRecoveryRejectsClaimedGitFactMismatch(t *testing.T) {
 	control := openRecoveryTestStore(t, filepath.Join(t.TempDir(), "control.db"), repository)
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatchForRepository(t, control, repository.Binding().RepositoryID)
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	candidate.ChangedPaths = []string{"forged.txt"}
-	if err := control.BindEffectResult(
+	if err := control.bindEffectResultForStoreTest(
 		ctx, lease, validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "completion interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "completion interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("mark build unknown = %d, %v", recovered, err)
 	}
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
 		!strings.Contains(err.Error(), "changed paths mismatch") {
 		t.Fatalf("claimed Git fact mismatch recovery error = %v", err)
 	}
@@ -606,20 +628,20 @@ func TestBoundBuildRecoveryRejectsDeliveryRepositoryMismatchBeforeGit(t *testing
 	control.builderDispatchDigest = ""
 	effectID := createActivateAndDispatch(t, control)
 	control.builderDispatchDigest = configuredBuilder
-	lease, err := control.ClaimNextEffect(ctx, "worker-1")
+	lease, err := control.claimNextEffectForStoreTest(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.BindEffectResult(
+	if err := control.bindEffectResultForStoreTest(
 		ctx, lease, validBuildResultForCandidate(t, effectID, "sworn-builder/1", candidate),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := control.RecoverInterruptedEffects(ctx, "completion interrupted"); err != nil || recovered != 1 {
+	if recovered, err := control.recoverInterruptedEffectsForStoreTest(ctx, "completion interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("mark build unknown = %d, %v", recovered, err)
 	}
 	runAtomicAdmissionGit(t, repository.Root(), "update-ref", candidate.Ref, candidate.BaseCommit, candidate.Commit)
-	if err := control.RecoverBoundEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
+	if err := control.recoverBoundEffectForStoreTest(ctx, effectID, lease.Invocation().Attempt, "reconciler-1"); err == nil ||
 		!strings.Contains(err.Error(), "delivery repository and target") {
 		t.Fatalf("delivery repository mismatch recovery error = %v", err)
 	}
@@ -690,7 +712,7 @@ func createActivateAndDispatchForRepository(t *testing.T, control *Store, reposi
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
-	result, err := control.Apply(context.Background(), dispatch)
+	result, err := control.applyCommand(context.Background(), dispatch, nil)
 	control.builderDispatchDigest = configuredBuilder
 	if err != nil || len(result.EffectIDs) != 1 {
 		t.Fatalf("dispatch = %+v, %v", result, err)

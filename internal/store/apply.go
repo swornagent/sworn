@@ -36,8 +36,22 @@ type ApplyResult struct {
 }
 
 func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult, error) {
+	if command.Kind == engine.CommandDispatchBuild {
+		return ApplyResult{}, errors.New("build.dispatch requires current controller authority")
+	}
+	return s.applyCommand(ctx, command, nil)
+}
+
+func (s *Store) applyCommand(
+	ctx context.Context,
+	command engine.Command,
+	authorization *controlledBuildAuthorization,
+) (ApplyResult, error) {
 	if s.readOnly {
 		return ApplyResult{}, errors.New("control store is read-only")
+	}
+	if command.Kind != engine.CommandDispatchBuild && authorization != nil {
+		return ApplyResult{}, errors.New("controlled build authority cannot authorize another command")
 	}
 	if !engine.ValidID(command.ID) || !engine.ValidID(command.RunID) {
 		return ApplyResult{}, errors.New("valid command and run ids are required for durable idempotency")
@@ -52,6 +66,11 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 		return ApplyResult{}, fmt.Errorf("begin command transaction: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if authorization != nil {
+		if err := s.validateControlledBuildTransaction(ctx, transaction, *authorization, command); err != nil {
+			return ApplyResult{}, err
+		}
+	}
 
 	if priorDigest, prior, found, err := loadCommandResult(ctx, transaction, command.ID); err != nil {
 		return ApplyResult{}, err
