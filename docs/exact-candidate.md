@@ -54,6 +54,17 @@ before binding its canonical record to reviewable engine state. No native
 builder adapter, public mutation command, or target integration invokes the
 write side yet.
 
+If a process dies after a build result is durably bound but before its effect is
+completed, Store recovery calls `EnsureCandidate` through that same configured
+repository. Before touching Git, it requires that repository and the candidate
+repository/target match the effect's delivery and current work attempt. A
+missing deterministic candidate ref is recreated only after every bound object,
+parent, tree, and changed-path fact revalidates. A collision or missing/mutated
+Git fact leaves the effect unknown. Exact replay re-establishes that external
+postcondition without duplicating the journal observation. An unbound build is
+never inferred from candidate refs and remains unretryable until the native
+builder slice adds attempt-bound publication evidence.
+
 The target is rechecked immediately before candidate retention and admission
 revalidates the immutable candidate. Git is not part of the SQLite transaction:
 v1 assumes exclusive engine ownership of candidate-retention refs and treats a

@@ -621,13 +621,15 @@ func execAdmissionSQL(t *testing.T, control *Store, statement string) {
 	}
 }
 
-func runAtomicAdmissionGit(t *testing.T, root string, arguments ...string) {
+func runAtomicAdmissionGit(t *testing.T, root string, arguments ...string) string {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", root}, arguments...)...)
 	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-	if output, err := command.CombinedOutput(); err != nil {
+	output, err := command.CombinedOutput()
+	if err != nil {
 		t.Fatalf("git %s: %v: %s", strings.Join(arguments, " "), err, output)
 	}
+	return string(output)
 }
 
 func writeAtomicAdmissionFile(t *testing.T, path string, contents []byte) {

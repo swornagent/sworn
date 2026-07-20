@@ -34,6 +34,7 @@ var migrationNames = []string{
 	"migrations/003_plan_authority.sql",
 	"migrations/004_typed_effect_results.sql",
 	"migrations/005_atomic_admission.sql",
+	"migrations/006_bound_result_recovery.sql",
 }
 
 type Store struct {

@@ -58,6 +58,17 @@ work does not change that public boundary.
 - [ ] Reconcile interrupted workspace and Git effects with kind-specific,
   attempt-bound external evidence before any autonomous retry.
 
+The known-result half is complete: interrupted effects can recover only an
+immutable typed result for their exact attempt, and build recovery revalidates
+or repairs its deterministic candidate ref through the configured repository.
+The former caller-selected `not_applied` and interrupted-failure paths are gone
+from both Go and the current SQL lifecycle; migration also refuses to carry a
+previously manual-requeued effect into the claimable v6 state. The item remains
+open because an unbound builder attempt still lacks a durable pre-execution
+witness, attempt-owned residue discovery, and attempt-bound Git publication
+evidence.
+See [ADR 0004](adr/0004-bound-result-recovery-contraction.md).
+
 The Git-truth boundary is implemented internally and can be bound into immutable
 Store configuration. Builder effect results retain candidate facts, and atomic
 admission revalidates them through the configured repository. There is still no
