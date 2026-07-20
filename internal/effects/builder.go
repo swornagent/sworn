@@ -1,7 +1,6 @@
 package effects
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,73 +41,6 @@ type BuilderRunner interface {
 	ValidateExport(context.Context, executor.WorkspaceExport) error
 	DiscardExport(context.Context, executor.WorkspaceExport) error
 	ReconcileWritable(context.Context, string) (executor.WritableCleanup, error)
-}
-
-// LinuxBuilderRunner narrows LinuxExecutor's opaque cleanup result at the
-// package boundary while preserving its exact invocation binding.
-type LinuxBuilderRunner struct {
-	Executor *executor.LinuxExecutor
-}
-
-func (runner LinuxBuilderRunner) ConfigurationDigest() string {
-	if runner.Executor == nil {
-		return ""
-	}
-	return runner.Executor.ConfigurationDigest()
-}
-
-func (runner LinuxBuilderRunner) EffectiveLimits() executor.Limits {
-	if runner.Executor == nil {
-		return executor.Limits{}
-	}
-	return runner.Executor.EffectiveLimits()
-}
-
-func (runner LinuxBuilderRunner) RunWritable(
-	ctx context.Context,
-	invocation executor.Invocation,
-) (executor.RawCompletion, error) {
-	if runner.Executor == nil {
-		return executor.RawCompletion{}, errors.New("Linux builder runner is not initialized")
-	}
-	return runner.Executor.RunWritable(ctx, invocation)
-}
-
-func (runner LinuxBuilderRunner) ValidateExport(
-	ctx context.Context,
-	export executor.WorkspaceExport,
-) error {
-	if runner.Executor == nil {
-		return errors.New("Linux builder runner is not initialized")
-	}
-	return runner.Executor.ValidateExport(ctx, export)
-}
-
-func (runner LinuxBuilderRunner) DiscardExport(
-	ctx context.Context,
-	export executor.WorkspaceExport,
-) error {
-	if runner.Executor == nil {
-		return errors.New("Linux builder runner is not initialized")
-	}
-	return runner.Executor.DiscardExport(ctx, export)
-}
-
-func (runner LinuxBuilderRunner) ReconcileWritable(
-	ctx context.Context,
-	invocationID string,
-) (executor.WritableCleanup, error) {
-	if runner.Executor == nil {
-		return executor.WritableCleanup{}, errors.New("Linux builder runner is not initialized")
-	}
-	cleanup, err := runner.Executor.ReconcileWritable(ctx, invocationID)
-	if err != nil {
-		return executor.WritableCleanup{}, err
-	}
-	if cleanup.InvocationID() != invocationID {
-		return executor.WritableCleanup{}, errors.New("writable cleanup does not match the requested invocation")
-	}
-	return cleanup, nil
 }
 
 // BuilderWorker executes one engine-derived builder request. It never claims
@@ -227,10 +159,14 @@ func (worker BuilderWorker) resolveBuild(
 	if err != nil {
 		return resolvedBuild{}, err
 	}
-	if request.DeliveryRunID != effect.DeliveryRunID || request.DispatchDigest != configuration.digest {
+	if request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+		request.DeliveryRunID != effect.DeliveryRunID ||
+		request.BuilderDispatchDigest != configuration.digest {
 		return resolvedBuild{}, errors.New("build effect does not match its journal or configured dispatch")
 	}
-	identity, err := engine.BuildAttemptIdentityFor(effect.ID, effect.Attempt, request.DispatchDigest)
+	identity, err := engine.BuildAttemptIdentityFor(
+		effect.ID, effect.Attempt, request.BuilderDispatchDigest,
+	)
 	if err != nil {
 		return resolvedBuild{}, err
 	}
@@ -253,7 +189,7 @@ func (worker BuilderWorker) resolveBuild(
 		return resolvedBuild{}, errors.New("exact build plan does not match delivery state")
 	}
 	work, exists := plan.Work(request.WorkID)
-	if !exists {
+	if !exists || work.Digest() != request.DispatchDigest {
 		return resolvedBuild{}, errors.New("build work is absent from the exact plan")
 	}
 	workIDs := plan.WorkIDs()
@@ -285,20 +221,20 @@ func (worker BuilderWorker) resolveBuild(
 }
 
 type builderDispatch struct {
-	SchemaVersion  string `json:"schema_version"`
-	BuilderRunID   string `json:"builder_run_id"`
-	InvocationID   string `json:"invocation_id"`
-	DeliveryRunID  string `json:"delivery_run_id"`
-	DeliveryID     string `json:"delivery_id"`
-	PlanDigest     string `json:"plan_digest"`
-	WorkID         string `json:"work_id"`
-	WorkAttempt    int64  `json:"work_attempt"`
-	ContractDigest string `json:"contract_digest"`
-	DispatchDigest string `json:"dispatch_digest"`
-	RepositoryID   string `json:"repository_id"`
-	TargetRef      string `json:"target_ref"`
-	BaseCommit     string `json:"base_commit"`
-	BaseTree       string `json:"base_tree"`
+	SchemaVersion         string `json:"schema_version"`
+	BuilderRunID          string `json:"builder_run_id"`
+	InvocationID          string `json:"invocation_id"`
+	DeliveryRunID         string `json:"delivery_run_id"`
+	DeliveryID            string `json:"delivery_id"`
+	PlanDigest            string `json:"plan_digest"`
+	WorkID                string `json:"work_id"`
+	WorkAttempt           int64  `json:"work_attempt"`
+	ContractDigest        string `json:"contract_digest"`
+	BuilderDispatchDigest string `json:"builder_dispatch_digest"`
+	RepositoryID          string `json:"repository_id"`
+	TargetRef             string `json:"target_ref"`
+	BaseCommit            string `json:"base_commit"`
+	BaseTree              string `json:"base_tree"`
 }
 
 // Run executes and measures one build without publishing Git or mutating the
@@ -355,9 +291,9 @@ func (worker BuilderWorker) Run(
 		BuilderRunID:  effect.ID, InvocationID: build.identity.InvocationID,
 		DeliveryRunID: effect.DeliveryRunID, DeliveryID: build.state.DeliveryID,
 		PlanDigest: planRecord.Digest, WorkID: build.request.WorkID,
-		WorkAttempt: build.request.WorkAttempt, ContractDigest: build.work.Digest(),
-		DispatchDigest: build.request.DispatchDigest,
-		RepositoryID:   build.target.RepositoryID, TargetRef: build.target.Ref,
+		WorkAttempt: build.request.WorkAttempt, ContractDigest: build.request.DispatchDigest,
+		BuilderDispatchDigest: build.request.BuilderDispatchDigest,
+		RepositoryID:          build.target.RepositoryID, TargetRef: build.target.Ref,
 		BaseCommit: build.target.Commit, BaseTree: build.target.Tree,
 	})
 	if err != nil {
@@ -510,40 +446,6 @@ func (worker BuilderWorker) cleanupRun(
 	return nil
 }
 
-// Publish establishes the attempt-bound Git retention facts for a result which
-// the caller has already bound durably to the effect journal.
-func (worker BuilderWorker) Publish(
-	ctx context.Context,
-	effect engine.JournalEffect,
-	result json.RawMessage,
-) error {
-	if len(effect.Result) == 0 || !bytes.Equal(effect.Result, result) {
-		return errors.New("builder publication requires the exact externally bound result")
-	}
-	configuration, err := worker.configuration()
-	if err != nil {
-		return err
-	}
-	build, err := worker.resolveBuild(ctx, effect, configuration, false)
-	if err != nil {
-		return err
-	}
-	if err := engine.ValidateEffectResult(effect.Kind, effect.ID, effect.Request, result); err != nil {
-		return fmt.Errorf("validate bound builder result for publication: %w", err)
-	}
-	parsed, _ := engine.ParseBuildEffectResult(result)
-	if parsed.Candidate.RepositoryID != build.state.Repository ||
-		parsed.Candidate.TargetRef != build.state.TargetRef {
-		return errors.New("bound builder candidate does not match its exact delivery target")
-	}
-	if err := worker.Repository.EnsureAttemptCandidate(
-		ctx, build.identity.InvocationID, parsed.Candidate,
-	); err != nil {
-		return fmt.Errorf("publish bound builder candidate: %w", err)
-	}
-	return nil
-}
-
 // Cleanup removes attempt-owned executor and local workspace residue. Callers
 // use it only when journal truth already makes publication ambiguity irrelevant.
 func (worker BuilderWorker) Cleanup(ctx context.Context, effect engine.JournalEffect) error {
@@ -573,20 +475,22 @@ func (worker BuilderWorker) Cleanup(ctx context.Context, effect engine.JournalEf
 // after Git proves this attempt unpublished and every attempt-owned workspace
 // has been reconciled.
 type BuildRetryProof struct {
-	effectID       string
-	effectAttempt  int64
-	invocationID   string
-	dispatchDigest string
-	repositoryID   string
-	targetRef      string
-	unpublished    repo.AttemptUnpublishedProof
-	writable       executor.WritableCleanup
+	effectID              string
+	effectAttempt         int64
+	invocationID          string
+	recoveryChallenge     string
+	builderDispatchDigest string
+	repositoryID          string
+	targetRef             string
+	unpublished           repo.AttemptUnpublishedProof
+	writable              executor.WritableCleanup
 }
 
 func (proof BuildRetryProof) EffectID() string                          { return proof.effectID }
 func (proof BuildRetryProof) EffectAttempt() int64                      { return proof.effectAttempt }
 func (proof BuildRetryProof) InvocationID() string                      { return proof.invocationID }
-func (proof BuildRetryProof) DispatchDigest() string                    { return proof.dispatchDigest }
+func (proof BuildRetryProof) RecoveryChallenge() string                 { return proof.recoveryChallenge }
+func (proof BuildRetryProof) BuilderDispatchDigest() string             { return proof.builderDispatchDigest }
 func (proof BuildRetryProof) RepositoryID() string                      { return proof.repositoryID }
 func (proof BuildRetryProof) TargetRef() string                         { return proof.targetRef }
 func (proof BuildRetryProof) WritableCleanup() executor.WritableCleanup { return proof.writable }
@@ -598,7 +502,11 @@ func (proof BuildRetryProof) Unpublished() repo.AttemptUnpublishedProof { return
 func (worker BuilderWorker) ReconcileUnbound(
 	ctx context.Context,
 	effect engine.JournalEffect,
+	recoveryChallenge string,
 ) (BuildRetryProof, error) {
+	if !engine.ValidID(recoveryChallenge) {
+		return BuildRetryProof{}, errors.New("valid Store recovery challenge is required")
+	}
 	configuration, err := worker.configuration()
 	if err != nil {
 		return BuildRetryProof{}, err
@@ -630,9 +538,10 @@ func (worker BuilderWorker) ReconcileUnbound(
 	}
 	return BuildRetryProof{
 		effectID: effect.ID, effectAttempt: effect.Attempt,
-		invocationID:   build.identity.InvocationID,
-		dispatchDigest: build.request.DispatchDigest,
-		repositoryID:   build.state.Repository, targetRef: build.state.TargetRef,
+		invocationID:          build.identity.InvocationID,
+		recoveryChallenge:     recoveryChallenge,
+		builderDispatchDigest: build.request.BuilderDispatchDigest,
+		repositoryID:          build.state.Repository, targetRef: build.state.TargetRef,
 		unpublished: unpublished, writable: writable,
 	}, nil
 }
@@ -650,11 +559,15 @@ func buildIdentity(
 	if err != nil {
 		return engine.BuildEffectRequest{}, engine.BuildAttemptIdentity{}, err
 	}
-	if request.DeliveryRunID != effect.DeliveryRunID || request.DispatchDigest != dispatchDigest {
+	if request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+		request.DeliveryRunID != effect.DeliveryRunID ||
+		request.BuilderDispatchDigest != dispatchDigest {
 		return engine.BuildEffectRequest{}, engine.BuildAttemptIdentity{},
 			errors.New("build effect does not match its journal or configured dispatch")
 	}
-	identity, err := engine.BuildAttemptIdentityFor(effect.ID, effect.Attempt, request.DispatchDigest)
+	identity, err := engine.BuildAttemptIdentityFor(
+		effect.ID, effect.Attempt, request.BuilderDispatchDigest,
+	)
 	return request, identity, err
 }
 

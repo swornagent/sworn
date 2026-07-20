@@ -200,7 +200,8 @@ func newBuilderFixture(t *testing.T, mutate func(string) error) builderFixture {
 		SchemaVersion: engine.BuildEffectRequestSchemaVersion,
 		DeliveryRunID: control.state.RunID, DeliveryID: control.state.DeliveryID,
 		WorkID: control.state.Work[0].ID, WorkAttempt: control.state.Work[0].Attempt,
-		DispatchDigest: dispatchDigest,
+		DispatchDigest:        mustBuilderContractDigest(t, worker, control.state),
+		BuilderDispatchDigest: dispatchDigest,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -258,7 +259,7 @@ func TestBuilderDispatchDigestBindsEnvironmentNamesButNeverValues(t *testing.T) 
 	}
 }
 
-func TestBuilderRunUsesExactInputsAndPublishesOnlyAfterBindingBoundary(t *testing.T) {
+func TestBuilderRunUsesExactInputsAndLeavesPublicationToStore(t *testing.T) {
 	fixture := newBuilderFixture(t, func(root string) error {
 		return os.WriteFile(filepath.Join(root, "src", "generated.go"), []byte("package generated\n"), 0o644)
 	})
@@ -298,7 +299,9 @@ func TestBuilderRunUsesExactInputsAndPublishesOnlyAfterBindingBoundary(t *testin
 		t.Fatal(err)
 	}
 	contract, _ := fixture.control.plan.Work(fixture.control.state.Work[0].ID)
-	identity, _ := engine.BuildAttemptIdentityFor(fixture.effect.ID, fixture.effect.Attempt, dispatch.DispatchDigest)
+	identity, _ := engine.BuildAttemptIdentityFor(
+		fixture.effect.ID, fixture.effect.Attempt, dispatch.BuilderDispatchDigest,
+	)
 	if dispatch.InvocationID != identity.InvocationID || dispatch.ContractDigest != contract.Digest() ||
 		dispatch.BaseCommit != parsed.Candidate.BaseCommit || dispatch.BaseTree != parsed.Candidate.BaseTree {
 		t.Fatalf("compact dispatch = %#v", dispatch)
@@ -313,27 +316,6 @@ func TestBuilderRunUsesExactInputsAndPublishesOnlyAfterBindingBoundary(t *testin
 	}
 	if fixture.runner.discarded != 1 {
 		t.Fatalf("discard count = %d, want 1", fixture.runner.discarded)
-	}
-	if err := fixture.worker.Publish(ctx, fixture.effect, result); err == nil ||
-		!strings.Contains(err.Error(), "externally bound") {
-		t.Fatalf("unbound Publish error = %v", err)
-	}
-	if refs := builderGit(t, fixture.source, "for-each-ref", "--format=%(refname)", "refs/sworn/v1"); strings.TrimSpace(refs) != "" {
-		t.Fatalf("unbound Publish created Git refs: %s", refs)
-	}
-
-	bound := fixture.effect
-	bound.Result = result
-	if err := fixture.worker.Publish(ctx, bound, result); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.repository.ProveAttemptUnpublished(ctx, identity.InvocationID); err == nil {
-		t.Fatal("Publish did not establish the attempt publication point")
-	}
-	for _, ref := range []string{parsed.Candidate.Ref, "refs/sworn/v1/attempts/" + identity.InvocationID} {
-		if got := strings.TrimSpace(builderGit(t, fixture.source, "rev-parse", ref)); got != parsed.Candidate.Commit {
-			t.Fatalf("published %s = %s, want %s", ref, got, parsed.Candidate.Commit)
-		}
 	}
 }
 
@@ -388,12 +370,20 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(attemptRoot, "residue"), []byte("residue"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect)
+	if proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect, ""); err == nil ||
+		proof != (BuildRetryProof{}) {
+		t.Fatalf("missing recovery challenge proof = %#v, %v", proof, err)
+	}
+	if _, err := os.Lstat(attemptRoot); err != nil || len(fixture.runner.reconciled) != 0 {
+		t.Fatalf("missing recovery challenge touched attempt residue: %v", err)
+	}
+	proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect, "recovery-test-challenge")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if proof.EffectID() != fixture.effect.ID || proof.EffectAttempt() != fixture.effect.Attempt ||
-		proof.InvocationID() != identity.InvocationID || proof.DispatchDigest() != digest ||
+		proof.InvocationID() != identity.InvocationID || proof.BuilderDispatchDigest() != digest ||
+		proof.RecoveryChallenge() != "recovery-test-challenge" ||
 		proof.RepositoryID() != fixture.control.state.Repository || proof.TargetRef() != fixture.control.state.TargetRef {
 		t.Fatalf("retry proof = %#v", proof)
 	}
@@ -403,7 +393,8 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 		t.Fatal("retry proof did not retain its lower-level opaque proofs")
 	}
 	if (BuildRetryProof{}).EffectID() != "" || (BuildRetryProof{}).EffectAttempt() != 0 ||
-		(BuildRetryProof{}).InvocationID() != "" || (BuildRetryProof{}).DispatchDigest() != "" ||
+		(BuildRetryProof{}).InvocationID() != "" || (BuildRetryProof{}).RecoveryChallenge() != "" ||
+		(BuildRetryProof{}).BuilderDispatchDigest() != "" ||
 		(BuildRetryProof{}).RepositoryID() != "" || (BuildRetryProof{}).TargetRef() != "" ||
 		(BuildRetryProof{}).WritableCleanup().InvocationID() != "" ||
 		(BuildRetryProof{}).Unpublished().RepositoryID() != "" ||
@@ -425,20 +416,24 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound := fixture.effect
-	bound.Result = result
-	if err := fixture.worker.Publish(ctx, bound, result); err != nil {
+	parsed, err := engine.ParseBuildEffectResult(result)
+	if err != nil {
 		t.Fatal(err)
 	}
 	identity, _ = engine.BuildAttemptIdentityFor(
 		fixture.effect.ID, fixture.effect.Attempt, mustBuilderDigest(t, fixture.worker),
 	)
+	if err := fixture.repository.EnsureAttemptCandidate(ctx, identity.InvocationID, parsed.Candidate); err != nil {
+		t.Fatal(err)
+	}
 	attemptRoot, _, err = createBuildAttemptRoot(fixture.worker.WorkspaceRoot, identity.InvocationID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	reconciledBefore := len(fixture.runner.reconciled)
-	if proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect); err == nil || proof != (BuildRetryProof{}) {
+	if proof, err := fixture.worker.ReconcileUnbound(
+		ctx, fixture.effect, "recovery-test-challenge",
+	); err == nil || proof != (BuildRetryProof{}) {
 		t.Fatalf("published reconciliation = %#v, %v", proof, err)
 	}
 	if len(fixture.runner.reconciled) != reconciledBefore {
@@ -456,7 +451,8 @@ func builderEffectFor(t *testing.T, worker BuilderWorker, state engine.State) en
 		SchemaVersion: engine.BuildEffectRequestSchemaVersion,
 		DeliveryRunID: state.RunID, DeliveryID: state.DeliveryID,
 		WorkID: state.Work[0].ID, WorkAttempt: state.Work[0].Attempt,
-		DispatchDigest: dispatchDigest,
+		DispatchDigest:        mustBuilderContractDigest(t, worker, state),
+		BuilderDispatchDigest: dispatchDigest,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -570,4 +566,17 @@ func mustBuilderDigest(t *testing.T, worker BuilderWorker) string {
 		t.Fatal(err)
 	}
 	return digest
+}
+
+func mustBuilderContractDigest(t *testing.T, worker BuilderWorker, state engine.State) string {
+	t.Helper()
+	plan, err := worker.Control.Plan(context.Background(), state.PlanDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, found := plan.Work(state.Work[0].ID)
+	if !found {
+		t.Fatal("builder test work is absent from its plan")
+	}
+	return work.Digest()
 }

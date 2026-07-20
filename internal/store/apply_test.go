@@ -119,8 +119,7 @@ func TestCommandEffectTransactionRollsBackCompletely(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
-		WorkID:         "work-1",
-		DispatchDigest: dispatchDigest,
+		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
 	if _, err := control.Apply(ctx, dispatch); err == nil {
 		t.Fatal("Apply succeeded despite injected effect failure")
@@ -235,8 +234,7 @@ func createActivateAndDispatch(t *testing.T, control *Store) string {
 	t.Helper()
 	createAndActivate(t, control)
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
-		WorkID:         "work-1",
-		DispatchDigest: dispatchDigest,
+		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
 	result, err := control.Apply(context.Background(), dispatch)
 	if err != nil || len(result.EffectIDs) != 1 {

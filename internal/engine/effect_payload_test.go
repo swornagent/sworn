@@ -12,6 +12,49 @@ import (
 
 const testRuntimeDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 
+func TestBuildAttemptIdentityIsCanonicalAndAttemptBound(t *testing.T) {
+	t.Parallel()
+
+	first, err := BuildAttemptIdentityFor("effect-build-1", 1, testDispatchDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := BuildAttemptIdentityFor("effect-build-1", 2, testDispatchDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.InvocationID == second.InvocationID || !ValidID(first.InvocationID) {
+		t.Fatalf("attempt invocation identities = %q, %q", first.InvocationID, second.InvocationID)
+	}
+	otherConfiguration, err := BuildAttemptIdentityFor(
+		"effect-build-1", 1,
+		"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+	)
+	if err != nil || first.InvocationID == otherConfiguration.InvocationID {
+		t.Fatalf("configuration-bound invocation identity = %q, %v", otherConfiguration.InvocationID, err)
+	}
+	encoded, err := EncodeBuildAttemptIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseBuildAttemptIdentity(encoded)
+	if err != nil || parsed != first {
+		t.Fatalf("parsed identity = %+v, %v", parsed, err)
+	}
+	if _, err := ParseBuildAttemptIdentity(append(json.RawMessage{' '}, encoded...)); err == nil {
+		t.Fatal("noncanonical attempt identity was accepted")
+	}
+	forgedConfiguration := first
+	forgedConfiguration.BuilderDispatchDigest = otherConfiguration.BuilderDispatchDigest
+	if _, err := EncodeBuildAttemptIdentity(forgedConfiguration); err == nil {
+		t.Fatal("forged attempt configuration was accepted without a new invocation identity")
+	}
+	first.InvocationID = second.InvocationID
+	if _, err := EncodeBuildAttemptIdentity(first); err == nil {
+		t.Fatal("forged attempt invocation identity was accepted")
+	}
+}
+
 func TestBuildEffectResultCanonicalRoundTrip(t *testing.T) {
 	t.Parallel()
 

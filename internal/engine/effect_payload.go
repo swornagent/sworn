@@ -73,6 +73,24 @@ func EncodeBuildEffectResult(result BuildEffectResult) (json.RawMessage, error) 
 	return encodeCanonicalEffectPayload(result, "build effect result")
 }
 
+func EncodeBuildAttemptIdentity(identity BuildAttemptIdentity) (json.RawMessage, error) {
+	if err := validateBuildAttemptIdentity(identity); err != nil {
+		return nil, err
+	}
+	return encodeCanonicalEffectPayload(identity, "build attempt identity")
+}
+
+func ParseBuildAttemptIdentity(encoded json.RawMessage) (BuildAttemptIdentity, error) {
+	identity, err := decodeCanonicalEffectPayload[BuildAttemptIdentity](encoded, "build attempt identity")
+	if err != nil {
+		return BuildAttemptIdentity{}, err
+	}
+	if err := validateBuildAttemptIdentity(identity); err != nil {
+		return BuildAttemptIdentity{}, err
+	}
+	return identity, nil
+}
+
 func ParseBuildEffectResult(encoded json.RawMessage) (BuildEffectResult, error) {
 	result, err := decodeCanonicalEffectPayload[BuildEffectResult](encoded, "build effect result")
 	if err != nil {
@@ -166,6 +184,16 @@ func validateBuildEffectResult(result BuildEffectResult) error {
 		return errors.New("invalid build effect builder timestamps")
 	}
 	return validateCandidate(result.Candidate)
+}
+
+func validateBuildAttemptIdentity(identity BuildAttemptIdentity) error {
+	expected, err := BuildAttemptIdentityFor(
+		identity.EffectID, identity.EffectAttempt, identity.BuilderDispatchDigest,
+	)
+	if err != nil || identity != expected {
+		return errors.New("invalid build attempt identity")
+	}
+	return nil
 }
 
 func validateLocalCheckEffectRequest(request LocalCheckEffectRequest) error {

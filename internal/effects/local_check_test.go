@@ -99,7 +99,7 @@ func TestLocalCheckWorkerUsesJournalBuilderAndContentRuntimeForKnownOutcomes(t *
 	buildRequest, _ := json.Marshal(engine.BuildEffectRequest{
 		SchemaVersion: engine.BuildEffectRequestSchemaVersion, DeliveryRunID: "delivery-run",
 		DeliveryID: "delivery-1", WorkID: "work-1", WorkAttempt: 1,
-		DispatchDigest: testEffectDigest("a"),
+		DispatchDigest: testEffectDigest("a"), BuilderDispatchDigest: testEffectDigest("b"),
 	})
 	buildResult, err := engine.EncodeBuildEffectResult(engine.BuildEffectResult{
 		SchemaVersion: engine.BuildEffectResultSchemaVersion, Outcome: engine.BuildOutcomeCandidateReady,

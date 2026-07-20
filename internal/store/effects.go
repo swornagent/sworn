@@ -3,12 +3,15 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	effectworker "github.com/swornagent/sworn/internal/effects"
 	"github.com/swornagent/sworn/internal/engine"
 )
 
@@ -54,6 +57,23 @@ type EffectLease struct {
 	effect Effect
 }
 
+// BuildRecoveryLease is a Store-issued capability for one exact unknown,
+// unbound build attempt whose durable claimed witness has already validated.
+// It authorizes external cleanup inspection, not a lifecycle transition by
+// itself.
+type BuildRecoveryLease struct {
+	issuer    *leaseIssuer
+	effect    Effect
+	identity  engine.BuildAttemptIdentity
+	challenge string
+}
+
+func (lease BuildRecoveryLease) Invocation() engine.JournalEffect {
+	return journalEffect(lease.effect)
+}
+
+func (lease BuildRecoveryLease) Challenge() string { return lease.challenge }
+
 func (lease EffectLease) Invocation() engine.JournalEffect {
 	return engine.JournalEffect{
 		ID: lease.effect.ID, DeliveryRunID: lease.effect.DeliveryRunID,
@@ -79,16 +99,212 @@ func requireRunningLease(effect Effect, lease EffectLease) error {
 		)
 	}
 	if effect.DeliveryRunID != lease.effect.DeliveryRunID || effect.CommandID != lease.effect.CommandID ||
-		effect.Kind != lease.effect.Kind || !bytes.Equal(effect.Request, lease.effect.Request) {
+		effect.Ordinal != lease.effect.Ordinal || effect.Kind != lease.effect.Kind ||
+		!bytes.Equal(effect.Request, lease.effect.Request) {
 		return fmt.Errorf("effect %q no longer matches its issued lease", lease.effect.ID)
 	}
 	return nil
+}
+
+// PrepareNativeBuildExecution reloads and validates the Store-issued lease and
+// its durable attempt witness before the composition service may cross the
+// external builder boundary. It returns journal bytes from current Store truth,
+// never the claim-time lease projection.
+func (s *Store) PrepareNativeBuildExecution(
+	ctx context.Context,
+	lease EffectLease,
+) (engine.JournalEffect, error) {
+	if s.readOnly {
+		return engine.JournalEffect{}, errors.New("control store is read-only")
+	}
+	if err := s.validateEffectLease(lease); err != nil {
+		return engine.JournalEffect{}, err
+	}
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return engine.JournalEffect{}, fmt.Errorf("begin native build preparation: %w", err)
+	}
+	defer transaction.Rollback() //nolint:errcheck
+	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
+	if err != nil {
+		return engine.JournalEffect{}, err
+	}
+	if err := requireRunningLease(effect, lease); err != nil {
+		return engine.JournalEffect{}, err
+	}
+	if engine.EffectKind(effect.Kind) != engine.EffectBuild || len(effect.Result) != 0 {
+		return engine.JournalEffect{}, errors.New("native build execution requires an unbound running build")
+	}
+	if _, _, err := s.validateNativeBuildAttempt(ctx, transaction, effect); err != nil {
+		return engine.JournalEffect{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return engine.JournalEffect{}, fmt.Errorf("finish native build preparation: %w", err)
+	}
+	return journalEffect(effect), nil
 }
 
 // SucceededEffect returns one immutable typed journal fact for dependent
 // execution. It never treats an unbound artifact as an effect result.
 func (s *Store) SucceededEffect(ctx context.Context, effectID string) (engine.JournalEffect, error) {
 	return (journalResultResolver{query: s.db}).SucceededEffect(ctx, effectID)
+}
+
+// UnknownEffects exposes stopped journal facts for startup reconciliation. It
+// does not make them claimable or grant a lifecycle transition.
+func (s *Store) UnknownEffects(ctx context.Context) ([]engine.JournalEffect, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT effect_id, run_id, command_id, ordinal, kind, request_json, state,
+		       attempt, owner_id, receipt_json, last_error, created_at_us,
+		       started_at_us, completed_at_us
+		FROM effects WHERE state = 'unknown' ORDER BY created_at_us, effect_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list unknown effects: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var unknown []engine.JournalEffect
+	for rows.Next() {
+		effect, err := scanEffect(rows)
+		if err != nil {
+			return nil, err
+		}
+		unknown = append(unknown, journalEffect(effect))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unknown effects: %w", err)
+	}
+	return unknown, nil
+}
+
+func journalEffect(effect Effect) engine.JournalEffect {
+	return engine.JournalEffect{
+		ID: effect.ID, DeliveryRunID: effect.DeliveryRunID, Kind: engine.EffectKind(effect.Kind),
+		Attempt: effect.Attempt, Request: append(json.RawMessage(nil), effect.Request...),
+		Result: append(json.RawMessage(nil), effect.Result...),
+	}
+}
+
+func loadBuildAttemptIdentity(
+	ctx context.Context,
+	query rowQuerier,
+	effect Effect,
+) (engine.BuildAttemptIdentity, error) {
+	var encoded []byte
+	if err := query.QueryRowContext(ctx, `
+		SELECT receipt_json FROM effect_observations
+		WHERE effect_id = ? AND attempt = ? AND kind = 'claimed'`,
+		effect.ID, effect.Attempt,
+	).Scan(&encoded); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return engine.BuildAttemptIdentity{}, errors.New("build attempt predates the durable attempt witness")
+		}
+		return engine.BuildAttemptIdentity{}, fmt.Errorf("load build attempt identity: %w", err)
+	}
+	if len(encoded) == 0 {
+		return engine.BuildAttemptIdentity{}, errors.New("build attempt predates the durable attempt witness")
+	}
+	identity, err := engine.ParseBuildAttemptIdentity(encoded)
+	if err != nil {
+		return engine.BuildAttemptIdentity{}, fmt.Errorf("validate build attempt identity: %w", err)
+	}
+	request, err := engine.ParseBuildEffectRequest(effect.Request)
+	if err != nil || identity.EffectID != effect.ID || identity.EffectAttempt != effect.Attempt ||
+		identity.BuilderDispatchDigest != request.BuilderDispatchDigest {
+		return engine.BuildAttemptIdentity{}, errors.New("build attempt identity does not match its journal")
+	}
+	return identity, nil
+}
+
+// PrepareUnboundBuildRecovery validates journal authority before any caller is
+// permitted to inspect or remove attempt-owned external residue. Legacy or
+// corrupt claimed observations therefore stop without touching Git or disk.
+func (s *Store) PrepareUnboundBuildRecovery(
+	ctx context.Context,
+	effectID string,
+	expectedAttempt int64,
+) (BuildRecoveryLease, error) {
+	if s.readOnly {
+		return BuildRecoveryLease{}, errors.New("control store is read-only")
+	}
+	if !engine.ValidID(effectID) || expectedAttempt < 1 {
+		return BuildRecoveryLease{}, errors.New("valid build effect and attempt are required for recovery")
+	}
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return BuildRecoveryLease{}, fmt.Errorf("begin build recovery preparation: %w", err)
+	}
+	defer transaction.Rollback() //nolint:errcheck
+	effect, err := loadEffect(ctx, transaction, effectID)
+	if err != nil {
+		return BuildRecoveryLease{}, err
+	}
+	if effect.State != EffectUnknown || effect.Attempt != expectedAttempt {
+		return BuildRecoveryLease{}, fmt.Errorf(
+			"effect %q is %s at attempt %d, want unknown at attempt %d",
+			effectID, effect.State, effect.Attempt, expectedAttempt,
+		)
+	}
+	identity, _, err := s.validateNativeBuildAttempt(ctx, transaction, effect)
+	if err != nil {
+		return BuildRecoveryLease{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return BuildRecoveryLease{}, fmt.Errorf("finish build recovery preparation: %w", err)
+	}
+	challenge, err := newBuildRecoveryChallenge()
+	if err != nil {
+		return BuildRecoveryLease{}, err
+	}
+	return BuildRecoveryLease{
+		issuer: s.leaseIssuer, effect: cloneEffect(effect), identity: identity, challenge: challenge,
+	}, nil
+}
+
+func newBuildRecoveryChallenge() (string, error) {
+	var contents [32]byte
+	if _, err := rand.Read(contents[:]); err != nil {
+		return "", fmt.Errorf("generate build recovery challenge: %w", err)
+	}
+	return "recovery-" + hex.EncodeToString(contents[:]), nil
+}
+
+func (s *Store) validateNativeBuildAttempt(
+	ctx context.Context,
+	query rowQuerier,
+	effect Effect,
+) (engine.BuildAttemptIdentity, engine.State, error) {
+	if engine.EffectKind(effect.Kind) != engine.EffectBuild || len(effect.Result) != 0 {
+		return engine.BuildAttemptIdentity{}, engine.State{},
+			errors.New("native build attempt requires a build without a result")
+	}
+	identity, err := loadBuildAttemptIdentity(ctx, query, effect)
+	if err != nil {
+		return engine.BuildAttemptIdentity{}, engine.State{}, err
+	}
+	request, err := engine.ParseBuildEffectRequest(effect.Request)
+	if err != nil || request.SchemaVersion != engine.BuildEffectRequestSchemaVersion {
+		return engine.BuildAttemptIdentity{}, engine.State{},
+			errors.New("native build attempt requires a native build request")
+	}
+	state, found, err := loadState(ctx, query, effect.DeliveryRunID)
+	if err != nil || !found {
+		return engine.BuildAttemptIdentity{}, engine.State{},
+			errors.New("native build attempt cannot resolve its delivery state")
+	}
+	matchedWork := false
+	for _, work := range state.Work {
+		matchedWork = matchedWork || work.ID == request.WorkID &&
+			work.Attempt == request.WorkAttempt && work.State == engine.WorkActive
+	}
+	if s.builderDispatchDigest == "" || s.repository == nil || !matchedWork ||
+		s.repository.Binding().RepositoryID != state.Repository ||
+		request.DeliveryRunID != state.RunID || request.DeliveryID != state.DeliveryID ||
+		request.BuilderDispatchDigest != s.builderDispatchDigest ||
+		identity.BuilderDispatchDigest != s.builderDispatchDigest {
+		return engine.BuildAttemptIdentity{}, engine.State{},
+			errors.New("native build attempt does not match its current journal and configuration")
+	}
+	return identity, state, nil
 }
 
 func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLease, error) {
@@ -138,13 +354,41 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 	if err != nil {
 		return EffectLease{}, err
 	}
-	if err := insertObservation(ctx, transaction, effect, "claimed", nil, "", now); err != nil {
+	claimReceipt, err := s.claimReceipt(effect)
+	if err != nil {
+		return EffectLease{}, err
+	}
+	if err := insertObservation(ctx, transaction, effect, "claimed", claimReceipt, "", now); err != nil {
 		return EffectLease{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return EffectLease{}, fmt.Errorf("commit effect claim: %w", err)
 	}
 	return EffectLease{issuer: s.leaseIssuer, effect: cloneEffect(effect)}, nil
+}
+
+func (s *Store) claimReceipt(effect Effect) (json.RawMessage, error) {
+	if engine.EffectKind(effect.Kind) != engine.EffectBuild {
+		return nil, nil
+	}
+	request, err := engine.ParseBuildEffectRequest(effect.Request)
+	if err != nil {
+		return nil, fmt.Errorf("parse claimed build request: %w", err)
+	}
+	if request.SchemaVersion == engine.LegacyBuildEffectRequestSchemaVersion {
+		return nil, nil
+	}
+	if request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+		s.builderDispatchDigest == "" || request.BuilderDispatchDigest != s.builderDispatchDigest {
+		return nil, errors.New("build effect does not match the configured builder dispatch")
+	}
+	identity, err := engine.BuildAttemptIdentityFor(
+		effect.ID, effect.Attempt, request.BuilderDispatchDigest,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return engine.EncodeBuildAttemptIdentity(identity)
 }
 
 // BindEffectResult durably binds one canonical, kind-specific result to the
@@ -223,6 +467,17 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 	}
 	if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, effect.Result); err != nil {
 		return err
+	}
+	if engine.EffectKind(effect.Kind) == engine.EffectBuild {
+		request, err := engine.ParseBuildEffectRequest(effect.Request)
+		if err != nil {
+			return err
+		}
+		if request.SchemaVersion == engine.BuildEffectRequestSchemaVersion {
+			if err := s.ensureBoundBuildPublished(ctx, transaction, effect); err != nil {
+				return err
+			}
+		}
 	}
 	now := s.now().UTC().UnixMicro()
 	update, err := transaction.ExecContext(ctx, `
@@ -404,29 +659,8 @@ func (s *Store) RecoverBoundEffect(
 		return err
 	}
 	if engine.EffectKind(effect.Kind) == engine.EffectBuild {
-		if s.repository == nil {
-			return errors.New("bound build recovery requires the immutable configured repository")
-		}
-		state, found, stateErr := loadState(ctx, transaction, effect.DeliveryRunID)
-		request, requestErr := engine.ParseBuildEffectRequest(effect.Request)
-		build, parseErr := engine.ParseBuildEffectResult(effect.Result)
-		if stateErr != nil || requestErr != nil || parseErr != nil || !found ||
-			s.repository.Binding().RepositoryID != state.Repository ||
-			request.DeliveryRunID != state.RunID || request.DeliveryID != state.DeliveryID ||
-			build.Candidate.RepositoryID != state.Repository || build.Candidate.TargetRef != state.TargetRef {
-			return errors.New("bound build recovery does not match its delivery repository and target")
-		}
-		matchedAttempt := false
-		for _, work := range state.Work {
-			matchedAttempt = matchedAttempt || work.ID == request.WorkID &&
-				work.Attempt == request.WorkAttempt &&
-				(effect.State == EffectSucceeded || work.State == engine.WorkActive)
-		}
-		if !matchedAttempt {
-			return errors.New("bound build recovery does not match its current work attempt")
-		}
-		if err := s.repository.EnsureCandidate(ctx, build.Candidate); err != nil {
-			return fmt.Errorf("repair bound build candidate: %w", err)
+		if err := s.ensureBoundBuildPublished(ctx, transaction, effect); err != nil {
+			return err
 		}
 	}
 	if effect.State == EffectSucceeded {
@@ -449,6 +683,150 @@ func (s *Store) RecoverBoundEffect(
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit bound-effect recovery: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureBoundBuildPublished(
+	ctx context.Context,
+	query rowQuerier,
+	effect Effect,
+) error {
+	if s.repository == nil {
+		return errors.New("bound build success requires the immutable configured repository")
+	}
+	state, found, stateErr := loadState(ctx, query, effect.DeliveryRunID)
+	request, requestErr := engine.ParseBuildEffectRequest(effect.Request)
+	build, resultErr := engine.ParseBuildEffectResult(effect.Result)
+	if stateErr != nil || requestErr != nil || resultErr != nil || !found ||
+		s.repository.Binding().RepositoryID != state.Repository ||
+		request.DeliveryRunID != state.RunID || request.DeliveryID != state.DeliveryID ||
+		build.Candidate.RepositoryID != state.Repository || build.Candidate.TargetRef != state.TargetRef {
+		return errors.New("bound build success does not match its configured delivery repository and target")
+	}
+	matchedAttempt := false
+	for _, work := range state.Work {
+		matchedAttempt = matchedAttempt || work.ID == request.WorkID &&
+			work.Attempt == request.WorkAttempt &&
+			(effect.State == EffectSucceeded || work.State == engine.WorkActive)
+	}
+	if !matchedAttempt {
+		return errors.New("bound build success does not match its current work attempt")
+	}
+	if request.SchemaVersion == engine.LegacyBuildEffectRequestSchemaVersion {
+		if err := s.repository.EnsureCandidate(ctx, build.Candidate); err != nil {
+			return fmt.Errorf("repair legacy bound build candidate: %w", err)
+		}
+		return nil
+	}
+	if request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+		request.BuilderDispatchDigest != s.builderDispatchDigest {
+		return errors.New("bound build success does not match its configured native dispatch")
+	}
+	plan, err := loadExactPlan(ctx, query, state.PlanDigest)
+	if err != nil {
+		return fmt.Errorf("load bound build plan: %w", err)
+	}
+	contract, exists := plan.Work(request.WorkID)
+	if !exists || contract.Digest() != request.DispatchDigest {
+		return errors.New("bound build success does not match its exact work contract")
+	}
+	attempt, err := engine.BuildAttemptIdentityFor(
+		effect.ID, effect.Attempt, request.BuilderDispatchDigest,
+	)
+	if err != nil {
+		return err
+	}
+	if err := s.repository.EnsureAttemptCandidate(ctx, attempt.InvocationID, build.Candidate); err != nil {
+		return fmt.Errorf("publish bound build candidate: %w", err)
+	}
+	return nil
+}
+
+// RecoverUnboundBuildEffect consumes the exact prevalidated Store lease and
+// composite proof minted by the configured builder only after unpublished Git
+// state and all attempt-owned cleanup have been established. They are valid
+// only while the command service retains exclusive controller ownership.
+func (s *Store) RecoverUnboundBuildEffect(
+	ctx context.Context,
+	lease BuildRecoveryLease,
+	reconcilerID string,
+	proof effectworker.BuildRetryProof,
+) error {
+	if s.readOnly {
+		return errors.New("control store is read-only")
+	}
+	if lease.issuer == nil || lease.issuer != s.leaseIssuer ||
+		lease.effect.State != EffectUnknown || !engine.ValidID(reconcilerID) {
+		return errors.New("unbound build recovery requires a current Store-issued lease and reconciler")
+	}
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin unbound build recovery: %w", err)
+	}
+	defer transaction.Rollback() //nolint:errcheck
+	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
+	if err != nil {
+		return err
+	}
+	if effect.Attempt != lease.effect.Attempt ||
+		(effect.State != EffectUnknown && effect.State != EffectPending) ||
+		effect.DeliveryRunID != lease.effect.DeliveryRunID ||
+		effect.CommandID != lease.effect.CommandID || effect.Ordinal != lease.effect.Ordinal ||
+		effect.Kind != lease.effect.Kind || !bytes.Equal(effect.Request, lease.effect.Request) {
+		return fmt.Errorf(
+			"effect %q no longer matches its unknown recovery lease", lease.effect.ID,
+		)
+	}
+	identity, state, err := s.validateNativeBuildAttempt(ctx, transaction, effect)
+	if err != nil {
+		return err
+	}
+	if identity != lease.identity || proof.EffectID() != effect.ID ||
+		proof.EffectAttempt() != effect.Attempt || proof.InvocationID() != identity.InvocationID ||
+		proof.RecoveryChallenge() != lease.challenge ||
+		proof.BuilderDispatchDigest() != identity.BuilderDispatchDigest ||
+		proof.RepositoryID() != state.Repository || proof.TargetRef() != state.TargetRef ||
+		proof.WritableCleanup().InvocationID() != identity.InvocationID ||
+		proof.Unpublished().RepositoryID() != state.Repository ||
+		proof.Unpublished().AttemptID() != identity.InvocationID {
+		return errors.New("unbound build recovery proof does not match its current journal and configuration")
+	}
+	encodedIdentity, err := engine.EncodeBuildAttemptIdentity(identity)
+	if err != nil {
+		return err
+	}
+	if effect.State == EffectPending {
+		var receipt []byte
+		if err := transaction.QueryRowContext(ctx, `
+			SELECT receipt_json FROM effect_observations
+			WHERE effect_id = ? AND attempt = ? AND kind = 'not_applied'`,
+			effect.ID, effect.Attempt,
+		).Scan(&receipt); err != nil || !bytes.Equal(receipt, encodedIdentity) {
+			return errors.New("pending build retry lacks its exact not-applied witness")
+		}
+		return nil
+	}
+	now := s.now().UTC().UnixMicro()
+	effect.OwnerID = reconcilerID
+	if err := insertObservation(ctx, transaction, effect, "not_applied", encodedIdentity, "", now); err != nil {
+		return err
+	}
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE effects
+		SET state = 'pending', owner_id = NULL, started_at_us = NULL,
+		    completed_at_us = NULL, last_error = NULL
+		WHERE effect_id = ? AND state = 'unknown' AND attempt = ? AND receipt_json IS NULL`,
+		effect.ID, effect.Attempt,
+	)
+	if err != nil {
+		return fmt.Errorf("requeue reconciled build effect %q: %w", effect.ID, err)
+	}
+	if err := requireOneRow(result, "requeue reconciled build effect "+effect.ID); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit unbound build recovery: %w", err)
 	}
 	return nil
 }

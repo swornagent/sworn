@@ -49,6 +49,41 @@ func TestBuildClaimWitnessFailureRollsBackAttempt(t *testing.T) {
 	}
 }
 
+func TestNativeBuildExecutionRequiresCurrentStoreLease(t *testing.T) {
+	fixture := newBuildRetryFixture(t)
+	ctx := context.Background()
+	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := OpenConfigured(ctx, fixture.controlPath, ControlConfiguration{
+		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
+		BuilderDispatchDigest:           fixture.builderDispatchDigest,
+		Repository:                      fixture.repository,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	if _, err := peer.PrepareNativeBuildExecution(ctx, lease); err == nil ||
+		!strings.Contains(err.Error(), "store-issued lease") {
+		t.Fatalf("foreign native build lease preparation error = %v", err)
+	}
+	invocation, err := fixture.control.PrepareNativeBuildExecution(ctx, lease)
+	if err != nil || invocation.ID != lease.Invocation().ID || invocation.Attempt != lease.Invocation().Attempt ||
+		len(invocation.Result) != 0 {
+		t.Fatalf("prepared native build invocation = %+v, %v", invocation, err)
+	}
+	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
+	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.control.PrepareNativeBuildExecution(ctx, lease); err == nil ||
+		!strings.Contains(err.Error(), "unbound running build") {
+		t.Fatalf("already-bound native build preparation error = %v", err)
+	}
+}
+
 func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
@@ -80,12 +115,12 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, 1, nil)
 
-	proof, err := fixture.worker.ReconcileUnbound(ctx, recovery.Invocation())
+	proof, err := fixture.worker.ReconcileUnbound(ctx, recovery.Invocation(), recovery.Challenge())
 	if err != nil {
 		t.Fatalf("mint first build retry proof: %v", err)
 	}
 	if proof.InvocationID() != firstIdentity.InvocationID ||
-		proof.DispatchDigest() != fixture.builderDispatchDigest {
+		proof.BuilderDispatchDigest() != fixture.builderDispatchDigest {
 		t.Fatalf("first build retry proof does not match claim: proof=%s identity=%+v", proof.InvocationID(), firstIdentity)
 	}
 	if _, err := fixture.control.db.ExecContext(ctx, `
@@ -211,8 +246,208 @@ func TestBuildRetryPreparationLeavesCorruptNullClaimWitnessStopped(t *testing.T)
 	}
 }
 
+func TestBuildRecoveryLeaseCannotCrossStoreBoundary(t *testing.T) {
+	first := newBuildRetryFixture(t)
+	second := newBuildRetryFixture(t)
+	ctx := context.Background()
+	lease, err := first.control.ClaimNextEffect(ctx, "builder-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := first.control.RecoverInterruptedEffects(ctx, "builder stopped"); err != nil || recovered != 1 {
+		t.Fatalf("mark first Store attempt unknown = %d, %v", recovered, err)
+	}
+	recovery, err := first.control.PrepareUnboundBuildRecovery(ctx, first.effectID, lease.Invocation().Attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := first.worker.ReconcileUnbound(ctx, recovery.Invocation(), recovery.Challenge())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.control.RecoverUnboundBuildEffect(
+		ctx, recovery, "reconciler-2", proof,
+	); err == nil || !strings.Contains(err.Error(), "Store-issued lease") {
+		t.Fatalf("cross-Store recovery lease error = %v", err)
+	}
+	assertBuildRetryUnknown(t, first.control, first.effectID, lease.Invocation().Attempt, nil)
+}
+
+func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
+	fixture := newBuildRetryFixture(t)
+	ctx := context.Background()
+	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "builder stopped"); err != nil || recovered != 1 {
+		t.Fatalf("mark equivalent Store attempt unknown = %d, %v", recovered, err)
+	}
+	firstRecovery, err := fixture.control.PrepareUnboundBuildRecovery(
+		ctx, fixture.effectID, lease.Invocation().Attempt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := OpenConfigured(ctx, fixture.controlPath, ControlConfiguration{
+		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
+		BuilderDispatchDigest:           fixture.builderDispatchDigest,
+		Repository:                      fixture.repository,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	peerRecovery, err := peer.PrepareUnboundBuildRecovery(
+		ctx, fixture.effectID, lease.Invocation().Attempt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRecovery.Challenge() == peerRecovery.Challenge() {
+		t.Fatal("independent Store recovery leases reused a challenge")
+	}
+	firstProof, err := fixture.worker.ReconcileUnbound(
+		ctx, firstRecovery.Invocation(), firstRecovery.Challenge(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.RecoverUnboundBuildEffect(
+		ctx, peerRecovery, "peer-reconciler", firstProof,
+	); err == nil || !strings.Contains(err.Error(), "proof does not match") {
+		t.Fatalf("cross-Store recovery proof error = %v", err)
+	}
+	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, lease.Invocation().Attempt, nil)
+	peerProof, err := fixture.worker.ReconcileUnbound(
+		ctx, peerRecovery.Invocation(), peerRecovery.Challenge(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.RecoverUnboundBuildEffect(
+		ctx, peerRecovery, "peer-reconciler", peerProof,
+	); err != nil {
+		t.Fatalf("matching peer recovery proof: %v", err)
+	}
+}
+
+func TestNativeBuildCompletionPublishesAttemptBeforeSuccess(t *testing.T) {
+	fixture := newBuildRetryFixture(t)
+	ctx := context.Background()
+	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := durableBuildRetryIdentity(t, fixture.control, lease)
+	runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", "-d", fixture.candidate.Ref)
+	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
+	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+		t.Fatal(err)
+	}
+	if refs := nativeBuildRefs(t, fixture.repository); refs != "" {
+		t.Fatalf("bound native result published before completion: %s", refs)
+	}
+	if err := fixture.control.CompleteEffect(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	assertNativeBuildRefs(t, fixture.repository, fixture.candidate, identity.InvocationID)
+	journal, err := fixture.control.SucceededEffect(ctx, fixture.effectID)
+	if err != nil || !bytes.Equal(journal.Result, result) {
+		t.Fatalf("completed native build = %+v, %v", journal, err)
+	}
+}
+
+func TestNativeBuildCompletionRejectsAttemptPublicationCollision(t *testing.T) {
+	fixture := newBuildRetryFixture(t)
+	ctx := context.Background()
+	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := durableBuildRetryIdentity(t, fixture.control, lease)
+	attemptRef := "refs/sworn/v1/attempts/" + identity.InvocationID
+	runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", attemptRef, fixture.candidate.BaseCommit)
+	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
+	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.control.CompleteEffect(ctx, lease); err == nil ||
+		!strings.Contains(err.Error(), "collision") {
+		t.Fatalf("colliding native completion error = %v", err)
+	}
+	running, err := listEffects(ctx, fixture.control, EffectRunning)
+	if err != nil || len(running) != 1 || running[0].ID != fixture.effectID ||
+		!bytes.Equal(running[0].Result, result) {
+		t.Fatalf("publication collision changed native journal = %+v, %v", running, err)
+	}
+}
+
+func TestBoundNativeBuildRecoveryConvergesAcrossPublicationCrashCuts(t *testing.T) {
+	for _, prepublished := range []bool{false, true} {
+		name := "before publication"
+		if prepublished {
+			name = "after publication"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newBuildRetryFixture(t)
+			ctx := context.Background()
+			lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := durableBuildRetryIdentity(t, fixture.control, lease)
+			result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
+			if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+				t.Fatal(err)
+			}
+			runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", "-d", fixture.candidate.Ref)
+			if prepublished {
+				if err := fixture.repository.EnsureAttemptCandidate(
+					ctx, identity.InvocationID, fixture.candidate,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recovered, err := fixture.control.RecoverInterruptedEffects(
+				ctx, "controller stopped after binding",
+			); err != nil || recovered != 1 {
+				t.Fatalf("mark bound native attempt unknown = %d, %v", recovered, err)
+			}
+			if err := fixture.control.RecoverBoundEffect(
+				ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-1",
+			); err != nil {
+				t.Fatal(err)
+			}
+			assertNativeBuildRefs(t, fixture.repository, fixture.candidate, identity.InvocationID)
+		})
+	}
+}
+
+func nativeBuildRefs(t *testing.T, repository *repo.Repository) string {
+	t.Helper()
+	return strings.TrimSpace(runAtomicAdmissionGit(
+		t, repository.Root(), "for-each-ref", "--format=%(refname)", "refs/sworn/v1",
+	))
+}
+
+func assertNativeBuildRefs(
+	t *testing.T,
+	repository *repo.Repository,
+	candidate repo.Candidate,
+	invocationID string,
+) {
+	t.Helper()
+	for _, ref := range []string{candidate.Ref, "refs/sworn/v1/attempts/" + invocationID} {
+		if got := strings.TrimSpace(runAtomicAdmissionGit(t, repository.Root(), "rev-parse", ref)); got != candidate.Commit {
+			t.Fatalf("native build ref %s = %s, want %s", ref, got, candidate.Commit)
+		}
+	}
+}
+
 type buildRetryFixture struct {
 	control               *Store
+	controlPath           string
 	repository            *repo.Repository
 	candidate             repo.Candidate
 	worker                effects.BuilderWorker
@@ -235,7 +470,7 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 	}
 	worker := effects.BuilderWorker{
 		Control:       inertBuildRetryControl{},
-		Runner:        effects.LinuxBuilderRunner{Executor: contained},
+		Runner:        contained,
 		Repository:    repository,
 		WorkspaceRoot: workspaceRoot,
 		Agent:         "store-build-retry-test",
@@ -246,7 +481,8 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control, err := OpenConfigured(ctx, filepath.Join(t.TempDir(), "control.db"), ControlConfiguration{
+	controlPath := filepath.Join(t.TempDir(), "control.db")
+	control, err := OpenConfigured(ctx, controlPath, ControlConfiguration{
 		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
 		BuilderDispatchDigest:           builderDispatchDigest,
 		Repository:                      repository,
@@ -282,7 +518,7 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 		t.Fatalf("dispatch native builder = %+v, %v", result, err)
 	}
 	return buildRetryFixture{
-		control: control, repository: repository, candidate: candidate,
+		control: control, controlPath: controlPath, repository: repository, candidate: candidate,
 		worker: worker, builderDispatchDigest: builderDispatchDigest, effectID: result.EffectIDs[0],
 	}
 }

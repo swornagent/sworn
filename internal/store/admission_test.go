@@ -307,9 +307,10 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 	t.Helper()
 	ctx := context.Background()
 	repository, candidate := atomicAdmissionCandidate(t, options.outOfScopeCandidate)
-	configuration := ControlConfiguration{LocalCheckRuntimeManifestDigest: dispatchRuntimeDigest}
-	if !options.withoutRepository {
-		configuration.Repository = repository
+	configuration := ControlConfiguration{
+		LocalCheckRuntimeManifestDigest: dispatchRuntimeDigest,
+		BuilderDispatchDigest:           dispatchDigest,
+		Repository:                      repository,
 	}
 	control, err := OpenConfigured(ctx, filepath.Join(t.TempDir(), "control.db"), configuration)
 	if err != nil {
@@ -346,8 +347,10 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 		t.Fatalf("activate admission delivery = %+v, %v", result, err)
 	}
 	contract, _ := plan.Work(workID)
+	control.builderDispatchDigest = contract.Digest()
 	build := testCommand(t, "cmd-build", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: workID, DispatchDigest: contract.Digest(),
+		BuilderDispatchDigest: control.builderDispatchDigest,
 	})
 	buildDispatch, err := control.Apply(ctx, build)
 	if err != nil || len(buildDispatch.EffectIDs) != 1 {
@@ -414,6 +417,9 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 	}
 	if options.removeCandidateRetention {
 		runAtomicAdmissionGit(t, repository.Root(), "update-ref", "-d", candidate.Ref)
+	}
+	if options.withoutRepository {
+		control.repository = nil
 	}
 	return fixture
 }

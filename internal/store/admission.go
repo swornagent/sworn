@@ -44,7 +44,9 @@ func (s *Store) prepareAdmission(
 		return nil, err
 	}
 	resolver := journalResultResolver{query: transaction}
-	_, build, err := resolveAttemptBuilder(ctx, resolver, current, attempt, payload.BuilderEffectID)
+	_, build, err := resolveAttemptBuilder(
+		ctx, resolver, current, attempt, payload.BuilderEffectID, s.builderDispatchDigest,
+	)
 	if err != nil {
 		return nil, err
 	}

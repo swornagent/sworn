@@ -102,6 +102,20 @@ func TestOpenConfiguredRequiresExactLocalCheckRuntime(t *testing.T) {
 	}
 }
 
+func TestOpenConfiguredRequiresRepositoryWithNativeBuilder(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "control.db")
+	if control, err := OpenConfigured(context.Background(), path, ControlConfiguration{
+		BuilderDispatchDigest: "sha256:" + strings.Repeat("b", 64),
+	}); err == nil {
+		_ = control.Close()
+		t.Fatal("OpenConfigured accepted a native builder without its repository")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("rejected native builder open created a control store: %v", err)
+	}
+}
+
 func TestOpenConfiguredBindsRepositoryForStoreLifetime(t *testing.T) {
 	t.Parallel()
 	repository := &repo.Repository{}
@@ -162,7 +176,9 @@ func TestOpenRejectsForeignApplicationAndNewerSchema(t *testing.T) {
 
 func openTestStore(t *testing.T, path string) *Store {
 	t.Helper()
-	control, err := Open(context.Background(), path)
+	control, err := OpenConfigured(context.Background(), path, ControlConfiguration{
+		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
+	})
 	if err != nil {
 		t.Fatalf("Open(%q): %v", path, err)
 	}

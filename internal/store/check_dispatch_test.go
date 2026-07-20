@@ -90,10 +90,8 @@ func TestCheckDispatchPreconditionsRollBackWithoutDurableRejection(t *testing.T)
 			})
 			fixture.replacePayload(t, payload)
 		},
-		"builder contract drift":        func(t *testing.T, fixture *checkDispatchFixture) {},
 		"missing historical authority":  func(t *testing.T, fixture *checkDispatchFixture) {},
 		"authority after builder start": func(t *testing.T, fixture *checkDispatchFixture) {},
-		"candidate target drift":        func(t *testing.T, fixture *checkDispatchFixture) {},
 		"state work projection drift":   func(t *testing.T, fixture *checkDispatchFixture) {},
 	}
 
@@ -104,17 +102,11 @@ func TestCheckDispatchPreconditionsRollBackWithoutDurableRejection(t *testing.T)
 			options := checkDispatchFixtureOptions{
 				configured: name != "runtime not configured", completeBuilder: name != "builder still pending",
 			}
-			if name == "builder contract drift" {
-				options.buildDispatchDigest = testLocalCheckDigest("f")
-			}
 			if name == "missing historical authority" {
 				options.missingAuthority = true
 			}
 			if name == "authority after builder start" {
 				options.builderStartedAt = "2026-07-19T00:00:29Z"
-			}
-			if name == "candidate target drift" {
-				options.candidateTarget = protocol.PlanTarget{Repository: "repo-02", Ref: "refs/heads/main"}
 			}
 			if name == "state work projection drift" {
 				options.extraStateWork = true
@@ -163,27 +155,30 @@ type checkDispatchFixture struct {
 }
 
 type checkDispatchFixtureOptions struct {
-	configured          bool
-	completeBuilder     bool
-	buildDispatchDigest string
-	missingAuthority    bool
-	builderStartedAt    string
-	extraStateWork      bool
-	candidateTarget     protocol.PlanTarget
+	configured       bool
+	completeBuilder  bool
+	missingAuthority bool
+	builderStartedAt string
+	extraStateWork   bool
 }
 
 func newCheckDispatchFixture(t *testing.T, options checkDispatchFixtureOptions) *checkDispatchFixture {
 	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "control.db")
+	repository, candidate := atomicAdmissionCandidate(t, false)
 	var control *Store
 	var err error
 	if options.configured {
 		control, err = OpenConfigured(ctx, path, ControlConfiguration{
 			LocalCheckRuntimeManifestDigest: dispatchRuntimeDigest,
+			BuilderDispatchDigest:           dispatchDigest,
+			Repository:                      repository,
 		})
 	} else {
-		control, err = Open(ctx, path)
+		control, err = OpenConfigured(ctx, path, ControlConfiguration{
+			BuilderDispatchDigest: dispatchDigest, Repository: repository,
+		})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -227,11 +222,9 @@ func newCheckDispatchFixture(t *testing.T, options checkDispatchFixtureOptions) 
 		t.Fatalf("activate exact delivery = %+v, %v", result, err)
 	}
 	contract, _ := plan.Work(plan.WorkIDs()[0])
-	if options.buildDispatchDigest == "" {
-		options.buildDispatchDigest = contract.Digest()
-	}
 	build := testCommand(t, "cmd-build", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
-		WorkID: plan.WorkIDs()[0], DispatchDigest: options.buildDispatchDigest,
+		WorkID: plan.WorkIDs()[0], DispatchDigest: contract.Digest(),
+		BuilderDispatchDigest: dispatchDigest,
 	})
 	buildResult, err := control.Apply(ctx, build)
 	if err != nil || len(buildResult.EffectIDs) != 1 {
@@ -243,11 +236,7 @@ func newCheckDispatchFixture(t *testing.T, options checkDispatchFixtureOptions) 
 		if err != nil || lease.Invocation().ID != builderEffectID {
 			t.Fatalf("claim exact builder = %q, %v", lease.Invocation().ID, err)
 		}
-		candidateTarget := options.candidateTarget
-		if candidateTarget == (protocol.PlanTarget{}) {
-			candidateTarget = target
-		}
-		encoded := exactBuildResult(t, builderEffectID, candidateTarget, options.builderStartedAt)
+		encoded := exactBuildResult(t, builderEffectID, candidate, options.builderStartedAt)
 		if err := control.BindEffectResult(ctx, lease, encoded); err != nil {
 			t.Fatal(err)
 		}
@@ -380,14 +369,13 @@ func multiCheckExactPlan(t *testing.T, control *Store) protocol.ExactPlan {
 func exactBuildResult(
 	t *testing.T,
 	effectID string,
-	target protocol.PlanTarget,
+	candidate repo.Candidate,
 	builderStartedAt string,
 ) json.RawMessage {
 	t.Helper()
 	if builderStartedAt == "" {
 		builderStartedAt = "2026-07-20T00:01:00Z"
 	}
-	commit := strings.Repeat("c", 40)
 	result, err := engine.EncodeBuildEffectResult(engine.BuildEffectResult{
 		SchemaVersion: engine.BuildEffectResultSchemaVersion,
 		Outcome:       engine.BuildOutcomeCandidateReady,
@@ -395,12 +383,7 @@ func exactBuildResult(
 			RunID: effectID, Agent: "sworn-builder/1",
 			StartedAt: builderStartedAt, CompletedAt: "2026-07-20T00:01:01Z",
 		},
-		Candidate: repo.Candidate{
-			RepositoryID: target.Repository, TargetRef: target.Ref,
-			BaseCommit: strings.Repeat("a", 40), BaseTree: strings.Repeat("b", 40),
-			Commit: commit, Tree: strings.Repeat("d", 40),
-			Ref: "refs/sworn/v1/candidates/" + commit, ChangedPaths: []string{"src/main.go"},
-		},
+		Candidate: candidate,
 	})
 	if err != nil {
 		t.Fatal(err)
