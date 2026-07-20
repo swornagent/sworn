@@ -10,7 +10,7 @@ import (
 
 var errLinuxRequired = errors.New("the contained executor requires Linux")
 
-type LinuxExecutor struct{}
+type LinuxExecutor struct{ options Options }
 
 func NewLinux(Options) (*LinuxExecutor, error) {
 	return nil, errLinuxRequired
@@ -21,6 +21,10 @@ func (*LinuxExecutor) Probe(context.Context) (ProbeReport, error) {
 }
 
 func (*LinuxExecutor) EffectiveLimits() Limits { return Limits{} }
+
+func (executor *LinuxExecutor) ConfigurationDigest() string {
+	return executorConfigurationDigest(executor.options)
+}
 
 func (*LinuxExecutor) RunContentBound(context.Context, Invocation, RuntimeTree) (RawCompletion, error) {
 	return RawCompletion{}, errLinuxRequired
@@ -36,6 +40,10 @@ func (*LinuxExecutor) ValidateExport(context.Context, WorkspaceExport) error {
 
 func (*LinuxExecutor) DiscardExport(context.Context, WorkspaceExport) error {
 	return errLinuxRequired
+}
+
+func (*LinuxExecutor) ReconcileWritable(context.Context, string) (WritableCleanup, error) {
+	return WritableCleanup{}, errLinuxRequired
 }
 
 func MeasureWorkspace(context.Context, string, uint64) (string, uint64, error) {

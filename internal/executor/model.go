@@ -136,6 +136,18 @@ type WorkspaceExport struct {
 	Bytes         uint64 `json:"bytes"`
 }
 
+// WritableCleanup is an opaque proof that one exact writable invocation was
+// quiescent and had all executor-owned residues removed. Only
+// ReconcileWritable can mint a non-zero proof.
+type WritableCleanup struct {
+	invocationID string
+	proof        *writableCleanupProof
+}
+
+type writableCleanupProof struct{}
+
+func (cleanup WritableCleanup) InvocationID() string { return cleanup.invocationID }
+
 type RawCompletion struct {
 	InvocationID    string           `json:"invocation_id"`
 	Unit            string           `json:"unit"`

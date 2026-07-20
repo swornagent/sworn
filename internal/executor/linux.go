@@ -35,6 +35,8 @@ type LinuxExecutor struct {
 }
 
 func NewLinux(options Options) (*LinuxExecutor, error) {
+	options.ShimArgv = append([]string(nil), options.ShimArgv...)
+	options.AllowedEnvironment = append([]string(nil), options.AllowedEnvironment...)
 	if options.Limits == (Limits{}) {
 		options.Limits = DefaultLimits()
 	}
@@ -165,6 +167,10 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 
 func (executor *LinuxExecutor) EffectiveLimits() Limits { return executor.options.Limits }
 
+func (executor *LinuxExecutor) ConfigurationDigest() string {
+	return executorConfigurationDigest(executor.options)
+}
+
 // RunContentBound executes a read-only invocation with an exact runtime tree
 // staged at /usr.
 func (executor *LinuxExecutor) RunContentBound(
@@ -203,9 +209,23 @@ func (executor *LinuxExecutor) runInvocation(
 	if _, err := executor.Probe(ctx); err != nil {
 		return RawCompletion{}, err
 	}
-	runRoot, err := os.MkdirTemp(executor.options.RuntimeRoot, "invocation-")
-	if err != nil {
-		return RawCompletion{}, fmt.Errorf("create executor runtime: %w", err)
+	var (
+		runRoot string
+		err     error
+	)
+	if writable {
+		runRoot = executor.writableRuntimePath(invocation.ID)
+		if err := os.Mkdir(runRoot, 0o700); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return RawCompletion{}, fmt.Errorf("writable invocation %q has unreconciled runtime residue", invocation.ID)
+			}
+			return RawCompletion{}, fmt.Errorf("create writable executor runtime: %w", err)
+		}
+	} else {
+		runRoot, err = os.MkdirTemp(executor.options.RuntimeRoot, "invocation-")
+		if err != nil {
+			return RawCompletion{}, fmt.Errorf("create executor runtime: %w", err)
+		}
 	}
 	defer func() {
 		if err := removePrivateTree(runRoot); err != nil {

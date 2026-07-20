@@ -4,7 +4,7 @@ package executor
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,13 +23,132 @@ const (
 	workspaceGenerationBytes = 16
 )
 
-func (executor *LinuxExecutor) RunWritable(ctx context.Context, invocation Invocation) (RawCompletion, error) {
+func (executor *LinuxExecutor) RunWritable(
+	ctx context.Context,
+	invocation Invocation,
+) (completion RawCompletion, resultErr error) {
+	// Preserve entry-point validation before attempting writable-root
+	// coordination, including for executors which have no writable root.
+	if err := invocation.validate(executor.options); err != nil {
+		return RawCompletion{}, err
+	}
+	if invocation.WorkspaceAccess != WorkspaceWritableExport {
+		return RawCompletion{}, fmt.Errorf(
+			"invocation workspace access %q does not match executor entry point %q",
+			invocation.WorkspaceAccess, WorkspaceWritableExport,
+		)
+	}
+	if executor.options.WritableRoot == "" {
+		return RawCompletion{}, errors.New("writable executor root is not configured")
+	}
 	// The initial v1 kernel is serial. Keep staging and the shared-tmpfs
-	// capacity decision in the same critical section so two callers cannot
-	// both admit against the same free pages.
+	// capacity decision in the same process- and host-wide critical section so
+	// two callers cannot both admit against the same free pages. The directory
+	// lock is released by the kernel if this process dies.
 	executor.writableMutex.Lock()
 	defer executor.writableMutex.Unlock()
+	ownership, err := executor.acquireWritableOwnership(ctx)
+	if err != nil {
+		return RawCompletion{}, err
+	}
+	defer func() {
+		if err := releaseWritableOwnership(ownership); err != nil {
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	return executor.runInvocation(ctx, invocation, WorkspaceWritableExport, nil)
+}
+
+// ReconcileWritable proves one exact invocation's systemd unit is quiescent,
+// removes its deterministic executor-owned residues, and verifies both facts
+// again before minting a cleanup proof. Invocation IDs are one-shot attempt
+// identities; reconciliation never authorizes reusing one.
+func (executor *LinuxExecutor) ReconcileWritable(
+	ctx context.Context,
+	invocationID string,
+) (cleanup WritableCleanup, resultErr error) {
+	if !idPattern.MatchString(invocationID) {
+		return WritableCleanup{}, errors.New("valid writable invocation id is required")
+	}
+	if executor.options.WritableRoot == "" {
+		return WritableCleanup{}, errors.New("writable executor root is not configured")
+	}
+	executor.writableMutex.Lock()
+	defer executor.writableMutex.Unlock()
+	ownership, err := executor.acquireWritableOwnership(ctx)
+	if err != nil {
+		return WritableCleanup{}, err
+	}
+	defer func() {
+		if err := releaseWritableOwnership(ownership); err != nil {
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
+	unit := executor.unitName(invocationID)
+	live, err := executor.unitLive(ctx, unit)
+	if err != nil {
+		return WritableCleanup{}, err
+	}
+	if live {
+		return WritableCleanup{}, fmt.Errorf("writable invocation %q is still live", invocationID)
+	}
+	paths := []string{
+		executor.writableRuntimePath(invocationID),
+		executor.writableWorkspacePath(invocationID, writableWorkspaceGeneration(invocationID)),
+	}
+	for _, path := range paths {
+		if err := removePrivateTree(path); err != nil {
+			return WritableCleanup{}, fmt.Errorf("remove writable invocation residue %q: %w", path, err)
+		}
+	}
+	live, err = executor.unitLive(ctx, unit)
+	if err != nil {
+		return WritableCleanup{}, err
+	}
+	if live {
+		return WritableCleanup{}, fmt.Errorf("writable invocation %q became live during reconciliation", invocationID)
+	}
+	for _, path := range paths {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			if err != nil {
+				return WritableCleanup{}, fmt.Errorf("recheck writable invocation residue %q: %w", path, err)
+			}
+			return WritableCleanup{}, fmt.Errorf("writable invocation residue %q remains", path)
+		}
+	}
+	return WritableCleanup{invocationID: invocationID, proof: &writableCleanupProof{}}, nil
+}
+
+func (executor *LinuxExecutor) acquireWritableOwnership(ctx context.Context) (*os.File, error) {
+	root, err := os.Open(executor.options.WritableRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open writable executor root for ownership: %w", err)
+	}
+	for {
+		err = syscall.Flock(int(root.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return root, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			_ = root.Close()
+			return nil, fmt.Errorf("lock writable executor root: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			_ = root.Close()
+			return nil, fmt.Errorf("acquire writable executor ownership: %w", ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func releaseWritableOwnership(root *os.File) error {
+	unlockErr := syscall.Flock(int(root.Fd()), syscall.LOCK_UN)
+	closeErr := root.Close()
+	if err := errors.Join(unlockErr, closeErr); err != nil {
+		return fmt.Errorf("release writable executor ownership: %w", err)
+	}
+	return nil
 }
 
 func (executor *LinuxExecutor) ValidateExport(ctx context.Context, export WorkspaceExport) error {
@@ -51,8 +170,9 @@ func (executor *LinuxExecutor) ValidateExport(ctx context.Context, export Worksp
 
 // DiscardExport removes executor-owned workspace storage after the service has
 // quiesced. Content is deliberately not revalidated: an unsafe or externally
-// changed tree must remain cleanable, while its generation-bound path prevents
-// a stale export handle from naming a later invocation's workspace.
+// changed tree must remain cleanable. Invocation IDs are durable one-shot
+// attempt identities, so their deterministic generation is never reused for a
+// later attempt.
 func (executor *LinuxExecutor) DiscardExport(ctx context.Context, export WorkspaceExport) error {
 	if err := executor.validateExportBinding(export, false); err != nil {
 		return err
@@ -99,20 +219,26 @@ func (executor *LinuxExecutor) requireExportQuiescent(ctx context.Context, expor
 }
 
 func (executor *LinuxExecutor) createWritableWorkspace(invocationID string) (string, string, error) {
-	for attempts := 0; attempts < 4; attempts++ {
-		contents := make([]byte, workspaceGenerationBytes)
-		if _, err := rand.Read(contents); err != nil {
-			return "", "", fmt.Errorf("generate writable workspace identity: %w", err)
+	generation := writableWorkspaceGeneration(invocationID)
+	path := executor.writableWorkspacePath(invocationID, generation)
+	if err := os.Mkdir(path, 0o700); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", "", fmt.Errorf("writable invocation %q has unreconciled workspace residue", invocationID)
 		}
-		generation := hex.EncodeToString(contents)
-		path := executor.writableWorkspacePath(invocationID, generation)
-		if err := os.Mkdir(path, 0o700); err == nil {
-			return path, generation, nil
-		} else if !errors.Is(err, os.ErrExist) {
-			return "", "", fmt.Errorf("create writable workspace: %w", err)
-		}
+		return "", "", fmt.Errorf("create writable workspace: %w", err)
 	}
-	return "", "", errors.New("create writable workspace: generation collision")
+	return path, generation, nil
+}
+
+func writableWorkspaceGeneration(invocationID string) string {
+	digest := sha256.Sum256([]byte("sworn-writable-workspace-generation-v1\x00" + invocationID))
+	return hex.EncodeToString(digest[:workspaceGenerationBytes])
+}
+
+func (executor *LinuxExecutor) writableRuntimePath(invocationID string) string {
+	name := strings.TrimSuffix(executor.unitName(invocationID), ".service") + "." +
+		writableWorkspaceGeneration(invocationID) + ".runtime"
+	return filepath.Join(executor.options.RuntimeRoot, name)
 }
 
 func (executor *LinuxExecutor) writableWorkspacePath(invocationID, generation string) string {
