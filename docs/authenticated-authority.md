@@ -87,11 +87,30 @@ permit and durable source head in the successful preparation transaction
 immediately before `BuilderService` invokes agent code. That commit is the
 logical build-start authorization and linearization point in the shipped
 sequence. Store then replaces the expiring permit with an opaque
-prepared-attempt capability. A legitimately long-running build may therefore
-bind and complete its exact attempt after 30 seconds, but that capability does
-not prove the runner executed an instruction and cannot claim or start another
-effect. The raw internal worker remains a privileged trusted-computing-base seam
-until its execution and recovery methods consume one-shot Store capabilities.
+`PreparedAuthorizedBuildLease` whose value copies share one atomic phase.
+`BuilderWorker.Run` consumes its single worker entrance and retains active
+ownership across the complete synchronous callback before any executor, Git,
+or attempt-workspace side effect. `Close` and successor recovery therefore
+cannot overlap that operation. Store accepts result binding and completion only
+from the consumed capability. Preparation is the durable authorization and
+linearization point, while consumption separately proves process-local worker
+entry. A legitimately long-running build may bind and complete its exact
+attempt after 30 seconds, but the capability cannot claim or start another
+effect.
+
+Recovery authority is equally narrow. Store issues a one-shot bound-cleanup
+capability only after validating the exact unknown attempt and its durable
+result, or a one-shot unbound-reconciliation capability after validating the
+exact unbound attempt. Each is tied to the recovery owner and consumed before
+external work. For an unbound attempt, Store seals the exact opaque repository
+unpublished and executor-cleanup proofs into its own `BuildRetryProof` only
+after the recovery capability was consumed. That proof is replayable for
+journal convergence, but cannot authorize another Store, attempt, or recovery
+issuance. The worker's raw algorithms are package-private behind these gates.
+Cleanup and reconciliation are one-shot per issuance, not per durable attempt;
+a partial failure may obtain a fresh issuance only after Store repeats the exact
+unknown-attempt preflight. Their synchronous callbacks retain recovery
+ownership through external cleanup and proof sealing.
 
 Check execution, verifier dispatch, accepting `PASS`, and integration still
 require their own short-lived gate-specific revalidation. Check scheduling and

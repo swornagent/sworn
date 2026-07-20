@@ -160,7 +160,8 @@ func (s *Store) ClaimControlledBuild(
 		return AuthorizedBuildLease{}, fmt.Errorf("commit controlled build claim: %w", err)
 	}
 	return AuthorizedBuildLease{
-		issuer: s.leaseIssuer, effect: cloneEffect(effect), ownership: ownership,
+		issuer: s.leaseIssuer, effect: cloneEffect(effect),
+		capability: newBuildCapabilityState(buildCapabilityClaimed), ownership: ownership,
 		authority: authority, permit: permit, permitRequest: request,
 	}, nil
 }
@@ -216,7 +217,8 @@ func (s *Store) validateAuthorizedBuildLeaseTransaction(
 	query rowQuerier,
 	lease AuthorizedBuildLease,
 ) error {
-	if lease.issuer == nil || lease.issuer != s.leaseIssuer || lease.ownership == nil ||
+	if lease.issuer == nil || lease.issuer != s.leaseIssuer || lease.capability == nil ||
+		lease.capability.phase.Load() != buildCapabilityClaimed || lease.ownership == nil ||
 		lease.authority == nil || lease.effect.State != EffectRunning ||
 		lease.effect.OwnerID != lease.permitRequest.ControllerID {
 		return errors.New("build operation requires a current authorized build lease")
@@ -259,7 +261,8 @@ func (s *Store) validatePreparedAuthorizedBuildTransaction(
 	lease PreparedAuthorizedBuildLease,
 ) error {
 	request := lease.permitRequest
-	if lease.issuer == nil || lease.issuer != s.leaseIssuer || lease.prepared == nil ||
+	if lease.issuer == nil || lease.issuer != s.leaseIssuer || lease.capability == nil ||
+		lease.capability.phase.Load() != buildCapabilityConsumed || lease.control != s ||
 		lease.ownership == nil || lease.effect.State != EffectRunning ||
 		lease.effect.OwnerID != request.ControllerID {
 		return errors.New("build operation requires a prepared authorized build lease")

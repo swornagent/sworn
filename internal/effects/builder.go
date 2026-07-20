@@ -16,6 +16,7 @@ import (
 	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
+	"github.com/swornagent/sworn/internal/store"
 	"github.com/swornagent/sworn/internal/workspace"
 )
 
@@ -43,11 +44,10 @@ type BuilderRunner interface {
 	ReconcileWritable(context.Context, string) (executor.WritableCleanup, error)
 }
 
-// BuilderWorker executes one engine-derived builder request. It never claims
-// an effect, binds a result, publishes a Git ref, or completes journal state.
-// Until its raw execution and reconciliation methods consume one-shot Store
-// capabilities, callers must treat this internal type as privileged trusted
-// computing base rather than an authority boundary.
+// BuilderWorker executes one Store-authorized builder operation. It never
+// claims an effect, binds a result, publishes a Git ref, or completes journal
+// state. Every effectful entry point consumes one narrow Store-issued
+// capability before it can reach an executor, Git, or attempt workspace.
 type BuilderWorker struct {
 	Control       BuilderControl
 	Runner        BuilderRunner
@@ -243,10 +243,24 @@ type builderDispatch struct {
 	BaseTree              string `json:"base_tree"`
 }
 
-// Run executes and measures one build without publishing Git or mutating the
-// effect journal. All executor and local attempt resources are removed before
-// a result is returned.
+// Run consumes one prepared execution capability, then executes and measures
+// its exact build without publishing Git or mutating the effect journal. All
+// executor and local attempt resources are removed before a result is returned.
 func (worker BuilderWorker) Run(
+	ctx context.Context,
+	capability store.PreparedAuthorizedBuildLease,
+) (json.RawMessage, error) {
+	result, err := capability.RunBuilder(func(effect engine.JournalEffect) (json.RawMessage, error) {
+		return worker.run(ctx, effect)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("run builder capability: %w", err)
+	}
+	return result, nil
+}
+
+// run contains the raw execution algorithm behind Run's one-shot Store gate.
+func (worker BuilderWorker) run(
 	ctx context.Context,
 	effect engine.JournalEffect,
 ) (result json.RawMessage, resultErr error) {
@@ -452,9 +466,19 @@ func (worker BuilderWorker) cleanupRun(
 	return nil
 }
 
-// Cleanup removes attempt-owned executor and local workspace residue. Callers
-// use it only when journal truth already makes publication ambiguity irrelevant.
-func (worker BuilderWorker) Cleanup(ctx context.Context, effect engine.JournalEffect) error {
+// Cleanup consumes one bound-result cleanup capability before removing its
+// attempt-owned executor and local workspace residue.
+func (worker BuilderWorker) Cleanup(ctx context.Context, capability store.BoundBuildCleanupLease) error {
+	if err := capability.RunBuilderCleanup(func(effect engine.JournalEffect) error {
+		return worker.cleanup(ctx, effect)
+	}); err != nil {
+		return fmt.Errorf("run builder cleanup capability: %w", err)
+	}
+	return nil
+}
+
+// cleanup contains the raw cleanup algorithm behind Cleanup's Store gate.
+func (worker BuilderWorker) cleanup(ctx context.Context, effect engine.JournalEffect) error {
 	configuration, err := worker.configuration()
 	if err != nil {
 		return err
@@ -477,79 +501,66 @@ func (worker BuilderWorker) Cleanup(ctx context.Context, effect engine.JournalEf
 	return nil
 }
 
-// BuildRetryProof is an opaque machine-derived capability. It is minted only
-// after Git proves this attempt unpublished and every attempt-owned workspace
-// has been reconciled.
-type BuildRetryProof struct {
-	effectID              string
-	effectAttempt         int64
-	invocationID          string
-	recoveryChallenge     string
-	builderDispatchDigest string
-	repositoryID          string
-	targetRef             string
-	unpublished           repo.AttemptUnpublishedProof
-	writable              executor.WritableCleanup
-}
-
-func (proof BuildRetryProof) EffectID() string                          { return proof.effectID }
-func (proof BuildRetryProof) EffectAttempt() int64                      { return proof.effectAttempt }
-func (proof BuildRetryProof) InvocationID() string                      { return proof.invocationID }
-func (proof BuildRetryProof) RecoveryChallenge() string                 { return proof.recoveryChallenge }
-func (proof BuildRetryProof) BuilderDispatchDigest() string             { return proof.builderDispatchDigest }
-func (proof BuildRetryProof) RepositoryID() string                      { return proof.repositoryID }
-func (proof BuildRetryProof) TargetRef() string                         { return proof.targetRef }
-func (proof BuildRetryProof) WritableCleanup() executor.WritableCleanup { return proof.writable }
-func (proof BuildRetryProof) Unpublished() repo.AttemptUnpublishedProof { return proof.unpublished }
-
-// ReconcileUnbound proves absence of Git publication before removing any
-// attempt-owned residue. A failed or mismatched proof preserves that residue
-// and returns no retry capability.
+// ReconcileUnbound consumes one recovery capability, proves absence of Git
+// publication, reconciles every attempt-owned workspace, and asks the same
+// capability to seal those lower-level proofs into a Store retry proof.
 func (worker BuilderWorker) ReconcileUnbound(
 	ctx context.Context,
-	effect engine.JournalEffect,
-	recoveryChallenge string,
-) (BuildRetryProof, error) {
-	if !engine.ValidID(recoveryChallenge) {
-		return BuildRetryProof{}, errors.New("valid Store recovery challenge is required")
+	capability store.BuildRecoveryLease,
+) (store.BuildRetryProof, error) {
+	proof, err := capability.ReconcileBuilder(
+		func(effect engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			return worker.reconcileUnbound(ctx, effect)
+		},
+	)
+	if err != nil {
+		return store.BuildRetryProof{}, fmt.Errorf("run builder reconciliation capability: %w", err)
 	}
+	return proof, nil
+}
+
+// reconcileUnbound contains the raw proof and cleanup algorithm behind
+// ReconcileUnbound's Store gate.
+func (worker BuilderWorker) reconcileUnbound(
+	ctx context.Context,
+	effect engine.JournalEffect,
+) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
 	configuration, err := worker.configuration()
 	if err != nil {
-		return BuildRetryProof{}, err
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{}, err
 	}
 	if len(effect.Result) != 0 {
-		return BuildRetryProof{}, errors.New("unbound build reconciliation refuses an effect result")
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			errors.New("unbound build reconciliation refuses an effect result")
 	}
 	build, err := worker.resolveBuild(ctx, effect, configuration, true)
 	if err != nil {
-		return BuildRetryProof{}, err
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{}, err
 	}
 	unpublished, err := worker.Repository.ProveAttemptUnpublished(ctx, build.identity.InvocationID)
 	if err != nil {
-		return BuildRetryProof{}, fmt.Errorf("prove builder attempt unpublished: %w", err)
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			fmt.Errorf("prove builder attempt unpublished: %w", err)
 	}
 	if unpublished.RepositoryID() != build.state.Repository ||
 		unpublished.AttemptID() != build.identity.InvocationID {
-		return BuildRetryProof{}, errors.New("unpublished proof does not match the exact build attempt")
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			errors.New("unpublished proof does not match the exact build attempt")
 	}
 	writable, err := worker.Runner.ReconcileWritable(ctx, build.identity.InvocationID)
 	if err != nil {
-		return BuildRetryProof{}, fmt.Errorf("reconcile unpublished builder workspace: %w", err)
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			fmt.Errorf("reconcile unpublished builder workspace: %w", err)
 	}
 	if writable.InvocationID() != build.identity.InvocationID {
-		return BuildRetryProof{}, errors.New("writable cleanup does not match the exact build attempt")
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			errors.New("writable cleanup does not match the exact build attempt")
 	}
 	if err := removeBuildAttemptRoot(worker.WorkspaceRoot, build.identity.InvocationID); err != nil {
-		return BuildRetryProof{}, fmt.Errorf("remove unpublished builder attempt root: %w", err)
+		return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{},
+			fmt.Errorf("remove unpublished builder attempt root: %w", err)
 	}
-	return BuildRetryProof{
-		effectID: effect.ID, effectAttempt: effect.Attempt,
-		invocationID:          build.identity.InvocationID,
-		recoveryChallenge:     recoveryChallenge,
-		builderDispatchDigest: build.request.BuilderDispatchDigest,
-		repositoryID:          build.state.Repository, targetRef: build.state.TargetRef,
-		unpublished: unpublished, writable: writable,
-	}, nil
+	return unpublished, writable, nil
 }
 
 func buildIdentity(

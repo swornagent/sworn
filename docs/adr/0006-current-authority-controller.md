@@ -61,12 +61,33 @@ Add one internal current-authority controller with this order:
 7. Store revalidates the permit and durable source head at the successful
    preparation transaction, which is the logical build-start authorization and
    linearization point in the shipped sequence. Store then issues a second
-   opaque prepared-attempt capability. That capability can bind and complete
-   only that exact attempt and remains valid when a legitimate build outlives
-   the 30-second permit. It neither proves that the runner has executed its
-   first instruction nor authorizes scheduling, claiming, or starting another
+   opaque `PreparedAuthorizedBuildLease`. Every value copy shares one atomic
+   phase. `BuilderWorker.Run` must consume the single prepared-to-consumed
+   entrance before any executor, Git, or attempt-workspace side effect. The
+   Store-gated synchronous callback retains active ownership from that CAS until
+   the raw operation returns, preventing `Close` or successor recovery from
+   entering in between. Store permits binding and completion only in the
+   consumed phase. The preparation transaction remains the durable
+   authorization and linearization point; consumption is the separate
+   process-local worker-entry boundary. The capability remains valid when a
+   legitimate build outlives the 30-second permit and authorizes no other
    effect.
-8. A failed controlled claim, or any failure after a successful claim, releases
+8. Recovery has two separate one-shot entrances. Store issues a
+   `BoundBuildCleanupLease` only after revalidating recovery ownership and the
+   exact unknown attempt's durable typed result. It issues a
+   `BuildRecoveryLease` only for an exact unknown unbound attempt. Cleanup and
+   reconciliation consume their capability before touching external state.
+   The unbound capability seals the exact opaque repository-unpublished and
+   executor-cleanup proofs into a concrete Store-owned `BuildRetryProof` after
+   attempt-workspace cleanup. That proof is replayable for journal convergence
+   after commit ambiguity, but is bound to its Store, attempt, and recovery
+   issuance. The worker's raw algorithms remain package-private behind
+   these gates. Cleanup and reconciliation are one-shot per issuance; an exact
+   idempotent operation may be reminted only after a fresh Store preflight while
+   the attempt remains unknown. Each synchronous callback retains recovery
+   ownership through external cleanup and, for an unbound attempt, proof
+   sealing.
+9. A failed controlled claim, or any failure after a successful claim, releases
    controller ownership. The journal remains truthful and the next owner must
    repeat the recovery barrier through ADR 0005.
 
@@ -74,11 +95,9 @@ The slice adds no durable owner row, heartbeat, scheduler, polling loop, public
 mutation command, CLI adapter, verifier, generic permit framework, retry policy,
 check runner, integration path, schema migration, or runtime dependency. SQLite
 remains the only durable control truth. Ownership and permits are narrow
-process-local capabilities. The exported methods on the internal
-`effects.BuilderWorker` remain a privileged trusted-computing-base seam rather
-than compiler-sealed capability consumers. Sealing execution, cleanup, and
-unbound reconciliation behind one-shot Store capabilities is required before a
-public mutating loop, but is deliberately a separate contraction.
+process-local capabilities. The one-shot worker gates are also process-local;
+the Store-owned retry proof is replayable within its issuance, while durable
+recovery truth remains in the effect journal.
 
 ## Budget gate
 
@@ -97,8 +116,13 @@ physical deltas break down as follows:
 This is the second explicit architecture stop and the minimum reviewed vertical
 join from current source resolution through exclusive recovery, exact
 scheduling, scoped claim, and the existing native builder. It adds no schema or
-runtime dependency. Further generic controller or authority abstractions, and
-the raw-worker capability contraction named above, remain out of scope.
+runtime dependency. Further generic controller or authority abstractions remain
+out of scope.
+
+The one-shot worker capability amendment starts from that merged 13,454
+semantic / 14,860 physical production-line base. The final tree is 13,732
+semantic / 15,177 physical lines, a delta of +278 / +317. It adds no schema
+migration or runtime dependency.
 
 ## Consequences
 
@@ -110,10 +134,14 @@ capability can then bind, publish, and complete it without reinterpreting permit
 expiry as evidence that the attempted external work did not happen. A historical
 receipt, source facts, permit facts, a permit from another Authority instance,
 or authority for another state revision cannot cross those boundaries. The raw
-internal worker seam is part of the trusted computing base and can run or clean
-external work without itself advancing authoritative journal state. The Linux
-lock assumes a cooperative, owner-controlled filesystem namespace; it is not a
-sandbox against arbitrary same-UID code or direct lower-level process calls.
+worker algorithms are package-private, while each effectful entry point consumes
+its exact Store issuance before reaching external work and retains ownership
+until that synchronous operation returns. A copied or concurrent capability
+value cannot create a second entrance, successor recovery cannot overlap the
+old callback, and bind or completion cannot precede execution consumption. The
+Linux lock assumes a cooperative, owner-controlled filesystem namespace; it is
+not a sandbox against arbitrary same-UID code or direct lower-level process
+calls.
 
 “Current” means freshly resolved and not below the highest authenticated source
 version this Store has observed. It cannot prove that no unseen newer remote
@@ -128,4 +156,4 @@ fresh verdict, bounded outcome routing, public `sworn run`, or target update.
 A controlled-dispatch commit ambiguity can leave only the truthful advanced
 state and pending effect, but the call cannot yet recover that committed result
 from its command ID once state has advanced. Durable command-outcome convergence
-therefore gates the public loop alongside raw-worker capability sealing.
+therefore remains a gate for the public loop.

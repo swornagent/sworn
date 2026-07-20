@@ -20,6 +20,7 @@ import (
 	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
+	"github.com/swornagent/sworn/internal/store"
 	"github.com/swornagent/sworn/internal/workspace"
 )
 
@@ -240,7 +241,7 @@ func TestBuilderDispatchDigestBindsEnvironmentNamesButNeverValues(t *testing.T) 
 		t.Fatal("environment name change did not change dispatch digest")
 	}
 
-	result, err := fixture.worker.Run(context.Background(), fixture.effect)
+	result, err := fixture.worker.run(context.Background(), fixture.effect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +265,7 @@ func TestBuilderRunUsesExactInputsAndLeavesPublicationToStore(t *testing.T) {
 		return os.WriteFile(filepath.Join(root, "src", "generated.go"), []byte("package generated\n"), 0o644)
 	})
 	ctx := context.Background()
-	result, err := fixture.worker.Run(ctx, fixture.effect)
+	result, err := fixture.worker.run(ctx, fixture.effect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +324,7 @@ func TestBuilderRunFailsClosedOnConfigurationDriftAndOutOfScopeEdit(t *testing.T
 	t.Run("configuration drift", func(t *testing.T) {
 		fixture := newBuilderFixture(t, nil)
 		fixture.worker.Argv = []string{"/usr/bin/false"}
-		if _, err := fixture.worker.Run(context.Background(), fixture.effect); err == nil ||
+		if _, err := fixture.worker.run(context.Background(), fixture.effect); err == nil ||
 			!strings.Contains(err.Error(), "configured dispatch") {
 			t.Fatalf("Run configuration drift error = %v", err)
 		}
@@ -339,7 +340,7 @@ func TestBuilderRunFailsClosedOnConfigurationDriftAndOutOfScopeEdit(t *testing.T
 		identity, _ := engine.BuildAttemptIdentityFor(
 			fixture.effect.ID, fixture.effect.Attempt, mustBuilderDigest(t, fixture.worker),
 		)
-		if _, err := fixture.worker.Run(context.Background(), fixture.effect); err == nil ||
+		if _, err := fixture.worker.run(context.Background(), fixture.effect); err == nil ||
 			!strings.Contains(err.Error(), "outside approved scope") {
 			t.Fatalf("Run out-of-scope error = %v", err)
 		}
@@ -355,7 +356,24 @@ func TestBuilderRunFailsClosedOnConfigurationDriftAndOutOfScopeEdit(t *testing.T
 	})
 }
 
-func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
+func TestBuilderWorkerConsumesCapabilitiesBeforeRawSideEffects(t *testing.T) {
+	fixture := newBuilderFixture(t, nil)
+	ctx := context.Background()
+	if _, err := fixture.worker.Run(ctx, store.PreparedAuthorizedBuildLease{}); err == nil {
+		t.Fatal("zero execution capability reached the raw builder")
+	}
+	if err := fixture.worker.Cleanup(ctx, store.BoundBuildCleanupLease{}); err == nil {
+		t.Fatal("zero cleanup capability reached the raw builder")
+	}
+	if _, err := fixture.worker.ReconcileUnbound(ctx, store.BuildRecoveryLease{}); err == nil {
+		t.Fatal("zero reconciliation capability reached the raw builder")
+	}
+	if len(fixture.runner.invocations) != 0 || len(fixture.runner.reconciled) != 0 || fixture.runner.discarded != 0 {
+		t.Fatalf("zero capabilities reached side effects: runner = %#v", fixture.runner)
+	}
+}
+
+func TestReconcileUnboundDerivesLowerProofsOnlyAfterAllCleanup(t *testing.T) {
 	fixture := newBuilderFixture(t, nil)
 	fixture.runner.reconcileExecutor = newBuilderReconcileExecutor(t)
 	fixture.runner.configurationDigest = fixture.runner.reconcileExecutor.ConfigurationDigest()
@@ -370,36 +388,14 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(attemptRoot, "residue"), []byte("residue"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect, ""); err == nil ||
-		proof != (BuildRetryProof{}) {
-		t.Fatalf("missing recovery challenge proof = %#v, %v", proof, err)
-	}
-	if _, err := os.Lstat(attemptRoot); err != nil || len(fixture.runner.reconciled) != 0 {
-		t.Fatalf("missing recovery challenge touched attempt residue: %v", err)
-	}
-	proof, err := fixture.worker.ReconcileUnbound(ctx, fixture.effect, "recovery-test-challenge")
+	unpublished, writable, err := fixture.worker.reconcileUnbound(ctx, fixture.effect)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proof.EffectID() != fixture.effect.ID || proof.EffectAttempt() != fixture.effect.Attempt ||
-		proof.InvocationID() != identity.InvocationID || proof.BuilderDispatchDigest() != digest ||
-		proof.RecoveryChallenge() != "recovery-test-challenge" ||
-		proof.RepositoryID() != fixture.control.state.Repository || proof.TargetRef() != fixture.control.state.TargetRef {
-		t.Fatalf("retry proof = %#v", proof)
-	}
-	if proof.WritableCleanup().InvocationID() != identity.InvocationID ||
-		proof.Unpublished().RepositoryID() != fixture.control.state.Repository ||
-		proof.Unpublished().AttemptID() != identity.InvocationID {
-		t.Fatal("retry proof did not retain its lower-level opaque proofs")
-	}
-	if (BuildRetryProof{}).EffectID() != "" || (BuildRetryProof{}).EffectAttempt() != 0 ||
-		(BuildRetryProof{}).InvocationID() != "" || (BuildRetryProof{}).RecoveryChallenge() != "" ||
-		(BuildRetryProof{}).BuilderDispatchDigest() != "" ||
-		(BuildRetryProof{}).RepositoryID() != "" || (BuildRetryProof{}).TargetRef() != "" ||
-		(BuildRetryProof{}).WritableCleanup().InvocationID() != "" ||
-		(BuildRetryProof{}).Unpublished().RepositoryID() != "" ||
-		(BuildRetryProof{}).Unpublished().AttemptID() != "" {
-		t.Fatal("zero retry proof exposed non-zero facts")
+	if writable.InvocationID() != identity.InvocationID ||
+		unpublished.RepositoryID() != fixture.control.state.Repository ||
+		unpublished.AttemptID() != identity.InvocationID {
+		t.Fatal("reconciliation did not retain its lower-level opaque proofs")
 	}
 	if !reflect.DeepEqual(fixture.runner.reconciled, []string{identity.InvocationID}) {
 		t.Fatalf("reconciled invocations = %#v", fixture.runner.reconciled)
@@ -412,7 +408,7 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 	fixture = newBuilderFixture(t, func(root string) error {
 		return os.WriteFile(filepath.Join(root, "src", "published.go"), []byte("package published\n"), 0o644)
 	})
-	result, err := fixture.worker.Run(ctx, fixture.effect)
+	result, err := fixture.worker.run(ctx, fixture.effect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,10 +427,9 @@ func TestReconcileUnboundMintsOpaqueProofOnlyAfterAllCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconciledBefore := len(fixture.runner.reconciled)
-	if proof, err := fixture.worker.ReconcileUnbound(
-		ctx, fixture.effect, "recovery-test-challenge",
-	); err == nil || proof != (BuildRetryProof{}) {
-		t.Fatalf("published reconciliation = %#v, %v", proof, err)
+	if unpublished, writable, err := fixture.worker.reconcileUnbound(ctx, fixture.effect); err == nil ||
+		unpublished.RepositoryID() != "" || writable.InvocationID() != "" {
+		t.Fatalf("published reconciliation = %#v, %#v, %v", unpublished, writable, err)
 	}
 	if len(fixture.runner.reconciled) != reconciledBefore {
 		t.Fatal("publication ambiguity reached executor cleanup")

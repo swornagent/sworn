@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	effectworker "github.com/swornagent/sworn/internal/effects"
 	"github.com/swornagent/sworn/internal/engine"
 )
 
@@ -83,7 +82,7 @@ func (s *Store) recoverUnboundBuildEffectForStoreTest(
 	ctx context.Context,
 	lease BuildRecoveryLease,
 	reconcilerID string,
-	proof effectworker.BuildRetryProof,
+	proof BuildRetryProof,
 ) error {
 	return s.recoverUnboundBuildEffect(ctx, nil, "", lease, reconcilerID, proof)
 }

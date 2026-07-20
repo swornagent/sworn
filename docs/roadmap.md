@@ -134,7 +134,7 @@ builder; it does not claim checks or admit submissions.
   before pending build execution.
 - [x] Bind authority to the exact controller, state revision, plan, work
   attempt, contract, source, and builder profile.
-- [ ] Seal privileged raw builder execution, cleanup, and reconciliation behind
+- [x] Seal privileged raw builder execution, cleanup, and reconciliation behind
   one-shot Store-issued capabilities before any public mutating loop.
 - [ ] Converge controlled dispatch from its durable command outcome after an
   ambiguous successful commit before any public mutating loop.
@@ -144,8 +144,15 @@ builder; it does not claim checks or admit submissions.
 
 This milestone is intentionally internal. `BuilderController` performs one
 explicit build step and owns no poller, scheduler, public command, or retry
-policy. SQLite remains the only durable control truth; the ownership and permit
-are process-local capabilities. See [ADR
+policy. Builder execution, bound-result cleanup, and unbound reconciliation now
+cross only narrow Store-issued one-shot capabilities. Every value copy shares
+the same atomic consumption state, and each synchronous worker callback retains
+ownership until it returns, so successor recovery cannot overlap old external
+work. Store owns the replayable proof which permits an exact unbound attempt to
+return to pending. SQLite remains the only durable control truth; ownership,
+permits, and worker-entry capabilities are process-local. Controlled dispatch
+outcome convergence remains a separate gate.
+See [ADR
 0006](adr/0006-current-authority-controller.md).
 
 ## 4. Fresh independent verdict

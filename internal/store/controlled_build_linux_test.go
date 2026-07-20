@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/policy"
 	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
@@ -421,11 +423,41 @@ func TestNativeBuildLifecycleRequiresPreparedCapabilityAndSurvivesPostPreparatio
 	if err := fixture.control.CompleteEffect(context.Background(), generic); err == nil {
 		t.Fatal("generic build lease crossed publication boundary")
 	}
-	invocation, prepared, err := fixture.control.PrepareAuthorizedBuildExecution(context.Background(), lease)
-	if err != nil || invocation.ID != result.EffectIDs[0] {
-		t.Fatalf("prepare authorized build = %+v, %v", invocation, err)
+	prepared, err := fixture.control.PrepareAuthorizedBuildExecution(context.Background(), lease)
+	if err != nil {
+		t.Fatalf("prepare authorized build: %v", err)
+	}
+	if _, err := fixture.control.PrepareAuthorizedBuildExecution(context.Background(), lease); err == nil {
+		t.Fatalf("repeated authorized build preparation error = %v", err)
+	}
+	if err := fixture.control.BindAuthorizedBuildResult(context.Background(), prepared, buildResult); err == nil ||
+		!strings.Contains(err.Error(), "prepared authorized build lease") {
+		t.Fatalf("unconsumed prepared build binding error = %v", err)
+	}
+	if err := fixture.control.CompleteAuthorizedBuild(context.Background(), prepared); err == nil ||
+		!strings.Contains(err.Error(), "prepared authorized build lease") {
+		t.Fatalf("unconsumed prepared build completion error = %v", err)
 	}
 	advanceAuthorityToRevoked(t, fixture)
+	var invocation engine.JournalEffect
+	_, err = prepared.RunBuilder(func(effect engine.JournalEffect) (json.RawMessage, error) {
+		invocation = effect
+		return buildResult, nil
+	})
+	if err != nil || invocation.ID != result.EffectIDs[0] {
+		t.Fatalf("run authorized build = %+v, %v", invocation, err)
+	}
+	copiedRan := false
+	if _, err := prepared.RunBuilder(func(engine.JournalEffect) (json.RawMessage, error) {
+		copiedRan = true
+		return nil, nil
+	}); err == nil ||
+		!strings.Contains(err.Error(), "already consumed") {
+		t.Fatalf("copied prepared execution reuse error = %v", err)
+	}
+	if copiedRan {
+		t.Fatal("copied prepared execution reached its callback")
+	}
 	if err := fixture.control.BindAuthorizedBuildResult(context.Background(), prepared, buildResult); err != nil {
 		t.Fatalf("bind prepared build after post-preparation revocation: %v", err)
 	}
@@ -440,6 +472,352 @@ func TestNativeBuildLifecycleRequiresPreparedCapabilityAndSurvivesPostPreparatio
 		"SELECT state FROM effects WHERE effect_id = ?", result.EffectIDs[0],
 	).Scan(&state); err != nil || state != string(EffectSucceeded) {
 		t.Fatalf("completed prepared effect state = %q, %v", state, err)
+	}
+}
+
+func TestPreparedBuildCapabilityIsConcurrentOneShotAndRetainsOwnership(t *testing.T) {
+	fixture := newControlledBuildStoreFixture(t, nil)
+	ctx := context.Background()
+	fixture.dispatch(t)
+	request, permit := fixture.executionPermit(t)
+	authorized, err := fixture.control.ClaimControlledBuild(
+		ctx, fixture.ownership, fixture.authority, permit, request,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const contenders = 16
+	type prepareResult struct {
+		lease PreparedAuthorizedBuildLease
+		err   error
+	}
+	prepareStart := make(chan struct{})
+	prepareDone := make(chan prepareResult, contenders)
+	for range contenders {
+		go func() {
+			<-prepareStart
+			lease, err := fixture.control.PrepareAuthorizedBuildExecution(ctx, authorized)
+			prepareDone <- prepareResult{lease: lease, err: err}
+		}()
+	}
+	close(prepareStart)
+	var prepared PreparedAuthorizedBuildLease
+	preparedCount := 0
+	for range contenders {
+		result := <-prepareDone
+		if result.err == nil {
+			prepared = result.lease
+			preparedCount++
+		}
+	}
+	if preparedCount != 1 {
+		t.Fatalf("successful concurrent preparations = %d, want 1", preparedCount)
+	}
+
+	runStart := make(chan struct{})
+	callbackEntered := make(chan struct{}, contenders)
+	releaseCallback := make(chan struct{})
+	runDone := make(chan error, contenders)
+	for range contenders {
+		go func() {
+			<-runStart
+			_, err := prepared.RunBuilder(func(engine.JournalEffect) (json.RawMessage, error) {
+				callbackEntered <- struct{}{}
+				<-releaseCallback
+				return nil, nil
+			})
+			runDone <- err
+		}()
+	}
+	close(runStart)
+	<-callbackEntered
+	for range contenders - 1 {
+		if err := <-runDone; err == nil || !strings.Contains(err.Error(), "already consumed") {
+			t.Fatalf("concurrent copied capability error = %v", err)
+		}
+	}
+	if callbackCount := 1 + len(callbackEntered); callbackCount != 1 {
+		t.Fatalf("concurrent callback entries = %d, want 1", callbackCount)
+	}
+	if fixture.ownership.state.TryLock() {
+		fixture.ownership.state.Unlock()
+		t.Fatal("builder callback did not retain ownership read lock")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- fixture.ownership.Close() }()
+	select {
+	case closeErr := <-closeDone:
+		close(releaseCallback)
+		t.Fatalf("ownership closed before builder callback returned: %v", closeErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseCallback)
+	if err := <-runDone; err != nil {
+		t.Fatalf("winning builder callback error = %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("close ownership after builder callback: %v", err)
+	}
+	successor, err := fixture.control.AcquireControllerOwnership("successor-controller")
+	if err != nil {
+		t.Fatalf("acquire successor ownership: %v", err)
+	}
+	if err := successor.Close(); err != nil {
+		t.Fatalf("close successor ownership: %v", err)
+	}
+}
+
+func TestBoundBuildCleanupCapabilityIsExactAndOneShot(t *testing.T) {
+	fixture := newControlledBuildStoreFixture(t, nil)
+	ctx := context.Background()
+	result := fixture.dispatch(t)
+	request, permit := fixture.executionPermit(t)
+	lease, err := fixture.control.ClaimControlledBuild(
+		ctx, fixture.ownership, fixture.authority, permit, request,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := fixture.control.PrepareAuthorizedBuildExecution(ctx, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildResult := validBuildResultForCandidate(
+		t, result.EffectIDs[0], "controlled-store-test", fixture.candidate,
+	)
+	if _, err := prepared.RunBuilder(func(engine.JournalEffect) (json.RawMessage, error) {
+		return buildResult, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.control.BindAuthorizedBuildResult(ctx, prepared, buildResult); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.ownership.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recoveryOwnerID := "cleanup-recovery-controller"
+	recoveryOwnership, err := fixture.control.AcquireControllerOwnership(recoveryOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recoveryOwnership.Close() })
+	if recovered, err := fixture.control.RecoverControlledInterruptedEffects(
+		ctx, recoveryOwnership, recoveryOwnerID, "builder stopped after binding",
+	); err != nil || recovered != 1 {
+		t.Fatalf("recover bound running attempt = %d, %v", recovered, err)
+	}
+	cleanup, err := fixture.control.PrepareControlledBoundBuildCleanup(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (BoundBuildCleanupLease{}).RunBuilderCleanup(func(engine.JournalEffect) error {
+		return nil
+	}); err == nil {
+		t.Fatal("zero cleanup capability exposed a builder invocation")
+	}
+	copyOfCleanup := cleanup
+	var invocation engine.JournalEffect
+	err = cleanup.RunBuilderCleanup(func(effect engine.JournalEffect) error {
+		invocation = effect
+		return nil
+	})
+	if err != nil || invocation.ID != result.EffectIDs[0] || invocation.Attempt != 1 || len(invocation.Result) == 0 {
+		t.Fatalf("run bound cleanup capability = %+v, %v", invocation, err)
+	}
+	copyRan := false
+	if err := copyOfCleanup.RunBuilderCleanup(func(engine.JournalEffect) error {
+		copyRan = true
+		return nil
+	}); err == nil ||
+		!strings.Contains(err.Error(), "already consumed") {
+		t.Fatalf("copied cleanup capability reuse error = %v", err)
+	}
+	if copyRan {
+		t.Fatal("copied cleanup capability reached its callback")
+	}
+	blocking, err := fixture.control.PrepareControlledBoundBuildCleanup(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], 1,
+	)
+	if err != nil {
+		t.Fatalf("remint idempotent cleanup capability: %v", err)
+	}
+	released, err := fixture.control.PrepareControlledBoundBuildCleanup(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], 1,
+	)
+	if err != nil {
+		t.Fatalf("remint released cleanup capability: %v", err)
+	}
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	cleanupDone := make(chan error, 1)
+	go func() {
+		cleanupDone <- blocking.RunBuilderCleanup(func(engine.JournalEffect) error {
+			close(callbackEntered)
+			<-releaseCallback
+			return nil
+		})
+	}()
+	<-callbackEntered
+	if recoveryOwnership.state.TryLock() {
+		recoveryOwnership.state.Unlock()
+		t.Fatal("cleanup callback did not retain recovery ownership read lock")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- recoveryOwnership.Close() }()
+	select {
+	case closeErr := <-closeDone:
+		close(releaseCallback)
+		t.Fatalf("recovery ownership closed before cleanup callback returned: %v", closeErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseCallback)
+	if err := <-cleanupDone; err != nil {
+		t.Fatalf("complete retained cleanup callback: %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("close recovery ownership after cleanup callback: %v", err)
+	}
+	releasedRan := false
+	if err := released.RunBuilderCleanup(func(engine.JournalEffect) error {
+		releasedRan = true
+		return nil
+	}); err == nil ||
+		!errors.Is(err, ErrInvalidControllerOwnership) {
+		t.Fatalf("released recovery ownership cleanup error = %v", err)
+	}
+	if releasedRan {
+		t.Fatal("released recovery ownership reached cleanup callback")
+	}
+}
+
+func TestBuildRecoveryCapabilitySealsOpaqueReplayableProofOnce(t *testing.T) {
+	fixture := newControlledBuildStoreFixture(t, nil)
+	ctx := context.Background()
+	result := fixture.dispatch(t)
+	request, permit := fixture.executionPermit(t)
+	lease, err := fixture.control.ClaimControlledBuild(
+		ctx, fixture.ownership, fixture.authority, permit, request,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.ownership.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recoveryOwnerID := "unbound-recovery-controller"
+	recoveryOwnership, err := fixture.control.AcquireControllerOwnership(recoveryOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recoveryOwnership.Close() })
+	if recovered, err := fixture.control.RecoverControlledInterruptedEffects(
+		ctx, recoveryOwnership, recoveryOwnerID, "builder stopped before result binding",
+	); err != nil || recovered != 1 {
+		t.Fatalf("recover unbound running attempt = %d, %v", recovered, err)
+	}
+	if _, err := (BuildRecoveryLease{}).ReconcileBuilder(
+		func(engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{}, nil
+		},
+	); err == nil {
+		t.Fatal("zero recovery capability reached its callback")
+	}
+	mismatchRecovery, err := fixture.control.PrepareControlledUnboundBuildRecovery(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], lease.effect.Attempt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchRan := false
+	if _, err := mismatchRecovery.ReconcileBuilder(
+		func(engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			mismatchRan = true
+			return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{}, nil
+		},
+	); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("zero lower recovery proofs error = %v", err)
+	}
+	if !mismatchRan {
+		t.Fatal("mismatched recovery did not enter its one-shot callback")
+	}
+	mismatchCopyRan := false
+	if _, err := mismatchRecovery.ReconcileBuilder(
+		func(engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			mismatchCopyRan = true
+			return repo.AttemptUnpublishedProof{}, executor.WritableCleanup{}, nil
+		},
+	); err == nil || !strings.Contains(err.Error(), "already consumed") {
+		t.Fatalf("mismatched recovery capability reuse error = %v", err)
+	}
+	if mismatchCopyRan {
+		t.Fatal("consumed mismatched recovery reached its callback twice")
+	}
+	recovery, err := fixture.control.PrepareControlledUnboundBuildRecovery(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], lease.effect.Attempt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unpublished, err := fixture.control.repository.ProveAttemptUnpublished(
+		ctx, recovery.identity.InvocationID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writable, err := newBuildRetryExecutor(t).ReconcileWritable(ctx, recovery.identity.InvocationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyOfRecovery := recovery
+	var invocation engine.JournalEffect
+	proof, err := recovery.ReconcileBuilder(
+		func(effect engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			invocation = effect
+			return unpublished, writable, nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.ID != result.EffectIDs[0] || invocation.Attempt != 1 {
+		t.Fatalf("reconcile unbound capability = %+v", invocation)
+	}
+	copyRan := false
+	if _, err := copyOfRecovery.ReconcileBuilder(
+		func(engine.JournalEffect) (repo.AttemptUnpublishedProof, executor.WritableCleanup, error) {
+			copyRan = true
+			return unpublished, writable, nil
+		},
+	); err == nil || !strings.Contains(err.Error(), "already consumed") {
+		t.Fatalf("copied recovery capability reuse error = %v", err)
+	}
+	if copyRan {
+		t.Fatal("copied recovery capability reached its callback")
+	}
+	peerRecovery, err := fixture.control.PrepareControlledUnboundBuildRecovery(
+		ctx, recoveryOwnership, recoveryOwnerID, result.EffectIDs[0], lease.effect.Attempt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.control.RecoverControlledUnboundBuildEffect(
+		ctx, recoveryOwnership, recoveryOwnerID, peerRecovery, proof,
+	); err == nil || !strings.Contains(err.Error(), "proof does not match") {
+		t.Fatalf("cross-issuance retry proof error = %v", err)
+	}
+	if err := fixture.control.RecoverControlledUnboundBuildEffect(
+		ctx, recoveryOwnership, recoveryOwnerID, recovery, proof,
+	); err != nil {
+		t.Fatalf("recover exact unbound build: %v", err)
+	}
+	if err := fixture.control.RecoverControlledUnboundBuildEffect(
+		ctx, recoveryOwnership, recoveryOwnerID, recovery, proof,
+	); err != nil {
+		t.Fatalf("replay exact recovery proof: %v", err)
 	}
 }
 
