@@ -40,7 +40,8 @@ type AuthoritySource struct {
 }
 
 // Authority owns the production policy service and the retained directory
-// roots used by its resolver. Call Close when the process composition ends.
+// roots used by its resolver. Call Close only after dependent controllers and
+// authority calls have stopped.
 type Authority struct {
 	service  *policy.Authority
 	resolver *authorityBundleResolver
@@ -104,18 +105,19 @@ func OpenAuthority(
 	return &Authority{service: service, resolver: resolver}, nil
 }
 
-// Service returns the configured policy service while this composition is
-// open. A previously retained service also fails closed through its resolver
-// after Close.
+// Service returns the configured policy service. Close is ordered resource
+// cleanup, not revocation of an in-flight call or a permit which the service
+// already minted.
 func (authority *Authority) Service() *policy.Authority {
-	if authority == nil || authority.service == nil || authority.resolver == nil || authority.resolver.isClosed() {
+	if authority == nil {
 		return nil
 	}
 	return authority.service
 }
 
-// Close permanently closes every retained bundle-directory root. It is safe to
-// call more than once.
+// Close releases every retained bundle-directory root. The caller must first
+// quiesce dependent controllers and authority calls. Signed source revocation,
+// not Close, invalidates authority. Close is safe to call more than once.
 func (authority *Authority) Close() error {
 	if authority == nil || authority.resolver == nil {
 		return nil
@@ -124,7 +126,7 @@ func (authority *Authority) Close() error {
 }
 
 // authorityBundleResolver owns its retained roots. The read lock keeps them
-// open through one complete resolution and makes Close a terminal boundary.
+// open through one complete file resolution while Close releases them.
 type authorityBundleResolver struct {
 	mu      sync.RWMutex
 	sources map[string]*os.Root
@@ -167,15 +169,6 @@ func (resolver *authorityBundleResolver) Resolve(
 		return nil, nil, err
 	}
 	return resolvedSource, proof, nil
-}
-
-func (resolver *authorityBundleResolver) isClosed() bool {
-	if resolver == nil {
-		return true
-	}
-	resolver.mu.RLock()
-	defer resolver.mu.RUnlock()
-	return resolver.closed
 }
 
 func (resolver *authorityBundleResolver) Close() error {
@@ -313,17 +306,12 @@ func decodeAuthorityBundle(contents []byte) ([]byte, []byte, error) {
 	if err := json.Unmarshal(canonical, &object); err != nil {
 		return nil, nil, fmt.Errorf("decode authority bundle object: %w", err)
 	}
-	required := []string{"schema_version", "source", "proof"}
-	allowed := make(map[string]struct{}, len(required))
-	for _, name := range required {
-		allowed[name] = struct{}{}
-		if _, exists := object[name]; !exists {
-			return nil, nil, fmt.Errorf("authority bundle is missing field %q", name)
-		}
+	if len(object) != 3 {
+		return nil, nil, errors.New("authority bundle has unknown or missing fields")
 	}
-	for name := range object {
-		if _, exists := allowed[name]; !exists {
-			return nil, nil, fmt.Errorf("authority bundle contains unknown field %q", name)
+	for _, name := range []string{"schema_version", "source", "proof"} {
+		if _, exists := object[name]; !exists {
+			return nil, nil, errors.New("authority bundle has unknown or missing fields")
 		}
 	}
 	var bundle encodedAuthorityBundle

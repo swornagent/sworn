@@ -166,6 +166,13 @@ physical production Go lines, a delta of +298 / +329: +257 / +281 for the exact
 Store projection and +41 / +48 for controller convergence. The amendment adds
 no schema migration, workflow framework, or runtime dependency.
 
+The authority-bundle amendment starts from that 14,030 semantic / 15,506
+physical production-line base. The final tree is 14,366 semantic / 15,900
+physical production Go lines, a delta of +336 / +394 for immutable trust-root
+composition, retained Linux directory handles, strict bounded bundle decoding,
+and explicit ordered resource cleanup. It adds no database schema, signer,
+public command, framework, or runtime dependency.
+
 ## Consequences
 
 Within the shipped Store and control composition, only the recovery-phase owner

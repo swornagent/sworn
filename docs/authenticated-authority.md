@@ -48,6 +48,23 @@ bounded envelope, source, and proof sizes. Missing, malformed, oversized,
 symlinked, non-regular, or multiply linked bundles fail closed without a cache
 or fallback.
 
+The transport contract is intentionally small. The filename is the plan's 64
+lowercase digest characters followed by `.json`; its strict I-JSON object has
+exactly these fields:
+
+```json
+{"proof":"<unpadded-base64url exact proof bytes>","schema_version":"sworn-authority-bundle-v1","source":"<unpadded-base64url exact source bytes>"}
+```
+
+The envelope is capped at 108 KiB and preserves the exact signed source and
+proof bytes rather than normalizing either artifact.
+
+Closing the configured authority is ordered resource cleanup, not revocation.
+Composition must first stop dependent controllers and wait for authority calls
+to finish. A signed newer source and the Store high-water assertion remain the
+only way to revoke current authority; closing a directory handle does not
+invalidate a permit which was already minted.
+
 Deployment must keep the startup configuration and bundle directory outside the
 write authority of the caller, builder, and verifier. The resolver validates
 its filesystem shape; it does not infer a repository root or prove that the

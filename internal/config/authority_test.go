@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,6 +34,7 @@ func (*discardAuthorityLedger) PutAuthorityApproval(context.Context, policy.Prep
 }
 
 func TestAuthorityBundleResolverReadsFreshExactBundlesFromRetainedRoot(t *testing.T) {
+	requireLinuxAuthority(t)
 	parent := t.TempDir()
 	directory := filepath.Join(parent, "bundles")
 	if err := os.Mkdir(directory, 0o700); err != nil {
@@ -56,11 +58,9 @@ func TestAuthorityBundleResolverReadsFreshExactBundlesFromRetainedRoot(t *testin
 	}
 	resolver := authority.resolver
 
-	// Caller-owned startup inputs cannot mutate the retained configuration.
+	// Caller-owned startup values cannot redirect the retained resolver.
 	configuration[0].SourceRef = "authority:replaced"
-	configuration[0].AuthorizerRef = "identity:replaced"
 	configuration[0].BundleDirectory = filepath.Join(parent, "elsewhere")
-	configuration[0].PublicKey[0] ^= 0xff
 	assertResolvedBundle(t, resolver, testAuthoritySourceRef, firstSource, firstProof)
 
 	secondSource, secondProof := []byte("source-two\x00"), []byte("proof-two\x00")
@@ -82,9 +82,6 @@ func TestAuthorityBundleResolverReadsFreshExactBundlesFromRetainedRoot(t *testin
 	if err := authority.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if authority.Service() != nil {
-		t.Fatal("closed authority still exposed its policy service")
-	}
 	if _, _, err := resolver.Resolve(context.Background(), testAuthoritySourceRef, testAuthorityPlanDigest); err == nil ||
 		!strings.Contains(err.Error(), "resolver is closed") {
 		t.Fatalf("closed resolver error = %v", err)
@@ -95,6 +92,7 @@ func TestAuthorityBundleResolverReadsFreshExactBundlesFromRetainedRoot(t *testin
 }
 
 func TestAuthorityBundleResolverSelectsOnlyConfiguredSourceAndExactPlan(t *testing.T) {
+	requireLinuxAuthority(t)
 	firstDirectory := t.TempDir()
 	secondDirectory := t.TempDir()
 	writeAuthorityBundle(t, firstDirectory, testAuthorityPlanDigest, []byte("first"), []byte("first-proof"))
@@ -133,6 +131,7 @@ func TestAuthorityBundleResolverSelectsOnlyConfiguredSourceAndExactPlan(t *testi
 }
 
 func TestOpenAuthorityRejectsInvalidStartupConfiguration(t *testing.T) {
+	requireLinuxAuthority(t)
 	directory := t.TempDir()
 	regularPath := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(regularPath, []byte("file"), 0o600); err != nil {
@@ -204,8 +203,8 @@ func TestDecodeAuthorityBundleRequiresStrictExactEnvelope(t *testing.T) {
 		"malformed":      {[]byte(`{"schema_version":`), "strict I-JSON"},
 		"duplicate": {[]byte(`{"schema_version":"sworn-authority-bundle-v1","source":"c291cmNl","source":"c291cmNl","proof":"cHJvb2Y"}`),
 			"duplicate object name"},
-		"unknown":       {unknownBytes, "unknown field"},
-		"missing":       {[]byte(`{"schema_version":"sworn-authority-bundle-v1","source":"c291cmNl"}`), "missing field"},
+		"unknown":       {unknownBytes, "unknown or missing fields"},
+		"missing":       {[]byte(`{"schema_version":"sworn-authority-bundle-v1","source":"c291cmNl"}`), "unknown or missing fields"},
 		"wrong schema":  {encodeAuthorityBundleForTest(t, encodedAuthorityBundle{SchemaVersion: "future", Source: valid.Source, Proof: valid.Proof}), "unknown authority bundle schema"},
 		"wrong type":    {[]byte(`{"schema_version":"sworn-authority-bundle-v1","source":1,"proof":"cHJvb2Y"}`), "decode authority bundle"},
 		"padded source": {encodeAuthorityBundleForTest(t, encodedAuthorityBundle{SchemaVersion: AuthorityBundleSchemaVersion, Source: "c291cmNl==", Proof: valid.Proof}), "canonical base64url"},
@@ -271,6 +270,13 @@ func testAuthorityConfiguration(directory string) []AuthoritySource {
 		SourceRef: testAuthoritySourceRef, AuthorizerRef: testAuthorityAuthorizerRef,
 		PublicKey: key, BundleDirectory: directory,
 	}}
+}
+
+func requireLinuxAuthority(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("production authority bundles require Linux")
+	}
 }
 
 func mutateSource(source AuthoritySource, mutate func(*AuthoritySource)) []AuthoritySource {

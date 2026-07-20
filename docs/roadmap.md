@@ -138,7 +138,7 @@ builder; it does not claim checks or admit submissions.
   one-shot Store-issued capabilities before any public mutating loop.
 - [x] Converge controlled dispatch from its durable command outcome after an
   ambiguous successful commit before any public mutating loop.
-- [ ] Configure immutable startup trust roots and a Linux atomic file-bundle
+- [x] Configure immutable startup trust roots and a Linux atomic file-bundle
   resolver, selected by exact source reference and plan digest and reread at
   every current-authority gate.
 - [ ] Extend current permits to checks, verifier dispatch, accepting `PASS`,
@@ -161,14 +161,10 @@ history; fresh dispatch and pending-build claim still require current authority.
 The change reuses existing SQLite truth and adds no schema, framework,
 scheduler, or runtime dependency.
 
-The authority-source slice is configuration and resolver wiring, not an
-authorizer. Startup configuration fixes each logical source reference to an
-authorizer identity, public key, and deployment-supplied filesystem root. The
-resolver selects one source-and-proof file by the exact plan digest and performs
-a fresh, bounded, strict single-open read through that retained root at every
-gate. The authorizer publishes each file atomically. The slice adds no signer,
-prompt, helper command, environment or stdin authority, or public command.
-See [ADR
+The completed authority-source slice is internal resolver wiring, not an
+authorizer or public command. It holds no signing capability and accepts no
+prompt, helper command, environment, or stdin authority. See [Exact plan and
+authenticated authority](authenticated-authority.md) and [ADR
 0006](adr/0006-current-authority-controller.md).
 
 ## 4. Fresh independent verdict
