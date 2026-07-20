@@ -16,6 +16,16 @@ type ArtifactReader interface {
 	Artifact(context.Context, string) (mediaType string, contents []byte, err error)
 }
 
+// MeasuredCheck is the minimum journal-owned fact needed to admit one
+// policy-ordered local-check result. Check and evidence projections are derived
+// from the exact policy and the resolved receipt rather than supplied by a
+// caller.
+type MeasuredCheck struct {
+	RunID                 string
+	RuntimeManifestDigest string
+	Receipt               Artifact
+}
+
 type SubmissionInput struct {
 	Attempt          int64
 	CreatedAt        time.Time
@@ -24,28 +34,12 @@ type SubmissionInput struct {
 	AuthorityReceipt Artifact
 	Builder          BuilderRun
 	Candidate        repo.Candidate
-	Checks           []Check
-	Evidence         []Evidence
-}
-
-// PreparedSubmission is an opaque construction capability minted only after
-// BuildSubmission has re-bound immutable Git and artifact bytes to
-// an exact plan, its selected policy, an authority receipt, and producer facts.
-// It is not an authenticated authority or journal-registration proof; those
-// later engine boundaries must precede reviewable/PASS state.
-type PreparedSubmission struct {
-	record EncodedRecord
-}
-
-func (prepared PreparedSubmission) Record() EncodedRecord {
-	record := prepared.record
-	record.CanonicalJSON = append([]byte(nil), record.CanonicalJSON...)
-	return record
+	MeasuredChecks   []MeasuredCheck
 }
 
 // BuildSubmission rechecks Git and every raw artifact, then constructs a
-// Standard submission from an exact plan, its selected policy, and producer
-// facts.
+// canonical Standard submission from an exact plan, its selected policy, and
+// policy-ordered journal-owned receipt facts.
 // It performs no authentication, journal lookup, storage, clock read, state
 // transition, or external effect.
 func BuildSubmission(
@@ -53,133 +47,95 @@ func BuildSubmission(
 	repository *repo.Repository,
 	artifacts ArtifactReader,
 	input SubmissionInput,
-) (PreparedSubmission, error) {
+) (EncodedRecord, error) {
 	if repository == nil || artifacts == nil {
-		return PreparedSubmission{}, errors.New("submission requires repository and artifact readers")
+		return EncodedRecord{}, errors.New("submission requires repository and artifact readers")
 	}
 	resolver := artifactResolver{reader: artifacts, cached: make(map[string]resolvedArtifact)}
 	localChecks, err := resolveExactLocalChecks(ctx, &resolver, input.Plan, input.WorkID)
 	if err != nil {
-		return PreparedSubmission{}, err
+		return EncodedRecord{}, err
 	}
 	work := localChecks.contract.View()
 	target := input.Plan.Target()
 	if input.Candidate.RepositoryID != target.Repository || input.Candidate.TargetRef != target.Ref {
-		return PreparedSubmission{}, errors.New("candidate does not match the exact plan target")
+		return EncodedRecord{}, errors.New("candidate does not match the exact plan target")
 	}
 	if err := repository.VerifyCandidate(ctx, input.Candidate, work.Scope); err != nil {
-		return PreparedSubmission{}, fmt.Errorf("verify submission candidate: %w", err)
+		return EncodedRecord{}, fmt.Errorf("verify submission candidate: %w", err)
 	}
-	planPolicy := input.Plan.Policy()
 	authorityBytes, err := resolver.resolve(ctx, input.AuthorityReceipt)
 	if err != nil {
-		return PreparedSubmission{}, fmt.Errorf("resolve authority receipt: %w", err)
+		return EncodedRecord{}, fmt.Errorf("resolve authority receipt: %w", err)
 	}
 	if input.AuthorityReceipt.MediaType != "application/json" {
-		return PreparedSubmission{}, errors.New("authority receipt must be application/json")
+		return EncodedRecord{}, errors.New("authority receipt must be application/json")
 	}
 	if err := ValidateAuthorityApprovalForBuilder(authorityBytes, input.Plan, input.Builder); err != nil {
-		return PreparedSubmission{}, err
+		return EncodedRecord{}, err
 	}
-
-	checksByID := make(map[string]Check, len(input.Checks))
-	for _, check := range input.Checks {
-		if _, exists := checksByID[check.ID]; exists {
-			return PreparedSubmission{}, fmt.Errorf("duplicate measured check %q", check.ID)
-		}
-		checksByID[check.ID] = check
+	if len(input.MeasuredChecks) != len(localChecks.requirements) {
+		return EncodedRecord{}, errors.New("measured check receipts do not exactly cover the exact policy baseline")
 	}
-	if len(checksByID) != len(localChecks.requirements) {
-		return PreparedSubmission{}, errors.New("measured checks do not exactly cover the exact policy baseline")
-	}
-	evidenceByID := make(map[string]Evidence, len(input.Evidence))
-	for _, evidence := range input.Evidence {
-		if _, exists := evidenceByID[evidence.ID]; exists {
-			return PreparedSubmission{}, fmt.Errorf("duplicate measured evidence %q", evidence.ID)
-		}
-		evidenceByID[evidence.ID] = evidence
+	snapshotDigest, err := SnapshotDigest()
+	if err != nil {
+		return EncodedRecord{}, fmt.Errorf("measure embedded protocol snapshot: %w", err)
 	}
 
 	orderedChecks := make([]Check, 0, len(localChecks.requirements))
 	orderedEvidence := make([]Evidence, 0, len(localChecks.requirements))
-	for _, baseline := range localChecks.requirements {
+	for index, baseline := range localChecks.requirements {
 		checkID := baseline.CheckID
-		definitionPointer := baseline.Definition
-		definition := baseline.definition
-		check, exists := checksByID[checkID]
-		if !exists || check.Outcome != "pass" {
-			return PreparedSubmission{}, fmt.Errorf("required baseline check %q is absent or did not pass", checkID)
+		measured := input.MeasuredChecks[index]
+		if measured.Receipt.MediaType != "application/vnd.sworn.local-check-receipt+json" {
+			return EncodedRecord{}, fmt.Errorf("check %q does not use a local CAS receipt", checkID)
 		}
-		if check.Receipt.Ref != check.Receipt.Digest || check.Receipt.MediaType != "application/vnd.sworn.local-check-receipt+json" {
-			return PreparedSubmission{}, fmt.Errorf("check %q does not use a local CAS receipt", checkID)
-		}
-		receiptBytes, err := resolver.resolve(ctx, check.Receipt)
+		receiptBytes, err := resolver.resolve(ctx, measured.Receipt)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve check %q receipt: %w", checkID, err)
+			return EncodedRecord{}, fmt.Errorf("resolve check %q receipt: %w", checkID, err)
 		}
 		receipt, err := ParseLocalCheckReceipt(receiptBytes)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("parse check %q receipt: %w", checkID, err)
+			return EncodedRecord{}, fmt.Errorf("parse check %q receipt: %w", checkID, err)
 		}
-		if err := bindCheckReceipt(check, receipt, checkID, definitionPointer, definition, input.Candidate); err != nil {
-			return PreparedSubmission{}, err
+		check, evidence, err := projectMeasuredReceipt(measured, receipt, baseline, input.Candidate)
+		if err != nil {
+			return EncodedRecord{}, err
 		}
-		for name, capture := range map[string]CapturedArtifact{"stdout": receipt.Stdout, "stderr": receipt.Stderr} {
+		for _, capture := range [...]CapturedArtifact{receipt.Stdout, receipt.Stderr} {
 			contents, err := resolver.resolve(ctx, capture.Pointer())
 			if err != nil {
-				return PreparedSubmission{}, fmt.Errorf("resolve check %q %s: %w", checkID, name, err)
+				return EncodedRecord{}, fmt.Errorf("resolve check %q output: %w", checkID, err)
 			}
 			if int64(len(contents)) != capture.Size {
-				return PreparedSubmission{}, fmt.Errorf("check %q %s size does not match its receipt", checkID, name)
+				return EncodedRecord{}, fmt.Errorf("check %q output size does not match its receipt", checkID)
 			}
 		}
-		if !digestPattern.MatchString(check.Environment.Ref) {
-			return PreparedSubmission{}, fmt.Errorf("check %q has a non-content-addressed environment", checkID)
-		}
 		environmentBytes, err := resolver.resolve(ctx, Artifact{
-			Ref: check.Environment.Ref, MediaType: "application/vnd.sworn.local-environment+json", Digest: check.Environment.Ref,
+			Ref: receipt.Environment.Ref, MediaType: LocalEnvironmentMediaType, Digest: receipt.Environment.Ref,
 		})
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve check %q environment: %w", checkID, err)
+			return EncodedRecord{}, fmt.Errorf("resolve check %q environment: %w", checkID, err)
 		}
 		environment, err := ParseLocalEnvironment(environmentBytes)
 		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("parse check %q environment: %w", checkID, err)
+			return EncodedRecord{}, fmt.Errorf("parse check %q environment: %w", checkID, err)
 		}
-		snapshotDigest, err := SnapshotDigest()
-		if err != nil {
-			return PreparedSubmission{}, fmt.Errorf("measure embedded protocol snapshot: %w", err)
-		}
-		if environment.ProtocolSnapshotDigest != "sha256:"+snapshotDigest {
-			return PreparedSubmission{}, fmt.Errorf("check %q environment names a different protocol snapshot", checkID)
-		}
-		evidence, exists := evidenceByID[definition.Evidence.ID]
-		if !exists {
-			return PreparedSubmission{}, fmt.Errorf("check %q lacks policy-defined evidence %q", checkID, definition.Evidence.ID)
-		}
-		if err := bindEvidence(evidence, check, definition.Evidence, input.Candidate.Tree); err != nil {
-			return PreparedSubmission{}, err
-		}
-		if _, err := resolver.resolve(ctx, evidence.Artifact); err != nil {
-			return PreparedSubmission{}, fmt.Errorf("resolve evidence %q: %w", evidence.ID, err)
+		if environment.ProtocolSnapshotDigest != "sha256:"+snapshotDigest ||
+			environment.SchemaVersion != ContentEnvironmentSchemaVersion ||
+			environment.RuntimeManifestDigest != measured.RuntimeManifestDigest {
+			return EncodedRecord{}, fmt.Errorf("check %q environment does not bind the protocol snapshot and journal runtime", checkID)
 		}
 		orderedChecks = append(orderedChecks, check)
 		orderedEvidence = append(orderedEvidence, evidence)
 	}
-	if len(evidenceByID) != len(localChecks.requirements) {
-		return PreparedSubmission{}, errors.New("measured evidence does not exactly cover the exact policy baseline")
-	}
 	slices.SortFunc(orderedEvidence, func(left, right Evidence) int { return bytes.Compare([]byte(left.ID), []byte(right.ID)) })
-	if err := validateAcceptanceCoverage(work.Acceptance, orderedEvidence); err != nil {
-		return PreparedSubmission{}, err
-	}
-	createdAt := input.CreatedAt.UTC()
 	if input.CreatedAt.IsZero() || input.CreatedAt.Location() != time.UTC {
-		return PreparedSubmission{}, errors.New("submission creation time must be an explicit UTC time")
+		return EncodedRecord{}, errors.New("submission creation time must be an explicit UTC time")
 	}
-	submissionID, err := deriveSubmissionID(input.Plan.DeliveryID(), work.ID, input.Attempt)
+	submissionID, err := SubmissionID(input.Plan.DeliveryID(), work.ID, input.Attempt)
 	if err != nil {
-		return PreparedSubmission{}, err
+		return EncodedRecord{}, err
 	}
 	submission := Submission{
 		SchemaVersion:    SubmissionSchemaVersion,
@@ -187,7 +143,7 @@ func BuildSubmission(
 		DeliveryID:       input.Plan.DeliveryID(),
 		WorkID:           work.ID,
 		Attempt:          input.Attempt,
-		CreatedAt:        formatRecordTime(createdAt),
+		CreatedAt:        input.CreatedAt.Format(time.RFC3339Nano),
 		PlanDigest:       input.Plan.Record().Digest,
 		ContractDigest:   localChecks.ContractDigest(),
 		AuthorityReceipt: input.AuthorityReceipt,
@@ -205,18 +161,14 @@ func BuildSubmission(
 		Assurance: Assurance{
 			Profile:      work.Assurance.Profile,
 			Packs:        slices.Clone(work.Assurance.Packs),
-			PolicyRef:    planPolicy.Ref,
-			PolicyDigest: planPolicy.Digest,
+			PolicyRef:    input.Plan.Policy().Ref,
+			PolicyDigest: input.Plan.Policy().Digest,
 		},
 		ChangedPaths: append([]string{}, input.Candidate.ChangedPaths...),
 		Checks:       orderedChecks,
 		Evidence:     orderedEvidence,
 	}
-	record, err := EncodeSubmission(submission)
-	if err != nil {
-		return PreparedSubmission{}, err
-	}
-	return PreparedSubmission{record: record}, nil
+	return EncodeSubmission(submission)
 }
 
 func validateInitialContract(workCount int, work PlanWorkView) error {
@@ -279,10 +231,9 @@ func ValidateAuthorityApprovalForBuilder(contents []byte, plan ExactPlan, builde
 	if err != nil {
 		return err
 	}
-	planRecord := plan.Record()
 	authority := plan.Authority()
 	target := plan.Target()
-	if receipt.PlanDigest != planRecord.Digest || receipt.AuthorityDigest != authority.Digest ||
+	if receipt.PlanDigest != plan.Record().Digest || receipt.AuthorityDigest != authority.Digest ||
 		receipt.SourceRef != authority.SourceRef || receipt.Repository != target.Repository ||
 		receipt.TargetRef != target.Ref {
 		return errors.New("authority approval does not match the exact plan")
@@ -298,7 +249,7 @@ func ValidateAuthorityApprovalForBuilder(contents []byte, plan ExactPlan, builde
 	if len(receipt.Grants) != len(authority.Grants) {
 		return errors.New("authority approval grants do not match the exact plan")
 	}
-	required := map[string]bool{"inspect": false, "edit": false, "execute": false, "commit": false}
+	required := []string{"inspect", "edit", "execute", "commit"}
 	for index, raw := range receipt.Grants {
 		grant, err := ParseAuthorityGrant(raw)
 		if err != nil {
@@ -307,41 +258,52 @@ func ValidateAuthorityApprovalForBuilder(contents []byte, plan ExactPlan, builde
 		if !bytes.Equal(grant.CanonicalJSON(), authority.Grants[index].CanonicalJSON()) {
 			return errors.New("authority approval grants do not match the exact plan")
 		}
-		if _, exists := required[grant.Action()]; exists {
-			required[grant.Action()] = true
+		if index := slices.Index(required, grant.Action()); index >= 0 {
+			required = slices.Delete(required, index, index+1)
 		}
 	}
-	for action, present := range required {
-		if !present {
-			return fmt.Errorf("authority approval lacks %s workspace grant", action)
-		}
+	if len(required) != 0 {
+		return fmt.Errorf("authority approval lacks %s workspace grant", required[0])
 	}
 	return nil
 }
 
-func bindCheckReceipt(
-	check Check,
+func projectMeasuredReceipt(
+	measured MeasuredCheck,
 	receipt LocalCheckReceipt,
-	checkID string,
-	definitionPointer Artifact,
-	definition LocalCheckDefinition,
+	requirement LocalCheckRequirement,
 	candidate repo.Candidate,
-) error {
-	if receipt.Outcome != "pass" || receipt.CheckID != check.ID || receipt.RunID != check.RunID ||
-		check.ID != checkID || receipt.Definition != definitionPointer || receipt.Candidate.Repository != candidate.RepositoryID ||
+) (Check, Evidence, error) {
+	definition := requirement.definition
+	if receipt.Outcome != "pass" || receipt.CheckID != requirement.CheckID || receipt.RunID != measured.RunID ||
+		receipt.Definition != requirement.Definition || receipt.Candidate.Repository != candidate.RepositoryID ||
 		receipt.Candidate.Commit != candidate.Commit || receipt.Candidate.Tree != candidate.Tree ||
-		receipt.Environment != check.Environment || receipt.StartedAt != check.StartedAt ||
-		receipt.CompletedAt != check.CompletedAt || check.CandidateTree != candidate.Tree ||
 		receipt.WorkingDirectory != definition.WorkingDirectory ||
 		!slices.Equal(receipt.Argv, definition.Argv) || receipt.TimeoutSeconds != definition.TimeoutSeconds ||
-		check.ExitCode == nil || *check.ExitCode != 0 {
-		return fmt.Errorf("check %q does not match its measured receipt", check.ID)
+		receipt.ExitCode != 0 {
+		return Check{}, Evidence{}, fmt.Errorf("check %q does not match its journal receipt", requirement.CheckID)
 	}
-	return nil
+	exitCode := receipt.ExitCode
+	check := Check{
+		ID: requirement.CheckID, Outcome: receipt.Outcome, RunID: measured.RunID,
+		CandidateTree: candidate.Tree, Environment: receipt.Environment,
+		StartedAt: receipt.StartedAt, CompletedAt: receipt.CompletedAt,
+		ExitCode: &exitCode, Receipt: measured.Receipt,
+	}
+	evidence := Evidence{
+		ID: definition.Evidence.ID, AcceptanceIDs: slices.Clone(definition.Evidence.AcceptanceIDs),
+		Kind: "test", Boundary: definition.Evidence.Boundary, Environment: receipt.Environment,
+		UsesMocks: definition.Evidence.UsesMocks, ProducerRunID: measured.RunID,
+		CandidateTree: candidate.Tree, CapturedAt: receipt.CompletedAt,
+		Artifact: measured.Receipt, Observed: definition.Evidence.Observed,
+	}
+	return check, evidence, nil
 }
 
-func deriveSubmissionID(deliveryID, workID string, attempt int64) (string, error) {
-	if !ValidID(deliveryID) || !ValidID(workID) || attempt < 1 || attempt > 9_007_199_254_740_991 {
+// SubmissionID deterministically derives Baton's bounded submission identity
+// from the exact work attempt admitted by the engine.
+func SubmissionID(deliveryID, workID string, attempt int64) (string, error) {
+	if !ValidID(deliveryID) || !ValidID(workID) || !ValidPositiveSafeInteger(attempt) {
 		return "", errors.New("cannot derive submission id from invalid work attempt")
 	}
 	canonical, err := EncodeCanonical(struct {
@@ -361,49 +323,30 @@ func deriveSubmissionID(deliveryID, workID string, attempt int64) (string, error
 	return "submission-" + strings.TrimPrefix(CanonicalDigest(canonical), "sha256:"), nil
 }
 
-func bindEvidence(evidence Evidence, check Check, requirement LocalEvidenceDefinition, candidateTree string) error {
-	if evidence.ID != requirement.ID || !slices.Equal(evidence.AcceptanceIDs, requirement.AcceptanceIDs) ||
-		len(evidence.PackIDs) != 0 || evidence.Kind != "test" || evidence.Boundary != requirement.Boundary ||
-		evidence.Environment != check.Environment || evidence.UsesMocks != requirement.UsesMocks ||
-		evidence.ProducerRunID != check.RunID || evidence.CandidateTree != candidateTree ||
-		evidence.CapturedAt != check.CompletedAt || evidence.Artifact != check.Receipt ||
-		evidence.Observed != requirement.Observed || evidence.Notes != "" {
-		return fmt.Errorf("evidence %q does not match policy-defined producer semantics", evidence.ID)
-	}
-	return nil
-}
-
 func validateAcceptanceCoverage(requirements []PlanAcceptance, evidence []Evidence) error {
-	rank := map[string]int{"component": 0, "assembled": 1}
-	required := make(map[string]int, len(requirements))
-	for _, requirement := range requirements {
-		required[requirement.ID] = rank[requirement.EvidenceLevel]
-	}
-	seenEvidence := make(map[string]struct{}, len(evidence))
-	covered := make(map[string]struct{}, len(requirements))
-	for _, item := range evidence {
-		if _, duplicate := seenEvidence[item.ID]; duplicate {
-			return fmt.Errorf("coverage inputs reuse evidence id %q", item.ID)
+	covered := make([]bool, len(requirements))
+	for evidenceIndex, item := range evidence {
+		for _, earlier := range evidence[:evidenceIndex] {
+			if earlier.ID == item.ID {
+				return fmt.Errorf("coverage inputs reuse evidence id %q", item.ID)
+			}
 		}
-		seenEvidence[item.ID] = struct{}{}
 		for _, acceptanceID := range item.AcceptanceIDs {
-			minimum, exists := required[acceptanceID]
-			if !exists {
+			requirementIndex := slices.IndexFunc(requirements, func(value PlanAcceptance) bool {
+				return value.ID == acceptanceID
+			})
+			if requirementIndex < 0 {
 				return fmt.Errorf("evidence %q names unknown exact-plan acceptance %q", item.ID, acceptanceID)
 			}
-			if rank[item.Boundary] >= minimum {
-				covered[acceptanceID] = struct{}{}
-			}
+			requirement := requirements[requirementIndex]
+			covered[requirementIndex] = covered[requirementIndex] ||
+				requirement.EvidenceLevel == "component" || item.Boundary == "assembled"
 		}
 	}
-	for _, requirement := range requirements {
-		if _, exists := covered[requirement.ID]; !exists {
+	for index, requirement := range requirements {
+		if !covered[index] {
 			return fmt.Errorf("acceptance %q lacks sufficient evidence coverage", requirement.ID)
 		}
 	}
 	return nil
-}
-
-func formatRecordTime(value time.Time) string {
-	return value.UTC().Format(time.RFC3339Nano)
 }

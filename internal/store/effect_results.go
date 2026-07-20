@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -166,21 +165,7 @@ func (resolver journalResultResolver) Artifact(
 	ctx context.Context,
 	artifactDigest string,
 ) (string, []byte, error) {
-	var mediaType string
-	var contents []byte
-	err := resolver.query.QueryRowContext(ctx,
-		"SELECT media_type, content FROM artifacts WHERE digest = ?", artifactDigest,
-	).Scan(&mediaType, &contents)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil, fmt.Errorf("artifact %s: %w", artifactDigest, sql.ErrNoRows)
-	}
-	if err != nil {
-		return "", nil, fmt.Errorf("read artifact %s: %w", artifactDigest, err)
-	}
-	if protocol.RawDigest(contents) != artifactDigest {
-		return "", nil, fmt.Errorf("artifact %s content digest mismatch", artifactDigest)
-	}
-	return mediaType, contents, nil
+	return loadArtifact(ctx, resolver.query, artifactDigest)
 }
 
 func (resolver journalResultResolver) SucceededEffect(

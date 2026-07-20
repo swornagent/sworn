@@ -79,10 +79,6 @@ func loadExactPlan(ctx context.Context, query rowQuerier, planDigest string) (pr
 	return plan, nil
 }
 
-type queryRower interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
 func exactPlanRecord(plan protocol.ExactPlan) (protocol.EncodedRecord, error) {
 	record := plan.Record()
 	if record.Kind != protocol.DeliveryPlanSchemaVersion || len(record.CanonicalJSON) == 0 ||

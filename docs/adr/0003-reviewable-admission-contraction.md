@@ -5,21 +5,22 @@
 
 ## Context
 
-The exact-plan authority slice brought the walking skeleton to 9,931 physical
-production Go lines. That is inside ADR 0001's 8–10k estimate, but close enough
-that the mandatory architecture stop applies before another feature is added.
+At the architecture stop, the exact-plan authority slice had brought the
+walking skeleton to 9,931 physical production Go lines. That was inside ADR
+0001's 8–10k estimate, but close enough that the mandatory stop applied before
+another feature was added.
 
-The remaining milestone-2 boundary is also indivisible as a claim. A Baton
+The remaining milestone-2 boundary was also indivisible as a claim. A Baton
 submission is `reviewable` only when its exact plan and policy, authenticated
 approval, builder and producer journal history, runtime, artifacts, and reducer
 state all agree. Persisting separate partial approvals or projecting any one of
 those prerequisites as reviewable would create another truth.
 
-The temporary measured-submission path still accepts caller-projected plan and
-policy facts through `StructuralWork`, permits structural submission storage,
-and reserves builder and producer identities separately from the effect journal.
-Those seams were useful to test construction, but they must not become a second
-admission architecture.
+The temporary measured-submission path accepted caller-projected plan and policy
+facts through `StructuralWork`, permitted structural submission storage, and
+reserved builder and producer identities separately from the effect journal.
+Those seams were useful to test construction, but were removed rather than
+becoming a second admission architecture.
 
 ## Decision
 
@@ -33,8 +34,8 @@ Contract the existing path in three ordered changes:
 2. Builder and check results become typed effect-journal facts. Admitted checks
    use an engine-configured runtime tree staged and remeasured by the existing
    manifest boundary; its digest is bound through dispatch, environment, and
-   result. The unmeasured host `/usr` path remains useful for evaluation but
-   cannot support reviewable admission.
+   result. Remove the host-runtime producer and public read-only executor path;
+   writable builder execution remains a distinct, non-evidence capability.
 3. One gated admission transaction replaces structural submission persistence.
    It verifies locally persisted authenticated approval and all successful
    effect results, writes the submission and run bindings, applies exactly one
@@ -67,10 +68,23 @@ Physical line count remains a warning, not a target to game. Strict protocol,
 Git, containment, and persistence checks are retained when deletion would move
 the proof burden into convention or prompt text.
 
+The completed slice is 10,083 nonblank, noncomment and 11,083 physical
+production Go lines at this commit, compared with 9,966 and 10,964 respectively
+at its merged base. The 117-line semantic increase leaves the kernel 0.83%
+above the 10k nonblank, noncomment target. This is an accepted commit-specific
+variance for the indivisible admission closure, not a new budget.
+
+Before accepting that variance, the implementation removed the caller-owned
+structural submission path, standalone historical-approval restore API,
+host-runtime local producer and public read-only host executor entry point, and
+duplicate artifact storage code. No competing admission owner remains. Any
+further net production growth requires another architecture stop.
+
 ## Consequences
 
 Reviewable admission lands later than a purely additive implementation, but its
-trusted surface becomes smaller. A crash during either prerequisite leaves the
-row `active`; a crash during admission leaves either the complete transaction or
-none of it. Current authority re-resolution before dispatch, verifier verdicts,
-`PASS`, repair and retry routing, and integration remain later milestones.
+trusted surface is smaller. A crash before check dispatch leaves work `active`;
+an interrupted check remains journal truth while work is internally `checking`.
+A crash during admission leaves either the complete transaction or none of it.
+Current authority re-resolution before dispatch, verifier verdicts, `PASS`,
+repair and retry routing, and integration remain later milestones.

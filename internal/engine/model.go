@@ -33,26 +33,29 @@ const (
 type WorkState string
 
 const (
-	WorkWaiting  WorkState = "waiting"
-	WorkReady    WorkState = "ready"
-	WorkActive   WorkState = "active"
-	WorkChecking WorkState = "checking"
+	WorkWaiting    WorkState = "waiting"
+	WorkReady      WorkState = "ready"
+	WorkActive     WorkState = "active"
+	WorkChecking   WorkState = "checking"
+	WorkReviewable WorkState = "reviewable"
 )
 
 type NextAction string
 
 const (
-	ActionWait  NextAction = "wait"
-	ActionBuild NextAction = "build"
+	ActionWait   NextAction = "wait"
+	ActionBuild  NextAction = "build"
+	ActionVerify NextAction = "verify"
 )
 
 type CommandKind string
 
 const (
-	CommandCreate         CommandKind = "delivery.create"
-	CommandActivate       CommandKind = "delivery.activate"
-	CommandDispatchBuild  CommandKind = "build.dispatch"
-	CommandDispatchChecks CommandKind = "checks.dispatch"
+	CommandCreate          CommandKind = "delivery.create"
+	CommandActivate        CommandKind = "delivery.activate"
+	CommandDispatchBuild   CommandKind = "build.dispatch"
+	CommandDispatchChecks  CommandKind = "checks.dispatch"
+	CommandAdmitSubmission CommandKind = "submission.admit"
 )
 
 type EffectKind string
@@ -104,6 +107,22 @@ type DispatchChecksPayload struct {
 	Checks                []CheckSelection `json:"checks"`
 }
 
+// AdmitSubmissionPayload expresses only the caller's intent. The store derives
+// and revalidates the immutable submission binding before ReduceAdmission may
+// expose reviewable state.
+type AdmitSubmissionPayload struct {
+	WorkID string `json:"work_id"`
+}
+
+// SubmissionBinding is derived by the store, never accepted in command input.
+type SubmissionBinding struct {
+	SubmissionID     string `json:"submission_id,omitempty"`
+	SubmissionDigest string `json:"submission_digest,omitempty"`
+	CandidateCommit  string `json:"candidate_commit,omitempty"`
+}
+
+type AdmissionFacts = SubmissionBinding
+
 // BuildEffectRequest is the strict engine-owned input for one builder effect.
 // Its delivery run ID is control-state identity, not the Baton builder run ID:
 // the store-derived effect ID becomes that invocation identity when claimed.
@@ -133,14 +152,15 @@ func ParseBuildEffectRequest(encoded json.RawMessage) (BuildEffectRequest, error
 }
 
 type Work struct {
-	ID         string     `json:"id"`
-	State      WorkState  `json:"state"`
-	Attempt    int64      `json:"attempt"`
+	ID      string    `json:"id"`
+	State   WorkState `json:"state"`
+	Attempt int64     `json:"attempt"`
+	SubmissionBinding
 	NextAction NextAction `json:"next_action"`
 }
 
 // State is the current snapshot derived from immutable events. It is persisted
-// for fast reads but changes only through Reduce.
+// for fast reads but changes only through the reducers.
 type State struct {
 	SchemaVersion          string `json:"schema_version"`
 	RunID                  string `json:"run_id"`
@@ -218,7 +238,7 @@ func (s State) Validate() error {
 		return errors.New("state has no work")
 	}
 	seen := make(map[string]struct{}, len(s.Work))
-	activeOrReady := 0
+	activeWork := 0
 	for _, work := range s.Work {
 		if !ValidID(work.ID) {
 			return fmt.Errorf("invalid work id %q", work.ID)
@@ -230,20 +250,28 @@ func (s State) Validate() error {
 		if work.Attempt < 0 || (work.Attempt > 0 && !protocol.ValidPositiveSafeInteger(work.Attempt)) {
 			return fmt.Errorf("invalid attempt for work %q", work.ID)
 		}
+		hasSubmissionBinding := work.SubmissionBinding != (SubmissionBinding{})
 		switch work.State {
 		case WorkWaiting:
-			if work.NextAction != ActionWait {
+			if work.NextAction != ActionWait || hasSubmissionBinding {
 				return fmt.Errorf("waiting work %q must wait", work.ID)
 			}
 		case WorkReady:
-			activeOrReady++
-			if work.NextAction != ActionBuild {
+			activeWork++
+			if work.NextAction != ActionBuild || hasSubmissionBinding {
 				return fmt.Errorf("ready work %q must build", work.ID)
 			}
 		case WorkActive, WorkChecking:
-			activeOrReady++
-			if work.NextAction != ActionWait || work.Attempt == 0 {
+			activeWork++
+			if work.NextAction != ActionWait || work.Attempt == 0 || hasSubmissionBinding {
 				return fmt.Errorf("running work %q has invalid attempt or action", work.ID)
+			}
+		case WorkReviewable:
+			activeWork++
+			if work.NextAction != ActionVerify || work.Attempt == 0 ||
+				!ValidID(work.SubmissionID) || !ValidDigest(work.SubmissionDigest) ||
+				!objectIDPattern.MatchString(work.CandidateCommit) {
+				return fmt.Errorf("reviewable work %q lacks its exact submission binding", work.ID)
 			}
 		default:
 			return fmt.Errorf("unsupported work state %q", work.State)
@@ -252,8 +280,8 @@ func (s State) Validate() error {
 			return fmt.Errorf("planned delivery has non-waiting work %q", work.ID)
 		}
 	}
-	if s.Phase == PhaseActive && activeOrReady != 1 {
-		return fmt.Errorf("active delivery has %d runnable work items, want 1", activeOrReady)
+	if s.Phase == PhaseActive && activeWork != 1 {
+		return fmt.Errorf("active delivery has %d current work items, want 1", activeWork)
 	}
 	return nil
 }

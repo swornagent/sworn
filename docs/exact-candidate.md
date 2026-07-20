@@ -37,23 +37,26 @@ or Gitlinks fail as unsupported instead of weakening the claim.
 
 ## Current boundary
 
-This package exposes primitives to the later command/effect path; no mutating
-CLI command calls them yet. The runtime config must persist the discovered
-binding before activation. The [contained Linux executor](contained-executor.md)
+No mutating CLI command calls this package yet. Immutable process configuration
+must bind the discovered repository before admission. The
+[contained Linux executor](contained-executor.md)
 can now return a bounded, quiescent, measured writable export. A real-boundary
 test validates that export immediately before cloning the original `Workspace`
 binding with only its path replaced, then captures the exact candidate here.
 The executor digest remains structural handoff evidence; `Capture` still derives
 candidate identity and changed paths independently from Git.
 
-The Git and executor packages are still not connected to the transactional
-effect path. The internal [measured local submission](measured-submission.md)
-path can now revalidate and freshly materialize a retained candidate, execute a
-policy-bound read-only check, and persist a structurally prepared Baton record.
-It is not reviewable until authority and run provenance are engine-bound. No
-native coding agent adapter, public mutation command, reducer transition, or
-target integration invokes it yet.
+The internal `check.local` worker freshly materializes the builder candidate
+through this boundary before content-bound execution. The
+[atomic admission transaction](measured-submission.md) independently rederives
+the retained candidate, parent, tree, changed paths, and scope immediately
+before binding its canonical record to reviewable engine state. No native
+builder adapter, public mutation command, or target integration invokes the
+write side yet.
 
-The target is rechecked immediately before candidate retention. Any movement
-afterward is still external reality and must be handled by the later integration
+The target is rechecked immediately before candidate retention and admission
+revalidates the immutable candidate. Git is not part of the SQLite transaction:
+v1 assumes exclusive engine ownership of candidate-retention refs and treats a
+hostile concurrent same-UID repository writer as inside the engine trust
+boundary. Target movement remains external reality for the later integration
 compare-and-swap and reconciliation path.

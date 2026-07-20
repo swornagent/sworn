@@ -163,13 +163,8 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 
 func (executor *LinuxExecutor) EffectiveLimits() Limits { return executor.options.Limits }
 
-func (executor *LinuxExecutor) RunContained(ctx context.Context, invocation Invocation) (RawCompletion, error) {
-	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, nil)
-}
-
 // RunContentBound executes a read-only invocation with an exact runtime tree
-// staged at /usr. RunContained remains the explicitly evaluation-only host-/usr
-// path and cannot accept a runtime digest.
+// staged at /usr.
 func (executor *LinuxExecutor) RunContentBound(
 	ctx context.Context,
 	invocation Invocation,

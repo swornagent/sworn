@@ -23,6 +23,10 @@ const (
 	runtimeTestSentinel             = "__sworn_content_runtime_test__"
 )
 
+func runHostContained(executor *LinuxExecutor, ctx context.Context, invocation Invocation) (RawCompletion, error) {
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, nil)
+}
+
 func TestExecutorShimProcess(t *testing.T) {
 	index := argumentIndex(os.Args, shimTestSentinel)
 	if index < 0 {
@@ -46,7 +50,7 @@ func TestExecutorEngineProcess(t *testing.T) {
 		fmt.Fprintf(os.Stderr, "executor engine helper: %v\n", err)
 		os.Exit(1)
 	}
-	_, err = executor.RunContained(context.Background(), Invocation{
+	_, err = runHostContained(executor, context.Background(), Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              arguments[3],
 		Role:            "builder",
@@ -102,7 +106,7 @@ func TestLinuxExecutorEntryPointsBindWorkspaceAccess(t *testing.T) {
 		Network:         NetworkNone,
 		Timeout:         time.Minute,
 	}
-	if _, err := executor.RunContained(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "entry point") {
+	if _, err := runHostContained(executor, context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "entry point") {
 		t.Fatalf("read-only entry point admitted writable access: %v", err)
 	}
 	invocation.WorkspaceAccess = WorkspaceReadOnly
@@ -125,7 +129,7 @@ func TestLinuxExecutorSeparatesHostAndContentRuntimeEntryPoints(t *testing.T) {
 		Network:         NetworkNone,
 		Timeout:         time.Minute,
 	}
-	if _, err := executor.RunContained(context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "host-runtime") {
+	if _, err := runHostContained(executor, context.Background(), invocation); err == nil || !strings.Contains(err.Error(), "host-runtime") {
 		t.Fatalf("host entry point accepted a runtime digest: %v", err)
 	}
 	if _, err := executor.RunContentBound(context.Background(), invocation, RuntimeTree{}); err == nil ||
@@ -183,7 +187,7 @@ func TestLinuxExecutorContainsReadOnlyInvocation(t *testing.T) {
 		" pass",
 		"print('contained')",
 	}, "\n")
-	completion, err := executor.RunContained(context.Background(), Invocation{
+	completion, err := runHostContained(executor, context.Background(), Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              "integration-contained",
 		Role:            "builder",
@@ -310,7 +314,7 @@ func TestLinuxExecutorBoundsOutputAndStopsInvocation(t *testing.T) {
 	executor.options.Limits.StdoutBytes = 1024
 	workspace, digest := emptyTestWorkspace(t, executor)
 	started := time.Now()
-	completion, err := executor.RunContained(context.Background(), Invocation{
+	completion, err := runHostContained(executor, context.Background(), Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              "integration-output-bound",
 		Role:            "builder",
@@ -339,7 +343,7 @@ func TestLinuxExecutorCancellationStopsServiceCgroup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(250*time.Millisecond, cancel)
 	started := time.Now()
-	completion, err := executor.RunContained(ctx, Invocation{
+	completion, err := runHostContained(executor, ctx, Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              "integration-cancel",
 		Role:            "builder",
@@ -369,7 +373,7 @@ func TestLinuxExecutorCancellationStopsServiceCgroup(t *testing.T) {
 func TestLinuxExecutorMarksInvocationTimeout(t *testing.T) {
 	executor := requireLinuxExecutor(t)
 	workspace, digest := emptyTestWorkspace(t, executor)
-	completion, err := executor.RunContained(context.Background(), Invocation{
+	completion, err := runHostContained(executor, context.Background(), Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              "integration-timeout",
 		Role:            "builder",
@@ -451,7 +455,7 @@ func TestBuiltSwornBinaryProvidesExecutorShim(t *testing.T) {
 	}
 	executor.options.ShimArgv = []string{binary, "__executor-shim"}
 	workspace, digest := emptyTestWorkspace(t, executor)
-	completion, err := executor.RunContained(context.Background(), Invocation{
+	completion, err := runHostContained(executor, context.Background(), Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
 		ID:              "integration-built-shim",
 		Role:            "builder",

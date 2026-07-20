@@ -58,9 +58,9 @@ at <https://www.sqlite.org/pragma.html>. Driver documentation is at
   a later attempt after `not_applied` reconciliation and reclaim.
 - Reconciliation names the exact unknown attempt it observed, so a delayed
   reconciler cannot resolve a later retry of the same effect.
-- The derived effect ID is the only future Baton invocation run ID. Generic
-  effect receipt JSON is not journal provenance until a kind-specific receipt
-  validator is implemented.
+- The derived effect ID is the Baton builder or producer invocation run ID.
+  Kind-specific typed result validators bind that identity to the journal;
+  generic receipt JSON alone is not provenance.
 - Commands, events, canonical records, and artifacts are append-only at the SQL
   boundary. Only run snapshots and effect-journal status are mutable.
 - The board reads committed run snapshots and cannot write or migrate.

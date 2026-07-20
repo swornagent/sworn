@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/repo"
 
 	_ "modernc.org/sqlite"
 )
@@ -32,6 +33,7 @@ var migrationNames = []string{
 	"migrations/002_submission_identity.sql",
 	"migrations/003_plan_authority.sql",
 	"migrations/004_typed_effect_results.sql",
+	"migrations/005_atomic_admission.sql",
 }
 
 type Store struct {
@@ -40,6 +42,7 @@ type Store struct {
 	now                             func() time.Time
 	leaseIssuer                     *leaseIssuer
 	localCheckRuntimeManifestDigest string
+	repository                      *repo.Repository
 }
 
 // ControlConfiguration contains immutable process configuration used by
@@ -47,6 +50,7 @@ type Store struct {
 // Store; command payloads cannot replace them.
 type ControlConfiguration struct {
 	LocalCheckRuntimeManifestDigest string
+	Repository                      *repo.Repository
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -72,6 +76,7 @@ func open(ctx context.Context, path string, configuration ControlConfiguration) 
 	store := &Store{
 		db: database, now: time.Now, leaseIssuer: &leaseIssuer{},
 		localCheckRuntimeManifestDigest: configuration.LocalCheckRuntimeManifestDigest,
+		repository:                      configuration.Repository,
 	}
 	if err := store.migrate(ctx); err != nil {
 		_ = database.Close()

@@ -2,16 +2,34 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
+// ErrAdmissionFactsRequired tells the store that a valid, current admission
+// intent needs its transaction-derived submission binding. It is never a
+// durable domain rejection and ordinary Reduce never exposes reviewable state.
+var ErrAdmissionFactsRequired = errors.New("submission admission requires store-derived facts")
+
 // Reduce is pure: it performs no I/O, does not observe time, and never mutates
 // current. Deterministic command failures return Rejection.
 func Reduce(current *State, command Command) (Decision, error) {
+	return reduce(current, command, nil)
+}
+
+// ReduceAdmission supplies transaction-derived facts to the same pure reducer.
+func ReduceAdmission(current *State, command Command, facts AdmissionFacts) (Decision, error) {
+	return reduce(current, command, &facts)
+}
+
+func reduce(current *State, command Command, facts *AdmissionFacts) (Decision, error) {
 	if !ValidID(command.ID) || !ValidID(command.RunID) {
 		return Decision{}, reject("invalid_command", "invalid command or run id")
+	}
+	if facts != nil && command.Kind != CommandAdmitSubmission {
+		return Decision{}, reject("unsupported_command", fmt.Sprintf("unsupported admission command kind %q", command.Kind))
 	}
 	if command.Kind == CommandCreate {
 		return create(current, command)
@@ -39,6 +57,8 @@ func Reduce(current *State, command Command) (Decision, error) {
 		return dispatchBuild(*current, command)
 	case CommandDispatchChecks:
 		return dispatchChecks(*current, command)
+	case CommandAdmitSubmission:
+		return admitSubmission(*current, command, facts)
 	default:
 		return Decision{}, reject("unsupported_command", fmt.Sprintf("unsupported command kind %q", command.Kind))
 	}
@@ -203,6 +223,51 @@ func dispatchChecks(current State, command Command) (Decision, error) {
 		State:   next,
 		Event:   Event{Kind: "checks.dispatched", Data: cloneJSON(command.Payload)},
 		Effects: effects,
+	}, nil
+}
+
+func admitSubmission(current State, command Command, facts *AdmissionFacts) (Decision, error) {
+	if current.Phase != PhaseActive {
+		return Decision{}, reject("invalid_transition", "only an active delivery can admit a submission")
+	}
+	if err := validateStrictJSON(command.Payload); err != nil {
+		return Decision{}, reject("invalid_payload", err.Error())
+	}
+	payload, err := decodePayload[AdmitSubmissionPayload](command.Payload)
+	if err != nil || !ValidID(payload.WorkID) {
+		return Decision{}, reject("invalid_payload", "submission admission requires a valid work id")
+	}
+	work := workByID(current.Work, payload.WorkID)
+	if work == nil {
+		return Decision{}, reject("work_not_found", "work is not part of this delivery")
+	}
+	if work.State != WorkChecking {
+		return Decision{}, reject("invalid_transition", "work is not checking for submission admission")
+	}
+	if facts == nil {
+		return Decision{}, ErrAdmissionFactsRequired
+	}
+	if !ValidID(facts.SubmissionID) || !ValidDigest(facts.SubmissionDigest) ||
+		!objectIDPattern.MatchString(facts.CandidateCommit) {
+		return Decision{}, errors.New("invalid store-derived admission facts")
+	}
+	next := cloneState(current)
+	work = workByID(next.Work, payload.WorkID)
+	work.State, work.SubmissionBinding, work.NextAction = WorkReviewable, *facts, ActionVerify
+	next.Revision++
+	if err := next.Validate(); err != nil {
+		return Decision{}, fmt.Errorf("reducer produced invalid state: %w", err)
+	}
+	eventData, err := json.Marshal(struct {
+		AdmitSubmissionPayload
+		SubmissionBinding
+	}{payload, *facts})
+	if err != nil {
+		return Decision{}, fmt.Errorf("encode submission admission event: %w", err)
+	}
+	return Decision{
+		State: next,
+		Event: Event{Kind: "submission.admitted", Data: eventData},
 	}, nil
 }
 

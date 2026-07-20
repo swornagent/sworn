@@ -7,12 +7,12 @@ It has two workspace modes over the same Linux containment path:
 - `writable_export` stages a fresh writable copy for a builder and may return a
   quarantined, measured workspace.
 
-Read-only execution has two deliberately separate runtime paths. `RunContained`
-mounts host `/usr` for evaluation only. `RunContentBound` requires an opaque
-internal runtime capability, copies that tree into the private invocation
+`RunContentBound` is the only exported read-only entry point. It requires an
+opaque internal runtime capability, copies that tree into the private invocation
 root, checks its configured manifest digest, remeasures the staged bytes, and
-mounts only that copy at `/usr`. There is no flag or empty-value fallback from
-the content-bound path to host `/usr`.
+mounts only that copy at `/usr`. There is no flag or empty-value fallback to
+host `/usr`. The separate writable builder entry point uses the host runtime but
+cannot claim a content-runtime digest or produce qualifying check evidence.
 
 The internal `check.local` effect worker calls only `RunContentBound`. Its
 request binds the exact runtime-manifest and check-definition digests and names
@@ -83,8 +83,8 @@ ceilings. Bubblewrap creates fresh user, PID, IPC, UTS, cgroup, and, by default,
 network namespaces; drops all capabilities; disables further user namespaces;
 and presents a temporary root containing only:
 
-- either evaluation-only host `/usr` or the exact staged content runtime,
-  read-only at `/usr`;
+- the exact staged content runtime for read-only checks, or host `/usr` for the
+  distinct writable builder path, read-only at `/usr`;
 - the staged workspace at `/workspace`, read-only or read-write exactly as the
   invocation declares;
 - pinned files at read-only `/inputs/<name>`;
@@ -187,16 +187,14 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is connected to an internal `check.local` worker, but no reducer
-transition yet derives that effect from an exact plan. The worker is therefore
-deliberately unreachable from the public command surface and autonomous engine
-flow. The separate [measured local submission](measured-submission.md) path can
-still exercise the evaluation-only host runtime, but that path cannot qualify
-for admission. A content-bound runtime proves which bytes executed; it does not
-retain those bytes or claim hermetic reproduction. The kernel, CPU, and
-containment implementation remain host facts. The effect-result validator also
-does not compare the environment's embedded protocol-snapshot digest; the
-future final admission transaction must close that protocol binding.
+This package is connected to an internal `check.local` worker, and
+`checks.dispatch` derives the complete ordered batch from the exact plan. The
+worker and reducer edge remain unreachable from the public command surface and
+autonomous engine flow. A content-bound runtime proves which bytes executed; it
+does not retain those bytes or claim hermetic reproduction. The kernel, CPU,
+and containment implementation remain host facts. Effect completion validates
+the runtime request and artifact closure; the later atomic admission transaction
+also closes the embedded protocol-snapshot binding before exposing reviewable.
 The executor also does not run a native agent adapter, filter an admitted host
 network, or infer quality from an exit status. If the engine dies, the shim and
 cgroup still stop all writers, but reclaiming a generation-bound writable

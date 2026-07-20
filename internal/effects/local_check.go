@@ -33,7 +33,7 @@ type LocalCheckControl interface {
 // measurement-only producer. Runtime source identity and paths remain opaque.
 type LocalCheckWorker struct {
 	Control           LocalCheckControl
-	Runner            producer.ContentBoundRunner
+	Runner            producer.Runner
 	Repository        *repo.Repository
 	Runtime           executor.RuntimeTree
 	WorkspaceRoot     string

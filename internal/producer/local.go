@@ -31,11 +31,6 @@ var (
 type Runner interface {
 	Probe(context.Context) (executor.ProbeReport, error)
 	EffectiveLimits() executor.Limits
-	RunContained(context.Context, executor.Invocation) (executor.RawCompletion, error)
-}
-
-type ContentBoundRunner interface {
-	Runner
 	RunContentBound(context.Context, executor.Invocation, executor.RuntimeTree) (executor.RawCompletion, error)
 }
 
@@ -57,25 +52,11 @@ type Result struct {
 	Receipt protocol.Artifact
 }
 
-// RunLocal resolves one exact definition, runs it once over a fresh read-only
-// candidate workspace, and stores immutable streams and a canonical receipt.
-// The caller may derive submission facts from an admitted receipt at the
-// protocol boundary that owns those projections.
-func RunLocal(
-	ctx context.Context,
-	runner Runner,
-	artifacts ArtifactStore,
-	request Request,
-) (Result, error) {
-	return runLocal(ctx, runner, artifacts, request, nil)
-}
-
-// RunLocalContentBound is the only local producer entry point that can create
-// a runtime-bound environment. RunLocal deliberately retains host-/usr
-// evaluation semantics and cannot be upgraded by a flag or empty value.
+// RunLocalContentBound resolves one exact definition and runs it once over a
+// fresh read-only candidate workspace and exact staged runtime.
 func RunLocalContentBound(
 	ctx context.Context,
-	runner ContentBoundRunner,
+	runner Runner,
 	artifacts ArtifactStore,
 	request Request,
 	runtime executor.RuntimeTree,
@@ -83,7 +64,7 @@ func RunLocalContentBound(
 	if runtime.Digest() == "" {
 		return Result{}, errors.New("content-bound local producer requires a runtime capability")
 	}
-	return runLocal(ctx, runner, artifacts, request, &runtime)
+	return runLocal(ctx, runner, artifacts, request, runtime)
 }
 
 func runLocal(
@@ -91,7 +72,7 @@ func runLocal(
 	runner Runner,
 	artifacts ArtifactStore,
 	request Request,
-	runtime *executor.RuntimeTree,
+	runtime executor.RuntimeTree,
 ) (Result, error) {
 	if runner == nil || artifacts == nil || request.Repository == nil {
 		return Result{}, errors.New("local producer requires runner, artifact store, and repository")
@@ -129,10 +110,7 @@ func runLocal(
 	if err != nil {
 		return Result{}, fmt.Errorf("probe local check executor: %w", err)
 	}
-	runtimeDigest := ""
-	if runtime != nil {
-		runtimeDigest = runtime.Digest()
-	}
+	runtimeDigest := runtime.Digest()
 	invocation := executor.Invocation{
 		SchemaVersion:   executor.InvocationSchemaVersion,
 		ID:              request.RunID,
@@ -145,16 +123,7 @@ func runLocal(
 		Network:         executor.NetworkNone,
 		Timeout:         timeout,
 	}
-	var completion executor.RawCompletion
-	if runtime == nil {
-		completion, err = runner.RunContained(ctx, invocation)
-	} else {
-		contentRunner, ok := runner.(ContentBoundRunner)
-		if !ok {
-			return Result{}, errors.New("local producer runner lacks content-bound execution")
-		}
-		completion, err = contentRunner.RunContentBound(ctx, invocation, *runtime)
-	}
+	completion, err := runner.RunContentBound(ctx, invocation, runtime)
 	if err != nil {
 		return Result{}, fmt.Errorf("run local check %q: %w", request.CheckID, err)
 	}
@@ -238,12 +207,8 @@ func storeEnvironment(
 	}
 	probe.Controllers = append([]string(nil), probe.Controllers...)
 	slices.Sort(probe.Controllers)
-	schemaVersion := protocol.LocalEnvironmentSchemaVersion
-	if runtimeDigest != "" {
-		schemaVersion = protocol.ContentEnvironmentSchemaVersion
-	}
 	contents, err := protocol.EncodeCanonical(protocol.LocalEnvironment{
-		SchemaVersion:          schemaVersion,
+		SchemaVersion:          protocol.ContentEnvironmentSchemaVersion,
 		ProtocolSnapshotDigest: "sha256:" + snapshotDigest,
 		EngineRuntime:          runtime.Version(),
 		OS:                     runtime.GOOS,

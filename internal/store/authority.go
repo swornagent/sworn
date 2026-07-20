@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -68,7 +67,7 @@ func (s *Store) PutAuthorityApproval(ctx context.Context, prepared policy.Prepar
 	); err != nil {
 		return err
 	}
-	if err := putArtifactTransaction(
+	if err := putArtifact(
 		ctx, transaction, approvalFacts.ReceiptDigest, "application/json",
 		receipt.CanonicalJSON, now,
 	); err != nil {
@@ -99,111 +98,6 @@ func (s *Store) PutAuthorityApproval(ctx context.Context, prepared policy.Prepar
 	return nil
 }
 
-// AuthorityApproval restores historical authenticated approval from its exact
-// archived closure. It does not issue a current gate permit or re-resolve the
-// live authority source.
-func (s *Store) AuthorityApproval(
-	ctx context.Context,
-	receiptDigest string,
-	root policy.TrustRoot,
-) (policy.HistoricalApproval, error) {
-	var sourceFacts policy.SourceFacts
-	var approvalFacts policy.ApprovalFacts
-	var sourceRecordKind string
-	var sourceRecordCanonical []byte
-	var sourceType, proofType, receiptType string
-	var sourceRaw, proofRaw, receiptRaw []byte
-	err := s.db.QueryRowContext(ctx, `
-		SELECT
-			a.receipt_id, a.receipt_digest, a.plan_digest, a.authority_digest,
-			a.source_ref, source.source_id, a.source_version, source.status,
-			a.source_digest, a.source_artifact_digest,
-			source.repository_id, source.target_ref, a.authorizer_ref,
-			source.valid_from, source.valid_until, a.proof_digest,
-			a.proof_canonical_digest, a.root_key_id, a.approved_at,
-			source_record.kind, source_record.canonical_json,
-			source_artifact.media_type, source_artifact.content,
-			proof_artifact.media_type, proof_artifact.content,
-			receipt_artifact.media_type, receipt_artifact.content
-		FROM authority_approvals AS a
-		JOIN authority_source_snapshots AS source
-		  ON source.source_ref = a.source_ref
-		 AND source.source_version = a.source_version
-		 AND source.source_digest = a.source_digest
-		JOIN authority_source_authentications AS authentication
-		  ON authentication.source_ref = a.source_ref
-		 AND authentication.source_version = a.source_version
-		 AND authentication.source_digest = a.source_digest
-		 AND authentication.source_artifact_digest = a.source_artifact_digest
-		 AND authentication.proof_digest = a.proof_digest
-		 AND authentication.proof_canonical_digest = a.proof_canonical_digest
-		 AND authentication.plan_digest = a.plan_digest
-		 AND authentication.authority_digest = a.authority_digest
-		 AND authentication.root_key_id = a.root_key_id
-		 AND authentication.approved_at = a.approved_at
-		JOIN records AS source_record ON source_record.digest = a.source_digest
-		JOIN artifacts AS source_artifact ON source_artifact.digest = a.source_artifact_digest
-		JOIN artifacts AS proof_artifact ON proof_artifact.digest = a.proof_digest
-		JOIN artifacts AS receipt_artifact ON receipt_artifact.digest = a.receipt_digest
-		WHERE a.receipt_digest = ?`, receiptDigest,
-	).Scan(
-		&approvalFacts.ReceiptID, &approvalFacts.ReceiptDigest,
-		&sourceFacts.PlanDigest, &sourceFacts.AuthorityDigest,
-		&sourceFacts.SourceRef, &sourceFacts.SourceID, &sourceFacts.SourceVersion, &sourceFacts.SourceStatus,
-		&sourceFacts.SourceCanonicalDigest, &sourceFacts.SourceRawDigest,
-		&sourceFacts.Repository, &sourceFacts.TargetRef, &sourceFacts.AuthorizerRef,
-		&sourceFacts.ValidFrom, &sourceFacts.ValidUntil, &sourceFacts.ProofRawDigest,
-		&sourceFacts.ProofCanonicalDigest, &sourceFacts.RootKeyID, &sourceFacts.ApprovedAt,
-		&sourceRecordKind, &sourceRecordCanonical,
-		&sourceType, &sourceRaw, &proofType, &proofRaw, &receiptType, &receiptRaw,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return policy.HistoricalApproval{}, fmt.Errorf("authority approval %s: %w", receiptDigest, sql.ErrNoRows)
-	}
-	if err != nil {
-		return policy.HistoricalApproval{}, fmt.Errorf("read authority approval %s: %w", receiptDigest, err)
-	}
-	if sourceType != authoritySourceMediaType || proofType != authorityProofMediaType || receiptType != "application/json" ||
-		protocol.RawDigest(sourceRaw) != sourceFacts.SourceRawDigest ||
-		protocol.RawDigest(proofRaw) != sourceFacts.ProofRawDigest ||
-		protocol.RawDigest(receiptRaw) != approvalFacts.ReceiptDigest {
-		return policy.HistoricalApproval{}, errors.New("stored authority artifact binding is invalid")
-	}
-	sourceCanonical, err := protocol.CanonicalizeJSON(sourceRaw)
-	if err != nil || sourceRecordKind != authoritySourceRecordKind ||
-		!bytes.Equal(sourceCanonical, sourceRecordCanonical) ||
-		protocol.CanonicalDigest(sourceCanonical) != sourceFacts.SourceCanonicalDigest {
-		return policy.HistoricalApproval{}, errors.New("stored authority source canonical binding is invalid")
-	}
-	proofCanonical, err := protocol.CanonicalizeJSON(proofRaw)
-	if err != nil || protocol.CanonicalDigest(proofCanonical) != sourceFacts.ProofCanonicalDigest {
-		return policy.HistoricalApproval{}, errors.New("stored authority proof canonical binding is invalid")
-	}
-	plan, err := s.Plan(ctx, sourceFacts.PlanDigest)
-	if err != nil {
-		return policy.HistoricalApproval{}, err
-	}
-	historical, err := policy.RestoreHistoricalApproval(
-		plan, root,
-		policy.SourceClosure{
-			SourceRaw: sourceRaw, SourceCanonical: sourceCanonical,
-			ProofRaw: proofRaw, ProofCanonical: proofCanonical,
-		},
-		protocol.EncodedRecord{
-			Kind:          protocol.ControlReceiptSchemaVersion,
-			CanonicalJSON: receiptRaw,
-			Digest:        approvalFacts.ReceiptDigest,
-		},
-	)
-	if err != nil {
-		return policy.HistoricalApproval{}, fmt.Errorf("restore authority approval: %w", err)
-	}
-	if historical.SourceFacts() != sourceFacts || historical.Facts() != approvalFacts {
-		return policy.HistoricalApproval{}, errors.New("stored authority approval projection is invalid")
-	}
-	return historical, nil
-}
-
 func putAuthoritySourceTransaction(
 	ctx context.Context,
 	transaction *sql.Tx,
@@ -223,12 +117,12 @@ func putAuthoritySourceTransaction(
 	}, now, "authority source"); err != nil {
 		return err
 	}
-	if err := putArtifactTransaction(
+	if err := putArtifact(
 		ctx, transaction, facts.SourceRawDigest, authoritySourceMediaType, closure.SourceRaw, now,
 	); err != nil {
 		return err
 	}
-	if err := putArtifactTransaction(
+	if err := putArtifact(
 		ctx, transaction, facts.ProofRawDigest, authorityProofMediaType, closure.ProofRaw, now,
 	); err != nil {
 		return err
@@ -266,40 +160,6 @@ func putAuthoritySourceTransaction(
 		return fmt.Errorf("put authority source authentication: %w", err)
 	}
 	return verifySourceAuthentication(ctx, transaction, facts)
-}
-
-func putArtifactTransaction(
-	ctx context.Context,
-	transaction *sql.Tx,
-	digest, mediaType string,
-	content []byte,
-	now int64,
-) error {
-	if protocol.RawDigest(content) != digest {
-		return fmt.Errorf("authority artifact digest mismatch for %s", digest)
-	}
-	if err := protocol.ValidateArtifactContent(mediaType, content); err != nil {
-		return err
-	}
-	content = append([]byte{}, content...)
-	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO artifacts (digest, media_type, content, size, created_at_us)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(digest) DO NOTHING`, digest, mediaType, content, len(content), now,
-	); err != nil {
-		return fmt.Errorf("put authority artifact %s: %w", digest, err)
-	}
-	var storedType string
-	var stored []byte
-	if err := transaction.QueryRowContext(ctx,
-		"SELECT media_type, content FROM artifacts WHERE digest = ?", digest,
-	).Scan(&storedType, &stored); err != nil {
-		return fmt.Errorf("verify authority artifact %s: %w", digest, err)
-	}
-	if storedType != mediaType || !bytes.Equal(stored, content) {
-		return fmt.Errorf("authority artifact conflict for %s", digest)
-	}
-	return nil
 }
 
 func enforceSourceMonotonicity(
@@ -363,7 +223,7 @@ func enforceSourceMonotonicity(
 	return nil
 }
 
-func verifySourceSnapshot(ctx context.Context, source queryRower, facts policy.SourceFacts) error {
+func verifySourceSnapshot(ctx context.Context, source rowQuerier, facts policy.SourceFacts) error {
 	var sourceID, sourceDigest, status, repositoryID, targetRef, authorizerRef, validFrom, validUntil string
 	err := source.QueryRowContext(ctx, `
 		SELECT source_id, source_digest, status, repository_id, target_ref,
@@ -382,7 +242,7 @@ func verifySourceSnapshot(ctx context.Context, source queryRower, facts policy.S
 	return nil
 }
 
-func verifySourceAuthentication(ctx context.Context, source queryRower, facts policy.SourceFacts) error {
+func verifySourceAuthentication(ctx context.Context, source rowQuerier, facts policy.SourceFacts) error {
 	var proofCanonicalDigest, planDigest, authorityDigest, rootKeyID, approvedAt string
 	err := source.QueryRowContext(ctx, `
 		SELECT proof_canonical_digest, plan_digest, authority_digest, root_key_id, approved_at
@@ -403,7 +263,7 @@ func verifySourceAuthentication(ctx context.Context, source queryRower, facts po
 
 func verifyApprovalProjection(
 	ctx context.Context,
-	source queryRower,
+	source rowQuerier,
 	sourceFacts policy.SourceFacts,
 	approvalFacts policy.ApprovalFacts,
 ) error {

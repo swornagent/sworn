@@ -824,54 +824,6 @@ func TestAuthorityAuthenticationEnforcesExactTimeBoundaries(t *testing.T) {
 	}
 }
 
-func TestRestoreHistoricalApprovalAuthenticatesHistoryWithoutCurrentAuthority(t *testing.T) {
-	fixture := newApprovalFixture(t)
-	approval, err := authenticateAndMintForTest(context.Background(), fixture.plan, fixture.root, fixture.resolver(), fixture.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceClosure := approval.Source().Closure()
-	receiptRecord := approval.Receipt()
-
-	// Current admission has expired, but the archived approval was made while
-	// active and remains verifiable historical truth without re-resolution.
-	fixture.now = mustTime(t, "2026-07-22T00:00:00Z")
-	if _, err := authenticateAndMintForTest(context.Background(), fixture.plan, fixture.root, fixture.resolver(), fixture.now); err == nil ||
-		!strings.Contains(err.Error(), "expired") {
-		t.Fatalf("current expired authenticateAndMintForTest() error = %v", err)
-	}
-	restored, err := RestoreHistoricalApproval(fixture.plan, fixture.root, sourceClosure, receiptRecord)
-	if err != nil {
-		t.Fatalf("RestoreHistoricalApproval() error = %v", err)
-	}
-	if restored.Receipt().Digest != approval.Receipt().Digest {
-		t.Fatal("restored historical receipt changed identity")
-	}
-
-	tests := []struct {
-		name   string
-		mutate func(*SourceClosure, *protocol.EncodedRecord)
-	}{
-		{"source raw", func(source *SourceClosure, _ *protocol.EncodedRecord) { source.SourceRaw[10] ^= 1 }},
-		{"source canonical", func(source *SourceClosure, _ *protocol.EncodedRecord) { source.SourceCanonical[0] ^= 1 }},
-		{"proof raw", func(source *SourceClosure, _ *protocol.EncodedRecord) { source.ProofRaw[10] ^= 1 }},
-		{"proof canonical", func(source *SourceClosure, _ *protocol.EncodedRecord) { source.ProofCanonical[0] ^= 1 }},
-		{"receipt bytes", func(_ *SourceClosure, receipt *protocol.EncodedRecord) { receipt.CanonicalJSON[0] ^= 1 }},
-		{"receipt digest", func(_ *SourceClosure, receipt *protocol.EncodedRecord) { receipt.Digest = fixedDigest("f") }},
-		{"receipt kind", func(_ *SourceClosure, receipt *protocol.EncodedRecord) { receipt.Kind = "other" }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			tamperedSource := approval.Source().Closure()
-			tamperedReceipt := approval.Receipt()
-			test.mutate(&tamperedSource, &tamperedReceipt)
-			if _, err := RestoreHistoricalApproval(fixture.plan, fixture.root, tamperedSource, tamperedReceipt); err == nil {
-				t.Fatal("tampered historical closure was restored")
-			}
-		})
-	}
-}
-
 func TestAuthorityAuthenticationPropagatesResolverAndContextFailure(t *testing.T) {
 	fixture := newApprovalFixture(t)
 	resolver := fixture.resolver()

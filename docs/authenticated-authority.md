@@ -1,16 +1,15 @@
 # Exact plan and authenticated authority
 
-Sworn now has an internal authenticated plan-approval boundary. Other internal
-engine paths can retain that historical fact while structurally scheduling
-effects, but this boundary does not make a submission reviewable or issue a
-current effect permit.
+Sworn has one internal authenticated plan-approval boundary. Check dispatch and
+reviewable admission consume its durable historical facts, but that history is
+not a current effect permit or a fresh authority decision.
 
 ## Boundary
 
 `protocol.ParseDeliveryPlan` strictly parses the complete `delivery-plan-v1`
 and returns an opaque `ExactPlan`. Plan, authority, and work-contract digests
-cover their complete RFC 8785 objects. SQLite retains the canonical plan; a
-restart reparses it before restoring the structural capability.
+cover their complete RFC 8785 objects. SQLite retains the canonical plan and
+reparses it whenever a later transaction needs the exact facts.
 
 The engine constructs one `policy.Authority` service at startup with fixed
 Ed25519 trust roots, resolver, ledger, and production UTC clock. An approval
@@ -45,18 +44,21 @@ semantic identity. Whitespace-only formatting differences can coexist without
 changing approval identity. Legacy structural receipts cannot reserve or
 preempt authenticated authority identities.
 
-After commit, the service returns a distinct `HistoricalApproval`. On restart,
-the store reloads every retained byte, reparses the plan, and re-verifies the
-signature and receipt against the configured root; it never trusts a stored
-boolean. Historical approval proves what was approved at the recorded time. It
-does not claim the source is current.
+After commit, the service returns a distinct `HistoricalApproval`. Later check
+dispatch and admission transactions do not restore a free-standing authority
+capability. They reload the exact plan, require the immutable approval row to
+join its source snapshot and authenticated proof observation, and validate the
+canonical receipt against the exact plan and builder. The original approval
+transaction owns signature verification; the control database is trusted only
+under Sworn's single-writer boundary, never through a stored boolean.
+
+Historical approval proves what was approved at the recorded time. It does not
+claim the source is current.
 
 Builder execution, check execution, verifier dispatch, accepting `PASS`, and
 integration will require separate short-lived gate-specific revalidation. No
-such permit exists yet. The internal check-scheduling transaction requires its
-receipt digest to identify an immutable authenticated historical approval for
-the exact plan and verifies that the receipt precedes the succeeded builder; this
-is provenance, not freshness. Prepared-submission construction consumes the
-opaque `ExactPlan` directly and structurally compares its approval receipt with
-that plan, but still cannot authenticate current authority or make the
-submission reviewable.
+such permit exists yet. Check scheduling and admission require the receipt to
+identify the immutable authenticated approval for the exact plan and require
+its recorded approval time to precede the succeeded builder. That is provenance,
+not freshness, and the journal does not provide a shared cryptographic clock
+between authority authentication and later effect execution.

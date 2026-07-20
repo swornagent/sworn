@@ -36,18 +36,21 @@ candidates, immutable or fresh writable executor staging, default-denied
 networking, finite live resource and retained-output ceilings, process-tree
 cleanup, quiescent measured workspace export, typed lease-bound effect results,
 an explicit content-bound local-check runtime, and one ordered, serially claimed
-plan-derived local-check batch after a succeeded builder. Real-boundary tests
-prove both staged runtime execution and the writable-export handoff into exact
-Git candidate capture.
+plan-derived local-check batch after a succeeded builder. An intent-only atomic
+admission edge now revalidates the exact plan, authenticated historical
+authority, builder/check journal, lease-bounded chronology, runtime, snapshot,
+artifact closure, and retained Git candidate before committing one canonical
+Baton submission and exposing `reviewable`. Real-boundary tests prove both
+staged runtime execution and the writable-export handoff into exact Git
+candidate capture.
 
-No mutating command is exposed by the CLI yet. The internal check-dispatch edge
-requires exact plan, policy, definition, historical approval, builder-journal,
-and process-configured runtime agreement in one transaction, but it is not a
-current authority permit. No command service, native agent adapter, or autonomous
-claim loop can execute it. These remain internal primitives rather than a
-delivery loop. See
+No mutating command is exposed by the CLI yet. Historical approval remains
+provenance rather than a current execution permit, and reviewable is not a
+verdict or `PASS`. No command service, native agent adapter, or autonomous claim
+loop can execute these internal edges yet. They remain trusted kernel primitives
+rather than a delivery loop. See
 [Exact local candidate](docs/exact-candidate.md) and
-[Contained executor](docs/contained-executor.md).
+[Atomic reviewable submission](docs/measured-submission.md).
 
 SQLite is the sole Go production dependency. Linux execution relies on the
 host's systemd user manager, cgroup v2, and Bubblewrap; it fails closed when that
