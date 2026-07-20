@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
 	"github.com/swornagent/sworn/internal/policy"
@@ -29,6 +30,8 @@ type BuilderController struct {
 	builder   BuilderService
 	closed    bool
 }
+
+const controlledBuildConvergenceTimeout = 5 * time.Second
 
 // StartBuilderController acquires Store-issued recovery ownership, completes
 // the mandatory native-builder recovery barrier, and only then activates the
@@ -90,9 +93,12 @@ func StartBuilderController(
 	return controller, report, nil
 }
 
-// DispatchBuild freshly authenticates the exact plan and next work attempt.
+// DispatchBuild first converges any exact durable outcome for commandID. Only
+// an absent command freshly authenticates the exact plan and next work attempt;
 // Store then rejoins the active owner, permit, durable source head, current
 // state, command, exact contract, and configured builder inside one transaction.
+// A caller must reuse commandID for the same logical dispatch across retries
+// and process restart.
 func (controller *BuilderController) DispatchBuild(
 	ctx context.Context,
 	runID string,
@@ -103,6 +109,18 @@ func (controller *BuilderController) DispatchBuild(
 	defer controller.mu.Unlock()
 	if err := controller.requireOwnership(); err != nil {
 		return store.ApplyResult{}, err
+	}
+	selector := store.ControlledBuildDispatchSelector{
+		ControllerID: controller.ownerID, CommandID: commandID,
+		RunID: runID, WorkID: workID,
+		BuilderDispatchDigest: controller.builder.DispatchDigest(),
+	}
+	if result, found, err := controller.journal.ConvergeControlledBuildDispatch(
+		ctx, controller.ownership, selector,
+	); err != nil {
+		return store.ApplyResult{}, fmt.Errorf("converge controlled build dispatch: %w", err)
+	} else if found {
+		return validateControlledBuildDispatchResult(result)
 	}
 	state, plan, request, err := controller.buildPermitRequest(ctx, runID, workID, engine.WorkReady)
 	if err != nil {
@@ -126,8 +144,38 @@ func (controller *BuilderController) DispatchBuild(
 		},
 	)
 	if err != nil {
-		return store.ApplyResult{}, err
+		convergeCtx, cancel := controlledBuildConvergenceContext(ctx)
+		defer cancel()
+		result, found, convergeErr := controller.journal.ConvergeControlledBuildDispatch(
+			convergeCtx, controller.ownership, selector,
+		)
+		return resolveControlledBuildApplyError(err, result, found, convergeErr)
 	}
+	return validateControlledBuildDispatchResult(result)
+}
+
+func controlledBuildConvergenceContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), controlledBuildConvergenceTimeout)
+}
+
+func resolveControlledBuildApplyError(
+	applyErr error,
+	result store.ApplyResult,
+	found bool,
+	convergeErr error,
+) (store.ApplyResult, error) {
+	if convergeErr != nil {
+		return store.ApplyResult{}, errors.Join(
+			applyErr, fmt.Errorf("converge controlled build dispatch after apply error: %w", convergeErr),
+		)
+	}
+	if found {
+		return validateControlledBuildDispatchResult(result)
+	}
+	return store.ApplyResult{}, applyErr
+}
+
+func validateControlledBuildDispatchResult(result store.ApplyResult) (store.ApplyResult, error) {
 	if result.Outcome == store.OutcomeApplied && len(result.EffectIDs) != 1 {
 		return result, errors.New("authorized build dispatch did not create exactly one effect")
 	}

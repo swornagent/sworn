@@ -32,8 +32,28 @@ algorithm:
    a Store-owned retry proof after attempt-workspace cleanup.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
-roll back and remain errors; they are not converted into domain outcomes. Reuse
-of an idempotency key with different request bytes fails closed.
+which leave no durable command remain errors; they are not converted into domain
+outcomes. Reuse of an idempotency key with different request bytes fails closed.
+A controlled build caller must therefore keep one command ID stable for the
+same logical dispatch across an ordinary retry and process restart; generating
+a new ID cannot converge an earlier ambiguous commit.
+
+Before seeking fresh authority, `BuilderController.DispatchBuild` probes that
+command ID under active controller ownership. A missing command row is the only
+`not found` result. An occupied ID is decoded as its strict stored command and
+stored result, its request digest is recomputed, and an applied result must close
+over exactly one byte-matching `build.dispatched` event and one derived native
+build effect. That closure rejoins the selected run, work, configured builder,
+exact plan and contract, and current intended attempt; another outcome or a
+foreign, incomplete, corrupt, stale, or differently used ID fails closed.
+`Replayed` is set only on the returned copy.
+
+Only an absent command proceeds to fresh authority and the mutating dispatch
+transaction. If that apply returns an error, the controller performs one
+five-second convergence probe using a context detached from caller cancellation.
+An exact durable result wins the commit-ambiguity window; absence returns the
+original apply error, and a probe failure is joined to it. This is bounded
+convergence, not a retry policy or loop.
 
 The store-derived effect ID is also the Baton builder or producer run ID.
 `effects.run_id` remains the enclosing delivery-engine run in SQLite and is
@@ -101,13 +121,17 @@ claim, prepare, bind, or complete a native build. Raw `build.dispatch` is
 rejected, generic claims skip builds, and generic result APIs cannot consume a
 native-build lease.
 
-The controller re-resolves gate-specific current authority before scheduling a
-ready builder and again before claiming a pending builder after the state
-revision has advanced. Store selects only the exact permitted work and attempt,
-then rechecks ownership, permit, durable source head, state, contract, command,
-and typed request at successful preparation. That transaction is the logical
-build-start authorization and linearization point; `BuilderService` invokes the
-worker immediately afterward. Every copy of the resulting
+The controller observes an exact durable dispatch outcome without re-resolving
+authority because replay neither mutates state nor grants effect authority. A
+new dispatch still re-resolves gate-specific current authority, and claiming its
+pending builder resolves authority again after the state revision has advanced.
+A revocation may therefore leave the historical dispatch replayable while
+correctly preventing its pending effect from being claimed. Store selects only
+the exact permitted work and attempt, then rechecks ownership, permit, durable
+source head, state, contract, command, and typed request at successful
+preparation. That transaction is the logical build-start authorization and
+linearization point; `BuilderService` invokes the worker immediately afterward.
+Every copy of the resulting
 `PreparedAuthorizedBuildLease` shares one atomic phase: `BuilderWorker.Run`
 must consume its sole worker entrance before any side effect. Its Store-gated
 synchronous callback retains active ownership until the raw operation returns,
@@ -137,10 +161,11 @@ raw algorithms are package-private behind these gated entry points.
 A failed controlled claim, or any failure after claim, releases ownership and
 forces the next process through recovery. The controller performs one explicit
 step; it does not poll, choose retry policy, execute checks, or own a public
-loop. Controlled dispatch remains safe after an ambiguous successful commit—the
-advanced state and pending effect are durable—but direct command-result
-convergence from that advanced state is a required pre-public-loop follow-up.
-See [ADR 0006](adr/0006-current-authority-controller.md).
+loop. Controlled dispatch now converges an exact historical command outcome
+before fresh authority and once more for up to five seconds after an apply
+error. It reuses the existing command, event, effect, plan, and run records; it
+adds no schema migration, workflow framework, or runtime dependency. See [ADR
+0006](adr/0006-current-authority-controller.md).
 
 ## SQLite ownership
 

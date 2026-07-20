@@ -72,6 +72,14 @@ newer remote version which Sworn has never seen. The Store reasserts the
 permit's version and digest against that durable high-water mark inside each
 dispatch and claim transaction, so a locally observed later revocation wins.
 
+Dispatch convergence is historical rather than current authority. Under active
+ownership, `DispatchBuild` probes the caller's stable command ID before
+resolving the source and once, bounded, after an apply error. Store returns only
+an exact command/result and causal journal/plan closure; a mismatched occupied
+ID fails closed and only absence reaches fresh authorization. Replay mints no
+permit. A newer revocation therefore leaves committed history observable while
+still preventing a fresh dispatch or pending-build claim.
+
 An active source may mint one opaque `CurrentBuildPermit`. It is bound to the
 exact Authority instance, controller, delivery run, state revision, plan,
 work, work attempt, work-contract digest, builder profile, source version, and
@@ -115,5 +123,7 @@ ownership through external cleanup and proof sealing.
 Check execution, verifier dispatch, accepting `PASS`, and integration still
 require their own short-lived gate-specific revalidation. Check scheduling and
 admission currently use the approval receipt only as historical provenance and
-remain unreachable from a public autonomous controller. See [ADR
+remain unreachable from a public autonomous controller. Dispatch convergence
+reuses existing Store history and adds no schema migration, workflow framework,
+or runtime dependency. See [ADR
 0006](adr/0006-current-authority-controller.md).

@@ -1,13 +1,11 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 
 	"github.com/swornagent/sworn/internal/engine"
@@ -479,29 +477,45 @@ func validateCurrentPermitHead(
 }
 
 func parseExactDispatchBuildPayload(encoded json.RawMessage) (engine.DispatchBuildPayload, error) {
-	if _, err := protocol.CanonicalizeJSON(encoded); err != nil {
+	payload, err := decodeExactControlledBuildJSON[engine.DispatchBuildPayload](
+		encoded, "work_id", "dispatch_digest", "builder_dispatch_digest",
+	)
+	if err != nil {
 		return engine.DispatchBuildPayload{}, fmt.Errorf("validate controlled build payload: %w", err)
 	}
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &members); err != nil || len(members) != 3 {
-		return engine.DispatchBuildPayload{}, errors.New("controlled build payload requires exactly three members")
+	return payload, nil
+}
+
+func decodeExactControlledBuildJSON[T any](encoded []byte, names ...string) (T, error) {
+	var value T
+	if _, err := protocol.CanonicalizeJSON(encoded); err != nil {
+		return value, err
 	}
-	for _, name := range []string{"work_id", "dispatch_digest", "builder_dispatch_digest"} {
-		if _, exists := members[name]; !exists {
-			return engine.DispatchBuildPayload{}, fmt.Errorf("controlled build payload is missing %q", name)
+	if len(names) != 0 {
+		if err := requireExactJSONMembers(encoded, names...); err != nil {
+			return value, err
 		}
 	}
-	var payload engine.DispatchBuildPayload
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		return engine.DispatchBuildPayload{}, fmt.Errorf("decode controlled build payload: %w", err)
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		return value, err
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return engine.DispatchBuildPayload{}, errors.New("controlled build payload contains trailing JSON")
+	return value, nil
+}
+
+func requireExactJSONMembers(encoded []byte, names ...string) error {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &members); err != nil {
+		return err
 	}
-	return payload, nil
+	if len(members) != len(names) {
+		return errors.New("JSON has unexpected members")
+	}
+	for _, name := range names {
+		if _, exists := members[name]; !exists {
+			return fmt.Errorf("JSON is missing %q", name)
+		}
+	}
+	return nil
 }
 
 func stateWorkIDsForBuildGate(work []engine.Work) []string {
