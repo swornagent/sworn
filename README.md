@@ -54,6 +54,12 @@ Store-bound composite proof of absent publication and complete writable
 cleanup. A real composition test carries that result through exact checks and
 atomic reviewable admission.
 
+The executor also admits one digest-pinned input as a direct entrypoint and a
+separately double-gated nested sandbox. An opt-in real-Codex proof uses those
+capabilities to separate the networked agent control plane from its
+network-denied, credential-free tool process; no production agent adapter is
+connected yet.
+
 No mutating command is exposed by the CLI yet. Historical approval remains
 provenance rather than a current execution permit, and reviewable is not a
 verdict or `PASS`. The narrow internal composition service does not claim work
@@ -79,11 +85,17 @@ go test -race ./...
 go vet ./...
 go run ./cmd/sworn version --json
 SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
+SWORN_CODEX_BINARY=/absolute/path/to/codex \
+  SWORN_REQUIRE_CODEX_BOUNDARY=1 \
+  go test -run TestRealCodexCLIBoundaryFeasibility ./internal/adapter
 ```
 
-The last command is the fail-if-unavailable real containment suite; it requires
+The final two commands are fail-if-unavailable real containment suites. The
+Codex proof requires an exact static CLI and exercises it against a local
+scripted Responses endpoint without making a provider model call. Both require
 the Linux capability floor described in the executor document. Ordinary tests
-skip those integration cases on hosts that cannot run user services.
+skip those integration cases when their host capability or explicit binary is
+unavailable.
 
 See [ADR 0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries
 and [the implementation sequence](docs/roadmap.md) for the walking skeleton.

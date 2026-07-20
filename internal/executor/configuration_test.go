@@ -17,6 +17,7 @@ func TestExecutorConfigurationDigestCanonicalAndComplete(t *testing.T) {
 		Limits:             DefaultLimits(),
 		AllowedEnvironment: []string{"SECOND", "FIRST"},
 		AllowHostNetwork:   false,
+		AllowNestedSandbox: false,
 	}
 	baseline := executorConfigurationDigest(base)
 	if !strings.HasPrefix(baseline, "sha256:") || len(baseline) != len("sha256:")+64 {
@@ -55,6 +56,7 @@ func TestExecutorConfigurationDigestCanonicalAndComplete(t *testing.T) {
 		{"stderr limit", func(options *Options) { options.Limits.StderrBytes++ }},
 		{"allowlist", func(options *Options) { options.AllowedEnvironment = append(options.AllowedEnvironment, "THIRD") }},
 		{"host network", func(options *Options) { options.AllowHostNetwork = true }},
+		{"nested sandbox", func(options *Options) { options.AllowNestedSandbox = true }},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {

@@ -60,5 +60,6 @@ func executorConfigurationDigest(options Options) string {
 	}
 	bind("allowed_environment_count", strconv.Itoa(count))
 	bind("allow_host_network", strconv.FormatBool(options.AllowHostNetwork))
+	bind("allow_nested_sandbox", strconv.FormatBool(options.AllowNestedSandbox))
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }

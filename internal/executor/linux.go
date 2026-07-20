@@ -123,7 +123,10 @@ func (executor *LinuxExecutor) Probe(ctx context.Context) (ProbeReport, error) {
 	}
 	probeContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	probeArgs := executor.bubblewrapBaseArgs("/usr", NetworkNone, 1<<20, 1<<20)
+	// The capability probe exercises the default containment boundary. Enabling
+	// nested sandboxes is an invocation-specific admission, never a probe-wide
+	// relaxation.
+	probeArgs := executor.bubblewrapBaseArgs("/usr", NetworkNone, 1<<20, 1<<20, false)
 	probeArgs = append(probeArgs, "--", "/usr/bin/true")
 	unit := executor.unitName(fmt.Sprintf("probe-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	serviceArgs := []string{
@@ -327,7 +330,13 @@ func (executor *LinuxExecutor) runInvocation(
 	sort.Slice(inputs, func(left, right int) bool { return inputs[left].Name < inputs[right].Name })
 	boundInputs := make([]BoundInput, 0, len(inputs))
 	for _, input := range inputs {
-		bound, err := stageInput(ctx, input, filepath.Join(inputsPath, input.Name), remaining)
+		bound, err := stageInput(
+			ctx,
+			input,
+			filepath.Join(inputsPath, input.Name),
+			remaining,
+			input.Name == invocation.ExecutableInput,
+		)
 		if err != nil {
 			return RawCompletion{}, err
 		}
@@ -348,6 +357,7 @@ func (executor *LinuxExecutor) runInvocation(
 	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv, startMarker)
 	completion.RuntimeDigest = observedRuntimeDigest
 	completion.WorkspaceDigest = workspaceDigest
+	completion.ExecutableInput = invocation.ExecutableInput
 	completion.Inputs = boundInputs
 	if resultErr != nil || !writable || completion.Cancelled || completion.TimedOut || completion.OutputTruncated {
 		return completion, resultErr
@@ -399,6 +409,7 @@ func (executor *LinuxExecutor) bubblewrapArgs(
 		invocation.Network,
 		executor.options.Limits.TempBytes,
 		executor.options.Limits.HomeBytes,
+		invocation.NestedSandbox && executor.options.AllowNestedSandbox,
 	)
 	workspaceMount := "--ro-bind"
 	if writable {
@@ -420,6 +431,7 @@ func (executor *LinuxExecutor) bubblewrapBaseArgs(
 	runtimePath string,
 	network NetworkMode,
 	tempBytes, homeBytes uint64,
+	nestedSandbox bool,
 ) []string {
 	args := []string{
 		"--die-with-parent",
@@ -433,8 +445,10 @@ func (executor *LinuxExecutor) bubblewrapBaseArgs(
 	if network == NetworkNone {
 		args = append(args, "--unshare-net")
 	}
+	if !nestedSandbox {
+		args = append(args, "--disable-userns")
+	}
 	args = append(args,
-		"--disable-userns",
 		"--cap-drop", "ALL",
 		"--clearenv",
 		"--tmpfs", "/",

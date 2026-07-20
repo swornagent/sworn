@@ -70,7 +70,13 @@ func stageRuntime(
 	return digest, size, nil
 }
 
-func stageInput(ctx context.Context, input Input, destination string, maximumBytes uint64) (BoundInput, error) {
+func stageInput(
+	ctx context.Context,
+	input Input,
+	destination string,
+	maximumBytes uint64,
+	executable bool,
+) (BoundInput, error) {
 	info, err := os.Lstat(input.Path)
 	if err != nil {
 		return BoundInput{}, fmt.Errorf("inspect input %q: %w", input.Name, err)
@@ -96,7 +102,11 @@ func stageInput(ctx context.Context, input Input, destination string, maximumByt
 	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
 		return BoundInput{}, fmt.Errorf("input %q changed while staging", input.Name)
 	}
-	target, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o400)
+	mode := os.FileMode(0o400)
+	if executable {
+		mode = 0o500
+	}
+	target, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return BoundInput{}, fmt.Errorf("create staged input %q: %w", input.Name, err)
 	}
@@ -108,6 +118,9 @@ func stageInput(ctx context.Context, input Input, destination string, maximumByt
 	}
 	if closeErr != nil {
 		return BoundInput{}, fmt.Errorf("close staged input %q: %w", input.Name, closeErr)
+	}
+	if err := os.Chmod(destination, mode); err != nil {
+		return BoundInput{}, fmt.Errorf("set staged input %q mode: %w", input.Name, err)
 	}
 	if written != size {
 		return BoundInput{}, fmt.Errorf("input %q changed while staging", input.Name)

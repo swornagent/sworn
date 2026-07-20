@@ -26,6 +26,33 @@ import (
 
 var builderCompletionTime = time.Date(2026, 7, 20, 6, 30, 0, 0, time.UTC)
 
+func TestValidateBuilderCompletionRejectsUnexpectedExecutableInput(t *testing.T) {
+	t.Parallel()
+	invocation := executor.Invocation{
+		ID: "build-1", WorkspaceDigest: "sha256:" + strings.Repeat("a", 64),
+		WorkspaceAccess: executor.WorkspaceWritableExport,
+	}
+	completion := executor.RawCompletion{
+		InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
+		WorkspaceAccess: executor.WorkspaceWritableExport,
+		Inputs:          []executor.BoundInput{},
+		StartedAt:       builderCompletionTime.Add(-time.Minute),
+		CompletedAt:     builderCompletionTime,
+		ExitCode:        0,
+		Export: &executor.WorkspaceExport{
+			InvocationID: invocation.ID, BaseDigest: invocation.WorkspaceDigest,
+		},
+	}
+	if err := validateBuilderCompletion(completion, invocation, nil); err != nil {
+		t.Fatalf("validate baseline completion: %v", err)
+	}
+	completion.ExecutableInput = "agent"
+	if err := validateBuilderCompletion(completion, invocation, nil); err == nil ||
+		!strings.Contains(err.Error(), "exact invocation") {
+		t.Fatalf("unexpected executable-input error = %v", err)
+	}
+}
+
 type builderTestControl struct {
 	state engine.State
 	plan  protocol.ExactPlan
