@@ -277,7 +277,8 @@ func putVerifiedArtifact(
 func validateCompletion(invocation executor.Invocation, completion executor.RawCompletion) error {
 	if completion.InvocationID != invocation.ID || completion.RuntimeDigest != invocation.RuntimeDigest ||
 		completion.WorkspaceDigest != invocation.WorkspaceDigest ||
-		completion.WorkspaceAccess != executor.WorkspaceReadOnly || len(completion.Inputs) != 0 || completion.Export != nil ||
+		completion.WorkspaceAccess != executor.WorkspaceReadOnly ||
+		completion.ExecutableInput != invocation.ExecutableInput || len(completion.Inputs) != 0 || completion.Export != nil ||
 		completion.StartedAt.IsZero() || completion.CompletedAt.IsZero() || completion.CompletedAt.Before(completion.StartedAt) {
 		return errors.New("local check completion does not match its invocation")
 	}

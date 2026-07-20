@@ -48,10 +48,12 @@ type Invocation struct {
 	SchemaVersion   string            `json:"schema_version"`
 	ID              string            `json:"id"`
 	Role            string            `json:"role"`
+	NestedSandbox   bool              `json:"nested_sandbox,omitempty"`
 	RuntimeDigest   string            `json:"runtime_digest,omitempty"`
 	Workspace       string            `json:"workspace"`
 	WorkspaceDigest string            `json:"workspace_digest"`
 	WorkspaceAccess WorkspaceAccess   `json:"workspace_access"`
+	ExecutableInput string            `json:"executable_input,omitempty"`
 	Inputs          []Input           `json:"inputs,omitempty"`
 	Argv            []string          `json:"argv"`
 	Environment     map[string]string `json:"environment,omitempty"`
@@ -116,6 +118,7 @@ type Options struct {
 	Limits             Limits
 	AllowedEnvironment []string
 	AllowHostNetwork   bool
+	AllowNestedSandbox bool
 }
 
 type BoundInput struct {
@@ -154,6 +157,7 @@ type RawCompletion struct {
 	RuntimeDigest   string           `json:"runtime_digest,omitempty"`
 	WorkspaceDigest string           `json:"workspace_digest"`
 	WorkspaceAccess WorkspaceAccess  `json:"workspace_access"`
+	ExecutableInput string           `json:"executable_input,omitempty"`
 	Inputs          []BoundInput     `json:"inputs,omitempty"`
 	StartedAt       time.Time        `json:"started_at"`
 	CompletedAt     time.Time        `json:"completed_at"`
@@ -201,13 +205,16 @@ func (invocation Invocation) validate(options Options) error {
 	if invocation.Network == NetworkHost && !options.AllowHostNetwork {
 		return errors.New("host network is not admitted by this executor")
 	}
+	if invocation.NestedSandbox && !options.AllowNestedSandbox {
+		return errors.New("nested sandbox is not admitted by this executor")
+	}
 	if err := validateAbsoluteDirectory(invocation.Workspace, "workspace"); err != nil {
 		return err
 	}
 	if !validDigest(invocation.WorkspaceDigest) {
 		return errors.New("workspace requires an exact sha256 digest")
 	}
-	if err := validateArgv(invocation.Argv); err != nil {
+	if err := invocation.validateArgv(); err != nil {
 		return err
 	}
 	allowed := make(map[string]struct{}, len(options.AllowedEnvironment))
@@ -258,13 +265,47 @@ func (invocation Invocation) validate(options Options) error {
 	return nil
 }
 
+func (invocation Invocation) validateArgv() error {
+	if invocation.ExecutableInput == "" {
+		return validateArgv(invocation.Argv)
+	}
+	if !idPattern.MatchString(invocation.ExecutableInput) {
+		return errors.New("executable input must name a valid input")
+	}
+	found := false
+	for _, input := range invocation.Inputs {
+		if input.Name == invocation.ExecutableInput {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("executable input %q is absent", invocation.ExecutableInput)
+	}
+	if err := validateArgumentShape(invocation.Argv); err != nil {
+		return err
+	}
+	want := "/inputs/" + invocation.ExecutableInput
+	if invocation.Argv[0] != want {
+		return fmt.Errorf("executable input invocation must use %q", want)
+	}
+	return nil
+}
+
 func validateArgv(argv []string) error {
-	if len(argv) == 0 || len(argv) > 256 {
-		return errors.New("invocation argv must contain 1 to 256 entries")
+	if err := validateArgumentShape(argv); err != nil {
+		return err
 	}
 	if !filepath.IsAbs(argv[0]) || filepath.Clean(argv[0]) != argv[0] ||
 		(!strings.HasPrefix(argv[0], "/usr/") && !strings.HasPrefix(argv[0], "/bin/")) {
 		return errors.New("invocation executable must be a clean absolute path beneath the mounted /usr trust root")
+	}
+	return nil
+}
+
+func validateArgumentShape(argv []string) error {
+	if len(argv) == 0 || len(argv) > 256 {
+		return errors.New("invocation argv must contain 1 to 256 entries")
 	}
 	var total int
 	for _, argument := range argv {

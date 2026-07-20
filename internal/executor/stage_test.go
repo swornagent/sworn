@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -110,7 +111,7 @@ func TestStageInputBindsExactRegularFile(t *testing.T) {
 	writeTestFile(t, source, contents, 0o600)
 	digest := digestBytes(contents)
 	destination := filepath.Join(t.TempDir(), "staged")
-	bound, err := stageInput(context.Background(), Input{Name: "task", Path: source, Digest: digest}, destination, 1<<20)
+	bound, err := stageInput(context.Background(), Input{Name: "task", Path: source, Digest: digest}, destination, 1<<20, false)
 	if err != nil {
 		t.Fatalf("stage input: %v", err)
 	}
@@ -120,15 +121,66 @@ func TestStageInputBindsExactRegularFile(t *testing.T) {
 	assertMode(t, destination, 0o400)
 
 	wrong := filepath.Join(t.TempDir(), "wrong")
-	if _, err := stageInput(context.Background(), Input{Name: "task", Path: source, Digest: testDigest("f")}, wrong, 1<<20); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+	if _, err := stageInput(context.Background(), Input{Name: "task", Path: source, Digest: testDigest("f")}, wrong, 1<<20, false); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("wrong-digest error = %v", err)
 	}
 	symlink := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(source, symlink); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stageInput(context.Background(), Input{Name: "task", Path: symlink, Digest: digest}, filepath.Join(t.TempDir(), "linked"), 1<<20); err == nil {
+	if _, err := stageInput(context.Background(), Input{Name: "task", Path: symlink, Digest: digest}, filepath.Join(t.TempDir(), "linked"), 1<<20, false); err == nil {
 		t.Fatal("stageInput admitted a symbolic link")
+	}
+}
+
+func TestStageSelectedInputIsExecutableWithoutMutatingSource(t *testing.T) {
+	t.Parallel()
+	source := filepath.Join(t.TempDir(), "codex")
+	contents := []byte("#!/bin/sh\nprintf 'pinned\\n'\n")
+	writeTestFile(t, source, contents, 0o755)
+	digest := digestBytes(contents)
+	destination := filepath.Join(t.TempDir(), "entrypoint")
+	bound, err := stageInput(
+		context.Background(),
+		Input{Name: "codex", Path: source, Digest: digest},
+		destination,
+		1<<20,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("stage executable: %v", err)
+	}
+	if bound.Name != "codex" || bound.Digest != digest || bound.Size != uint64(len(contents)) {
+		t.Fatalf("bound executable = %#v", bound)
+	}
+	assertMode(t, destination, 0o500)
+	assertMode(t, source, 0o755)
+	if observed, err := os.ReadFile(source); err != nil || !bytes.Equal(observed, contents) {
+		t.Fatalf("source executable changed: contents=%q error=%v", observed, err)
+	}
+
+	wrong := filepath.Join(t.TempDir(), "wrong")
+	if _, err := stageInput(
+		context.Background(),
+		Input{Name: "codex", Path: source, Digest: testDigest("f")},
+		wrong,
+		1<<20,
+		true,
+	); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("wrong-digest error = %v", err)
+	}
+	symlink := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(source, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stageInput(
+		context.Background(),
+		Input{Name: "codex", Path: symlink, Digest: digest},
+		filepath.Join(t.TempDir(), "linked"),
+		1<<20,
+		true,
+	); err == nil {
+		t.Fatal("selected executable input admitted a symbolic link")
 	}
 }
 

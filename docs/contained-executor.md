@@ -37,11 +37,13 @@ An invocation is rejected before dispatch unless it provides:
   timeout;
 - the exact runtime manifest digest when the content-bound entry point is used;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
-- a bounded, explicit argv with a clean absolute executable beneath the
-  read-only `/usr` runtime trust root (`/bin` is its sandbox alias);
+- a bounded, explicit argv whose executable is either beneath the read-only
+  `/usr` runtime trust root (`/bin` is its sandbox alias) or exactly one named,
+  digest-pinned executable input;
 - only explicitly allowlisted environment names;
-- individually named, SHA-256-pinned regular-file inputs; and
-- either no network or an executor-enabled host-network exception.
+- individually named, SHA-256-pinned regular-file inputs;
+- either no network or an executor-enabled host-network exception; and
+- no nested user namespace unless both the invocation and executor admit it.
 
 Sworn never parses or constructs a shell command: argv is passed literally. An
 adapter may explicitly select a shell or interpreter, but that choice remains
@@ -50,9 +52,14 @@ Environment defaults are fixed by the executor; reserved loader, Git, locale,
 home, path, and temporary-directory variables cannot be supplied by an
 invocation. Networking is absent by default.
 
-Before execution, Sworn copies the workspace and every admitted input. A
-content-bound invocation also copies and remeasures its runtime under a
-capability ceiling narrowed by the executor's shared input-byte ceiling. The
+Before execution, Sworn copies the workspace and every admitted input. Inputs
+are staged read-only and non-executable. An invocation may select exactly one
+input as its direct entrypoint; only that staged copy is executable, argv must
+name `/inputs/<name>` exactly, and the raw completion records the selected name
+alongside the observed input digest and size. It is never placed in the
+writable or exported workspace. A content-bound invocation also copies and
+remeasures its runtime under a capability ceiling narrowed by the executor's
+shared input-byte ceiling. The
 versioned `sworn-workspace-manifest-v1` digest binds relative paths, entry types,
 ordinary rwx permission bits, symlink targets, and regular-file bytes. It excludes
 timestamps, ownership, and inode alias topology. Git metadata, special files,
@@ -80,8 +87,8 @@ successful result for that executor instance. The required floor is:
 Each invocation runs as one transient user service. systemd owns the complete
 cgroup and applies runtime, memory, swap, task, CPU, file-size, and descriptor
 ceilings. Bubblewrap creates fresh user, PID, IPC, UTS, cgroup, and, by default,
-network namespaces; drops all capabilities; disables further user namespaces;
-and presents a temporary root containing only:
+network namespaces; drops all capabilities; and presents a temporary root
+containing only:
 
 - the exact staged content runtime for read-only checks, or host `/usr` for the
   distinct writable builder path, read-only at `/usr`;
@@ -93,6 +100,11 @@ and presents a temporary root containing only:
 
 Host networking requires both an invocation request and executor-level
 admission. It is intentionally a broad exception, not a domain firewall.
+Further user namespaces are disabled by default. A nested-sandbox invocation
+requires a separate executor-level admission before that restriction is
+omitted; descendants still inherit the outer mount, network, capability, and
+cgroup boundary. This does not constrain deeper descendant namespace creation
+or remove the kernel's user-namespace attack surface.
 
 ## Writable resource claim
 

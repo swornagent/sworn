@@ -167,9 +167,26 @@ prompt, helper command, environment, or stdin authority. See [Exact plan and
 authenticated authority](authenticated-authority.md) and [ADR
 0006](adr/0006-current-authority-controller.md).
 
+The Codex-first feasibility gate in [ADR
+0007](adr/0007-native-agent-boundary.md) now passes against a real static CLI and
+a scripted, token-free Responses turn. The executor gained only two explicit
+capabilities: one digest-pinned input may be the direct entrypoint, and nested
+user namespaces require invocation plus executor admission. Ordinary
+invocations retain the prior boundary. No agent adapter, engine path,
+controller path, Store transition, or public command was added. Historical
+replay and deterministic reviewable admission remain historical; current
+authority gates external effects and transitions which grant effectful
+capabilities.
+
 ## 4. Fresh independent verdict
 
-- [ ] Dispatch builder and verifier through native CLI adapters.
+- [x] Pass the pinned Codex native-agent boundary proof in ADR 0007 without
+  adding an adapter or mutating the production engine, controller, Store, or
+  CLI.
+- [ ] Take the next production vertical through the built binary, real builder,
+  current-authorized and recoverable checks, and deterministic admission to
+  `reviewable`; do not expose a builder-only public command.
+- [ ] Dispatch the independent verifier through a native CLI adapter.
 - [ ] Keep authorizer capability and verifier identity outside builder scope.
 - [ ] Bind each verdict to the exact dispatch, policy, submission, candidate,
   and evidence.

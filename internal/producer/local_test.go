@@ -474,6 +474,21 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		result.Receipt.Digest != "" || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("runtime-mismatched result = %#v, %v", result, err)
 	}
+	selectorRunner := contentOnlyRunner{fakeRunner: fakeRunner{
+		completion: func(invocation executor.Invocation) executor.RawCompletion {
+			return executor.RawCompletion{
+				InvocationID: invocation.ID, RuntimeDigest: invocation.RuntimeDigest,
+				WorkspaceDigest: invocation.WorkspaceDigest, WorkspaceAccess: executor.WorkspaceReadOnly,
+				ExecutableInput: "agent", StartedAt: testCheckStart,
+				CompletedAt: testCheckCompletion, ExitCode: 0,
+			}
+		},
+	}}
+	request.RunID = "content-check-selector-mismatch"
+	if result, err := producer.RunLocalContentBound(ctx, selectorRunner, control, request, runtimeTree); err == nil ||
+		result.Receipt.Digest != "" || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("selector-mismatched result = %#v, %v", result, err)
+	}
 	nonPassRunner := contentOnlyRunner{fakeRunner: fakeRunner{
 		completion: func(invocation executor.Invocation) executor.RawCompletion {
 			return executor.RawCompletion{

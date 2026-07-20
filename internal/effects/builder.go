@@ -389,7 +389,8 @@ func validateBuilderCompletion(
 ) error {
 	if completion.InvocationID != invocation.ID || completion.RuntimeDigest != "" ||
 		completion.WorkspaceDigest != invocation.WorkspaceDigest ||
-		completion.WorkspaceAccess != executor.WorkspaceWritableExport {
+		completion.WorkspaceAccess != executor.WorkspaceWritableExport ||
+		completion.ExecutableInput != invocation.ExecutableInput {
 		return errors.New("builder completion does not match its exact invocation")
 	}
 	if completion.Cancelled || completion.TimedOut || completion.OutputTruncated || completion.ExitCode != 0 {

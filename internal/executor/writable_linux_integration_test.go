@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -119,6 +120,65 @@ func TestLinuxExecutorExportsMeasuredWritableWorkspace(t *testing.T) {
 	if _, err := os.Lstat(export.Path); !os.IsNotExist(err) {
 		t.Fatalf("released export remains: %v", err)
 	}
+}
+
+func TestLinuxExecutorRunsSelectedInputOutsideWritableExport(t *testing.T) {
+	executor := requireWritableLinuxExecutor(t)
+	workspace, workspaceDigest := emptyTestWorkspace(t, executor)
+	agentPath := filepath.Join(t.TempDir(), "agent")
+	agentContents := []byte(strings.Join([]string{
+		"#!/bin/sh",
+		"if printf mutation >> /inputs/agent 2>/dev/null; then exit 90; fi",
+		"if /inputs/task >/dev/null 2>&1; then exit 91; fi",
+		"[ \"$(cat /inputs/task)\" = \"ordinary-input\" ] || exit 92",
+		"printf 'built-by-selected-input\\n' > /workspace/result.txt",
+		"printf 'selected-input\\n'",
+	}, "\n") + "\n")
+	writeTestFile(t, agentPath, agentContents, 0o755)
+	taskPath := filepath.Join(t.TempDir(), "task")
+	taskContents := []byte("ordinary-input\n")
+	writeTestFile(t, taskPath, taskContents, 0o700)
+
+	completion, err := executor.RunWritable(context.Background(), Invocation{
+		SchemaVersion:   InvocationSchemaVersion,
+		ID:              "writable-selected-input",
+		Role:            "builder",
+		Workspace:       workspace,
+		WorkspaceDigest: workspaceDigest,
+		WorkspaceAccess: WorkspaceWritableExport,
+		ExecutableInput: "agent",
+		Inputs: []Input{
+			{Name: "agent", Path: agentPath, Digest: digestBytes(agentContents)},
+			{Name: "task", Path: taskPath, Digest: digestBytes(taskContents)},
+		},
+		Argv:    []string{"/inputs/agent"},
+		Network: NetworkNone,
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("run selected input: %v; stderr=%s", err, completion.Stderr)
+	}
+	if completion.ExitCode != 0 || string(completion.Stdout) != "selected-input\n" || completion.Export == nil {
+		t.Fatalf("selected-input completion = %#v", completion)
+	}
+	if completion.ExecutableInput != "agent" || len(completion.Inputs) != 2 ||
+		completion.Inputs[0].Name != "agent" || completion.Inputs[0].Digest != digestBytes(agentContents) {
+		t.Fatalf("selected-input bindings = %#v", completion)
+	}
+	export := *completion.Export
+	t.Cleanup(func() { _ = releaseOrRemoveExport(executor, export) })
+	assertWorkspaceFile(t, filepath.Join(export.Path, "result.txt"), "built-by-selected-input\n", 0o600)
+	if _, err := os.Lstat(filepath.Join(export.Path, "inputs")); !os.IsNotExist(err) {
+		t.Fatalf("staged inputs leaked into workspace export: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(workspace, "result.txt")); !os.IsNotExist(err) {
+		t.Fatalf("source workspace changed: %v", err)
+	}
+	if observed, err := os.ReadFile(agentPath); err != nil || !bytes.Equal(observed, agentContents) {
+		t.Fatalf("source executable changed: contents=%q error=%v", observed, err)
+	}
+	assertMode(t, agentPath, 0o755)
+	assertMode(t, taskPath, 0o700)
 }
 
 func TestLinuxExecutorRejectsUnsafeWritableExports(t *testing.T) {
