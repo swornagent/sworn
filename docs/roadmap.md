@@ -136,7 +136,7 @@ builder; it does not claim checks or admit submissions.
   attempt, contract, source, and builder profile.
 - [x] Seal privileged raw builder execution, cleanup, and reconciliation behind
   one-shot Store-issued capabilities before any public mutating loop.
-- [ ] Converge controlled dispatch from its durable command outcome after an
+- [x] Converge controlled dispatch from its durable command outcome after an
   ambiguous successful commit before any public mutating loop.
 - [ ] Configure production interactive or standing authority sources.
 - [ ] Extend current permits to checks, verifier dispatch, accepting `PASS`,
@@ -150,8 +150,14 @@ the same atomic consumption state, and each synchronous worker callback retains
 ownership until it returns, so successor recovery cannot overlap old external
 work. Store owns the replayable proof which permits an exact unbound attempt to
 return to pending. SQLite remains the only durable control truth; ownership,
-permits, and worker-entry capabilities are process-local. Controlled dispatch
-outcome convergence remains a separate gate.
+permits, and worker-entry capabilities are process-local.
+
+Controlled dispatch now resolves an exact durable outcome under active
+ownership before fresh authority and in one bounded post-apply-error probe. The
+caller must reuse its command ID across retry and restart. Replay observes
+history; fresh dispatch and pending-build claim still require current authority.
+The change reuses existing SQLite truth and adds no schema, framework,
+scheduler, or runtime dependency.
 See [ADR
 0006](adr/0006-current-authority-controller.md).
 

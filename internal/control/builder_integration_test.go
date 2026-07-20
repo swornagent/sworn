@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -116,13 +117,19 @@ type integrationAuthorityResolver struct {
 	planDigest string
 	source     []byte
 	proof      []byte
+	fail       bool
+	calls      int
 }
 
-func (resolver integrationAuthorityResolver) Resolve(
+func (resolver *integrationAuthorityResolver) Resolve(
 	_ context.Context,
 	sourceRef string,
 	planDigest string,
 ) ([]byte, []byte, error) {
+	resolver.calls++
+	if resolver.fail {
+		return nil, nil, errors.New("integration authority resolver disabled")
+	}
 	if sourceRef != resolver.sourceRef || planDigest != resolver.planDigest {
 		return nil, nil, fmt.Errorf("unexpected authority resolution for %q at %q", sourceRef, planDigest)
 	}
@@ -203,7 +210,9 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 
 	clock := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
 	plan := newIntegrationPlan(t, journal, clock)
-	approval, authority := approveIntegrationPlan(t, journal, plan, clock.Add(time.Minute))
+	approval, authority, authorityResolver := approveIntegrationPlan(
+		t, journal, plan, clock.Add(time.Minute),
+	)
 	workID := plan.WorkIDs()[0]
 
 	applyIntegrationCommand(t, journal, integrationCommand(t, "cmd-create", "run-native", engine.CommandCreate, engine.NoRevision, engine.CreatePayload{
@@ -234,13 +243,49 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 	if len(buildDispatch.EffectIDs) != 1 {
 		t.Fatalf("build effect IDs = %v", buildDispatch.EffectIDs)
 	}
-	if err := controller.ExecutePendingBuild(ctx, "run-native", workID); err != nil {
+	authorityResolver.fail = true
+	authorityCalls := authorityResolver.calls
+	replayedDispatch, err := controller.DispatchBuild(ctx, "run-native", workID, "cmd-build")
+	if err != nil || !replayedDispatch.Replayed {
+		t.Fatalf("same-controller dispatch convergence = %+v, %v", replayedDispatch, err)
+	}
+	replayedDispatch.Replayed = false
+	if !reflect.DeepEqual(replayedDispatch, buildDispatch) || authorityResolver.calls != authorityCalls {
+		t.Fatalf("same-controller convergence changed result or resolved authority: %+v, calls %d -> %d", replayedDispatch, authorityCalls, authorityResolver.calls)
+	}
+	if _, err := controller.DispatchBuild(ctx, "run-other", workID, "cmd-build"); !errors.Is(err, store.ErrIdempotencyConflict) || authorityResolver.calls != authorityCalls {
+		t.Fatalf("occupied command selector did not conflict before authority: %v, calls %d -> %d", err, authorityCalls, authorityResolver.calls)
+	}
+	if _, err := controller.DispatchBuild(ctx, "run-native", workID, "cmd-build-other"); err == nil ||
+		!strings.Contains(err.Error(), "want ready") || authorityResolver.calls != authorityCalls {
+		t.Fatalf("unknown active dispatch did not fail before authority: %v, calls %d -> %d", err, authorityCalls, authorityResolver.calls)
+	}
+	if err := controller.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.ExecutePendingBuild(ctx, "run-native", workID); !errors.Is(err, store.ErrNoPendingEffect) {
+	restarted, restartedRecovery, err := controlpkg.StartBuilderController(
+		ctx, "controller-restarted", journal, authority, builderService,
+	)
+	if err != nil || restartedRecovery != (controlpkg.RecoveryReport{}) {
+		t.Fatalf("restart after discarded dispatch result = %#v, %v", restartedRecovery, err)
+	}
+	t.Cleanup(func() { _ = restarted.Close() })
+	restartedDispatch, err := restarted.DispatchBuild(ctx, "run-native", workID, "cmd-build")
+	if err != nil || !restartedDispatch.Replayed {
+		t.Fatalf("restart dispatch convergence = %+v, %v", restartedDispatch, err)
+	}
+	restartedDispatch.Replayed = false
+	if !reflect.DeepEqual(restartedDispatch, buildDispatch) || authorityResolver.calls != authorityCalls {
+		t.Fatalf("restart convergence changed result or resolved authority: %+v, calls %d -> %d", restartedDispatch, authorityCalls, authorityResolver.calls)
+	}
+	authorityResolver.fail = false
+	if err := restarted.ExecutePendingBuild(ctx, "run-native", workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.ExecutePendingBuild(ctx, "run-native", workID); !errors.Is(err, store.ErrNoPendingEffect) {
 		t.Fatalf("empty controlled claim error = %v", err)
 	}
-	if _, err := controller.DispatchBuild(ctx, "run-native", workID, "cmd-build-after-claim-error"); err == nil ||
+	if _, err := restarted.DispatchBuild(ctx, "run-native", workID, "cmd-build-after-claim-error"); err == nil ||
 		!strings.Contains(err.Error(), "closed or uninitialized") {
 		t.Fatalf("claim error left controller usable: %v", err)
 	}
@@ -432,7 +477,7 @@ func approveIntegrationPlan(
 	journal *store.Store,
 	plan protocol.ExactPlan,
 	approvedAt time.Time,
-) (policy.HistoricalApproval, *policy.Authority) {
+) (policy.HistoricalApproval, *policy.Authority, *integrationAuthorityResolver) {
 	t.Helper()
 	seed := sha256.Sum256([]byte("native builder integration authority"))
 	privateKey := ed25519.NewKeyFromSeed(seed[:])
@@ -479,10 +524,11 @@ func approveIntegrationPlan(
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := policy.NewAuthority([]policy.TrustRoot{root}, integrationAuthorityResolver{
+	resolver := &integrationAuthorityResolver{
 		sourceRef: plan.Authority().SourceRef, planDigest: plan.Record().Digest,
 		source: sourceBytes, proof: proofBytes,
-	}, journal)
+	}
+	authority, err := policy.NewAuthority([]policy.TrustRoot{root}, resolver, journal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +536,7 @@ func approveIntegrationPlan(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return approval, authority
+	return approval, authority, resolver
 }
 
 func completeIntegrationCheck(
