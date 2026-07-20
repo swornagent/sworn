@@ -42,13 +42,15 @@ or Gitlinks fail as unsupported instead of weakening the claim.
 
 ## Current boundary
 
-No mutating CLI command calls this package yet. Immutable process configuration
-must bind the discovered repository before native execution or admission. The
-[contained Linux executor](contained-executor.md) returns a bounded, quiescent,
-measured writable export. The native builder validates that export immediately
-before cloning the original `Workspace` binding with only its path replaced,
-then prepares the exact candidate here. Candidate identity and changed paths
-still come independently from Git.
+The bounded `sworn run` command reaches this package only through immutable
+production composition. Its strict configuration carries the complete persisted
+repository binding, and `repo.Open` proves that binding against live Git facts
+before native execution or admission. The [contained Linux
+executor](contained-executor.md) returns a bounded, quiescent, measured writable
+export. The native builder validates that export immediately before cloning the
+original `Workspace` binding with only its path replaced, then prepares the
+exact candidate here. Codex output never supplies candidate identity or changed
+paths; both still come independently from Git.
 
 Store publishes the native candidate only after its typed result is bound and
 before journal success. The internal `check.local` worker then freshly
@@ -57,8 +59,8 @@ execution. The [atomic admission transaction](measured-submission.md)
 independently rederives
 the retained candidate, parent, tree, changed paths, and scope immediately
 before binding its canonical record to reviewable engine state. The internal
-builder boundary is complete, but no public mutation command, autonomous claim
-loop, verifier adapter, or target integration invokes it yet.
+builder boundary is now composed through one public mutation command, but no
+autonomous claim loop, verifier adapter, or target integration invokes it.
 
 Prepared objects are temporarily unreachable between result binding and Store
 publication. Normal crash recovery assumes Git retains those objects during

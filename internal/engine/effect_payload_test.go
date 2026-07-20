@@ -55,6 +55,49 @@ func TestBuildAttemptIdentityIsCanonicalAndAttemptBound(t *testing.T) {
 	}
 }
 
+func TestCheckAttemptIdentityIsCanonicalAndAttemptBound(t *testing.T) {
+	t.Parallel()
+
+	first, err := CheckAttemptIdentityFor("effect-check-1", 1, testRuntimeDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CheckAttemptIdentityFor("effect-check-1", 2, testRuntimeDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.InvocationID == second.InvocationID || !ValidID(first.InvocationID) {
+		t.Fatalf("check invocation identities = %q, %q", first.InvocationID, second.InvocationID)
+	}
+	otherRuntime, err := CheckAttemptIdentityFor(
+		"effect-check-1", 1,
+		"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+	)
+	if err != nil || first.InvocationID == otherRuntime.InvocationID {
+		t.Fatalf("runtime-bound invocation identity = %q, %v", otherRuntime.InvocationID, err)
+	}
+	encoded, err := EncodeCheckAttemptIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseCheckAttemptIdentity(encoded)
+	if err != nil || parsed != first {
+		t.Fatalf("parsed check identity = %+v, %v", parsed, err)
+	}
+	if _, err := ParseCheckAttemptIdentity(append(json.RawMessage{' '}, encoded...)); err == nil {
+		t.Fatal("noncanonical check attempt identity was accepted")
+	}
+	forged := first
+	forged.RuntimeManifestDigest = otherRuntime.RuntimeManifestDigest
+	if _, err := EncodeCheckAttemptIdentity(forged); err == nil {
+		t.Fatal("forged check runtime was accepted without a new invocation identity")
+	}
+	first.InvocationID = second.InvocationID
+	if _, err := EncodeCheckAttemptIdentity(first); err == nil {
+		t.Fatal("forged check invocation identity was accepted")
+	}
+}
+
 func TestBuildEffectResultCanonicalRoundTrip(t *testing.T) {
 	t.Parallel()
 

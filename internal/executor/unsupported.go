@@ -46,6 +46,10 @@ func (*LinuxExecutor) ReconcileWritable(context.Context, string) (WritableCleanu
 	return WritableCleanup{}, errLinuxRequired
 }
 
+func (*LinuxExecutor) ReconcileContentBound(context.Context, string) (ContentBoundCleanup, error) {
+	return ContentBoundCleanup{}, errLinuxRequired
+}
+
 func MeasureWorkspace(context.Context, string, uint64) (string, uint64, error) {
 	return "", 0, errLinuxRequired
 }

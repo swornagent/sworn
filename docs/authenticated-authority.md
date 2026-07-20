@@ -166,10 +166,33 @@ a partial failure may obtain a fresh issuance only after Store repeats the exact
 unknown-attempt preflight. Their synchronous callbacks retain recovery
 ownership through external cleanup and proof sealing.
 
-Check execution, verifier dispatch, accepting `PASS`, and integration still
-require their own short-lived gate-specific revalidation. Check scheduling and
-admission currently use the approval receipt only as historical provenance and
-remain unreachable from a public autonomous controller. Dispatch convergence
-reuses existing Store history and adds no schema migration, workflow framework,
-or runtime dependency. See [ADR
-0006](adr/0006-current-authority-controller.md).
+## Current check authority
+
+Check dispatch remains a deterministic historical transition: it derives the
+complete ordered batch from the exact plan and does not grant execution
+capability. Immediately before each pending `check.local` claim, the controller
+reloads that exact dispatch and asks the same Authority service to resolve and
+authenticate the source again. The plan and current source must both grant
+workspace `inspect` and `execute`; builder-only `edit` and `commit` grants are
+not required for a read-only check.
+
+One opaque `CurrentCheckPermit` binds the Authority instance, controller,
+delivery run and state revision, exact plan, work attempt and contract, succeeded
+builder effect, pending check effect, check identity and definition digest,
+content-runtime digest, source version, and source digest. It has the same short
+current-authority lifetime as a build permit. Store rejoins every fact to active
+ownership, the durable source high-water mark, the exact next policy-ordered
+effect, and immutable runtime configuration before it atomically records the
+attempt identity and issues a one-shot worker capability.
+
+Bound-result convergence and unbound cleanup recovery are historical facts and
+do not mint another current permit. A retry receives fresh authority only when
+the recovered effect is claimed again. Submission admission likewise consumes
+completed authenticated provenance and evidence without pretending to be an
+execution gate.
+
+Verifier dispatch, accepting `PASS`, and integration still require their own
+short-lived gate-specific revalidation. The bounded `sworn run` command stops at
+reviewable and supplies no signing capability or external authorizer transport.
+See [ADR 0006](adr/0006-current-authority-controller.md) and [ADR
+0008](adr/0008-builder-to-reviewable-production-vertical.md).

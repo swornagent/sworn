@@ -14,7 +14,7 @@ mounts only that copy at `/usr`. There is no flag or empty-value fallback to
 host `/usr`. The separate writable builder entry point uses the host runtime but
 cannot claim a content-runtime digest or produce qualifying check evidence.
 
-The internal `check.local` effect worker calls only `RunContentBound`. Its
+The `check.local` effect worker calls only `RunContentBound`. Its
 request binds the exact runtime-manifest and check-definition digests and names
 a succeeded builder effect as the sole candidate source. The worker materializes
 that candidate from Git; the executor then stages and remeasures the workspace
@@ -23,6 +23,13 @@ The journal matches the receipt's candidate identifiers to the builder result,
 validates its definition, environment, and output CAS closure, and requires the
 environment runtime-manifest digest to match the request. It does not repeat Git
 materialization or runtime measurement.
+
+Each claimed check receives a deterministic attempt-bound executor invocation
+identity distinct from its stable Baton receipt run ID. After interruption,
+`ReconcileContentBound` proves that exact systemd unit inactive, removes its
+runtime residue, and returns an opaque cleanup proof. The check worker also
+removes the matching private candidate materialization before Store may
+authorize an unbound retry.
 
 The access mode is part of both the invocation and raw completion. Calling the
 wrong entry point fails before dispatch. Neither mode exposes the source
@@ -51,6 +58,12 @@ visible in the immutable dispatch instead of becoming an executor side effect.
 Environment defaults are fixed by the executor; reserved loader, Git, locale,
 home, path, and temporary-directory variables cannot be supplied by an
 invocation. Networking is absent by default.
+
+The sole production executable-input profile is the pinned Codex builder. Its
+exact static-PIE version, SHA-256 digest, byte length, argv, model, tool schema,
+environment names, timeout, network request, nested-sandbox request, and
+executor configuration are bound into the builder profile. Sworn neither finds
+it through `PATH` nor accepts a different Codex release under the same profile.
 
 Before execution, Sworn copies the workspace and every admitted input. Inputs
 are staged read-only and non-executable. An invocation may select exactly one
@@ -143,9 +156,11 @@ which systemd removes every process in the service cgroup. The same cgroup
 cleanup runs on explicit cancellation, timeout, and stdout or stderr overflow.
 Unit names are deterministic opaque hashes of the executor's private runtime
 root and invocation ID. Writable runtime and workspace paths are deterministic
-from the same one-shot invocation identity. Residue is therefore discoverable
-after restart and a duplicate cannot be mistaken for a fresh run, while
-independent executor roots sharing one user systemd manager do not collide.
+from the same one-shot invocation identity. Content-bound runtime paths use the
+check attempt's own deterministic invocation identity. Residue is therefore
+discoverable after restart and a duplicate cannot be mistaken for a fresh run,
+while independent executor roots sharing one user systemd manager do not
+collide.
 
 Bubblewrap reports its child start over a private JSON status descriptor. The
 shim writes a private host marker only after that event, and the executor checks
@@ -188,6 +203,9 @@ Sworn leaves the attempt-bound residue instead of racing a possible writer.
 `ReconcileWritable` later acquires the process-shared ownership lock, proves the
 exact deterministic unit inactive, removes both runtime and workspace paths,
 rechecks quiescence and absence, and only then returns an opaque cleanup proof.
+`ReconcileContentBound` applies the same no-racing-writer rule to the exact
+read-only check unit and runtime residue. Neither proof changes journal state by
+itself; a Store-issued recovery capability must seal it to the matching attempt.
 
 The exact-candidate boundary independently scans and stages Git-visible bytes.
 The native builder clones the original repository `Workspace` binding,
@@ -204,16 +222,19 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is connected to the internal native builder and `check.local`
-workers, and `checks.dispatch` derives the complete ordered batch from the exact
-plan. The workers and reducer edges remain unreachable from the public command
-surface and autonomous engine flow. A content-bound runtime proves which bytes
-executed; it does not retain those bytes or claim hermetic reproduction. The
-kernel, CPU, and containment implementation remain host facts. Effect
-completion validates the runtime request and artifact closure; the later atomic
-admission transaction also closes the embedded protocol-snapshot binding before
-exposing reviewable. The executor does not choose an agent CLI, filter an
-admitted host network, or infer quality from an exit status. If the engine dies,
-the shim and cgroup stop all writers; the native recovery barrier can now prove
-quiescence and reclaim the exact writable attempt. See [ADR
-0005](adr/0005-native-builder-recovery.md).
+This package is connected to the production Codex builder and `check.local`
+workers. `sworn run` reaches both through the sole controller; it does not expose
+either worker as a standalone command. A content-bound runtime proves which
+bytes executed; it does not retain those bytes or claim hermetic reproduction.
+The kernel, CPU, systemd user manager, Bubblewrap, host `/usr`, and containment
+implementation remain trusted host facts.
+
+The outer Codex control process receives the configured model credential and a
+broad host-network exception. Its model-directed tool process runs in Codex's
+nested sandbox with neither that credential nor network. This is not an egress
+firewall: the trusted outer process may reach arbitrary host-network
+destinations, and same-UID host observers remain inside the trust boundary. The
+executor does not infer quality from exit status. Effect completion validates
+runtime and artifact closure; atomic admission closes the embedded protocol
+snapshot before exposing reviewable. See [ADR
+0008](adr/0008-builder-to-reviewable-production-vertical.md).

@@ -15,21 +15,26 @@ import (
 	"github.com/swornagent/sworn/internal/store"
 )
 
-// BuilderController is the sole control-layer holder of Store-issued active
+// Controller is the sole control-layer holder of Store-issued active
 // ownership. Store revalidates that ownership and one current build permit at
 // dispatch, claim, and the logical build-start preparation point; result
 // binding and completion consume the exact prepared attempt capability so an
 // authorized long build does not become unrecordable when its short permit
 // ages. The controller deliberately owns no poller, scheduler, or loop.
-type BuilderController struct {
+type Controller struct {
 	mu        sync.Mutex
 	ownership *store.ControllerOwnership
 	ownerID   string
 	journal   *store.Store
 	authority *policy.Authority
 	builder   BuilderService
+	checks    CheckService
 	closed    bool
 }
+
+// BuilderController preserves the internal name used by the completed builder
+// slices. It is an alias, not a second controller or ownership path.
+type BuilderController = Controller
 
 const controlledBuildConvergenceTimeout = 5 * time.Second
 
@@ -44,6 +49,35 @@ func StartBuilderController(
 	authority *policy.Authority,
 	builder BuilderService,
 ) (_ *BuilderController, _ RecoveryReport, resultErr error) {
+	return startController(ctx, ownerID, journal, authority, builder, CheckService{})
+}
+
+// StartController acquires the same sole Store ownership as the historical
+// builder entry point and additionally binds the bounded check/admission
+// service used by AdvanceToReviewable. CheckService does not own a scheduler or
+// a second lifecycle; its implementation must be bound to this exact Store.
+func StartController(
+	ctx context.Context,
+	ownerID string,
+	journal *store.Store,
+	authority *policy.Authority,
+	builder BuilderService,
+	checks CheckService,
+) (_ *Controller, _ RecoveryReport, resultErr error) {
+	if !checks.initializedFor(journal) {
+		return nil, RecoveryReport{}, errors.New("controller requires a check service")
+	}
+	return startController(ctx, ownerID, journal, authority, builder, checks)
+}
+
+func startController(
+	ctx context.Context,
+	ownerID string,
+	journal *store.Store,
+	authority *policy.Authority,
+	builder BuilderService,
+	checks CheckService,
+) (_ *Controller, _ RecoveryReport, resultErr error) {
 	if journal == nil || authority == nil {
 		return nil, RecoveryReport{}, errors.New("builder controller requires a Store and authority service")
 	}
@@ -70,9 +104,16 @@ func StartBuilderController(
 	if err := ownership.ValidateRecovery(journal, ownerID); err != nil {
 		return nil, RecoveryReport{}, err
 	}
-	report, err := builder.reconcileAfterExclusiveOwnership(
-		ctx, ownership, "controller acquired exclusive ownership", ownerID,
-	)
+	var report RecoveryReport
+	if checks.initializedFor(journal) {
+		report, err = builder.reconcileWithChecksAfterExclusiveOwnership(
+			ctx, ownership, "controller acquired exclusive ownership", ownerID, checks,
+		)
+	} else {
+		report, err = builder.reconcileAfterExclusiveOwnership(
+			ctx, ownership, "controller acquired exclusive ownership", ownerID,
+		)
+	}
 	if err != nil {
 		return nil, report, fmt.Errorf("complete controller recovery barrier: %w", err)
 	}
@@ -85,9 +126,9 @@ func StartBuilderController(
 	if err := ownership.ValidateActive(journal, ownerID); err != nil {
 		return nil, report, err
 	}
-	controller := &BuilderController{
+	controller := &Controller{
 		ownership: ownership, ownerID: ownerID, journal: journal,
-		authority: authority, builder: builder,
+		authority: authority, builder: builder, checks: checks,
 	}
 	ownershipTransferred = true
 	return controller, report, nil
@@ -99,7 +140,7 @@ func StartBuilderController(
 // state, command, exact contract, and configured builder inside one transaction.
 // A caller must reuse commandID for the same logical dispatch across retries
 // and process restart.
-func (controller *BuilderController) DispatchBuild(
+func (controller *Controller) DispatchBuild(
 	ctx context.Context,
 	runID string,
 	workID string,
@@ -107,6 +148,15 @@ func (controller *BuilderController) DispatchBuild(
 ) (store.ApplyResult, error) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
+	return controller.dispatchBuild(ctx, runID, workID, commandID)
+}
+
+func (controller *Controller) dispatchBuild(
+	ctx context.Context,
+	runID string,
+	workID string,
+	commandID string,
+) (store.ApplyResult, error) {
 	if err := controller.requireOwnership(); err != nil {
 		return store.ApplyResult{}, err
 	}
@@ -187,13 +237,21 @@ func validateControlledBuildDispatchResult(result store.ApplyResult) (store.Appl
 // AuthorizedBuildLease through the Store-guarded builder sequence. A failed
 // claim or any failure after claim releases ownership and requires startup
 // reconciliation.
-func (controller *BuilderController) ExecutePendingBuild(
+func (controller *Controller) ExecutePendingBuild(
 	ctx context.Context,
 	runID string,
 	workID string,
 ) (resultErr error) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
+	return controller.executePendingBuild(ctx, runID, workID)
+}
+
+func (controller *Controller) executePendingBuild(
+	ctx context.Context,
+	runID string,
+	workID string,
+) (resultErr error) {
 	if err := controller.requireOwnership(); err != nil {
 		return err
 	}
@@ -221,7 +279,7 @@ func (controller *BuilderController) ExecutePendingBuild(
 	return controller.executeClaimedBuild(ctx, lease)
 }
 
-func (controller *BuilderController) executeClaimedBuild(
+func (controller *Controller) executeClaimedBuild(
 	ctx context.Context,
 	lease store.AuthorizedBuildLease,
 ) (resultErr error) {
@@ -238,7 +296,7 @@ func (controller *BuilderController) executeClaimedBuild(
 	return nil
 }
 
-func (controller *BuilderController) authorizeBuild(
+func (controller *Controller) authorizeBuild(
 	ctx context.Context,
 	plan protocol.ExactPlan,
 	request policy.BuildPermitRequest,
@@ -253,7 +311,7 @@ func (controller *BuilderController) authorizeBuild(
 	return permit, nil
 }
 
-func (controller *BuilderController) buildPermitRequest(
+func (controller *Controller) buildPermitRequest(
 	ctx context.Context,
 	runID string,
 	workID string,
@@ -315,7 +373,7 @@ func stateWorkIDs(work []engine.Work) []string {
 	return ids
 }
 
-func (controller *BuilderController) requireOwnership() error {
+func (controller *Controller) requireOwnership() error {
 	if controller == nil || controller.closed || controller.ownership == nil ||
 		controller.journal == nil || controller.authority == nil {
 		return errors.New("builder controller is closed or uninitialized")
@@ -323,14 +381,14 @@ func (controller *BuilderController) requireOwnership() error {
 	return controller.ownership.ValidateActive(controller.journal, controller.ownerID)
 }
 
-func (controller *BuilderController) stopForRecovery(cause error) error {
+func (controller *Controller) stopForRecovery(cause error) error {
 	controller.closed = true
 	return errors.Join(cause, controller.ownership.Close())
 }
 
 // Close releases Store ownership. A later controller must reacquire recovery-
 // phase ownership and complete the full barrier before activation.
-func (controller *BuilderController) Close() error {
+func (controller *Controller) Close() error {
 	if controller == nil {
 		return nil
 	}

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/swornagent/sworn/internal/app"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/buildinfo"
 	"github.com/swornagent/sworn/internal/executor"
@@ -17,19 +20,31 @@ const usage = `Sworn is a deterministic delivery engine.
 Usage:
   sworn version [--json]
   sworn board [<run>] [--store <path>] [--json]
+  sworn run <run> [<work>] --config <clean-absolute-path> [--json]
   sworn help
-
-The delivery commands are not implemented in this walking-skeleton milestone.
 `
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "__executor-shim" {
 		os.Exit(executor.RunShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := runWithApplication(ctx, os.Args[1:], os.Stdout, os.Stderr, app.Run)
+	stop()
+	os.Exit(code)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWithApplication(context.Background(), args, stdout, stderr, app.Run)
+}
+
+func runWithApplication(
+	ctx context.Context,
+	args []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	application runApplication,
+) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, _ = io.WriteString(stdout, usage)
 		return 0
@@ -51,6 +66,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "board":
 		return runBoard(args[1:], stdout, stderr)
+	case "run":
+		return runDelivery(ctx, args[1:], stdout, stderr, application)
 	default:
 		fmt.Fprintf(stderr, "sworn: command %q is not implemented\n", args[0])
 		return 2

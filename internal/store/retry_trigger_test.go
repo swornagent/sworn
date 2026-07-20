@@ -25,7 +25,8 @@ func TestAttemptRetryTriggerRequiresExactMachineWitnessPair(t *testing.T) {
 		{name: "null retry witness", effectKind: "runner.build", claimed: exact, attempt: 1},
 		{name: "mismatched witness", effectKind: "runner.build", claimed: exact, reconciled: different, attempt: 1},
 		{name: "wrong attempt", effectKind: "runner.build", claimed: exact, reconciled: exact, attempt: 2},
-		{name: "non build effect", effectKind: "check.local", claimed: exact, reconciled: exact, attempt: 1},
+		{name: "uncontrolled effect", effectKind: "future.effect", claimed: exact, reconciled: exact, attempt: 1},
+		{name: "exact check pair", effectKind: "check.local", claimed: exact, reconciled: exact, attempt: 1, want: true},
 		{name: "exact pair", effectKind: "runner.build", claimed: exact, reconciled: exact, attempt: 1, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

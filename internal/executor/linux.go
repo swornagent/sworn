@@ -31,6 +31,7 @@ type LinuxExecutor struct {
 	options       Options
 	probeMutex    sync.Mutex
 	probe         *ProbeReport
+	contentMutex  sync.RWMutex
 	writableMutex sync.Mutex
 }
 
@@ -180,7 +181,32 @@ func (executor *LinuxExecutor) RunContentBound(
 	ctx context.Context,
 	invocation Invocation,
 	runtime RuntimeTree,
-) (RawCompletion, error) {
+) (completion RawCompletion, resultErr error) {
+	// Validate before acquiring shared runtime ownership so malformed requests
+	// cannot contend with admitted content-bound work.
+	if err := invocation.validate(executor.options); err != nil {
+		return RawCompletion{}, err
+	}
+	if invocation.WorkspaceAccess != WorkspaceReadOnly {
+		return RawCompletion{}, fmt.Errorf(
+			"invocation workspace access %q does not match executor entry point %q",
+			invocation.WorkspaceAccess, WorkspaceReadOnly,
+		)
+	}
+	if invocation.RuntimeDigest != runtime.digest {
+		return RawCompletion{}, errors.New("content-bound execution requires the exact runtime digest and read-only workspace")
+	}
+	executor.contentMutex.RLock()
+	defer executor.contentMutex.RUnlock()
+	ownership, err := executor.acquireContentBoundOwnership(ctx, false)
+	if err != nil {
+		return RawCompletion{}, err
+	}
+	defer func() {
+		if err := releaseContentBoundOwnership(ownership); err != nil {
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime)
 }
 
@@ -225,9 +251,12 @@ func (executor *LinuxExecutor) runInvocation(
 			return RawCompletion{}, fmt.Errorf("create writable executor runtime: %w", err)
 		}
 	} else {
-		runRoot, err = os.MkdirTemp(executor.options.RuntimeRoot, "invocation-")
-		if err != nil {
-			return RawCompletion{}, fmt.Errorf("create executor runtime: %w", err)
+		runRoot = executor.contentBoundRuntimePath(invocation.ID)
+		if err := os.Mkdir(runRoot, 0o700); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return RawCompletion{}, fmt.Errorf("content-bound invocation %q has unreconciled runtime residue", invocation.ID)
+			}
+			return RawCompletion{}, fmt.Errorf("create content-bound executor runtime: %w", err)
 		}
 	}
 	defer func() {

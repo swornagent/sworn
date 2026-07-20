@@ -26,10 +26,13 @@ The initial path is deliberately narrow:
    configured content runtime, and creates the whole ordered check batch in one
    transaction. Work becomes internal `checking`; the public Baton board still
    reports `active`.
-5. Each `check.local` effect runs serially over a freshly materialized candidate
-   and an exact staged runtime. Its typed result binds the semantic outcome to a
-   canonical receipt. Receipt, definition, environment, stdout, and stderr are
-   closed through raw CAS bytes before success can be recorded.
+5. Before each pending `check.local` claim, the controller freshly resolves
+   current authority for the exact work, builder, check definition, and runtime.
+   The effect then runs serially over a freshly materialized candidate and exact
+   staged runtime. Its typed result binds the semantic outcome to a canonical
+   receipt. Receipt, definition, environment, stdout, and stderr are closed
+   through raw CAS bytes before success can be recorded. An interrupted attempt
+   can retry only after bound-result convergence or exact content-bound cleanup.
 6. `submission.admit` anchors itself to the `checks.dispatched` event at the
    current revision. It reloads the complete effect batch by command and
    ordinal, requires every policy-selected check to be durably `succeeded` and
@@ -89,12 +92,14 @@ receipt.
 
 ## What reviewable does not claim
 
-The historical approval reloaded here is authenticated provenance. Sworn does
-not yet prove that the authority source remained current when builder or checks
-ran, and admission does not mint a current execution permit. The immutable
-receipt timestamp precedes the builder timestamp, but the present journal does
-not claim a shared cryptographic chronology between authority authentication
-and effect dispatch.
+The historical approval reloaded here is authenticated provenance, and
+admission does not mint a current execution permit. The production controller
+freshly authenticates the configured source immediately before builder and
+check execution capabilities are granted. “Current” remains local: it proves a
+fresh read not below the Store's highest observed signed version, not that an
+external publisher did not withhold a newer source. The journal does not claim
+a shared cryptographic chronology across independent source publication, effect
+execution, and SQLite admission.
 
 Admission performs its Git checks inside the Store operation, but Git cannot
 participate in the SQLite commit. V1 therefore assumes exclusive engine
@@ -102,10 +107,11 @@ ownership of candidate-retention refs; a hostile concurrent process running as
 the same host user is inside the trust boundary. The control database likewise
 assumes Sworn is its sole writer.
 
-There is still no mutating CLI, command service, autonomous claim loop, verifier
-verdict, `PASS`, repair policy, retry authority, or integration edge. Those
-later gates must consume this exact committed submission rather than create a
-second delivery truth.
+`sworn run` is one bounded mutating command which stops here. There is still no
+autonomous claim loop, independent verifier verdict, `PASS`, bounded repair
+policy, multi-work scheduler, or integration edge. Those later gates must
+consume this exact committed submission rather than create a second delivery
+truth.
 
 ## Proof
 
@@ -117,3 +123,8 @@ configuration, retention loss, schema migration, and injected identity-write
 rollback followed by retry. The full suite also runs under the race detector;
 the Linux capability suite exercises real Bubblewrap/systemd containment when
 required by the test environment.
+
+The production-command suite separately builds the real `sworn` binary and
+checks its strict command and composition boundary without making a live OpenAI
+model call. That is not evidence of provider model quality or an independent
+verifier verdict.

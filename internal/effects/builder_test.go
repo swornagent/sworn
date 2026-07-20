@@ -86,6 +86,19 @@ type fakeBuilderRunner struct {
 	reconcileExecutor   *executor.LinuxExecutor
 }
 
+type fakeBuilderCompletionPolicy struct {
+	digest string
+	err    error
+	called int
+}
+
+func (policy *fakeBuilderCompletionPolicy) BuilderProfileDigest() string { return policy.digest }
+
+func (policy *fakeBuilderCompletionPolicy) ValidateBuilderCompletion(executor.RawCompletion) error {
+	policy.called++
+	return policy.err
+}
+
 func (runner *fakeBuilderRunner) ConfigurationDigest() string      { return runner.configurationDigest }
 func (runner *fakeBuilderRunner) EffectiveLimits() executor.Limits { return runner.limits }
 
@@ -132,7 +145,8 @@ func (runner *fakeBuilderRunner) RunWritable(
 	}
 	return executor.RawCompletion{
 		InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
-		WorkspaceAccess: executor.WorkspaceWritableExport, Inputs: bound,
+		WorkspaceAccess: executor.WorkspaceWritableExport,
+		ExecutableInput: invocation.ExecutableInput, Inputs: bound,
 		StartedAt: builderCompletionTime.Add(-time.Minute), CompletedAt: builderCompletionTime,
 		ExitCode: 0,
 		Export: &executor.WorkspaceExport{
@@ -284,6 +298,96 @@ func TestBuilderDispatchDigestBindsEnvironmentNamesButNeverValues(t *testing.T) 
 	}
 	if got := fixture.runner.invocations[0].Environment["API_TOKEN"]; got != "super-secret-value" {
 		t.Fatalf("in-memory invocation environment = %q", got)
+	}
+}
+
+func TestBuilderProfileBindsSelectedExecutableAndAdapterCapabilities(t *testing.T) {
+	fixture := newBuilderFixture(t, nil)
+	executablePath := filepath.Join(t.TempDir(), "agent")
+	executableContents := []byte("pinned agent bytes\n")
+	if err := os.WriteFile(executablePath, executableContents, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := &fakeBuilderCompletionPolicy{digest: protocol.RawDigest([]byte("builder-output-policy-v1"))}
+	fixture.worker.Agent = "pinned-agent@1"
+	fixture.worker.Argv = []string{"/inputs/agent", "exec", "--json"}
+	fixture.worker.ExecutableInput = &executor.Input{
+		Name: "agent", Path: executablePath, Digest: protocol.RawDigest(executableContents),
+	}
+	fixture.worker.Network = executor.NetworkHost
+	fixture.worker.NestedSandbox = true
+	fixture.worker.CompletionPolicy = policy
+	fixture.effect = builderEffectFor(t, fixture.worker, fixture.control.state)
+	baseline, err := fixture.worker.DispatchDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.worker.run(context.Background(), fixture.effect); err != nil {
+		t.Fatal(err)
+	}
+	if policy.called != 1 {
+		t.Fatalf("completion policy calls = %d", policy.called)
+	}
+	invocation := fixture.runner.invocations[0]
+	if invocation.ExecutableInput != "agent" || invocation.Network != executor.NetworkHost ||
+		!invocation.NestedSandbox || !slices.Equal(invocation.Argv, fixture.worker.Argv) {
+		t.Fatalf("selected builder invocation = %#v", invocation)
+	}
+	if got := []string{
+		invocation.Inputs[0].Name, invocation.Inputs[1].Name, invocation.Inputs[2].Name,
+	}; !slices.Equal(got, []string{"agent", "dispatch", "plan"}) {
+		t.Fatalf("selected builder inputs = %#v", got)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*BuilderWorker)
+	}{
+		{name: "binary digest", mutate: func(worker *BuilderWorker) {
+			selected := *worker.ExecutableInput
+			selected.Digest = protocol.RawDigest([]byte("other binary"))
+			worker.ExecutableInput = &selected
+		}},
+		{name: "network", mutate: func(worker *BuilderWorker) { worker.Network = executor.NetworkNone }},
+		{name: "nested sandbox", mutate: func(worker *BuilderWorker) { worker.NestedSandbox = false }},
+		{name: "completion policy", mutate: func(worker *BuilderWorker) {
+			worker.CompletionPolicy = &fakeBuilderCompletionPolicy{digest: protocol.RawDigest([]byte("other output policy"))}
+		}},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := fixture.worker
+			test.mutate(&changed)
+			digest, err := changed.DispatchDigest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if digest == baseline {
+				t.Fatalf("%s did not change builder dispatch digest", test.name)
+			}
+		})
+	}
+}
+
+func TestBuilderCompletionPolicyFailureStopsCandidateCapture(t *testing.T) {
+	fixture := newBuilderFixture(t, func(root string) error {
+		return os.WriteFile(filepath.Join(root, "src", "generated.go"), []byte("package generated\n"), 0o644)
+	})
+	policy := &fakeBuilderCompletionPolicy{
+		digest: protocol.RawDigest([]byte("failing-output-policy-v1")),
+		err:    errors.New("missing terminal event"),
+	}
+	fixture.worker.CompletionPolicy = policy
+	fixture.effect = builderEffectFor(t, fixture.worker, fixture.control.state)
+	if _, err := fixture.worker.run(context.Background(), fixture.effect); err == nil ||
+		!strings.Contains(err.Error(), "missing terminal event") {
+		t.Fatalf("completion-policy error = %v", err)
+	}
+	if policy.called != 1 || fixture.runner.discarded != 1 {
+		t.Fatalf("failed completion cleanup: calls=%d discarded=%d", policy.called, fixture.runner.discarded)
+	}
+	if refs := strings.TrimSpace(builderGit(t, fixture.source, "for-each-ref", "--format=%(refname)", "refs/sworn/v1")); refs != "" {
+		t.Fatalf("invalid adapter completion published refs: %s", refs)
 	}
 }
 

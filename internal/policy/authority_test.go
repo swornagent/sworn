@@ -683,7 +683,7 @@ func TestCurrentBuildPermitRejectsEveryChangedBinding(t *testing.T) {
 	})
 
 	t.Run("stale", func(t *testing.T) {
-		now = fixture.now.Add(currentBuildPermitLifetime)
+		now = fixture.now.Add(currentEffectPermitLifetime)
 		if err := service.ValidateBuildPermit(permit, request); err == nil ||
 			!strings.Contains(err.Error(), "stale") {
 			t.Fatalf("stale permit error = %v", err)
@@ -713,6 +713,169 @@ func TestCurrentBuildPermitRejectsEveryChangedBinding(t *testing.T) {
 		if err := expiringService.ValidateBuildPermit(expiringPermit, expiringRequest); err == nil ||
 			!strings.Contains(err.Error(), "no longer current") {
 			t.Fatalf("expired permit source error = %v", err)
+		}
+	})
+}
+
+func TestAuthorityAuthorizeCheckPersistsFreshObservationAndBindsFacts(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	resolver := fixture.resolver()
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, resolver, ledger, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := checkPermitRequest(t, fixture.plan)
+	permit, err := service.AuthorizeCheck(context.Background(), fixture.plan, request)
+	if err != nil {
+		t.Fatalf("AuthorizeCheck() error = %v", err)
+	}
+	if resolver.calls != 1 || len(ledger.sources) != 1 || len(ledger.approvals) != 0 ||
+		!slices.Equal(ledger.events, []string{"source"}) {
+		t.Fatalf("current check authority lifecycle = calls %d sources %d approvals %d events %v",
+			resolver.calls, len(ledger.sources), len(ledger.approvals), ledger.events)
+	}
+	sourceFacts := ledger.sources[0].Facts()
+	facts := permit.Facts()
+	if facts.Purpose != CheckExecutionPurpose || facts.ControllerID != request.ControllerID ||
+		facts.RunID != request.RunID || facts.StateRevision != request.StateRevision ||
+		facts.PlanDigest != fixture.plan.Record().Digest || facts.WorkID != request.WorkID ||
+		facts.WorkAttempt != request.WorkAttempt || facts.WorkContractDigest != request.Contract.Digest() ||
+		facts.BuilderEffectID != request.BuilderEffectID || facts.CheckEffectID != request.CheckEffectID ||
+		facts.CheckID != request.CheckID || facts.DefinitionDigest != request.DefinitionDigest ||
+		facts.RuntimeManifestDigest != request.RuntimeManifestDigest || facts.SourceRef != sourceFacts.SourceRef ||
+		facts.SourceVersion != sourceFacts.SourceVersion || facts.SourceDigest != sourceFacts.SourceCanonicalDigest ||
+		facts.AuthorizedAt != fixture.now.Format(time.RFC3339Nano) {
+		t.Fatalf("check permit facts lost an exact binding: %#v", facts)
+	}
+	if err := service.ValidateCheckPermit(permit, request); err != nil {
+		t.Fatalf("ValidateCheckPermit() error = %v", err)
+	}
+
+	changed := permit.Facts()
+	changed.CheckID = "forged-check"
+	if permit.Facts().CheckID != request.CheckID {
+		t.Fatal("check permit facts exposed mutable internal state")
+	}
+}
+
+func TestAuthorityAuthorizeCheckUsesOnlyInspectAndExecuteGrantCeiling(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	dropSourceGrant(t, &fixture, "edit")
+	dropSourceGrant(t, &fixture, "commit")
+	fixture.rebindSource(t)
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeCheck(
+		context.Background(), fixture.plan, checkPermitRequest(t, fixture.plan),
+	); err != nil {
+		t.Fatalf("non-check ceiling reduction denied check: %v", err)
+	}
+
+	for _, action := range []string{"inspect", "execute"} {
+		t.Run("missing "+action, func(t *testing.T) {
+			denied := newApprovalFixture(t)
+			dropSourceGrant(t, &denied, action)
+			denied.rebindSource(t)
+			deniedLedger := &recordingLedger{}
+			deniedService, err := newAuthorityWithClock(
+				[]TrustRoot{denied.root}, denied.resolver(), deniedLedger, func() time.Time { return denied.now },
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permit, err := deniedService.AuthorizeCheck(
+				context.Background(), denied.plan, checkPermitRequest(t, denied.plan),
+			)
+			if err == nil || !strings.Contains(err.Error(), "source lacks "+action+" workspace grant") ||
+				permit.Facts() != (CheckPermitFacts{}) || len(deniedLedger.sources) != 1 {
+				t.Fatalf("missing %s grant = permit %#v, sources %d, error %v",
+					action, permit.Facts(), len(deniedLedger.sources), err)
+			}
+		})
+	}
+}
+
+func TestCurrentCheckPermitRejectsEveryChangedBinding(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	now := fixture.now
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := checkPermitRequest(t, fixture.plan)
+	permit, err := service.AuthorizeCheck(context.Background(), fixture.plan, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPlan := planWithCreatedAt(t, fixture.plan, "2026-07-19T00:00:01Z")
+	otherContract, exists := otherPlan.Work(request.WorkID)
+	if !exists || otherContract.Digest() != request.Contract.Digest() || otherContract == request.Contract {
+		t.Fatal("cross-plan contract fixture did not preserve only the work digest")
+	}
+	tests := []struct {
+		name   string
+		mutate func(*CheckPermitRequest)
+	}{
+		{name: "controller", mutate: func(value *CheckPermitRequest) { value.ControllerID = "controller-2" }},
+		{name: "run", mutate: func(value *CheckPermitRequest) { value.RunID = "run-2" }},
+		{name: "revision", mutate: func(value *CheckPermitRequest) { value.StateRevision++ }},
+		{name: "work", mutate: func(value *CheckPermitRequest) { value.WorkID = "work-2" }},
+		{name: "attempt", mutate: func(value *CheckPermitRequest) { value.WorkAttempt++ }},
+		{name: "work contract", mutate: func(value *CheckPermitRequest) { value.Contract = otherContract }},
+		{name: "builder effect", mutate: func(value *CheckPermitRequest) { value.BuilderEffectID = "builder-effect-2" }},
+		{name: "check effect", mutate: func(value *CheckPermitRequest) { value.CheckEffectID = "check-effect-2" }},
+		{name: "check", mutate: func(value *CheckPermitRequest) { value.CheckID = "check-2" }},
+		{name: "definition", mutate: func(value *CheckPermitRequest) { value.DefinitionDigest = fixedDigest("d") }},
+		{name: "runtime manifest", mutate: func(value *CheckPermitRequest) { value.RuntimeManifestDigest = fixedDigest("e") }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changed := request
+			test.mutate(&changed)
+			if err := service.ValidateCheckPermit(permit, changed); err == nil {
+				t.Fatal("changed check binding was accepted")
+			}
+		})
+	}
+
+	t.Run("purpose", func(t *testing.T) {
+		wrongPurpose := permit
+		wrongPurpose.binding.facts.Purpose = BuildExecutionPurpose
+		if err := service.ValidateCheckPermit(wrongPurpose, request); err == nil ||
+			!strings.Contains(err.Error(), "wrong purpose") {
+			t.Fatalf("wrong-purpose permit error = %v", err)
+		}
+	})
+
+	t.Run("foreign authority", func(t *testing.T) {
+		foreign, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := foreign.ValidateCheckPermit(permit, request); err == nil ||
+			!strings.Contains(err.Error(), "another authority") {
+			t.Fatalf("foreign permit error = %v", err)
+		}
+	})
+
+	t.Run("stale", func(t *testing.T) {
+		now = fixture.now.Add(currentEffectPermitLifetime)
+		if err := service.ValidateCheckPermit(permit, request); err == nil ||
+			!strings.Contains(err.Error(), "stale") {
+			t.Fatalf("stale permit error = %v", err)
 		}
 	})
 }
@@ -1423,6 +1586,25 @@ func buildPermitRequest(t *testing.T, plan protocol.ExactPlan) BuildPermitReques
 		ControllerID: "controller-1", RunID: "run-1", StateRevision: 2,
 		WorkID: workIDs[0], WorkAttempt: 1, Contract: contract,
 		BuilderDispatchDigest: fixedDigest("c"),
+	}
+}
+
+func checkPermitRequest(t *testing.T, plan protocol.ExactPlan) CheckPermitRequest {
+	t.Helper()
+	workIDs := plan.WorkIDs()
+	if len(workIDs) == 0 {
+		t.Fatal("permit fixture plan has no work")
+	}
+	contract, exists := plan.Work(workIDs[0])
+	if !exists {
+		t.Fatalf("permit fixture work %q is absent", workIDs[0])
+	}
+	return CheckPermitRequest{
+		ControllerID: "controller-1", RunID: "run-1", StateRevision: 2,
+		WorkID: workIDs[0], WorkAttempt: 1, Contract: contract,
+		BuilderEffectID: "builder-effect-1", CheckEffectID: "check-effect-1",
+		CheckID: "check-1", DefinitionDigest: fixedDigest("a"),
+		RuntimeManifestDigest: fixedDigest("b"),
 	}
 }
 

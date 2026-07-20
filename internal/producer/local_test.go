@@ -149,6 +149,9 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	definitionPointer := protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest}
 	plan := putSubmissionPlan(t, ctx, control, definitionPointer)
 	runner := fakeRunner{completion: func(invocation executor.Invocation) executor.RawCompletion {
+		if invocation.ID != "check-invocation-1" {
+			t.Fatalf("executor invocation id = %q", invocation.ID)
+		}
 		contents, err := os.ReadFile(filepath.Join(invocation.Workspace, "value.txt"))
 		if err != nil || string(contents) != "candidate\n" {
 			t.Fatalf("check workspace bytes = %q, %v", contents, err)
@@ -165,13 +168,16 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	}}
 	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/true")
 	produced, err := producer.RunLocalContentBound(ctx, contentOnlyRunner{fakeRunner: runner}, control, producer.Request{
-		CheckID: "candidate", RunID: "check-run-1", Definition: definitionPointer,
+		CheckID: "candidate", RunID: "check-run-1", InvocationID: "check-invocation-1", Definition: definitionPointer,
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	}, runtimeTree)
 	if err != nil || produced.Receipt.Digest == "" {
 		t.Fatalf("RunLocalContentBound() = %#v, %v", produced, err)
 	}
 	measuredReceipt := submissionReceipt(t, ctx, control, produced.Receipt)
+	if measuredReceipt.RunID != "check-run-1" {
+		t.Fatalf("receipt run id = %q", measuredReceipt.RunID)
+	}
 	_, environmentBytes, err := control.Artifact(ctx, measuredReceipt.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +364,7 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 	}}
 	runtimeTree, _ := producerRuntimeTree(t, ctx, "/usr/bin/false")
 	result, err := producer.RunLocalContentBound(ctx, runner, control, producer.Request{
-		CheckID: "candidate", RunID: "check-run-7",
+		CheckID: "candidate", RunID: "check-run-7", InvocationID: "check-invocation-7",
 		Definition: protocol.Artifact{Ref: digest, MediaType: "application/json", Digest: digest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	}, runtimeTree)
@@ -398,7 +404,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 	}
 	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/check")
 	request := producer.Request{
-		CheckID: "candidate", RunID: "content-check-run",
+		CheckID: "candidate", RunID: "content-check-run", InvocationID: "content-check-invocation",
 		Definition: protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	}
