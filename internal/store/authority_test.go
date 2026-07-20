@@ -28,18 +28,17 @@ func (resolver authorityResolver) Resolve(context.Context, string, string) ([]by
 	return append([]byte(nil), resolver.source...), append([]byte(nil), resolver.proof...), nil
 }
 
-func TestAuthorityServicePersistsAtomicClosureAndRestoresAfterRestart(t *testing.T) {
+func TestAuthorityServicePersistsAtomicClosureAcrossRestart(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "control.db")
 	control := openTestStore(t, path)
 	plan := exampleExactPlan(t)
-	authority, root, _ := authorityFixture(t, control, plan, 1, nil, false, nil)
+	authority, _, _ := authorityFixture(t, control, plan, 1, nil, false, nil)
 	historical, err := authority.Approve(ctx, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := historical.Facts().ReceiptDigest
 	repeated, err := authority.Approve(ctx, plan)
 	if err != nil || repeated.Facts() != historical.Facts() {
 		t.Fatalf("idempotent authority approval = %#v, %v; want %#v", repeated.Facts(), err, historical.Facts())
@@ -51,22 +50,11 @@ func TestAuthorityServicePersistsAtomicClosureAndRestoresAfterRestart(t *testing
 
 	reopened := openTestStore(t, path)
 	t.Cleanup(func() { _ = reopened.Close() })
-	restored, err := reopened.AuthorityApproval(ctx, digest, root)
-	if err != nil {
-		t.Fatal(err)
+	mediaType, receipt, err := reopened.Artifact(ctx, historical.Facts().ReceiptDigest)
+	if err != nil || mediaType != "application/json" || len(receipt) == 0 {
+		t.Fatalf("persisted approval receipt = %q, %d bytes, %v", mediaType, len(receipt), err)
 	}
-	if restored.Facts() != historical.Facts() || restored.SourceFacts() != historical.SourceFacts() {
-		t.Fatal("restart restoration lost authenticated authority facts")
-	}
-	seed := sha256.Sum256([]byte("wrong authority root"))
-	wrongPrivate := ed25519.NewKeyFromSeed(seed[:])
-	wrongRoot, err := policy.NewTrustRoot(root.SourceRef(), root.AuthorizerRef(), wrongPrivate.Public().(ed25519.PublicKey))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reopened.AuthorityApproval(ctx, digest, wrongRoot); err == nil {
-		t.Fatal("archived approval restored under an untrusted key")
-	}
+	assertAuthorityClosureCounts(t, reopened, 1, 1, 1, 2, 3)
 }
 
 func TestAuthoritySourceVersionIsMonotonicButHistoricalReplayRemainsIdempotent(t *testing.T) {

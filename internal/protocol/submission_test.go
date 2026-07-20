@@ -93,18 +93,18 @@ func TestEncodeSubmissionAcceptsLowercaseDateTimeAndRejectsWideExitCode(t *testi
 
 func TestDerivedSubmissionIdentityIsBoundedAndUnambiguous(t *testing.T) {
 	t.Parallel()
-	left, err := deriveSubmissionID("a.b", "c", 1)
+	left, err := SubmissionID("a.b", "c", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := deriveSubmissionID("a", "b.c", 1)
+	right, err := SubmissionID("a", "b.c", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if left == right {
 		t.Fatal("distinct work attempts produced the same submission id")
 	}
-	maximum, err := deriveSubmissionID(strings.Repeat("a", 128), strings.Repeat("b", 128), 9_007_199_254_740_991)
+	maximum, err := SubmissionID(strings.Repeat("a", 128), strings.Repeat("b", 128), 9_007_199_254_740_991)
 	if err != nil || !ValidID(maximum) || len(maximum) > 128 {
 		t.Fatalf("maximum derived id = %q, %v", maximum, err)
 	}

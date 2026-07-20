@@ -22,10 +22,6 @@ func (*LinuxExecutor) Probe(context.Context) (ProbeReport, error) {
 
 func (*LinuxExecutor) EffectiveLimits() Limits { return Limits{} }
 
-func (*LinuxExecutor) RunContained(context.Context, Invocation) (RawCompletion, error) {
-	return RawCompletion{}, errLinuxRequired
-}
-
 func (*LinuxExecutor) RunContentBound(context.Context, Invocation, RuntimeTree) (RawCompletion, error) {
 	return RawCompletion{}, errLinuxRequired
 }

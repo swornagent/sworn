@@ -21,9 +21,10 @@ type Projection struct {
 }
 
 type Work struct {
-	ID         string `json:"id"`
-	State      string `json:"state"`
-	Attempt    int64  `json:"attempt"`
+	ID      string `json:"id"`
+	State   string `json:"state"`
+	Attempt int64  `json:"attempt"`
+	engine.SubmissionBinding
 	NextAction string `json:"next_action"`
 }
 
@@ -41,10 +42,11 @@ func FromState(state engine.State) (Projection, error) {
 	}
 	for index, work := range state.Work {
 		projection.Work[index] = Work{
-			ID:         work.ID,
-			State:      string(work.State),
-			Attempt:    work.Attempt,
-			NextAction: string(work.NextAction),
+			ID: work.ID, State: string(work.State), Attempt: work.Attempt,
+			SubmissionBinding: work.SubmissionBinding, NextAction: string(work.NextAction),
+		}
+		if work.State == engine.WorkChecking {
+			projection.Work[index].State = string(engine.WorkActive)
 		}
 	}
 	return projection, nil

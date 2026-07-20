@@ -290,40 +290,6 @@ func (approval HistoricalApproval) Receipt() protocol.EncodedRecord {
 	return record
 }
 
-// RestoreHistoricalApproval revalidates a persisted approval closure as
-// historical truth. It authenticates all archived bytes and approval-time
-// constraints, but does not resolve the current source or reject later expiry.
-func RestoreHistoricalApproval(
-	plan protocol.ExactPlan,
-	root TrustRoot,
-	sourceClosure SourceClosure,
-	receipt protocol.EncodedRecord,
-) (HistoricalApproval, error) {
-	if err := validateRoot(root); err != nil {
-		return HistoricalApproval{}, err
-	}
-	preparedSource, err := authenticateSource(
-		plan, root, sourceClosure.SourceRaw, sourceClosure.ProofRaw, time.Time{}, false,
-	)
-	if err != nil {
-		return HistoricalApproval{}, err
-	}
-	if !bytes.Equal(sourceClosure.SourceCanonical, preparedSource.closure.SourceCanonical) ||
-		!bytes.Equal(sourceClosure.ProofCanonical, preparedSource.closure.ProofCanonical) {
-		return HistoricalApproval{}, errors.New("archived source closure does not match authenticated bytes")
-	}
-	preparedApproval, err := mintArchivedApproval(preparedSource)
-	if err != nil {
-		return HistoricalApproval{}, err
-	}
-	expected := preparedApproval.receipt
-	if receipt.Kind != expected.Kind || receipt.Digest != expected.Digest ||
-		!bytes.Equal(receipt.CanonicalJSON, expected.CanonicalJSON) {
-		return HistoricalApproval{}, errors.New("archived approval closure does not match authenticated bytes")
-	}
-	return historicalFromPrepared(preparedApproval), nil
-}
-
 type authoritySource struct {
 	Version       int64             `json:"version"`
 	SourceID      string            `json:"source_id"`

@@ -40,12 +40,12 @@ work does not change that public boundary.
 - [x] Parse and persist exact canonical Baton plans and work-contract digests.
 - [x] Authenticate exact plan approval with a pinned Ed25519 root and persist
   its complete source/proof/receipt closure atomically.
-- [x] Derive prepared Standard submissions from the exact plan and its strict,
+- [x] Derive Standard submission facts from the exact plan and its strict,
   canonical, digest-selected assurance-policy registry rather than caller
   projections.
 - [x] Add an explicit content-bound local-check runtime that stages,
-  remeasures, executes, and receipts one exact runtime tree without upgrading
-  the evaluation-only host-runtime path.
+  remeasures, executes, and receipts one exact runtime tree without a
+  host-runtime producer fallback.
 - [x] Add one immutable typed result slot per effect, with lease-bound binding,
   shared completion/reconciliation validation, and fail-closed unknown recovery.
 - [x] Add an internal content-bound-only `check.local` worker whose minimal
@@ -53,15 +53,16 @@ work does not change that public boundary.
   validates the definition, environment, and output CAS closure, including
   requested runtime-manifest equality.
 - [x] Derive `check.local` dispatch from the exact plan in the reducer.
-- [ ] Admit a reviewable submission only from authenticated authority,
+- [x] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects with kind-specific,
   attempt-bound external evidence before any autonomous retry.
 
-The Git-truth boundary is implemented internally on `feat/exact-local-candidate`.
-It has no CLI mutation path and does not yet persist its binding in runtime
-configuration or record a candidate in the control store. See
-[Exact local candidate](exact-candidate.md).
+The Git-truth boundary is implemented internally and can be bound into immutable
+Store configuration. Builder effect results retain candidate facts, and atomic
+admission revalidates them through the configured repository. There is still no
+CLI mutation path or native builder adapter. See [Exact local
+candidate](exact-candidate.md).
 
 The contained executor now implements distinct read-only and writable-export
 modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
@@ -72,23 +73,23 @@ now schedule its exact policy-selected batch after builder success, but no
 production command or claim loop executes it; see
 [Contained executor](contained-executor.md).
 
-The prepared Standard path now rechecks a retained candidate, runs one
-policy-bound local producer through read-only containment, stores one reusable
-content-addressed receipt, and builds strict canonical Baton bytes. Structural
-submission persistence and its parallel run-identity registry have been
-removed. Final atomic admission will be the sole submission writer. See
-[Prepared local submission](measured-submission.md).
+The Standard path rechecks a retained candidate, runs policy-bound producers
+through read-only content-bound containment, and stores canonical receipts. One
+Store-owned admission transaction now derives checks and evidence from the
+exact journal batch, revalidates the whole protocol and Git closure, and is the
+sole submission writer. See
+[Atomic reviewable submission](measured-submission.md).
 
-Exact-plan and historical approval capabilities now survive restart through the
-single control store. The check schedule requires that immutable historical
-binding, but it is not current effect authority: source re-resolution before
-execution, accepting `PASS`, and integration remain milestone 4. See
+Exact-plan and authenticated historical approval facts survive restart through
+the single control store. Check scheduling and admission reload their exact
+relational closure, but it is not current effect authority: source re-resolution
+before execution, accepting `PASS`, and integration remain milestone 4. See
 [Exact plan and authenticated authority](authenticated-authority.md).
 
-Prepared-submission construction now resolves policy and check definitions from
-the exact plan and rejects caller-selected substitutes. It remains deliberately
-non-reviewable until typed effect provenance and the content-bound runtime feed
-one atomic admission transaction; see
+Submission construction resolves policy and check definitions from the exact
+plan and rejects caller-selected substitutes. The intent-only admission command
+binds that constructor to typed effect provenance and the content-bound runtime
+in one transaction; see
 [ADR 0003](adr/0003-reviewable-admission-contraction.md).
 
 The effect journal now binds one immutable kind-specific result before
@@ -97,18 +98,20 @@ stores a minimal outcome plus receipt. The worker materializes the builder
 candidate, and the executor remeasures the workspace and runtime. The store then
 rebinds receipt candidate identifiers to the succeeded builder result, validates
 the immutable receipt/definition/environment/output CAS closure, and checks the
-requested runtime-manifest equality when binding and reconciling success. It
-does not repeat Git or runtime measurement or compare the embedded protocol
-snapshot; final admission remains future. Absence of a bound result, or an
-orphan receipt in content-addressed storage, cannot authorize autonomous retry
-or success.
+requested runtime-manifest equality when binding and reconciling success.
+Effect completion does not repeat Git or runtime measurement or compare the
+embedded protocol snapshot; admission closes those final facts before
+reviewable. An absent bound result or orphan receipt cannot authorize autonomous
+retry or success.
 
 The plan-derived edge resolves one dependency-free Standard policy and all of its
 definitions, rebinds the exact succeeded builder and process-configured runtime,
 and creates the complete ordered check batch in one transaction. Work becomes
-`checking`, not reviewable; effect claims serialize within that batch. The
-worker remains unreachable from the production binary until a current-authority
-gate and mutating command service exist.
+`checking` and claims serialize. A second transaction admits reviewable only
+after every exact check passes and the complete authority, artifact, runtime,
+snapshot, chronology, and Git closure revalidates. Both remain unreachable from
+the production binary until a current-authority gate and mutating command
+service exist.
 
 ## 3. Fresh independent verdict
 

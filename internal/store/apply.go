@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
 )
@@ -61,6 +62,8 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 		prior.Replayed = true
 		return prior, nil
 	}
+	now := s.now().UTC().Truncate(time.Microsecond)
+	nowUS := now.UnixMicro()
 
 	current, found, err := loadState(ctx, transaction, command.RunID)
 	if err != nil {
@@ -71,6 +74,17 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 		currentPointer = &current
 	}
 	decision, reduceErr := engine.Reduce(currentPointer, command)
+	var admission *preparedAdmission
+	if errors.Is(reduceErr, engine.ErrAdmissionFactsRequired) {
+		if !found {
+			return ApplyResult{}, errors.New("submission admission requires an existing delivery")
+		}
+		admission, err = s.prepareAdmission(ctx, transaction, current, command, now)
+		if err != nil {
+			return ApplyResult{}, fmt.Errorf("validate submission admission preconditions: %w", err)
+		}
+		decision, reduceErr = engine.ReduceAdmission(currentPointer, command, admission.facts)
+	}
 	if reduceErr != nil {
 		if rejection, ok := engine.RejectionOf(reduceErr); ok {
 			result := ApplyResult{
@@ -81,7 +95,7 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 				ErrorCode:    rejection.Code,
 				ErrorMessage: rejection.Message,
 			}
-			if err := insertCommand(ctx, transaction, command, request, requestDigest, result, s.now().UTC().UnixMicro()); err != nil {
+			if err := insertCommand(ctx, transaction, command, request, requestDigest, result, nowUS); err != nil {
 				return ApplyResult{}, err
 			}
 			if err := transaction.Commit(); err != nil {
@@ -106,7 +120,6 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("encode next state: %w", err)
 	}
-	now := s.now().UTC().UnixMicro()
 	eventID := derivedID("evt", command.ID, 0)
 	effectIDs := make([]string, len(decision.Effects))
 	for index := range decision.Effects {
@@ -120,7 +133,7 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 		EventID:   eventID,
 		EffectIDs: effectIDs,
 	}
-	if err := insertCommand(ctx, transaction, command, request, requestDigest, result, now); err != nil {
+	if err := insertCommand(ctx, transaction, command, request, requestDigest, result, nowUS); err != nil {
 		return ApplyResult{}, err
 	}
 	if !found {
@@ -131,7 +144,7 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 			) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
 			decision.State.RunID, decision.State.DeliveryID, decision.State.Repository,
 			decision.State.TargetRef, decision.State.PlanDigest, decision.State.Revision,
-			decision.State.Phase, stateJSON, now, now,
+			decision.State.Phase, stateJSON, nowUS, nowUS,
 		)
 		if err != nil {
 			return ApplyResult{}, fmt.Errorf("insert run state: %w", err)
@@ -141,7 +154,7 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 			UPDATE runs
 			SET revision = ?, phase = ?, state_json = ?, updated_at_us = ?
 			WHERE run_id = ? AND revision = ?`,
-			decision.State.Revision, decision.State.Phase, stateJSON, now,
+			decision.State.Revision, decision.State.Phase, stateJSON, nowUS,
 			command.RunID, current.Revision,
 		)
 		if err != nil {
@@ -159,7 +172,7 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 		INSERT INTO events (event_id, run_id, command_id, revision, ordinal, kind, data_json, recorded_at_us)
 		VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
 		eventID, command.RunID, command.ID, decision.State.Revision,
-		decision.Event.Kind, []byte(decision.Event.Data), now,
+		decision.Event.Kind, []byte(decision.Event.Data), nowUS,
 	); err != nil {
 		return ApplyResult{}, fmt.Errorf("insert event: %w", err)
 	}
@@ -170,9 +183,17 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 				state, attempt, created_at_us
 			) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
 			effectIDs[index], command.RunID, command.ID, index,
-			effect.Kind, []byte(effect.Request), now,
+			effect.Kind, []byte(effect.Request), nowUS,
 		); err != nil {
 			return ApplyResult{}, fmt.Errorf("insert effect %d: %w", index, err)
+		}
+	}
+	if admission != nil {
+		if len(decision.Effects) != 0 {
+			return ApplyResult{}, errors.New("submission admission cannot emit effects")
+		}
+		if err := persistAdmission(ctx, transaction, command, *admission, nowUS); err != nil {
+			return ApplyResult{}, err
 		}
 	}
 	if err := transaction.Commit(); err != nil {

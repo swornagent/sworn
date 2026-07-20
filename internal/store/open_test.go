@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/repo"
 )
 
 func TestOpenCreatesIdentifiedSchemaAndReadOnlyOpenDoesNotMigrate(t *testing.T) {
@@ -97,6 +99,26 @@ func TestOpenConfiguredRequiresExactLocalCheckRuntime(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("rejected configured open created a control store: %v", err)
+	}
+}
+
+func TestOpenConfiguredBindsRepositoryForStoreLifetime(t *testing.T) {
+	t.Parallel()
+	repository := &repo.Repository{}
+	configuration := ControlConfiguration{
+		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Repository:                      repository,
+	}
+	control, err := OpenConfigured(
+		context.Background(), filepath.Join(t.TempDir(), "control.db"), configuration,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	configuration.Repository = nil
+	if control.repository != repository {
+		t.Fatal("configured store did not retain its immutable repository binding")
 	}
 }
 

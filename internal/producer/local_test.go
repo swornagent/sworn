@@ -46,12 +46,12 @@ func (reader corruptArtifactReader) Artifact(ctx context.Context, digest string)
 	return mediaType, contents, err
 }
 
-func submissionFacts(
+func submissionReceipt(
 	t testing.TB,
 	ctx context.Context,
 	artifacts protocol.ArtifactReader,
 	receiptPointer protocol.Artifact,
-) (protocol.Check, protocol.Evidence, protocol.LocalCheckReceipt) {
+) protocol.LocalCheckReceipt {
 	t.Helper()
 	mediaType, contents, err := artifacts.Artifact(ctx, receiptPointer.Digest)
 	if err != nil || mediaType != receiptPointer.MediaType || protocol.RawDigest(contents) != receiptPointer.Digest {
@@ -61,30 +61,7 @@ func submissionFacts(
 	if err != nil || receipt.Outcome != "pass" {
 		t.Fatalf("parse admitted receipt = %#v, %v", receipt, err)
 	}
-	mediaType, contents, err = artifacts.Artifact(ctx, receipt.Definition.Digest)
-	if err != nil || mediaType != receipt.Definition.MediaType || protocol.RawDigest(contents) != receipt.Definition.Digest {
-		t.Fatalf("resolve exact definition = %q %x, %v", mediaType, contents, err)
-	}
-	definition, err := protocol.ParseLocalCheckDefinition(contents)
-	if err != nil {
-		t.Fatal(err)
-	}
-	exitCode := receipt.ExitCode
-	check := protocol.Check{
-		ID: receipt.CheckID, Outcome: receipt.Outcome, RunID: receipt.RunID,
-		CandidateTree: receipt.Candidate.Tree, Environment: receipt.Environment,
-		StartedAt: receipt.StartedAt, CompletedAt: receipt.CompletedAt,
-		ExitCode: &exitCode, Receipt: receiptPointer,
-	}
-	evidence := protocol.Evidence{
-		ID:            definition.Evidence.ID,
-		AcceptanceIDs: append([]string(nil), definition.Evidence.AcceptanceIDs...),
-		Kind:          "test", Boundary: definition.Evidence.Boundary, Environment: receipt.Environment,
-		UsesMocks: definition.Evidence.UsesMocks, ProducerRunID: receipt.RunID,
-		CandidateTree: receipt.Candidate.Tree, CapturedAt: receipt.CompletedAt,
-		Artifact: receiptPointer, Observed: definition.Evidence.Observed,
-	}
-	return check, evidence, receipt
+	return receipt
 }
 
 func (fakeRunner) Probe(context.Context) (executor.ProbeReport, error) {
@@ -99,20 +76,12 @@ func (fakeRunner) Probe(context.Context) (executor.ProbeReport, error) {
 
 func (fakeRunner) EffectiveLimits() executor.Limits { return executor.DefaultLimits() }
 
-func (runner fakeRunner) RunContained(_ context.Context, invocation executor.Invocation) (executor.RawCompletion, error) {
-	return runner.completion(invocation), nil
-}
-
 func (runner fakeRunner) RunContentBound(
 	_ context.Context,
 	invocation executor.Invocation,
 	_ executor.RuntimeTree,
 ) (executor.RawCompletion, error) {
 	return runner.completion(invocation), nil
-}
-
-func (contentOnlyRunner) RunContained(context.Context, executor.Invocation) (executor.RawCompletion, error) {
-	return executor.RawCompletion{}, errors.New("content test invoked the host-runtime entry point")
 }
 
 func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
@@ -187,27 +156,29 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 			t.Fatalf("check workspace contains moved-target bytes: %v", err)
 		}
 		return executor.RawCompletion{
-			InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
+			InvocationID: invocation.ID, RuntimeDigest: invocation.RuntimeDigest,
+			WorkspaceDigest: invocation.WorkspaceDigest,
 			WorkspaceAccess: executor.WorkspaceReadOnly, StartedAt: testCheckStart,
 			CompletedAt: testCheckCompletion, ExitCode: 0, Stdout: []byte("checked\n"),
 		}
 	}}
-	produced, err := RunLocal(ctx, runner, control, Request{
+	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/true")
+	produced, err := RunLocalContentBound(ctx, contentOnlyRunner{fakeRunner: runner}, control, Request{
 		CheckID: "candidate", RunID: "check-run-1", Definition: definitionPointer,
 		Repository: repository, Candidate: candidate, Workspace: checked,
-	})
+	}, runtimeTree)
 	if err != nil || produced.Receipt.Digest == "" {
-		t.Fatalf("RunLocal() = %#v, %v", produced, err)
+		t.Fatalf("RunLocalContentBound() = %#v, %v", produced, err)
 	}
-	check, evidence, measuredReceipt := submissionFacts(t, ctx, control, produced.Receipt)
-	_, hostEnvironmentBytes, err := control.Artifact(ctx, check.Environment.Ref)
+	measuredReceipt := submissionReceipt(t, ctx, control, produced.Receipt)
+	_, environmentBytes, err := control.Artifact(ctx, measuredReceipt.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostEnvironment, err := protocol.ParseLocalEnvironment(hostEnvironmentBytes)
-	if err != nil || hostEnvironment.SchemaVersion != protocol.LocalEnvironmentSchemaVersion ||
-		hostEnvironment.RuntimeManifestDigest != "" || bytes.Contains(hostEnvironmentBytes, []byte("runtime_manifest_digest")) {
-		t.Fatalf("host evaluation environment = %#v, %v", hostEnvironment, err)
+	environment, err := protocol.ParseLocalEnvironment(environmentBytes)
+	if err != nil || environment.SchemaVersion != protocol.ContentEnvironmentSchemaVersion ||
+		environment.RuntimeManifestDigest != runtimeDigest {
+		t.Fatalf("content-bound admission environment = %#v, %v", environment, err)
 	}
 	authorityPointer := putAuthorityApproval(t, ctx, control, plan)
 	builder := protocol.BuilderRun{
@@ -217,7 +188,9 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	submissionInput := protocol.SubmissionInput{
 		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Plan: plan, WorkID: "work-1",
 		AuthorityReceipt: authorityPointer, Builder: builder, Candidate: candidate,
-		Checks: []protocol.Check{check}, Evidence: []protocol.Evidence{evidence},
+		MeasuredChecks: []protocol.MeasuredCheck{{
+			RunID: measuredReceipt.RunID, RuntimeManifestDigest: runtimeDigest, Receipt: produced.Receipt,
+		}},
 	}
 	unknownWork := submissionInput
 	unknownWork.WorkID = "missing-work"
@@ -263,12 +236,8 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 			Ref: digest, MediaType: "application/vnd.sworn.local-check-receipt+json", Digest: digest,
 		}
 		input := submissionInput
-		input.Checks = append([]protocol.Check(nil), submissionInput.Checks...)
-		input.Evidence = append([]protocol.Evidence(nil), submissionInput.Evidence...)
-		input.Checks[0].Receipt = pointer
-		input.Checks[0].Environment = receipt.Environment
-		input.Evidence[0].Artifact = pointer
-		input.Evidence[0].Environment = receipt.Environment
+		input.MeasuredChecks = append([]protocol.MeasuredCheck(nil), submissionInput.MeasuredChecks...)
+		input.MeasuredChecks[0].Receipt = pointer
 		return input
 	}
 	for name, mutate := range map[string]func(*protocol.LocalCheckReceipt){
@@ -316,14 +285,13 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	if _, err := protocol.BuildSubmission(ctx, repository, control, falseAuthorityRef); err == nil {
 		t.Fatal("false non-CAS authority reference was admitted")
 	}
-	prepared, err := protocol.BuildSubmission(ctx, repository, control, submissionInput)
+	record, err := protocol.BuildSubmission(ctx, repository, control, submissionInput)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := prepared.Record()
 	if record.Kind != protocol.SubmissionSchemaVersion || !protocol.ValidDigest(record.Digest) ||
 		protocol.CanonicalDigest(record.CanonicalJSON) != record.Digest {
-		t.Fatalf("prepared submission record = %#v", record)
+		t.Fatalf("submission record = %#v", record)
 	}
 	var submission protocol.Submission
 	if err := json.Unmarshal(record.CanonicalJSON, &submission); err != nil {
@@ -340,22 +308,16 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 	reencoded, err := protocol.EncodeSubmission(submission)
 	if err != nil || reencoded.Digest != record.Digest ||
 		!bytes.Equal(reencoded.CanonicalJSON, record.CanonicalJSON) {
-		t.Fatalf("re-encoded prepared submission = %#v, %v; want %#v", reencoded, err, record)
+		t.Fatalf("re-encoded submission = %#v, %v; want %#v", reencoded, err, record)
 	}
 	if len(record.CanonicalJSON) == 0 {
-		t.Fatal("prepared submission has empty canonical bytes")
-	}
-	record.CanonicalJSON[0] ^= 0xff
-	repeated := prepared.Record()
-	if repeated.Kind != reencoded.Kind || repeated.Digest != reencoded.Digest ||
-		!bytes.Equal(repeated.CanonicalJSON, reencoded.CanonicalJSON) {
-		t.Fatalf("prepared submission record was mutated through returned bytes: %#v", repeated)
+		t.Fatal("submission has empty canonical bytes")
 	}
 	badBinding := submissionInput
-	badBinding.Evidence = append([]protocol.Evidence(nil), submissionInput.Evidence...)
-	badBinding.Evidence[0].ProducerRunID = builder.RunID
+	badBinding.MeasuredChecks = append([]protocol.MeasuredCheck(nil), submissionInput.MeasuredChecks...)
+	badBinding.MeasuredChecks[0].RunID = builder.RunID
 	if _, err := protocol.BuildSubmission(ctx, repository, control, badBinding); err == nil {
-		t.Fatal("builder-stamped evidence was admitted")
+		t.Fatal("builder-stamped journal result was admitted")
 	}
 	if _, err := protocol.BuildSubmission(ctx, repository, corruptArtifactReader{
 		base: control, digest: produced.Receipt.Digest,
@@ -388,16 +350,17 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 	}
 	runner := fakeRunner{completion: func(invocation executor.Invocation) executor.RawCompletion {
 		return executor.RawCompletion{
-			InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
+			InvocationID: invocation.ID, RuntimeDigest: invocation.RuntimeDigest, WorkspaceDigest: invocation.WorkspaceDigest,
 			WorkspaceAccess: executor.WorkspaceReadOnly, StartedAt: testCheckStart,
 			CompletedAt: testCheckCompletion, ExitCode: 7, Stderr: []byte("failed\n"),
 		}
 	}}
-	result, err := RunLocal(ctx, runner, control, Request{
+	runtimeTree, _ := producerRuntimeTree(t, ctx, "/usr/bin/false")
+	result, err := RunLocalContentBound(ctx, runner, control, Request{
 		CheckID: "candidate", RunID: "check-run-7",
 		Definition: protocol.Artifact{Ref: digest, MediaType: "application/json", Digest: digest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
-	})
+	}, runtimeTree)
 	if !errors.Is(err, ErrCheckNotAdmitted) || result.Receipt.Digest == "" {
 		t.Fatalf("non-pass result = %#v, %v", result, err)
 	}
@@ -432,19 +395,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeSource := t.TempDir()
-	writeProducerFile(t, filepath.Join(runtimeSource, "bin", "check"), []byte("runtime"))
-	if err := os.Chmod(filepath.Join(runtimeSource, "bin", "check"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runtimeDigest, _, err := workspace.Measure(ctx, runtimeSource, 1<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtimeTree, err := executor.NewRuntimeTree(runtimeSource, runtimeDigest, 1<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/check")
 	request := Request{
 		CheckID: "candidate", RunID: "content-check-run",
 		Definition: protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest},
@@ -463,8 +414,8 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 	if err != nil || result.Receipt.Digest == "" {
 		t.Fatalf("content-bound result = %#v, %v", result, err)
 	}
-	check, evidence, _ := submissionFacts(t, ctx, control, result.Receipt)
-	_, environmentBytes, err := control.Artifact(ctx, check.Environment.Ref)
+	receipt := submissionReceipt(t, ctx, control, result.Receipt)
+	_, environmentBytes, err := control.Artifact(ctx, receipt.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,17 +444,19 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		})
 	}
 	plan := putSubmissionPlan(t, ctx, control, request.Definition)
-	prepared, err := protocol.BuildSubmission(ctx, repository, control, protocol.SubmissionInput{
+	record, err := protocol.BuildSubmission(ctx, repository, control, protocol.SubmissionInput{
 		Attempt: 1, CreatedAt: testCheckCompletion.Add(time.Second), Plan: plan, WorkID: "work-1",
 		AuthorityReceipt: putAuthorityApproval(t, ctx, control, plan),
 		Builder: protocol.BuilderRun{
 			RunID: "content-builder-run", Agent: "codex", StartedAt: formatTime(testBuilderStart),
 			CompletedAt: formatTime(testBuilderCompletion),
 		},
-		Candidate: candidate, Checks: []protocol.Check{check}, Evidence: []protocol.Evidence{evidence},
+		Candidate: candidate, MeasuredChecks: []protocol.MeasuredCheck{{
+			RunID: receipt.RunID, RuntimeManifestDigest: runtimeDigest, Receipt: result.Receipt,
+		}},
 	})
-	if err != nil || prepared.Record().Digest == "" {
-		t.Fatalf("content-bound prepared submission = %#v, %v", prepared, err)
+	if err != nil || record.Digest == "" {
+		t.Fatalf("content-bound submission = %#v, %v", record, err)
 	}
 
 	badRunner := contentOnlyRunner{fakeRunner: fakeRunner{
@@ -538,11 +491,11 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := protocol.ParseLocalCheckReceipt(receiptBytes)
+	nonPassReceipt, err := protocol.ParseLocalCheckReceipt(receiptBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, nonPassEnvironmentBytes, err := control.Artifact(ctx, receipt.Environment.Ref)
+	_, nonPassEnvironmentBytes, err := control.Artifact(ctx, nonPassReceipt.Environment.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,6 +596,25 @@ func putAuthorityApproval(
 }
 
 func fixedDigest(character string) string { return "sha256:" + strings.Repeat(character, 64) }
+
+func producerRuntimeTree(t *testing.T, ctx context.Context, executable string) (executor.RuntimeTree, string) {
+	t.Helper()
+	runtimeSource := t.TempDir()
+	runtimeExecutable := filepath.Join(runtimeSource, strings.TrimPrefix(executable, "/usr/"))
+	writeProducerFile(t, runtimeExecutable, []byte("runtime"))
+	if err := os.Chmod(runtimeExecutable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDigest, _, err := workspace.Measure(ctx, runtimeSource, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeTree, err := executor.NewRuntimeTree(runtimeSource, runtimeDigest, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeTree, runtimeDigest
+}
 
 func prepareProducerCandidate(t *testing.T) (*repo.Repository, repo.Candidate, repo.CandidateWorkspace) {
 	t.Helper()

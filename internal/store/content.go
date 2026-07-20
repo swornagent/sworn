@@ -34,39 +34,20 @@ func (s *Store) PutArtifact(ctx context.Context, mediaType string, content []byt
 	if s.readOnly {
 		return "", errors.New("control store is read-only")
 	}
-	if err := protocol.ValidateArtifactContent(mediaType, content); err != nil {
-		return "", err
-	}
-	// database/sql maps a nil byte slice to SQL NULL. Empty artifact bytes are
-	// valid and must remain an empty BLOB under their well-known SHA-256 digest.
-	content = append([]byte{}, content...)
 	artifactDigest := digest(content)
-	now := s.now().UTC().UnixMicro()
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO artifacts (digest, media_type, content, size, created_at_us)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(digest) DO NOTHING`,
-		artifactDigest, mediaType, content, len(content), now,
-	); err != nil {
-		return "", fmt.Errorf("put artifact %s: %w", artifactDigest, err)
-	}
-	var storedType string
-	var stored []byte
-	if err := s.db.QueryRowContext(ctx,
-		"SELECT media_type, content FROM artifacts WHERE digest = ?", artifactDigest,
-	).Scan(&storedType, &stored); err != nil {
-		return "", fmt.Errorf("verify artifact %s: %w", artifactDigest, err)
-	}
-	if storedType != mediaType || !bytes.Equal(stored, content) {
-		return "", fmt.Errorf("artifact digest collision or media-type conflict for %s", artifactDigest)
+	if err := putArtifact(ctx, s.db, artifactDigest, mediaType, content, s.now().UTC().UnixMicro()); err != nil {
+		return "", err
 	}
 	return artifactDigest, nil
 }
 
 func (s *Store) Artifact(ctx context.Context, artifactDigest string) (mediaType string, content []byte, err error) {
-	err = s.db.QueryRowContext(ctx,
-		"SELECT media_type, content FROM artifacts WHERE digest = ?", artifactDigest,
-	).Scan(&mediaType, &content)
+	return loadArtifact(ctx, s.db, artifactDigest)
+}
+
+func loadArtifact(ctx context.Context, query rowQuerier, artifactDigest string) (mediaType string, content []byte, err error) {
+	err = query.QueryRowContext(ctx, "SELECT media_type, content FROM artifacts WHERE digest = ?", artifactDigest).
+		Scan(&mediaType, &content)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil, fmt.Errorf("artifact %s: %w", artifactDigest, sql.ErrNoRows)
 	}
@@ -77,4 +58,40 @@ func (s *Store) Artifact(ctx context.Context, artifactDigest string) (mediaType 
 		return "", nil, fmt.Errorf("artifact %s content digest mismatch", artifactDigest)
 	}
 	return mediaType, content, nil
+}
+
+type contentWriter interface {
+	rowQuerier
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func putArtifact(
+	ctx context.Context,
+	writer contentWriter,
+	artifactDigest, mediaType string,
+	content []byte,
+	now int64,
+) error {
+	if protocol.RawDigest(content) != artifactDigest {
+		return fmt.Errorf("artifact digest mismatch for %s", artifactDigest)
+	}
+	if err := protocol.ValidateArtifactContent(mediaType, content); err != nil {
+		return err
+	}
+	content = append([]byte{}, content...)
+	if _, err := writer.ExecContext(ctx, `
+		INSERT INTO artifacts (digest, media_type, content, size, created_at_us)
+		VALUES (?, ?, ?, ?, ?) ON CONFLICT(digest) DO NOTHING`,
+		artifactDigest, mediaType, content, len(content), now,
+	); err != nil {
+		return fmt.Errorf("put artifact %s: %w", artifactDigest, err)
+	}
+	storedType, stored, err := loadArtifact(ctx, writer, artifactDigest)
+	if err != nil {
+		return err
+	}
+	if storedType != mediaType || !bytes.Equal(stored, content) {
+		return fmt.Errorf("artifact conflict for %s", artifactDigest)
+	}
+	return nil
 }

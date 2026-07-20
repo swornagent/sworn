@@ -64,51 +64,42 @@ The database contains:
 - `effect_observations` — append-only claim, interruption, reconciliation, and
   completion facts;
 - `records` and `artifacts` — immutable content-addressed JSON and raw bytes;
-- `submission_records` — immutable global submission and work-attempt identity
-  reservations bound to canonical record digests, written only by the future
-  final admission transaction.
+- `submission_records` — immutable global submission and work-attempt identities
+  bound to canonical records, the same delivery run, and the exact applied
+  admission command.
 
 SQL triggers forbid mutation of immutable history, illegal revision jumps,
 effect request rewrites, effect deletion, and invalid effect-state transitions.
 The partial unique target index prevents two non-terminal runs from owning the
 same repository and target.
 
-## Current boundary
+## Reviewable admission boundary
 
-The journal now understands typed builder results and typed `check.local`
-results. The local-check worker accepts its candidate only through the succeeded
-builder effect, invokes only the content-bound executor, and returns the minimal
-outcome and receipt reference. The worker materializes the builder candidate
-from Git, while the executor stages and remeasures the candidate workspace and
-content runtime before execution.
+The reducer has two narrow internal edges after builder success:
 
-The store performs a narrower durable rebind. It matches the receipt's candidate
-identifiers to the succeeded builder result; resolves and validates the receipt,
-definition, environment, stdout, and stderr CAS objects; matches the exact
-definition fields and measured runtime/output ceilings; and requires the
-environment's runtime-manifest digest to equal the request. It does not
-rematerialize Git, remeasure a workspace or runtime, or compare the
-environment's embedded protocol-snapshot digest. Final admission must close
-those remaining protocol and submission checks.
+- `checks.dispatch` reparses the exact plan, resolves its policy and ordered
+  definitions, rebinds the succeeded builder and process-configured runtime,
+  and atomically creates the complete serial check batch. Work moves from
+  `active` to internal `checking`; Baton board projection remains `active`.
+- `submission.admit` accepts only `{work_id}`. Ordinary reduction validates that
+  intent and returns a sentinel requiring Store-derived facts. The Store anchors
+  admission to the current dispatch event and complete effect batch, requires
+  every result to be durably succeeded and semantically passing, then supplies
+  the exact submission binding to the same pure reducer.
 
-The reducer now has one bounded, batched `checks.dispatch` edge. Its payload is
-untrusted: before persistence, the store transaction reparses the exact plan,
-resolves its canonical policy and every selected definition, requires their
-ordered selection to match, and rebinds the configured runtime and succeeded
-builder attempt. It also requires the active authority receipt to be an immutable
-authenticated historical approval for that plan and to precede the builder.
-Only then does work move from `active` to `checking` and the complete ordered
-batch become pending atomically. Within that command, a later ordinal cannot be
-leased until every earlier effect has succeeded. A precondition failure records
-no command, event, state change, or effect.
+Admission repeats the full durable closure inside its SQLite transaction: exact
+plan and policy, definitions, authenticated historical approval, builder
+attempt, typed results, receipt/environment/output CAS, content runtime, Baton
+snapshot, and configured-repository Git candidate and scope. It writes the
+command, state, event, canonical submission, and run/command-bound identity
+together and emits no effect. A preflight or write failure leaves `checking`
+unchanged; exact command replay returns the committed result.
 
-This is structural scheduling, not current execution authority. Historical
-approval does not prove that its source is still current, and Baton requires
-gate-specific revalidation before builder or check execution. The public binary
-still opens only the read-only board path: there is no mutating CLI, command
-service, claim loop, or native runner adapter. `sworn board` remains read-only,
-and no path integrates a target.
+Schema v5 rebuilds `submission_records` without copying earlier structural
+identities. Their records remain content-addressed archaeology, but no legacy
+row is treated as journal-backed admission proof.
 
-Structural submission persistence and its parallel builder/producer identity
-registry have been removed. A future atomic admission transaction will recheck
-the journal and artifact closure and become the sole submission writer.
+Reviewable is not `PASS` and historical authenticated approval is not a current
+execution permit. The public binary still has no mutating command service,
+claim loop, native agent adapter, verifier verdict, retry policy, or integration
+path. `sworn board` remains a read-only projection of committed engine truth.
