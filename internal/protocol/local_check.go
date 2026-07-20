@@ -1,11 +1,8 @@
 package protocol
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -69,24 +66,11 @@ func EncodeLocalCheckReceipt(receipt LocalCheckReceipt) (EncodedRecord, error) {
 }
 
 func ParseLocalCheckReceipt(contents []byte) (LocalCheckReceipt, error) {
-	if len(contents) > MaximumLocalCheckReceiptBytes {
-		return LocalCheckReceipt{}, errors.New("local check receipt exceeds byte ceiling")
-	}
-	canonical, err := CanonicalizeJSON(contents)
-	if err != nil {
-		return LocalCheckReceipt{}, err
-	}
-	if !bytes.Equal(contents, canonical) {
-		return LocalCheckReceipt{}, errors.New("local check receipt is not canonical JSON")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
 	var receipt LocalCheckReceipt
-	if err := decoder.Decode(&receipt); err != nil {
-		return LocalCheckReceipt{}, fmt.Errorf("decode local check receipt: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return LocalCheckReceipt{}, errors.New("local check receipt has trailing input")
+	if err := decodeLocalJSON(
+		contents, MaximumLocalCheckReceiptBytes, "local check receipt", true, &receipt,
+	); err != nil {
+		return LocalCheckReceipt{}, err
 	}
 	if err := validateLocalCheckReceipt(receipt); err != nil {
 		return LocalCheckReceipt{}, err

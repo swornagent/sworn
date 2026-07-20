@@ -42,20 +42,11 @@ type LocalCheckDefinition struct {
 // ParseLocalCheckDefinition validates the exact policy artifact semantics used
 // both before execution and again when a submission is constructed.
 func ParseLocalCheckDefinition(contents []byte) (LocalCheckDefinition, error) {
-	if len(contents) > MaximumLocalCheckDefinitionBytes {
-		return LocalCheckDefinition{}, errors.New("local check definition exceeds byte ceiling")
-	}
-	if _, err := CanonicalizeJSON(contents); err != nil {
-		return LocalCheckDefinition{}, fmt.Errorf("local check definition is not strict I-JSON: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
 	var definition LocalCheckDefinition
-	if err := decoder.Decode(&definition); err != nil {
-		return LocalCheckDefinition{}, fmt.Errorf("decode local check definition: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return LocalCheckDefinition{}, errors.New("local check definition has trailing input")
+	if err := decodeLocalJSON(
+		contents, MaximumLocalCheckDefinitionBytes, "local check definition", false, &definition,
+	); err != nil {
+		return LocalCheckDefinition{}, err
 	}
 	if definition.SchemaVersion != LocalCheckDefinitionSchemaVersion || definition.WorkingDirectory != "." ||
 		definition.TimeoutSeconds <= 0 || definition.TimeoutSeconds > int64((24*time.Hour)/time.Second) ||
@@ -128,24 +119,11 @@ type LocalEnvironment struct {
 // ParseLocalEnvironment proves that a concrete environment pointer resolves
 // to the engine-owned schema rather than merely to arbitrary canonical JSON.
 func ParseLocalEnvironment(contents []byte) (LocalEnvironment, error) {
-	if len(contents) > MaximumLocalEnvironmentBytes {
-		return LocalEnvironment{}, errors.New("local environment exceeds byte ceiling")
-	}
-	canonical, err := CanonicalizeJSON(contents)
-	if err != nil {
-		return LocalEnvironment{}, fmt.Errorf("local environment is not strict I-JSON: %w", err)
-	}
-	if !bytes.Equal(contents, canonical) {
-		return LocalEnvironment{}, errors.New("local environment is not canonical JSON")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
 	var environment LocalEnvironment
-	if err := decoder.Decode(&environment); err != nil {
-		return LocalEnvironment{}, fmt.Errorf("decode local environment: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return LocalEnvironment{}, errors.New("local environment has trailing input")
+	if err := decodeLocalJSON(
+		contents, MaximumLocalEnvironmentBytes, "local environment", true, &environment,
+	); err != nil {
+		return LocalEnvironment{}, err
 	}
 	probe := environment.Executor
 	limits := environment.Limits
@@ -182,4 +160,32 @@ func ParseLocalEnvironment(contents []byte) (LocalEnvironment, error) {
 		return LocalEnvironment{}, errors.New("local environment does not use its schema's exact field shape")
 	}
 	return environment, nil
+}
+
+func decodeLocalJSON(
+	contents []byte,
+	maximumBytes int,
+	label string,
+	requireCanonical bool,
+	destination any,
+) error {
+	if len(contents) > maximumBytes {
+		return fmt.Errorf("%s exceeds byte ceiling", label)
+	}
+	canonical, err := CanonicalizeJSON(contents)
+	if err != nil {
+		return fmt.Errorf("%s is not strict I-JSON: %w", label, err)
+	}
+	if requireCanonical && !bytes.Equal(contents, canonical) {
+		return fmt.Errorf("%s is not canonical JSON", label)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("decode %s: %w", label, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%s has trailing input", label)
+	}
+	return nil
 }

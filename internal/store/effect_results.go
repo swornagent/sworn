@@ -58,7 +58,7 @@ func validateLocalCheckResultClosure(
 		buildRequest.WorkID != request.WorkID || buildRequest.WorkAttempt != request.WorkAttempt {
 		return errors.New("local check request does not match its builder attempt")
 	}
-	receiptBytes, err := resolveJournalArtifact(ctx, resolver, result.Receipt, protocol.MaximumLocalCheckReceiptBytes)
+	receiptBytes, err := protocol.ResolveArtifact(ctx, resolver, result.Receipt, protocol.MaximumLocalCheckReceiptBytes)
 	if err != nil {
 		return fmt.Errorf("resolve local check receipt: %w", err)
 	}
@@ -74,7 +74,7 @@ func validateLocalCheckResultClosure(
 		receipt.Candidate.Commit != buildResult.Candidate.Commit || receipt.Candidate.Tree != buildResult.Candidate.Tree {
 		return errors.New("local check receipt does not match its request and builder result")
 	}
-	definitionBytes, err := resolveJournalArtifact(ctx, resolver, definition, protocol.MaximumLocalCheckDefinitionBytes)
+	definitionBytes, err := protocol.ResolveArtifact(ctx, resolver, definition, protocol.MaximumLocalCheckDefinitionBytes)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func validateLocalCheckResultClosure(
 		receipt.TimeoutSeconds != parsedDefinition.TimeoutSeconds || !slices.Equal(receipt.Argv, parsedDefinition.Argv) {
 		return errors.New("local check receipt does not match its exact definition")
 	}
-	environmentBytes, err := resolveJournalArtifact(ctx, resolver, protocol.Artifact{
+	environmentBytes, err := protocol.ResolveArtifact(ctx, resolver, protocol.Artifact{
 		Ref: receipt.Environment.Ref, MediaType: protocol.LocalEnvironmentMediaType, Digest: receipt.Environment.Ref,
 	}, protocol.MaximumLocalEnvironmentBytes)
 	if err != nil {
@@ -114,7 +114,7 @@ func validateLocalCheckResultClosure(
 		if observed.capture.Size > observed.limit {
 			return fmt.Errorf("local check %s capture exceeds its measured environment", observed.name)
 		}
-		contents, err := resolveJournalArtifact(
+		contents, err := protocol.ResolveArtifact(
 			ctx, resolver, observed.capture.Pointer(), uint64(observed.capture.Size),
 		)
 		if err != nil {
@@ -134,29 +134,6 @@ func validateLocalCheckResultClosure(
 		return errors.New("local check semantic outcome does not match its receipt")
 	}
 	return nil
-}
-
-func resolveJournalArtifact(
-	ctx context.Context,
-	resolver journalResultResolver,
-	pointer protocol.Artifact,
-	maximumBytes uint64,
-) ([]byte, error) {
-	if pointer.Ref != pointer.Digest || !protocol.ValidDigest(pointer.Digest) {
-		return nil, errors.New("artifact pointer is not content-addressed")
-	}
-	mediaType, contents, err := resolver.Artifact(ctx, pointer.Digest)
-	if err != nil {
-		return nil, err
-	}
-	if uint64(len(contents)) > maximumBytes || mediaType != pointer.MediaType ||
-		protocol.RawDigest(contents) != pointer.Digest {
-		return nil, errors.New("artifact does not match its pointer and byte ceiling")
-	}
-	if err := protocol.ValidateArtifactContent(mediaType, contents); err != nil {
-		return nil, err
-	}
-	return contents, nil
 }
 
 type journalResultResolver struct{ query rowQuerier }

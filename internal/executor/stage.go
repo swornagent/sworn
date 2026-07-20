@@ -70,10 +70,6 @@ func stageRuntime(
 	return digest, size, nil
 }
 
-func walkWorkspace(ctx context.Context, source, destination string, maximumBytes uint64) (string, uint64, error) {
-	return workspace.StageInto(ctx, source, destination, maximumBytes)
-}
-
 func stageInput(ctx context.Context, input Input, destination string, maximumBytes uint64) (BoundInput, error) {
 	info, err := os.Lstat(input.Path)
 	if err != nil {

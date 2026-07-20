@@ -24,7 +24,7 @@ func loadRecord(ctx context.Context, query rowQuerier, recordDigest string) (kin
 	if err != nil {
 		return "", nil, fmt.Errorf("read record %s: %w", recordDigest, err)
 	}
-	if digest(canonicalJSON) != recordDigest {
+	if protocol.RawDigest(canonicalJSON) != recordDigest {
 		return "", nil, fmt.Errorf("record %s content digest mismatch", recordDigest)
 	}
 	return kind, canonicalJSON, nil
@@ -34,7 +34,7 @@ func (s *Store) PutArtifact(ctx context.Context, mediaType string, content []byt
 	if s.readOnly {
 		return "", errors.New("control store is read-only")
 	}
-	artifactDigest := digest(content)
+	artifactDigest := protocol.RawDigest(content)
 	if err := putArtifact(ctx, s.db, artifactDigest, mediaType, content, s.now().UTC().UnixMicro()); err != nil {
 		return "", err
 	}
@@ -54,7 +54,7 @@ func loadArtifact(ctx context.Context, query rowQuerier, artifactDigest string) 
 	if err != nil {
 		return "", nil, fmt.Errorf("read artifact %s: %w", artifactDigest, err)
 	}
-	if digest(content) != artifactDigest {
+	if protocol.RawDigest(content) != artifactDigest {
 		return "", nil, fmt.Errorf("artifact %s content digest mismatch", artifactDigest)
 	}
 	return mediaType, content, nil

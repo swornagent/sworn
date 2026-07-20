@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestMigrationFivePurgesLegacySubmissionIdentitiesButRetainsRecords(t *testing.T) {
@@ -24,7 +26,7 @@ func TestMigrationFivePurgesLegacySubmissionIdentitiesButRetainsRecords(t *testi
 		}
 	}
 	canonical := []byte(`{"schema_version":"submission-v1"}`)
-	recordDigest := digest(canonical)
+	recordDigest := protocol.RawDigest(canonical)
 	if _, err := database.ExecContext(ctx, `
 		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
 		VALUES (?, 'submission-v1', ?, ?, 1)`, recordDigest, canonical, len(canonical)); err != nil {

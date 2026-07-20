@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swornagent/sworn/internal/workspace"
 )
 
 const (
@@ -271,7 +273,7 @@ func (executor *LinuxExecutor) runInvocation(
 	var workspaceDigest string
 	var workspaceBytes uint64
 	if writable {
-		workspaceDigest, workspaceBytes, err = walkWorkspace(
+		workspaceDigest, workspaceBytes, err = workspace.StageInto(
 			ctx, invocation.Workspace, workspacePath, remainingInputBytes,
 		)
 	} else {

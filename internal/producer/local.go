@@ -64,16 +64,6 @@ func RunLocalContentBound(
 	if runtime.Digest() == "" {
 		return Result{}, errors.New("content-bound local producer requires a runtime capability")
 	}
-	return runLocal(ctx, runner, artifacts, request, runtime)
-}
-
-func runLocal(
-	ctx context.Context,
-	runner Runner,
-	artifacts ArtifactStore,
-	request Request,
-	runtime executor.RuntimeTree,
-) (Result, error) {
 	if runner == nil || artifacts == nil || request.Repository == nil {
 		return Result{}, errors.New("local producer requires runner, artifact store, and repository")
 	}
@@ -86,7 +76,7 @@ func runLocal(
 	if err := request.Repository.VerifyCandidateWorkspace(ctx, request.Workspace); err != nil {
 		return Result{}, fmt.Errorf("verify local check candidate workspace: %w", err)
 	}
-	definitionBytes, err := resolveArtifact(ctx, artifacts, request.Definition, maximumDefinitionBytes)
+	definitionBytes, err := protocol.ResolveArtifact(ctx, artifacts, request.Definition, maximumDefinitionBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve local check definition: %w", err)
 	}
@@ -278,32 +268,10 @@ func putVerifiedArtifact(
 		return protocol.Artifact{}, errors.New("artifact store returned the wrong digest")
 	}
 	pointer := protocol.Artifact{Ref: digest, MediaType: mediaType, Digest: digest}
-	if _, err := resolveArtifact(ctx, artifacts, pointer, uint64(len(contents))); err != nil {
+	if _, err := protocol.ResolveArtifact(ctx, artifacts, pointer, uint64(len(contents))); err != nil {
 		return protocol.Artifact{}, err
 	}
 	return pointer, nil
-}
-
-func resolveArtifact(
-	ctx context.Context,
-	artifacts ArtifactStore,
-	pointer protocol.Artifact,
-	maximumBytes uint64,
-) ([]byte, error) {
-	mediaType, contents, err := artifacts.Artifact(ctx, pointer.Digest)
-	if err != nil {
-		return nil, err
-	}
-	if uint64(len(contents)) > maximumBytes {
-		return nil, errors.New("artifact exceeds byte ceiling")
-	}
-	if mediaType != pointer.MediaType || protocol.RawDigest(contents) != pointer.Digest {
-		return nil, errors.New("artifact does not match its pointer")
-	}
-	if err := protocol.ValidateArtifactContent(mediaType, contents); err != nil {
-		return nil, err
-	}
-	return contents, nil
 }
 
 func validateCompletion(invocation executor.Invocation, completion executor.RawCompletion) error {

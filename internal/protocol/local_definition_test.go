@@ -6,12 +6,29 @@ import (
 	"testing"
 )
 
+func TestLocalCheckDefinitionAllowsStrictNonCanonicalJSON(t *testing.T) {
+	t.Parallel()
+	contents := []byte(`{
+		"schema_version":"sworn-local-check-v1",
+		"argv":["/usr/bin/true"],
+		"working_directory":".",
+		"timeout_seconds":1,
+		"evidence":{"id":"e","acceptance_ids":["AC1"],"boundary":"component","uses_mocks":false,"observed":"ok"}
+	}`)
+	if _, err := ParseLocalCheckDefinition(contents); err != nil {
+		t.Fatalf("strict non-canonical definition: %v", err)
+	}
+}
+
 func TestLocalEnvironmentRuntimeSchemasAreClosed(t *testing.T) {
 	t.Parallel()
 	v1 := validLocalEnvironment()
 	v1Bytes, err := EncodeCanonical(v1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := ParseLocalEnvironment(append([]byte(" "), v1Bytes...)); err == nil {
+		t.Fatal("non-canonical local environment was accepted")
 	}
 	if parsed, err := ParseLocalEnvironment(v1Bytes); err != nil ||
 		parsed.SchemaVersion != LocalEnvironmentSchemaVersion ||

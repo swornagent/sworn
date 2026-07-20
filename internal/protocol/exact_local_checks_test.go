@@ -37,6 +37,22 @@ func (artifacts exactCheckArtifacts) putJSON(t testing.TB, value any) Artifact {
 	return Artifact{Ref: digest, MediaType: "application/json", Digest: digest}
 }
 
+func TestResolveArtifactEnforcesByteCeiling(t *testing.T) {
+	t.Parallel()
+	contents := []byte("bounded")
+	digest := RawDigest(contents)
+	artifacts := exactCheckArtifacts{digest: {mediaType: "application/octet-stream", contents: contents}}
+	pointer := Artifact{Ref: digest, MediaType: "application/octet-stream", Digest: digest}
+	if _, err := ResolveArtifact(context.Background(), artifacts, pointer, uint64(len(contents)-1)); err == nil ||
+		!strings.Contains(err.Error(), "byte ceiling") {
+		t.Fatalf("undersized ceiling error = %v", err)
+	}
+	if resolved, err := ResolveArtifact(context.Background(), artifacts, pointer, uint64(len(contents))); err != nil ||
+		string(resolved) != string(contents) {
+		t.Fatalf("exact ceiling artifact = %q, %v", resolved, err)
+	}
+}
+
 type exactCheckSpec struct {
 	checkID      string
 	evidenceID   string

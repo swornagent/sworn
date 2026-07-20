@@ -264,11 +264,6 @@ func derivedID(prefix, commandID string, ordinal int) string {
 	return prefix + "-" + hex.EncodeToString(sum[:])
 }
 
-func digest(contents []byte) string {
-	sum := sha256.Sum256(contents)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 func commandDigest(command engine.Command) string {
 	hasher := sha256.New()
 	bind := func(value []byte) {
