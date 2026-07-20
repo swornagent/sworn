@@ -30,24 +30,6 @@ import (
 
 const integrationLocalCheckReceiptMediaType = "application/vnd.sworn.local-check-receipt+json"
 
-type integrationBuilderControl struct {
-	journal *store.Store
-}
-
-func (control *integrationBuilderControl) State(ctx context.Context, runID string) (engine.State, error) {
-	if control.journal == nil {
-		return engine.State{}, errors.New("integration control is not bound")
-	}
-	return control.journal.State(ctx, runID)
-}
-
-func (control *integrationBuilderControl) Plan(ctx context.Context, digest string) (protocol.ExactPlan, error) {
-	if control.journal == nil {
-		return protocol.ExactPlan{}, errors.New("integration control is not bound")
-	}
-	return control.journal.Plan(ctx, digest)
-}
-
 type integrationBuilderRunner struct {
 	configurationDigest string
 	limits              executor.Limits
@@ -189,14 +171,13 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 	if err := os.Chmod(workspaceRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	boundary := &integrationBuilderControl{}
 	runner := &integrationBuilderRunner{
 		configurationDigest: protocol.RawDigest([]byte("integration-builder-runner-v1")),
 		limits:              executor.DefaultLimits(),
 		exportRoot:          t.TempDir(),
 	}
 	worker := effects.BuilderWorker{
-		Control: boundary, Runner: runner, Repository: repository,
+		Runner: runner, Repository: repository,
 		WorkspaceRoot: workspaceRoot, Agent: "integration-builder@1",
 		Argv: []string{"/usr/bin/integration-builder"}, Timeout: time.Minute,
 	}
@@ -205,7 +186,11 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeManifestDigest := protocol.RawDigest([]byte("integration-local-runtime-v1"))
-	journal, err := store.OpenConfigured(ctx, filepath.Join(t.TempDir(), "control.db"), store.ControlConfiguration{
+	controlRoot := t.TempDir()
+	if err := os.Chmod(controlRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := store.OpenConfigured(ctx, filepath.Join(controlRoot, "control.db"), store.ControlConfiguration{
 		LocalCheckRuntimeManifestDigest: runtimeManifestDigest,
 		BuilderDispatchDigest:           builderDispatchDigest,
 		Repository:                      repository,
@@ -214,16 +199,12 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = journal.Close() })
-	boundary.journal = journal
+	worker.Control = journal
 
 	clock := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
 	plan := newIntegrationPlan(t, journal, clock)
-	approval := approveIntegrationPlan(t, journal, plan, clock.Add(time.Minute))
+	approval, authority := approveIntegrationPlan(t, journal, plan, clock.Add(time.Minute))
 	workID := plan.WorkIDs()[0]
-	contract, exists := plan.Work(workID)
-	if !exists {
-		t.Fatal("integration plan lacks its work contract")
-	}
 
 	applyIntegrationCommand(t, journal, integrationCommand(t, "cmd-create", "run-native", engine.CommandCreate, engine.NoRevision, engine.CreatePayload{
 		DeliveryID: plan.DeliveryID(), PlanDigest: plan.Record().Digest,
@@ -232,24 +213,47 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 	applyIntegrationCommand(t, journal, integrationCommand(t, "cmd-activate", "run-native", engine.CommandActivate, 0, engine.ActivatePayload{
 		AuthorityReceiptDigest: approval.Facts().ReceiptDigest,
 	}))
-	buildDispatch := applyIntegrationCommand(t, journal, integrationCommand(
-		t, "cmd-build", "run-native", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
-			WorkID: workID, DispatchDigest: contract.Digest(),
-			BuilderDispatchDigest: builderDispatchDigest,
-		},
-	))
-	if len(buildDispatch.EffectIDs) != 1 {
-		t.Fatalf("build effect IDs = %v", buildDispatch.EffectIDs)
-	}
-	buildLease, err := journal.ClaimNextEffect(ctx, "builder-worker")
-	if err != nil || buildLease.Invocation().ID != buildDispatch.EffectIDs[0] {
-		t.Fatalf("claim native builder = %+v, %v", buildLease.Invocation(), err)
-	}
 	builderService, err := controlpkg.NewBuilderService(journal, worker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := builderService.Execute(ctx, buildLease); err != nil {
+	controller, recovery, err := controlpkg.StartBuilderController(
+		ctx, "controller-native", journal, authority, builderService,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = controller.Close() })
+	if recovery != (controlpkg.RecoveryReport{}) {
+		t.Fatalf("initial controller recovery = %#v", recovery)
+	}
+	buildDispatch, err := controller.DispatchBuild(ctx, "run-native", workID, "cmd-build")
+	if err != nil || buildDispatch.Outcome != store.OutcomeApplied {
+		t.Fatalf("authorized build dispatch = %+v, %v", buildDispatch, err)
+	}
+	if len(buildDispatch.EffectIDs) != 1 {
+		t.Fatalf("build effect IDs = %v", buildDispatch.EffectIDs)
+	}
+	if err := controller.ExecutePendingBuild(ctx, "run-native", workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.ExecutePendingBuild(ctx, "run-native", workID); !errors.Is(err, store.ErrNoPendingEffect) {
+		t.Fatalf("empty controlled claim error = %v", err)
+	}
+	if _, err := controller.DispatchBuild(ctx, "run-native", workID, "cmd-build-after-claim-error"); err == nil ||
+		!strings.Contains(err.Error(), "closed or uninitialized") {
+		t.Fatalf("claim error left controller usable: %v", err)
+	}
+	successor, successorRecovery, err := controlpkg.StartBuilderController(
+		ctx, "controller-successor", journal, authority, builderService,
+	)
+	if err != nil {
+		t.Fatalf("claim error retained controller ownership: %v", err)
+	}
+	if successorRecovery != (controlpkg.RecoveryReport{}) {
+		t.Fatalf("successor recovery after empty claim = %#v", successorRecovery)
+	}
+	if err := successor.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -428,7 +432,7 @@ func approveIntegrationPlan(
 	journal *store.Store,
 	plan protocol.ExactPlan,
 	approvedAt time.Time,
-) policy.HistoricalApproval {
+) (policy.HistoricalApproval, *policy.Authority) {
 	t.Helper()
 	seed := sha256.Sum256([]byte("native builder integration authority"))
 	privateKey := ed25519.NewKeyFromSeed(seed[:])
@@ -486,7 +490,7 @@ func approveIntegrationPlan(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return approval
+	return approval, authority
 }
 
 func completeIntegrationCheck(

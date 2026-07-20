@@ -35,6 +35,12 @@ type staticResolver struct {
 
 type resolverFunc func(context.Context, string, string) ([]byte, []byte, error)
 
+type uncomparableLedger []int
+
+func (uncomparableLedger) PutAuthoritySource(context.Context, PreparedSource) error { return nil }
+
+func (uncomparableLedger) PutAuthorityApproval(context.Context, PreparedApproval) error { return nil }
+
 func (resolve resolverFunc) Resolve(
 	ctx context.Context,
 	sourceRef, planDigest string,
@@ -47,13 +53,30 @@ type recordingLedger struct {
 	approvals   []PreparedApproval
 	events      []string
 	sourceErr   error
+	currentErr  error
 	approvalErr error
+	sourceHook  func()
 }
 
 func (ledger *recordingLedger) PutAuthoritySource(_ context.Context, source PreparedSource) error {
+	ledger.recordSource(source)
+	return ledger.sourceErr
+}
+
+func (ledger *recordingLedger) PutCurrentAuthoritySource(_ context.Context, source PreparedSource) error {
+	ledger.recordSource(source)
+	if ledger.currentErr != nil {
+		return ledger.currentErr
+	}
+	return ledger.sourceErr
+}
+
+func (ledger *recordingLedger) recordSource(source PreparedSource) {
 	ledger.events = append(ledger.events, "source")
 	ledger.sources = append(ledger.sources, source)
-	return ledger.sourceErr
+	if ledger.sourceHook != nil {
+		ledger.sourceHook()
+	}
 }
 
 func (ledger *recordingLedger) PutAuthorityApproval(_ context.Context, approval PreparedApproval) error {
@@ -316,6 +339,426 @@ func TestAuthorityServiceConstructionAndLedgerFailuresFailClosed(t *testing.T) {
 		}
 	})
 }
+
+func TestAuthorityAuthorizeBuildPersistsFreshActiveObservationAndBindsFacts(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	resolver := fixture.resolver()
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, resolver, ledger, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := buildPermitRequest(t, fixture.plan)
+	permit, err := service.AuthorizeBuild(context.Background(), fixture.plan, request)
+	if err != nil {
+		t.Fatalf("AuthorizeBuild() error = %v", err)
+	}
+	if resolver.calls != 1 || resolver.resolvedSourceRef != testSourceRef ||
+		resolver.resolvedPlanDigest != fixture.plan.Record().Digest {
+		t.Fatalf("resolver call = (%d, %q, %q)", resolver.calls, resolver.resolvedSourceRef, resolver.resolvedPlanDigest)
+	}
+	if len(ledger.sources) != 1 || len(ledger.approvals) != 0 ||
+		!slices.Equal(ledger.events, []string{"source"}) {
+		t.Fatalf("current authority lifecycle = sources %d approvals %d events %v",
+			len(ledger.sources), len(ledger.approvals), ledger.events)
+	}
+	sourceFacts := ledger.sources[0].Facts()
+	facts := permit.Facts()
+	if facts.Purpose != BuildExecutionPurpose || facts.ControllerID != request.ControllerID ||
+		facts.RunID != request.RunID || facts.StateRevision != request.StateRevision ||
+		facts.PlanDigest != fixture.plan.Record().Digest || facts.WorkID != request.WorkID ||
+		facts.WorkAttempt != request.WorkAttempt || facts.WorkContractDigest != request.Contract.Digest() ||
+		facts.BuilderDispatchDigest != request.BuilderDispatchDigest || facts.SourceRef != sourceFacts.SourceRef ||
+		facts.SourceVersion != sourceFacts.SourceVersion || facts.SourceDigest != sourceFacts.SourceCanonicalDigest ||
+		facts.AuthorizedAt != fixture.now.Format(time.RFC3339Nano) {
+		t.Fatalf("build permit facts lost an exact binding: %#v", facts)
+	}
+	if err := service.ValidateBuildPermit(permit, request); err != nil {
+		t.Fatalf("ValidateBuildPermit() error = %v", err)
+	}
+
+	// Facts are a projection, not mutable authority, and every authorization
+	// performs another resolver and durable observation cycle.
+	changed := permit.Facts()
+	changed.RunID = "run-forged"
+	if permit.Facts().RunID != request.RunID {
+		t.Fatal("permit facts exposed mutable internal state")
+	}
+	second, err := service.AuthorizeBuild(context.Background(), fixture.plan, request)
+	if err != nil || resolver.calls != 2 || len(ledger.sources) != 2 ||
+		second.Facts() != facts {
+		t.Fatalf("fresh authorization = permit %#v, calls %d, sources %d, error %v",
+			second.Facts(), resolver.calls, len(ledger.sources), err)
+	}
+}
+
+func TestAuthorityAuthorizeBuildUsesOnlyCurrentBuildGrantCeiling(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	// Integration has its own later permit. Retracting only that grant must not
+	// turn a still-current build grant set into a standing-plan check.
+	dropSourceGrant(t, &fixture, "integrate")
+	fixture.rebindSource(t)
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeBuild(
+		context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+	); err != nil {
+		t.Fatalf("integration-only ceiling reduction denied build: %v", err)
+	}
+	if len(ledger.sources) != 1 || len(ledger.approvals) != 0 {
+		t.Fatalf("gate-specific lifecycle = sources %d approvals %d", len(ledger.sources), len(ledger.approvals))
+	}
+}
+
+func TestAuthorityAuthorizeBuildPersistsAuthenticatedDenials(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *approvalFixture)
+		want   string
+	}{
+		{
+			name: "revoked source",
+			mutate: func(t *testing.T, fixture *approvalFixture) {
+				fixture.source.Status = "revoked"
+				fixture.rebindSource(t)
+			},
+			want: "revoked",
+		},
+		{
+			name: "expired source",
+			mutate: func(t *testing.T, fixture *approvalFixture) {
+				fixture.now = mustTime(t, fixture.source.ValidUntil)
+			},
+			want: "expired",
+		},
+		{
+			name: "reduced current ceiling",
+			mutate: func(t *testing.T, fixture *approvalFixture) {
+				dropSourceGrant(t, fixture, "commit")
+				fixture.rebindSource(t)
+			},
+			want: "source lacks commit workspace grant",
+		},
+		{
+			name: "exact plan lacks required build grant",
+			mutate: func(t *testing.T, fixture *approvalFixture) {
+				fixture.plan = planWithoutAuthorityGrant(t, fixture.plan, "commit")
+				fixture.rebindSource(t)
+			},
+			want: "requires commit workspace grant",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newApprovalFixture(t)
+			test.mutate(t, &fixture)
+			resolver := fixture.resolver()
+			ledger := &recordingLedger{}
+			service, err := newAuthorityWithClock(
+				[]TrustRoot{fixture.root}, resolver, ledger, func() time.Time { return fixture.now },
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permit, err := service.AuthorizeBuild(
+				context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+			)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("AuthorizeBuild() error = %v, want containing %q", err, test.want)
+			}
+			if permit.Facts() != (BuildPermitFacts{}) {
+				t.Fatalf("denied authority returned permit facts %#v", permit.Facts())
+			}
+			if resolver.calls != 1 || len(ledger.sources) != 1 || len(ledger.approvals) != 0 ||
+				!slices.Equal(ledger.events, []string{"source"}) {
+				t.Fatalf("denied lifecycle = calls %d sources %d approvals %d events %v",
+					resolver.calls, len(ledger.sources), len(ledger.approvals), ledger.events)
+			}
+			if ledger.sources[0].Facts().SourceCanonicalDigest != fixture.proof.SourceDigest {
+				t.Fatal("denied build source was not bound to its authenticated proof")
+			}
+		})
+	}
+}
+
+func TestAuthorityAuthorizeBuildFailsClosedWhenUnresolvedOrUnpersisted(t *testing.T) {
+	t.Run("unresolved source", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		resolver := fixture.resolver()
+		resolver.err = errors.New("authority endpoint unavailable")
+		ledger := &recordingLedger{}
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, resolver, ledger, func() time.Time { return fixture.now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "authority endpoint unavailable") ||
+			permit.Facts() != (BuildPermitFacts{}) {
+			t.Fatalf("unresolved authority = permit %#v, error %v", permit.Facts(), err)
+		}
+		if resolver.calls != 1 || len(ledger.events) != 0 {
+			t.Fatalf("unresolved authority lifecycle = calls %d events %v", resolver.calls, ledger.events)
+		}
+	})
+
+	t.Run("source persistence failure", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		ledger := &recordingLedger{sourceErr: errors.New("authority database unavailable")}
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return fixture.now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "persist current authority source") ||
+			permit.Facts() != (BuildPermitFacts{}) {
+			t.Fatalf("unpersisted authority = permit %#v, error %v", permit.Facts(), err)
+		}
+		if len(ledger.sources) != 1 || !slices.Equal(ledger.events, []string{"source"}) {
+			t.Fatalf("persistence failure lifecycle = sources %d events %v", len(ledger.sources), ledger.events)
+		}
+	})
+
+	t.Run("durable head rejects historical replay", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		ledger := &recordingLedger{currentErr: errors.New("authority source version rollback")}
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return fixture.now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "version rollback") ||
+			permit.Facts() != (BuildPermitFacts{}) || len(ledger.sources) != 1 {
+			t.Fatalf("historical replay = permit %#v, sources %d, error %v",
+				permit.Facts(), len(ledger.sources), err)
+		}
+	})
+
+	t.Run("ledger lacks current-head assertion", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), &structLedger{}, func() time.Time { return fixture.now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "cannot assert the current source head") ||
+			permit.Facts() != (BuildPermitFacts{}) {
+			t.Fatalf("legacy ledger = permit %#v, error %v", permit.Facts(), err)
+		}
+	})
+
+	t.Run("source expires during persistence", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		fixture.source.ValidUntil = "2026-07-19T00:01:01Z"
+		fixture.rebindSource(t)
+		now := fixture.now
+		ledger := &recordingLedger{sourceHook: func() {
+			now = mustTime(t, fixture.source.ValidUntil)
+		}}
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "expired") ||
+			permit.Facts() != (BuildPermitFacts{}) || len(ledger.sources) != 1 {
+			t.Fatalf("expiry during persistence = permit %#v, sources %d, error %v",
+				permit.Facts(), len(ledger.sources), err)
+		}
+	})
+
+	t.Run("clock moves backward during persistence", func(t *testing.T) {
+		fixture := newApprovalFixture(t)
+		now := fixture.now
+		ledger := &recordingLedger{sourceHook: func() {
+			now = fixture.now.Add(-time.Minute)
+		}}
+		service, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		permit, err := service.AuthorizeBuild(
+			context.Background(), fixture.plan, buildPermitRequest(t, fixture.plan),
+		)
+		if err == nil || !strings.Contains(err.Error(), "clock moved backward") ||
+			permit.Facts() != (BuildPermitFacts{}) || len(ledger.sources) != 1 {
+			t.Fatalf("clock rollback = permit %#v, sources %d, error %v",
+				permit.Facts(), len(ledger.sources), err)
+		}
+	})
+}
+
+func TestCurrentBuildPermitRejectsEveryChangedBinding(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	now := fixture.now
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := buildPermitRequest(t, fixture.plan)
+	permit, err := service.AuthorizeBuild(context.Background(), fixture.plan, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPlan := planWithCreatedAt(t, fixture.plan, "2026-07-19T00:00:01Z")
+	otherContract, exists := otherPlan.Work(request.WorkID)
+	if !exists || otherContract.Digest() != request.Contract.Digest() || otherContract == request.Contract {
+		t.Fatal("cross-plan contract fixture did not preserve only the work digest")
+	}
+	tests := []struct {
+		name   string
+		mutate func(*BuildPermitRequest)
+	}{
+		{name: "controller", mutate: func(value *BuildPermitRequest) { value.ControllerID = "controller-2" }},
+		{name: "run", mutate: func(value *BuildPermitRequest) { value.RunID = "run-2" }},
+		{name: "revision", mutate: func(value *BuildPermitRequest) { value.StateRevision++ }},
+		{name: "work", mutate: func(value *BuildPermitRequest) { value.WorkID = "work-2" }},
+		{name: "attempt", mutate: func(value *BuildPermitRequest) { value.WorkAttempt++ }},
+		{name: "work contract", mutate: func(value *BuildPermitRequest) { value.Contract = otherContract }},
+		{name: "builder digest", mutate: func(value *BuildPermitRequest) {
+			value.BuilderDispatchDigest = fixedDigest("d")
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changed := request
+			test.mutate(&changed)
+			if err := service.ValidateBuildPermit(permit, changed); err == nil {
+				t.Fatal("changed dispatch binding was accepted")
+			}
+		})
+	}
+
+	t.Run("purpose", func(t *testing.T) {
+		wrongPurpose := permit
+		wrongPurpose.binding.facts.Purpose = "verify.execute"
+		if err := service.ValidateBuildPermit(wrongPurpose, request); err == nil ||
+			!strings.Contains(err.Error(), "wrong purpose") {
+			t.Fatalf("wrong-purpose permit error = %v", err)
+		}
+	})
+
+	t.Run("foreign authority", func(t *testing.T) {
+		foreign, err := newAuthorityWithClock(
+			[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return now },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := foreign.ValidateBuildPermit(permit, request); err == nil ||
+			!strings.Contains(err.Error(), "another authority") {
+			t.Fatalf("foreign permit error = %v", err)
+		}
+	})
+
+	t.Run("stale", func(t *testing.T) {
+		now = fixture.now.Add(currentBuildPermitLifetime)
+		if err := service.ValidateBuildPermit(permit, request); err == nil ||
+			!strings.Contains(err.Error(), "stale") {
+			t.Fatalf("stale permit error = %v", err)
+		}
+		now = fixture.now
+	})
+
+	t.Run("source expires within permit lifetime", func(t *testing.T) {
+		expiring := newApprovalFixture(t)
+		expiring.source.ValidUntil = "2026-07-19T00:01:10Z"
+		expiring.rebindSource(t)
+		expiringNow := expiring.now
+		expiringService, err := newAuthorityWithClock(
+			[]TrustRoot{expiring.root}, expiring.resolver(), &recordingLedger{}, func() time.Time { return expiringNow },
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expiringRequest := buildPermitRequest(t, expiring.plan)
+		expiringPermit, err := expiringService.AuthorizeBuild(
+			context.Background(), expiring.plan, expiringRequest,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expiringNow = mustTime(t, expiring.source.ValidUntil)
+		if err := expiringService.ValidateBuildPermit(expiringPermit, expiringRequest); err == nil ||
+			!strings.Contains(err.Error(), "no longer current") {
+			t.Fatalf("expired permit source error = %v", err)
+		}
+	})
+}
+
+func TestAuthorityRequireLedgerUsesExactSafePointerIdentity(t *testing.T) {
+	fixture := newApprovalFixture(t)
+	ledger := &recordingLedger{}
+	service, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), ledger, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RequireLedger(ledger); err != nil {
+		t.Fatalf("RequireLedger(same) error = %v", err)
+	}
+	for name, candidate := range map[string]ApprovalLedger{
+		"different pointer":      &recordingLedger{},
+		"uncomparable value":     uncomparableLedger{1},
+		"typed nil pointer":      (*recordingLedger)(nil),
+		"different pointer type": &structLedger{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := service.RequireLedger(candidate); err == nil ||
+				!strings.Contains(err.Error(), "different approval ledger") {
+				t.Fatalf("RequireLedger(%s) error = %v", name, err)
+			}
+		})
+	}
+
+	valueService, err := newAuthorityWithClock(
+		[]TrustRoot{fixture.root}, fixture.resolver(), uncomparableLedger{1}, func() time.Time { return fixture.now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := valueService.RequireLedger(uncomparableLedger{1}); err == nil {
+		t.Fatal("non-pointer authority ledger was treated as identity-proving")
+	}
+}
+
+type structLedger struct{}
+
+func (*structLedger) PutAuthoritySource(context.Context, PreparedSource) error { return nil }
+
+func (*structLedger) PutAuthorityApproval(context.Context, PreparedApproval) error { return nil }
 
 func TestAuthorityAuthenticationEmitsDeterministicReceipt(t *testing.T) {
 	fixture := newApprovalFixture(t)
@@ -964,6 +1407,86 @@ func workspaceGrants(t *testing.T) []json.RawMessage {
 		json.RawMessage(`{"action":"execute","target":"workspace"}`),
 		json.RawMessage(`{"action":"commit","target":"workspace"}`),
 	}
+}
+
+func buildPermitRequest(t *testing.T, plan protocol.ExactPlan) BuildPermitRequest {
+	t.Helper()
+	workIDs := plan.WorkIDs()
+	if len(workIDs) == 0 {
+		t.Fatal("permit fixture plan has no work")
+	}
+	contract, exists := plan.Work(workIDs[0])
+	if !exists {
+		t.Fatalf("permit fixture work %q is absent", workIDs[0])
+	}
+	return BuildPermitRequest{
+		ControllerID: "controller-1", RunID: "run-1", StateRevision: 2,
+		WorkID: workIDs[0], WorkAttempt: 1, Contract: contract,
+		BuilderDispatchDigest: fixedDigest("c"),
+	}
+}
+
+func dropSourceGrant(t *testing.T, fixture *approvalFixture, action string) {
+	t.Helper()
+	filtered := make([]json.RawMessage, 0, len(fixture.source.MaximumGrants))
+	found := false
+	for _, raw := range fixture.source.MaximumGrants {
+		grant, err := protocol.ParseAuthorityGrant(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if grant.Action() == action {
+			found = true
+			continue
+		}
+		filtered = append(filtered, bytes.Clone(raw))
+	}
+	if !found {
+		t.Fatalf("source fixture has no %q grant", action)
+	}
+	fixture.source.MaximumGrants = filtered
+}
+
+func planWithoutAuthorityGrant(t *testing.T, plan protocol.ExactPlan, action string) protocol.ExactPlan {
+	t.Helper()
+	var object map[string]any
+	if err := json.Unmarshal(plan.Record().CanonicalJSON, &object); err != nil {
+		t.Fatal(err)
+	}
+	authority, ok := object["authority"].(map[string]any)
+	if !ok {
+		t.Fatal("plan fixture authority is not an object")
+	}
+	grants, ok := authority["grants"].([]any)
+	if !ok {
+		t.Fatal("plan fixture grants is not an array")
+	}
+	filtered := make([]any, 0, len(grants))
+	found := false
+	for _, raw := range grants {
+		grant, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatal("plan fixture grant is not an object")
+		}
+		if grant["action"] == action {
+			found = true
+			continue
+		}
+		filtered = append(filtered, grant)
+	}
+	if !found {
+		t.Fatalf("plan fixture has no %q grant", action)
+	}
+	authority["grants"] = filtered
+	contents, err := json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := protocol.ParseDeliveryPlan(contents)
+	if err != nil {
+		t.Fatalf("parse plan without %q grant: %v", action, err)
+	}
+	return updated
 }
 
 func fixedDigest(character string) string {

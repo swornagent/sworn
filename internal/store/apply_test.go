@@ -121,7 +121,7 @@ func TestCommandEffectTransactionRollsBackCompletely(t *testing.T) {
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
-	if _, err := control.Apply(ctx, dispatch); err == nil {
+	if _, err := control.applyCommand(ctx, dispatch, nil); err == nil {
 		t.Fatal("Apply succeeded despite injected effect failure")
 	}
 	state, err := control.State(ctx, "run-1")
@@ -138,7 +138,7 @@ func TestCommandEffectTransactionRollsBackCompletely(t *testing.T) {
 	if _, err := control.db.Exec("DROP TRIGGER fail_effect_insert"); err != nil {
 		t.Fatal(err)
 	}
-	result, err := control.Apply(ctx, dispatch)
+	result, err := control.applyCommand(ctx, dispatch, nil)
 	if err != nil || result.Revision != 2 || len(result.EffectIDs) != 1 {
 		t.Fatalf("retry = %+v, %v", result, err)
 	}
@@ -170,7 +170,7 @@ func TestSQLBoundaryRejectsHistoryMutationAndIllegalEffectTransition(t *testing.
 	if _, err := control.db.Exec("DELETE FROM effects WHERE effect_id = ?", effectID); err == nil {
 		t.Fatal("effect deletion bypassed history trigger")
 	}
-	if claimed, err := control.ClaimNextEffect(ctx, "worker-1"); err != nil || claimed.Invocation().ID != effectID {
+	if claimed, err := control.claimNextEffectForStoreTest(ctx, "worker-1"); err != nil || claimed.Invocation().ID != effectID {
 		t.Fatalf("valid claim after rejected mutations = %+v, %v", claimed, err)
 	}
 }
@@ -236,7 +236,7 @@ func createActivateAndDispatch(t *testing.T, control *Store) string {
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
-	result, err := control.Apply(context.Background(), dispatch)
+	result, err := control.applyCommand(context.Background(), dispatch, nil)
 	if err != nil || len(result.EffectIDs) != 1 {
 		t.Fatalf("dispatch = %+v, %v", result, err)
 	}

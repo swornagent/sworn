@@ -19,6 +19,22 @@ const (
 // PutAuthoritySource records an authenticated source observation even when it
 // is revoked or no longer current. It never mints an approval receipt.
 func (s *Store) PutAuthoritySource(ctx context.Context, prepared policy.PreparedSource) error {
+	return s.putAuthoritySource(ctx, prepared, false)
+}
+
+// PutCurrentAuthoritySource records an authenticated source observation only
+// when it is the current durable head for its source reference. Unlike
+// PutAuthoritySource, an exact historical replay is rejected: this operation
+// is the ledger half of policy's current-authority permit boundary.
+func (s *Store) PutCurrentAuthoritySource(ctx context.Context, prepared policy.PreparedSource) error {
+	return s.putAuthoritySource(ctx, prepared, true)
+}
+
+func (s *Store) putAuthoritySource(
+	ctx context.Context,
+	prepared policy.PreparedSource,
+	requireCurrentHead bool,
+) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
 	}
@@ -32,7 +48,8 @@ func (s *Store) PutAuthoritySource(ctx context.Context, prepared policy.Prepared
 	}
 	defer transaction.Rollback() //nolint:errcheck
 	if err := putAuthoritySourceTransaction(
-		ctx, transaction, plan, planRecord, facts, closure, nil, s.now().UTC().UnixMicro(),
+		ctx, transaction, plan, planRecord, facts, closure, nil, requireCurrentHead,
+		s.now().UTC().UnixMicro(),
 	); err != nil {
 		return err
 	}
@@ -63,7 +80,7 @@ func (s *Store) PutAuthorityApproval(ctx context.Context, prepared policy.Prepar
 	defer transaction.Rollback() //nolint:errcheck
 	now := s.now().UTC().UnixMicro()
 	if err := putAuthoritySourceTransaction(
-		ctx, transaction, plan, planRecord, sourceFacts, sourceClosure, &approvalFacts, now,
+		ctx, transaction, plan, planRecord, sourceFacts, sourceClosure, &approvalFacts, false, now,
 	); err != nil {
 		return err
 	}
@@ -106,6 +123,7 @@ func putAuthoritySourceTransaction(
 	facts policy.SourceFacts,
 	closure policy.SourceClosure,
 	approval *policy.ApprovalFacts,
+	requireCurrentHead bool,
 	now int64,
 ) error {
 	if err := putPlanTransaction(ctx, transaction, plan, planRecord, now); err != nil {
@@ -127,7 +145,7 @@ func putAuthoritySourceTransaction(
 	); err != nil {
 		return err
 	}
-	if err := enforceSourceMonotonicity(ctx, transaction, facts, approval); err != nil {
+	if err := enforceSourceMonotonicity(ctx, transaction, facts, approval, requireCurrentHead); err != nil {
 		return err
 	}
 	if _, err := transaction.ExecContext(ctx, `
@@ -167,6 +185,7 @@ func enforceSourceMonotonicity(
 	transaction *sql.Tx,
 	facts policy.SourceFacts,
 	approval *policy.ApprovalFacts,
+	requireCurrentHead bool,
 ) error {
 	var digest string
 	var version int64
@@ -185,6 +204,9 @@ func enforceSourceMonotonicity(
 		return fmt.Errorf("read authority source head: %w", err)
 	}
 	if facts.SourceVersion < version {
+		if requireCurrentHead {
+			return errors.New("authority source version rollback")
+		}
 		if approval != nil {
 			var existingDigest string
 			existingErr := transaction.QueryRowContext(ctx,

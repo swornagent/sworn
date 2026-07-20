@@ -105,6 +105,49 @@ func TestAuthoritySourceVersionIsMonotonicButHistoricalReplayRemainsIdempotent(t
 	assertAuthorityClosureCounts(t, control, 2, 2, 2, 3, 6)
 }
 
+func TestCurrentAuthoritySourceRejectsExactHistoricalReplayAfterRevocation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
+	t.Cleanup(func() { _ = control.Close() })
+	plan := exampleExactPlan(t)
+	v1, _, key := authorityFixture(t, control, plan, 1, nil, false, nil)
+	if _, err := v1.Approve(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	workIDs := plan.WorkIDs()
+	if len(workIDs) == 0 {
+		t.Fatal("authority fixture plan has no work")
+	}
+	contract, exists := plan.Work(workIDs[0])
+	if !exists {
+		t.Fatalf("authority fixture work %q is absent", workIDs[0])
+	}
+	request := policy.BuildPermitRequest{
+		ControllerID: "controller-1", RunID: "run-1", StateRevision: 1,
+		WorkID: workIDs[0], WorkAttempt: 1, Contract: contract,
+		BuilderDispatchDigest: "sha256:" + strings.Repeat("c", 64),
+	}
+	if _, err := v1.AuthorizeBuild(ctx, plan, request); err != nil {
+		t.Fatalf("current v1 authorization: %v", err)
+	}
+
+	revoked, _, _ := authorityFixture(t, control, plan, 2, key, false, func(source map[string]any) {
+		source["status"] = "revoked"
+		source["maximum_grants"] = []any{}
+	})
+	if _, err := revoked.Approve(ctx, plan); err == nil || !strings.Contains(err.Error(), "revoked") {
+		t.Fatalf("advance durable head with revocation = %v", err)
+	}
+
+	permit, err := v1.AuthorizeBuild(ctx, plan, request)
+	if err == nil || !strings.Contains(err.Error(), "version rollback") ||
+		permit.Facts() != (policy.BuildPermitFacts{}) {
+		t.Fatalf("historical current-authority replay = permit %#v, error %v", permit.Facts(), err)
+	}
+	assertAuthorityClosureCounts(t, control, 2, 2, 1, 3, 5)
+}
+
 func TestLegacyStructuralAuthorityIdentityCannotPreemptAuthenticatedApproval(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

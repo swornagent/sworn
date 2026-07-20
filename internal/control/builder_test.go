@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -29,30 +30,32 @@ func (journal *serviceJournal) record(call string) error {
 	return nil
 }
 
-func (journal *serviceJournal) BindEffectResult(
-	_ context.Context, _ store.EffectLease, _ json.RawMessage,
+func (journal *serviceJournal) BindAuthorizedBuildResult(
+	_ context.Context, _ store.PreparedAuthorizedBuildLease, _ json.RawMessage,
 ) error {
 	return journal.record("bind")
 }
 
-func (journal *serviceJournal) PrepareNativeBuildExecution(
+func (journal *serviceJournal) PrepareAuthorizedBuildExecution(
 	_ context.Context,
-	lease store.EffectLease,
-) (engine.JournalEffect, error) {
+	lease store.AuthorizedBuildLease,
+) (engine.JournalEffect, store.PreparedAuthorizedBuildLease, error) {
 	if err := journal.record("prepare-execution"); err != nil {
-		return engine.JournalEffect{}, err
+		return engine.JournalEffect{}, store.PreparedAuthorizedBuildLease{}, err
 	}
 	if journal.prepared.ID != "" {
-		return journal.prepared, nil
+		return journal.prepared, store.PreparedAuthorizedBuildLease{}, nil
 	}
-	return lease.Invocation(), nil
+	return lease.Invocation(), store.PreparedAuthorizedBuildLease{}, nil
 }
 
-func (journal *serviceJournal) CompleteEffect(context.Context, store.EffectLease) error {
+func (journal *serviceJournal) CompleteAuthorizedBuild(context.Context, store.PreparedAuthorizedBuildLease) error {
 	return journal.record("complete")
 }
 
-func (journal *serviceJournal) RecoverInterruptedEffects(context.Context, string) (int, error) {
+func (journal *serviceJournal) RecoverControlledInterruptedEffects(
+	context.Context, *store.ControllerOwnership, string, string,
+) (int, error) {
 	return journal.interrupted, journal.record("interrupt")
 }
 
@@ -63,20 +66,21 @@ func (journal *serviceJournal) UnknownEffects(context.Context) ([]engine.Journal
 	return journal.unknown, nil
 }
 
-func (journal *serviceJournal) RecoverBoundEffect(
-	_ context.Context, effectID string, _ int64, _ string,
+func (journal *serviceJournal) RecoverControlledBoundEffect(
+	_ context.Context, _ *store.ControllerOwnership, _ string, effectID string, _ int64,
 ) error {
 	return journal.record("recover-bound:" + effectID)
 }
 
-func (journal *serviceJournal) RecoverUnboundBuildEffect(
-	_ context.Context, _ store.BuildRecoveryLease, _ string, _ effects.BuildRetryProof,
+func (journal *serviceJournal) RecoverControlledUnboundBuildEffect(
+	_ context.Context, _ *store.ControllerOwnership, _ string,
+	_ store.BuildRecoveryLease, _ effects.BuildRetryProof,
 ) error {
 	return journal.record("retry")
 }
 
-func (journal *serviceJournal) PrepareUnboundBuildRecovery(
-	context.Context, string, int64,
+func (journal *serviceJournal) PrepareControlledUnboundBuildRecovery(
+	context.Context, *store.ControllerOwnership, string, string, int64,
 ) (store.BuildRecoveryLease, error) {
 	if err := journal.record("prepare"); err != nil {
 		return store.BuildRecoveryLease{}, err
@@ -88,6 +92,24 @@ type serviceWorker struct {
 	calls  *[]string
 	result json.RawMessage
 	failAt string
+}
+
+type terminatingServiceWorker struct {
+	*serviceWorker
+	mode string
+}
+
+func (worker *terminatingServiceWorker) Run(
+	context.Context,
+	engine.JournalEffect,
+) (json.RawMessage, error) {
+	switch worker.mode {
+	case "panic":
+		panic("builder panicked")
+	case "goexit":
+		runtime.Goexit()
+	}
+	return nil, errors.New("unknown termination mode")
 }
 
 func (worker *serviceWorker) record(call string) error {
@@ -138,7 +160,7 @@ func TestBuilderServiceFixesPrepareBindPublishCompleteOrder(t *testing.T) {
 			journal := &serviceJournal{calls: &calls, failAt: test.fail, prepared: effect}
 			worker := &serviceWorker{calls: &calls, result: json.RawMessage(`{"result":true}`), failAt: test.fail}
 			service := BuilderService{journal: journal, worker: worker}
-			err := service.Execute(context.Background(), store.EffectLease{})
+			err := service.execute(context.Background(), store.AuthorizedBuildLease{})
 			if test.fail == "" && err != nil {
 				t.Fatal(err)
 			}
@@ -147,6 +169,53 @@ func TestBuilderServiceFixesPrepareBindPublishCompleteOrder(t *testing.T) {
 			}
 			if !reflect.DeepEqual(calls, test.want) {
 				t.Fatalf("calls = %#v, want %#v", calls, test.want)
+			}
+		})
+	}
+}
+
+func TestBuilderControllerStopsForRecoveryWhenClaimedExecutionDoesNotReturnSuccess(t *testing.T) {
+	type outcome struct {
+		returned  bool
+		recovered any
+	}
+	for _, mode := range []string{"panic", "goexit"} {
+		t.Run(mode, func(t *testing.T) {
+			var calls []string
+			effect := engine.JournalEffect{
+				ID: "effect-build", DeliveryRunID: "delivery-run", Kind: engine.EffectBuild,
+				Attempt: 1, Request: json.RawMessage(`{"request":true}`),
+			}
+			journal := &serviceJournal{calls: &calls, prepared: effect}
+			worker := &terminatingServiceWorker{
+				serviceWorker: &serviceWorker{calls: &calls}, mode: mode,
+			}
+			controller := &BuilderController{
+				ownership: new(store.ControllerOwnership),
+				builder:   BuilderService{journal: journal, worker: worker},
+			}
+			finished := make(chan outcome, 1)
+			go func() {
+				result := outcome{}
+				defer func() {
+					result.recovered = recover()
+					finished <- result
+				}()
+				_ = controller.executeClaimedBuild(context.Background(), store.AuthorizedBuildLease{})
+				result.returned = true
+			}()
+			result := <-finished
+			if result.returned {
+				t.Fatal("claimed execution returned normally")
+			}
+			if mode == "panic" && result.recovered == nil {
+				t.Fatal("builder panic did not propagate")
+			}
+			if mode == "goexit" && result.recovered != nil {
+				t.Fatalf("Goexit recovered unexpected panic: %v", result.recovered)
+			}
+			if !controller.closed {
+				t.Fatal("claimed execution termination left controller active")
 			}
 		})
 	}
@@ -164,8 +233,8 @@ func TestBuilderServiceReconcilesBeforeAnyRetry(t *testing.T) {
 	}
 	worker := &serviceWorker{calls: &calls}
 	service := BuilderService{journal: journal, worker: worker}
-	report, err := service.ReconcileAfterExclusiveOwnership(
-		context.Background(), "controller restarted", "reconciler-1",
+	report, err := service.reconcileAfterExclusiveOwnership(
+		context.Background(), new(store.ControllerOwnership), "controller restarted", "reconciler-1",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -191,8 +260,8 @@ func TestBuilderServiceStopsOnUnboundNonBuildEffect(t *testing.T) {
 		}},
 	}
 	service := BuilderService{journal: journal, worker: &serviceWorker{calls: &calls}}
-	_, err := service.ReconcileAfterExclusiveOwnership(
-		context.Background(), "controller restarted", "reconciler-1",
+	_, err := service.reconcileAfterExclusiveOwnership(
+		context.Background(), new(store.ControllerOwnership), "controller restarted", "reconciler-1",
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no retry proof") {
 		t.Fatalf("reconcile error = %v", err)
@@ -211,8 +280,8 @@ func TestBuilderServiceValidatesClaimBeforeBuilderCleanup(t *testing.T) {
 		}},
 	}
 	service := BuilderService{journal: journal, worker: &serviceWorker{calls: &calls}}
-	_, err := service.ReconcileAfterExclusiveOwnership(
-		context.Background(), "controller restarted", "reconciler-1",
+	_, err := service.reconcileAfterExclusiveOwnership(
+		context.Background(), new(store.ControllerOwnership), "controller restarted", "reconciler-1",
 	)
 	if err == nil || !strings.Contains(err.Error(), "prepare failed") {
 		t.Fatalf("reconcile error = %v", err)

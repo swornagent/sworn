@@ -17,6 +17,13 @@ func TestOpenCreatesIdentifiedSchemaAndReadOnlyOpenDoesNotMigrate(t *testing.T) 
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "control.db")
 	control := openTestStore(t, path)
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if control.ControlPath() != absolutePath {
+		t.Fatalf("control path = %q, want %q", control.ControlPath(), absolutePath)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +183,9 @@ func TestOpenRejectsForeignApplicationAndNewerSchema(t *testing.T) {
 
 func openTestStore(t *testing.T, path string) *Store {
 	t.Helper()
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("make test Store parent private: %v", err)
+	}
 	control, err := OpenConfigured(context.Background(), path, ControlConfiguration{
 		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
 	})

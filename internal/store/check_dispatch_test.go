@@ -34,11 +34,11 @@ func TestCheckDispatchCommitsExactPolicyOrderAndReplays(t *testing.T) {
 		t.Fatalf("state after checks.dispatch = %+v, %v", state, err)
 	}
 
-	first, err := fixture.control.ClaimNextEffect(ctx, "check-worker-1")
+	first, err := fixture.control.claimNextEffectForStoreTest(ctx, "check-worker-1")
 	if err != nil || first.Invocation().ID != result.EffectIDs[0] {
 		t.Fatalf("first policy-ordered claim = %q, %v; want %q", first.Invocation().ID, err, result.EffectIDs[0])
 	}
-	if lease, err := fixture.control.ClaimNextEffect(ctx, "check-worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+	if lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "check-worker-2"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("later policy check leased while first was running: %+v, %v", lease, err)
 	}
 	second, err := loadEffect(ctx, fixture.control.db, result.EffectIDs[1])
@@ -226,21 +226,21 @@ func newCheckDispatchFixture(t *testing.T, options checkDispatchFixtureOptions) 
 		WorkID: plan.WorkIDs()[0], DispatchDigest: contract.Digest(),
 		BuilderDispatchDigest: dispatchDigest,
 	})
-	buildResult, err := control.Apply(ctx, build)
+	buildResult, err := control.applyCommand(ctx, build, nil)
 	if err != nil || len(buildResult.EffectIDs) != 1 {
 		t.Fatalf("dispatch exact builder = %+v, %v", buildResult, err)
 	}
 	builderEffectID := buildResult.EffectIDs[0]
 	if options.completeBuilder {
-		lease, err := control.ClaimNextEffect(ctx, "builder-worker")
+		lease, err := control.claimNextEffectForStoreTest(ctx, "builder-worker")
 		if err != nil || lease.Invocation().ID != builderEffectID {
 			t.Fatalf("claim exact builder = %q, %v", lease.Invocation().ID, err)
 		}
 		encoded := exactBuildResult(t, builderEffectID, candidate, options.builderStartedAt)
-		if err := control.BindEffectResult(ctx, lease, encoded); err != nil {
+		if err := control.bindEffectResultForStoreTest(ctx, lease, encoded); err != nil {
 			t.Fatal(err)
 		}
-		if err := control.CompleteEffect(ctx, lease); err != nil {
+		if err := control.completeEffectForStoreTest(ctx, lease); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -28,7 +28,7 @@ func TestBuildClaimWitnessFailureRollsBackAttempt(t *testing.T) {
 		END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.control.ClaimNextEffect(ctx, "builder-worker"); err == nil ||
+	if _, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker"); err == nil ||
 		!strings.Contains(err.Error(), "injected claimed-observation failure") {
 		t.Fatalf("injected build claim error = %v", err)
 	}
@@ -43,7 +43,7 @@ func TestBuildClaimWitnessFailureRollsBackAttempt(t *testing.T) {
 	if _, err := fixture.control.db.ExecContext(ctx, "DROP TRIGGER fail_build_claim_witness"); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil || lease.Invocation().Attempt != 1 {
 		t.Fatalf("claim after witness persistence restored = %+v, %v", lease.Invocation(), err)
 	}
@@ -52,7 +52,7 @@ func TestBuildClaimWitnessFailureRollsBackAttempt(t *testing.T) {
 func TestNativeBuildExecutionRequiresCurrentStoreLease(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,20 +65,20 @@ func TestNativeBuildExecutionRequiresCurrentStoreLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = peer.Close() })
-	if _, err := peer.PrepareNativeBuildExecution(ctx, lease); err == nil ||
+	if _, err := peer.prepareNativeBuildExecutionForStoreTest(ctx, lease); err == nil ||
 		!strings.Contains(err.Error(), "store-issued lease") {
 		t.Fatalf("foreign native build lease preparation error = %v", err)
 	}
-	invocation, err := fixture.control.PrepareNativeBuildExecution(ctx, lease)
+	invocation, err := fixture.control.prepareNativeBuildExecutionForStoreTest(ctx, lease)
 	if err != nil || invocation.ID != lease.Invocation().ID || invocation.Attempt != lease.Invocation().Attempt ||
 		len(invocation.Result) != 0 {
 		t.Fatalf("prepared native build invocation = %+v, %v", invocation, err)
 	}
 	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
-	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.control.PrepareNativeBuildExecution(ctx, lease); err == nil ||
+	if _, err := fixture.control.prepareNativeBuildExecutionForStoreTest(ctx, lease); err == nil ||
 		!strings.Contains(err.Error(), "unbound running build") {
 		t.Fatalf("already-bound native build preparation error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
 
-	first, err := fixture.control.ClaimNextEffect(ctx, "builder-worker-1")
+	first, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,19 +96,19 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	if firstIdentity.EffectAttempt != 1 {
 		t.Fatalf("first build identity = %+v", firstIdentity)
 	}
-	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "first builder process stopped"); err != nil || recovered != 1 {
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "first builder process stopped"); err != nil || recovered != 1 {
 		t.Fatalf("mark first attempt unknown = %d, %v", recovered, err)
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, 1, nil)
 
-	recovery, err := fixture.control.PrepareUnboundBuildRecovery(ctx, fixture.effectID, 1)
+	recovery, err := fixture.control.prepareUnboundBuildRecoveryForStoreTest(ctx, fixture.effectID, 1)
 	if err != nil {
 		t.Fatalf("prevalidate first build recovery: %v", err)
 	}
 	if recovery.Invocation().ID != fixture.effectID || recovery.Invocation().Attempt != 1 {
 		t.Fatalf("first recovery lease invocation = %+v", recovery.Invocation())
 	}
-	if err := fixture.control.RecoverUnboundBuildEffect(
+	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "retry-reconciler", effects.BuildRetryProof{},
 	); err == nil {
 		t.Fatal("zero composite proof requeued an unknown build")
@@ -131,7 +131,7 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 		END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.control.RecoverUnboundBuildEffect(
+	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "retry-reconciler", proof,
 	); err == nil || !strings.Contains(err.Error(), "injected requeue failure") {
 		t.Fatalf("injected build requeue error = %v", err)
@@ -143,14 +143,14 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	if _, err := fixture.control.db.ExecContext(ctx, "DROP TRIGGER fail_build_requeue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.control.RecoverUnboundBuildEffect(
+	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "retry-reconciler", proof,
 	); err != nil {
 		t.Fatalf("requeue machine-proved first attempt: %v", err)
 	}
 	// A replay is idempotent only because the exact not-applied witness is now
 	// durable for this lease and composite proof.
-	if err := fixture.control.RecoverUnboundBuildEffect(
+	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "retry-reconciler", proof,
 	); err != nil {
 		t.Fatalf("replay machine-proved first attempt: %v", err)
@@ -163,7 +163,7 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 		t.Fatalf("not-applied witnesses = %d", notApplied)
 	}
 
-	second, err := fixture.control.ClaimNextEffect(ctx, "builder-worker-2")
+	second, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker-2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,29 +173,29 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 		t.Fatalf("second build identity = %+v; first = %+v", secondIdentity, firstIdentity)
 	}
 	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
-	if err := fixture.control.BindEffectResult(ctx, first, result); err == nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, first, result); err == nil {
 		t.Fatal("first-attempt lease bound a result after retry")
 	}
-	if err := fixture.control.CompleteEffect(ctx, first); err == nil {
+	if err := fixture.control.completeEffectForStoreTest(ctx, first); err == nil {
 		t.Fatal("first-attempt lease completed the retried build")
 	}
-	if err := fixture.control.BindEffectResult(ctx, second, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, second, result); err != nil {
 		t.Fatalf("bind second-attempt result: %v", err)
 	}
-	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "second builder stopped after binding"); err != nil || recovered != 1 {
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "second builder stopped after binding"); err != nil || recovered != 1 {
 		t.Fatalf("mark bound second attempt unknown = %d, %v", recovered, err)
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, 2, result)
-	if _, err := fixture.control.PrepareUnboundBuildRecovery(ctx, fixture.effectID, 2); err == nil {
+	if _, err := fixture.control.prepareUnboundBuildRecoveryForStoreTest(ctx, fixture.effectID, 2); err == nil {
 		t.Fatal("bound build attempt received an unbound recovery lease")
 	}
-	if err := fixture.control.RecoverUnboundBuildEffect(
+	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "retry-reconciler", proof,
 	); err == nil {
 		t.Fatal("stale first-attempt recovery authority requeued the bound second attempt")
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, 2, result)
-	if _, err := fixture.control.ClaimNextEffect(ctx, "builder-worker-3"); !errors.Is(err, ErrNoPendingEffect) {
+	if _, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker-3"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("rejected bound retry became claimable: %v", err)
 	}
 }
@@ -203,12 +203,12 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 func TestBuildRetryPreparationLeavesCorruptNullClaimWitnessStopped(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
 	identity := durableBuildRetryIdentity(t, fixture.control, lease)
-	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "builder process stopped"); err != nil || recovered != 1 {
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "builder process stopped"); err != nil || recovered != 1 {
 		t.Fatalf("mark build attempt unknown = %d, %v", recovered, err)
 	}
 	attemptRoot := filepath.Join(fixture.worker.WorkspaceRoot, identity.InvocationID)
@@ -232,7 +232,7 @@ func TestBuildRetryPreparationLeavesCorruptNullClaimWitnessStopped(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if _, err := fixture.control.PrepareUnboundBuildRecovery(
+	if _, err := fixture.control.prepareUnboundBuildRecoveryForStoreTest(
 		ctx, fixture.effectID, lease.Invocation().Attempt,
 	); err == nil || !strings.Contains(err.Error(), "attempt witness") {
 		t.Fatalf("NULL claim witness preparation error = %v", err)
@@ -241,7 +241,7 @@ func TestBuildRetryPreparationLeavesCorruptNullClaimWitnessStopped(t *testing.T)
 	if contents, err := os.ReadFile(filepath.Join(attemptRoot, "residue")); err != nil || string(contents) != "must remain" {
 		t.Fatalf("prevalidation failure touched builder residue: %q, %v", contents, err)
 	}
-	if _, err := fixture.control.ClaimNextEffect(ctx, "new-builder"); !errors.Is(err, ErrNoPendingEffect) {
+	if _, err := fixture.control.claimNextEffectForStoreTest(ctx, "new-builder"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("NULL claim witness became claimable: %v", err)
 	}
 }
@@ -250,14 +250,14 @@ func TestBuildRecoveryLeaseCannotCrossStoreBoundary(t *testing.T) {
 	first := newBuildRetryFixture(t)
 	second := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := first.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := first.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := first.control.RecoverInterruptedEffects(ctx, "builder stopped"); err != nil || recovered != 1 {
+	if recovered, err := first.control.recoverInterruptedEffectsForStoreTest(ctx, "builder stopped"); err != nil || recovered != 1 {
 		t.Fatalf("mark first Store attempt unknown = %d, %v", recovered, err)
 	}
-	recovery, err := first.control.PrepareUnboundBuildRecovery(ctx, first.effectID, lease.Invocation().Attempt)
+	recovery, err := first.control.prepareUnboundBuildRecoveryForStoreTest(ctx, first.effectID, lease.Invocation().Attempt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestBuildRecoveryLeaseCannotCrossStoreBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := second.control.RecoverUnboundBuildEffect(
+	if err := second.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "reconciler-2", proof,
 	); err == nil || !strings.Contains(err.Error(), "Store-issued lease") {
 		t.Fatalf("cross-Store recovery lease error = %v", err)
@@ -276,14 +276,14 @@ func TestBuildRecoveryLeaseCannotCrossStoreBoundary(t *testing.T) {
 func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "builder stopped"); err != nil || recovered != 1 {
+	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "builder stopped"); err != nil || recovered != 1 {
 		t.Fatalf("mark equivalent Store attempt unknown = %d, %v", recovered, err)
 	}
-	firstRecovery, err := fixture.control.PrepareUnboundBuildRecovery(
+	firstRecovery, err := fixture.control.prepareUnboundBuildRecoveryForStoreTest(
 		ctx, fixture.effectID, lease.Invocation().Attempt,
 	)
 	if err != nil {
@@ -298,7 +298,7 @@ func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = peer.Close() })
-	peerRecovery, err := peer.PrepareUnboundBuildRecovery(
+	peerRecovery, err := peer.prepareUnboundBuildRecoveryForStoreTest(
 		ctx, fixture.effectID, lease.Invocation().Attempt,
 	)
 	if err != nil {
@@ -313,7 +313,7 @@ func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.RecoverUnboundBuildEffect(
+	if err := peer.recoverUnboundBuildEffectForStoreTest(
 		ctx, peerRecovery, "peer-reconciler", firstProof,
 	); err == nil || !strings.Contains(err.Error(), "proof does not match") {
 		t.Fatalf("cross-Store recovery proof error = %v", err)
@@ -325,7 +325,7 @@ func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.RecoverUnboundBuildEffect(
+	if err := peer.recoverUnboundBuildEffectForStoreTest(
 		ctx, peerRecovery, "peer-reconciler", peerProof,
 	); err != nil {
 		t.Fatalf("matching peer recovery proof: %v", err)
@@ -335,20 +335,20 @@ func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 func TestNativeBuildCompletionPublishesAttemptBeforeSuccess(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
 	identity := durableBuildRetryIdentity(t, fixture.control, lease)
 	runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", "-d", fixture.candidate.Ref)
 	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
-	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
 	if refs := nativeBuildRefs(t, fixture.repository); refs != "" {
 		t.Fatalf("bound native result published before completion: %s", refs)
 	}
-	if err := fixture.control.CompleteEffect(ctx, lease); err != nil {
+	if err := fixture.control.completeEffectForStoreTest(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
 	assertNativeBuildRefs(t, fixture.repository, fixture.candidate, identity.InvocationID)
@@ -361,7 +361,7 @@ func TestNativeBuildCompletionPublishesAttemptBeforeSuccess(t *testing.T) {
 func TestNativeBuildCompletionRejectsAttemptPublicationCollision(t *testing.T) {
 	fixture := newBuildRetryFixture(t)
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,10 +369,10 @@ func TestNativeBuildCompletionRejectsAttemptPublicationCollision(t *testing.T) {
 	attemptRef := "refs/sworn/v1/attempts/" + identity.InvocationID
 	runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", attemptRef, fixture.candidate.BaseCommit)
 	result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
-	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.control.CompleteEffect(ctx, lease); err == nil ||
+	if err := fixture.control.completeEffectForStoreTest(ctx, lease); err == nil ||
 		!strings.Contains(err.Error(), "collision") {
 		t.Fatalf("colliding native completion error = %v", err)
 	}
@@ -392,13 +392,13 @@ func TestBoundNativeBuildRecoveryConvergesAcrossPublicationCrashCuts(t *testing.
 		t.Run(name, func(t *testing.T) {
 			fixture := newBuildRetryFixture(t)
 			ctx := context.Background()
-			lease, err := fixture.control.ClaimNextEffect(ctx, "builder-worker")
+			lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "builder-worker")
 			if err != nil {
 				t.Fatal(err)
 			}
 			identity := durableBuildRetryIdentity(t, fixture.control, lease)
 			result := validBuildResultForCandidate(t, fixture.effectID, "sworn-builder/1", fixture.candidate)
-			if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+			if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 				t.Fatal(err)
 			}
 			runAtomicAdmissionGit(t, fixture.repository.Root(), "update-ref", "-d", fixture.candidate.Ref)
@@ -409,12 +409,12 @@ func TestBoundNativeBuildRecoveryConvergesAcrossPublicationCrashCuts(t *testing.
 					t.Fatal(err)
 				}
 			}
-			if recovered, err := fixture.control.RecoverInterruptedEffects(
+			if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(
 				ctx, "controller stopped after binding",
 			); err != nil || recovered != 1 {
 				t.Fatalf("mark bound native attempt unknown = %d, %v", recovered, err)
 			}
-			if err := fixture.control.RecoverBoundEffect(
+			if err := fixture.control.recoverBoundEffectForStoreTest(
 				ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-1",
 			); err != nil {
 				t.Fatal(err)
@@ -513,7 +513,7 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: plan.WorkIDs()[0], DispatchDigest: work.Digest(), BuilderDispatchDigest: builderDispatchDigest,
 	})
-	result, err := control.Apply(ctx, dispatch)
+	result, err := control.applyCommand(ctx, dispatch, nil)
 	if err != nil || result.Outcome != OutcomeApplied || len(result.EffectIDs) != 1 {
 		t.Fatalf("dispatch native builder = %+v, %v", result, err)
 	}

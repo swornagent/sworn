@@ -352,11 +352,11 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 		WorkID: workID, DispatchDigest: contract.Digest(),
 		BuilderDispatchDigest: control.builderDispatchDigest,
 	})
-	buildDispatch, err := control.Apply(ctx, build)
+	buildDispatch, err := control.applyCommand(ctx, build, nil)
 	if err != nil || len(buildDispatch.EffectIDs) != 1 {
 		t.Fatalf("dispatch admission builder = %+v, %v", buildDispatch, err)
 	}
-	builderLease, err := control.ClaimNextEffect(ctx, "builder-worker")
+	builderLease, err := control.claimNextEffectForStoreTest(ctx, "builder-worker")
 	if err != nil || builderLease.Invocation().ID != buildDispatch.EffectIDs[0] {
 		t.Fatalf("claim admission builder = %+v, %v", builderLease.Invocation(), err)
 	}
@@ -373,10 +373,10 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.BindEffectResult(ctx, builderLease, builderResult); err != nil {
+	if err := control.bindEffectResultForStoreTest(ctx, builderLease, builderResult); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.CompleteEffect(ctx, builderLease); err != nil {
+	if err := control.completeEffectForStoreTest(ctx, builderLease); err != nil {
 		t.Fatal(err)
 	}
 	selection, err := protocol.ResolveExactLocalChecks(ctx, control, plan, workID)
@@ -427,7 +427,7 @@ func newAtomicAdmissionFixture(t *testing.T, options atomicAdmissionOptions) *at
 func (fixture *atomicAdmissionFixture) completeCheck(t *testing.T, index int, outcome string) {
 	t.Helper()
 	ctx := context.Background()
-	lease, err := fixture.control.ClaimNextEffect(ctx, "check-worker-"+fixture.requirements[index].CheckID)
+	lease, err := fixture.control.claimNextEffectForStoreTest(ctx, "check-worker-"+fixture.requirements[index].CheckID)
 	if err != nil || lease.Invocation().ID != fixture.checkEffectIDs[index] {
 		t.Fatalf("claim admission check %d = %+v, %v", index, lease.Invocation(), err)
 	}
@@ -499,10 +499,10 @@ func (fixture *atomicAdmissionFixture) completeCheck(t *testing.T, index int, ou
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+	if err := fixture.control.bindEffectResultForStoreTest(ctx, lease, result); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.control.CompleteEffect(ctx, lease); err != nil {
+	if err := fixture.control.completeEffectForStoreTest(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
 }

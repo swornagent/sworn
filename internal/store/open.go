@@ -40,6 +40,8 @@ var migrationNames = []string{
 
 type Store struct {
 	db                              *sql.DB
+	path                            string
+	controlIdentity                 *controlStoreIdentity
 	readOnly                        bool
 	now                             func() time.Time
 	leaseIssuer                     *leaseIssuer
@@ -88,19 +90,24 @@ func OpenConfigured(ctx context.Context, path string, configuration ControlConfi
 }
 
 func open(ctx context.Context, path string, configuration ControlConfiguration) (*Store, error) {
-	database, err := openDatabase(ctx, path, false)
+	database, absolutePath, controlIdentity, err := openDatabase(ctx, path, false)
 	if err != nil {
 		return nil, err
 	}
 	store := &Store{
-		db: database, now: time.Now, leaseIssuer: &leaseIssuer{},
+		db: database, path: absolutePath, controlIdentity: controlIdentity,
+		now: time.Now, leaseIssuer: &leaseIssuer{},
 		localCheckRuntimeManifestDigest: configuration.LocalCheckRuntimeManifestDigest,
 		builderDispatchDigest:           configuration.BuilderDispatchDigest,
 		repository:                      configuration.Repository,
 	}
 	if err := store.migrate(ctx); err != nil {
-		_ = database.Close()
+		_ = controlIdentity.close(database)
 		return nil, err
+	}
+	if err := controlIdentity.validateExactPath(); err != nil {
+		_ = controlIdentity.close(database)
+		return nil, fmt.Errorf("validate migrated control store identity: %w", err)
 	}
 	return store, nil
 }
@@ -108,28 +115,43 @@ func open(ctx context.Context, path string, configuration ControlConfiguration) 
 // OpenReadOnly never creates or migrates a database. It accepts only the exact
 // schema version understood by this binary.
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
-	database, err := openDatabase(ctx, path, true)
+	database, absolutePath, controlIdentity, err := openDatabase(ctx, path, true)
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: database, readOnly: true, now: time.Now, leaseIssuer: &leaseIssuer{}}
+	store := &Store{
+		db: database, path: absolutePath, controlIdentity: controlIdentity, readOnly: true,
+		now: time.Now, leaseIssuer: &leaseIssuer{},
+	}
 	if err := store.verifyIdentity(ctx, true); err != nil {
-		_ = database.Close()
+		_ = controlIdentity.close(database)
 		return nil, err
+	}
+	if err := controlIdentity.validateExactPath(); err != nil {
+		_ = controlIdentity.close(database)
+		return nil, fmt.Errorf("validate read-only control store identity: %w", err)
 	}
 	return store, nil
 }
 
-func openDatabase(ctx context.Context, path string, readOnly bool) (*sql.DB, error) {
+func openDatabase(
+	ctx context.Context,
+	path string,
+	readOnly bool,
+) (*sql.DB, string, *controlStoreIdentity, error) {
 	if path == "" {
-		return nil, errors.New("store path is required")
+		return nil, "", nil, errors.New("store path is required")
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return nil, fmt.Errorf("resolve store path: %w", err)
+		return nil, "", nil, fmt.Errorf("resolve store path: %w", err)
 	}
 	if err := prepareDatabasePath(absolute, readOnly); err != nil {
-		return nil, err
+		return nil, "", nil, err
+	}
+	controlIdentity, err := retainControlStoreIdentity(absolute, readOnly)
+	if err != nil {
+		return nil, "", nil, err
 	}
 	parameters := url.Values{}
 	parameters.Set("mode", map[bool]string{true: "ro", false: "rwc"}[readOnly])
@@ -147,16 +169,21 @@ func openDatabase(ctx context.Context, path string, readOnly bool) (*sql.DB, err
 	dsn := (&url.URL{Scheme: "file", Path: absolute, RawQuery: parameters.Encode()}).String()
 	database, err := sql.Open(driverName, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open SQLite driver: %w", err)
+		_ = controlIdentity.close(nil)
+		return nil, "", nil, fmt.Errorf("open SQLite driver: %w", err)
 	}
 	database.SetMaxOpenConns(1)
 	database.SetMaxIdleConns(1)
 	database.SetConnMaxLifetime(0)
 	if err := database.PingContext(ctx); err != nil {
-		_ = database.Close()
-		return nil, fmt.Errorf("connect to control store: %w", err)
+		_ = controlIdentity.close(database)
+		return nil, "", nil, fmt.Errorf("connect to control store: %w", err)
 	}
-	return database, nil
+	if err := controlIdentity.validateExactPath(); err != nil {
+		_ = controlIdentity.close(database)
+		return nil, "", nil, fmt.Errorf("validate opened control store identity: %w", err)
+	}
+	return database, absolute, controlIdentity, nil
 }
 
 func prepareDatabasePath(path string, readOnly bool) error {
@@ -186,7 +213,28 @@ func prepareDatabasePath(path string, readOnly bool) error {
 	return nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	if s.controlIdentity == nil {
+		if s.db == nil {
+			return nil
+		}
+		return s.db.Close()
+	}
+	return s.controlIdentity.close(s.db)
+}
+
+// ControlPath returns the absolute diagnostic path opened by this Store.
+// Controller ownership never reopens this mutable name: Store retains and
+// locks the exact parent and database identities observed before SQLite Ping.
+func (s *Store) ControlPath() string {
+	if s == nil {
+		return ""
+	}
+	return s.path
+}
 
 // RequireBuilderConfiguration closes the composition boundary before a native
 // worker can receive a lease. Structural Store use without a builder remains

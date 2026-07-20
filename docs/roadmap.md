@@ -94,7 +94,7 @@ sole submission writer. See
 Exact-plan and authenticated historical approval facts survive restart through
 the single control store. Check scheduling and admission reload their exact
 relational closure, but it is not current effect authority: source re-resolution
-before execution, accepting `PASS`, and integration remain milestone 4. See
+before execution, accepting `PASS`, and integration remain later gates. See
 [Exact plan and authenticated authority](authenticated-authority.md).
 
 Submission construction resolves policy and check definitions from the exact
@@ -121,10 +121,34 @@ and creates the complete ordered check batch in one transaction. Work becomes
 `checking` and claims serialize. A second transaction admits reviewable only
 after every exact check passes and the complete authority, artifact, runtime,
 snapshot, chronology, and Git closure revalidates. Both remain unreachable from
-the production binary until a current-authority gate and mutating command
-service exist.
+the production binary. The current controller schedules and executes only the
+builder; it does not claim checks or admit submissions.
 
-## 3. Fresh independent verdict
+## 3. Current-authority controller
+
+- [x] Acquire crash-released process-exclusive ownership of the retained Store
+  and its containing namespace.
+- [x] Enforce recovery-only then active ownership phases at the Store boundary.
+- [x] Reject raw build dispatch, generic build claims, and unowned recovery.
+- [x] Re-resolve authenticated authority before build scheduling and again
+  before pending build execution.
+- [x] Bind authority to the exact controller, state revision, plan, work
+  attempt, contract, source, and builder profile.
+- [ ] Seal privileged raw builder execution, cleanup, and reconciliation behind
+  one-shot Store-issued capabilities before any public mutating loop.
+- [ ] Converge controlled dispatch from its durable command outcome after an
+  ambiguous successful commit before any public mutating loop.
+- [ ] Configure production interactive or standing authority sources.
+- [ ] Extend current permits to checks, verifier dispatch, accepting `PASS`,
+  and integration as those edges become executable.
+
+This milestone is intentionally internal. `BuilderController` performs one
+explicit build step and owns no poller, scheduler, public command, or retry
+policy. SQLite remains the only durable control truth; the ownership and permit
+are process-local capabilities. See [ADR
+0006](adr/0006-current-authority-controller.md).
+
+## 4. Fresh independent verdict
 
 - [ ] Dispatch builder and verifier through native CLI adapters.
 - [ ] Keep authorizer capability and verifier identity outside builder scope.
@@ -133,14 +157,14 @@ service exist.
 - [ ] Implement bounded retry epochs without treating `INCONCLUSIVE` as
   implementation failure.
 
-## 4. Authority and integration
+## 5. Integration
 
-- [ ] Resolve authenticated interactive and standing authority sources.
-- [ ] Revalidate authority before dispatch, accepting `PASS`, and integration.
 - [ ] Add manual latch release and compare-and-swap fast-forward integration.
 - [ ] Pass the 18 Baton real-boundary cases through the built binary.
 
 Recovery proof is necessary but not sufficient for unattended use or a
-default-branch cutover. Native builder recovery now passes; current authority,
-independent verdict, bounded policy, integration, built-binary conformance, and
-the exclusive public controller still gate either decision.
+default-branch cutover. Native builder recovery, exclusive ownership, and
+current build authority now pass internally. Current authority for every later
+effect, independent verdict, bounded policy, integration, built-binary
+conformance, real CLI configuration, and the public loop still gate either
+decision.

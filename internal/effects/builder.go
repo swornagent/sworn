@@ -45,6 +45,9 @@ type BuilderRunner interface {
 
 // BuilderWorker executes one engine-derived builder request. It never claims
 // an effect, binds a result, publishes a Git ref, or completes journal state.
+// Until its raw execution and reconciliation methods consume one-shot Store
+// capabilities, callers must treat this internal type as privileged trusted
+// computing base rather than an authority boundary.
 type BuilderWorker struct {
 	Control       BuilderControl
 	Runner        BuilderRunner
@@ -87,8 +90,8 @@ func (worker BuilderWorker) DispatchDigest() (string, error) {
 }
 
 func (worker BuilderWorker) configuration() (buildConfiguration, error) {
-	if worker.Control == nil || worker.Runner == nil || worker.Repository == nil {
-		return buildConfiguration{}, errors.New("builder worker requires control, runner, and repository")
+	if worker.Runner == nil || worker.Repository == nil {
+		return buildConfiguration{}, errors.New("builder worker requires a runner and repository")
 	}
 	if err := validateWorkspaceRoot(worker.WorkspaceRoot); err != nil {
 		return buildConfiguration{}, fmt.Errorf("validate builder workspace root: %w", err)
@@ -151,6 +154,9 @@ func (worker BuilderWorker) resolveBuild(
 	configuration buildConfiguration,
 	requireActive bool,
 ) (resolvedBuild, error) {
+	if worker.Control == nil {
+		return resolvedBuild{}, errors.New("builder worker requires an exact control Store")
+	}
 	if effect.Kind != engine.EffectBuild || !engine.ValidID(effect.ID) ||
 		!protocol.ValidPositiveSafeInteger(effect.Attempt) {
 		return resolvedBuild{}, errors.New("builder worker requires one claimed build effect")

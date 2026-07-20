@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,11 +21,13 @@ import (
 const (
 	AuthorityProofSchemaVersion = "sworn-authority-proof-v1"
 	AuthorityReceiptKind        = protocol.ControlReceiptSchemaVersion
+	BuildExecutionPurpose       = "build.execute"
 
 	MaximumAuthoritySourceBytes = 64 << 10
 	MaximumAuthorityProofBytes  = 16 << 10
 
-	proofSignatureDomain = "sworn/authority-proof/v1\x00"
+	proofSignatureDomain       = "sworn/authority-proof/v1\x00"
+	currentBuildPermitLifetime = 30 * time.Second
 )
 
 // Resolver returns the exact source and detached proof presented for one exact
@@ -41,6 +44,15 @@ type ApprovalLedger interface {
 	PutAuthorityApproval(context.Context, PreparedApproval) error
 }
 
+// CurrentAuthorityLedger extends durable observation with a current-head
+// assertion. PutCurrentAuthoritySource must reject an authenticated historical
+// replay below the source's durable high-water mark, even when that exact
+// observation was previously stored successfully.
+type CurrentAuthorityLedger interface {
+	ApprovalLedger
+	PutCurrentAuthoritySource(context.Context, PreparedSource) error
+}
+
 // Authority is the engine-owned authority service. Roots, resolver, ledger,
 // and clock are fixed at startup; an approval operation accepts only an exact
 // plan and cannot replace any of them.
@@ -49,6 +61,75 @@ type Authority struct {
 	resolver Resolver
 	ledger   ApprovalLedger
 	now      func() time.Time
+}
+
+// BuildPermitRequest is the complete controller-owned identity of one pending
+// builder dispatch. Contract must be the exact work contract selected from the
+// plan passed to AuthorizeBuild; digests alone are not accepted as substitutes.
+type BuildPermitRequest struct {
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	WorkID                string
+	WorkAttempt           int64
+	Contract              protocol.ExactWorkContract
+	BuilderDispatchDigest string
+}
+
+// BuildPermitFacts is the immutable, non-authorizing projection of a current
+// build permit. It is safe to log or compare, but cannot be converted back into
+// a permit.
+type BuildPermitFacts struct {
+	Purpose               string
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	PlanDigest            string
+	WorkID                string
+	WorkAttempt           int64
+	WorkContractDigest    string
+	BuilderDispatchDigest string
+	SourceRef             string
+	SourceVersion         int64
+	SourceDigest          string
+	AuthorizedAt          string
+}
+
+type buildPermitBinding struct {
+	facts           BuildPermitFacts
+	authorityDigest string
+	validFrom       string
+	validUntil      string
+}
+
+// CurrentBuildPermit is an opaque, short-lived capability for exactly one
+// builder-dispatch request. It remains bound to the Authority instance which
+// freshly resolved and authenticated it.
+type CurrentBuildPermit struct {
+	authority *Authority
+	plan      protocol.ExactPlan
+	binding   buildPermitBinding
+}
+
+// Facts returns a non-authorizing copy of the permit's exact bindings.
+func (permit CurrentBuildPermit) Facts() BuildPermitFacts { return permit.binding.facts }
+
+// RequireLedger proves that this Authority was constructed with the exact
+// pointer-backed ledger supplied by its controller. Non-pointer ledger
+// implementations fail closed rather than relying on potentially panicking
+// interface equality.
+func (authority *Authority) RequireLedger(ledger ApprovalLedger) error {
+	if authority == nil || len(authority.roots) == 0 || authority.resolver == nil ||
+		authority.ledger == nil || authority.now == nil {
+		return errors.New("authority service is not initialized")
+	}
+	want := reflect.ValueOf(authority.ledger)
+	got := reflect.ValueOf(ledger)
+	if !want.IsValid() || !got.IsValid() || want.Kind() != reflect.Pointer || got.Kind() != reflect.Pointer ||
+		want.IsNil() || got.IsNil() || want.Type() != got.Type() || want.Pointer() != got.Pointer() {
+		return errors.New("authority service uses a different approval ledger")
+	}
+	return nil
 }
 
 // NewAuthority constructs the production authority service. Trust roots and
@@ -84,44 +165,13 @@ func newAuthorityWithClock(
 }
 
 // Approve authenticates and durably commits authority for one exact plan.
-// Revoked or non-current authenticated sources are still durably observed
-// before the operation returns its denial.
+// A denied authenticated source is durably observed when it does not conflict
+// with the source high-water mark; rollback and fork attempts fail atomically.
 func (authority *Authority) Approve(
 	ctx context.Context,
 	plan protocol.ExactPlan,
 ) (HistoricalApproval, error) {
-	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
-		return HistoricalApproval{}, errors.New("authority service is not initialized")
-	}
-	if err := ctx.Err(); err != nil {
-		return HistoricalApproval{}, err
-	}
-	planRecord := plan.Record()
-	planAuthority := plan.Authority()
-	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || planRecord.Digest == "" ||
-		planAuthority.SourceRef == "" || planAuthority.Digest == "" {
-		return HistoricalApproval{}, errors.New("authority requires an exact delivery plan")
-	}
-	root, exists := authority.roots[planAuthority.SourceRef]
-	if !exists {
-		return HistoricalApproval{}, fmt.Errorf("no configured trust root for source %q", planAuthority.SourceRef)
-	}
-	sourceRaw, proofRaw, err := authority.resolver.Resolve(ctx, root.sourceRef, planRecord.Digest)
-	if err != nil {
-		return HistoricalApproval{}, fmt.Errorf("resolve authority: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return HistoricalApproval{}, err
-	}
-	sourceRaw = bytes.Clone(sourceRaw)
-	proofRaw = bytes.Clone(proofRaw)
-	// Sample current time after resolver I/O so a source that expires while it
-	// is being resolved cannot be minted from a stale pre-resolution instant.
-	now := authority.now()
-	if now.IsZero() || now.Location() != time.UTC {
-		return HistoricalApproval{}, errors.New("authority clock must return explicit UTC")
-	}
-	preparedSource, err := authenticateSource(plan, root, sourceRaw, proofRaw, now, true)
+	preparedSource, now, err := authority.resolveAuthenticatedSource(ctx, plan)
 	if err != nil {
 		return HistoricalApproval{}, err
 	}
@@ -136,6 +186,179 @@ func (authority *Authority) Approve(
 		return HistoricalApproval{}, fmt.Errorf("persist authority approval: %w", err)
 	}
 	return historicalFromPrepared(preparedApproval), nil
+}
+
+// AuthorizeBuild freshly resolves and authenticates current authority for one
+// exact builder dispatch. Every authenticated non-rollback, non-fork source is
+// durably recorded before current status, time, or grant policy can return a
+// permit or denial. A rollback or fork fails atomically with no permit.
+// HistoricalApproval is deliberately not accepted by this boundary.
+func (authority *Authority) AuthorizeBuild(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+	request BuildPermitRequest,
+) (CurrentBuildPermit, error) {
+	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
+		return CurrentBuildPermit{}, errors.New("authority service is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	if err := validateBuildPermitRequest(plan, request); err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	currentLedger, ok := authority.ledger.(CurrentAuthorityLedger)
+	if !ok {
+		return CurrentBuildPermit{}, errors.New("authority ledger cannot assert the current source head")
+	}
+	preparedSource, authenticatedAt, err := authority.resolveAuthenticatedSource(ctx, plan)
+	if err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	if err := currentLedger.PutCurrentAuthoritySource(ctx, preparedSource); err != nil {
+		return CurrentBuildPermit{}, fmt.Errorf("persist current authority source: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	// Sample again after durable persistence so source expiry during ledger I/O
+	// cannot produce a permit from the earlier authentication instant.
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return CurrentBuildPermit{}, errors.New("authority clock must return explicit UTC")
+	}
+	if now.Before(authenticatedAt) {
+		return CurrentBuildPermit{}, errors.New("authority clock moved backward during current authorization")
+	}
+	if err := validateCurrentSourceWindow(preparedSource, now); err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	if err := validateRequiredBuildGrants(plan, &preparedSource); err != nil {
+		return CurrentBuildPermit{}, err
+	}
+	facts := BuildPermitFacts{
+		Purpose: BuildExecutionPurpose, ControllerID: request.ControllerID,
+		RunID: request.RunID, StateRevision: request.StateRevision,
+		PlanDigest: plan.Record().Digest, WorkID: request.WorkID,
+		WorkAttempt: request.WorkAttempt, WorkContractDigest: request.Contract.Digest(),
+		BuilderDispatchDigest: request.BuilderDispatchDigest,
+		SourceRef:             preparedSource.facts.SourceRef, SourceVersion: preparedSource.facts.SourceVersion,
+		SourceDigest: preparedSource.facts.SourceCanonicalDigest,
+		AuthorizedAt: now.Format(time.RFC3339Nano),
+	}
+	return CurrentBuildPermit{
+		authority: authority,
+		plan:      plan,
+		binding: buildPermitBinding{
+			facts: facts, authorityDigest: preparedSource.facts.AuthorityDigest,
+			validFrom: preparedSource.facts.ValidFrom, validUntil: preparedSource.facts.ValidUntil,
+		},
+	}, nil
+}
+
+// ValidateBuildPermit accepts only an unexpired permit minted by this exact
+// Authority instance for the same complete controller request. It performs no
+// I/O: callers must therefore authorize immediately before dispatch rather
+// than retain permits as standing authority.
+func (authority *Authority) ValidateBuildPermit(
+	permit CurrentBuildPermit,
+	request BuildPermitRequest,
+) error {
+	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
+		return errors.New("authority service is not initialized")
+	}
+	if permit.authority != authority {
+		return errors.New("build permit belongs to another authority service")
+	}
+	if permit.binding.facts.Purpose != BuildExecutionPurpose {
+		return errors.New("build permit has the wrong purpose")
+	}
+	if err := validateBuildPermitRequest(permit.plan, request); err != nil {
+		return err
+	}
+	planRecord := permit.plan.Record()
+	planAuthority := permit.plan.Authority()
+	if permit.binding.facts.PlanDigest != planRecord.Digest ||
+		permit.binding.authorityDigest != planAuthority.Digest ||
+		permit.binding.facts.SourceRef != planAuthority.SourceRef ||
+		!protocol.ValidPositiveSafeInteger(permit.binding.facts.SourceVersion) ||
+		!protocol.ValidDigest(permit.binding.facts.SourceDigest) {
+		return errors.New("build permit no longer matches its exact authority")
+	}
+	want := permit.binding.facts
+	want.Purpose = BuildExecutionPurpose
+	want.ControllerID = request.ControllerID
+	want.RunID = request.RunID
+	want.StateRevision = request.StateRevision
+	want.PlanDigest = planRecord.Digest
+	want.WorkID = request.WorkID
+	want.WorkAttempt = request.WorkAttempt
+	want.WorkContractDigest = request.Contract.Digest()
+	want.BuilderDispatchDigest = request.BuilderDispatchDigest
+	if permit.binding.facts != want {
+		return errors.New("build permit does not match the exact dispatch request")
+	}
+	if err := validateRequiredBuildGrants(permit.plan, nil); err != nil {
+		return err
+	}
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return errors.New("authority clock must return explicit UTC")
+	}
+	authorizedAt, err := time.Parse(time.RFC3339Nano, permit.binding.facts.AuthorizedAt)
+	if err != nil || authorizedAt.Location() != time.UTC || now.Before(authorizedAt) ||
+		now.Sub(authorizedAt) >= currentBuildPermitLifetime {
+		return errors.New("build permit is stale")
+	}
+	nowValue := now.Format(time.RFC3339Nano)
+	fromToNow, fromErr := protocol.CompareDateTimes(permit.binding.validFrom, nowValue)
+	nowToUntil, untilErr := protocol.CompareDateTimes(nowValue, permit.binding.validUntil)
+	if fromErr != nil || untilErr != nil || fromToNow > 0 || nowToUntil >= 0 {
+		return errors.New("build permit authority is no longer current")
+	}
+	return nil
+}
+
+func (authority *Authority) resolveAuthenticatedSource(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+) (PreparedSource, time.Time, error) {
+	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
+		return PreparedSource{}, time.Time{}, errors.New("authority service is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	planRecord := plan.Record()
+	planAuthority := plan.Authority()
+	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || planRecord.Digest == "" ||
+		planAuthority.SourceRef == "" || planAuthority.Digest == "" {
+		return PreparedSource{}, time.Time{}, errors.New("authority requires an exact delivery plan")
+	}
+	root, exists := authority.roots[planAuthority.SourceRef]
+	if !exists {
+		return PreparedSource{}, time.Time{}, fmt.Errorf("no configured trust root for source %q", planAuthority.SourceRef)
+	}
+	sourceRaw, proofRaw, err := authority.resolver.Resolve(ctx, root.sourceRef, planRecord.Digest)
+	if err != nil {
+		return PreparedSource{}, time.Time{}, fmt.Errorf("resolve authority: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	sourceRaw = bytes.Clone(sourceRaw)
+	proofRaw = bytes.Clone(proofRaw)
+	// Sample current time after resolver I/O so a source that expires while it
+	// is being resolved cannot be minted from a stale pre-resolution instant.
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return PreparedSource{}, time.Time{}, errors.New("authority clock must return explicit UTC")
+	}
+	preparedSource, err := authenticateSource(plan, root, sourceRaw, proofRaw, now, true)
+	if err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	return preparedSource, now, nil
 }
 
 // TrustRoot is an immutable configured verification capability. The private
@@ -444,31 +667,52 @@ func authenticateSource(
 }
 
 func mintCurrentApproval(source PreparedSource, now time.Time) (PreparedApproval, error) {
-	if now.IsZero() || now.Location() != time.UTC {
-		return PreparedApproval{}, errors.New("authority minting time must be explicit UTC")
-	}
-	if source.facts.SourceStatus != "active" {
-		return PreparedApproval{}, errors.New("authority source is revoked")
-	}
-	if err := validateGrantCeiling(source); err != nil {
+	if err := validateCurrentSource(source, now); err != nil {
 		return PreparedApproval{}, err
 	}
+	return mintArchivedApproval(source)
+}
+
+func validateCurrentSource(source PreparedSource, now time.Time) error {
+	if now.IsZero() || now.Location() != time.UTC {
+		return errors.New("authority minting time must be explicit UTC")
+	}
+	if source.facts.SourceStatus != "active" {
+		return errors.New("authority source is revoked")
+	}
+	if err := validateGrantCeiling(source); err != nil {
+		return err
+	}
+	return validateCurrentSourceTime(source, now)
+}
+
+func validateCurrentSourceWindow(source PreparedSource, now time.Time) error {
+	if now.IsZero() || now.Location() != time.UTC {
+		return errors.New("authority minting time must be explicit UTC")
+	}
+	if source.facts.SourceStatus != "active" {
+		return errors.New("authority source is revoked")
+	}
+	return validateCurrentSourceTime(source, now)
+}
+
+func validateCurrentSourceTime(source PreparedSource, now time.Time) error {
 	nowValue := now.Format(time.RFC3339Nano)
 	fromToNow, err := protocol.CompareDateTimes(source.facts.ValidFrom, nowValue)
 	if err != nil {
-		return PreparedApproval{}, fmt.Errorf("compare authority activation and current time: %w", err)
+		return fmt.Errorf("compare authority activation and current time: %w", err)
 	}
 	if fromToNow > 0 {
-		return PreparedApproval{}, errors.New("authority source is not yet valid")
+		return errors.New("authority source is not yet valid")
 	}
 	nowToUntil, err := protocol.CompareDateTimes(nowValue, source.facts.ValidUntil)
 	if err != nil {
-		return PreparedApproval{}, fmt.Errorf("compare current time and authority expiry: %w", err)
+		return fmt.Errorf("compare current time and authority expiry: %w", err)
 	}
 	if nowToUntil >= 0 {
-		return PreparedApproval{}, errors.New("authority source has expired")
+		return errors.New("authority source has expired")
 	}
-	return mintArchivedApproval(source)
+	return nil
 }
 
 func mintArchivedApproval(source PreparedSource) (PreparedApproval, error) {
@@ -522,6 +766,48 @@ func validateGrantCeiling(source PreparedSource) error {
 		if _, allowed := source.grants[string(canonical)]; !allowed {
 			return errors.New("plan authority grant exceeds the source ceiling")
 		}
+	}
+	return nil
+}
+
+func validateRequiredBuildGrants(plan protocol.ExactPlan, source *PreparedSource) error {
+	required := []string{"inspect", "edit", "execute", "commit"}
+	for _, grant := range plan.Authority().Grants {
+		for index, action := range required {
+			if grant.Action() == action {
+				if source != nil {
+					if _, allowed := source.grants[string(grant.CanonicalJSON())]; !allowed {
+						return fmt.Errorf("current authority source lacks %s workspace grant", action)
+					}
+				}
+				required = append(required[:index], required[index+1:]...)
+				break
+			}
+		}
+	}
+	if len(required) != 0 {
+		return fmt.Errorf("build authority requires %s workspace grant", required[0])
+	}
+	return nil
+}
+
+func validateBuildPermitRequest(plan protocol.ExactPlan, request BuildPermitRequest) error {
+	planRecord := plan.Record()
+	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
+		return errors.New("build permit requires an exact delivery plan")
+	}
+	if !protocol.ValidID(request.ControllerID) || !protocol.ValidID(request.RunID) ||
+		!protocol.ValidPositiveSafeInteger(request.StateRevision) || !protocol.ValidID(request.WorkID) ||
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) ||
+		!protocol.ValidDigest(request.BuilderDispatchDigest) {
+		return errors.New("build permit request has invalid controller or dispatch identity")
+	}
+	contractDigest := request.Contract.Digest()
+	contractView := request.Contract.View()
+	exactContract, exists := plan.Work(request.WorkID)
+	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
+		request.Contract != exactContract || exactContract.Digest() != contractDigest {
+		return errors.New("build permit request does not match the exact work contract")
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 
 	effectworker "github.com/swornagent/sworn/internal/effects"
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/policy"
 )
 
 type EffectState string
@@ -57,6 +58,36 @@ type EffectLease struct {
 	effect Effect
 }
 
+// AuthorizedBuildLease is an opaque Store-issued capability for one exact
+// running native-build attempt. Unlike EffectLease, it retains the active
+// controller and current-authority bindings which the Store-authorized
+// preparation and publication boundaries revalidate.
+type AuthorizedBuildLease struct {
+	issuer        *leaseIssuer
+	effect        Effect
+	ownership     *ControllerOwnership
+	authority     *policy.Authority
+	permit        policy.CurrentBuildPermit
+	permitRequest policy.BuildPermitRequest
+}
+
+type preparedBuildIssuer struct{ marker byte }
+
+// PreparedAuthorizedBuildLease proves that current authority and the durable
+// source head were validated at the successful Store preparation transaction,
+// the shipped sequence's logical build-start authorization and linearization
+// point. It intentionally carries no expiring permit: a build which runs longer
+// than the authorization freshness window may still bind and publish its exact
+// attempt while the same controller remains active.
+type PreparedAuthorizedBuildLease struct {
+	issuer        *leaseIssuer
+	prepared      *preparedBuildIssuer
+	effect        Effect
+	ownership     *ControllerOwnership
+	permitRequest policy.BuildPermitRequest
+	planDigest    string
+}
+
 // BuildRecoveryLease is a Store-issued capability for one exact unknown,
 // unbound build attempt whose durable claimed witness has already validated.
 // It authorizes external cleanup inspection, not a lifecycle transition by
@@ -66,6 +97,8 @@ type BuildRecoveryLease struct {
 	effect    Effect
 	identity  engine.BuildAttemptIdentity
 	challenge string
+	ownership *ControllerOwnership
+	ownerID   string
 }
 
 func (lease BuildRecoveryLease) Invocation() engine.JournalEffect {
@@ -80,6 +113,22 @@ func (lease EffectLease) Invocation() engine.JournalEffect {
 		Kind: engine.EffectKind(lease.effect.Kind), Attempt: lease.effect.Attempt,
 		Request: append(json.RawMessage(nil), lease.effect.Request...),
 	}
+}
+
+func (lease AuthorizedBuildLease) Invocation() engine.JournalEffect {
+	return journalEffect(lease.effect)
+}
+
+func (lease AuthorizedBuildLease) effectLease() EffectLease {
+	return EffectLease{issuer: lease.issuer, effect: cloneEffect(lease.effect)}
+}
+
+func (lease PreparedAuthorizedBuildLease) Invocation() engine.JournalEffect {
+	return journalEffect(lease.effect)
+}
+
+func (lease PreparedAuthorizedBuildLease) effectLease() EffectLease {
+	return EffectLease{issuer: lease.issuer, effect: cloneEffect(lease.effect)}
 }
 
 func (s *Store) validateEffectLease(lease EffectLease) error {
@@ -106,13 +155,38 @@ func requireRunningLease(effect Effect, lease EffectLease) error {
 	return nil
 }
 
-// PrepareNativeBuildExecution reloads and validates the Store-issued lease and
-// its durable attempt witness before the composition service may cross the
-// external builder boundary. It returns journal bytes from current Store truth,
-// never the claim-time lease projection.
+// PrepareNativeBuildExecution is a fail-closed compatibility boundary. Native
+// builds must use PrepareAuthorizedBuildExecution.
 func (s *Store) PrepareNativeBuildExecution(
 	ctx context.Context,
 	lease EffectLease,
+) (engine.JournalEffect, error) {
+	return engine.JournalEffect{}, errors.New("native build execution requires an authorized build lease")
+}
+
+// PrepareAuthorizedBuildExecution is the Store-authorized preparation boundary
+// in the shipped controller sequence. It revalidates active controller
+// ownership, current authority, the durable authority-source head, the exact
+// runnable work attempt, and the claimed journal row in one Store transaction.
+func (s *Store) PrepareAuthorizedBuildExecution(
+	ctx context.Context,
+	lease AuthorizedBuildLease,
+) (engine.JournalEffect, PreparedAuthorizedBuildLease, error) {
+	effect, err := s.prepareNativeBuildExecution(ctx, lease.effectLease(), &lease)
+	if err != nil {
+		return engine.JournalEffect{}, PreparedAuthorizedBuildLease{}, err
+	}
+	return effect, PreparedAuthorizedBuildLease{
+		issuer: s.leaseIssuer, prepared: &preparedBuildIssuer{},
+		effect: cloneEffect(lease.effect), ownership: lease.ownership,
+		permitRequest: lease.permitRequest, planDigest: lease.permit.Facts().PlanDigest,
+	}, nil
+}
+
+func (s *Store) prepareNativeBuildExecution(
+	ctx context.Context,
+	lease EffectLease,
+	authorized *AuthorizedBuildLease,
 ) (engine.JournalEffect, error) {
 	if s.readOnly {
 		return engine.JournalEffect{}, errors.New("control store is read-only")
@@ -125,6 +199,11 @@ func (s *Store) PrepareNativeBuildExecution(
 		return engine.JournalEffect{}, fmt.Errorf("begin native build preparation: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if authorized != nil {
+		if err := s.validateAuthorizedBuildLeaseTransaction(ctx, transaction, *authorized); err != nil {
+			return engine.JournalEffect{}, err
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
 	if err != nil {
 		return engine.JournalEffect{}, err
@@ -215,11 +294,38 @@ func loadBuildAttemptIdentity(
 	return identity, nil
 }
 
-// PrepareUnboundBuildRecovery validates journal authority before any caller is
-// permitted to inspect or remove attempt-owned external residue. Legacy or
-// corrupt claimed observations therefore stop without touching Git or disk.
+// PrepareUnboundBuildRecovery is a fail-closed compatibility boundary. Startup
+// recovery must supply recovery-phase controller ownership.
 func (s *Store) PrepareUnboundBuildRecovery(
 	ctx context.Context,
+	effectID string,
+	expectedAttempt int64,
+) (BuildRecoveryLease, error) {
+	return BuildRecoveryLease{}, errors.New("native build recovery requires controller recovery ownership")
+}
+
+// PrepareControlledUnboundBuildRecovery validates an unknown native attempt
+// before the recovery owner may inspect or remove attempt-owned residue.
+func (s *Store) PrepareControlledUnboundBuildRecovery(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
+	effectID string,
+	expectedAttempt int64,
+) (BuildRecoveryLease, error) {
+	if ownership == nil {
+		return BuildRecoveryLease{}, ErrInvalidControllerOwnership
+	}
+	if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+		return BuildRecoveryLease{}, fmt.Errorf("validate build recovery ownership: %w", err)
+	}
+	return s.prepareUnboundBuildRecovery(ctx, ownership, ownerID, effectID, expectedAttempt)
+}
+
+func (s *Store) prepareUnboundBuildRecovery(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
 	effectID string,
 	expectedAttempt int64,
 ) (BuildRecoveryLease, error) {
@@ -234,6 +340,11 @@ func (s *Store) PrepareUnboundBuildRecovery(
 		return BuildRecoveryLease{}, fmt.Errorf("begin build recovery preparation: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return BuildRecoveryLease{}, fmt.Errorf("validate build recovery transaction ownership: %w", err)
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, effectID)
 	if err != nil {
 		return BuildRecoveryLease{}, err
@@ -257,6 +368,7 @@ func (s *Store) PrepareUnboundBuildRecovery(
 	}
 	return BuildRecoveryLease{
 		issuer: s.leaseIssuer, effect: cloneEffect(effect), identity: identity, challenge: challenge,
+		ownership: ownership, ownerID: ownerID,
 	}, nil
 }
 
@@ -308,6 +420,27 @@ func (s *Store) validateNativeBuildAttempt(
 }
 
 func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLease, error) {
+	return s.claimPendingEffect(ctx, ownerID, "", "", false, true)
+}
+
+// ClaimPendingBuild remains only as an explicit fail-closed compatibility
+// boundary. Native builds require ClaimControlledBuild.
+func (s *Store) ClaimPendingBuild(
+	ctx context.Context,
+	runID string,
+	ownerID string,
+) (EffectLease, error) {
+	return EffectLease{}, errors.New("native build claims require current controller authority")
+}
+
+func (s *Store) claimPendingEffect(
+	ctx context.Context,
+	ownerID string,
+	runID string,
+	kind string,
+	requireUnique bool,
+	excludeBuild bool,
+) (EffectLease, error) {
 	if s.readOnly {
 		return EffectLease{}, errors.New("control store is read-only")
 	}
@@ -319,10 +452,16 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 		return EffectLease{}, fmt.Errorf("begin effect claim: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
-	var effectID string
-	err = transaction.QueryRowContext(ctx, `
+	limit := 1
+	if requireUnique {
+		limit = 2
+	}
+	rows, err := transaction.QueryContext(ctx, `
 		SELECT pending.effect_id FROM effects AS pending
 		WHERE pending.state = 'pending'
+		  AND (? = '' OR pending.run_id = ?)
+		  AND (? = '' OR pending.kind = ?)
+		  AND (? = 0 OR pending.kind != ?)
 		  AND NOT EXISTS (
 			SELECT 1 FROM effects AS earlier
 			WHERE earlier.command_id = pending.command_id
@@ -330,13 +469,33 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 			  AND earlier.state != 'succeeded'
 		  )
 		ORDER BY pending.created_at_us, pending.command_id, pending.ordinal, pending.effect_id
-		LIMIT 1`).Scan(&effectID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return EffectLease{}, ErrNoPendingEffect
-	}
+		LIMIT ?`, runID, runID, kind, kind, boolInteger(excludeBuild), engine.EffectBuild, limit)
 	if err != nil {
 		return EffectLease{}, fmt.Errorf("select pending effect: %w", err)
 	}
+	var effectIDs []string
+	for rows.Next() {
+		var effectID string
+		if err := rows.Scan(&effectID); err != nil {
+			_ = rows.Close()
+			return EffectLease{}, fmt.Errorf("scan pending effect: %w", err)
+		}
+		effectIDs = append(effectIDs, effectID)
+	}
+	if iterationErr := rows.Err(); iterationErr != nil {
+		_ = rows.Close()
+		return EffectLease{}, fmt.Errorf("iterate pending effects: %w", iterationErr)
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		return EffectLease{}, fmt.Errorf("close pending effects: %w", closeErr)
+	}
+	if len(effectIDs) == 0 {
+		return EffectLease{}, ErrNoPendingEffect
+	}
+	if requireUnique && len(effectIDs) != 1 {
+		return EffectLease{}, fmt.Errorf("run %q has ambiguous pending %s effects", runID, kind)
+	}
+	effectID := effectIDs[0]
 	now := s.now().UTC().UnixMicro()
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE effects
@@ -367,6 +526,13 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 	return EffectLease{issuer: s.leaseIssuer, effect: cloneEffect(effect)}, nil
 }
 
+func boolInteger(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 func (s *Store) claimReceipt(effect Effect) (json.RawMessage, error) {
 	if engine.EffectKind(effect.Kind) != engine.EffectBuild {
 		return nil, nil
@@ -395,6 +561,32 @@ func (s *Store) claimReceipt(effect Effect) (json.RawMessage, error) {
 // exact running lease which observed it. Binding is separate from completion
 // so recovery can finish an interrupted success without accepting caller JSON.
 func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result json.RawMessage) error {
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
+	}
+	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+		return errors.New("native build result binding requires an authorized build lease")
+	}
+	return s.bindEffectResult(ctx, lease, result, nil)
+}
+
+// BindAuthorizedBuildResult durably binds the configured builder's typed
+// result only while the same controller still owns the exact prepared native
+// attempt. The expiring pre-preparation permit is deliberately not revalidated.
+func (s *Store) BindAuthorizedBuildResult(
+	ctx context.Context,
+	lease PreparedAuthorizedBuildLease,
+	result json.RawMessage,
+) error {
+	return s.bindEffectResult(ctx, lease.effectLease(), result, &lease)
+}
+
+func (s *Store) bindEffectResult(
+	ctx context.Context,
+	lease EffectLease,
+	result json.RawMessage,
+	authorized *PreparedAuthorizedBuildLease,
+) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
 	}
@@ -406,6 +598,11 @@ func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result 
 		return fmt.Errorf("begin effect result binding: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if authorized != nil {
+		if err := s.validatePreparedAuthorizedBuildTransaction(ctx, transaction, *authorized); err != nil {
+			return err
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
 	if err != nil {
 		return err
@@ -444,6 +641,26 @@ func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result 
 // CompleteEffect closes a running effect only from its already bound typed
 // result. The caller cannot substitute different success bytes at completion.
 func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
+	}
+	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+		return errors.New("native build completion requires an authorized build lease")
+	}
+	return s.completeEffect(ctx, lease, nil)
+}
+
+// CompleteAuthorizedBuild validates the prepared attempt and active ownership
+// inside the same transaction which publishes and closes that native build.
+func (s *Store) CompleteAuthorizedBuild(ctx context.Context, lease PreparedAuthorizedBuildLease) error {
+	return s.completeEffect(ctx, lease.effectLease(), &lease)
+}
+
+func (s *Store) completeEffect(
+	ctx context.Context,
+	lease EffectLease,
+	authorized *PreparedAuthorizedBuildLease,
+) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
 	}
@@ -455,6 +672,11 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 		return fmt.Errorf("begin effect completion: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if authorized != nil {
+		if err := s.validatePreparedAuthorizedBuildTransaction(ctx, transaction, *authorized); err != nil {
+			return err
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
 	if err != nil {
 		return err
@@ -505,6 +727,16 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 // FailEffect records infrastructure failure only when no trustworthy typed
 // result was bound. Known domain outcomes must complete successfully instead.
 func (s *Store) FailEffect(ctx context.Context, lease EffectLease, detail string) error {
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
+	}
+	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+		return errors.New("native build failure requires controller recovery")
+	}
+	return s.failEffect(ctx, lease, detail)
+}
+
+func (s *Store) failEffect(ctx context.Context, lease EffectLease, detail string) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
 	}
@@ -552,9 +784,35 @@ func (s *Store) FailEffect(ctx context.Context, lease EffectLease, detail string
 	return nil
 }
 
-// RecoverInterruptedEffects must be called only after the command service has
-// established exclusive process ownership. It never makes an effect retryable.
+// RecoverInterruptedEffects is a fail-closed compatibility boundary. Startup
+// recovery must use RecoverControlledInterruptedEffects.
 func (s *Store) RecoverInterruptedEffects(ctx context.Context, reason string) (int, error) {
+	return 0, errors.New("interrupted-effect recovery requires controller recovery ownership")
+}
+
+// RecoverControlledInterruptedEffects atomically moves every running attempt
+// to unknown while the exact controller remains in recovery phase.
+func (s *Store) RecoverControlledInterruptedEffects(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
+	reason string,
+) (int, error) {
+	if ownership == nil {
+		return 0, ErrInvalidControllerOwnership
+	}
+	if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+		return 0, fmt.Errorf("validate interrupted-effect recovery ownership: %w", err)
+	}
+	return s.recoverInterruptedEffects(ctx, ownership, ownerID, reason)
+}
+
+func (s *Store) recoverInterruptedEffects(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
+	reason string,
+) (int, error) {
 	if s.readOnly {
 		return 0, errors.New("control store is read-only")
 	}
@@ -566,6 +824,11 @@ func (s *Store) RecoverInterruptedEffects(ctx context.Context, reason string) (i
 		return 0, fmt.Errorf("begin interrupted-effect recovery: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return 0, fmt.Errorf("validate interrupted-effect transaction ownership: %w", err)
+		}
+	}
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT effect_id, run_id, command_id, ordinal, kind, request_json, state,
 		       attempt, owner_id, receipt_json, last_error, created_at_us,
@@ -583,11 +846,12 @@ func (s *Store) RecoverInterruptedEffects(ctx context.Context, reason string) (i
 		}
 		interrupted = append(interrupted, effect)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, fmt.Errorf("iterate interrupted effects: %w", err)
+	}
 	if err := rows.Close(); err != nil {
 		return 0, fmt.Errorf("close interrupted effects: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("iterate interrupted effects: %w", err)
 	}
 	now := s.now().UTC().UnixMicro()
 	for _, effect := range interrupted {
@@ -605,19 +869,50 @@ func (s *Store) RecoverInterruptedEffects(ctx context.Context, reason string) (i
 			return 0, err
 		}
 	}
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return 0, fmt.Errorf("revalidate interrupted-effect recovery ownership: %w", err)
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return 0, fmt.Errorf("commit interrupted-effect recovery: %w", err)
 	}
 	return len(interrupted), nil
 }
 
-// RecoverBoundEffect closes an interrupted attempt only from the immutable
-// typed result bound by that attempt. It never makes an unbound effect
-// retryable or converts an operator assertion into external evidence. Effect
-// ID and attempt form the replay identity; reconcilerID attributes only the
-// process that wins the unknown-to-succeeded transition.
+// RecoverBoundEffect is a fail-closed compatibility boundary. Startup recovery
+// must use RecoverControlledBoundEffect.
 func (s *Store) RecoverBoundEffect(
 	ctx context.Context,
+	effectID string,
+	expectedAttempt int64,
+	reconcilerID string,
+) error {
+	return errors.New("bound-effect recovery requires controller recovery ownership")
+}
+
+// RecoverControlledBoundEffect closes one exact interrupted attempt from its
+// already-bound typed result under recovery-phase ownership.
+func (s *Store) RecoverControlledBoundEffect(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
+	effectID string,
+	expectedAttempt int64,
+) error {
+	if ownership == nil {
+		return ErrInvalidControllerOwnership
+	}
+	if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+		return fmt.Errorf("validate bound-effect recovery ownership: %w", err)
+	}
+	return s.recoverBoundEffect(ctx, ownership, ownerID, effectID, expectedAttempt, ownerID)
+}
+
+func (s *Store) recoverBoundEffect(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
 	effectID string,
 	expectedAttempt int64,
 	reconcilerID string,
@@ -639,6 +934,11 @@ func (s *Store) RecoverBoundEffect(
 		return fmt.Errorf("begin bound-effect recovery: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return fmt.Errorf("validate bound-effect transaction ownership: %w", err)
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, effectID)
 	if err != nil {
 		return err
@@ -680,6 +980,11 @@ func (s *Store) RecoverBoundEffect(
 	effect.OwnerID = reconcilerID
 	if err := insertObservation(ctx, transaction, effect, "succeeded", effect.Result, "", now); err != nil {
 		return err
+	}
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return fmt.Errorf("revalidate bound-effect recovery ownership: %w", err)
+		}
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit bound-effect recovery: %w", err)
@@ -743,12 +1048,39 @@ func (s *Store) ensureBoundBuildPublished(
 	return nil
 }
 
-// RecoverUnboundBuildEffect consumes the exact prevalidated Store lease and
-// composite proof minted by the configured builder only after unpublished Git
-// state and all attempt-owned cleanup have been established. They are valid
-// only while the command service retains exclusive controller ownership.
+// RecoverUnboundBuildEffect is a fail-closed compatibility boundary. Startup
+// recovery must use RecoverControlledUnboundBuildEffect.
 func (s *Store) RecoverUnboundBuildEffect(
 	ctx context.Context,
+	lease BuildRecoveryLease,
+	reconcilerID string,
+	proof effectworker.BuildRetryProof,
+) error {
+	return errors.New("unbound build recovery requires controller recovery ownership")
+}
+
+// RecoverControlledUnboundBuildEffect consumes a prevalidated lease and exact
+// external not-applied proof under the same recovery owner which minted it.
+func (s *Store) RecoverControlledUnboundBuildEffect(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
+	lease BuildRecoveryLease,
+	proof effectworker.BuildRetryProof,
+) error {
+	if ownership == nil || lease.ownership != ownership || lease.ownerID != ownerID {
+		return ErrInvalidControllerOwnership
+	}
+	if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+		return fmt.Errorf("validate unbound build recovery ownership: %w", err)
+	}
+	return s.recoverUnboundBuildEffect(ctx, ownership, ownerID, lease, ownerID, proof)
+}
+
+func (s *Store) recoverUnboundBuildEffect(
+	ctx context.Context,
+	ownership *ControllerOwnership,
+	ownerID string,
 	lease BuildRecoveryLease,
 	reconcilerID string,
 	proof effectworker.BuildRetryProof,
@@ -765,6 +1097,11 @@ func (s *Store) RecoverUnboundBuildEffect(
 		return fmt.Errorf("begin unbound build recovery: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return fmt.Errorf("validate unbound build transaction ownership: %w", err)
+		}
+	}
 	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
 	if err != nil {
 		return err
@@ -824,6 +1161,11 @@ func (s *Store) RecoverUnboundBuildEffect(
 	}
 	if err := requireOneRow(result, "requeue reconciled build effect "+effect.ID); err != nil {
 		return err
+	}
+	if ownership != nil {
+		if err := ownership.ValidateRecovery(s, ownerID); err != nil {
+			return fmt.Errorf("revalidate unbound build recovery ownership: %w", err)
+		}
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit unbound build recovery: %w", err)

@@ -72,13 +72,50 @@ v6 refuses earlier manual requeues, while schema v7 refuses any pre-v7
 `not_applied`, non-NULL claim witness, or live legacy build rather than
 reinterpret history as machine authority.
 
-`internal/control.BuilderService` is the only current sequencing join. It
+`internal/control.BuilderService` is the shipped sequencing join. It
 validates that Store and worker share the exact builder profile and repository,
 then fixes `Store preflight -> run -> bind -> Store publish -> complete`. A
 foreign, stale, changed, or already-bound lease stops before agent code can run.
 Its startup barrier first marks interrupted work unknown and resolves every
-stopped effect under exclusive controller ownership. It does not claim work,
-choose retry policy, or own a public loop.
+stopped effect.
+
+`internal/store` now supplies the ownership which that barrier previously
+assumed. On Linux, before SQLite first connects it retains the exact database
+and parent directory identities; a controller nonblockingly locks both retained
+objects, never a later pathname lookup. The Store requires the parent to have no
+group or world write bits and rejects replacement, symlinks, unsafe permissions,
+hard links, foreign or copied handles, and contention. The kernel releases both
+locks on ordinary close or process death. Controller ownership fails closed on
+other platforms. The containing namespace must remain cooperative and
+owner-controlled; an arbitrary same-UID filesystem adversary is outside this
+process-ownership boundary.
+
+Ownership begins in a recovery-only phase. Store recovery mutations require
+that exact capability, and activation transactionally proves that no running
+or unknown effect remains. Only the resulting active capability can dispatch,
+claim, prepare, bind, or complete a native build. Raw `build.dispatch` is
+rejected, generic claims skip builds, and generic result APIs cannot consume a
+native-build lease.
+
+The controller re-resolves gate-specific current authority before scheduling a
+ready builder and again before claiming a pending builder after the state
+revision has advanced. Store selects only the exact permitted work and attempt,
+then rechecks ownership, permit, durable source head, state, contract, command,
+and typed request at successful preparation. That transaction is the logical
+build-start authorization and linearization point; `BuilderService` invokes the
+worker immediately afterward. The resulting prepared-attempt capability carries
+that exact attempt through result binding and completion without turning the
+30-second permit into a runtime limit, but does not prove the runner executed an
+instruction. A failed controlled claim, or any failure after claim, releases
+ownership and forces the next process through recovery. The raw exported
+execution, cleanup, and reconciliation methods on the internal `BuilderWorker`
+remain a privileged trusted-computing-base seam; one-shot Store capability
+sealing gates any public mutating loop. The controller performs one explicit
+step; it does not poll, choose retry policy, execute checks, or own a public
+loop. Controlled dispatch remains safe after an ambiguous successful commit—the
+advanced state and pending effect are durable—but direct command-result
+convergence from that advanced state is a required pre-public-loop follow-up. See
+[ADR 0006](adr/0006-current-authority-controller.md).
 
 ## SQLite ownership
 
@@ -138,10 +175,11 @@ Schema v5 rebuilds `submission_records` without copying earlier structural
 identities. Their records remain content-addressed archaeology, but no legacy
 row is treated as journal-backed admission proof.
 
-Reviewable is not `PASS` and historical authenticated approval is not a current
-execution permit. A native v2 builder result must match both its exact work
-contract and the configured builder profile before it can feed checks or
-admission. The public binary still has no mutating command service, claim loop,
-native CLI adapter, verifier verdict, retry policy, or integration path.
+Reviewable is not `PASS` and a current build permit grants nothing to checks,
+verification, `PASS`, or integration. A native v2 builder result must match both
+its exact work contract and the configured builder profile before it can feed
+checks or admission. The public binary still has no mutating command, claim
+loop, native CLI adapter, verifier verdict, retry policy, or integration path.
 `sworn board` remains a read-only projection of committed engine truth. See [ADR
-0005](adr/0005-native-builder-recovery.md).
+0005](adr/0005-native-builder-recovery.md) and [ADR
+0006](adr/0006-current-authority-controller.md).
