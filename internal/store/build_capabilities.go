@@ -14,21 +14,21 @@ import (
 )
 
 const (
-	buildCapabilityClaimed uint32 = iota + 1
-	buildCapabilityPrepared
-	buildCapabilityConsumed
-	buildCapabilityProven
+	effectCapabilityClaimed uint32 = iota + 1
+	effectCapabilityPrepared
+	effectCapabilityConsumed
+	effectCapabilityProven
 )
 
-// buildCapabilityState is deliberately shared by every value copy of an
+// effectCapabilityState is deliberately shared by every value copy of an
 // opaque capability. Its atomic phase closes copied-value and concurrent-use
 // races without pretending the process-local token survives a restart.
-type buildCapabilityState struct {
+type effectCapabilityState struct {
 	phase atomic.Uint32
 }
 
-func newBuildCapabilityState(phase uint32) *buildCapabilityState {
-	state := new(buildCapabilityState)
+func newEffectCapabilityState(phase uint32) *effectCapabilityState {
+	state := new(effectCapabilityState)
 	state.phase.Store(phase)
 	return state
 }
@@ -45,10 +45,10 @@ func (lease PreparedAuthorizedBuildLease) RunBuilder(
 		lease.effect.OwnerID != lease.permitRequest.ControllerID || run == nil {
 		return nil, errors.New("builder execution requires a prepared Store capability")
 	}
-	resultErr = lease.ownership.withActiveBuildOperation(
+	resultErr = lease.ownership.withActiveOperation(
 		lease.control, lease.permitRequest.ControllerID, func() error {
 			if !lease.capability.phase.CompareAndSwap(
-				buildCapabilityPrepared, buildCapabilityConsumed,
+				effectCapabilityPrepared, effectCapabilityConsumed,
 			) {
 				return errors.New("prepared builder execution capability was already consumed")
 			}
@@ -68,7 +68,7 @@ func (lease PreparedAuthorizedBuildLease) RunBuilder(
 type BoundBuildCleanupLease struct {
 	issuer     *leaseIssuer
 	effect     Effect
-	capability *buildCapabilityState
+	capability *effectCapabilityState
 	control    *Store
 	ownership  *ControllerOwnership
 	ownerID    string
@@ -85,10 +85,10 @@ func (lease BoundBuildCleanupLease) RunBuilderCleanup(
 		len(lease.effect.Result) == 0 || cleanup == nil {
 		return errors.New("builder cleanup requires a bound Store recovery capability")
 	}
-	return lease.ownership.withRecoveryBuildOperation(
+	return lease.ownership.withRecoveryOperation(
 		lease.control, lease.ownerID, func() error {
 			if !lease.capability.phase.CompareAndSwap(
-				buildCapabilityPrepared, buildCapabilityConsumed,
+				effectCapabilityPrepared, effectCapabilityConsumed,
 			) {
 				return errors.New("builder cleanup capability was already consumed")
 			}
@@ -148,7 +148,7 @@ func (s *Store) PrepareControlledBoundBuildCleanup(
 	}
 	return BoundBuildCleanupLease{
 		issuer: s.leaseIssuer, effect: cloneEffect(effect),
-		capability: newBuildCapabilityState(buildCapabilityPrepared), control: s,
+		capability: newEffectCapabilityState(effectCapabilityPrepared), control: s,
 		ownership: ownership, ownerID: ownerID,
 	}, nil
 }
@@ -203,7 +203,7 @@ func (s *Store) validateBoundNativeBuildAttempt(
 // ambiguity without repeating external cleanup.
 type BuildRetryProof struct {
 	issuer        *leaseIssuer
-	capability    *buildCapabilityState
+	capability    *effectCapabilityState
 	effectID      string
 	effectAttempt int64
 	identity      engine.BuildAttemptIdentity
@@ -229,10 +229,10 @@ func (lease BuildRecoveryLease) ReconcileBuilder(
 		len(lease.effect.Result) != 0 || reconcile == nil {
 		return BuildRetryProof{}, errors.New("builder reconciliation requires an unbound Store recovery capability")
 	}
-	resultErr = lease.ownership.withRecoveryBuildOperation(
+	resultErr = lease.ownership.withRecoveryOperation(
 		lease.control, lease.ownerID, func() error {
 			if !lease.capability.phase.CompareAndSwap(
-				buildCapabilityPrepared, buildCapabilityConsumed,
+				effectCapabilityPrepared, effectCapabilityConsumed,
 			) {
 				return errors.New("builder reconciliation capability was already consumed")
 			}
@@ -246,7 +246,7 @@ func (lease BuildRecoveryLease) ReconcileBuilder(
 				return errors.New("build retry proof does not match its exact recovery capability")
 			}
 			if !lease.capability.phase.CompareAndSwap(
-				buildCapabilityConsumed, buildCapabilityProven,
+				effectCapabilityConsumed, effectCapabilityProven,
 			) {
 				return errors.New("build retry proof was already sealed")
 			}

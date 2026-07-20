@@ -360,10 +360,10 @@ func (ownership *ControllerOwnership) ValidateActive(control *Store, ownerID str
 	return ownership.validate(control, ownerID, controllerOwnershipActive)
 }
 
-// withActiveBuildOperation retains active ownership for the complete external
+// withActiveOperation retains active ownership for the complete external
 // builder callback. Close and successor recovery cannot begin between the
 // capability's one-shot entry and the callback returning.
-func (ownership *ControllerOwnership) withActiveBuildOperation(
+func (ownership *ControllerOwnership) withActiveOperation(
 	control *Store,
 	ownerID string,
 	operation func() error,
@@ -371,9 +371,9 @@ func (ownership *ControllerOwnership) withActiveBuildOperation(
 	return ownership.withBuildOperation(control, ownerID, controllerOwnershipActive, operation)
 }
 
-// withRecoveryBuildOperation retains recovery ownership for the complete
+// withRecoveryOperation retains recovery ownership for the complete
 // cleanup or reconciliation callback.
-func (ownership *ControllerOwnership) withRecoveryBuildOperation(
+func (ownership *ControllerOwnership) withRecoveryOperation(
 	control *Store,
 	ownerID string,
 	operation func() error,

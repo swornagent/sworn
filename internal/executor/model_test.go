@@ -162,6 +162,28 @@ func TestExecutableInputRequiresExactExistingInputAndArgv(t *testing.T) {
 	}
 }
 
+func TestValidateExecutableArgv(t *testing.T) {
+	t.Parallel()
+	if err := ValidateExecutableArgv("codex", []string{"/inputs/codex", "exec"}); err != nil {
+		t.Fatalf("validate executable argv: %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		input string
+		argv  []string
+	}{
+		{name: "invalid selector", input: "../codex", argv: []string{"/inputs/../codex"}},
+		{name: "missing argv", input: "codex"},
+		{name: "wrong entrypoint", input: "codex", argv: []string{"/usr/bin/codex"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateExecutableArgv(test.input, test.argv); err == nil {
+				t.Fatal("invalid executable argv was accepted")
+			}
+		})
+	}
+}
+
 func testDigest(character string) string {
 	return "sha256:" + strings.Repeat(character, 64)
 }

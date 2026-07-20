@@ -36,6 +36,7 @@ var migrationNames = []string{
 	"migrations/005_atomic_admission.sql",
 	"migrations/006_bound_result_recovery.sql",
 	"migrations/007_attempt_bound_retry.sql",
+	"migrations/008_local_check_retry.sql",
 }
 
 type Store struct {
@@ -245,6 +246,19 @@ func (s *Store) RequireBuilderConfiguration(dispatchDigest string, binding repo.
 	}
 	if s.repository == nil || s.repository.Binding() != binding {
 		return errors.New("control store does not match the native builder repository")
+	}
+	return nil
+}
+
+// RequireCheckConfiguration closes the composition boundary before a local
+// check worker can receive a controlled execution capability.
+func (s *Store) RequireCheckConfiguration(runtimeDigest string, binding repo.Binding) error {
+	if s.readOnly || !engine.ValidDigest(runtimeDigest) ||
+		s.localCheckRuntimeManifestDigest != runtimeDigest {
+		return errors.New("control store does not match the local-check runtime")
+	}
+	if s.repository == nil || s.repository.Binding() != binding {
+		return errors.New("control store does not match the local-check repository")
 	}
 	return nil
 }

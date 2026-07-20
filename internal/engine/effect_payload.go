@@ -91,6 +91,24 @@ func ParseBuildAttemptIdentity(encoded json.RawMessage) (BuildAttemptIdentity, e
 	return identity, nil
 }
 
+func EncodeCheckAttemptIdentity(identity CheckAttemptIdentity) (json.RawMessage, error) {
+	if err := validateCheckAttemptIdentity(identity); err != nil {
+		return nil, err
+	}
+	return encodeCanonicalEffectPayload(identity, "check attempt identity")
+}
+
+func ParseCheckAttemptIdentity(encoded json.RawMessage) (CheckAttemptIdentity, error) {
+	identity, err := decodeCanonicalEffectPayload[CheckAttemptIdentity](encoded, "check attempt identity")
+	if err != nil {
+		return CheckAttemptIdentity{}, err
+	}
+	if err := validateCheckAttemptIdentity(identity); err != nil {
+		return CheckAttemptIdentity{}, err
+	}
+	return identity, nil
+}
+
 func ParseBuildEffectResult(encoded json.RawMessage) (BuildEffectResult, error) {
 	result, err := decodeCanonicalEffectPayload[BuildEffectResult](encoded, "build effect result")
 	if err != nil {
@@ -192,6 +210,16 @@ func validateBuildAttemptIdentity(identity BuildAttemptIdentity) error {
 	)
 	if err != nil || identity != expected {
 		return errors.New("invalid build attempt identity")
+	}
+	return nil
+}
+
+func validateCheckAttemptIdentity(identity CheckAttemptIdentity) error {
+	expected, err := CheckAttemptIdentityFor(
+		identity.EffectID, identity.EffectAttempt, identity.RuntimeManifestDigest,
+	)
+	if err != nil || identity != expected {
+		return errors.New("invalid check attempt identity")
 	}
 	return nil
 }

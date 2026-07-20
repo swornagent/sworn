@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
@@ -22,7 +23,7 @@ import (
 
 const (
 	builderDispatchSchemaVersion = "sworn-builder-dispatch-v1"
-	builderProfileSchemaVersion  = "sworn-builder-profile-v1"
+	builderProfileSchemaVersion  = "sworn-builder-profile-v2"
 )
 
 // BuilderControl exposes only the durable state and exact plan needed to
@@ -44,19 +45,37 @@ type BuilderRunner interface {
 	ReconcileWritable(context.Context, string) (executor.WritableCleanup, error)
 }
 
+// BuilderCompletionPolicy is the adapter-owned semantic completion boundary.
+// Its digest is part of the immutable builder profile; the policy may inspect
+// bounded raw process output but cannot replace measured Git candidate truth.
+type BuilderCompletionPolicy interface {
+	BuilderProfileDigest() string
+	ValidateBuilderCompletion(executor.RawCompletion) error
+}
+
 // BuilderWorker executes one Store-authorized builder operation. It never
 // claims an effect, binds a result, publishes a Git ref, or completes journal
 // state. Every effectful entry point consumes one narrow Store-issued
 // capability before it can reach an executor, Git, or attempt workspace.
 type BuilderWorker struct {
-	Control       BuilderControl
-	Runner        BuilderRunner
-	Repository    *repo.Repository
-	WorkspaceRoot string
-	Agent         string
-	Argv          []string
-	Environment   map[string]string
-	Timeout       time.Duration
+	Control          BuilderControl
+	Runner           BuilderRunner
+	Repository       *repo.Repository
+	WorkspaceRoot    string
+	Agent            string
+	Argv             []string
+	Environment      map[string]string
+	Timeout          time.Duration
+	ExecutableInput  *executor.Input
+	Network          executor.NetworkMode
+	NestedSandbox    bool
+	CompletionPolicy BuilderCompletionPolicy
+}
+
+type builderExecutableInput struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
 }
 
 type builderProfile struct {
@@ -70,13 +89,20 @@ type builderProfile struct {
 	TimeoutNanoseconds          int64                    `json:"timeout_nanoseconds"`
 	Network                     executor.NetworkMode     `json:"network"`
 	WorkspaceAccess             executor.WorkspaceAccess `json:"workspace_access"`
+	NestedSandbox               bool                     `json:"nested_sandbox"`
+	ExecutableInput             *builderExecutableInput  `json:"executable_input,omitempty"`
+	CompletionPolicyDigest      string                   `json:"completion_policy_digest,omitempty"`
 }
 
 type buildConfiguration struct {
-	digest      string
-	argv        []string
-	environment map[string]string
-	limits      executor.Limits
+	digest           string
+	argv             []string
+	environment      map[string]string
+	limits           executor.Limits
+	executableInput  *executor.Input
+	network          executor.NetworkMode
+	nestedSandbox    bool
+	completionPolicy BuilderCompletionPolicy
 }
 
 // DispatchDigest binds every process-local choice which can change builder
@@ -99,8 +125,24 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 	if !protocol.ValidNonEmpty(worker.Agent) || len(worker.Agent) > 512 {
 		return buildConfiguration{}, errors.New("builder worker requires a bounded agent identity")
 	}
-	if err := executor.ValidateArgv(worker.Argv); err != nil {
-		return buildConfiguration{}, fmt.Errorf("validate builder argv: %w", err)
+	var executableInput *executor.Input
+	if worker.ExecutableInput == nil {
+		if err := executor.ValidateArgv(worker.Argv); err != nil {
+			return buildConfiguration{}, fmt.Errorf("validate builder argv: %w", err)
+		}
+	} else {
+		selected := *worker.ExecutableInput
+		if selected.Name == "dispatch" || selected.Name == "plan" {
+			return buildConfiguration{}, errors.New("builder executable input collides with an engine input")
+		}
+		if !filepath.IsAbs(selected.Path) || filepath.Clean(selected.Path) != selected.Path ||
+			!engine.ValidDigest(selected.Digest) {
+			return buildConfiguration{}, errors.New("builder executable input is not exact")
+		}
+		if err := executor.ValidateExecutableArgv(selected.Name, worker.Argv); err != nil {
+			return buildConfiguration{}, fmt.Errorf("validate builder argv: %w", err)
+		}
+		executableInput = &selected
 	}
 	limits := worker.Runner.EffectiveLimits()
 	if err := limits.Validate(); err != nil {
@@ -117,6 +159,20 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 	if err := binding.Validate(); err != nil {
 		return buildConfiguration{}, fmt.Errorf("validate builder repository binding: %w", err)
 	}
+	network := worker.Network
+	if network == "" {
+		network = executor.NetworkNone
+	}
+	if network != executor.NetworkNone && network != executor.NetworkHost {
+		return buildConfiguration{}, errors.New("builder network mode is invalid")
+	}
+	completionPolicyDigest := ""
+	if worker.CompletionPolicy != nil {
+		completionPolicyDigest = worker.CompletionPolicy.BuilderProfileDigest()
+		if !engine.ValidDigest(completionPolicyDigest) {
+			return buildConfiguration{}, errors.New("builder completion policy lacks an exact profile digest")
+		}
+	}
 	profile := builderProfile{
 		SchemaVersion:               builderProfileSchemaVersion,
 		ExecutorConfigurationDigest: executorDigest,
@@ -126,8 +182,15 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 		Argv:                        slices.Clone(worker.Argv),
 		EnvironmentNames:            sortedEnvironmentNames(worker.Environment),
 		TimeoutNanoseconds:          worker.Timeout.Nanoseconds(),
-		Network:                     executor.NetworkNone,
+		Network:                     network,
 		WorkspaceAccess:             executor.WorkspaceWritableExport,
+		NestedSandbox:               worker.NestedSandbox,
+		CompletionPolicyDigest:      completionPolicyDigest,
+	}
+	if executableInput != nil {
+		profile.ExecutableInput = &builderExecutableInput{
+			Name: executableInput.Name, Path: executableInput.Path, Digest: executableInput.Digest,
+		}
 	}
 	canonical, err := protocol.EncodeCanonical(profile)
 	if err != nil {
@@ -136,6 +199,8 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 	return buildConfiguration{
 		digest: protocol.RawDigest(canonical), argv: profile.Argv,
 		environment: cloneEnvironment(worker.Environment), limits: limits,
+		executableInput: executableInput, network: network,
+		nestedSandbox: worker.NestedSandbox, completionPolicy: worker.CompletionPolicy,
 	}, nil
 }
 
@@ -331,14 +396,24 @@ func (worker BuilderWorker) run(
 		{Name: "dispatch", Path: dispatchPath, Digest: protocol.RawDigest(dispatchBytes)},
 		{Name: "plan", Path: planPath, Digest: protocol.RawDigest(planRecord.CanonicalJSON)},
 	}
+	executableInput := ""
+	if configuration.executableInput != nil {
+		inputs = append(inputs, *configuration.executableInput)
+		executableInput = configuration.executableInput.Name
+	}
+	slices.SortFunc(inputs, func(left, right executor.Input) int {
+		return strings.Compare(left.Name, right.Name)
+	})
 	invocation := executor.Invocation{
 		SchemaVersion: executor.InvocationSchemaVersion,
 		ID:            build.identity.InvocationID, Role: "builder",
 		Workspace: base.Path, WorkspaceDigest: manifest,
 		WorkspaceAccess: executor.WorkspaceWritableExport,
-		Inputs:          inputs, Argv: slices.Clone(configuration.argv),
+		Inputs:          inputs, ExecutableInput: executableInput,
+		Argv:        slices.Clone(configuration.argv),
 		Environment: cloneEnvironment(configuration.environment),
-		Network:     executor.NetworkNone, Timeout: worker.Timeout,
+		Network:     configuration.network, NestedSandbox: configuration.nestedSandbox,
+		Timeout: worker.Timeout,
 	}
 	invoked = true
 	completion, runErr := worker.Runner.RunWritable(ctx, invocation)
@@ -351,6 +426,11 @@ func (worker BuilderWorker) run(
 	}
 	if err := validateBuilderCompletion(completion, invocation, inputs); err != nil {
 		return nil, err
+	}
+	if configuration.completionPolicy != nil {
+		if err := configuration.completionPolicy.ValidateBuilderCompletion(completion); err != nil {
+			return nil, fmt.Errorf("validate adapter builder completion: %w", err)
+		}
 	}
 	if err := worker.Runner.ValidateExport(ctx, *completion.Export); err != nil {
 		return nil, fmt.Errorf("validate builder workspace export: %w", err)

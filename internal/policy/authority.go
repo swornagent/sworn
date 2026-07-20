@@ -22,12 +22,13 @@ const (
 	AuthorityProofSchemaVersion = "sworn-authority-proof-v1"
 	AuthorityReceiptKind        = protocol.ControlReceiptSchemaVersion
 	BuildExecutionPurpose       = "build.execute"
+	CheckExecutionPurpose       = "check.execute"
 
 	MaximumAuthoritySourceBytes = 64 << 10
 	MaximumAuthorityProofBytes  = 16 << 10
 
-	proofSignatureDomain       = "sworn/authority-proof/v1\x00"
-	currentBuildPermitLifetime = 30 * time.Second
+	proofSignatureDomain        = "sworn/authority-proof/v1\x00"
+	currentEffectPermitLifetime = 30 * time.Second
 )
 
 // Resolver returns the exact source and detached proof presented for one exact
@@ -113,6 +114,63 @@ type CurrentBuildPermit struct {
 
 // Facts returns a non-authorizing copy of the permit's exact bindings.
 func (permit CurrentBuildPermit) Facts() BuildPermitFacts { return permit.binding.facts }
+
+// CheckPermitRequest is the complete controller-owned identity of one pending
+// local check. Store separately rejoins it to the exact policy-ordered dispatch
+// before granting execution capability.
+type CheckPermitRequest struct {
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	WorkID                string
+	WorkAttempt           int64
+	Contract              protocol.ExactWorkContract
+	BuilderEffectID       string
+	CheckEffectID         string
+	CheckID               string
+	DefinitionDigest      string
+	RuntimeManifestDigest string
+}
+
+// CheckPermitFacts is the immutable, non-authorizing projection of a current
+// check permit.
+type CheckPermitFacts struct {
+	Purpose               string
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	PlanDigest            string
+	WorkID                string
+	WorkAttempt           int64
+	WorkContractDigest    string
+	BuilderEffectID       string
+	CheckEffectID         string
+	CheckID               string
+	DefinitionDigest      string
+	RuntimeManifestDigest string
+	SourceRef             string
+	SourceVersion         int64
+	SourceDigest          string
+	AuthorizedAt          string
+}
+
+type checkPermitBinding struct {
+	facts           CheckPermitFacts
+	authorityDigest string
+	validFrom       string
+	validUntil      string
+}
+
+// CurrentCheckPermit is an opaque, short-lived capability for exactly one
+// pending check claim. It remains bound to the Authority instance which freshly
+// resolved and authenticated it.
+type CurrentCheckPermit struct {
+	authority *Authority
+	plan      protocol.ExactPlan
+	binding   checkPermitBinding
+}
+
+func (permit CurrentCheckPermit) Facts() CheckPermitFacts { return permit.binding.facts }
 
 // RequireLedger proves that this Authority was constructed with the exact
 // pointer-backed ledger supplied by its controller. Non-pointer ledger
@@ -256,6 +314,71 @@ func (authority *Authority) AuthorizeBuild(
 	}, nil
 }
 
+// AuthorizeCheck freshly resolves and authenticates current authority for one
+// exact local-check claim. Historical approval is not an execution permit.
+func (authority *Authority) AuthorizeCheck(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+	request CheckPermitRequest,
+) (CurrentCheckPermit, error) {
+	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
+		return CurrentCheckPermit{}, errors.New("authority service is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	if err := validateCheckPermitRequest(plan, request); err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	currentLedger, ok := authority.ledger.(CurrentAuthorityLedger)
+	if !ok {
+		return CurrentCheckPermit{}, errors.New("authority ledger cannot assert the current source head")
+	}
+	preparedSource, authenticatedAt, err := authority.resolveAuthenticatedSource(ctx, plan)
+	if err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	if err := currentLedger.PutCurrentAuthoritySource(ctx, preparedSource); err != nil {
+		return CurrentCheckPermit{}, fmt.Errorf("persist current authority source: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return CurrentCheckPermit{}, errors.New("authority clock must return explicit UTC")
+	}
+	if now.Before(authenticatedAt) {
+		return CurrentCheckPermit{}, errors.New("authority clock moved backward during current authorization")
+	}
+	if err := validateCurrentSourceWindow(preparedSource, now); err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	if err := validateRequiredCheckGrants(plan, &preparedSource); err != nil {
+		return CurrentCheckPermit{}, err
+	}
+	facts := CheckPermitFacts{
+		Purpose: CheckExecutionPurpose, ControllerID: request.ControllerID,
+		RunID: request.RunID, StateRevision: request.StateRevision,
+		PlanDigest: plan.Record().Digest, WorkID: request.WorkID,
+		WorkAttempt: request.WorkAttempt, WorkContractDigest: request.Contract.Digest(),
+		BuilderEffectID: request.BuilderEffectID, CheckEffectID: request.CheckEffectID,
+		CheckID: request.CheckID, DefinitionDigest: request.DefinitionDigest,
+		RuntimeManifestDigest: request.RuntimeManifestDigest,
+		SourceRef:             preparedSource.facts.SourceRef, SourceVersion: preparedSource.facts.SourceVersion,
+		SourceDigest: preparedSource.facts.SourceCanonicalDigest,
+		AuthorizedAt: now.Format(time.RFC3339Nano),
+	}
+	return CurrentCheckPermit{
+		authority: authority,
+		plan:      plan,
+		binding: checkPermitBinding{
+			facts: facts, authorityDigest: preparedSource.facts.AuthorityDigest,
+			validFrom: preparedSource.facts.ValidFrom, validUntil: preparedSource.facts.ValidUntil,
+		},
+	}, nil
+}
+
 // ValidateBuildPermit accepts only an unexpired permit minted by this exact
 // Authority instance for the same complete controller request. It performs no
 // I/O: callers must therefore authorize immediately before dispatch rather
@@ -307,7 +430,7 @@ func (authority *Authority) ValidateBuildPermit(
 	}
 	authorizedAt, err := time.Parse(time.RFC3339Nano, permit.binding.facts.AuthorizedAt)
 	if err != nil || authorizedAt.Location() != time.UTC || now.Before(authorizedAt) ||
-		now.Sub(authorizedAt) >= currentBuildPermitLifetime {
+		now.Sub(authorizedAt) >= currentEffectPermitLifetime {
 		return errors.New("build permit is stale")
 	}
 	nowValue := now.Format(time.RFC3339Nano)
@@ -315,6 +438,71 @@ func (authority *Authority) ValidateBuildPermit(
 	nowToUntil, untilErr := protocol.CompareDateTimes(nowValue, permit.binding.validUntil)
 	if fromErr != nil || untilErr != nil || fromToNow > 0 || nowToUntil >= 0 {
 		return errors.New("build permit authority is no longer current")
+	}
+	return nil
+}
+
+// ValidateCheckPermit accepts only an unexpired permit minted by this exact
+// Authority instance for the same complete check request. It performs no I/O.
+func (authority *Authority) ValidateCheckPermit(
+	permit CurrentCheckPermit,
+	request CheckPermitRequest,
+) error {
+	if authority == nil || authority.resolver == nil || authority.ledger == nil || authority.now == nil {
+		return errors.New("authority service is not initialized")
+	}
+	if permit.authority != authority {
+		return errors.New("check permit belongs to another authority service")
+	}
+	if permit.binding.facts.Purpose != CheckExecutionPurpose {
+		return errors.New("check permit has the wrong purpose")
+	}
+	if err := validateCheckPermitRequest(permit.plan, request); err != nil {
+		return err
+	}
+	planRecord := permit.plan.Record()
+	planAuthority := permit.plan.Authority()
+	if permit.binding.facts.PlanDigest != planRecord.Digest ||
+		permit.binding.authorityDigest != planAuthority.Digest ||
+		permit.binding.facts.SourceRef != planAuthority.SourceRef ||
+		!protocol.ValidPositiveSafeInteger(permit.binding.facts.SourceVersion) ||
+		!protocol.ValidDigest(permit.binding.facts.SourceDigest) {
+		return errors.New("check permit no longer matches its exact authority")
+	}
+	want := permit.binding.facts
+	want.Purpose = CheckExecutionPurpose
+	want.ControllerID = request.ControllerID
+	want.RunID = request.RunID
+	want.StateRevision = request.StateRevision
+	want.PlanDigest = planRecord.Digest
+	want.WorkID = request.WorkID
+	want.WorkAttempt = request.WorkAttempt
+	want.WorkContractDigest = request.Contract.Digest()
+	want.BuilderEffectID = request.BuilderEffectID
+	want.CheckEffectID = request.CheckEffectID
+	want.CheckID = request.CheckID
+	want.DefinitionDigest = request.DefinitionDigest
+	want.RuntimeManifestDigest = request.RuntimeManifestDigest
+	if permit.binding.facts != want {
+		return errors.New("check permit does not match the exact execution request")
+	}
+	if err := validateRequiredCheckGrants(permit.plan, nil); err != nil {
+		return err
+	}
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return errors.New("authority clock must return explicit UTC")
+	}
+	authorizedAt, err := time.Parse(time.RFC3339Nano, permit.binding.facts.AuthorizedAt)
+	if err != nil || authorizedAt.Location() != time.UTC || now.Before(authorizedAt) ||
+		now.Sub(authorizedAt) >= currentEffectPermitLifetime {
+		return errors.New("check permit is stale")
+	}
+	nowValue := now.Format(time.RFC3339Nano)
+	fromToNow, fromErr := protocol.CompareDateTimes(permit.binding.validFrom, nowValue)
+	nowToUntil, untilErr := protocol.CompareDateTimes(nowValue, permit.binding.validUntil)
+	if fromErr != nil || untilErr != nil || fromToNow > 0 || nowToUntil >= 0 {
+		return errors.New("check permit authority is no longer current")
 	}
 	return nil
 }
@@ -791,6 +979,27 @@ func validateRequiredBuildGrants(plan protocol.ExactPlan, source *PreparedSource
 	return nil
 }
 
+func validateRequiredCheckGrants(plan protocol.ExactPlan, source *PreparedSource) error {
+	required := []string{"inspect", "execute"}
+	for _, grant := range plan.Authority().Grants {
+		for index, action := range required {
+			if grant.Action() == action {
+				if source != nil {
+					if _, allowed := source.grants[string(grant.CanonicalJSON())]; !allowed {
+						return fmt.Errorf("current authority source lacks %s workspace grant", action)
+					}
+				}
+				required = append(required[:index], required[index+1:]...)
+				break
+			}
+		}
+	}
+	if len(required) != 0 {
+		return fmt.Errorf("check authority requires %s workspace grant", required[0])
+	}
+	return nil
+}
+
 func validateBuildPermitRequest(plan protocol.ExactPlan, request BuildPermitRequest) error {
 	planRecord := plan.Record()
 	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
@@ -808,6 +1017,29 @@ func validateBuildPermitRequest(plan protocol.ExactPlan, request BuildPermitRequ
 	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
 		request.Contract != exactContract || exactContract.Digest() != contractDigest {
 		return errors.New("build permit request does not match the exact work contract")
+	}
+	return nil
+}
+
+func validateCheckPermitRequest(plan protocol.ExactPlan, request CheckPermitRequest) error {
+	planRecord := plan.Record()
+	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
+		return errors.New("check permit requires an exact delivery plan")
+	}
+	if !protocol.ValidID(request.ControllerID) || !protocol.ValidID(request.RunID) ||
+		!protocol.ValidPositiveSafeInteger(request.StateRevision) || !protocol.ValidID(request.WorkID) ||
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) ||
+		!protocol.ValidID(request.BuilderEffectID) || !protocol.ValidID(request.CheckEffectID) ||
+		request.BuilderEffectID == request.CheckEffectID || !protocol.ValidID(request.CheckID) ||
+		!protocol.ValidDigest(request.DefinitionDigest) || !protocol.ValidDigest(request.RuntimeManifestDigest) {
+		return errors.New("check permit request has invalid controller or execution identity")
+	}
+	contractDigest := request.Contract.Digest()
+	contractView := request.Contract.View()
+	exactContract, exists := plan.Work(request.WorkID)
+	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
+		request.Contract != exactContract || exactContract.Digest() != contractDigest {
+		return errors.New("check permit request does not match the exact work contract")
 	}
 	return nil
 }

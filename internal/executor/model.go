@@ -151,6 +151,18 @@ type writableCleanupProof struct{}
 
 func (cleanup WritableCleanup) InvocationID() string { return cleanup.invocationID }
 
+// ContentBoundCleanup is an opaque proof that one exact read-only invocation
+// was quiescent and its deterministic executor runtime residue was removed.
+// Only ReconcileContentBound can mint a non-zero proof.
+type ContentBoundCleanup struct {
+	invocationID string
+	proof        *contentBoundCleanupProof
+}
+
+type contentBoundCleanupProof struct{}
+
+func (cleanup ContentBoundCleanup) InvocationID() string { return cleanup.invocationID }
+
 type RawCompletion struct {
 	InvocationID    string           `json:"invocation_id"`
 	Unit            string           `json:"unit"`
@@ -323,6 +335,23 @@ func validateArgumentShape(argv []string) error {
 // ValidateArgv lets policy and receipt admission reject execution shapes that
 // the contained boundary cannot run, before any producer effect is attempted.
 func ValidateArgv(argv []string) error { return validateArgv(argv) }
+
+// ValidateExecutableArgv validates the direct-entrypoint form used when one
+// digest-pinned input is selected as the invocation executable. Input presence
+// and digest validation remain part of Invocation validation.
+func ValidateExecutableArgv(executableInput string, argv []string) error {
+	if !idPattern.MatchString(executableInput) {
+		return errors.New("executable input must name a valid input")
+	}
+	if err := validateArgumentShape(argv); err != nil {
+		return err
+	}
+	want := "/inputs/" + executableInput
+	if argv[0] != want {
+		return fmt.Errorf("executable input invocation must use %q", want)
+	}
+	return nil
+}
 
 func validateAbsoluteDirectory(path, label string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {

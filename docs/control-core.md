@@ -9,27 +9,29 @@ algorithm:
    reducer.
 3. Commit the command result, next state snapshot, immutable event, and any
    pending effect requests together.
-4. Only after commit may an executor claim a pending effect.
-5. A claim returns an opaque lease bound to that store instance, effect,
-   owner, and monotonically increasing attempt. A native build claim also
-   records its canonical attempt identity in the same transaction, before the
-   builder may start. Immediately before native execution, Store reloads the
-   exact current running row and attempt witness through that lease and issues
-   a prepared capability. Its shared atomic state admits exactly one worker
-   entry, which consumes it and retains controller ownership across the whole
-   synchronous callback before any executor, Git, or attempt-workspace side
-   effect. Result binding and completion require that consumed capability.
+4. Only after commit may the controller claim a pending effect. Native build and
+   local-check effects cannot be claimed through the generic journal surface.
+5. A controlled claim returns an opaque lease bound to that Store instance,
+   effect, owner, and monotonically increasing attempt. In the same transaction
+   it records a canonical attempt identity before external work may start. The
+   builder identity binds its execution profile; the check identity binds its
+   content runtime. Store reloads the exact running row and attempt witness and
+   issues a prepared capability. Its shared atomic state admits exactly one
+   worker entry and retains controller ownership across the whole synchronous
+   callback. Result binding and completion require that consumed capability.
 6. Bind one kind-specific typed result to the effect row under that live lease,
    then complete the effect in a separate compare-and-swap. The result slot may
    move once from empty to populated and is immutable thereafter.
 7. Record each claim, interruption, reconciliation, and terminal outcome as an
    immutable effect observation.
 8. If a process ends while an effect is running, change it to `unknown`.
-   `RecoverBoundEffect` may close only the exact attempt's already-bound result.
-   An unbound native build may return to pending only after Store prevalidates
-   its claim witness, issues a one-shot recovery capability, and seals the
-   worker's exact opaque proofs of no Git publication and executor cleanup into
-   a Store-owned retry proof after attempt-workspace cleanup.
+   Bound-result recovery may close only the exact attempt's already-bound typed
+   result. An unbound build may return to pending only after proof of no Git
+   publication plus complete writable cleanup. An unbound local check may return
+   only after its exact content-bound unit is quiescent and its deterministic
+   runtime and materialization roots are absent. Store prevalidates each claim,
+   issues a one-shot recovery capability, and seals the opaque lower proofs into
+   a kind-specific Store-owned retry proof.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
 which leave no durable command remain errors; they are not converted into domain
@@ -38,8 +40,8 @@ A controlled build caller must therefore keep one command ID stable for the
 same logical dispatch across an ordinary retry and process restart; generating
 a new ID cannot converge an earlier ambiguous commit.
 
-Before seeking fresh authority, `BuilderController.DispatchBuild` probes that
-command ID under active controller ownership. A missing command row is the only
+Before seeking fresh authority, the controller's guarded build dispatch probes
+that command ID under active ownership. A missing command row is the only
 `not found` result. An occupied ID is decoded as its strict stored command and
 stored result, its request digest is recomputed, and an applied result must close
 over exactly one byte-matching `build.dispatched` event and one derived native
@@ -55,15 +57,17 @@ An exact durable result wins the commit-ambiguity window; absence returns the
 original apply error, and a probe failure is joined to it. This is bounded
 convergence, not a retry policy or loop.
 
-The store-derived effect ID is also the Baton builder or producer run ID.
-`effects.run_id` remains the enclosing delivery-engine run in SQLite and is
-called `delivery_run_id` by Go and JSON APIs. A dispatch payload cannot choose a
-second invocation identity. Native build request v2 keeps `dispatch_digest` as
-the exact work-contract digest and separately binds `builder_dispatch_digest`
-to process configuration. Store derives the invocation identity from effect ID,
-attempt, and that builder digest. Completion compare-and-swaps effect ID, owner,
-and attempt together, so an old worker cannot complete a reconciled retry even
-when the same owner name is reused.
+The Store-derived effect ID is also the stable Baton builder or producer run
+ID. `effects.run_id` remains the enclosing delivery-engine run in SQLite and is
+called `delivery_run_id` by Go and JSON APIs. Native build request v2 keeps
+`dispatch_digest` as the exact work-contract digest and separately binds
+`builder_dispatch_digest` to process configuration. Store derives a builder
+invocation identity from effect ID, attempt, and that profile digest. A local
+check derives a separate executor invocation identity from effect ID, attempt,
+and content-runtime digest while retaining the effect ID in its Baton receipt.
+Completion compare-and-swaps effect ID, owner, and attempt together, so an old
+worker cannot complete a reconciled retry even when the same owner name is
+reused.
 
 `BindEffectResult` validates and stores the typed result before
 `CompleteEffect` may close the lease. Normal completion and reconciliation to
@@ -71,11 +75,12 @@ when the same owner name is reused.
 A missing result is not evidence that an external action did not happen, and an
 orphaned content-addressed artifact is not an effect result. Neither condition
 by itself permits successful recovery or retry. There is no manual
-`not_applied` or interrupted-failure transition. Schema v7 admits one
-kind-specific `unknown -> pending` path: Store must first validate the exact
-native build claim, then the worker must mint opaque attempt-bound Git and
-writable-cleanup proofs, and Store must atomically persist the byte-identical
-`not_applied` witness. Arbitrary text and legacy receipts grant no authority.
+`not_applied` or interrupted-failure transition. Schema v7 admits the exact
+native-build `unknown -> pending` path. Schema v8 adds only the corresponding
+local-check path: Store validates the exact claim, a one-shot worker capability
+proves content-bound quiescence and cleanup, and Store atomically persists the
+byte-identical attempt-identity witness. Arbitrary text, orphan artifacts, and
+legacy receipts grant no authority.
 
 Native build completion and recovery additionally reparse the bound result
 through the configured repository. They require request v2, both exact digests,
@@ -91,17 +96,18 @@ artifact and semantic closure.
 
 Effect ID plus attempt is the replay identity; the reconciler ID attributes the
 process that wins the transition and is not part of idempotency. Replay repeats
-kind-specific validation and Git repair but adds no second observation. Schema
-v6 refuses earlier manual requeues, while schema v7 refuses any pre-v7
-`not_applied`, non-NULL claim witness, or live legacy build rather than
-reinterpret history as machine authority.
+kind-specific validation and any required external repair but adds no second
+observation. Schema v6 refuses earlier manual requeues, schema v7 refuses unsafe
+pre-v7 build history, and schema v8 refuses an ambiguous pre-v8 unbound running
+or unknown local check rather than reinterpret history as machine authority.
 
-`internal/control.BuilderService` is the shipped sequencing join. It
-validates that Store and worker share the exact builder profile and repository,
-then fixes `Store preflight -> run -> bind -> Store publish -> complete`. A
-foreign, stale, changed, or already-bound lease stops before agent code can run.
-Its startup barrier first marks interrupted work unknown and resolves every
-stopped effect.
+`internal/control` is the shipped sequencing join. `BuilderService` validates
+that Store and worker share the exact builder profile and repository, then fixes
+`Store preflight -> run -> bind -> Store publish -> complete`. `CheckService`
+fixes the corresponding content-bound check order without exposing a raw worker
+entry point. `Controller` owns the startup recovery barrier and the sole bounded
+builder-to-reviewable convergence. A foreign, stale, changed, or already-bound
+lease stops before external code can run.
 
 `internal/store` now supplies the ownership which that barrier previously
 assumed. On Linux, before SQLite first connects it retains the exact database
@@ -117,9 +123,10 @@ process-ownership boundary.
 Ownership begins in a recovery-only phase. Store recovery mutations require
 that exact capability, and activation transactionally proves that no running
 or unknown effect remains. Only the resulting active capability can dispatch,
-claim, prepare, bind, or complete a native build. Raw `build.dispatch` is
-rejected, generic claims skip builds, and generic result APIs cannot consume a
-native-build lease.
+claim, prepare, bind, or complete a native build or local check. Raw
+`build.dispatch` is rejected, generic claims skip both controlled effect kinds,
+and generic bind, completion, failure, and recovery APIs cannot consume their
+leases.
 
 The controller observes an exact durable dispatch outcome without re-resolving
 authority because replay neither mutates state nor grants effect authority. A
@@ -143,7 +150,18 @@ began. The consumed capability carries that exact attempt through result
 binding and completion without turning the 30-second permit into a runtime
 limit.
 
-Recovery uses the same contraction. Store issues a one-shot
+Check dispatch is a deterministic historical transaction and therefore does
+not mint a permit. Before each exact pending check is claimed, the controller
+reloads its policy-ordered request and freshly re-resolves authority. The
+short-lived permit binds controller, run and revision, plan, work attempt and
+contract, builder and check effect IDs, check definition, content runtime, and
+current source. Store rejoins those facts to active ownership, the durable
+source high-water mark, and the exact next pending row before issuing one
+prepared check lease. The plan and current source need only the check's
+`inspect` and `execute` grants. Admission remains an effect-free historical
+transaction over completed evidence and does not reuse an execution permit.
+
+Build recovery uses the same contraction. Store issues a one-shot
 `BoundBuildCleanupLease` only for an exact unknown attempt with a valid durable
 result, and a one-shot `BuildRecoveryLease` only for an exact unknown unbound
 attempt. Cleanup and reconciliation consume their respective capabilities
@@ -158,14 +176,24 @@ attempt remains unknown, which permits convergence after a partial failure.
 Each callback retains recovery ownership through cleanup and proof sealing. The
 raw algorithms are package-private behind these gated entry points.
 
+For a bound local check, the existing typed-result recovery path repeats the
+complete receipt, artifact, definition, environment, and candidate closure. For
+an unbound local check, Store issues a one-shot `CheckRecoveryLease` only after
+validating the exact attempt identity and configured runtime. The worker proves
+the deterministic content-bound unit quiescent, removes its runtime and
+candidate materialization roots, and returns an opaque cleanup proof. Store
+seals that proof to the issuance before schema v8 permits the exact attempt to
+return to pending. Orphan CAS objects are harmless but never sufficient proof.
+
 A failed controlled claim, or any failure after claim, releases ownership and
-forces the next process through recovery. The controller performs one explicit
-step; it does not poll, choose retry policy, execute checks, or own a public
-loop. Controlled dispatch now converges an exact historical command outcome
-before fresh authority and once more for up to five seconds after an apply
-error. It reuses the existing command, event, effect, plan, and run records; it
-adds no schema migration, workflow framework, or runtime dependency. See [ADR
-0006](adr/0006-current-authority-controller.md).
+forces the next process through recovery. `AdvanceToReviewable` derives three
+stable domain-separated command IDs from run, work, and attempt, then performs
+one bounded builder, ordered-check, and admission convergence. It does not poll,
+choose repair policy, advance another work item, obtain a verifier verdict, or
+own a public loop. Controlled dispatch still converges an exact historical
+command outcome before fresh authority and once more for up to five seconds
+after an apply error. See [ADR 0006](adr/0006-current-authority-controller.md)
+and [ADR 0008](adr/0008-builder-to-reviewable-production-vertical.md).
 
 ## SQLite ownership
 
@@ -192,10 +220,10 @@ The database contains:
 SQL triggers forbid mutation of immutable history, illegal revision jumps,
 effect request rewrites, effect deletion, invalid effect-state transitions, and
 every `unknown -> pending` or `unknown -> failed` transition except the exact
-build-witness pair introduced in schema v7. Partial unique indexes permit only
-one claim and one retry witness per effect attempt. Store validation, not SQL
-shape alone, proves the typed result, opaque cleanup capabilities, and external
-Git closure.
+machine-witnessed build and check paths introduced in schemas v7 and v8.
+Partial unique indexes permit only one claim and one retry witness per effect
+attempt. Store validation, not SQL shape alone, proves the typed result, opaque
+cleanup capabilities, external Git closure, and content-bound check cleanup.
 The partial unique target index prevents two non-terminal runs from owning the
 same repository and target.
 
@@ -225,11 +253,13 @@ Schema v5 rebuilds `submission_records` without copying earlier structural
 identities. Their records remain content-addressed archaeology, but no legacy
 row is treated as journal-backed admission proof.
 
-Reviewable is not `PASS` and a current build permit grants nothing to checks,
-verification, `PASS`, or integration. A native v2 builder result must match both
-its exact work contract and the configured builder profile before it can feed
-checks or admission. The public binary still has no mutating command, claim
-loop, native CLI adapter, verifier verdict, retry policy, or integration path.
-`sworn board` remains a read-only projection of committed engine truth. See [ADR
-0005](adr/0005-native-builder-recovery.md) and [ADR
-0006](adr/0006-current-authority-controller.md).
+Reviewable is not `PASS`. A build permit grants nothing to checks; each pending
+check receives a separate current permit bound to its exact effect and runtime.
+Neither permit grants verification, `PASS`, or integration. A native v2 builder
+result must match both its exact work contract and the configured builder
+profile before it can feed checks or admission. The public binary exposes one
+bounded mutating command, not a claim loop: `sworn run` converges only the
+selected current work item to reviewable. There is still no verifier verdict,
+repair policy, scheduler, or integration path. `sworn board` remains a read-only
+projection of committed engine truth. See [ADR
+0008](adr/0008-builder-to-reviewable-production-vertical.md).

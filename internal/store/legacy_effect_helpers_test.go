@@ -37,21 +37,21 @@ func (s *Store) bindEffectResultForStoreTest(
 	lease EffectLease,
 	result json.RawMessage,
 ) error {
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
 		return s.bindEffectResult(ctx, lease, result, nil)
 	}
 	return s.BindEffectResult(ctx, lease, result)
 }
 
 func (s *Store) completeEffectForStoreTest(ctx context.Context, lease EffectLease) error {
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
 		return s.completeEffect(ctx, lease, nil)
 	}
 	return s.CompleteEffect(ctx, lease)
 }
 
 func (s *Store) failEffectForStoreTest(ctx context.Context, lease EffectLease, detail string) error {
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
 		return s.failEffect(ctx, lease, detail)
 	}
 	return s.FailEffect(ctx, lease, detail)

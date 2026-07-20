@@ -88,9 +88,10 @@ func (service BuilderService) execute(ctx context.Context, lease store.Authorize
 }
 
 type RecoveryReport struct {
-	Interrupted int
-	Bound       int
-	Retried     int
+	Interrupted   int
+	Bound         int
+	Retried       int
+	ChecksRetried int
 }
 
 // reconcileAfterExclusiveOwnership is package-private and every Store mutation
@@ -100,6 +101,33 @@ func (service BuilderService) reconcileAfterExclusiveOwnership(
 	ownership *store.ControllerOwnership,
 	reason string,
 	reconcilerID string,
+) (RecoveryReport, error) {
+	return service.reconcileEffectsAfterExclusiveOwnership(
+		ctx, ownership, reason, reconcilerID, CheckService{},
+	)
+}
+
+func (service BuilderService) reconcileWithChecksAfterExclusiveOwnership(
+	ctx context.Context,
+	ownership *store.ControllerOwnership,
+	reason string,
+	reconcilerID string,
+	checks CheckService,
+) (RecoveryReport, error) {
+	if !checks.initializedFor(checks.store) {
+		return RecoveryReport{}, errors.New("check recovery service is not initialized")
+	}
+	return service.reconcileEffectsAfterExclusiveOwnership(
+		ctx, ownership, reason, reconcilerID, checks,
+	)
+}
+
+func (service BuilderService) reconcileEffectsAfterExclusiveOwnership(
+	ctx context.Context,
+	ownership *store.ControllerOwnership,
+	reason string,
+	reconcilerID string,
+	checks CheckService,
 ) (RecoveryReport, error) {
 	if service.journal == nil || service.worker == nil || ownership == nil {
 		return RecoveryReport{}, errors.New("builder service is not initialized")
@@ -135,6 +163,13 @@ func (service BuilderService) reconcileAfterExclusiveOwnership(
 				return report, err
 			}
 			report.Bound++
+			continue
+		}
+		if effect.Kind == engine.EffectLocalCheck && checks.initializedFor(checks.store) {
+			if err := checks.reconcileUnbound(ctx, ownership, reconcilerID, effect); err != nil {
+				return report, err
+			}
+			report.ChecksRetried++
 			continue
 		}
 		if effect.Kind != engine.EffectBuild {

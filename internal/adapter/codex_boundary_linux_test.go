@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"debug/elf"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/executor"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -108,6 +108,25 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 
 	contextWithDeadline, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	codexArgv := codexBuilderArgvWithPrompt(
+		codexBoundaryModel,
+		"Run the boundary probe exactly once with exec_command, then finish.",
+	)
+	providerConfigured := false
+	for index, argument := range codexArgv {
+		if argument != `model_provider="openai"` {
+			continue
+		}
+		codexArgv[index] = `model_provider="sworn_boundary"`
+		provider := "model_providers.sworn_boundary=" + `{name="Sworn boundary",base_url=` +
+			strconv.Quote(controlPlane.URL+"/v1") + `,env_key="CODEX_API_KEY",wire_api="responses",supports_websockets=false}`
+		codexArgv = append(codexArgv[:index+1], append([]string{"-c", provider}, codexArgv[index+1:]...)...)
+		providerConfigured = true
+		break
+	}
+	if !providerConfigured {
+		t.Fatal("production Codex argv did not expose its fixed provider selector")
+	}
 	completion, err := executorInstance.RunWritable(contextWithDeadline, executor.Invocation{
 		SchemaVersion:   executor.InvocationSchemaVersion,
 		ID:              "real-codex-boundary",
@@ -126,41 +145,7 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 			Path:   testBinary,
 			Digest: probeDigest,
 		}},
-		Argv: []string{
-			"/inputs/codex",
-			"-a", "never",
-			"-s", "workspace-write",
-			"-m", codexBoundaryModel,
-			"-c", `model_provider="sworn_boundary"`,
-			"-c", "model_providers.sworn_boundary=" + `{name="Sworn boundary",base_url=` +
-				strconv.Quote(controlPlane.URL+"/v1") + `,env_key="CODEX_API_KEY",wire_api="responses",supports_websockets=false}`,
-			"-c", `web_search="disabled"`,
-			"-c", `sandbox_workspace_write.network_access=false`,
-			"-c", `shell_environment_policy.inherit="none"`,
-			"-c", `shell_environment_policy.set={PATH="/usr/bin:/bin",HOME="/home/sworn"}`,
-			"-c", `allow_login_shell=false`,
-			"-c", `history.persistence="none"`,
-			"-c", `check_for_update_on_startup=false`,
-			"-c", `features.enable_request_compression=false`,
-			"-c", `features.apps=false`,
-			"-c", `features.goals=false`,
-			"-c", `features.hooks=false`,
-			"-c", `features.memories=false`,
-			"-c", `features.multi_agent=false`,
-			"-c", `features.remote_plugin=false`,
-			"-c", `features.shell_snapshot=false`,
-			"-c", `features.skill_mcp_dependency_install=false`,
-			"-C", "/tmp",
-			"exec",
-			"--strict-config",
-			"--ephemeral",
-			"--ignore-user-config",
-			"--ignore-rules",
-			"--skip-git-repo-check",
-			"--json",
-			"--add-dir", "/workspace",
-			"Run the boundary probe exactly once with exec_command, then finish.",
-		},
+		Argv:        codexArgv,
 		Environment: map[string]string{"CODEX_API_KEY": credentialCanary},
 		Network:     executor.NetworkHost,
 		Timeout:     25 * time.Second,
@@ -188,6 +173,9 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 	if bytes.Contains(completion.Stdout, []byte(credentialCanary)) ||
 		bytes.Contains(completion.Stderr, []byte(credentialCanary)) {
 		t.Fatal("credential sentinel appeared in successful Codex output")
+	}
+	if err := validateCodexJSONL(completion.Stdout); err != nil {
+		t.Fatalf("production Codex JSONL completion contract: %v", err)
 	}
 	if completion.ExecutableInput != "codex" || len(completion.Inputs) != 2 {
 		t.Fatalf("executable binding = %q, inputs=%#v", completion.ExecutableInput, completion.Inputs)
@@ -297,16 +285,14 @@ func newCodexResponsesHandler(
 			fail("Responses request model=%q decode=%v", payload.Model, err)
 			return
 		}
-		wantTools := []string{
-			"custom:apply_patch",
-			"function:exec_command",
-			"function:request_user_input",
-			"function:update_plan",
-			"function:view_image",
-			"function:write_stdin",
-		}
+		wantTools := codexBuilderToolNames()
 		if got := boundaryToolNames(body); strings.Join(got, "\x00") != strings.Join(wantTools, "\x00") {
 			fail("model tool allowlist=%v, want %v", got, wantTools)
+			return
+		}
+		toolSchemaDigest, err := boundaryToolSchemaDigest(body)
+		if err != nil || toolSchemaDigest != pinnedCodexToolSchemaDigest {
+			fail("model tool schema digest=%q, want %q: %v", toolSchemaDigest, pinnedCodexToolSchemaDigest, err)
 			return
 		}
 		switch requestNumber {
@@ -381,6 +367,22 @@ func boundaryToolNames(body []byte) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func boundaryToolSchemaDigest(body []byte) (string, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+	tools, ok := payload["tools"]
+	if !ok {
+		return "", errors.New("Responses request omitted tools")
+	}
+	canonical, err := protocol.CanonicalizeJSON(tools)
+	if err != nil {
+		return "", err
+	}
+	return protocol.RawDigest(canonical), nil
 }
 
 func boundaryCodexVersion(output []byte) string {
@@ -504,29 +506,8 @@ func requireExactCodexBinary(t *testing.T, required bool) string {
 	if path == "" {
 		codexBoundaryUnavailable(t, required, "%s is unset", codexBinaryEnvironment)
 	}
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		codexBoundaryUnavailable(t, required, "%s must name a clean absolute path", codexBinaryEnvironment)
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil || resolved != path {
-		codexBoundaryUnavailable(t, required, "%s must name the exact real binary: resolved=%q error=%v", codexBinaryEnvironment, resolved, err)
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		codexBoundaryUnavailable(t, required, "%s is not an executable regular file: %v", codexBinaryEnvironment, err)
-	}
-	binary, err := elf.Open(path)
-	if err != nil {
-		codexBoundaryUnavailable(t, required, "%s is not an ELF binary: %v", codexBinaryEnvironment, err)
-	}
-	defer binary.Close() //nolint:errcheck
-	if binary.Type != elf.ET_DYN {
-		codexBoundaryUnavailable(t, required, "%s must name a static PIE executable", codexBinaryEnvironment)
-	}
-	for _, program := range binary.Progs {
-		if program.Type == elf.PT_INTERP {
-			codexBoundaryUnavailable(t, required, "%s must not depend on an ELF interpreter", codexBinaryEnvironment)
-		}
+	if err := validatePinnedCodexBinary(context.Background(), path); err != nil {
+		codexBoundaryUnavailable(t, required, "%s is not the pinned production profile: %v", codexBinaryEnvironment, err)
 	}
 	return path
 }

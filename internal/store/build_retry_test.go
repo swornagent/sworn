@@ -501,7 +501,7 @@ func buildRetryProofForStoreTest(
 ) BuildRetryProof {
 	t.Helper()
 	if lease.capability == nil ||
-		!lease.capability.phase.CompareAndSwap(buildCapabilityPrepared, buildCapabilityConsumed) {
+		!lease.capability.phase.CompareAndSwap(effectCapabilityPrepared, effectCapabilityConsumed) {
 		t.Fatal("test recovery capability was already consumed")
 	}
 	unpublished, err := fixture.repository.ProveAttemptUnpublished(
@@ -516,7 +516,7 @@ func buildRetryProofForStoreTest(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !lease.capability.phase.CompareAndSwap(buildCapabilityConsumed, buildCapabilityProven) {
+	if !lease.capability.phase.CompareAndSwap(effectCapabilityConsumed, effectCapabilityProven) {
 		t.Fatal("test recovery capability could not seal proof")
 	}
 	return BuildRetryProof{

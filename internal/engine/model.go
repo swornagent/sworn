@@ -21,6 +21,7 @@ const (
 	LegacyBuildEffectRequestSchemaVersion = "sworn-build-effect-request-v1"
 	BuildEffectResultSchemaVersion        = "sworn-build-effect-result-v1"
 	BuildAttemptIdentitySchemaVersion     = "sworn-build-attempt-identity-v1"
+	CheckAttemptIdentitySchemaVersion     = "sworn-check-attempt-identity-v1"
 	LocalCheckEffectRequestSchemaVersion  = "sworn-local-check-effect-request-v1"
 	LocalCheckEffectResultSchemaVersion   = "sworn-local-check-effect-result-v1"
 	MaximumEffectPayloadBytes             = 1 << 20
@@ -38,6 +39,17 @@ type BuildAttemptIdentity struct {
 	EffectAttempt         int64  `json:"effect_attempt"`
 	InvocationID          string `json:"invocation_id"`
 	BuilderDispatchDigest string `json:"builder_dispatch_digest"`
+}
+
+// CheckAttemptIdentity is the durable, engine-derived identity of one local
+// check claim. The stable effect ID remains the Baton check run ID, while the
+// invocation ID gives each retry its own executor and materialization owner.
+type CheckAttemptIdentity struct {
+	SchemaVersion         string `json:"schema_version"`
+	EffectID              string `json:"effect_id"`
+	EffectAttempt         int64  `json:"effect_attempt"`
+	InvocationID          string `json:"invocation_id"`
+	RuntimeManifestDigest string `json:"runtime_manifest_digest"`
 }
 
 func BuildAttemptIdentityFor(effectID string, attempt int64, builderDispatchDigest string) (BuildAttemptIdentity, error) {
@@ -58,6 +70,27 @@ func BuildAttemptIdentityFor(effectID string, attempt int64, builderDispatchDige
 		EffectID:      effectID, EffectAttempt: attempt,
 		InvocationID:          "attempt-" + hex.EncodeToString(hasher.Sum(nil)),
 		BuilderDispatchDigest: builderDispatchDigest,
+	}, nil
+}
+
+func CheckAttemptIdentityFor(effectID string, attempt int64, runtimeManifestDigest string) (CheckAttemptIdentity, error) {
+	if !ValidID(effectID) || !protocol.ValidPositiveSafeInteger(attempt) || !ValidDigest(runtimeManifestDigest) {
+		return CheckAttemptIdentity{}, errors.New("invalid check attempt identity")
+	}
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte("sworn-check-attempt-v1"))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(effectID))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(runtimeManifestDigest))
+	var encodedAttempt [8]byte
+	binary.BigEndian.PutUint64(encodedAttempt[:], uint64(attempt))
+	_, _ = hasher.Write(encodedAttempt[:])
+	return CheckAttemptIdentity{
+		SchemaVersion: CheckAttemptIdentitySchemaVersion,
+		EffectID:      effectID, EffectAttempt: attempt,
+		InvocationID:          "check-attempt-" + hex.EncodeToString(hasher.Sum(nil)),
+		RuntimeManifestDigest: runtimeManifestDigest,
 	}, nil
 }
 

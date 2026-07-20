@@ -50,9 +50,10 @@ func (control *memoryControl) SucceededEffect(_ context.Context, effectID string
 }
 
 type recordingRunner struct {
-	completion executor.RawCompletion
-	hostCalls  int
-	boundCalls int
+	completion     executor.RawCompletion
+	hostCalls      int
+	boundCalls     int
+	lastInvocation string
 }
 
 func (*recordingRunner) Probe(context.Context) (executor.ProbeReport, error) {
@@ -75,12 +76,20 @@ func (runner *recordingRunner) RunContentBound(
 	runtime executor.RuntimeTree,
 ) (executor.RawCompletion, error) {
 	runner.boundCalls++
+	runner.lastInvocation = invocation.ID
 	completion := runner.completion
 	completion.InvocationID = invocation.ID
 	completion.RuntimeDigest = runtime.Digest()
 	completion.WorkspaceDigest = invocation.WorkspaceDigest
 	completion.WorkspaceAccess = executor.WorkspaceReadOnly
 	return completion, nil
+}
+
+func (*recordingRunner) ReconcileContentBound(
+	context.Context,
+	string,
+) (executor.ContentBoundCleanup, error) {
+	return executor.ContentBoundCleanup{}, errors.New("unexpected test reconciliation")
 }
 
 func TestLocalCheckWorkerUsesJournalBuilderAndContentRuntimeForKnownOutcomes(t *testing.T) {
@@ -160,7 +169,7 @@ func TestLocalCheckWorkerUsesJournalBuilderAndContentRuntimeForKnownOutcomes(t *
 				Control: control, Runner: runner, Repository: repository, Runtime: runtimeTree,
 				WorkspaceRoot: root, MaterializeLimits: repo.MaterializeLimits{Bytes: 1 << 20, Entries: 100},
 			}
-			encoded, err := worker.Run(ctx, engine.JournalEffect{
+			encoded, err := worker.run(ctx, engine.JournalEffect{
 				ID: "check-effect-" + strings.ReplaceAll(name, "_", "-"), DeliveryRunID: "delivery-run",
 				Kind: engine.EffectLocalCheck, Attempt: 1, Request: request,
 			})
@@ -171,7 +180,13 @@ func TestLocalCheckWorkerUsesJournalBuilderAndContentRuntimeForKnownOutcomes(t *
 			if err != nil || result.Outcome != name || result.Receipt.Digest == "" {
 				t.Fatalf("result = %#v, %v", result, err)
 			}
-			if runner.boundCalls != 1 || runner.hostCalls != 0 {
+			attempt, attemptErr := engine.CheckAttemptIdentityFor(
+				"check-effect-"+strings.ReplaceAll(name, "_", "-"), 1, runtimeDigest,
+			)
+			if attemptErr != nil {
+				t.Fatal(attemptErr)
+			}
+			if runner.boundCalls != 1 || runner.hostCalls != 0 || runner.lastInvocation != attempt.InvocationID {
 				t.Fatalf("runner calls = bound:%d host:%d", runner.boundCalls, runner.hostCalls)
 			}
 			entries, err := os.ReadDir(root)
@@ -201,7 +216,7 @@ func TestLocalCheckWorkerRejectsRuntimeDriftBeforeExecution(t *testing.T) {
 		Control: &memoryControl{artifacts: make(map[string]memoryArtifact)}, Runner: runner,
 		Repository: &repo.Repository{}, Runtime: runtimeTree, WorkspaceRoot: t.TempDir(),
 	}
-	if _, err := worker.Run(context.Background(), engine.JournalEffect{
+	if _, err := worker.run(context.Background(), engine.JournalEffect{
 		ID: "check-effect", DeliveryRunID: "delivery-run", Kind: engine.EffectLocalCheck, Attempt: 1, Request: request,
 	}); err == nil || !strings.Contains(err.Error(), "configured runtime") {
 		t.Fatalf("runtime drift error = %v", err)
@@ -240,7 +255,7 @@ func TestLocalCheckWorkerRejectsSymlinkedWorkspaceRootBeforeResolution(t *testin
 		Control: &memoryControl{artifacts: make(map[string]memoryArtifact)}, Runner: runner,
 		Repository: &repo.Repository{}, Runtime: runtimeTree, WorkspaceRoot: workspaceLink,
 	}
-	if _, err := worker.Run(context.Background(), engine.JournalEffect{
+	if _, err := worker.run(context.Background(), engine.JournalEffect{
 		ID: "check-effect", DeliveryRunID: "delivery-run", Kind: engine.EffectLocalCheck, Attempt: 1, Request: request,
 	}); err == nil || !strings.Contains(err.Error(), "symbolic-link remap") {
 		t.Fatalf("symlinked workspace-root error = %v", err)

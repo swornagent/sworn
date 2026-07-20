@@ -19,7 +19,9 @@ The v1 foundation establishes the trust boundary:
 - one transactional control store and pure reducer;
 - exact local Git candidate primitives;
 - a contained Linux subprocess boundary with measured writable export;
-- an internal native builder with attempt-bound publication and recovery; and
+- an exact Codex builder profile with attempt-bound publication and recovery;
+- current-authorized, restart-recoverable local checks;
+- one bounded `sworn run` path from an active work item to `reviewable`; and
 - v1-specific CI.
 
 The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
@@ -29,8 +31,8 @@ there are no compatibility shims.
 ## Current implementation
 
 The transactional control core, exact-plan authority boundary, exact local
-candidate path, and contained Linux executor are implemented internally.
-Together they provide
+candidate path, and contained Linux executor are composed behind one bounded
+production command. Together they provide
 atomic command/event/effect commits, content-addressed records, unknown-effect
 reconciliation, live Git measurement, plain workspaces, exact single-parent
 candidates, immutable or fresh writable executor staging, default-denied
@@ -45,29 +47,32 @@ Baton submission and exposing `reviewable`. Real-boundary tests prove both
 staged runtime execution and the writable-export handoff into exact Git
 candidate capture.
 
-The native builder now closes one real vertical path internally. Store
+The sole production adapter accepts one exact static Codex CLI profile. Store
 prevalidates the exact claim and process configuration before agent execution;
 the worker prepares an unpublished candidate; Store binds the typed result,
 publishes candidate and attempt refs, and only then commits success. Restart
 either completes that bound result or requeues an unbound attempt only after a
 Store-bound composite proof of absent publication and complete writable
-cleanup. A real composition test carries that result through exact checks and
-atomic reviewable admission.
+cleanup. Each pending local check separately requires freshly resolved current
+authority and an exact Store-issued execution capability. Interrupted checks
+likewise converge from a bound result or from an attempt-bound proof that the
+content process is quiescent and its private materialization has been removed.
 
-The executor also admits one digest-pinned input as a direct entrypoint and a
-separately double-gated nested sandbox. An opt-in real-Codex proof uses those
-capabilities to separate the networked agent control plane from its
-network-denied, credential-free tool process; no production agent adapter is
-connected yet.
+`sworn run <run> [<work>] --config <absolute-path>` acquires exclusive Store
+ownership, completes the recovery barrier, and advances exactly the selected
+current work item through builder, ordered local checks, and deterministic
+admission. Stable command identities make the same work attempt convergent
+across restart. It does not initialize or activate a delivery, poll for work,
+advance another work item, obtain an independent verdict, or update a target.
+Historical approval remains provenance rather than a standing execution
+permit, and `reviewable` is not a verdict or `PASS`.
 
-No mutating command is exposed by the CLI yet. Historical approval remains
-provenance rather than a current execution permit, and reviewable is not a
-verdict or `PASS`. The narrow internal composition service does not claim work
-or own a loop. No public controller, agent-CLI adapter, verifier, or autonomous
-claim loop can execute these internal edges yet. They remain trusted kernel
-primitives rather than a delivery loop. See
-[Exact local candidate](docs/exact-candidate.md) and
-[ADR 0005](docs/adr/0005-native-builder-recovery.md).
+This is a bounded production vertical, not the autonomous product loop. There
+is no public initializer, verifier, verdict routing, bounded repair policy,
+integration edge, or scheduler. Its Store must already contain an exact planned
+and activated delivery. See [Running the bounded vertical](docs/run.md),
+[Exact local candidate](docs/exact-candidate.md), and
+[ADR 0008](docs/adr/0008-builder-to-reviewable-production-vertical.md).
 
 SQLite is the sole Go production dependency. Linux execution relies on the
 host's systemd user manager, cgroup v2, and Bubblewrap; it fails closed when that
@@ -83,6 +88,7 @@ security fixes.
 go test ./...
 go test -race ./...
 go vet ./...
+go build ./cmd/sworn
 go run ./cmd/sworn version --json
 SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
 SWORN_CODEX_BINARY=/absolute/path/to/codex \
@@ -90,12 +96,19 @@ SWORN_CODEX_BINARY=/absolute/path/to/codex \
   go test -run TestRealCodexCLIBoundaryFeasibility ./internal/adapter
 ```
 
-The final two commands are fail-if-unavailable real containment suites. The
+The final two test commands are fail-if-unavailable real containment suites. The
 Codex proof requires an exact static CLI and exercises it against a local
 scripted Responses endpoint without making a provider model call. Both require
 the Linux capability floor described in the executor document. Ordinary tests
 skip those integration cases when their host capability or explicit binary is
 unavailable.
+
+That scripted proof is token-free. A real `sworn run` uses the built-in OpenAI
+provider and can consume billable model tokens; no live-provider delivery is
+part of the ordinary test suite. The accepted adapter currently requires the
+exact 304,169,008-byte `codex-cli 0.145.0-alpha.18` static binary described in
+[ADR 0007](docs/adr/0007-native-agent-boundary.md); Sworn does not yet install or
+acquire it.
 
 See [ADR 0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries
 and [the implementation sequence](docs/roadmap.md) for the walking skeleton.

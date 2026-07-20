@@ -40,12 +40,13 @@ type ArtifactStore interface {
 }
 
 type Request struct {
-	CheckID    string
-	RunID      string
-	Definition protocol.Artifact
-	Repository *repo.Repository
-	Candidate  repo.Candidate
-	Workspace  repo.CandidateWorkspace
+	CheckID      string
+	RunID        string
+	InvocationID string
+	Definition   protocol.Artifact
+	Repository   *repo.Repository
+	Candidate    repo.Candidate
+	Workspace    repo.CandidateWorkspace
 }
 
 type Result struct {
@@ -67,8 +68,9 @@ func RunLocalContentBound(
 	if runner == nil || artifacts == nil || request.Repository == nil {
 		return Result{}, errors.New("local producer requires runner, artifact store, and repository")
 	}
-	if !protocol.ValidID(request.CheckID) || !protocol.ValidID(request.RunID) {
-		return Result{}, errors.New("local producer requires valid check and run ids")
+	if !protocol.ValidID(request.CheckID) || !protocol.ValidID(request.RunID) ||
+		!protocol.ValidID(request.InvocationID) {
+		return Result{}, errors.New("local producer requires valid check, run, and invocation ids")
 	}
 	if request.Workspace.RepositoryID() != request.Candidate.RepositoryID || !sameCandidate(request.Workspace.Candidate(), request.Candidate) {
 		return Result{}, errors.New("local producer workspace does not bind the exact candidate")
@@ -103,7 +105,7 @@ func RunLocalContentBound(
 	runtimeDigest := runtime.Digest()
 	invocation := executor.Invocation{
 		SchemaVersion:   executor.InvocationSchemaVersion,
-		ID:              request.RunID,
+		ID:              request.InvocationID,
 		Role:            "producer",
 		RuntimeDigest:   runtimeDigest,
 		Workspace:       request.Workspace.Path(),

@@ -131,11 +131,11 @@ func (*ControllerOwnership) ValidateActive(*Store, string) error {
 	return ErrControllerOwnershipUnsupported
 }
 
-func (*ControllerOwnership) withActiveBuildOperation(*Store, string, func() error) error {
+func (*ControllerOwnership) withActiveOperation(*Store, string, func() error) error {
 	return ErrControllerOwnershipUnsupported
 }
 
-func (*ControllerOwnership) withRecoveryBuildOperation(*Store, string, func() error) error {
+func (*ControllerOwnership) withRecoveryOperation(*Store, string, func() error) error {
 	return ErrControllerOwnershipUnsupported
 }
 

@@ -37,6 +37,39 @@ type integrationBuilderRunner struct {
 	exportRoot          string
 }
 
+type integrationCheckRunner struct {
+	limits executor.Limits
+}
+
+func (runner *integrationCheckRunner) Probe(context.Context) (executor.ProbeReport, error) {
+	return executor.ProbeReport{
+		BubblewrapVersion: "bubblewrap 1.0", SystemdVersion: "systemd 260",
+		CgroupV2: true, UserManager: "running", Controllers: []string{"cpu", "memory", "pids"},
+	}, nil
+}
+
+func (runner *integrationCheckRunner) EffectiveLimits() executor.Limits { return runner.limits }
+
+func (*integrationCheckRunner) RunContentBound(
+	_ context.Context,
+	invocation executor.Invocation,
+	runtime executor.RuntimeTree,
+) (executor.RawCompletion, error) {
+	started := time.Now().UTC()
+	return executor.RawCompletion{
+		InvocationID: invocation.ID, RuntimeDigest: runtime.Digest(),
+		WorkspaceDigest: invocation.WorkspaceDigest, WorkspaceAccess: executor.WorkspaceReadOnly,
+		StartedAt: started, CompletedAt: time.Now().UTC(), ExitCode: 0,
+	}, nil
+}
+
+func (*integrationCheckRunner) ReconcileContentBound(
+	context.Context,
+	string,
+) (executor.ContentBoundCleanup, error) {
+	return executor.ContentBoundCleanup{}, errors.New("unexpected integration check reconciliation")
+}
+
 func (runner *integrationBuilderRunner) ConfigurationDigest() string {
 	return runner.configurationDigest
 }
@@ -192,7 +225,8 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeManifestDigest := protocol.RawDigest([]byte("integration-local-runtime-v1"))
+	runtimeTree := newIntegrationRuntime(t)
+	runtimeManifestDigest := runtimeTree.Digest()
 	controlRoot := t.TempDir()
 	if err := os.Chmod(controlRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -333,23 +367,37 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 	if len(requirements) != 1 {
 		t.Fatalf("exact checks = %+v", requirements)
 	}
-	checkDispatch := applyIntegrationCommand(t, journal, integrationCommand(
-		t, "cmd-checks", "run-native", engine.CommandDispatchChecks, 2, engine.DispatchChecksPayload{
-			WorkID: workID, BuilderEffectID: buildFact.ID,
-			RuntimeManifestDigest: runtimeManifestDigest,
-			Checks: []engine.CheckSelection{{
-				CheckID: requirements[0].CheckID, DefinitionDigest: requirements[0].Definition.Digest,
-			}},
-		},
-	))
-	if len(checkDispatch.EffectIDs) != 1 {
-		t.Fatalf("check effect IDs = %v", checkDispatch.EffectIDs)
+	checkRoot := t.TempDir()
+	if err := os.Chmod(checkRoot, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	completeIntegrationCheck(t, journal, checkDispatch.EffectIDs[0], build.Candidate)
-	applyIntegrationCommand(t, journal, integrationCommand(
-		t, "cmd-admit", "run-native", engine.CommandAdmitSubmission, 3,
-		engine.AdmitSubmissionPayload{WorkID: workID},
-	))
+	checkWorker := effects.LocalCheckWorker{
+		Control: journal, Runner: &integrationCheckRunner{limits: executor.DefaultLimits()},
+		Repository: repository, Runtime: runtimeTree, WorkspaceRoot: checkRoot,
+		MaterializeLimits: repo.MaterializeLimits{Bytes: 1 << 20, Entries: 100},
+	}
+	checkService, err := controlpkg.NewCheckService(journal, checkWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, recovery, err := controlpkg.StartController(
+		ctx, "controller-delivery", journal, authority, builderService, checkService,
+	)
+	if err != nil || recovery != (controlpkg.RecoveryReport{}) {
+		t.Fatalf("start delivery controller = %#v, %v", recovery, err)
+	}
+	t.Cleanup(func() { _ = delivery.Close() })
+	advanced, err := delivery.AdvanceToReviewableWithCommandIDs(
+		ctx, "run-native", workID, controlpkg.ReviewableCommandIDs{
+			BuildDispatch: "cmd-build", CheckDispatch: "cmd-checks", Admission: "cmd-admit",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(advanced.CheckEffectIDs) != 1 {
+		t.Fatalf("check effect IDs = %v", advanced.CheckEffectIDs)
+	}
 
 	state, err := journal.State(ctx, "run-native")
 	if err != nil {
@@ -372,6 +420,26 @@ func TestNativeBuilderServiceFeedsChecksAndAdmission(t *testing.T) {
 		submission.Checks[0].ID != requirements[0].CheckID {
 		t.Fatalf("native submission = kind %q, %+v", kind, submission)
 	}
+}
+
+func newIntegrationRuntime(t *testing.T) executor.RuntimeTree {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "true"), []byte("integration runtime\n"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := workspace.Measure(context.Background(), root, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeTree, err := executor.NewRuntimeTree(root, digest, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeTree
 }
 
 func newIntegrationRepository(t *testing.T) *repo.Repository {

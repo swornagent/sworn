@@ -62,7 +62,7 @@ type EffectLease struct {
 type AuthorizedBuildLease struct {
 	issuer        *leaseIssuer
 	effect        Effect
-	capability    *buildCapabilityState
+	capability    *effectCapabilityState
 	ownership     *ControllerOwnership
 	authority     *policy.Authority
 	permit        policy.CurrentBuildPermit
@@ -79,7 +79,7 @@ type AuthorizedBuildLease struct {
 type PreparedAuthorizedBuildLease struct {
 	issuer        *leaseIssuer
 	effect        Effect
-	capability    *buildCapabilityState
+	capability    *effectCapabilityState
 	control       *Store
 	ownership     *ControllerOwnership
 	permitRequest policy.BuildPermitRequest
@@ -96,7 +96,7 @@ type BuildRecoveryLease struct {
 	identity     engine.BuildAttemptIdentity
 	repositoryID string
 	targetRef    string
-	capability   *buildCapabilityState
+	capability   *effectCapabilityState
 	control      *Store
 	ownership    *ControllerOwnership
 	ownerID      string
@@ -164,7 +164,7 @@ func (s *Store) PrepareAuthorizedBuildExecution(
 		return PreparedAuthorizedBuildLease{}, err
 	}
 	if lease.capability == nil || !lease.capability.phase.CompareAndSwap(
-		buildCapabilityClaimed, buildCapabilityPrepared,
+		effectCapabilityClaimed, effectCapabilityPrepared,
 	) {
 		return PreparedAuthorizedBuildLease{}, errors.New("authorized build lease was already prepared")
 	}
@@ -357,7 +357,7 @@ func (s *Store) prepareUnboundBuildRecovery(
 	return BuildRecoveryLease{
 		issuer: s.leaseIssuer, effect: cloneEffect(effect), identity: identity,
 		repositoryID: state.Repository, targetRef: state.TargetRef,
-		capability: newBuildCapabilityState(buildCapabilityPrepared), control: s,
+		capability: newEffectCapabilityState(effectCapabilityPrepared), control: s,
 		ownership: ownership, ownerID: ownerID,
 	}, nil
 }
@@ -421,7 +421,7 @@ func (s *Store) claimPendingEffect(
 	runID string,
 	kind string,
 	requireUnique bool,
-	excludeBuild bool,
+	excludeControlled bool,
 ) (EffectLease, error) {
 	if s.readOnly {
 		return EffectLease{}, errors.New("control store is read-only")
@@ -443,7 +443,7 @@ func (s *Store) claimPendingEffect(
 		WHERE pending.state = 'pending'
 		  AND (? = '' OR pending.run_id = ?)
 		  AND (? = '' OR pending.kind = ?)
-		  AND (? = 0 OR pending.kind != ?)
+		  AND (? = 0 OR pending.kind NOT IN (?, ?))
 		  AND NOT EXISTS (
 			SELECT 1 FROM effects AS earlier
 			WHERE earlier.command_id = pending.command_id
@@ -451,7 +451,8 @@ func (s *Store) claimPendingEffect(
 			  AND earlier.state != 'succeeded'
 		  )
 		ORDER BY pending.created_at_us, pending.command_id, pending.ordinal, pending.effect_id
-		LIMIT ?`, runID, runID, kind, kind, boolInteger(excludeBuild), engine.EffectBuild, limit)
+		LIMIT ?`, runID, runID, kind, kind, boolInteger(excludeControlled),
+		engine.EffectBuild, engine.EffectLocalCheck, limit)
 	if err != nil {
 		return EffectLease{}, fmt.Errorf("select pending effect: %w", err)
 	}
@@ -516,7 +517,22 @@ func boolInteger(value bool) int {
 }
 
 func (s *Store) claimReceipt(effect Effect) (json.RawMessage, error) {
-	if engine.EffectKind(effect.Kind) != engine.EffectBuild {
+	switch engine.EffectKind(effect.Kind) {
+	case engine.EffectLocalCheck:
+		request, err := engine.ParseLocalCheckEffectRequest(effect.Request)
+		if err != nil {
+			return nil, fmt.Errorf("parse claimed check request: %w", err)
+		}
+		identity, err := engine.CheckAttemptIdentityFor(
+			effect.ID, effect.Attempt, request.RuntimeManifestDigest,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return engine.EncodeCheckAttemptIdentity(identity)
+	case engine.EffectBuild:
+		// Continue below for the native build schema and legacy compatibility.
+	default:
 		return nil, nil
 	}
 	request, err := engine.ParseBuildEffectRequest(effect.Request)
@@ -546,8 +562,8 @@ func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result 
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
-		return errors.New("native build result binding requires an authorized build lease")
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+		return errors.New("controlled effect result binding requires an authorized lease")
 	}
 	return s.bindEffectResult(ctx, lease, result, nil)
 }
@@ -560,14 +576,18 @@ func (s *Store) BindAuthorizedBuildResult(
 	lease PreparedAuthorizedBuildLease,
 	result json.RawMessage,
 ) error {
-	return s.bindEffectResult(ctx, lease.effectLease(), result, &lease)
+	return s.bindEffectResult(ctx, lease.effectLease(), result, lease)
+}
+
+type preparedEffectAuthorization interface {
+	validatePreparedTransaction(context.Context, *sql.Tx, *Store) error
 }
 
 func (s *Store) bindEffectResult(
 	ctx context.Context,
 	lease EffectLease,
 	result json.RawMessage,
-	authorized *PreparedAuthorizedBuildLease,
+	authorized preparedEffectAuthorization,
 ) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
@@ -581,7 +601,7 @@ func (s *Store) bindEffectResult(
 	}
 	defer transaction.Rollback() //nolint:errcheck
 	if authorized != nil {
-		if err := s.validatePreparedAuthorizedBuildTransaction(ctx, transaction, *authorized); err != nil {
+		if err := authorized.validatePreparedTransaction(ctx, transaction, s); err != nil {
 			return err
 		}
 	}
@@ -626,8 +646,8 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
-		return errors.New("native build completion requires an authorized build lease")
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+		return errors.New("controlled effect completion requires an authorized lease")
 	}
 	return s.completeEffect(ctx, lease, nil)
 }
@@ -635,13 +655,13 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 // CompleteAuthorizedBuild validates the prepared attempt and active ownership
 // inside the same transaction which publishes and closes that native build.
 func (s *Store) CompleteAuthorizedBuild(ctx context.Context, lease PreparedAuthorizedBuildLease) error {
-	return s.completeEffect(ctx, lease.effectLease(), &lease)
+	return s.completeEffect(ctx, lease.effectLease(), lease)
 }
 
 func (s *Store) completeEffect(
 	ctx context.Context,
 	lease EffectLease,
-	authorized *PreparedAuthorizedBuildLease,
+	authorized preparedEffectAuthorization,
 ) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
@@ -655,7 +675,7 @@ func (s *Store) completeEffect(
 	}
 	defer transaction.Rollback() //nolint:errcheck
 	if authorized != nil {
-		if err := s.validatePreparedAuthorizedBuildTransaction(ctx, transaction, *authorized); err != nil {
+		if err := authorized.validatePreparedTransaction(ctx, transaction, s); err != nil {
 			return err
 		}
 	}
@@ -712,8 +732,8 @@ func (s *Store) FailEffect(ctx context.Context, lease EffectLease, detail string
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if engine.EffectKind(lease.effect.Kind) == engine.EffectBuild {
-		return errors.New("native build failure requires controller recovery")
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+		return errors.New("controlled effect failure requires controller recovery")
 	}
 	return s.failEffect(ctx, lease, detail)
 }
@@ -1103,7 +1123,7 @@ func (s *Store) recoverUnboundBuildEffect(
 	}
 	if identity != lease.identity || proof.issuer == nil || proof.issuer != s.leaseIssuer ||
 		proof.capability == nil || proof.capability != lease.capability ||
-		proof.capability.phase.Load() != buildCapabilityProven ||
+		proof.capability.phase.Load() != effectCapabilityProven ||
 		proof.effectID != effect.ID || proof.effectAttempt != effect.Attempt ||
 		proof.identity != identity ||
 		proof.repositoryID != state.Repository || proof.targetRef != state.TargetRef ||

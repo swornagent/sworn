@@ -383,3 +383,174 @@ func TestMigrationSevenRefusesPreexistingRecoveryReceiptsAtomically(t *testing.T
 		t.Fatalf("failed migration changed hostile archaeology: version=%d history=%d", version, history)
 	}
 }
+
+func TestMigrationEightRefusesUnwitnessedUnknownLocalCheckAtomically(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "control.db")
+	database := rawDatabase(t, path)
+	for index, name := range migrationNames[:6] {
+		contents, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO runs (
+			run_id, delivery_id, repository_id, target_ref, plan_digest,
+			revision, phase, terminal, state_json, created_at_us, updated_at_us
+		) VALUES ('run-1', 'delivery-1', 'repo-1', 'refs/heads/main', 'plan', 0, 'active', 0, CAST('{}' AS BLOB), 1, 1);
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES ('command-1', 'run-1', 'checks.dispatch', 0, 'request', CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 1);
+		INSERT INTO effects (
+			effect_id, run_id, command_id, ordinal, kind, request_json, state,
+			attempt, owner_id, last_error, created_at_us, started_at_us
+		) VALUES (
+			'effect-check-1', 'run-1', 'command-1', 0, 'check.local', CAST('{}' AS BLOB), 'unknown',
+			1, 'legacy-check-worker', 'legacy process stopped', 1, 2
+		);
+		INSERT INTO effect_observations (
+			effect_id, attempt, kind, owner_id, receipt_json, detail, recorded_at_us
+		) VALUES ('effect-check-1', 1, 'claimed', 'legacy-check-worker', NULL, NULL, 2)`); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := migrationFiles.ReadFile(migrationNames[6])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+		t.Fatalf("apply migration 7: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA application_id = "+strconv.Itoa(applicationID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA user_version = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if control, err := Open(ctx, path); err == nil ||
+		!strings.Contains(err.Error(), "refuses legacy local-check recovery authority") {
+		if control != nil {
+			_ = control.Close()
+		}
+		t.Fatalf("migration eight legacy check guard error = %v", err)
+	}
+	database = rawDatabase(t, path)
+	t.Cleanup(func() { _ = database.Close() })
+	var version, history int
+	var state string
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx,
+		"SELECT state FROM effects WHERE effect_id = 'effect-check-1'",
+	).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx,
+		"SELECT count(*) FROM effect_observations WHERE effect_id = 'effect-check-1'",
+	).Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if version != 7 || state != "unknown" || history != 1 {
+		t.Fatalf("failed migration eight changed archaeology: version=%d state=%s history=%d", version, state, history)
+	}
+}
+
+func TestMigrationEightPreservesPendingCheckAndRequiresMatchedRetryWitness(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "control.db")
+	database := rawDatabase(t, path)
+	for index, name := range migrationNames[:7] {
+		contents, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO runs (
+			run_id, delivery_id, repository_id, target_ref, plan_digest,
+			revision, phase, terminal, state_json, created_at_us, updated_at_us
+		) VALUES ('run-1', 'delivery-1', 'repo-1', 'refs/heads/main', 'plan', 0, 'active', 0, CAST('{}' AS BLOB), 1, 1);
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES ('command-1', 'run-1', 'checks.dispatch', 0, 'request', CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 1);
+		INSERT INTO effects (
+			effect_id, run_id, command_id, ordinal, kind, request_json, state,
+			attempt, created_at_us
+		) VALUES ('effect-check-1', 'run-1', 'command-1', 0, 'check.local', CAST('{}' AS BLOB), 'pending', 0, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA application_id = "+strconv.Itoa(applicationID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA user_version = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	control, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	var version int
+	if err := control.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+		t.Fatalf("migrated version = %d, %v", version, err)
+	}
+	if _, err := control.db.ExecContext(ctx, `
+		UPDATE effects SET state = 'running', attempt = 1,
+		       owner_id = 'controller-1', started_at_us = 2
+		WHERE effect_id = 'effect-check-1';
+		INSERT INTO effect_observations (
+			effect_id, attempt, kind, owner_id, receipt_json, recorded_at_us
+		) VALUES ('effect-check-1', 1, 'claimed', 'controller-1', CAST('{"attempt":1}' AS BLOB), 2);
+		UPDATE effects SET state = 'unknown', last_error = 'interrupted'
+		WHERE effect_id = 'effect-check-1'`); err != nil {
+		t.Fatalf("construct witnessed migrated attempt: %v", err)
+	}
+	if _, err := control.db.ExecContext(ctx, `
+		UPDATE effects SET state = 'pending', owner_id = NULL, started_at_us = NULL,
+		       completed_at_us = NULL, last_error = NULL
+		WHERE effect_id = 'effect-check-1'`); err == nil ||
+		!strings.Contains(err.Error(), "invalid effect transition") {
+		t.Fatalf("unwitnessed migrated check retry error = %v", err)
+	}
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO effect_observations (
+			effect_id, attempt, kind, owner_id, receipt_json, recorded_at_us
+		) VALUES ('effect-check-1', 1, 'not_applied', 'controller-1', CAST('{"attempt":1}' AS BLOB), 3);
+		UPDATE effects SET state = 'pending', owner_id = NULL, started_at_us = NULL,
+		       completed_at_us = NULL, last_error = NULL
+		WHERE effect_id = 'effect-check-1'`); err != nil {
+		t.Fatalf("matched migrated check retry witness: %v", err)
+	}
+	var state string
+	var attempt int64
+	if err := control.db.QueryRowContext(ctx,
+		"SELECT state, attempt FROM effects WHERE effect_id = 'effect-check-1'",
+	).Scan(&state, &attempt); err != nil || state != "pending" || attempt != 1 {
+		t.Fatalf("migrated check retry = state %q attempt %d, %v", state, attempt, err)
+	}
+}
