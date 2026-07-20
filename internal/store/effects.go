@@ -356,105 +356,99 @@ func (s *Store) RecoverInterruptedEffects(ctx context.Context, reason string) (i
 	return len(interrupted), nil
 }
 
-type Reconciliation string
-
-const (
-	ReconcileNotApplied Reconciliation = "not_applied"
-	ReconcileSucceeded  Reconciliation = "succeeded"
-	ReconcileFailed     Reconciliation = "failed"
-)
-
-// ReconcileUnknownEffect is an explicit manual recovery boundary. In
-// particular, a nonempty detail is not machine proof of non-application; an
-// autonomous caller must not select ReconcileNotApplied until its effect kind
-// has attempt-bound external evidence.
-func (s *Store) ReconcileUnknownEffect(
+// RecoverBoundEffect closes an interrupted attempt only from the immutable
+// typed result bound by that attempt. It never makes an unbound effect
+// retryable or converts an operator assertion into external evidence. Effect
+// ID and attempt form the replay identity; reconcilerID attributes only the
+// process that wins the unknown-to-succeeded transition.
+func (s *Store) RecoverBoundEffect(
 	ctx context.Context,
 	effectID string,
 	expectedAttempt int64,
 	reconcilerID string,
-	resolution Reconciliation,
-	detail string,
 ) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
+	}
+	if !engine.ValidID(effectID) {
+		return errors.New("valid effect id is required for recovery")
 	}
 	if !engine.ValidID(reconcilerID) {
 		return errors.New("valid reconciler id is required")
 	}
 	if expectedAttempt < 1 {
-		return errors.New("positive effect attempt is required for reconciliation")
-	}
-	if resolution != ReconcileSucceeded && strings.TrimSpace(detail) == "" {
-		return errors.New("non-success reconciliation requires a manual audit detail")
-	}
-	if resolution == ReconcileSucceeded && detail != "" {
-		return errors.New("successful reconciliation cannot carry an error detail")
-	}
-	if resolution != ReconcileNotApplied && resolution != ReconcileSucceeded && resolution != ReconcileFailed {
-		return fmt.Errorf("unsupported reconciliation %q", resolution)
+		return errors.New("positive effect attempt is required for recovery")
 	}
 	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("begin effect reconciliation: %w", err)
+		return fmt.Errorf("begin bound-effect recovery: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
 	effect, err := loadEffect(ctx, transaction, effectID)
 	if err != nil {
 		return err
 	}
-	if effect.State != EffectUnknown || effect.Attempt != expectedAttempt {
+	if effect.Attempt != expectedAttempt {
 		return fmt.Errorf(
-			"effect %q is %s at attempt %d, want unknown at attempt %d",
+			"effect %q is %s at attempt %d, want attempt %d",
 			effectID, effect.State, effect.Attempt, expectedAttempt,
 		)
 	}
-	if resolution == ReconcileSucceeded {
-		if len(effect.Result) == 0 {
-			return fmt.Errorf("effect %q has no result bound to unknown attempt %d", effectID, expectedAttempt)
+	if effect.State != EffectUnknown && effect.State != EffectSucceeded {
+		return fmt.Errorf("effect %q is %s at attempt %d, want unknown or succeeded", effectID, effect.State, effect.Attempt)
+	}
+	if len(effect.Result) == 0 {
+		return fmt.Errorf("effect %q has no result bound to unknown attempt %d", effectID, expectedAttempt)
+	}
+	if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, effect.Result); err != nil {
+		return err
+	}
+	if engine.EffectKind(effect.Kind) == engine.EffectBuild {
+		if s.repository == nil {
+			return errors.New("bound build recovery requires the immutable configured repository")
 		}
-		if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, effect.Result); err != nil {
-			return err
+		state, found, stateErr := loadState(ctx, transaction, effect.DeliveryRunID)
+		request, requestErr := engine.ParseBuildEffectRequest(effect.Request)
+		build, parseErr := engine.ParseBuildEffectResult(effect.Result)
+		if stateErr != nil || requestErr != nil || parseErr != nil || !found ||
+			s.repository.Binding().RepositoryID != state.Repository ||
+			request.DeliveryRunID != state.RunID || request.DeliveryID != state.DeliveryID ||
+			build.Candidate.RepositoryID != state.Repository || build.Candidate.TargetRef != state.TargetRef {
+			return errors.New("bound build recovery does not match its delivery repository and target")
 		}
-	} else if len(effect.Result) != 0 {
-		return fmt.Errorf("effect %q has a bound result and cannot be reconciled as %s", effectID, resolution)
+		matchedAttempt := false
+		for _, work := range state.Work {
+			matchedAttempt = matchedAttempt || work.ID == request.WorkID &&
+				work.Attempt == request.WorkAttempt &&
+				(effect.State == EffectSucceeded || work.State == engine.WorkActive)
+		}
+		if !matchedAttempt {
+			return errors.New("bound build recovery does not match its current work attempt")
+		}
+		if err := s.repository.EnsureCandidate(ctx, build.Candidate); err != nil {
+			return fmt.Errorf("repair bound build candidate: %w", err)
+		}
+	}
+	if effect.State == EffectSucceeded {
+		return nil
 	}
 	now := s.now().UTC().UnixMicro()
-	var result sql.Result
-	switch resolution {
-	case ReconcileNotApplied:
-		result, err = transaction.ExecContext(ctx, `
-			UPDATE effects
-			SET state = 'pending', owner_id = NULL, started_at_us = NULL,
-			    receipt_json = NULL, last_error = NULL, completed_at_us = NULL
-			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, effectID, expectedAttempt)
-	case ReconcileSucceeded:
-		result, err = transaction.ExecContext(ctx, `
-			UPDATE effects
-			SET state = 'succeeded', last_error = NULL, completed_at_us = ?
-			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, now, effectID, expectedAttempt)
-	case ReconcileFailed:
-		result, err = transaction.ExecContext(ctx, `
-			UPDATE effects
-			SET state = 'failed', receipt_json = NULL, last_error = ?, completed_at_us = ?
-			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, detail, now, effectID, expectedAttempt)
-	}
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE effects
+		SET state = 'succeeded', last_error = NULL, completed_at_us = ?
+		WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, now, effectID, expectedAttempt)
 	if err != nil {
-		return fmt.Errorf("reconcile effect %q: %w", effectID, err)
+		return fmt.Errorf("recover bound effect %q: %w", effectID, err)
 	}
-	if err := requireOneRow(result, "reconcile effect "+effectID); err != nil {
+	if err := requireOneRow(result, "recover bound effect "+effectID); err != nil {
 		return err
 	}
 	effect.OwnerID = reconcilerID
-	var observedResult json.RawMessage
-	if resolution == ReconcileSucceeded {
-		observedResult = effect.Result
-	}
-	if err := insertObservation(ctx, transaction, effect, string(resolution), observedResult, detail, now); err != nil {
+	if err := insertObservation(ctx, transaction, effect, "succeeded", effect.Result, "", now); err != nil {
 		return err
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit effect reconciliation: %w", err)
+		return fmt.Errorf("commit bound-effect recovery: %w", err)
 	}
 	return nil
 }

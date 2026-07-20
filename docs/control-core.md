@@ -19,8 +19,8 @@ algorithm:
 7. Record each claim, interruption, reconciliation, and terminal outcome as an
    immutable effect observation.
 8. If a process ends while an effect is running, change it to `unknown`.
-   Successful reconciliation requires the already-bound result. Requeueing via
-   `ReconcileNotApplied` is an explicit manual assertion, not autonomous proof.
+   `RecoverBoundEffect` may close only the exact attempt's already-bound result;
+   an unbound attempt remains unknown and unclaimable.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
 roll back and remain errors; they are not converted into domain outcomes. Reuse
@@ -39,12 +39,32 @@ unknown attempt for the same reason.
 `succeeded` use the same kind-specific validator and artifact-closure checks.
 A missing result is not evidence that an external action did not happen, and an
 orphaned content-addressed artifact is not an effect result. Neither condition
-by itself permits successful reconciliation or autonomous retry.
-`ReconcileNotApplied` may manually requeue such an attempt, but its required
-detail is an audit note, not machine proof. No autonomous path may select it
-until the effect kind supplies attempt-bound external evidence of non-application.
-This matters because an effect ID is stable across retries: arbitrary text
-cannot safely separate a late result from an earlier attempt.
+by itself permits successful recovery or autonomous retry. There is no manual
+`not_applied` or interrupted-failure transition: schema v6 permits only an exact
+bound `unknown -> succeeded` recovery. This matters because an effect ID is
+stable across retries; arbitrary text cannot safely separate a late result from
+an earlier attempt.
+
+Build recovery additionally reparses the bound result through the configured
+repository, first requiring the request, candidate, repository binding, target,
+and current work attempt to match the delivery journal. It then calls
+`EnsureCandidate` before committing success. That operation rederives the Git
+objects, parent, trees, changed paths, and deterministic retention ref, repairing
+a missing ref but rejecting a collision or mutation. Local-check recovery
+repeats its complete artifact and semantic closure.
+
+Effect ID plus attempt is the replay identity; the reconciler ID attributes the
+process that wins the transition and is not part of idempotency. Replay repeats
+kind-specific validation and Git repair but adds no second observation. Schema
+v6 also refuses to migrate a v5 database containing a previously manual-requeued
+`pending` effect (`attempt > 0`), preserving its history at v5 rather than making
+the prose-authorized retry claimable.
+
+This is only the known-result half of interrupted-effect recovery. The future
+native builder boundary must durably distinguish "not started" from "started
+but unresolved", bind executor and workspace ownership to the exact attempt,
+and define Git publication ordering before any unbound effect may become
+pending again.
 
 ## SQLite ownership
 
@@ -69,7 +89,9 @@ The database contains:
   admission command.
 
 SQL triggers forbid mutation of immutable history, illegal revision jumps,
-effect request rewrites, effect deletion, and invalid effect-state transitions.
+effect request rewrites, effect deletion, invalid effect-state transitions, and
+manual `unknown -> pending` or `unknown -> failed` transitions. Store validation,
+not SQL shape alone, proves the typed result and external Git closure.
 The partial unique target index prevents two non-terminal runs from owning the
 same repository and target.
 

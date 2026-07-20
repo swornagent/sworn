@@ -150,8 +150,8 @@ func TestOrphanLocalCheckReceiptCannotReconcileSuccess(t *testing.T) {
 	); err != nil || recovered != 1 {
 		t.Fatalf("recover unbound check attempt = %d, %v", recovered, err)
 	}
-	if err := fixture.control.ReconcileUnknownEffect(
-		context.Background(), fixture.effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, "",
+	if err := fixture.control.RecoverBoundEffect(
+		context.Background(), fixture.effectID, lease.Invocation().Attempt, "reconciler-1",
 	); err == nil {
 		t.Fatal("orphan receipt artifact reconciled an unbound check effect as succeeded")
 	}
@@ -161,8 +161,40 @@ func TestOrphanLocalCheckReceiptCannotReconcileSuccess(t *testing.T) {
 	}
 }
 
+func TestBoundLocalCheckResultRecoversAfterRestart(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fixture := newLocalCheckEffectFixture(t, engine.LocalCheckOutcomePass)
+	lease, result := fixture.insertAndClaim(t)
+	if err := fixture.control.BindEffectResult(ctx, lease, result); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := fixture.control.RecoverInterruptedEffects(ctx, "worker exited after binding"); err != nil || recovered != 1 {
+		t.Fatalf("mark check unknown = %d, %v", recovered, err)
+	}
+	if err := fixture.control.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.control = openTestStore(t, fixture.path)
+	t.Cleanup(func() { _ = fixture.control.Close() })
+	if err := fixture.control.RecoverBoundEffect(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-1"); err != nil {
+		t.Fatalf("recover bound check: %v", err)
+	}
+	assertCount(t, fixture.control, "effect_observations", 5)
+	if err := fixture.control.RecoverBoundEffect(ctx, fixture.effectID, lease.Invocation().Attempt, "reconciler-2"); err != nil {
+		t.Fatalf("replay bound check recovery: %v", err)
+	}
+	assertCount(t, fixture.control, "effect_observations", 5)
+	journal, err := fixture.control.SucceededEffect(ctx, fixture.effectID)
+	if err != nil || !bytes.Equal(journal.Result, result) {
+		t.Fatalf("recovered check result = %+v, %v", journal, err)
+	}
+}
+
 type localCheckEffectFixture struct {
 	control  *Store
+	path     string
 	effectID string
 	request  engine.LocalCheckEffectRequest
 	result   engine.LocalCheckEffectResult
@@ -172,7 +204,8 @@ type localCheckEffectFixture struct {
 func newLocalCheckEffectFixture(t *testing.T, outcome string) *localCheckEffectFixture {
 	t.Helper()
 	ctx := context.Background()
-	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
+	path := filepath.Join(t.TempDir(), "control.db")
+	control := openTestStore(t, path)
 	t.Cleanup(func() { _ = control.Close() })
 
 	builderEffectID := createActivateAndDispatch(t, control)
@@ -194,6 +227,7 @@ func newLocalCheckEffectFixture(t *testing.T, outcome string) *localCheckEffectF
 
 	fixture := &localCheckEffectFixture{
 		control:  control,
+		path:     path,
 		effectID: "effect-check-1",
 		request: engine.LocalCheckEffectRequest{
 			SchemaVersion:         engine.LocalCheckEffectRequestSchemaVersion,
