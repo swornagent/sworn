@@ -175,7 +175,6 @@ func TestLegacyStructuralAuthorityIdentityCannotPreemptAuthenticatedApproval(t *
 		t.Fatal("authenticated approval identity drifted across equivalent ledgers")
 	}
 	assertCount(t, control, "authority_approvals", 1)
-	assertCount(t, control, "protocol_identities", 0)
 }
 
 func TestSignedRevocationAdvancesHeadAndNewerSignedSourceMayReactivate(t *testing.T) {
@@ -476,5 +475,4 @@ func assertAuthorityClosureCounts(
 	assertCount(t, control, "authority_approvals", approvals)
 	assertCount(t, control, "records", records)
 	assertCount(t, control, "artifacts", artifacts)
-	assertCount(t, control, "protocol_identities", 0)
 }

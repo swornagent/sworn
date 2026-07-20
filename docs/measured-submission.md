@@ -1,9 +1,9 @@
 # Prepared local submission
 
-Sworn can now structurally prepare and persist one Baton `submission-v1` across
-the real Git, executor, artifact, protocol, and SQLite boundaries. This is an
-evaluation-only construction path, not yet a reviewable submission source. No
-CLI, reducer transition, verifier, or effect worker can invoke it.
+Sworn can now structurally prepare one Baton `submission-v1` across the real
+Git, executor, artifact, and protocol boundaries. This is an evaluation-only
+construction path, not yet a reviewable submission source. No CLI or reducer
+transition can admit it.
 
 ## One causal chain
 
@@ -38,13 +38,10 @@ The initial Standard path is deliberately narrow:
    exact artifact bytes. It constructs and RFC 8785-canonicalizes the Baton
    record, but does not authenticate authority or prove that supplied run facts
    came from the effect journal.
-7. `store.PutSubmission` accepts only that opaque prepared capability. In one
-   transaction it verifies the complete resolved artifact closure, writes the
-   canonical record, and reserves global submission, delivery/work/attempt,
-   builder-run, and producer-run identities. The structurally checked approval
-   receipt cannot reserve or preempt an authority identity; only authenticated
-   authority persistence can do that. Exact retries are idempotent, while
-   rebinding an owned identity fails closed.
+7. Structural submission persistence and its parallel builder/producer run
+   identity registry have been removed. The future final admission transaction
+   will reverify the complete artifact closure and be the sole writer of the
+   canonical submission and its global submission and work-attempt identities.
 
 Records accept only strict I-JSON already in RFC 8785 canonical form. JSON and
 `+json` artifacts must be strict I-JSON too, but retain their exact original
@@ -59,10 +56,30 @@ but its executable, libraries, interpreter, and subtools can drift.
 `RunLocalContentBound` instead requires an opaque runtime capability, executes a
 private staged copy, and records `sworn-local-environment-v2` with the exact
 runtime manifest digest. The receipt binds that environment transitively. This
-closes runtime-byte ambiguity without claiming a hermetic toolchain or journal
-provenance. The current internal caller still supplies the capability; the next
-typed effect request must bind the configured digest before this fact can be
-admission-eligible.
+closes runtime-byte ambiguity without claiming a hermetic toolchain.
+
+The internal `check.local` effect worker uses only `RunLocalContentBound`; there
+is no host-runtime fallback. Its immutable request binds the builder effect,
+check definition, and runtime-manifest digest. Its typed result contains only
+the semantic outcome and receipt reference. The worker materializes the
+candidate from the succeeded builder result, and the executor stages and
+remeasures both the candidate workspace and exact runtime before execution.
+
+Before the journal binds the result, the store matches the receipt's candidate
+identifiers to that builder result, validates the immutable CAS closure for the
+receipt, definition, environment, stdout, and stderr, matches the definition's
+execution fields and measured runtime/output ceilings, and requires
+runtime-manifest equality between the environment and request. It does not
+repeat Git materialization or workspace/runtime
+measurement, and it does not compare the environment's protocol-snapshot
+digest. The effect row provides the invocation and attempt identity, avoiding a
+second identity registry or duplicated result facts. Final admission remains
+responsible for the complete protocol and submission closure.
+
+Result binding and effect completion are separate journal transitions. The same
+closure validator gates ordinary completion and reconciliation to `succeeded`.
+Neither a missing result nor an otherwise valid receipt left in content-addressed
+storage proves safe retry or successful execution.
 
 ## Initial capability and fail-closed behavior
 
@@ -90,11 +107,12 @@ executor does not yet prove whether every non-zero status was a normal target
 exit, signal, or resource termination. Typed termination and repair routing
 belong to the effect/reconciliation path; ambiguity cannot spend a verifier run.
 
-Before this path can feed the reducer, authenticated authority and
-journal-registered builder/producer effects must become opaque engine-owned
-capabilities. Admission must require the content-bound environment explicitly;
-the host-runtime environment can never qualify. Structural consistency is
-groundwork, not provenance.
+The worker remains deliberately unreachable because no reducer transition yet
+derives its request from the exact plan. Admission must require the content-bound
+environment explicitly; the host-runtime environment can never qualify. The
+remaining path is plan-derived dispatch followed by one atomic admission that
+revalidates authenticated authority, typed journal results, and the complete
+artifact closure. Structural consistency alone is not provenance.
 
 ## Proof
 
@@ -108,14 +126,14 @@ Tests cover:
 - strict JSON, RFC 8785 number and UTF-16 ordering vectors, and the admitted
   example submission digest;
 - candidate-ref loss and explicit reconciliation, materialization ceilings,
-  manifest drift, producer-binding mutations, missing/aliased artifacts, and
-  global identity reuse; and
-- repeatable empty-artifact and exact-submission persistence.
+  manifest drift, producer-binding mutations, and missing/aliased artifacts;
+  and
+- repeatable empty-artifact handling and exact prepared-submission construction.
 
-The next admission work binds builder and producer results to the effect journal;
-effect reconciliation then makes recovery durable.
-Until that wiring exists, these primitives are unreachable from the public
-mutating surface and Sworn makes no unattended-delivery claim.
+Typed builder and local-check results now bind to the effect journal, including
+recovery through the same validator. Plan-derived check dispatch and final
+atomic admission do not yet exist, so these primitives remain unreachable from
+the public mutating surface and Sworn makes no unattended-delivery claim.
 
 Exact plan parsing and historical signed approval are now implemented separately
 from this structural path; see [Exact plan and authenticated authority](authenticated-authority.md).

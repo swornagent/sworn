@@ -34,7 +34,7 @@ type Effect struct {
 	State         EffectState     `json:"state"`
 	Attempt       int64           `json:"attempt"`
 	OwnerID       string          `json:"owner_id,omitempty"`
-	Receipt       json.RawMessage `json:"receipt,omitempty"`
+	Result        json.RawMessage `json:"result,omitempty"`
 	LastError     string          `json:"last_error,omitempty"`
 	CreatedAtUS   int64           `json:"created_at_us"`
 	StartedAtUS   int64           `json:"started_at_us,omitempty"`
@@ -62,10 +62,35 @@ func (lease EffectLease) Request() json.RawMessage {
 	return append(json.RawMessage(nil), lease.effect.Request...)
 }
 
-// ProtocolRunID is the engine-owned invocation identity to use in Baton
-// builder or producer records. Callers never select a separate run ID.
-func (lease EffectLease) ProtocolRunID() string {
-	return lease.effect.ID
+func (lease EffectLease) Invocation() engine.JournalEffect {
+	return engine.JournalEffect{
+		ID: lease.effect.ID, DeliveryRunID: lease.effect.DeliveryRunID,
+		Kind: engine.EffectKind(lease.effect.Kind), Attempt: lease.effect.Attempt,
+		Request: append(json.RawMessage(nil), lease.effect.Request...),
+	}
+}
+
+func (s *Store) validateEffectLease(lease EffectLease) error {
+	if lease.issuer == nil || lease.issuer != s.leaseIssuer ||
+		lease.effect.State != EffectRunning || !engine.ValidID(lease.effect.ID) ||
+		!engine.ValidID(lease.effect.OwnerID) || lease.effect.Attempt < 1 {
+		return errors.New("effect operation requires a current store-issued lease")
+	}
+	return nil
+}
+
+func requireRunningLease(effect Effect, lease EffectLease) error {
+	if effect.State != EffectRunning || effect.OwnerID != lease.effect.OwnerID || effect.Attempt != lease.effect.Attempt {
+		return fmt.Errorf(
+			"effect %q is not running for lease owner %q at attempt %d",
+			lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
+		)
+	}
+	if effect.DeliveryRunID != lease.effect.DeliveryRunID || effect.CommandID != lease.effect.CommandID ||
+		effect.Kind != lease.effect.Kind || !bytes.Equal(effect.Request, lease.effect.Request) {
+		return fmt.Errorf("effect %q no longer matches its issued lease", lease.effect.ID)
+	}
+	return nil
 }
 
 func (s *Store) Effects(ctx context.Context, state EffectState) ([]Effect, error) {
@@ -90,6 +115,12 @@ func (s *Store) Effects(ctx context.Context, state EffectState) ([]Effect, error
 		return nil, fmt.Errorf("iterate effects: %w", err)
 	}
 	return effects, nil
+}
+
+// SucceededEffect returns one immutable typed journal fact for dependent
+// execution. It never treats an unbound artifact as an effect result.
+func (s *Store) SucceededEffect(ctx context.Context, effectID string) (engine.JournalEffect, error) {
+	return (journalResultResolver{query: s.db}).SucceededEffect(ctx, effectID)
 }
 
 func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLease, error) {
@@ -141,26 +172,64 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 	return EffectLease{issuer: s.leaseIssuer, effect: cloneEffect(effect)}, nil
 }
 
-func (s *Store) CompleteEffect(
-	ctx context.Context,
-	lease EffectLease,
-	succeeded bool,
-	receipt json.RawMessage,
-	detail string,
-) error {
+// BindEffectResult durably binds one canonical, kind-specific result to the
+// exact running lease which observed it. Binding is separate from completion
+// so recovery can finish an interrupted success without accepting caller JSON.
+func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result json.RawMessage) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
 	}
-	if lease.issuer == nil || lease.issuer != s.leaseIssuer ||
-		lease.effect.State != EffectRunning || !engine.ValidID(lease.effect.ID) ||
-		!engine.ValidID(lease.effect.OwnerID) || lease.effect.Attempt < 1 {
-		return errors.New("effect completion requires a current store-issued lease")
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
 	}
-	if !json.Valid(receipt) {
-		return errors.New("effect completion requires a JSON receipt")
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin effect result binding: %w", err)
 	}
-	if !succeeded && strings.TrimSpace(detail) == "" {
-		return errors.New("failed effect requires an error detail")
+	defer transaction.Rollback() //nolint:errcheck
+	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
+	if err != nil {
+		return err
+	}
+	if err := requireRunningLease(effect, lease); err != nil {
+		return err
+	}
+	if len(effect.Result) != 0 {
+		if bytes.Equal(effect.Result, result) {
+			return validateBoundEffectResult(
+				ctx, journalResultResolver{query: transaction}, effect, effect.Result,
+			)
+		}
+		return fmt.Errorf("effect %q is already bound to a different result", effect.ID)
+	}
+	if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, result); err != nil {
+		return err
+	}
+	update, err := transaction.ExecContext(ctx, `
+		UPDATE effects SET receipt_json = ?
+		WHERE effect_id = ? AND state = 'running' AND owner_id = ? AND attempt = ? AND receipt_json IS NULL`,
+		[]byte(result), effect.ID, effect.OwnerID, effect.Attempt,
+	)
+	if err != nil {
+		return fmt.Errorf("bind result for effect %q: %w", effect.ID, err)
+	}
+	if err := requireOneRow(update, "bind result for effect "+effect.ID); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit effect result binding: %w", err)
+	}
+	return nil
+}
+
+// CompleteEffect closes a running effect only from its already bound typed
+// result. The caller cannot substitute different success bytes at completion.
+func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
+	if s.readOnly {
+		return errors.New("control store is read-only")
+	}
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
 	}
 	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -171,43 +240,84 @@ func (s *Store) CompleteEffect(
 	if err != nil {
 		return err
 	}
-	if effect.State != EffectRunning || effect.OwnerID != lease.effect.OwnerID || effect.Attempt != lease.effect.Attempt {
-		return fmt.Errorf(
-			"effect %q is not running for lease owner %q at attempt %d",
-			lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
-		)
+	if err := requireRunningLease(effect, lease); err != nil {
+		return err
 	}
-	if effect.DeliveryRunID != lease.effect.DeliveryRunID || effect.CommandID != lease.effect.CommandID ||
-		effect.Kind != lease.effect.Kind || !bytes.Equal(effect.Request, lease.effect.Request) {
-		return fmt.Errorf("effect %q no longer matches its issued lease", lease.effect.ID)
+	if len(effect.Result) == 0 {
+		return fmt.Errorf("effect %q has no result bound to attempt %d", effect.ID, effect.Attempt)
+	}
+	if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, effect.Result); err != nil {
+		return err
 	}
 	now := s.now().UTC().UnixMicro()
-	state, observation := EffectFailed, "failed"
-	var receiptValue any = []byte(receipt)
-	var errorValue any = detail
-	if succeeded {
-		state, observation = EffectSucceeded, "succeeded"
-		errorValue = nil
-	}
-	result, err := transaction.ExecContext(ctx, `
+	update, err := transaction.ExecContext(ctx, `
 		UPDATE effects
-		SET state = ?, receipt_json = ?, last_error = ?, completed_at_us = ?
+		SET state = 'succeeded', last_error = NULL, completed_at_us = ?
 		WHERE effect_id = ? AND state = 'running' AND owner_id = ? AND attempt = ?`,
-		state, receiptValue, errorValue, now,
-		lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
+		now, lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
 	)
 	if err != nil {
 		return fmt.Errorf("complete effect %q: %w", lease.effect.ID, err)
 	}
-	if err := requireOneRow(result, "complete effect "+lease.effect.ID); err != nil {
+	if err := requireOneRow(update, "complete effect "+lease.effect.ID); err != nil {
 		return err
 	}
-	effect.State, effect.Receipt, effect.LastError, effect.CompletedAtUS = state, receipt, detail, now
-	if err := insertObservation(ctx, transaction, effect, observation, receipt, detail, now); err != nil {
+	effect.State, effect.LastError, effect.CompletedAtUS = EffectSucceeded, "", now
+	if err := insertObservation(ctx, transaction, effect, "succeeded", effect.Result, "", now); err != nil {
 		return err
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit effect completion: %w", err)
+	}
+	return nil
+}
+
+// FailEffect records infrastructure failure only when no trustworthy typed
+// result was bound. Known domain outcomes must complete successfully instead.
+func (s *Store) FailEffect(ctx context.Context, lease EffectLease, detail string) error {
+	if s.readOnly {
+		return errors.New("control store is read-only")
+	}
+	if err := s.validateEffectLease(lease); err != nil {
+		return err
+	}
+	if strings.TrimSpace(detail) == "" {
+		return errors.New("failed effect requires an error detail")
+	}
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin effect failure: %w", err)
+	}
+	defer transaction.Rollback() //nolint:errcheck
+	effect, err := loadEffect(ctx, transaction, lease.effect.ID)
+	if err != nil {
+		return err
+	}
+	if err := requireRunningLease(effect, lease); err != nil {
+		return err
+	}
+	if len(effect.Result) != 0 {
+		return fmt.Errorf("effect %q has a bound result and cannot be failed", effect.ID)
+	}
+	now := s.now().UTC().UnixMicro()
+	update, err := transaction.ExecContext(ctx, `
+		UPDATE effects
+		SET state = 'failed', receipt_json = NULL, last_error = ?, completed_at_us = ?
+		WHERE effect_id = ? AND state = 'running' AND owner_id = ? AND attempt = ?`,
+		detail, now, lease.effect.ID, lease.effect.OwnerID, lease.effect.Attempt,
+	)
+	if err != nil {
+		return fmt.Errorf("fail effect %q: %w", lease.effect.ID, err)
+	}
+	if err := requireOneRow(update, "fail effect "+lease.effect.ID); err != nil {
+		return err
+	}
+	effect.State, effect.LastError, effect.CompletedAtUS = EffectFailed, detail, now
+	if err := insertObservation(ctx, transaction, effect, "failed", nil, detail, now); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit effect failure: %w", err)
 	}
 	return nil
 }
@@ -279,13 +389,16 @@ const (
 	ReconcileFailed     Reconciliation = "failed"
 )
 
+// ReconcileUnknownEffect is an explicit manual recovery boundary. In
+// particular, a nonempty detail is not machine proof of non-application; an
+// autonomous caller must not select ReconcileNotApplied until its effect kind
+// has attempt-bound external evidence.
 func (s *Store) ReconcileUnknownEffect(
 	ctx context.Context,
 	effectID string,
 	expectedAttempt int64,
 	reconcilerID string,
 	resolution Reconciliation,
-	receipt json.RawMessage,
 	detail string,
 ) error {
 	if s.readOnly {
@@ -297,11 +410,11 @@ func (s *Store) ReconcileUnknownEffect(
 	if expectedAttempt < 1 {
 		return errors.New("positive effect attempt is required for reconciliation")
 	}
-	if !json.Valid(receipt) {
-		return errors.New("effect reconciliation requires a JSON receipt")
+	if resolution != ReconcileSucceeded && strings.TrimSpace(detail) == "" {
+		return errors.New("non-success reconciliation requires a manual audit detail")
 	}
-	if resolution == ReconcileFailed && strings.TrimSpace(detail) == "" {
-		return errors.New("failed reconciliation requires a detail")
+	if resolution == ReconcileSucceeded && detail != "" {
+		return errors.New("successful reconciliation cannot carry an error detail")
 	}
 	if resolution != ReconcileNotApplied && resolution != ReconcileSucceeded && resolution != ReconcileFailed {
 		return fmt.Errorf("unsupported reconciliation %q", resolution)
@@ -321,6 +434,16 @@ func (s *Store) ReconcileUnknownEffect(
 			effectID, effect.State, effect.Attempt, expectedAttempt,
 		)
 	}
+	if resolution == ReconcileSucceeded {
+		if len(effect.Result) == 0 {
+			return fmt.Errorf("effect %q has no result bound to unknown attempt %d", effectID, expectedAttempt)
+		}
+		if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, effect.Result); err != nil {
+			return err
+		}
+	} else if len(effect.Result) != 0 {
+		return fmt.Errorf("effect %q has a bound result and cannot be reconciled as %s", effectID, resolution)
+	}
 	now := s.now().UTC().UnixMicro()
 	var result sql.Result
 	switch resolution {
@@ -333,8 +456,8 @@ func (s *Store) ReconcileUnknownEffect(
 	case ReconcileSucceeded:
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE effects
-			SET state = 'succeeded', receipt_json = ?, last_error = NULL, completed_at_us = ?
-			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, []byte(receipt), now, effectID, expectedAttempt)
+			SET state = 'succeeded', last_error = NULL, completed_at_us = ?
+			WHERE effect_id = ? AND state = 'unknown' AND attempt = ?`, now, effectID, expectedAttempt)
 	case ReconcileFailed:
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE effects
@@ -348,7 +471,11 @@ func (s *Store) ReconcileUnknownEffect(
 		return err
 	}
 	effect.OwnerID = reconcilerID
-	if err := insertObservation(ctx, transaction, effect, string(resolution), receipt, detail, now); err != nil {
+	var observedResult json.RawMessage
+	if resolution == ReconcileSucceeded {
+		observedResult = effect.Result
+	}
+	if err := insertObservation(ctx, transaction, effect, string(resolution), observedResult, detail, now); err != nil {
 		return err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -385,7 +512,7 @@ func scanEffect(row rowScanner) (Effect, error) {
 		effect.OwnerID = owner.String
 	}
 	if receipt.Valid {
-		effect.Receipt = json.RawMessage(receipt.String)
+		effect.Result = json.RawMessage(receipt.String)
 	}
 	if lastError.Valid {
 		effect.LastError = lastError.String
@@ -401,7 +528,7 @@ func scanEffect(row rowScanner) (Effect, error) {
 
 func cloneEffect(effect Effect) Effect {
 	effect.Request = append(json.RawMessage(nil), effect.Request...)
-	effect.Receipt = append(json.RawMessage(nil), effect.Receipt...)
+	effect.Result = append(json.RawMessage(nil), effect.Result...)
 	return effect
 }
 

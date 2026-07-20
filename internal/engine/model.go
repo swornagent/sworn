@@ -12,9 +12,13 @@ import (
 )
 
 const (
-	StateSchemaVersion              = "sworn-engine-state-v1"
-	BuildEffectRequestSchemaVersion = "sworn-build-effect-request-v1"
-	NoRevision                      = int64(-1)
+	StateSchemaVersion                   = "sworn-engine-state-v1"
+	BuildEffectRequestSchemaVersion      = "sworn-build-effect-request-v1"
+	BuildEffectResultSchemaVersion       = "sworn-build-effect-result-v1"
+	LocalCheckEffectRequestSchemaVersion = "sworn-local-check-effect-request-v1"
+	LocalCheckEffectResultSchemaVersion  = "sworn-local-check-effect-result-v1"
+	MaximumEffectPayloadBytes            = 1 << 20
+	NoRevision                           = int64(-1)
 )
 
 type Phase string
@@ -49,7 +53,10 @@ const (
 
 type EffectKind string
 
-const EffectBuild EffectKind = "runner.build"
+const (
+	EffectBuild      EffectKind = "runner.build"
+	EffectLocalCheck EffectKind = "check.local"
+)
 
 // Command is the immutable input to one reducer invocation. Payload bytes are
 // bound exactly by the command idempotency digest at the store boundary.
@@ -91,6 +98,9 @@ type BuildEffectRequest struct {
 }
 
 func ParseBuildEffectRequest(encoded json.RawMessage) (BuildEffectRequest, error) {
+	if err := validateStrictJSON(encoded); err != nil {
+		return BuildEffectRequest{}, fmt.Errorf("decode build effect request: %w", err)
+	}
 	request, err := decodePayload[BuildEffectRequest](encoded)
 	if err != nil {
 		return BuildEffectRequest{}, fmt.Errorf("decode build effect request: %w", err)
