@@ -88,6 +88,18 @@ func TestOpenRejectsPublicOrSymlinkedStore(t *testing.T) {
 	}
 }
 
+func TestOpenConfiguredRequiresExactLocalCheckRuntime(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "control.db")
+	if control, err := OpenConfigured(context.Background(), path, ControlConfiguration{}); err == nil {
+		_ = control.Close()
+		t.Fatal("OpenConfigured accepted an absent local-check runtime digest")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("rejected configured open created a control store: %v", err)
+	}
+}
+
 func TestOpenRejectsForeignApplicationAndNewerSchema(t *testing.T) {
 	t.Parallel()
 

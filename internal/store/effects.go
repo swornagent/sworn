@@ -54,14 +54,6 @@ type EffectLease struct {
 	effect Effect
 }
 
-func (lease EffectLease) EffectID() string      { return lease.effect.ID }
-func (lease EffectLease) DeliveryRunID() string { return lease.effect.DeliveryRunID }
-func (lease EffectLease) Attempt() int64        { return lease.effect.Attempt }
-func (lease EffectLease) Kind() string          { return lease.effect.Kind }
-func (lease EffectLease) Request() json.RawMessage {
-	return append(json.RawMessage(nil), lease.effect.Request...)
-}
-
 func (lease EffectLease) Invocation() engine.JournalEffect {
 	return engine.JournalEffect{
 		ID: lease.effect.ID, DeliveryRunID: lease.effect.DeliveryRunID,
@@ -93,30 +85,6 @@ func requireRunningLease(effect Effect, lease EffectLease) error {
 	return nil
 }
 
-func (s *Store) Effects(ctx context.Context, state EffectState) ([]Effect, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT effect_id, run_id, command_id, ordinal, kind, request_json, state,
-		       attempt, owner_id, receipt_json, last_error, created_at_us,
-		       started_at_us, completed_at_us
-		FROM effects WHERE state = ? ORDER BY created_at_us, effect_id`, state)
-	if err != nil {
-		return nil, fmt.Errorf("list %s effects: %w", state, err)
-	}
-	defer rows.Close() //nolint:errcheck
-	var effects []Effect
-	for rows.Next() {
-		effect, err := scanEffect(rows)
-		if err != nil {
-			return nil, err
-		}
-		effects = append(effects, effect)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate effects: %w", err)
-	}
-	return effects, nil
-}
-
 // SucceededEffect returns one immutable typed journal fact for dependent
 // execution. It never treats an unbound artifact as an effect result.
 func (s *Store) SucceededEffect(ctx context.Context, effectID string) (engine.JournalEffect, error) {
@@ -137,9 +105,16 @@ func (s *Store) ClaimNextEffect(ctx context.Context, ownerID string) (EffectLeas
 	defer transaction.Rollback() //nolint:errcheck
 	var effectID string
 	err = transaction.QueryRowContext(ctx, `
-		SELECT effect_id FROM effects
-		WHERE state = 'pending'
-		ORDER BY created_at_us, effect_id LIMIT 1`).Scan(&effectID)
+		SELECT pending.effect_id FROM effects AS pending
+		WHERE pending.state = 'pending'
+		  AND NOT EXISTS (
+			SELECT 1 FROM effects AS earlier
+			WHERE earlier.command_id = pending.command_id
+			  AND earlier.ordinal < pending.ordinal
+			  AND earlier.state != 'succeeded'
+		  )
+		ORDER BY pending.created_at_us, pending.command_id, pending.ordinal, pending.effect_id
+		LIMIT 1`).Scan(&effectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return EffectLease{}, ErrNoPendingEffect
 	}

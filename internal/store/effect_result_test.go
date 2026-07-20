@@ -43,7 +43,7 @@ func TestLocalCheckResultClosesEveryKnownOutcome(t *testing.T) {
 			if err != nil || parsed.Outcome != outcome || parsed.Receipt != fixture.result.Receipt {
 				t.Fatalf("succeeded %s result = %+v, %v", outcome, parsed, err)
 			}
-			rows, err := fixture.control.Effects(context.Background(), EffectSucceeded)
+			rows, err := listEffects(context.Background(), fixture.control, EffectSucceeded)
 			if err != nil || len(rows) != 2 || rows[1].ID != fixture.effectID || !bytes.Equal(rows[1].Result, result) {
 				t.Fatalf("succeeded effects after %s = %+v, %v", outcome, rows, err)
 			}
@@ -127,7 +127,7 @@ func TestLocalCheckResultRejectsBrokenArtifactClosure(t *testing.T) {
 			if err := fixture.control.BindEffectResult(context.Background(), lease, result); err == nil {
 				t.Fatal("effect result with a broken closure was bound")
 			}
-			running, err := fixture.control.Effects(context.Background(), EffectRunning)
+			running, err := listEffects(context.Background(), fixture.control, EffectRunning)
 			if err != nil || len(running) != 1 || running[0].ID != fixture.effectID || len(running[0].Result) != 0 {
 				t.Fatalf("rejected result changed journal state: %+v, %v", running, err)
 			}
@@ -151,11 +151,11 @@ func TestOrphanLocalCheckReceiptCannotReconcileSuccess(t *testing.T) {
 		t.Fatalf("recover unbound check attempt = %d, %v", recovered, err)
 	}
 	if err := fixture.control.ReconcileUnknownEffect(
-		context.Background(), fixture.effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, "",
+		context.Background(), fixture.effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, "",
 	); err == nil {
 		t.Fatal("orphan receipt artifact reconciled an unbound check effect as succeeded")
 	}
-	unknown, err := fixture.control.Effects(context.Background(), EffectUnknown)
+	unknown, err := listEffects(context.Background(), fixture.control, EffectUnknown)
 	if err != nil || len(unknown) != 1 || unknown[0].ID != fixture.effectID || len(unknown[0].Result) != 0 {
 		t.Fatalf("unknown check changed after rejected reconciliation = %+v, %v", unknown, err)
 	}
@@ -280,7 +280,7 @@ func (fixture *localCheckEffectFixture) insertAndClaim(t *testing.T) (EffectLeas
 		t.Fatalf("insert local check effect: %v", err)
 	}
 	lease, err := fixture.control.ClaimNextEffect(context.Background(), "check-worker")
-	if err != nil || lease.EffectID() != fixture.effectID {
+	if err != nil || lease.Invocation().ID != fixture.effectID {
 		t.Fatalf("claim local check effect = %+v, %v", lease, err)
 	}
 	return lease, result

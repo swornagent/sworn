@@ -2,15 +2,114 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 const (
 	AssurancePolicySchemaVersion = "assurance-policy-v1"
 	MaximumAssurancePolicyBytes  = 1 << 20
+	// MaximumExactLocalChecks bounds the initial serial check selection.
+	MaximumExactLocalChecks = 64
 )
+
+// LocalCheckRequirement is the minimal immutable policy fact needed to create
+// one local-check request. Definition is normalized to Sworn's CAS pointer;
+// the registry's locator remains covered by the exact policy bytes.
+type LocalCheckRequirement struct {
+	CheckID    string
+	Definition Artifact
+	definition LocalCheckDefinition
+}
+
+// ExactLocalChecks is an opaque selection capability derived from one exact
+// plan, its selected canonical policy, and every resolved baseline definition.
+// It proves the narrow initial Standard capability before an external check is
+// dispatched.
+type ExactLocalChecks struct {
+	contract     ExactWorkContract
+	requirements []LocalCheckRequirement
+}
+
+// Requirements returns the policy-ordered check IDs and CAS definition
+// pointers. Callers cannot mutate the exact selection through the returned
+// slice.
+func (selection ExactLocalChecks) Requirements() []LocalCheckRequirement {
+	return slices.Clone(selection.requirements)
+}
+
+func (selection ExactLocalChecks) ContractDigest() string { return selection.contract.Digest() }
+
+// ResolveExactLocalChecks derives the complete initial local-check selection
+// from immutable plan and artifact truth. It accepts no caller-projected check
+// IDs, definitions, acceptance requirements, or assurance facts.
+func ResolveExactLocalChecks(
+	ctx context.Context,
+	artifacts ArtifactReader,
+	plan ExactPlan,
+	workID string,
+) (ExactLocalChecks, error) {
+	if artifacts == nil {
+		return ExactLocalChecks{}, errors.New("exact local checks require an artifact reader")
+	}
+	resolver := artifactResolver{reader: artifacts, cached: make(map[string]resolvedArtifact)}
+	return resolveExactLocalChecks(ctx, &resolver, plan, workID)
+}
+
+func resolveExactLocalChecks(
+	ctx context.Context,
+	resolver *artifactResolver,
+	plan ExactPlan,
+	workID string,
+) (ExactLocalChecks, error) {
+	contract, exists := plan.Work(workID)
+	if !exists {
+		return ExactLocalChecks{}, fmt.Errorf("work %q is absent from the exact plan", workID)
+	}
+	work := contract.View()
+	if err := validateInitialContract(len(plan.data.work), work); err != nil {
+		return ExactLocalChecks{}, err
+	}
+	policyBytes, err := resolver.resolve(ctx, jsonCAS(plan.Policy().Digest))
+	if err != nil {
+		return ExactLocalChecks{}, fmt.Errorf("resolve exact assurance policy: %w", err)
+	}
+	policy, err := parseAssurancePolicyRegistry(policyBytes)
+	if err != nil {
+		return ExactLocalChecks{}, err
+	}
+	requirements := make([]LocalCheckRequirement, 0, len(policy.checks))
+	coverage := make([]Evidence, 0, len(policy.checks))
+	for _, baseline := range policy.checks {
+		pointer := jsonCAS(baseline.definition.Digest)
+		definitionBytes, err := resolver.resolve(ctx, pointer)
+		if err != nil {
+			return ExactLocalChecks{}, fmt.Errorf("resolve check %q definition: %w", baseline.id, err)
+		}
+		definition, err := ParseLocalCheckDefinition(definitionBytes)
+		if err != nil {
+			return ExactLocalChecks{}, fmt.Errorf("parse check %q definition: %w", baseline.id, err)
+		}
+		requirements = append(requirements, LocalCheckRequirement{
+			CheckID: baseline.id, Definition: pointer, definition: definition,
+		})
+		coverage = append(coverage, Evidence{
+			ID: definition.Evidence.ID, AcceptanceIDs: definition.Evidence.AcceptanceIDs,
+			Boundary: definition.Evidence.Boundary,
+		})
+	}
+	if err := validateAcceptanceCoverage(work.Acceptance, coverage); err != nil {
+		return ExactLocalChecks{}, err
+	}
+	return ExactLocalChecks{contract: contract, requirements: requirements}, nil
+}
+
+func jsonCAS(digest string) Artifact {
+	return Artifact{Ref: digest, MediaType: "application/json", Digest: digest}
+}
 
 type assurancePolicyRegistry struct {
 	checks []assurancePolicyEntry
@@ -56,8 +155,8 @@ func parseAssurancePolicyRegistry(contents []byte) (assurancePolicyRegistry, err
 	if err != nil {
 		return assurancePolicyRegistry{}, err
 	}
-	if len(checks) == 0 {
-		return assurancePolicyRegistry{}, errors.New("assurance policy requires at least one check")
+	if len(checks) == 0 || len(checks) > MaximumExactLocalChecks {
+		return assurancePolicyRegistry{}, fmt.Errorf("assurance policy requires 1-%d local checks", MaximumExactLocalChecks)
 	}
 	if _, err := parseAssurancePolicyEntries(root["packs"], "assurance policy pack", true); err != nil {
 		return assurancePolicyRegistry{}, err

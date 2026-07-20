@@ -11,7 +11,11 @@ import (
 )
 
 func (s *Store) Record(ctx context.Context, recordDigest string) (kind string, canonicalJSON []byte, err error) {
-	err = s.db.QueryRowContext(ctx,
+	return loadRecord(ctx, s.db, recordDigest)
+}
+
+func loadRecord(ctx context.Context, query rowQuerier, recordDigest string) (kind string, canonicalJSON []byte, err error) {
+	err = query.QueryRowContext(ctx,
 		"SELECT kind, canonical_json FROM records WHERE digest = ?", recordDigest,
 	).Scan(&kind, &canonicalJSON)
 	if errors.Is(err, sql.ErrNoRows) {

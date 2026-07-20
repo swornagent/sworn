@@ -7,8 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 	LocalCheckEffectRequestSchemaVersion = "sworn-local-check-effect-request-v1"
 	LocalCheckEffectResultSchemaVersion  = "sworn-local-check-effect-result-v1"
 	MaximumEffectPayloadBytes            = 1 << 20
+	MaximumCheckFanout                   = protocol.MaximumExactLocalChecks
 	NoRevision                           = int64(-1)
 )
 
@@ -31,9 +33,10 @@ const (
 type WorkState string
 
 const (
-	WorkWaiting WorkState = "waiting"
-	WorkReady   WorkState = "ready"
-	WorkActive  WorkState = "active"
+	WorkWaiting  WorkState = "waiting"
+	WorkReady    WorkState = "ready"
+	WorkActive   WorkState = "active"
+	WorkChecking WorkState = "checking"
 )
 
 type NextAction string
@@ -46,9 +49,10 @@ const (
 type CommandKind string
 
 const (
-	CommandCreate        CommandKind = "delivery.create"
-	CommandActivate      CommandKind = "delivery.activate"
-	CommandDispatchBuild CommandKind = "build.dispatch"
+	CommandCreate         CommandKind = "delivery.create"
+	CommandActivate       CommandKind = "delivery.activate"
+	CommandDispatchBuild  CommandKind = "build.dispatch"
+	CommandDispatchChecks CommandKind = "checks.dispatch"
 )
 
 type EffectKind string
@@ -85,6 +89,21 @@ type DispatchBuildPayload struct {
 	DispatchDigest string `json:"dispatch_digest"`
 }
 
+type CheckSelection struct {
+	CheckID          string `json:"check_id"`
+	DefinitionDigest string `json:"definition_digest"`
+}
+
+// DispatchChecksPayload is the exact ordered check selection prepared from the
+// delivery plan at the store boundary. Work attempt and effect identities remain
+// reducer- and store-derived facts respectively.
+type DispatchChecksPayload struct {
+	WorkID                string           `json:"work_id"`
+	BuilderEffectID       string           `json:"builder_effect_id"`
+	RuntimeManifestDigest string           `json:"runtime_manifest_digest"`
+	Checks                []CheckSelection `json:"checks"`
+}
+
 // BuildEffectRequest is the strict engine-owned input for one builder effect.
 // Its delivery run ID is control-state identity, not the Baton builder run ID:
 // the store-derived effect ID becomes that invocation identity when claimed.
@@ -107,7 +126,7 @@ func ParseBuildEffectRequest(encoded json.RawMessage) (BuildEffectRequest, error
 	}
 	if request.SchemaVersion != BuildEffectRequestSchemaVersion ||
 		!ValidID(request.DeliveryRunID) || !ValidID(request.DeliveryID) || !ValidID(request.WorkID) ||
-		request.WorkAttempt < 1 || !ValidDigest(request.DispatchDigest) {
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) || !ValidDigest(request.DispatchDigest) {
 		return BuildEffectRequest{}, errors.New("invalid build effect request")
 	}
 	return request, nil
@@ -164,21 +183,8 @@ func RejectionOf(err error) (*Rejection, bool) {
 	return rejection, errors.As(err, &rejection)
 }
 
-var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-
-func ValidID(value string) bool { return idPattern.MatchString(value) }
-
-func ValidDigest(value string) bool {
-	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
-		return false
-	}
-	for _, char := range value[len("sha256:"):] {
-		if !(char >= '0' && char <= '9') && !(char >= 'a' && char <= 'f') {
-			return false
-		}
-	}
-	return true
-}
+func ValidID(value string) bool     { return protocol.ValidID(value) }
+func ValidDigest(value string) bool { return protocol.ValidDigest(value) }
 
 func (s State) Validate() error {
 	if s.SchemaVersion != StateSchemaVersion {
@@ -221,8 +227,8 @@ func (s State) Validate() error {
 			return fmt.Errorf("duplicate work id %q", work.ID)
 		}
 		seen[work.ID] = struct{}{}
-		if work.Attempt < 0 {
-			return fmt.Errorf("negative attempt for work %q", work.ID)
+		if work.Attempt < 0 || (work.Attempt > 0 && !protocol.ValidPositiveSafeInteger(work.Attempt)) {
+			return fmt.Errorf("invalid attempt for work %q", work.ID)
 		}
 		switch work.State {
 		case WorkWaiting:
@@ -234,10 +240,10 @@ func (s State) Validate() error {
 			if work.NextAction != ActionBuild {
 				return fmt.Errorf("ready work %q must build", work.ID)
 			}
-		case WorkActive:
+		case WorkActive, WorkChecking:
 			activeOrReady++
 			if work.NextAction != ActionWait || work.Attempt == 0 {
-				return fmt.Errorf("active work %q has invalid attempt or action", work.ID)
+				return fmt.Errorf("running work %q has invalid attempt or action", work.ID)
 			}
 		default:
 			return fmt.Errorf("unsupported work state %q", work.State)

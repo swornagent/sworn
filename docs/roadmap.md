@@ -52,7 +52,7 @@ work does not change that public boundary.
   result rebinds receipt candidate identifiers to the builder result and
   validates the definition, environment, and output CAS closure, including
   requested runtime-manifest equality.
-- [ ] Derive `check.local` dispatch from the exact plan in the reducer.
+- [x] Derive `check.local` dispatch from the exact plan in the reducer.
 - [ ] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
 - [ ] Reconcile interrupted workspace and Git effects with kind-specific,
@@ -67,8 +67,10 @@ The contained executor now implements distinct read-only and writable-export
 modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
 live cgroup resource bounds, post-quiescence measurement, generation-bound
 validation and digest-independent cleanup. The read-only content-bound path is
-used by an internal local-check effect worker, but no reducer transition can
-dispatch that worker yet; see [Contained executor](contained-executor.md).
+used by an internal local-check effect worker. A bounded reducer transition can
+now schedule its exact policy-selected batch after builder success, but no
+production command or claim loop executes it; see
+[Contained executor](contained-executor.md).
 
 The prepared Standard path now rechecks a retained candidate, runs one
 policy-bound local producer through read-only containment, stores one reusable
@@ -78,8 +80,9 @@ removed. Final atomic admission will be the sole submission writer. See
 [Prepared local submission](measured-submission.md).
 
 Exact-plan and historical approval capabilities now survive restart through the
-single control store. This is not current effect authority: source re-resolution
-before dispatch, accepting `PASS`, and integration remains milestone 4. See
+single control store. The check schedule requires that immutable historical
+binding, but it is not current effect authority: source re-resolution before
+execution, accepting `PASS`, and integration remain milestone 4. See
 [Exact plan and authenticated authority](authenticated-authority.md).
 
 Prepared-submission construction now resolves policy and check definitions from
@@ -100,9 +103,12 @@ snapshot; final admission remains future. Absence of a bound result, or an
 orphan receipt in content-addressed storage, cannot authorize autonomous retry
 or success.
 
-This remains an internal prerequisite. Until a lawful plan-derived reducer edge
-creates the check request, the worker is unreachable and the board stays
-`active`.
+The plan-derived edge resolves one dependency-free Standard policy and all of its
+definitions, rebinds the exact succeeded builder and process-configured runtime,
+and creates the complete ordered check batch in one transaction. Work becomes
+`checking`, not reviewable; effect claims serialize within that batch. The
+worker remains unreachable from the production binary until a current-authority
+gate and mutating command service exist.
 
 ## 3. Fresh independent verdict
 

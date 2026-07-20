@@ -35,14 +35,17 @@ reconciliation, live Git measurement, plain workspaces, exact single-parent
 candidates, immutable or fresh writable executor staging, default-denied
 networking, finite live resource and retained-output ceilings, process-tree
 cleanup, quiescent measured workspace export, typed lease-bound effect results,
-and an explicit content-bound local-check runtime. Real-boundary tests prove
-both staged runtime execution and the writable-export handoff into exact Git
-candidate capture.
+an explicit content-bound local-check runtime, and one ordered, serially claimed
+plan-derived local-check batch after a succeeded builder. Real-boundary tests
+prove both staged runtime execution and the writable-export handoff into exact
+Git candidate capture.
 
-No mutating command is exposed by the CLI yet. The executor is not connected to
-the command service or a native agent adapter, and no reducer transition yet
-derives a local-check dispatch from the exact plan. These remain internal
-primitives rather than a delivery loop. See
+No mutating command is exposed by the CLI yet. The internal check-dispatch edge
+requires exact plan, policy, definition, historical approval, builder-journal,
+and process-configured runtime agreement in one transaction, but it is not a
+current authority permit. No command service, native agent adapter, or autonomous
+claim loop can execute it. These remain internal primitives rather than a
+delivery loop. See
 [Exact local candidate](docs/exact-candidate.md) and
 [Contained executor](docs/contained-executor.md).
 

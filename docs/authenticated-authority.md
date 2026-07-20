@@ -1,8 +1,9 @@
 # Exact plan and authenticated authority
 
-Sworn now has an internal authenticated plan-approval boundary. It does not yet
-activate a delivery, dispatch a runner, make a structural submission reviewable,
-or issue a current effect permit.
+Sworn now has an internal authenticated plan-approval boundary. Other internal
+engine paths can retain that historical fact while structurally scheduling
+effects, but this boundary does not make a submission reviewable or issue a
+current effect permit.
 
 ## Boundary
 
@@ -50,10 +51,12 @@ signature and receipt against the configured root; it never trusts a stored
 boolean. Historical approval proves what was approved at the recorded time. It
 does not claim the source is current.
 
-Builder dispatch, verifier dispatch, accepting `PASS`, and integration will
-require separate short-lived gate-specific revalidation. No such permit exists
-in this slice. Prepared-submission construction now consumes the opaque
-`ExactPlan` directly and structurally compares its approval receipt with that
-plan. This removes a second caller-authored projection of plan facts, but it
-still does not authenticate the receipt, prove journal provenance, or admit the
-submission to the reducer.
+Builder execution, check execution, verifier dispatch, accepting `PASS`, and
+integration will require separate short-lived gate-specific revalidation. No
+such permit exists yet. The internal check-scheduling transaction requires its
+receipt digest to identify an immutable authenticated historical approval for
+the exact plan and verifies that the receipt precedes the succeeded builder; this
+is provenance, not freshness. Prepared-submission construction consumes the
+opaque `ExactPlan` directly and structurally compares its approval receipt with
+that plan, but still cannot authenticate current authority or make the
+submission reviewable.

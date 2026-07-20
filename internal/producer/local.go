@@ -17,11 +17,10 @@ import (
 )
 
 const (
-	LocalCheckDefinitionSchemaVersion = protocol.LocalCheckDefinitionSchemaVersion
-	maximumDefinitionBytes            = protocol.MaximumLocalCheckDefinitionBytes
-	maximumEnvironmentBytes           = protocol.MaximumLocalEnvironmentBytes
-	maximumReceiptBytes               = protocol.MaximumLocalCheckReceiptBytes
-	localReceiptMediaType             = "application/vnd.sworn.local-check-receipt+json"
+	maximumDefinitionBytes  = protocol.MaximumLocalCheckDefinitionBytes
+	maximumEnvironmentBytes = protocol.MaximumLocalEnvironmentBytes
+	maximumReceiptBytes     = protocol.MaximumLocalCheckReceiptBytes
+	localReceiptMediaType   = "application/vnd.sworn.local-check-receipt+json"
 )
 
 var (
@@ -45,9 +44,6 @@ type ArtifactStore interface {
 	Artifact(context.Context, string) (mediaType string, contents []byte, err error)
 }
 
-type EvidenceDefinition = protocol.LocalEvidenceDefinition
-type LocalCheckDefinition = protocol.LocalCheckDefinition
-
 type Request struct {
 	CheckID    string
 	RunID      string
@@ -58,15 +54,13 @@ type Request struct {
 }
 
 type Result struct {
-	Receipt  protocol.Artifact
-	Check    *protocol.Check
-	Evidence *protocol.Evidence
+	Receipt protocol.Artifact
 }
 
 // RunLocal resolves one exact definition, runs it once over a fresh read-only
 // candidate workspace, and stores immutable streams and a canonical receipt.
-// Only an unambiguous exit-zero completion yields Baton check and evidence
-// entries.
+// The caller may derive submission facts from an admitted receipt at the
+// protocol boundary that owns those projections.
 func RunLocal(
 	ctx context.Context,
 	runner Runner,
@@ -118,7 +112,7 @@ func runLocal(
 	if request.Definition.MediaType != "application/json" {
 		return Result{}, errors.New("local check definition must be application/json")
 	}
-	definition, err := parseDefinition(definitionBytes)
+	definition, err := protocol.ParseLocalCheckDefinition(definitionBytes)
 	if err != nil {
 		return Result{}, err
 	}
@@ -228,41 +222,7 @@ func runLocal(
 		}
 		return result, ErrCheckNotAdmitted
 	}
-	exitCode := completion.ExitCode
-	check := protocol.Check{
-		ID:            request.CheckID,
-		Outcome:       "pass",
-		RunID:         request.RunID,
-		CandidateTree: request.Candidate.Tree,
-		Environment:   environment,
-		StartedAt:     receipt.StartedAt,
-		CompletedAt:   receipt.CompletedAt,
-		ExitCode:      &exitCode,
-		Receipt:       receiptPointer,
-	}
-	evidence := protocol.Evidence{
-		ID:            definition.Evidence.ID,
-		AcceptanceIDs: append([]string(nil), definition.Evidence.AcceptanceIDs...),
-		Kind:          "test",
-		Boundary:      definition.Evidence.Boundary,
-		Environment:   environment,
-		UsesMocks:     definition.Evidence.UsesMocks,
-		ProducerRunID: request.RunID,
-		CandidateTree: request.Candidate.Tree,
-		CapturedAt:    receipt.CompletedAt,
-		Artifact:      receiptPointer,
-		Observed:      definition.Evidence.Observed,
-	}
-	result.Check = &check
-	result.Evidence = &evidence
 	return result, nil
-}
-
-func parseDefinition(contents []byte) (protocol.LocalCheckDefinition, error) {
-	if len(contents) > maximumDefinitionBytes {
-		return protocol.LocalCheckDefinition{}, errors.New("local check definition exceeds byte ceiling")
-	}
-	return protocol.ParseLocalCheckDefinition(contents)
 }
 
 func storeEnvironment(

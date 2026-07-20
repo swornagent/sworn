@@ -91,10 +91,23 @@ rematerialize Git, remeasure a workspace or runtime, or compare the
 environment's embedded protocol-snapshot digest. Final admission must close
 those remaining protocol and submission checks.
 
-That worker is deliberately unreachable. No reducer transition yet derives a
-`check.local` request from the exact plan, so neither the public CLI nor an
-autonomous loop can dispatch it without inventing authority outside the engine.
-`sworn board` remains read-only, and no path integrates a target.
+The reducer now has one bounded, batched `checks.dispatch` edge. Its payload is
+untrusted: before persistence, the store transaction reparses the exact plan,
+resolves its canonical policy and every selected definition, requires their
+ordered selection to match, and rebinds the configured runtime and succeeded
+builder attempt. It also requires the active authority receipt to be an immutable
+authenticated historical approval for that plan and to precede the builder.
+Only then does work move from `active` to `checking` and the complete ordered
+batch become pending atomically. Within that command, a later ordinal cannot be
+leased until every earlier effect has succeeded. A precondition failure records
+no command, event, state change, or effect.
+
+This is structural scheduling, not current execution authority. Historical
+approval does not prove that its source is still current, and Baton requires
+gate-specific revalidation before builder or check execution. The public binary
+still opens only the read-only board path: there is no mutating CLI, command
+service, claim loop, or native runner adapter. `sworn board` remains read-only,
+and no path integrates a target.
 
 Structural submission persistence and its parallel builder/producer identity
 registry have been removed. A future atomic admission transaction will recheck

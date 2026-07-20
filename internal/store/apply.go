@@ -94,6 +94,14 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 	if err := decision.State.Validate(); err != nil {
 		return ApplyResult{}, fmt.Errorf("reducer returned invalid state: %w", err)
 	}
+	if command.Kind == engine.CommandDispatchChecks {
+		if !found {
+			return ApplyResult{}, errors.New("checks.dispatch requires an existing delivery")
+		}
+		if err := s.validateCheckDispatchDecision(ctx, transaction, current, command, decision); err != nil {
+			return ApplyResult{}, fmt.Errorf("validate checks.dispatch preconditions: %w", err)
+		}
+	}
 	stateJSON, err := json.Marshal(decision.State)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("encode next state: %w", err)

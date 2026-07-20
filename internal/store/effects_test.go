@@ -14,6 +14,27 @@ import (
 	"github.com/swornagent/sworn/internal/repo"
 )
 
+func listEffects(ctx context.Context, control *Store, state EffectState) ([]Effect, error) {
+	rows, err := control.db.QueryContext(ctx, `
+		SELECT effect_id, run_id, command_id, ordinal, kind, request_json, state,
+		       attempt, owner_id, receipt_json, last_error, created_at_us,
+		       started_at_us, completed_at_us
+		FROM effects WHERE state = ? ORDER BY created_at_us, effect_id`, state)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var effects []Effect
+	for rows.Next() {
+		effect, err := scanEffect(rows)
+		if err != nil {
+			return nil, err
+		}
+		effects = append(effects, effect)
+	}
+	return effects, rows.Err()
+}
+
 func TestPendingRunningUnknownReconciliationNeverRetriesBlindly(t *testing.T) {
 	t.Parallel()
 
@@ -26,16 +47,17 @@ func TestPendingRunningUnknownReconciliationNeverRetriesBlindly(t *testing.T) {
 	}
 
 	control = openTestStore(t, path)
-	pending, err := control.Effects(ctx, EffectPending)
+	pending, err := listEffects(ctx, control, EffectPending)
 	if err != nil || len(pending) != 1 || pending[0].ID != effectID {
 		t.Fatalf("pending after reopen = %+v, %v", pending, err)
 	}
 	claimed, err := control.ClaimNextEffect(ctx, "worker-1")
-	if err != nil || claimed.EffectID() != effectID ||
-		claimed.DeliveryRunID() != "run-1" || claimed.Attempt() != 1 || claimed.Kind() != string(engine.EffectBuild) {
+	if err != nil || claimed.Invocation().ID != effectID ||
+		claimed.Invocation().DeliveryRunID != "run-1" || claimed.Invocation().Attempt != 1 ||
+		claimed.Invocation().Kind != engine.EffectBuild {
 		t.Fatalf("claimed = %+v, %v", claimed, err)
 	}
-	request, err := engine.ParseBuildEffectRequest(claimed.Request())
+	request, err := engine.ParseBuildEffectRequest(claimed.Invocation().Request)
 	if err != nil || request.DeliveryRunID != "run-1" || request.DeliveryID != "delivery-1" ||
 		request.WorkID != "work-1" || request.WorkAttempt != 1 {
 		t.Fatalf("claimed request = %+v, %v", request, err)
@@ -53,7 +75,7 @@ func TestPendingRunningUnknownReconciliationNeverRetriesBlindly(t *testing.T) {
 	if err != nil || recovered != 1 {
 		t.Fatalf("RecoverInterruptedEffects = %d, %v", recovered, err)
 	}
-	unknown, err := control.Effects(ctx, EffectUnknown)
+	unknown, err := listEffects(ctx, control, EffectUnknown)
 	if err != nil || len(unknown) != 1 {
 		t.Fatalf("unknown = %+v, %v", unknown, err)
 	}
@@ -68,7 +90,7 @@ func TestPendingRunningUnknownReconciliationNeverRetriesBlindly(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimedAgain, err := control.ClaimNextEffect(ctx, "worker-2")
-	if err != nil || claimedAgain.Attempt() != 2 {
+	if err != nil || claimedAgain.Invocation().Attempt != 2 {
 		t.Fatalf("second claim = %+v, %v", claimedAgain, err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
@@ -78,13 +100,72 @@ func TestPendingRunningUnknownReconciliationNeverRetriesBlindly(t *testing.T) {
 	if err := control.CompleteEffect(ctx, claimedAgain); err != nil {
 		t.Fatal(err)
 	}
-	succeeded, err := control.Effects(ctx, EffectSucceeded)
+	succeeded, err := listEffects(ctx, control, EffectSucceeded)
 	if err != nil || len(succeeded) != 1 || string(succeeded[0].Result) != string(result) {
 		t.Fatalf("succeeded = %+v, %v", succeeded, err)
 	}
 	assertCount(t, control, "effect_observations", 5)
 	if _, err := control.ClaimNextEffect(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
 		t.Fatalf("completed effect was claimable: %v", err)
+	}
+}
+
+func TestClaimNextEffectSerializesSameCommandOrdinals(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	control := openTestStore(t, filepath.Join(t.TempDir(), "control.db"))
+	t.Cleanup(func() { _ = control.Close() })
+	firstID := createActivateAndDispatch(t, control)
+	secondID := derivedID("eff", "cmd-dispatch", 1)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO effects (
+			effect_id, run_id, command_id, ordinal, kind, request_json,
+			state, attempt, created_at_us
+		)
+		SELECT ?, run_id, command_id, 1, kind, request_json,
+		       'pending', 0, created_at_us
+		FROM effects WHERE effect_id = ?`, secondID, firstID); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := control.ClaimNextEffect(ctx, "worker-1")
+	if err != nil || first.Invocation().ID != firstID {
+		t.Fatalf("first ordinal lease = %q, %v; want %q", first.Invocation().ID, err, firstID)
+	}
+	if lease, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+		t.Fatalf("later sibling leased while first was running: %+v, %v", lease, err)
+	}
+	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker-1 was interrupted"); err != nil || recovered != 1 {
+		t.Fatalf("recover first ordinal = %d, %v", recovered, err)
+	}
+	if lease, err := control.ClaimNextEffect(ctx, "worker-2"); !errors.Is(err, ErrNoPendingEffect) {
+		t.Fatalf("later sibling leased while first was unknown: %+v, %v", lease, err)
+	}
+	if err := control.ReconcileUnknownEffect(
+		ctx, firstID, first.Invocation().Attempt, "reconciler-1", ReconcileNotApplied,
+		"external system proves the first ordinal did not run",
+	); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := control.ClaimNextEffect(ctx, "worker-2")
+	if err != nil || retry.Invocation().ID != firstID || retry.Invocation().Attempt != 2 {
+		t.Fatalf("reconciled first ordinal lease = %+v, %v", retry, err)
+	}
+	if lease, err := control.ClaimNextEffect(ctx, "worker-3"); !errors.Is(err, ErrNoPendingEffect) {
+		t.Fatalf("later sibling leased while first retry was running: %+v, %v", lease, err)
+	}
+	result := validBuildResult(t, firstID, "sworn-builder/1")
+	if err := control.BindEffectResult(ctx, retry, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := control.CompleteEffect(ctx, retry); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := control.ClaimNextEffect(ctx, "worker-2")
+	if err != nil || second.Invocation().ID != secondID {
+		t.Fatalf("second ordinal lease = %q, %v; want %q", second.Invocation().ID, err, secondID)
 	}
 }
 
@@ -112,18 +193,18 @@ func TestBoundResultSurvivesUnknownRecoveryAndReopen(t *testing.T) {
 
 	control = openTestStore(t, path)
 	t.Cleanup(func() { _ = control.Close() })
-	unknown, err := control.Effects(ctx, EffectUnknown)
+	unknown, err := listEffects(ctx, control, EffectUnknown)
 	if err != nil || len(unknown) != 1 || unknown[0].ID != effectID || !bytes.Equal(unknown[0].Result, result) {
 		t.Fatalf("unknown after reopen = %+v, %v", unknown, err)
 	}
-	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, ""); err != nil {
+	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, ""); err != nil {
 		t.Fatalf("reconcile bound result: %v", err)
 	}
 	succeeded, err := control.SucceededEffect(ctx, effectID)
-	if err != nil || succeeded.Attempt != lease.Attempt() || !bytes.Equal(succeeded.Result, result) {
+	if err != nil || succeeded.Attempt != lease.Invocation().Attempt || !bytes.Equal(succeeded.Result, result) {
 		t.Fatalf("succeeded journal result = %+v, %v", succeeded, err)
 	}
-	rows, err := control.Effects(ctx, EffectSucceeded)
+	rows, err := listEffects(ctx, control, EffectSucceeded)
 	if err != nil || len(rows) != 1 || !bytes.Equal(rows[0].Result, result) {
 		t.Fatalf("succeeded effect = %+v, %v", rows, err)
 	}
@@ -147,10 +228,10 @@ func TestOrphanResultJSONCannotReconcileSuccess(t *testing.T) {
 	if recovered, err := control.RecoverInterruptedEffects(ctx, "result was never bound to the lease"); err != nil || recovered != 1 {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
-	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, ""); err == nil {
+	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, ""); err == nil {
 		t.Fatal("orphan result artifact reconciled an unbound effect as succeeded")
 	}
-	unknown, err := control.Effects(ctx, EffectUnknown)
+	unknown, err := listEffects(ctx, control, EffectUnknown)
 	if err != nil || len(unknown) != 1 || unknown[0].ID != effectID || len(unknown[0].Result) != 0 {
 		t.Fatalf("unknown changed after rejected orphan reconciliation = %+v, %v", unknown, err)
 	}
@@ -178,16 +259,16 @@ func TestBoundResultRejectsFailureAndNonSuccessReconciliation(t *testing.T) {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
 	if err := control.ReconcileUnknownEffect(
-		ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileNotApplied, "invocation did not start",
+		ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileNotApplied, "invocation did not start",
 	); err == nil {
 		t.Fatal("bound result reconciled as not applied")
 	}
 	if err := control.ReconcileUnknownEffect(
-		ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileFailed, "infrastructure failure",
+		ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileFailed, "infrastructure failure",
 	); err == nil {
 		t.Fatal("bound result reconciled as failed")
 	}
-	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, ""); err != nil {
+	if err := control.ReconcileUnknownEffect(ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, ""); err != nil {
 		t.Fatalf("reconcile bound success: %v", err)
 	}
 }
@@ -200,7 +281,7 @@ func TestFailedEffectRequiresCurrentLeaseDetailAndNoBoundResult(t *testing.T) {
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
 	lease, err := control.ClaimNextEffect(ctx, "worker-1")
-	if err != nil || lease.EffectID() != effectID {
+	if err != nil || lease.Invocation().ID != effectID {
 		t.Fatalf("lease = %+v, %v", lease, err)
 	}
 	if err := control.FailEffect(ctx, EffectLease{}, "failed"); err == nil {
@@ -212,7 +293,7 @@ func TestFailedEffectRequiresCurrentLeaseDetailAndNoBoundResult(t *testing.T) {
 	if err := control.FailEffect(ctx, lease, "runner exited before producing a result"); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := control.Effects(ctx, EffectFailed)
+	failed, err := listEffects(ctx, control, EffectFailed)
 	if err != nil || len(failed) != 1 || failed[0].LastError != "runner exited before producing a result" || len(failed[0].Result) != 0 {
 		t.Fatalf("failed = %+v, %v", failed, err)
 	}
@@ -246,7 +327,7 @@ func TestEffectResultBindingIsIdempotentAndImmutable(t *testing.T) {
 	if err := control.CompleteEffect(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
-	succeeded, err := control.Effects(ctx, EffectSucceeded)
+	succeeded, err := listEffects(ctx, control, EffectSucceeded)
 	if err != nil || len(succeeded) != 1 || !bytes.Equal(succeeded[0].Result, result) {
 		t.Fatalf("immutable result = %+v, %v", succeeded, err)
 	}
@@ -302,7 +383,7 @@ func TestTypedResultTriggerFreezesLifecycleOwnershipAndTiming(t *testing.T) {
 		assertRejected(name, update)
 	}
 	if err := control.ReconcileUnknownEffect(
-		ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, "",
+		ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, "",
 	); err != nil {
 		t.Fatalf("legitimate reconciliation after rejected rewrites: %v", err)
 	}
@@ -316,19 +397,19 @@ func TestEffectLeaseRejectsStaleAttemptAfterSameOwnerReclaim(t *testing.T) {
 	t.Cleanup(func() { _ = control.Close() })
 	effectID := createActivateAndDispatch(t, control)
 	stale, err := control.ClaimNextEffect(ctx, "worker-reused")
-	if err != nil || stale.Attempt() != 1 {
+	if err != nil || stale.Invocation().Attempt != 1 {
 		t.Fatalf("first lease = %+v, %v", stale, err)
 	}
 	if recovered, err := control.RecoverInterruptedEffects(ctx, "worker disappeared"); err != nil || recovered != 1 {
 		t.Fatalf("recover = %d, %v", recovered, err)
 	}
 	if err := control.ReconcileUnknownEffect(
-		ctx, effectID, stale.Attempt(), "reconciler-1", ReconcileNotApplied, "no process started",
+		ctx, effectID, stale.Invocation().Attempt, "reconciler-1", ReconcileNotApplied, "no process started",
 	); err != nil {
 		t.Fatal(err)
 	}
 	current, err := control.ClaimNextEffect(ctx, "worker-reused")
-	if err != nil || current.Attempt() != 2 {
+	if err != nil || current.Invocation().Attempt != 2 {
 		t.Fatalf("current lease = %+v, %v", current, err)
 	}
 	result := validBuildResult(t, effectID, "sworn-builder/1")
@@ -338,7 +419,7 @@ func TestEffectLeaseRejectsStaleAttemptAfterSameOwnerReclaim(t *testing.T) {
 	if err := control.CompleteEffect(ctx, stale); err == nil {
 		t.Fatal("stale same-owner lease completed a later attempt")
 	}
-	running, err := control.Effects(ctx, EffectRunning)
+	running, err := listEffects(ctx, control, EffectRunning)
 	if err != nil || len(running) != 1 || running[0].ID != effectID || running[0].Attempt != 2 || len(running[0].Result) != 0 {
 		t.Fatalf("later attempt changed after stale operation: %+v, %v", running, err)
 	}
@@ -365,7 +446,7 @@ func TestReconciliationRejectsObservationFromEarlierAttempt(t *testing.T) {
 		t.Fatalf("recover attempt one = %d, %v", recovered, err)
 	}
 	if err := control.ReconcileUnknownEffect(
-		ctx, effectID, first.Attempt(), "reconciler-1", ReconcileNotApplied, "attempt one did not start",
+		ctx, effectID, first.Invocation().Attempt, "reconciler-1", ReconcileNotApplied, "attempt one did not start",
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -380,14 +461,14 @@ func TestReconciliationRejectsObservationFromEarlierAttempt(t *testing.T) {
 	if recovered, err := control.RecoverInterruptedEffects(ctx, "attempt two interrupted"); err != nil || recovered != 1 {
 		t.Fatalf("recover attempt two = %d, %v", recovered, err)
 	}
-	if err := control.ReconcileUnknownEffect(ctx, effectID, first.Attempt(), "reconciler-stale", ReconcileSucceeded, ""); err == nil {
+	if err := control.ReconcileUnknownEffect(ctx, effectID, first.Invocation().Attempt, "reconciler-stale", ReconcileSucceeded, ""); err == nil {
 		t.Fatal("observation from attempt one resolved unknown attempt two")
 	}
-	unknown, err := control.Effects(ctx, EffectUnknown)
-	if err != nil || len(unknown) != 1 || unknown[0].Attempt != second.Attempt() {
+	unknown, err := listEffects(ctx, control, EffectUnknown)
+	if err != nil || len(unknown) != 1 || unknown[0].Attempt != second.Invocation().Attempt {
 		t.Fatalf("later unknown attempt changed after stale reconciliation: %+v, %v", unknown, err)
 	}
-	if err := control.ReconcileUnknownEffect(ctx, effectID, second.Attempt(), "reconciler-current", ReconcileSucceeded, ""); err != nil {
+	if err := control.ReconcileUnknownEffect(ctx, effectID, second.Invocation().Attempt, "reconciler-current", ReconcileSucceeded, ""); err != nil {
 		t.Fatalf("reconcile current attempt: %v", err)
 	}
 }
@@ -412,9 +493,9 @@ func TestEffectLeaseRejectsForeignStoreAndProtectsRequestBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := firstLease.Request()
+	request := firstLease.Invocation().Request
 	request[0] ^= 0xff
-	if !json.Valid(firstLease.Request()) {
+	if !json.Valid(firstLease.Invocation().Request) {
 		t.Fatal("caller mutation escaped through lease request accessor")
 	}
 	result := validBuildResult(t, secondID, "sworn-builder/1")
@@ -480,12 +561,12 @@ func TestCompletionAndRecoveryRaceConvergesBoundResult(t *testing.T) {
 		if recovered.count != 1 {
 			t.Fatalf("completion failed (%v) but recovery changed %d effects", completionErr, recovered.count)
 		}
-		unknown, err := control.Effects(ctx, EffectUnknown)
+		unknown, err := listEffects(ctx, control, EffectUnknown)
 		if err != nil || len(unknown) != 1 {
 			t.Fatalf("recovery winner state = %+v, %v", unknown, err)
 		}
 		if err := control.ReconcileUnknownEffect(
-			ctx, effectID, lease.Attempt(), "reconciler-1", ReconcileSucceeded, "",
+			ctx, effectID, lease.Invocation().Attempt, "reconciler-1", ReconcileSucceeded, "",
 		); err != nil {
 			t.Fatalf("reconcile recovery winner: %v", err)
 		}
