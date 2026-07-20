@@ -73,7 +73,7 @@ func resolveExactLocalChecks(
 	if err := validateInitialContract(len(plan.data.work), work); err != nil {
 		return ExactLocalChecks{}, err
 	}
-	policyBytes, err := resolver.resolve(ctx, jsonCAS(plan.Policy().Digest))
+	policyBytes, err := resolver.resolve(ctx, jsonCAS(plan.Policy().Digest), MaximumAssurancePolicyBytes)
 	if err != nil {
 		return ExactLocalChecks{}, fmt.Errorf("resolve exact assurance policy: %w", err)
 	}
@@ -85,7 +85,7 @@ func resolveExactLocalChecks(
 	coverage := make([]Evidence, 0, len(policy.checks))
 	for _, baseline := range policy.checks {
 		pointer := jsonCAS(baseline.definition.Digest)
-		definitionBytes, err := resolver.resolve(ctx, pointer)
+		definitionBytes, err := resolver.resolve(ctx, pointer, MaximumLocalCheckDefinitionBytes)
 		if err != nil {
 			return ExactLocalChecks{}, fmt.Errorf("resolve check %q definition: %w", baseline.id, err)
 		}

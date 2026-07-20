@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestMigrationFivePurgesLegacySubmissionIdentitiesButRetainsRecords(t *testing.T) {
@@ -24,7 +27,7 @@ func TestMigrationFivePurgesLegacySubmissionIdentitiesButRetainsRecords(t *testi
 		}
 	}
 	canonical := []byte(`{"schema_version":"submission-v1"}`)
-	recordDigest := digest(canonical)
+	recordDigest := protocol.RawDigest(canonical)
 	if _, err := database.ExecContext(ctx, `
 		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
 		VALUES (?, 'submission-v1', ?, ?, 1)`, recordDigest, canonical, len(canonical)); err != nil {
@@ -183,11 +186,18 @@ func TestMigrationSixPreservesUnknownHistoryAndRemovesManualTransitions(t *testi
 		t.Fatal(err)
 	}
 
-	control, err := Open(ctx, path)
+	database = rawDatabase(t, path)
+	contents, err := migrationFiles.ReadFile(migrationNames[5])
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = control.Close() })
+	if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+		t.Fatalf("apply migration 6: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
+		t.Fatal(err)
+	}
+	control := &Store{db: database, now: time.Now, leaseIssuer: &leaseIssuer{}}
 	unknown, err := listEffects(ctx, control, EffectUnknown)
 	if err != nil || len(unknown) != 1 || unknown[0].ID != "effect-1" || unknown[0].Attempt != 1 {
 		t.Fatalf("migrated unknown effect = %+v, %v", unknown, err)
@@ -203,6 +213,32 @@ func TestMigrationSixPreservesUnknownHistoryAndRemovesManualTransitions(t *testi
 			!strings.Contains(err.Error(), "invalid effect transition") {
 			t.Fatalf("migration six retained manual transition: %v", err)
 		}
+	}
+	if err := control.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if control, err := Open(ctx, path); err == nil ||
+		!strings.Contains(err.Error(), "refuses legacy builder recovery authority") {
+		if control != nil {
+			_ = control.Close()
+		}
+		t.Fatalf("migration seven legacy unknown guard error = %v", err)
+	}
+	database = rawDatabase(t, path)
+	t.Cleanup(func() { _ = database.Close() })
+	var version, history int
+	var state string
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT state FROM effects WHERE effect_id = 'effect-1'").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT count(*) FROM effect_observations WHERE effect_id = 'effect-1'").Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if version != 6 || state != "unknown" || history != 1 {
+		t.Fatalf("failed migration seven changed archaeology: version=%d state=%s history=%d", version, state, history)
 	}
 }
 
@@ -276,5 +312,74 @@ func TestMigrationSixRefusesPreviouslyManualRequeuedEffect(t *testing.T) {
 	}
 	if version != 5 || state != "pending" || history != 3 {
 		t.Fatalf("failed migration changed archaeology: version=%d state=%s history=%d", version, state, history)
+	}
+}
+
+func TestMigrationSevenRefusesPreexistingRecoveryReceiptsAtomically(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "control.db")
+	database := rawDatabase(t, path)
+	for index, name := range migrationNames[:6] {
+		contents, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO runs (
+			run_id, delivery_id, repository_id, target_ref, plan_digest,
+			revision, phase, terminal, state_json, created_at_us, updated_at_us
+		) VALUES ('run-1', 'delivery-1', 'repo-1', 'refs/heads/main', 'plan', 0, 'active', 0, CAST('{}' AS BLOB), 1, 1);
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES ('command-1', 'run-1', 'build.dispatch', 0, 'request', CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 1);
+		INSERT INTO effects (
+			effect_id, run_id, command_id, ordinal, kind, request_json, state,
+			attempt, owner_id, last_error, created_at_us, started_at_us, completed_at_us
+		) VALUES (
+			'effect-1', 'run-1', 'command-1', 0, 'runner.build', CAST('{}' AS BLOB), 'failed',
+			1, 'worker-1', 'legacy failure', 1, 2, 3
+		);
+		INSERT INTO effect_observations (
+			effect_id, attempt, kind, owner_id, receipt_json, recorded_at_us
+		) VALUES ('effect-1', 1, 'claimed', 'worker-1', CAST('{"forged":true}' AS BLOB), 2)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA application_id = "+strconv.Itoa(applicationID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if control, err := Open(ctx, path); err == nil ||
+		!strings.Contains(err.Error(), "refuses legacy builder recovery authority") {
+		if control != nil {
+			_ = control.Close()
+		}
+		t.Fatalf("migration seven hostile receipt guard error = %v", err)
+	}
+	database = rawDatabase(t, path)
+	t.Cleanup(func() { _ = database.Close() })
+	var version, history int
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT count(*) FROM effect_observations").Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if version != 6 || history != 1 {
+		t.Fatalf("failed migration changed hostile archaeology: version=%d history=%d", version, history)
 	}
 }

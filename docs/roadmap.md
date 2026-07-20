@@ -55,33 +55,33 @@ work does not change that public boundary.
 - [x] Derive `check.local` dispatch from the exact plan in the reducer.
 - [x] Admit a reviewable submission only from authenticated authority,
   journal-registered runs, and a content-bound check runtime.
-- [ ] Reconcile interrupted workspace and Git effects with kind-specific,
+- [x] Reconcile interrupted workspace and Git effects with kind-specific,
   attempt-bound external evidence before any autonomous retry.
 
-The known-result half is complete: interrupted effects can recover only an
-immutable typed result for their exact attempt, and build recovery revalidates
-or repairs its deterministic candidate ref through the configured repository.
-The former caller-selected `not_applied` and interrupted-failure paths are gone
-from both Go and the current SQL lifecycle; migration also refuses to carry a
-previously manual-requeued effect into the claimable v6 state. The item remains
-open because an unbound builder attempt still lacks a durable pre-execution
-witness, attempt-owned residue discovery, and attempt-bound Git publication
-evidence.
-See [ADR 0004](adr/0004-bound-result-recovery-contraction.md).
+The recovery item is complete for the only native writable effect. A build
+claim records an exact attempt identity before execution. The native worker
+prepares but does not publish a candidate; after its typed result is bound,
+Store establishes candidate and attempt refs before journal success. On
+restart, a bound result converges to that success, while an unbound build can
+return to pending only after Store prevalidation and a composite opaque proof
+of absent publication, executor quiescence, and attempt-root cleanup. Legacy,
+corrupt, stale, cross-Store, or ambiguous attempts remain stopped. See [ADR
+0004](adr/0004-bound-result-recovery-contraction.md) and [ADR
+0005](adr/0005-native-builder-recovery.md).
 
-The Git-truth boundary is implemented internally and can be bound into immutable
-Store configuration. Builder effect results retain candidate facts, and atomic
-admission revalidates them through the configured repository. There is still no
-CLI mutation path or native builder adapter. See [Exact local
+The Git-truth boundary and native builder worker are implemented internally and
+bound into immutable Store configuration. A narrow composition service proves
+the real builder-to-checks-to-admission path, but it owns neither claims nor a
+loop. There is still no CLI mutation path or agent-CLI adapter. See [Exact local
 candidate](exact-candidate.md).
 
-The contained executor now implements distinct read-only and writable-export
-modes over one Linux path. Writable work uses a fresh copy on a finite tmpfs,
-live cgroup resource bounds, post-quiescence measurement, generation-bound
-validation and digest-independent cleanup. The read-only content-bound path is
-used by an internal local-check effect worker. A bounded reducer transition can
-now schedule its exact policy-selected batch after builder success, but no
-production command or claim loop executes it; see
+The contained executor implements distinct read-only and writable-export modes
+over one Linux path. Writable work uses a fresh copy on a finite tmpfs, live
+cgroup resource bounds, post-quiescence measurement, deterministic attempt
+ownership, process-shared serialization, and machine-proved cleanup. The
+read-only content-bound path is used by an internal local-check effect worker. A
+bounded reducer transition schedules its exact policy-selected batch after
+builder success, but no production command or claim loop executes it; see
 [Contained executor](contained-executor.md).
 
 The Standard path rechecks a retained candidate, runs policy-bound producers
@@ -140,5 +140,7 @@ service exist.
 - [ ] Add manual latch release and compare-and-swap fast-forward integration.
 - [ ] Pass the 18 Baton real-boundary cases through the built binary.
 
-Only after recovery proofs pass may the project consider unattended use or a
-default-branch cutover.
+Recovery proof is necessary but not sufficient for unattended use or a
+default-branch cutover. Native builder recovery now passes; current authority,
+independent verdict, bounded policy, integration, built-binary conformance, and
+the exclusive public controller still gate either decision.

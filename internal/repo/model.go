@@ -69,6 +69,17 @@ type Candidate struct {
 	ChangedPaths []string `json:"changed_paths"`
 }
 
+// AttemptUnpublishedProof is an opaque, live proof that one exact builder
+// attempt has no engine publication ref. It is useful only while the caller
+// retains exclusive controller ownership.
+type AttemptUnpublishedProof struct {
+	repositoryID string
+	attemptID    string
+}
+
+func (proof AttemptUnpublishedProof) RepositoryID() string { return proof.repositoryID }
+func (proof AttemptUnpublishedProof) AttemptID() string    { return proof.attemptID }
+
 // CandidateWorkspace is a fresh plain-tree materialization for read-only
 // checks or review. Unlike Workspace, it is not a builder input and cannot be
 // passed back to Capture as a new candidate.

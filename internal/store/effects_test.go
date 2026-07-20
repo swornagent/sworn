@@ -62,6 +62,10 @@ func TestInterruptedUnboundEffectNeverRetriesBlindly(t *testing.T) {
 		request.WorkID != "work-1" || request.WorkAttempt != 1 {
 		t.Fatalf("claimed request = %+v, %v", request, err)
 	}
+	if _, err := loadBuildAttemptIdentity(ctx, control.db, claimed.effect); err == nil ||
+		!strings.Contains(err.Error(), "predates the durable attempt witness") {
+		t.Fatalf("legacy build claim witness error = %v", err)
+	}
 	if err := control.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +602,10 @@ func TestBoundBuildRecoveryRejectsDeliveryRepositoryMismatchBeforeGit(t *testing
 	repository, candidate := atomicAdmissionCandidate(t, false)
 	control := openRecoveryTestStore(t, filepath.Join(t.TempDir(), "control.db"), repository)
 	t.Cleanup(func() { _ = control.Close() })
+	configuredBuilder := control.builderDispatchDigest
+	control.builderDispatchDigest = ""
 	effectID := createActivateAndDispatch(t, control)
+	control.builderDispatchDigest = configuredBuilder
 	lease, err := control.ClaimNextEffect(ctx, "worker-1")
 	if err != nil {
 		t.Fatal(err)
@@ -654,6 +661,7 @@ func openRecoveryTestStore(t *testing.T, path string, repository *repo.Repositor
 	t.Helper()
 	control, err := OpenConfigured(context.Background(), path, ControlConfiguration{
 		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
+		BuilderDispatchDigest:           dispatchDigest,
 		Repository:                      repository,
 	})
 	if err != nil {
@@ -677,10 +685,13 @@ func createActivateAndDispatchForRepository(t *testing.T, control *Store, reposi
 	if result, err := control.Apply(context.Background(), activate); err != nil || result.Outcome != OutcomeApplied {
 		t.Fatalf("activate = %+v, %v", result, err)
 	}
+	configuredBuilder := control.builderDispatchDigest
+	control.builderDispatchDigest = ""
 	dispatch := testCommand(t, "cmd-dispatch", engine.CommandDispatchBuild, 1, engine.DispatchBuildPayload{
 		WorkID: "work-1", DispatchDigest: dispatchDigest,
 	})
 	result, err := control.Apply(context.Background(), dispatch)
+	control.builderDispatchDigest = configuredBuilder
 	if err != nil || len(result.EffectIDs) != 1 {
 		t.Fatalf("dispatch = %+v, %v", result, err)
 	}

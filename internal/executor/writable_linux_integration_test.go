@@ -255,12 +255,12 @@ func TestLinuxExecutorQuarantinesNonzeroWorkspaceResult(t *testing.T) {
 	assertWorkspaceFile(t, filepath.Join(export.Path, "partial"), "inspectable", 0o600)
 }
 
-func TestLinuxExecutorGenerationPreventsStaleExportDeletion(t *testing.T) {
+func TestLinuxExecutorRejectsUnreconciledWritableIdentityCollision(t *testing.T) {
 	executor := requireWritableLinuxExecutor(t)
 	workspace, digest := emptyTestWorkspace(t, executor)
 	invocation := Invocation{
 		SchemaVersion:   InvocationSchemaVersion,
-		ID:              "writable-reused-invocation-id",
+		ID:              "writable-one-shot-invocation-id",
 		Role:            "builder",
 		Workspace:       workspace,
 		WorkspaceDigest: digest,
@@ -269,27 +269,48 @@ func TestLinuxExecutorGenerationPreventsStaleExportDeletion(t *testing.T) {
 		Network:         NetworkNone,
 		Timeout:         10 * time.Second,
 	}
+	runtimeCollision := invocation
+	runtimeCollision.ID = "writable-runtime-residue"
+	runtimePath := executor.writableRuntimePath(runtimeCollision.ID)
+	if err := os.Mkdir(runtimePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	completion, err := executor.RunWritable(context.Background(), runtimeCollision)
+	if err == nil || !strings.Contains(err.Error(), "unreconciled runtime residue") || completion.Export != nil {
+		t.Fatalf("runtime collision completion=%#v, error=%v", completion, err)
+	}
+	cleanup, err := executor.ReconcileWritable(context.Background(), runtimeCollision.ID)
+	if err != nil || cleanup.InvocationID() != runtimeCollision.ID {
+		t.Fatalf("runtime collision cleanup=%#v, error=%v", cleanup, err)
+	}
+	if _, err := os.Lstat(runtimePath); !os.IsNotExist(err) {
+		t.Fatalf("reconciled runtime residue remains: %v", err)
+	}
+
 	first, err := executor.RunWritable(context.Background(), invocation)
 	if err != nil || first.Export == nil {
 		t.Fatalf("first completion=%#v, error=%v", first, err)
 	}
-	if err := executor.DiscardExport(context.Background(), *first.Export); err != nil {
-		t.Fatal(err)
+	firstExport := *first.Export
+	t.Cleanup(func() { _ = releaseOrRemoveExport(executor, firstExport) })
+	wantGeneration := writableWorkspaceGeneration(invocation.ID)
+	wantPath := executor.writableWorkspacePath(invocation.ID, wantGeneration)
+	if firstExport.Generation != wantGeneration || firstExport.Path != wantPath {
+		t.Fatalf("export binding = (%q, %q), want (%q, %q)", firstExport.Generation, firstExport.Path, wantGeneration, wantPath)
 	}
 	second, err := executor.RunWritable(context.Background(), invocation)
-	if err != nil || second.Export == nil {
-		t.Fatalf("second completion=%#v, error=%v", second, err)
+	if err == nil || !strings.Contains(err.Error(), "unreconciled workspace residue") || second.Export != nil {
+		t.Fatalf("identity collision completion=%#v, error=%v", second, err)
 	}
-	secondExport := *second.Export
-	t.Cleanup(func() { _ = releaseOrRemoveExport(executor, secondExport) })
-	if first.Export.Generation == secondExport.Generation || first.Export.Path == secondExport.Path {
-		t.Fatal("reused invocation id reused workspace generation")
+	if err := executor.ValidateExport(context.Background(), firstExport); err != nil {
+		t.Fatalf("identity collision changed first export: %v", err)
 	}
-	if err := executor.DiscardExport(context.Background(), *first.Export); err != nil {
-		t.Fatalf("discard stale handle: %v", err)
+	cleanup, err = executor.ReconcileWritable(context.Background(), invocation.ID)
+	if err != nil || cleanup.InvocationID() != invocation.ID {
+		t.Fatalf("workspace collision cleanup=%#v, error=%v", cleanup, err)
 	}
-	if err := executor.ValidateExport(context.Background(), secondExport); err != nil {
-		t.Fatalf("stale handle affected later export: %v", err)
+	if _, err := os.Lstat(firstExport.Path); !os.IsNotExist(err) {
+		t.Fatalf("reconciled workspace residue remains: %v", err)
 	}
 }
 

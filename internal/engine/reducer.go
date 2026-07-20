@@ -132,7 +132,8 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 		return Decision{}, reject("invalid_transition", "only an active delivery can dispatch work")
 	}
 	payload, err := decodePayload[DispatchBuildPayload](command.Payload)
-	if err != nil || !ValidID(payload.WorkID) || !ValidDigest(payload.DispatchDigest) {
+	if err != nil || !ValidID(payload.WorkID) || !ValidDigest(payload.DispatchDigest) ||
+		(payload.BuilderDispatchDigest != "" && !ValidDigest(payload.BuilderDispatchDigest)) {
 		return Decision{}, reject("invalid_payload", "build dispatch requires valid work and dispatch identities")
 	}
 	next := cloneState(current)
@@ -152,13 +153,18 @@ func dispatchBuild(current State, command Command) (Decision, error) {
 	if err := next.Validate(); err != nil {
 		return Decision{}, fmt.Errorf("reducer produced invalid state: %w", err)
 	}
+	schema := LegacyBuildEffectRequestSchemaVersion
+	if payload.BuilderDispatchDigest != "" {
+		schema = BuildEffectRequestSchemaVersion
+	}
 	request, err := json.Marshal(BuildEffectRequest{
-		SchemaVersion:  BuildEffectRequestSchemaVersion,
-		DeliveryRunID:  current.RunID,
-		DeliveryID:     current.DeliveryID,
-		WorkID:         payload.WorkID,
-		WorkAttempt:    work.Attempt,
-		DispatchDigest: payload.DispatchDigest,
+		SchemaVersion:         schema,
+		DeliveryRunID:         current.RunID,
+		DeliveryID:            current.DeliveryID,
+		WorkID:                payload.WorkID,
+		WorkAttempt:           work.Attempt,
+		DispatchDigest:        payload.DispatchDigest,
+		BuilderDispatchDigest: payload.BuilderDispatchDigest,
 	})
 	if err != nil {
 		return Decision{}, fmt.Errorf("encode build effect: %w", err)

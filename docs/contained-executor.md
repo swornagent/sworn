@@ -97,9 +97,11 @@ admission. It is intentionally a broad exception, not a domain firewall.
 ## Writable resource claim
 
 The writable root must be a clean, private, current-user-owned directory on a
-finite tmpfs that permits execution. Writable dispatch is serialized inside one
-executor instance so staging and free-capacity admission cannot race each other
-in the initial serial kernel.
+finite tmpfs that permits execution. Writable dispatch and reconciliation are
+serialized by both an in-process mutex and a process-shared lock on that root.
+Staging, cleanup, and free-capacity admission therefore cannot race across
+executor instances in the initial serial kernel. The kernel releases the lock
+if an owner process dies.
 
 The live and retained bounds are deliberately separate:
 
@@ -118,9 +120,8 @@ This is not a dedicated per-workspace tmpfs quota. Initial copied pages are
 charged to the engine rather than the service, sparse logical files need little
 physical memory, and the workspace competes with process memory while live.
 The exact claim is a hard live resource ceiling plus a separately measured
-logical export ceiling. The initial v1 kernel also assumes one Sworn executor
-process owns the configured root; cross-process capacity reservations are not
-implemented.
+logical export ceiling. The shared writable-root lock deliberately serializes
+cross-process admission; it is not a parallel capacity-reservation system.
 
 ## Lifetime, start proof, and quiescence
 
@@ -129,9 +130,10 @@ invocation. EOF means the engine died. The shim terminates Bubblewrap, after
 which systemd removes every process in the service cgroup. The same cgroup
 cleanup runs on explicit cancellation, timeout, and stdout or stderr overflow.
 Unit names are deterministic opaque hashes of the executor's private runtime
-root and invocation ID. A still-live duplicate within one engine cannot be
-mistaken for a fresh run, while independent executor roots sharing one user
-systemd manager do not collide.
+root and invocation ID. Writable runtime and workspace paths are deterministic
+from the same one-shot invocation identity. Residue is therefore discoverable
+after restart and a duplicate cannot be mistaken for a fresh run, while
+independent executor roots sharing one user systemd manager do not collide.
 
 Bubblewrap reports its child start over a private JSON status descriptor. The
 shim writes a private host marker only after that event, and the executor checks
@@ -161,24 +163,27 @@ later explicit engine decision. Its presence never means candidate-ready or
 successful.
 
 `WorkspaceExport` is a versioned, quarantined handle binding the invocation,
-fresh random generation, source digest, exact host path, final manifest digest,
-and logical bytes. `ValidateExport` confirms the unit is quiescent and
-remeasures the tree immediately before handoff. `DiscardExport` checks only
-executor ownership and quiescence, then removes the tree without requiring its
-contents to match; a rejected or externally changed export therefore remains
-cleanable. Generation-specific paths make a stale handle harmless if an
-invocation ID is ever reused.
+deterministic one-shot generation, source digest, exact host path, final
+manifest digest, and logical bytes. `ValidateExport` confirms the unit is
+quiescent and remeasures the tree immediately before handoff. `DiscardExport`
+checks only executor ownership and quiescence, then removes the tree without
+requiring its contents to match; a rejected or externally changed export
+therefore remains cleanable. Invocation IDs are never reused across attempts.
 
 Failure-path cleanup uses a fresh bounded context and removes a writable tree
 only after service quiescence is proven. If systemd state cannot be established,
-Sworn leaves the generation-bound residue for reconciliation instead of racing
-a possible writer.
+Sworn leaves the attempt-bound residue instead of racing a possible writer.
+`ReconcileWritable` later acquires the process-shared ownership lock, proves the
+exact deterministic unit inactive, removes both runtime and workspace paths,
+rechecks quiescence and absence, and only then returns an opaque cleanup proof.
 
 The exact-candidate boundary independently scans and stages Git-visible bytes.
-The tested handoff clones the original repository `Workspace` binding, replaces
-only its path with the validated export path, and calls `repo.Capture`. The
-executor digest is structural evidence, never Git candidate identity or a
-quality verdict.
+The native builder clones the original repository `Workspace` binding,
+replaces only its path with the validated export path, and calls
+`repo.PrepareCandidate`. That operation writes candidate objects but publishes
+no ref; Store publishes only after the typed result is durable. The executor
+digest is structural evidence, never Git candidate identity or a quality
+verdict.
 
 ## Trust boundary and deliberate non-claims
 
@@ -187,15 +192,16 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is connected to an internal `check.local` worker, and
-`checks.dispatch` derives the complete ordered batch from the exact plan. The
-worker and reducer edge remain unreachable from the public command surface and
-autonomous engine flow. A content-bound runtime proves which bytes executed; it
-does not retain those bytes or claim hermetic reproduction. The kernel, CPU,
-and containment implementation remain host facts. Effect completion validates
-the runtime request and artifact closure; the later atomic admission transaction
-also closes the embedded protocol-snapshot binding before exposing reviewable.
-The executor also does not run a native agent adapter, filter an admitted host
-network, or infer quality from an exit status. If the engine dies, the shim and
-cgroup still stop all writers, but reclaiming a generation-bound writable
-workspace is part of the later interrupted-effect reconciliation slice.
+This package is connected to the internal native builder and `check.local`
+workers, and `checks.dispatch` derives the complete ordered batch from the exact
+plan. The workers and reducer edges remain unreachable from the public command
+surface and autonomous engine flow. A content-bound runtime proves which bytes
+executed; it does not retain those bytes or claim hermetic reproduction. The
+kernel, CPU, and containment implementation remain host facts. Effect
+completion validates the runtime request and artifact closure; the later atomic
+admission transaction also closes the embedded protocol-snapshot binding before
+exposing reviewable. The executor does not choose an agent CLI, filter an
+admitted host network, or infer quality from an exit status. If the engine dies,
+the shim and cgroup stop all writers; the native recovery barrier can now prove
+quiescence and reclaim the exact writable attempt. See [ADR
+0005](adr/0005-native-builder-recovery.md).

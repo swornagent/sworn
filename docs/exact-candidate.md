@@ -17,17 +17,22 @@ The boundary is deliberately small:
    workspace outside the source worktree and Git common directory. The workspace
    contains no `.git` path and cannot directly mutate repository refs or the
    user's index.
-5. `Capture` rechecks the target, stages workspace bytes in another private
-   index, writes the tree, and derives actual changed paths from the base-tree to
-   candidate-tree diff. Baton literal-prefix scope is then enforced over every
-   changed path; exclusions win.
+5. `PrepareCandidate` rechecks the target, stages workspace bytes in another
+   private index, writes the tree, and derives actual changed paths from the
+   base-tree to candidate-tree diff. Baton literal-prefix scope is then enforced
+   over every changed path; exclusions win. It publishes no ref. `Capture`
+   remains the prepare-and-retain convenience for callers that do not cross a
+   journal-binding boundary.
 6. For a changed tree, Sworn creates a single-parent commit whose exact parent is
    the bound base. For an unchanged tree, the candidate remains the base commit;
    no artificial commit is created.
-7. The verified commit is retained under
-   `refs/sworn/v1/candidates/<commit-oid>` with an expected-absent update and
-   exact readback. `EnsureCandidate` can restore that ref after interruption only
-   while the base, commit, trees, parent, and changed paths all still match.
+7. After a native builder result is durably bound, Store retains the verified
+   commit under `refs/sworn/v1/candidates/<commit-oid>` and publishes
+   `refs/sworn/v1/attempts/<invocation-id>` at the same commit. Expected-absent
+   updates and exact readback reject collisions, non-commit occupants, and
+   symbolic refs. `EnsureCandidate` and `EnsureAttemptCandidate` can repair
+   missing refs only while the base, commit, trees, parent, and changed paths
+   still match.
 
 Git runs with system and global configuration, replacement objects, prompts,
 hooks, credential helpers, external diffs, filesystem monitors, and configured
@@ -38,36 +43,50 @@ or Gitlinks fail as unsupported instead of weakening the claim.
 ## Current boundary
 
 No mutating CLI command calls this package yet. Immutable process configuration
-must bind the discovered repository before admission. The
-[contained Linux executor](contained-executor.md)
-can now return a bounded, quiescent, measured writable export. A real-boundary
-test validates that export immediately before cloning the original `Workspace`
-binding with only its path replaced, then captures the exact candidate here.
-The executor digest remains structural handoff evidence; `Capture` still derives
-candidate identity and changed paths independently from Git.
+must bind the discovered repository before native execution or admission. The
+[contained Linux executor](contained-executor.md) returns a bounded, quiescent,
+measured writable export. The native builder validates that export immediately
+before cloning the original `Workspace` binding with only its path replaced,
+then prepares the exact candidate here. Candidate identity and changed paths
+still come independently from Git.
 
-The internal `check.local` worker freshly materializes the builder candidate
-through this boundary before content-bound execution. The
-[atomic admission transaction](measured-submission.md) independently rederives
+Store publishes the native candidate only after its typed result is bound and
+before journal success. The internal `check.local` worker then freshly
+materializes that candidate through this boundary before content-bound
+execution. The [atomic admission transaction](measured-submission.md)
+independently rederives
 the retained candidate, parent, tree, changed paths, and scope immediately
-before binding its canonical record to reviewable engine state. No native
-builder adapter, public mutation command, or target integration invokes the
-write side yet.
+before binding its canonical record to reviewable engine state. The internal
+builder boundary is complete, but no public mutation command, autonomous claim
+loop, verifier adapter, or target integration invokes it yet.
+
+Prepared objects are temporarily unreachable between result binding and Store
+publication. Normal crash recovery assumes Git retains those objects during
+that short window. An external immediate prune makes recovery stop with the
+bound result still unknown; it cannot manufacture or substitute a candidate.
+Such same-UID repository maintenance is inside the declared host trust boundary.
 
 If a process dies after a build result is durably bound but before its effect is
-completed, Store recovery calls `EnsureCandidate` through that same configured
-repository. Before touching Git, it requires that repository and the candidate
-repository/target match the effect's delivery and current work attempt. A
-missing deterministic candidate ref is recreated only after every bound object,
-parent, tree, and changed-path fact revalidates. A collision or missing/mutated
-Git fact leaves the effect unknown. Exact replay re-establishes that external
-postcondition without duplicating the journal observation. An unbound build is
-never inferred from candidate refs and remains unretryable until the native
-builder slice adds attempt-bound publication evidence.
+completed, Store recovery calls `EnsureAttemptCandidate` through that same
+configured repository. Before touching Git, it requires both request digests,
+the exact plan and work attempt, configured repository/target, and candidate to
+agree with the journal. Missing deterministic refs are recreated only after
+every object, parent, tree, and changed-path fact revalidates. A collision or
+missing/mutated Git fact leaves the effect unknown. Exact replay re-establishes
+that external postcondition without duplicating the journal observation.
 
-The target is rechecked immediately before candidate retention and admission
+For an unbound native attempt, the attempt ref is the publication witness.
+Under exclusive controller ownership, `ProveAttemptUnpublished` returns an
+opaque live proof only when the exact ref is genuinely absent. An occupied
+commit, tag/blob/tree, live or dangling symbolic ref, invalid object, or Git
+error stops recovery. The builder combines that proof with exact executor and
+attempt-root cleanup before Store may requeue the attempt. Legacy requests have
+no such authority. See [ADR 0005](adr/0005-native-builder-recovery.md).
+
+The target is rechecked while preparing candidate facts and admission
 revalidates the immutable candidate. Git is not part of the SQLite transaction:
-v1 assumes exclusive engine ownership of candidate-retention refs and treats a
-hostile concurrent same-UID repository writer as inside the engine trust
-boundary. Target movement remains external reality for the later integration
-compare-and-swap and reconciliation path.
+Store orders publication after result binding and makes it idempotent before
+journal success. v1 assumes exclusive engine ownership of `refs/sworn/v1/*`
+and treats a hostile concurrent same-UID repository writer as inside the engine
+trust boundary. Target movement remains external reality for the later
+integration compare-and-swap and reconciliation path.

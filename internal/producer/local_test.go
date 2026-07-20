@@ -1,4 +1,4 @@
-package producer
+package producer_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/executor"
+	"github.com/swornagent/sworn/internal/producer"
 	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
 	"github.com/swornagent/sworn/internal/store"
@@ -163,7 +164,7 @@ func TestMeasuredSubmissionWalkingSkeleton(t *testing.T) {
 		}
 	}}
 	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/true")
-	produced, err := RunLocalContentBound(ctx, contentOnlyRunner{fakeRunner: runner}, control, Request{
+	produced, err := producer.RunLocalContentBound(ctx, contentOnlyRunner{fakeRunner: runner}, control, producer.Request{
 		CheckID: "candidate", RunID: "check-run-1", Definition: definitionPointer,
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	}, runtimeTree)
@@ -356,12 +357,12 @@ func TestLocalCheckNonPassIsRetainedButCannotBecomeEvidence(t *testing.T) {
 		}
 	}}
 	runtimeTree, _ := producerRuntimeTree(t, ctx, "/usr/bin/false")
-	result, err := RunLocalContentBound(ctx, runner, control, Request{
+	result, err := producer.RunLocalContentBound(ctx, runner, control, producer.Request{
 		CheckID: "candidate", RunID: "check-run-7",
 		Definition: protocol.Artifact{Ref: digest, MediaType: "application/json", Digest: digest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
 	}, runtimeTree)
-	if !errors.Is(err, ErrCheckNotAdmitted) || result.Receipt.Digest == "" {
+	if !errors.Is(err, producer.ErrCheckNotAdmitted) || result.Receipt.Digest == "" {
 		t.Fatalf("non-pass result = %#v, %v", result, err)
 	}
 	_, raw, err := control.Artifact(ctx, result.Receipt.Digest)
@@ -396,7 +397,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeTree, runtimeDigest := producerRuntimeTree(t, ctx, "/usr/bin/check")
-	request := Request{
+	request := producer.Request{
 		CheckID: "candidate", RunID: "content-check-run",
 		Definition: protocol.Artifact{Ref: definitionDigest, MediaType: "application/json", Digest: definitionDigest},
 		Repository: repository, Candidate: candidate, Workspace: checked,
@@ -410,7 +411,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 			}
 		},
 	}}
-	result, err := RunLocalContentBound(ctx, runner, control, request, runtimeTree)
+	result, err := producer.RunLocalContentBound(ctx, runner, control, request, runtimeTree)
 	if err != nil || result.Receipt.Digest == "" {
 		t.Fatalf("content-bound result = %#v, %v", result, err)
 	}
@@ -469,7 +470,7 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		},
 	}}
 	request.RunID = "content-check-mismatch"
-	if result, err := RunLocalContentBound(ctx, badRunner, control, request, runtimeTree); err == nil ||
+	if result, err := producer.RunLocalContentBound(ctx, badRunner, control, request, runtimeTree); err == nil ||
 		result.Receipt.Digest != "" || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("runtime-mismatched result = %#v, %v", result, err)
 	}
@@ -483,8 +484,8 @@ func TestContentBoundLocalCheckBindsObservedRuntime(t *testing.T) {
 		},
 	}}
 	request.RunID = "content-check-non-pass"
-	nonPass, err := RunLocalContentBound(ctx, nonPassRunner, control, request, runtimeTree)
-	if !errors.Is(err, ErrCheckNotAdmitted) || nonPass.Receipt.Digest == "" {
+	nonPass, err := producer.RunLocalContentBound(ctx, nonPassRunner, control, request, runtimeTree)
+	if !errors.Is(err, producer.ErrCheckNotAdmitted) || nonPass.Receipt.Digest == "" {
 		t.Fatalf("content non-pass = %#v, %v", nonPass, err)
 	}
 	_, receiptBytes, err := control.Artifact(ctx, nonPass.Receipt.Digest)
@@ -596,6 +597,8 @@ func putAuthorityApproval(
 }
 
 func fixedDigest(character string) string { return "sha256:" + strings.Repeat(character, 64) }
+
+func formatTime(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
 
 func producerRuntimeTree(t *testing.T, ctx context.Context, executable string) (executor.RuntimeTree, string) {
 	t.Helper()

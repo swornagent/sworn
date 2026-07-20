@@ -54,8 +54,9 @@ func TestReducerWalkingSkeleton(t *testing.T) {
 	}
 
 	dispatched, err := Reduce(&activated.State, command(t, "cmd-dispatch", "run-1", CommandDispatchBuild, 1, DispatchBuildPayload{
-		WorkID:         "work-1",
-		DispatchDigest: testDispatchDigest,
+		WorkID:                "work-1",
+		DispatchDigest:        testDispatchDigest,
+		BuilderDispatchDigest: testDispatchDigest,
 	}))
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -71,7 +72,8 @@ func TestReducerWalkingSkeleton(t *testing.T) {
 		t.Fatalf("parse build effect request: %v", err)
 	}
 	if request.DeliveryRunID != "run-1" || request.DeliveryID != "delivery-1" || request.WorkID != "work-1" ||
-		request.WorkAttempt != 1 || request.DispatchDigest != testDispatchDigest {
+		request.WorkAttempt != 1 || request.DispatchDigest != testDispatchDigest ||
+		request.BuilderDispatchDigest != testDispatchDigest {
 		t.Fatalf("unexpected build effect request: %+v", request)
 	}
 	if strings.Contains(string(dispatched.Effects[0].Request), `"run_id"`) {
@@ -87,8 +89,15 @@ func TestBuildEffectRequestIsStrictAndVersioned(t *testing.T) {
 	if err != nil || request.WorkAttempt != 2 {
 		t.Fatalf("valid request = %+v, %v", request, err)
 	}
+	native := json.RawMessage(`{"schema_version":"sworn-build-effect-request-v2","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":2,"dispatch_digest":"` + testDispatchDigest + `","builder_dispatch_digest":"` + testAuthorityDigest + `"}`)
+	request, err = ParseBuildEffectRequest(native)
+	if err != nil || request.BuilderDispatchDigest != testAuthorityDigest {
+		t.Fatalf("valid native request = %+v, %v", request, err)
+	}
 	for _, invalid := range []json.RawMessage{
 		json.RawMessage(`{"schema_version":"sworn-build-effect-request-v2","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":2,"dispatch_digest":"` + testDispatchDigest + `"}`),
+		json.RawMessage(`{"schema_version":"sworn-build-effect-request-v1","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":2,"dispatch_digest":"` + testDispatchDigest + `","builder_dispatch_digest":""}`),
+		json.RawMessage(`{"schema_version":"sworn-build-effect-request-v1","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":2,"dispatch_digest":"` + testDispatchDigest + `","builder_dispatch_digest":null}`),
 		json.RawMessage(`{"schema_version":"sworn-build-effect-request-v1","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":0,"dispatch_digest":"` + testDispatchDigest + `"}`),
 		json.RawMessage(`{"schema_version":"sworn-build-effect-request-v1","delivery_run_id":"delivery-run","delivery_id":"delivery-1","work_id":"work-1","work_attempt":2,"dispatch_digest":"` + testDispatchDigest + `","builder_run_id":"caller-chosen"}`),
 	} {
@@ -374,7 +383,10 @@ func TestReducerPreservesNonFirstWorkAttemptAcrossBuildAndChecks(t *testing.T) {
 	ready.Work[0].Attempt = 6
 	built, err := Reduce(&ready, command(
 		t, "cmd-build-later-attempt", ready.RunID, CommandDispatchBuild, ready.Revision,
-		DispatchBuildPayload{WorkID: "work-1", DispatchDigest: testDispatchDigest},
+		DispatchBuildPayload{
+			WorkID: "work-1", DispatchDigest: testDispatchDigest,
+			BuilderDispatchDigest: testDispatchDigest,
+		},
 	))
 	if err != nil {
 		t.Fatalf("dispatch later build attempt: %v", err)
@@ -429,7 +441,10 @@ func TestWorkAttemptSafeIntegerBoundary(t *testing.T) {
 	ready.Work[0].Attempt = testMaximumSafe
 	_, err := Reduce(&ready, command(
 		t, "cmd-build-attempt-overflow", ready.RunID, CommandDispatchBuild, ready.Revision,
-		DispatchBuildPayload{WorkID: "work-1", DispatchDigest: testDispatchDigest},
+		DispatchBuildPayload{
+			WorkID: "work-1", DispatchDigest: testDispatchDigest,
+			BuilderDispatchDigest: testDispatchDigest,
+		},
 	))
 	assertRejection(t, err, "invalid_transition")
 
@@ -688,7 +703,10 @@ func statesBeforeCheckDispatch(t *testing.T) (State, State, State) {
 	}
 	active, err := Reduce(&activated.State, command(
 		t, "cmd-build-fixture", "run-1", CommandDispatchBuild, activated.State.Revision,
-		DispatchBuildPayload{WorkID: "work-1", DispatchDigest: testDispatchDigest},
+		DispatchBuildPayload{
+			WorkID: "work-1", DispatchDigest: testDispatchDigest,
+			BuilderDispatchDigest: testDispatchDigest,
+		},
 	))
 	if err != nil {
 		t.Fatal(err)

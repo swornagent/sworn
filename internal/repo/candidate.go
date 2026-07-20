@@ -17,7 +17,10 @@ import (
 	"github.com/swornagent/sworn/internal/workspace"
 )
 
-const candidateRefPrefix = "refs/sworn/v1/candidates/"
+const (
+	candidateRefPrefix = "refs/sworn/v1/candidates/"
+	attemptRefPrefix   = "refs/sworn/v1/attempts/"
+)
 
 func (repository *Repository) Materialize(
 	ctx context.Context,
@@ -218,7 +221,10 @@ func (repository *Repository) materializeTree(
 	return destination, nil
 }
 
-func (repository *Repository) Capture(
+// PrepareCandidate derives exact candidate objects and diff facts without
+// publishing a ref. Unreachable objects are harmless if the process stops
+// before the typed result is bound.
+func (repository *Repository) PrepareCandidate(
 	ctx context.Context,
 	workspace Workspace,
 	options CaptureOptions,
@@ -295,12 +301,26 @@ func (repository *Repository) Capture(
 	if err := repository.verifyCandidateObjects(ctx, candidate); err != nil {
 		return Candidate{}, err
 	}
-	// Recheck immediately before making the candidate durable. A later move is
-	// still caught by the integration compare-and-swap boundary.
+	// Recheck after observing workspace bytes. A later move is still caught by
+	// the integration compare-and-swap boundary.
 	if err := repository.AssertTarget(ctx, workspace.Target); err != nil {
 		return Candidate{}, err
 	}
-	if err := repository.retainCandidate(ctx, candidate); err != nil {
+	return candidate, nil
+}
+
+// Capture remains the convenient prepare-and-retain operation for measured
+// callers which are not crossing the builder result-binding boundary.
+func (repository *Repository) Capture(
+	ctx context.Context,
+	workspace Workspace,
+	options CaptureOptions,
+) (Candidate, error) {
+	candidate, err := repository.PrepareCandidate(ctx, workspace, options)
+	if err != nil {
+		return Candidate{}, err
+	}
+	if err := repository.EnsureCandidate(ctx, candidate); err != nil {
 		return Candidate{}, err
 	}
 	return candidate, nil
@@ -314,6 +334,57 @@ func (repository *Repository) EnsureCandidate(ctx context.Context, candidate Can
 		return err
 	}
 	return repository.retainCandidate(ctx, candidate)
+}
+
+// EnsureAttemptCandidate publishes a candidate only for an attempt whose
+// typed result is already durable. The attempt ref is the publication point
+// that lets unbound recovery prove this attempt never published, even when an
+// identical commit was retained by another attempt.
+func (repository *Repository) EnsureAttemptCandidate(
+	ctx context.Context,
+	attemptID string,
+	candidate Candidate,
+) error {
+	ref, err := repository.attemptRef(ctx, attemptID)
+	if err != nil {
+		return err
+	}
+	if err := repository.EnsureCandidate(ctx, candidate); err != nil {
+		return err
+	}
+	if err := repository.retainRef(ctx, ref, candidate.Commit, "publish attempt"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ProveAttemptUnpublished mints no durable fact. The opaque proof is valid
+// only under exclusive controller ownership until the Store consumes it.
+func (repository *Repository) ProveAttemptUnpublished(
+	ctx context.Context,
+	attemptID string,
+) (AttemptUnpublishedProof, error) {
+	ref, err := repository.attemptRef(ctx, attemptID)
+	if err != nil {
+		return AttemptUnpublishedProof{}, err
+	}
+	if commit, found, err := repository.readRef(ctx, ref); err != nil {
+		return AttemptUnpublishedProof{}, err
+	} else if found {
+		return AttemptUnpublishedProof{}, fmt.Errorf("builder attempt %q is already published at %s", attemptID, commit)
+	}
+	return AttemptUnpublishedProof{repositoryID: repository.binding.RepositoryID, attemptID: attemptID}, nil
+}
+
+func (repository *Repository) attemptRef(ctx context.Context, attemptID string) (string, error) {
+	if !idPattern.MatchString(attemptID) {
+		return "", errors.New("invalid builder attempt id")
+	}
+	ref := attemptRefPrefix + attemptID
+	if _, err := repository.git(ctx, nil, "check-ref-format", ref); err != nil {
+		return "", fmt.Errorf("invalid builder attempt ref: %w", err)
+	}
+	return ref, nil
 }
 
 func (repository *Repository) assertCandidateRetained(ctx context.Context, candidate Candidate) error {
@@ -415,39 +486,53 @@ func (repository *Repository) commitTree(
 }
 
 func (repository *Repository) retainCandidate(ctx context.Context, candidate Candidate) error {
-	current, found, err := repository.readRef(ctx, candidate.Ref)
+	return repository.retainRef(ctx, candidate.Ref, candidate.Commit, "retain candidate")
+}
+
+func (repository *Repository) retainRef(ctx context.Context, ref, commit, label string) error {
+	current, found, err := repository.readRef(ctx, ref)
 	if err != nil {
 		return err
 	}
 	if found {
-		if current != candidate.Commit {
-			return fmt.Errorf("candidate ref collision: %s points to %s, want %s", candidate.Ref, current, candidate.Commit)
+		if current != commit {
+			return fmt.Errorf("%s ref collision: %s points to %s, want %s", label, ref, current, commit)
 		}
 		return nil
 	}
 	_, updateErr := repository.git(
 		ctx, nil,
-		"update-ref", "--no-deref", candidate.Ref, candidate.Commit, repository.zeroOID,
+		"update-ref", "--no-deref", ref, commit, repository.zeroOID,
 	)
 	if updateErr != nil {
-		current, found, readErr := repository.readRef(ctx, candidate.Ref)
-		if readErr == nil && found && current == candidate.Commit {
+		current, found, readErr := repository.readRef(ctx, ref)
+		if readErr == nil && found && current == commit {
 			return nil
 		}
-		return fmt.Errorf("retain candidate ref: %w", updateErr)
+		return fmt.Errorf("%s ref: %w", label, updateErr)
 	}
-	current, found, err = repository.readRef(ctx, candidate.Ref)
+	current, found, err = repository.readRef(ctx, ref)
 	if err != nil {
 		return err
 	}
-	if !found || current != candidate.Commit {
-		return errors.New("candidate ref readback did not match candidate commit")
+	if !found || current != commit {
+		return fmt.Errorf("%s ref readback did not match commit", label)
 	}
 	return nil
 }
 
 func (repository *Repository) readRef(ctx context.Context, ref string) (string, bool, error) {
-	result, err := repository.git(ctx, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", ref+"^{commit}")
+	symbolic, symbolicErr := repository.git(ctx, nil, "symbolic-ref", "--quiet", ref)
+	if symbolicErr == nil {
+		return "", false, fmt.Errorf(
+			"retained ref %q is symbolic to %q", ref, strings.TrimSpace(string(symbolic.stdout)),
+		)
+	}
+	var symbolicCommandErr *gitError
+	if !errors.As(symbolicErr, &symbolicCommandErr) || symbolicCommandErr.exitCode != 1 {
+		return "", false, fmt.Errorf("inspect retained ref identity: %w", symbolicErr)
+	}
+	result, err := repository.git(ctx, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
 	if err != nil {
 		var commandErr *gitError
 		if errors.As(err, &commandErr) && commandErr.exitCode == 1 {
@@ -458,6 +543,13 @@ func (repository *Repository) readRef(ctx context.Context, ref string) (string, 
 	oid := strings.TrimSpace(string(result.stdout))
 	if !repository.validOID(oid) {
 		return "", false, fmt.Errorf("candidate ref returned invalid object id %q", oid)
+	}
+	objectType, err := repository.git(ctx, nil, "cat-file", "-t", oid)
+	if err != nil {
+		return "", false, fmt.Errorf("inspect retained ref object: %w", err)
+	}
+	if strings.TrimSpace(string(objectType.stdout)) != "commit" {
+		return "", false, fmt.Errorf("retained ref %q does not point directly to a commit", ref)
 	}
 	return oid, true, nil
 }

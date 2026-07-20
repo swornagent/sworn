@@ -39,7 +39,9 @@ func (s *Store) validateCheckDispatchDecision(
 		return errors.New("check dispatch does not exactly cover the plan-selected checks")
 	}
 	resolver := journalResultResolver{query: transaction}
-	builder, build, err := resolveAttemptBuilder(ctx, resolver, current, attempt, payload.BuilderEffectID)
+	builder, build, err := resolveAttemptBuilder(
+		ctx, resolver, current, attempt, payload.BuilderEffectID, s.builderDispatchDigest,
+	)
 	if err != nil {
 		return err
 	}
@@ -117,6 +119,7 @@ func resolveAttemptBuilder(
 	current engine.State,
 	attempt exactAttempt,
 	effectID string,
+	builderDispatchDigest string,
 ) (engine.JournalEffect, engine.BuildEffectResult, error) {
 	builder, err := resolver.SucceededEffect(ctx, effectID)
 	if err != nil {
@@ -127,7 +130,9 @@ func resolveAttemptBuilder(
 	if requestErr != nil || resultErr != nil || builder.Kind != engine.EffectBuild ||
 		builder.DeliveryRunID != current.RunID || request.DeliveryRunID != current.RunID ||
 		request.DeliveryID != current.DeliveryID || request.WorkID != attempt.workID ||
-		request.WorkAttempt != attempt.number || request.DispatchDigest != attempt.checks.ContractDigest() {
+		request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+		request.WorkAttempt != attempt.number || request.DispatchDigest != attempt.checks.ContractDigest() ||
+		request.BuilderDispatchDigest != builderDispatchDigest {
 		return engine.JournalEffect{}, engine.BuildEffectResult{}, errors.New("builder does not match the current exact work attempt")
 	}
 	target := attempt.plan.Target()

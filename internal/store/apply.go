@@ -108,6 +108,16 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 	if err := decision.State.Validate(); err != nil {
 		return ApplyResult{}, fmt.Errorf("reducer returned invalid state: %w", err)
 	}
+	if command.Kind == engine.CommandDispatchBuild && s.builderDispatchDigest != "" {
+		if len(decision.Effects) != 1 || decision.Effects[0].Kind != engine.EffectBuild {
+			return ApplyResult{}, errors.New("build.dispatch did not produce exactly one build effect")
+		}
+		request, err := engine.ParseBuildEffectRequest(decision.Effects[0].Request)
+		if err != nil || request.SchemaVersion != engine.BuildEffectRequestSchemaVersion ||
+			request.BuilderDispatchDigest != s.builderDispatchDigest {
+			return ApplyResult{}, errors.New("build.dispatch does not match the configured builder")
+		}
+	}
 	if command.Kind == engine.CommandDispatchChecks {
 		if !found {
 			return ApplyResult{}, errors.New("checks.dispatch requires an existing delivery")
@@ -262,11 +272,6 @@ func revisionOf(state *engine.State) int64 {
 func derivedID(prefix, commandID string, ordinal int) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", prefix, commandID, ordinal)))
 	return prefix + "-" + hex.EncodeToString(sum[:])
-}
-
-func digest(contents []byte) string {
-	sum := sha256.Sum256(contents)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func commandDigest(command engine.Command) string {

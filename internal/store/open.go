@@ -35,6 +35,7 @@ var migrationNames = []string{
 	"migrations/004_typed_effect_results.sql",
 	"migrations/005_atomic_admission.sql",
 	"migrations/006_bound_result_recovery.sql",
+	"migrations/007_attempt_bound_retry.sql",
 }
 
 type Store struct {
@@ -43,6 +44,7 @@ type Store struct {
 	now                             func() time.Time
 	leaseIssuer                     *leaseIssuer
 	localCheckRuntimeManifestDigest string
+	builderDispatchDigest           string
 	repository                      *repo.Repository
 }
 
@@ -51,6 +53,7 @@ type Store struct {
 // Store; command payloads cannot replace them.
 type ControlConfiguration struct {
 	LocalCheckRuntimeManifestDigest string
+	BuilderDispatchDigest           string
 	Repository                      *repo.Repository
 }
 
@@ -63,8 +66,23 @@ func Open(ctx context.Context, path string) (*Store, error) {
 // useful for control operations that do not dispatch local checks, which fail
 // closed while this configuration is absent.
 func OpenConfigured(ctx context.Context, path string, configuration ControlConfiguration) (*Store, error) {
-	if !engine.ValidDigest(configuration.LocalCheckRuntimeManifestDigest) {
-		return nil, errors.New("configured control store requires a valid local-check runtime manifest digest")
+	if configuration.LocalCheckRuntimeManifestDigest != "" &&
+		!engine.ValidDigest(configuration.LocalCheckRuntimeManifestDigest) {
+		return nil, errors.New("configured control store has an invalid local-check runtime manifest digest")
+	}
+	if configuration.BuilderDispatchDigest != "" && !engine.ValidDigest(configuration.BuilderDispatchDigest) {
+		return nil, errors.New("configured control store has an invalid builder dispatch digest")
+	}
+	if configuration.BuilderDispatchDigest != "" {
+		if configuration.Repository == nil {
+			return nil, errors.New("configured native builder requires an immutable repository")
+		}
+		if err := configuration.Repository.Binding().Validate(); err != nil {
+			return nil, fmt.Errorf("configured native builder repository: %w", err)
+		}
+	}
+	if configuration.LocalCheckRuntimeManifestDigest == "" && configuration.BuilderDispatchDigest == "" {
+		return nil, errors.New("configured control store requires an execution digest")
 	}
 	return open(ctx, path, configuration)
 }
@@ -77,6 +95,7 @@ func open(ctx context.Context, path string, configuration ControlConfiguration) 
 	store := &Store{
 		db: database, now: time.Now, leaseIssuer: &leaseIssuer{},
 		localCheckRuntimeManifestDigest: configuration.LocalCheckRuntimeManifestDigest,
+		builderDispatchDigest:           configuration.BuilderDispatchDigest,
 		repository:                      configuration.Repository,
 	}
 	if err := store.migrate(ctx); err != nil {
@@ -168,6 +187,19 @@ func prepareDatabasePath(path string, readOnly bool) error {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// RequireBuilderConfiguration closes the composition boundary before a native
+// worker can receive a lease. Structural Store use without a builder remains
+// possible, but cannot construct the autonomous builder service.
+func (s *Store) RequireBuilderConfiguration(dispatchDigest string, binding repo.Binding) error {
+	if s.readOnly || !engine.ValidDigest(dispatchDigest) || s.builderDispatchDigest != dispatchDigest {
+		return errors.New("control store does not match the native builder dispatch")
+	}
+	if s.repository == nil || s.repository.Binding() != binding {
+		return errors.New("control store does not match the native builder repository")
+	}
+	return nil
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})

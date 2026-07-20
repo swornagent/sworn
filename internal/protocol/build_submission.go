@@ -64,7 +64,7 @@ func BuildSubmission(
 	if err := repository.VerifyCandidate(ctx, input.Candidate, work.Scope); err != nil {
 		return EncodedRecord{}, fmt.Errorf("verify submission candidate: %w", err)
 	}
-	authorityBytes, err := resolver.resolve(ctx, input.AuthorityReceipt)
+	authorityBytes, err := resolver.resolve(ctx, input.AuthorityReceipt, MaximumControlReceiptBytes)
 	if err != nil {
 		return EncodedRecord{}, fmt.Errorf("resolve authority receipt: %w", err)
 	}
@@ -90,7 +90,7 @@ func BuildSubmission(
 		if measured.Receipt.MediaType != "application/vnd.sworn.local-check-receipt+json" {
 			return EncodedRecord{}, fmt.Errorf("check %q does not use a local CAS receipt", checkID)
 		}
-		receiptBytes, err := resolver.resolve(ctx, measured.Receipt)
+		receiptBytes, err := resolver.resolve(ctx, measured.Receipt, MaximumLocalCheckReceiptBytes)
 		if err != nil {
 			return EncodedRecord{}, fmt.Errorf("resolve check %q receipt: %w", checkID, err)
 		}
@@ -103,7 +103,7 @@ func BuildSubmission(
 			return EncodedRecord{}, err
 		}
 		for _, capture := range [...]CapturedArtifact{receipt.Stdout, receipt.Stderr} {
-			contents, err := resolver.resolve(ctx, capture.Pointer())
+			contents, err := resolver.resolve(ctx, capture.Pointer(), uint64(capture.Size))
 			if err != nil {
 				return EncodedRecord{}, fmt.Errorf("resolve check %q output: %w", checkID, err)
 			}
@@ -113,7 +113,7 @@ func BuildSubmission(
 		}
 		environmentBytes, err := resolver.resolve(ctx, Artifact{
 			Ref: receipt.Environment.Ref, MediaType: LocalEnvironmentMediaType, Digest: receipt.Environment.Ref,
-		})
+		}, MaximumLocalEnvironmentBytes)
 		if err != nil {
 			return EncodedRecord{}, fmt.Errorf("resolve check %q environment: %w", checkID, err)
 		}
@@ -196,22 +196,70 @@ type artifactResolver struct {
 	cached map[string]resolvedArtifact
 }
 
-func (resolver *artifactResolver) resolve(ctx context.Context, pointer Artifact) ([]byte, error) {
-	if err := validateArtifact(pointer, "artifact"); err != nil {
-		return nil, err
-	}
-	if pointer.Ref != pointer.Digest {
-		return nil, errors.New("Sworn artifact pointer is not a CAS reference")
-	}
+func (resolver *artifactResolver) resolve(
+	ctx context.Context,
+	pointer Artifact,
+	maximumBytes uint64,
+) ([]byte, error) {
 	if cached, exists := resolver.cached[pointer.Digest]; exists {
-		if cached.mediaType != pointer.MediaType {
-			return nil, errors.New("artifact media type conflicts with an earlier pointer")
+		if err := validateCASArtifact(pointer); err != nil {
+			return nil, err
 		}
-		return append([]byte(nil), cached.contents...), nil
+		contents, err := validateResolvedArtifact(pointer, cached.mediaType, cached.contents, maximumBytes)
+		if err != nil {
+			return nil, err
+		}
+		return append([]byte(nil), contents...), nil
 	}
-	mediaType, contents, err := resolver.reader.Artifact(ctx, pointer.Digest)
+	contents, err := ResolveArtifact(ctx, resolver.reader, pointer, maximumBytes)
 	if err != nil {
 		return nil, err
+	}
+	resolver.cached[pointer.Digest] = resolvedArtifact{
+		mediaType: pointer.MediaType,
+		contents:  append([]byte(nil), contents...),
+	}
+	return contents, nil
+}
+
+// ResolveArtifact resolves and verifies one bounded content-addressed artifact.
+func ResolveArtifact(
+	ctx context.Context,
+	reader ArtifactReader,
+	pointer Artifact,
+	maximumBytes uint64,
+) ([]byte, error) {
+	if reader == nil {
+		return nil, errors.New("artifact resolution requires a reader")
+	}
+	if err := validateCASArtifact(pointer); err != nil {
+		return nil, err
+	}
+	mediaType, contents, err := reader.Artifact(ctx, pointer.Digest)
+	if err != nil {
+		return nil, err
+	}
+	return validateResolvedArtifact(pointer, mediaType, contents, maximumBytes)
+}
+
+func validateCASArtifact(pointer Artifact) error {
+	if err := validateArtifact(pointer, "artifact"); err != nil {
+		return err
+	}
+	if pointer.Ref != pointer.Digest {
+		return errors.New("Sworn artifact pointer is not a CAS reference")
+	}
+	return nil
+}
+
+func validateResolvedArtifact(
+	pointer Artifact,
+	mediaType string,
+	contents []byte,
+	maximumBytes uint64,
+) ([]byte, error) {
+	if uint64(len(contents)) > maximumBytes {
+		return nil, errors.New("artifact exceeds byte ceiling")
 	}
 	if mediaType != pointer.MediaType || RawDigest(contents) != pointer.Digest {
 		return nil, errors.New("artifact bytes do not match their media type and digest")
@@ -219,7 +267,6 @@ func (resolver *artifactResolver) resolve(ctx context.Context, pointer Artifact)
 	if err := ValidateArtifactContent(mediaType, contents); err != nil {
 		return nil, err
 	}
-	resolver.cached[pointer.Digest] = resolvedArtifact{mediaType: mediaType, contents: append([]byte(nil), contents...)}
 	return contents, nil
 }
 

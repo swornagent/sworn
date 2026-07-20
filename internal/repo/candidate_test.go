@@ -145,6 +145,78 @@ func TestCaptureCreatesExactCandidateWithoutTouchingSourceIndex(t *testing.T) {
 	}
 }
 
+func TestAttemptPublicationRequiresPreparedResultAndIsReplayable(t *testing.T) {
+	ctx := context.Background()
+	source := newTestRepository(t)
+	repository, target := openTestRepository(t, source)
+	workspace, err := repository.Materialize(ctx, target, filepath.Join(t.TempDir(), "builder"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(workspace.Path, "src", "attempt.txt"), []byte("attempt\n"), 0o644)
+	candidate, err := repository.PrepareCandidate(ctx, workspace, CaptureOptions{
+		Scope: Scope{Include: []string{"src"}}, Timestamp: fixedCandidateTime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs := strings.TrimSpace(runTestGit(t, source, "for-each-ref", "--format=%(refname)", "refs/sworn/v1")); refs != "" {
+		t.Fatalf("prepared candidate published refs: %s", refs)
+	}
+
+	attemptID := "attempt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	proof, err := repository.ProveAttemptUnpublished(ctx, attemptID)
+	if err != nil || proof.RepositoryID() != target.RepositoryID || proof.AttemptID() != attemptID {
+		t.Fatalf("unpublished proof = (%q, %q), %v", proof.RepositoryID(), proof.AttemptID(), err)
+	}
+	if err := repository.EnsureAttemptCandidate(ctx, attemptID, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.EnsureAttemptCandidate(ctx, attemptID, candidate); err != nil {
+		t.Fatalf("replay attempt publication: %v", err)
+	}
+	if _, err := repository.ProveAttemptUnpublished(ctx, attemptID); err == nil {
+		t.Fatal("published attempt produced an unpublished proof")
+	}
+	for _, ref := range []string{candidate.Ref, attemptRefPrefix + attemptID} {
+		if got := strings.TrimSpace(runTestGit(t, source, "rev-parse", ref)); got != candidate.Commit {
+			t.Fatalf("%s = %s, want %s", ref, got, candidate.Commit)
+		}
+	}
+
+	colliding := "attempt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	runTestGit(t, source, "update-ref", attemptRefPrefix+colliding, candidate.BaseCommit)
+	if err := repository.EnsureAttemptCandidate(ctx, colliding, candidate); err == nil || !strings.Contains(err.Error(), "collision") {
+		t.Fatalf("attempt collision error = %v", err)
+	}
+	malformed := "attempt-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	blob := strings.TrimSpace(runTestGit(t, source, "rev-parse", "HEAD:README.md"))
+	runTestGit(t, source, "update-ref", attemptRefPrefix+malformed, blob)
+	if _, err := repository.ProveAttemptUnpublished(ctx, malformed); err == nil ||
+		!strings.Contains(err.Error(), "does not point directly to a commit") {
+		t.Fatalf("malformed occupied attempt ref proof error = %v", err)
+	}
+	for _, symbolic := range []struct {
+		id     string
+		target string
+	}{
+		{
+			id:     "attempt-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+			target: "refs/heads/main",
+		},
+		{
+			id:     "attempt-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+			target: "refs/heads/missing",
+		},
+	} {
+		runTestGit(t, source, "symbolic-ref", attemptRefPrefix+symbolic.id, symbolic.target)
+		if _, err := repository.ProveAttemptUnpublished(ctx, symbolic.id); err == nil ||
+			!strings.Contains(err.Error(), "is symbolic") {
+			t.Fatalf("symbolic occupied attempt ref %q proof error = %v", symbolic.target, err)
+		}
+	}
+}
+
 func TestMaterializeCandidateUsesRetainedFactsAfterTargetMoves(t *testing.T) {
 	ctx := context.Background()
 	source := newTestRepository(t)

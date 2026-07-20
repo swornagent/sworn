@@ -18,7 +18,8 @@ The v1 foundation establishes the trust boundary:
 - a `sworn version` command that reports the snapshot digest;
 - one transactional control store and pure reducer;
 - exact local Git candidate primitives;
-- a contained Linux subprocess boundary with measured writable export; and
+- a contained Linux subprocess boundary with measured writable export;
+- an internal native builder with attempt-bound publication and recovery; and
 - v1-specific CI.
 
 The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
@@ -44,13 +45,23 @@ Baton submission and exposing `reviewable`. Real-boundary tests prove both
 staged runtime execution and the writable-export handoff into exact Git
 candidate capture.
 
+The native builder now closes one real vertical path internally. Store
+prevalidates the exact claim and process configuration before agent execution;
+the worker prepares an unpublished candidate; Store binds the typed result,
+publishes candidate and attempt refs, and only then commits success. Restart
+either completes that bound result or requeues an unbound attempt only after a
+Store-bound composite proof of absent publication and complete writable
+cleanup. A real composition test carries that result through exact checks and
+atomic reviewable admission.
+
 No mutating command is exposed by the CLI yet. Historical approval remains
 provenance rather than a current execution permit, and reviewable is not a
-verdict or `PASS`. No command service, native agent adapter, or autonomous claim
-loop can execute these internal edges yet. They remain trusted kernel primitives
-rather than a delivery loop. See
+verdict or `PASS`. The narrow internal composition service does not claim work
+or own a loop. No public controller, agent-CLI adapter, verifier, or autonomous
+claim loop can execute these internal edges yet. They remain trusted kernel
+primitives rather than a delivery loop. See
 [Exact local candidate](docs/exact-candidate.md) and
-[Atomic reviewable submission](docs/measured-submission.md).
+[ADR 0005](docs/adr/0005-native-builder-recovery.md).
 
 SQLite is the sole Go production dependency. Linux execution relies on the
 host's systemd user manager, cgroup v2, and Bubblewrap; it fails closed when that
