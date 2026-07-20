@@ -360,6 +360,47 @@ func (ownership *ControllerOwnership) ValidateActive(control *Store, ownerID str
 	return ownership.validate(control, ownerID, controllerOwnershipActive)
 }
 
+// withActiveBuildOperation retains active ownership for the complete external
+// builder callback. Close and successor recovery cannot begin between the
+// capability's one-shot entry and the callback returning.
+func (ownership *ControllerOwnership) withActiveBuildOperation(
+	control *Store,
+	ownerID string,
+	operation func() error,
+) error {
+	return ownership.withBuildOperation(control, ownerID, controllerOwnershipActive, operation)
+}
+
+// withRecoveryBuildOperation retains recovery ownership for the complete
+// cleanup or reconciliation callback.
+func (ownership *ControllerOwnership) withRecoveryBuildOperation(
+	control *Store,
+	ownerID string,
+	operation func() error,
+) error {
+	return ownership.withBuildOperation(control, ownerID, controllerOwnershipRecovery, operation)
+}
+
+func (ownership *ControllerOwnership) withBuildOperation(
+	control *Store,
+	ownerID string,
+	want controllerOwnershipPhase,
+	operation func() error,
+) error {
+	// The synchronous operation must not re-enter controller ownership methods.
+	if ownership == nil || ownership.state == nil || control == nil ||
+		!engine.ValidID(ownerID) || operation == nil {
+		return ErrInvalidControllerOwnership
+	}
+	state := ownership.state
+	state.RLock()
+	defer state.RUnlock()
+	if err := ownership.validateStateLocked(control, ownerID, want); err != nil {
+		return err
+	}
+	return operation()
+}
+
 func (ownership *ControllerOwnership) validate(
 	control *Store,
 	ownerID string,

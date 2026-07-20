@@ -14,8 +14,11 @@ algorithm:
    owner, and monotonically increasing attempt. A native build claim also
    records its canonical attempt identity in the same transaction, before the
    builder may start. Immediately before native execution, Store reloads the
-   exact current running row and attempt witness through that lease. Only that
-   exact lease may cross the builder boundary, bind, or complete the effect.
+   exact current running row and attempt witness through that lease and issues
+   a prepared capability. Its shared atomic state admits exactly one worker
+   entry, which consumes it and retains controller ownership across the whole
+   synchronous callback before any executor, Git, or attempt-workspace side
+   effect. Result binding and completion require that consumed capability.
 6. Bind one kind-specific typed result to the effect row under that live lease,
    then complete the effect in a separate compare-and-swap. The result slot may
    move once from empty to populated and is immutable thereafter.
@@ -24,8 +27,9 @@ algorithm:
 8. If a process ends while an effect is running, change it to `unknown`.
    `RecoverBoundEffect` may close only the exact attempt's already-bound result.
    An unbound native build may return to pending only after Store prevalidates
-   its claim witness and consumes the configured worker's composite proof of no
-   Git publication, executor quiescence, and attempt-workspace cleanup.
+   its claim witness, issues a one-shot recovery capability, and seals the
+   worker's exact opaque proofs of no Git publication and executor cleanup into
+   a Store-owned retry proof after attempt-workspace cleanup.
 
 Deterministic command rejections are stored and replayed. Infrastructure errors
 roll back and remain errors; they are not converted into domain outcomes. Reuse
@@ -103,19 +107,40 @@ revision has advanced. Store selects only the exact permitted work and attempt,
 then rechecks ownership, permit, durable source head, state, contract, command,
 and typed request at successful preparation. That transaction is the logical
 build-start authorization and linearization point; `BuilderService` invokes the
-worker immediately afterward. The resulting prepared-attempt capability carries
-that exact attempt through result binding and completion without turning the
-30-second permit into a runtime limit, but does not prove the runner executed an
-instruction. A failed controlled claim, or any failure after claim, releases
-ownership and forces the next process through recovery. The raw exported
-execution, cleanup, and reconciliation methods on the internal `BuilderWorker`
-remain a privileged trusted-computing-base seam; one-shot Store capability
-sealing gates any public mutating loop. The controller performs one explicit
+worker immediately afterward. Every copy of the resulting
+`PreparedAuthorizedBuildLease` shares one atomic phase: `BuilderWorker.Run`
+must consume its sole worker entrance before any side effect. Its Store-gated
+synchronous callback retains active ownership until the raw operation returns,
+so `Close` and successor recovery cannot enter between consumption and actual
+work. Store permits result binding or completion only after that consumption.
+Preparation therefore remains the durable authorization and linearization
+point, while consumption is the distinct process-local proof that worker entry
+began. The consumed capability carries that exact attempt through result
+binding and completion without turning the 30-second permit into a runtime
+limit.
+
+Recovery uses the same contraction. Store issues a one-shot
+`BoundBuildCleanupLease` only for an exact unknown attempt with a valid durable
+result, and a one-shot `BuildRecoveryLease` only for an exact unknown unbound
+attempt. Cleanup and reconciliation consume their respective capabilities
+before touching external state. After the latter produces matching opaque
+repository unpublished and executor cleanup proofs, its Store issuance seals a
+concrete `BuildRetryProof`. The proof remains replayable so the journal can
+converge after a retry-transaction ambiguity without repeating external
+cleanup; it cannot be constructed for another Store, attempt, or recovery
+issuance. Recovery one-shot semantics are per issuance: exact idempotent cleanup
+or reconciliation may be reminted only after a fresh Store preflight while the
+attempt remains unknown, which permits convergence after a partial failure.
+Each callback retains recovery ownership through cleanup and proof sealing. The
+raw algorithms are package-private behind these gated entry points.
+
+A failed controlled claim, or any failure after claim, releases ownership and
+forces the next process through recovery. The controller performs one explicit
 step; it does not poll, choose retry policy, execute checks, or own a public
 loop. Controlled dispatch remains safe after an ambiguous successful commit—the
 advanced state and pending effect are durable—but direct command-result
-convergence from that advanced state is a required pre-public-loop follow-up. See
-[ADR 0006](adr/0006-current-authority-controller.md).
+convergence from that advanced state is a required pre-public-loop follow-up.
+See [ADR 0006](adr/0006-current-authority-controller.md).
 
 ## SQLite ownership
 

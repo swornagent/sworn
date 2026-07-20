@@ -9,9 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/swornagent/sworn/internal/effects"
 	"github.com/swornagent/sworn/internal/engine"
 	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/protocol"
@@ -105,23 +103,20 @@ func TestBuildRetryUsesPrevalidatedLeaseAndCompositeProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prevalidate first build recovery: %v", err)
 	}
-	if recovery.Invocation().ID != fixture.effectID || recovery.Invocation().Attempt != 1 {
-		t.Fatalf("first recovery lease invocation = %+v", recovery.Invocation())
+	if recovery.effect.ID != fixture.effectID || recovery.effect.Attempt != 1 {
+		t.Fatalf("first recovery lease effect = %+v", recovery.effect)
 	}
 	if err := fixture.control.recoverUnboundBuildEffectForStoreTest(
-		ctx, recovery, "retry-reconciler", effects.BuildRetryProof{},
+		ctx, recovery, "retry-reconciler", BuildRetryProof{},
 	); err == nil {
 		t.Fatal("zero composite proof requeued an unknown build")
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, 1, nil)
 
-	proof, err := fixture.worker.ReconcileUnbound(ctx, recovery.Invocation(), recovery.Challenge())
-	if err != nil {
-		t.Fatalf("mint first build retry proof: %v", err)
-	}
-	if proof.InvocationID() != firstIdentity.InvocationID ||
-		proof.BuilderDispatchDigest() != fixture.builderDispatchDigest {
-		t.Fatalf("first build retry proof does not match claim: proof=%s identity=%+v", proof.InvocationID(), firstIdentity)
+	proof := buildRetryProofForStoreTest(t, fixture, recovery)
+	if proof.identity.InvocationID != firstIdentity.InvocationID ||
+		proof.identity.BuilderDispatchDigest != fixture.builderDispatchDigest {
+		t.Fatalf("first build retry proof does not match claim: proof=%+v identity=%+v", proof.identity, firstIdentity)
 	}
 	if _, err := fixture.control.db.ExecContext(ctx, `
 		CREATE TEMP TRIGGER fail_build_requeue
@@ -211,7 +206,7 @@ func TestBuildRetryPreparationLeavesCorruptNullClaimWitnessStopped(t *testing.T)
 	if recovered, err := fixture.control.recoverInterruptedEffectsForStoreTest(ctx, "builder process stopped"); err != nil || recovered != 1 {
 		t.Fatalf("mark build attempt unknown = %d, %v", recovered, err)
 	}
-	attemptRoot := filepath.Join(fixture.worker.WorkspaceRoot, identity.InvocationID)
+	attemptRoot := filepath.Join(fixture.workspaceRoot, identity.InvocationID)
 	if err := os.Mkdir(attemptRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -261,10 +256,7 @@ func TestBuildRecoveryLeaseCannotCrossStoreBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof, err := first.worker.ReconcileUnbound(ctx, recovery.Invocation(), recovery.Challenge())
-	if err != nil {
-		t.Fatal(err)
-	}
+	proof := buildRetryProofForStoreTest(t, first, recovery)
 	if err := second.control.recoverUnboundBuildEffectForStoreTest(
 		ctx, recovery, "reconciler-2", proof,
 	); err == nil || !strings.Contains(err.Error(), "Store-issued lease") {
@@ -304,27 +296,17 @@ func TestBuildRecoveryProofCannotCrossEquivalentStoreBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstRecovery.Challenge() == peerRecovery.Challenge() {
-		t.Fatal("independent Store recovery leases reused a challenge")
+	if firstRecovery.capability == peerRecovery.capability {
+		t.Fatal("independent Store recovery leases reused capability state")
 	}
-	firstProof, err := fixture.worker.ReconcileUnbound(
-		ctx, firstRecovery.Invocation(), firstRecovery.Challenge(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	firstProof := buildRetryProofForStoreTest(t, fixture, firstRecovery)
 	if err := peer.recoverUnboundBuildEffectForStoreTest(
 		ctx, peerRecovery, "peer-reconciler", firstProof,
 	); err == nil || !strings.Contains(err.Error(), "proof does not match") {
 		t.Fatalf("cross-Store recovery proof error = %v", err)
 	}
 	assertBuildRetryUnknown(t, fixture.control, fixture.effectID, lease.Invocation().Attempt, nil)
-	peerProof, err := fixture.worker.ReconcileUnbound(
-		ctx, peerRecovery.Invocation(), peerRecovery.Challenge(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	peerProof := buildRetryProofForStoreTest(t, fixture, peerRecovery)
 	if err := peer.recoverUnboundBuildEffectForStoreTest(
 		ctx, peerRecovery, "peer-reconciler", peerProof,
 	); err != nil {
@@ -450,7 +432,8 @@ type buildRetryFixture struct {
 	controlPath           string
 	repository            *repo.Repository
 	candidate             repo.Candidate
-	worker                effects.BuilderWorker
+	reconciler            *executor.LinuxExecutor
+	workspaceRoot         string
 	builderDispatchDigest string
 	effectID              string
 }
@@ -468,19 +451,7 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	worker := effects.BuilderWorker{
-		Control:       inertBuildRetryControl{},
-		Runner:        contained,
-		Repository:    repository,
-		WorkspaceRoot: workspaceRoot,
-		Agent:         "store-build-retry-test",
-		Argv:          []string{"/usr/bin/true"},
-		Timeout:       time.Minute,
-	}
-	builderDispatchDigest, err := worker.DispatchDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
+	builderDispatchDigest := protocol.RawDigest([]byte("store-build-retry-builder-dispatch-v1"))
 	controlPath := filepath.Join(t.TempDir(), "control.db")
 	control, err := OpenConfigured(ctx, controlPath, ControlConfiguration{
 		LocalCheckRuntimeManifestDigest: "sha256:" + strings.Repeat("e", 64),
@@ -491,7 +462,6 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	worker.Control = control
 	if digest, err := control.PutPlan(ctx, plan); err != nil || digest != plan.Record().Digest {
 		t.Fatalf("put native builder plan = %q, %v", digest, err)
 	}
@@ -519,18 +489,43 @@ func newBuildRetryFixture(t *testing.T) buildRetryFixture {
 	}
 	return buildRetryFixture{
 		control: control, controlPath: controlPath, repository: repository, candidate: candidate,
-		worker: worker, builderDispatchDigest: builderDispatchDigest, effectID: result.EffectIDs[0],
+		reconciler: contained, workspaceRoot: workspaceRoot,
+		builderDispatchDigest: builderDispatchDigest, effectID: result.EffectIDs[0],
 	}
 }
 
-type inertBuildRetryControl struct{}
-
-func (inertBuildRetryControl) State(context.Context, string) (engine.State, error) {
-	return engine.State{}, errors.New("inert builder control")
-}
-
-func (inertBuildRetryControl) Plan(context.Context, string) (protocol.ExactPlan, error) {
-	return protocol.ExactPlan{}, errors.New("inert builder control")
+func buildRetryProofForStoreTest(
+	t *testing.T,
+	fixture buildRetryFixture,
+	lease BuildRecoveryLease,
+) BuildRetryProof {
+	t.Helper()
+	if lease.capability == nil ||
+		!lease.capability.phase.CompareAndSwap(buildCapabilityPrepared, buildCapabilityConsumed) {
+		t.Fatal("test recovery capability was already consumed")
+	}
+	unpublished, err := fixture.repository.ProveAttemptUnpublished(
+		context.Background(), lease.identity.InvocationID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writable, err := fixture.reconciler.ReconcileWritable(
+		context.Background(), lease.identity.InvocationID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lease.capability.phase.CompareAndSwap(buildCapabilityConsumed, buildCapabilityProven) {
+		t.Fatal("test recovery capability could not seal proof")
+	}
+	return BuildRetryProof{
+		issuer: lease.issuer, capability: lease.capability,
+		effectID: lease.effect.ID, effectAttempt: lease.effect.Attempt,
+		identity:     lease.identity,
+		repositoryID: lease.repositoryID, targetRef: lease.targetRef,
+		unpublished: unpublished, writable: writable,
+	}
 }
 
 func nativeBuildRetryPlan(t *testing.T) protocol.ExactPlan {

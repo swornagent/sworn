@@ -13,20 +13,21 @@ import (
 )
 
 type builderJournal interface {
-	PrepareAuthorizedBuildExecution(context.Context, store.AuthorizedBuildLease) (engine.JournalEffect, store.PreparedAuthorizedBuildLease, error)
+	PrepareAuthorizedBuildExecution(context.Context, store.AuthorizedBuildLease) (store.PreparedAuthorizedBuildLease, error)
 	BindAuthorizedBuildResult(context.Context, store.PreparedAuthorizedBuildLease, json.RawMessage) error
 	CompleteAuthorizedBuild(context.Context, store.PreparedAuthorizedBuildLease) error
 	RecoverControlledInterruptedEffects(context.Context, *store.ControllerOwnership, string, string) (int, error)
 	UnknownEffects(context.Context) ([]engine.JournalEffect, error)
+	PrepareControlledBoundBuildCleanup(context.Context, *store.ControllerOwnership, string, string, int64) (store.BoundBuildCleanupLease, error)
 	RecoverControlledBoundEffect(context.Context, *store.ControllerOwnership, string, string, int64) error
 	PrepareControlledUnboundBuildRecovery(context.Context, *store.ControllerOwnership, string, string, int64) (store.BuildRecoveryLease, error)
-	RecoverControlledUnboundBuildEffect(context.Context, *store.ControllerOwnership, string, store.BuildRecoveryLease, effects.BuildRetryProof) error
+	RecoverControlledUnboundBuildEffect(context.Context, *store.ControllerOwnership, string, store.BuildRecoveryLease, store.BuildRetryProof) error
 }
 
 type builderBoundary interface {
-	Run(context.Context, engine.JournalEffect) (json.RawMessage, error)
-	Cleanup(context.Context, engine.JournalEffect) error
-	ReconcileUnbound(context.Context, engine.JournalEffect, string) (effects.BuildRetryProof, error)
+	Run(context.Context, store.PreparedAuthorizedBuildLease) (json.RawMessage, error)
+	Cleanup(context.Context, store.BoundBuildCleanupLease) error
+	ReconcileUnbound(context.Context, store.BuildRecoveryLease) (store.BuildRetryProof, error)
 }
 
 // BuilderService fixes the only safe order for builder side effects. Its
@@ -69,22 +70,19 @@ func (service BuilderService) execute(ctx context.Context, lease store.Authorize
 	if service.journal == nil || service.worker == nil {
 		return errors.New("builder service is not initialized")
 	}
-	effect, prepared, err := service.journal.PrepareAuthorizedBuildExecution(ctx, lease)
+	prepared, err := service.journal.PrepareAuthorizedBuildExecution(ctx, lease)
 	if err != nil {
 		return fmt.Errorf("prepare native builder execution: %w", err)
 	}
-	if effect.Kind != engine.EffectBuild {
-		return errors.New("builder service requires a build effect lease")
-	}
-	result, err := service.worker.Run(ctx, effect)
+	result, err := service.worker.Run(ctx, prepared)
 	if err != nil {
-		return fmt.Errorf("run builder effect %q: %w", effect.ID, err)
+		return fmt.Errorf("run prepared builder effect: %w", err)
 	}
 	if err := service.journal.BindAuthorizedBuildResult(ctx, prepared, result); err != nil {
-		return fmt.Errorf("bind builder effect %q: %w", effect.ID, err)
+		return fmt.Errorf("bind prepared builder result: %w", err)
 	}
 	if err := service.journal.CompleteAuthorizedBuild(ctx, prepared); err != nil {
-		return fmt.Errorf("complete builder effect %q: %w", effect.ID, err)
+		return fmt.Errorf("complete prepared builder effect: %w", err)
 	}
 	return nil
 }
@@ -121,7 +119,13 @@ func (service BuilderService) reconcileAfterExclusiveOwnership(
 	for _, effect := range unknown {
 		if len(effect.Result) != 0 {
 			if effect.Kind == engine.EffectBuild {
-				if err := service.worker.Cleanup(ctx, effect); err != nil {
+				cleanup, err := service.journal.PrepareControlledBoundBuildCleanup(
+					ctx, ownership, reconcilerID, effect.ID, effect.Attempt,
+				)
+				if err != nil {
+					return report, fmt.Errorf("prepare bound builder cleanup %q: %w", effect.ID, err)
+				}
+				if err := service.worker.Cleanup(ctx, cleanup); err != nil {
 					return report, fmt.Errorf("clean bound builder effect %q: %w", effect.ID, err)
 				}
 			}
@@ -144,7 +148,7 @@ func (service BuilderService) reconcileAfterExclusiveOwnership(
 		if err != nil {
 			return report, err
 		}
-		proof, err := service.worker.ReconcileUnbound(ctx, lease.Invocation(), lease.Challenge())
+		proof, err := service.worker.ReconcileUnbound(ctx, lease)
 		if err != nil {
 			return report, fmt.Errorf("reconcile unbound builder effect %q: %w", effect.ID, err)
 		}

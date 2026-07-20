@@ -3,15 +3,12 @@ package store
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
-	effectworker "github.com/swornagent/sworn/internal/effects"
 	"github.com/swornagent/sworn/internal/engine"
 	"github.com/swornagent/sworn/internal/policy"
 )
@@ -65,24 +62,25 @@ type EffectLease struct {
 type AuthorizedBuildLease struct {
 	issuer        *leaseIssuer
 	effect        Effect
+	capability    *buildCapabilityState
 	ownership     *ControllerOwnership
 	authority     *policy.Authority
 	permit        policy.CurrentBuildPermit
 	permitRequest policy.BuildPermitRequest
 }
 
-type preparedBuildIssuer struct{ marker byte }
-
 // PreparedAuthorizedBuildLease proves that current authority and the durable
 // source head were validated at the successful Store preparation transaction,
-// the shipped sequence's logical build-start authorization and linearization
-// point. It intentionally carries no expiring permit: a build which runs longer
-// than the authorization freshness window may still bind and publish its exact
-// attempt while the same controller remains active.
+// and carries one shared process-local execution capability. Every value copy
+// observes the same one-shot state. It intentionally carries no expiring
+// permit: a build which runs longer than the authorization freshness window
+// may still bind and publish its exact attempt while the same controller
+// remains active.
 type PreparedAuthorizedBuildLease struct {
 	issuer        *leaseIssuer
-	prepared      *preparedBuildIssuer
 	effect        Effect
+	capability    *buildCapabilityState
+	control       *Store
 	ownership     *ControllerOwnership
 	permitRequest policy.BuildPermitRequest
 	planDigest    string
@@ -93,19 +91,16 @@ type PreparedAuthorizedBuildLease struct {
 // It authorizes external cleanup inspection, not a lifecycle transition by
 // itself.
 type BuildRecoveryLease struct {
-	issuer    *leaseIssuer
-	effect    Effect
-	identity  engine.BuildAttemptIdentity
-	challenge string
-	ownership *ControllerOwnership
-	ownerID   string
+	issuer       *leaseIssuer
+	effect       Effect
+	identity     engine.BuildAttemptIdentity
+	repositoryID string
+	targetRef    string
+	capability   *buildCapabilityState
+	control      *Store
+	ownership    *ControllerOwnership
+	ownerID      string
 }
-
-func (lease BuildRecoveryLease) Invocation() engine.JournalEffect {
-	return journalEffect(lease.effect)
-}
-
-func (lease BuildRecoveryLease) Challenge() string { return lease.challenge }
 
 func (lease EffectLease) Invocation() engine.JournalEffect {
 	return engine.JournalEffect{
@@ -115,16 +110,8 @@ func (lease EffectLease) Invocation() engine.JournalEffect {
 	}
 }
 
-func (lease AuthorizedBuildLease) Invocation() engine.JournalEffect {
-	return journalEffect(lease.effect)
-}
-
 func (lease AuthorizedBuildLease) effectLease() EffectLease {
 	return EffectLease{issuer: lease.issuer, effect: cloneEffect(lease.effect)}
-}
-
-func (lease PreparedAuthorizedBuildLease) Invocation() engine.JournalEffect {
-	return journalEffect(lease.effect)
 }
 
 func (lease PreparedAuthorizedBuildLease) effectLease() EffectLease {
@@ -171,13 +158,18 @@ func (s *Store) PrepareNativeBuildExecution(
 func (s *Store) PrepareAuthorizedBuildExecution(
 	ctx context.Context,
 	lease AuthorizedBuildLease,
-) (engine.JournalEffect, PreparedAuthorizedBuildLease, error) {
-	effect, err := s.prepareNativeBuildExecution(ctx, lease.effectLease(), &lease)
+) (PreparedAuthorizedBuildLease, error) {
+	_, err := s.prepareNativeBuildExecution(ctx, lease.effectLease(), &lease)
 	if err != nil {
-		return engine.JournalEffect{}, PreparedAuthorizedBuildLease{}, err
+		return PreparedAuthorizedBuildLease{}, err
 	}
-	return effect, PreparedAuthorizedBuildLease{
-		issuer: s.leaseIssuer, prepared: &preparedBuildIssuer{},
+	if lease.capability == nil || !lease.capability.phase.CompareAndSwap(
+		buildCapabilityClaimed, buildCapabilityPrepared,
+	) {
+		return PreparedAuthorizedBuildLease{}, errors.New("authorized build lease was already prepared")
+	}
+	return PreparedAuthorizedBuildLease{
+		issuer: s.leaseIssuer, capability: lease.capability, control: s,
 		effect: cloneEffect(lease.effect), ownership: lease.ownership,
 		permitRequest: lease.permitRequest, planDigest: lease.permit.Facts().PlanDigest,
 	}, nil
@@ -355,29 +347,19 @@ func (s *Store) prepareUnboundBuildRecovery(
 			effectID, effect.State, effect.Attempt, expectedAttempt,
 		)
 	}
-	identity, _, err := s.validateNativeBuildAttempt(ctx, transaction, effect)
+	identity, state, err := s.validateNativeBuildAttempt(ctx, transaction, effect)
 	if err != nil {
 		return BuildRecoveryLease{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return BuildRecoveryLease{}, fmt.Errorf("finish build recovery preparation: %w", err)
 	}
-	challenge, err := newBuildRecoveryChallenge()
-	if err != nil {
-		return BuildRecoveryLease{}, err
-	}
 	return BuildRecoveryLease{
-		issuer: s.leaseIssuer, effect: cloneEffect(effect), identity: identity, challenge: challenge,
+		issuer: s.leaseIssuer, effect: cloneEffect(effect), identity: identity,
+		repositoryID: state.Repository, targetRef: state.TargetRef,
+		capability: newBuildCapabilityState(buildCapabilityPrepared), control: s,
 		ownership: ownership, ownerID: ownerID,
 	}, nil
-}
-
-func newBuildRecoveryChallenge() (string, error) {
-	var contents [32]byte
-	if _, err := rand.Read(contents[:]); err != nil {
-		return "", fmt.Errorf("generate build recovery challenge: %w", err)
-	}
-	return "recovery-" + hex.EncodeToString(contents[:]), nil
 }
 
 func (s *Store) validateNativeBuildAttempt(
@@ -1054,19 +1036,19 @@ func (s *Store) RecoverUnboundBuildEffect(
 	ctx context.Context,
 	lease BuildRecoveryLease,
 	reconcilerID string,
-	proof effectworker.BuildRetryProof,
+	proof BuildRetryProof,
 ) error {
 	return errors.New("unbound build recovery requires controller recovery ownership")
 }
 
-// RecoverControlledUnboundBuildEffect consumes a prevalidated lease and exact
+// RecoverControlledUnboundBuildEffect validates a prevalidated lease and exact
 // external not-applied proof under the same recovery owner which minted it.
 func (s *Store) RecoverControlledUnboundBuildEffect(
 	ctx context.Context,
 	ownership *ControllerOwnership,
 	ownerID string,
 	lease BuildRecoveryLease,
-	proof effectworker.BuildRetryProof,
+	proof BuildRetryProof,
 ) error {
 	if ownership == nil || lease.ownership != ownership || lease.ownerID != ownerID {
 		return ErrInvalidControllerOwnership
@@ -1083,7 +1065,7 @@ func (s *Store) recoverUnboundBuildEffect(
 	ownerID string,
 	lease BuildRecoveryLease,
 	reconcilerID string,
-	proof effectworker.BuildRetryProof,
+	proof BuildRetryProof,
 ) error {
 	if s.readOnly {
 		return errors.New("control store is read-only")
@@ -1119,14 +1101,15 @@ func (s *Store) recoverUnboundBuildEffect(
 	if err != nil {
 		return err
 	}
-	if identity != lease.identity || proof.EffectID() != effect.ID ||
-		proof.EffectAttempt() != effect.Attempt || proof.InvocationID() != identity.InvocationID ||
-		proof.RecoveryChallenge() != lease.challenge ||
-		proof.BuilderDispatchDigest() != identity.BuilderDispatchDigest ||
-		proof.RepositoryID() != state.Repository || proof.TargetRef() != state.TargetRef ||
-		proof.WritableCleanup().InvocationID() != identity.InvocationID ||
-		proof.Unpublished().RepositoryID() != state.Repository ||
-		proof.Unpublished().AttemptID() != identity.InvocationID {
+	if identity != lease.identity || proof.issuer == nil || proof.issuer != s.leaseIssuer ||
+		proof.capability == nil || proof.capability != lease.capability ||
+		proof.capability.phase.Load() != buildCapabilityProven ||
+		proof.effectID != effect.ID || proof.effectAttempt != effect.Attempt ||
+		proof.identity != identity ||
+		proof.repositoryID != state.Repository || proof.targetRef != state.TargetRef ||
+		proof.writable.InvocationID() != identity.InvocationID ||
+		proof.unpublished.RepositoryID() != state.Repository ||
+		proof.unpublished.AttemptID() != identity.InvocationID {
 		return errors.New("unbound build recovery proof does not match its current journal and configuration")
 	}
 	encodedIdentity, err := engine.EncodeBuildAttemptIdentity(identity)
