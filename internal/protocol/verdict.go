@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"unicode/utf8"
 )
 
 const (
@@ -11,6 +12,13 @@ const (
 	DeliveryVerdictSchemaVersion    = "delivery-verdict-v1"
 	MaximumVerifierAssessmentBytes  = 1 << 20
 	MaximumDeliveryVerdictBytes     = 1 << 20
+)
+
+const (
+	maximumVerifierAssessmentSummaryCodePoints = 4096
+	maximumVerifierResultSummaryCodePoints     = 512
+	maximumVerifierAssessmentCollectionItems   = 64
+	maximumVerifierAssessmentReferenceItems    = 16
 )
 
 type AcceptanceResult struct {
@@ -238,8 +246,14 @@ func validateVerifierAssessment(assessment VerifierAssessment) error {
 	if assessment.SchemaVersion != VerifierAssessmentSchemaVersion {
 		return fmt.Errorf("unknown verifier assessment schema %q", assessment.SchemaVersion)
 	}
-	if !ValidNonEmpty(assessment.Summary) || len(assessment.AcceptanceResults) == 0 ||
-		assessment.AssuranceResults == nil || assessment.Findings == nil {
+	if !ValidNonEmpty(assessment.Summary) ||
+		utf8.RuneCountInString(assessment.Summary) > maximumVerifierAssessmentSummaryCodePoints ||
+		len(assessment.AcceptanceResults) == 0 ||
+		len(assessment.AcceptanceResults) > maximumVerifierAssessmentCollectionItems ||
+		assessment.AssuranceResults == nil ||
+		len(assessment.AssuranceResults) > maximumVerifierAssessmentCollectionItems ||
+		assessment.Findings == nil ||
+		len(assessment.Findings) > maximumVerifierAssessmentCollectionItems {
 		return errors.New("verifier assessment requires a summary and complete result arrays")
 	}
 	acceptanceIDs := make(map[string]struct{}, len(assessment.AcceptanceResults))
@@ -277,7 +291,9 @@ func validateVerifierAssessment(assessment VerifierAssessment) error {
 
 func validateAcceptanceResult(result AcceptanceResult) error {
 	if !ValidID(result.AcceptanceID) || !validResultOutcome(result.Outcome) ||
-		result.EvidenceIDs == nil || duplicateStrings(result.EvidenceIDs) || !ValidNonEmpty(result.Summary) {
+		result.EvidenceIDs == nil || len(result.EvidenceIDs) > maximumVerifierAssessmentReferenceItems ||
+		duplicateStrings(result.EvidenceIDs) || !ValidNonEmpty(result.Summary) ||
+		utf8.RuneCountInString(result.Summary) > maximumVerifierResultSummaryCodePoints {
 		return errors.New("acceptance result has invalid identity, outcome, evidence, or summary")
 	}
 	for _, evidenceID := range result.EvidenceIDs {
@@ -290,7 +306,9 @@ func validateAcceptanceResult(result AcceptanceResult) error {
 
 func validateAssuranceResult(result AssuranceResult) error {
 	if !packIDPattern.MatchString(result.Pack) || !validResultOutcome(result.Outcome) ||
-		result.EvidenceIDs == nil || duplicateStrings(result.EvidenceIDs) || !ValidNonEmpty(result.Summary) {
+		result.EvidenceIDs == nil || len(result.EvidenceIDs) > maximumVerifierAssessmentReferenceItems ||
+		duplicateStrings(result.EvidenceIDs) || !ValidNonEmpty(result.Summary) ||
+		utf8.RuneCountInString(result.Summary) > maximumVerifierResultSummaryCodePoints {
 		return errors.New("assurance result has invalid pack, outcome, evidence, or summary")
 	}
 	for _, evidenceID := range result.EvidenceIDs {
@@ -305,6 +323,9 @@ func validateFinding(finding Finding) error {
 	if !ValidID(finding.ID) || !validFindingKind(finding.Kind) || !validPrinciple(finding.Principle) ||
 		(finding.Severity != "blocking" && finding.Severity != "non_blocking") ||
 		!ValidNonEmpty(finding.Summary) || finding.AcceptanceIDs == nil || finding.EvidenceIDs == nil ||
+		utf8.RuneCountInString(finding.Summary) > maximumVerifierResultSummaryCodePoints ||
+		len(finding.AcceptanceIDs) > maximumVerifierAssessmentReferenceItems ||
+		len(finding.EvidenceIDs) > maximumVerifierAssessmentReferenceItems ||
 		duplicateStrings(finding.AcceptanceIDs) || duplicateStrings(finding.EvidenceIDs) {
 		return errors.New("finding has invalid identity, taxonomy, summary, or references")
 	}

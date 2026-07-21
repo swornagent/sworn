@@ -58,11 +58,13 @@ deployment must not point Sworn at the Codex home used for interactive work.
 
 ### Add one narrow mutable credential capability
 
-Credential access is a separate fact in the v2 executor invocation, raw
-completion, builder dispatch, and profile. Executor configuration admits one
-exact source path, and the invocation separately requests access through the
-writable entry point. In the v0.2 production vertical the Codex builder is the
-sole caller; content-bound checks receive no credential mount.
+Credential access is a separate fact in the executor invocation, raw
+completion, dispatch, and profile. Executor configuration admits one exact
+source path, and an invocation separately requests access through either the
+writable builder entry point or the v3 credentialed read-only verifier entry
+point. In the v0.2 production vertical the Codex builder is the sole caller;
+v0.3 adds the native verifier while content-bound checks still receive no
+credential mount.
 
 On Linux, the executor opens the configured file read-write with `O_NOFOLLOW`,
 acquires a nonblocking exclusive file lock, verifies its retained identity and

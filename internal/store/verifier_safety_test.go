@@ -14,6 +14,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/engine"
 	"github.com/swornagent/sworn/internal/policy"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -533,6 +534,112 @@ func TestStoreVerifierRejectsMalformedAndMismatchedTypedResults(t *testing.T) {
 			},
 			wantError: "does not match",
 		},
+		{
+			name: "mismatched_profile",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.VerifierProfileDigest = rotatedVerifierProfileDigest
+					},
+				)
+			},
+			wantError: "does not match its journal request and result",
+		},
+		{
+			name: "mismatched_executor_configuration",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.ExecutorConfigurationDigest = rotatedVerifierProfileDigest
+					},
+				)
+			},
+			wantError: "does not match its exact profile",
+		},
+		{
+			name: "mismatched_review_input",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						for index := range receipt.Inputs {
+							if receipt.Inputs[index].Name == "review-policy" {
+								receipt.Inputs[index].Size++
+								return
+							}
+						}
+						t.Fatal("verifier receipt lacks review-policy input")
+					},
+				)
+			},
+			wantError: "does not bind its exact review input closure",
+		},
+		{
+			name: "mismatched_stdout_capture",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) { receipt.Stdout.Size++ },
+				)
+			},
+			wantError: "resolve verifier execution stdout capture: invalid exact capture",
+		},
+		{
+			name: "malformed_stdout_stream",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.Stdout = fixture.putVerifierCapture(t, []byte("not JSONL\n"))
+					},
+				)
+			},
+			wantError: "parse verifier execution stdout capture",
+		},
+		{
+			name: "mismatched_stdout_assessment",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				alternate, err := protocol.EncodeCanonical(fixture.assessment(t, engine.VerdictPass))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.Stdout = fixture.putVerifierCapture(
+							t, verifierLifecycleJSONL(t, alternate, receipt.ThreadID),
+						)
+					},
+				)
+			},
+			wantError: "does not reproduce its exact assessment and thread",
+		},
+		{
+			name: "mismatched_stdout_thread",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.ThreadID = "thread-other"
+					},
+				)
+			},
+			wantError: "does not reproduce its exact assessment and thread",
+		},
+		{
+			name: "mismatched_completion_time",
+			result: func(t *testing.T, fixture *verifierLifecycleFixture, effectID string) json.RawMessage {
+				return fixture.rewriteVerifierExecutionReceipt(
+					t, fixture.resultFor(t, effectID, engine.VerdictFail),
+					func(receipt *protocol.VerifierExecutionReceipt) {
+						receipt.CompletedAt = atomicAdmissionTime.Add(time.Second).Format(time.RFC3339Nano)
+					},
+				)
+			},
+			wantError: "does not match its journal request and result",
+		},
 	}
 	for _, test := range tests {
 		test := test
@@ -570,16 +677,21 @@ func TestStoreVerifierCompletionRejectsFutureReviewIntervalBeforeTerminalState(t
 	ctx := context.Background()
 	fixture.dispatch(t, "cmd-future-review-dispatch")
 	request, _, prepared := fixture.claimAndPrepare(t)
-	result, err := engine.ParseVerifierEffectResult(
-		fixture.resultFor(t, request.VerifierEffectID, engine.VerdictFail),
+	future := atomicAdmissionTime.Add(time.Hour)
+	encoded := fixture.rewriteVerifierExecutionReceipt(
+		t, fixture.resultFor(t, request.VerifierEffectID, engine.VerdictFail),
+		func(receipt *protocol.VerifierExecutionReceipt) {
+			receipt.StartedAt = future.Format(time.RFC3339Nano)
+			receipt.CompletedAt = future.Format(time.RFC3339Nano)
+		},
 	)
+	result, err := engine.ParseVerifierEffectResult(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
-	future := atomicAdmissionTime.Add(time.Hour)
 	result.StartedAt = future.Format(time.RFC3339Nano)
 	result.CompletedAt = future.Format(time.RFC3339Nano)
-	encoded, err := engine.EncodeVerifierEffectResult(result)
+	encoded, err = engine.EncodeVerifierEffectResult(result)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,19 +8,19 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/policy"
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
-	verifierLifecycleProfileDigest = "sha256:9191919191919191919191919191919191919191919191919191919191919191"
-	verifierLifecycleAgent         = "codex-cli/verifier-test"
-	verifierExecutionReceiptType   = "application/vnd.sworn.verifier-execution-receipt+json"
+	verifierLifecycleAgent = "codex-cli/verifier-test"
 )
 
 type verifierLifecycleFixture struct {
@@ -33,14 +33,13 @@ type verifierLifecycleFixture struct {
 	ownerID    string
 	runID      string
 	workID     string
+	profile    protocol.VerifierProfile
 }
 
 func newVerifierLifecycleFixture(t *testing.T) *verifierLifecycleFixture {
 	t.Helper()
 	ctx := context.Background()
 	base := newAtomicAdmissionFixture(t, atomicAdmissionOptions{})
-	base.control.verifierProfileDigest = verifierLifecycleProfileDigest
-	base.control.verifierAgent = verifierLifecycleAgent
 	if result, err := base.control.Apply(ctx, base.command); err != nil || result.Outcome != OutcomeApplied {
 		t.Fatalf("admit verifier fixture submission = %+v, %v", result, err)
 	}
@@ -48,6 +47,15 @@ func newVerifierLifecycleFixture(t *testing.T) *verifierLifecycleFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	profile, profileRecord := verifierLifecycleProfile(t, base.repository.Binding().RepositoryID)
+	profileDigest, err := base.control.PutArtifact(
+		ctx, protocol.VerifierProfileMediaType, profileRecord.CanonicalJSON,
+	)
+	if err != nil || profileDigest != profileRecord.Digest {
+		t.Fatalf("put verifier lifecycle profile = %q, %v", profileDigest, err)
+	}
+	base.control.verifierProfileDigest = profileRecord.Digest
+	base.control.verifierAgent = profile.Agent
 	plan, err := base.control.Plan(ctx, state.PlanDigest)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +68,7 @@ func newVerifierLifecycleFixture(t *testing.T) *verifierLifecycleFixture {
 	}
 	fixture := &verifierLifecycleFixture{
 		base: base, control: base.control, plan: plan, authority: authority, privateKey: privateKey,
-		ownerID: "verifier-controller-1", runID: state.RunID, workID: state.Work[0].ID,
+		ownerID: "verifier-controller-1", runID: state.RunID, workID: state.Work[0].ID, profile: profile,
 	}
 	fixture.ownership, err = fixture.control.AcquireControllerOwnership(fixture.ownerID)
 	if err != nil {
@@ -75,6 +83,53 @@ func newVerifierLifecycleFixture(t *testing.T) *verifierLifecycleFixture {
 		}
 	})
 	return fixture
+}
+
+func verifierLifecycleProfile(
+	t *testing.T,
+	repositoryID string,
+) (protocol.VerifierProfile, protocol.EncodedRecord) {
+	t.Helper()
+	schemaDigest, err := protocol.VerifierAssessmentOutputSchemaDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := protocol.VerifierProfile{
+		SchemaVersion:               protocol.VerifierProfileSchemaVersion,
+		Agent:                       verifierLifecycleAgent,
+		BinaryPath:                  "/opt/sworn/codex",
+		BinaryVersion:               verifierLifecycleAgent,
+		BinaryDigest:                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		BinarySize:                  1,
+		ExecutableInput:             "codex",
+		Provider:                    "openai",
+		Authentication:              "codex-cli-chatgpt-file-v1",
+		CredentialHome:              executor.CredentialHome,
+		PermissionProfile:           "sworn_verifier",
+		Model:                       "gpt-test",
+		ToolSchemaDigest:            "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		Argv:                        protocol.CanonicalCodexVerifierArgv("gpt-test"),
+		EnvironmentNames:            []string{},
+		PromptDigest:                protocol.RawDigest([]byte(protocol.NativeCodexVerifierPrompt)),
+		OutputSchemaDigest:          schemaDigest,
+		TimeoutNanoseconds:          int64(time.Minute),
+		Network:                     string(executor.NetworkHost),
+		WorkspaceAccess:             string(executor.WorkspaceReadOnly),
+		NestedSandbox:               true,
+		CredentialAccess:            true,
+		ModelToolNetwork:            false,
+		ModelToolCredentialAccess:   false,
+		ExecutorConfigurationDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+		RepositoryID:                repositoryID,
+		WorkspaceRoot:               "/var/lib/sworn/verifier-test",
+		MaterializeBytes:            1 << 20,
+		MaterializeEntries:          1_000,
+	}
+	record, err := protocol.EncodeVerifierProfile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profile, record
 }
 
 func (fixture *verifierLifecycleFixture) dispatch(t *testing.T, commandID string) ApplyResult {
@@ -161,17 +216,10 @@ func (fixture *verifierLifecycleFixture) resultFor(
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiptBytes, err := protocol.EncodeCanonical(map[string]any{
-		"schema_version": "sworn-verifier-execution-receipt-test-v1",
-		"effect_id":      effectID, "profile_digest": request.VerifierProfileDigest,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiptDigest, err := fixture.control.PutArtifact(ctx, verifierExecutionReceiptType, receiptBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
+	startedAt := atomicAdmissionTime.Format(time.RFC3339Nano)
+	receipt := fixture.putVerifierExecutionReceipt(
+		t, effect, request, assessmentBytes, startedAt, startedAt,
+	)
 	result, err := engine.EncodeVerifierEffectResult(engine.VerifierEffectResult{
 		SchemaVersion: engine.VerifierEffectResultSchemaVersion,
 		Outcome:       engine.VerifierOutcomeAssessmentReady,
@@ -179,16 +227,220 @@ func (fixture *verifierLifecycleFixture) resultFor(
 		Assessment: protocol.Artifact{
 			Ref: assessmentDigest, MediaType: "application/json", Digest: assessmentDigest,
 		},
-		ExecutionReceipt: protocol.Artifact{
-			Ref: receiptDigest, MediaType: verifierExecutionReceiptType, Digest: receiptDigest,
-		},
-		StartedAt:   atomicAdmissionTime.Format(time.RFC3339Nano),
-		CompletedAt: atomicAdmissionTime.Format(time.RFC3339Nano),
+		ExecutionReceipt: receipt,
+		StartedAt:        startedAt,
+		CompletedAt:      startedAt,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return result
+}
+
+func (fixture *verifierLifecycleFixture) rewriteVerifierExecutionReceipt(
+	t *testing.T,
+	encoded json.RawMessage,
+	mutate func(*protocol.VerifierExecutionReceipt),
+) json.RawMessage {
+	t.Helper()
+	ctx := context.Background()
+	result, err := engine.ParseVerifierEffectResult(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptBytes, err := protocol.ResolveArtifact(
+		ctx, fixture.control, result.ExecutionReceipt, protocol.MaximumVerifierExecutionReceiptBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := protocol.ParseVerifierExecutionReceipt(receiptBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(&receipt)
+	receiptRecord, err := protocol.EncodeVerifierExecutionReceipt(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fixture.control.PutArtifact(
+		ctx, protocol.VerifierExecutionReceiptMediaType, receiptRecord.CanonicalJSON,
+	)
+	if err != nil || digest != receiptRecord.Digest {
+		t.Fatalf("put rewritten verifier execution receipt = %q, %v", digest, err)
+	}
+	result.ExecutionReceipt = protocol.Artifact{
+		Ref: digest, MediaType: protocol.VerifierExecutionReceiptMediaType, Digest: digest,
+	}
+	rewritten, err := engine.EncodeVerifierEffectResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rewritten
+}
+
+func (fixture *verifierLifecycleFixture) putVerifierExecutionReceipt(
+	t *testing.T,
+	effect Effect,
+	request engine.VerifierEffectRequest,
+	assessmentBytes []byte,
+	startedAt, completedAt string,
+) protocol.Artifact {
+	t.Helper()
+	ctx := context.Background()
+	assessmentDigest := protocol.RawDigest(assessmentBytes)
+	schemaBytes, err := protocol.VerifierAssessmentOutputSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemaDigest, err := fixture.control.PutArtifact(
+		ctx, protocol.VerifierAssessmentSchemaMediaType, schemaBytes,
+	)
+	if err != nil || schemaDigest != fixture.profile.OutputSchemaDigest {
+		t.Fatalf("put verifier assessment schema = %q, %v", schemaDigest, err)
+	}
+	planRecord := fixture.plan.Record()
+	_, submissionBytes, err := fixture.control.Record(ctx, request.SubmissionDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := protocol.ParseSubmission(submissionBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchBytes, err := protocol.ResolveArtifact(
+		ctx, fixture.control, request.DispatchReceipt, protocol.MaximumControlReceiptBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := protocol.ResolveExactVerifierReview(ctx, fixture.control, fixture.plan, submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []protocol.VerifierExecutionInput{
+		{Name: "assessment-schema", Digest: schemaDigest, Size: uint64(len(schemaBytes))},
+		{Name: fixture.profile.ExecutableInput, Digest: fixture.profile.BinaryDigest, Size: uint64(fixture.profile.BinarySize)},
+		{Name: "dispatch", Digest: request.DispatchReceipt.Digest, Size: uint64(len(dispatchBytes))},
+		{Name: "plan", Digest: planRecord.Digest, Size: uint64(len(planRecord.CanonicalJSON))},
+		{Name: "submission", Digest: request.SubmissionDigest, Size: uint64(len(submissionBytes))},
+	}
+	for _, input := range review.Inputs() {
+		inputs = append(inputs, protocol.VerifierExecutionInput{
+			Name: input.Name, Digest: input.Digest, Size: uint64(len(input.Contents)),
+		})
+	}
+	slices.SortFunc(inputs, func(left, right protocol.VerifierExecutionInput) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+	stdout := fixture.putVerifierCapture(
+		t, verifierLifecycleJSONL(t, assessmentBytes, "thread-test-1"),
+	)
+	stderr := fixture.putVerifierCapture(t, nil)
+	identity, err := engine.VerifierAttemptIdentityFor(
+		effect.ID, effect.Attempt, request.DispatchID, request.DispatchReceipt.Digest,
+		request.VerifierProfileDigest, request.Agent, request.VerificationEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptRecord, err := protocol.EncodeVerifierExecutionReceipt(protocol.VerifierExecutionReceipt{
+		SchemaVersion:               protocol.VerifierExecutionReceiptSchemaVersion,
+		EffectID:                    effect.ID,
+		EffectAttempt:               effect.Attempt,
+		InvocationID:                identity.InvocationID,
+		DeliveryRunID:               request.DeliveryRunID,
+		DeliveryID:                  request.DeliveryID,
+		WorkID:                      request.WorkID,
+		WorkAttempt:                 request.WorkAttempt,
+		PlanDigest:                  request.PlanDigest,
+		SubmissionID:                request.SubmissionID,
+		SubmissionDigest:            request.SubmissionDigest,
+		Candidate:                   request.Candidate,
+		DispatchID:                  request.DispatchID,
+		DispatchDigest:              request.DispatchReceipt.Digest,
+		VerifierProfileDigest:       request.VerifierProfileDigest,
+		Agent:                       request.Agent,
+		VerificationEpoch:           request.VerificationEpoch,
+		ExecutorConfigurationDigest: fixture.profile.ExecutorConfigurationDigest,
+		ExecutableInput:             fixture.profile.ExecutableInput,
+		ExecutableDigest:            fixture.profile.BinaryDigest,
+		Unit:                        "sworn-verifier-test.service",
+		WorkspaceDigest:             "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+		WorkspaceAccess:             fixture.profile.WorkspaceAccess,
+		Inputs:                      inputs,
+		Network:                     fixture.profile.Network,
+		NestedSandbox:               fixture.profile.NestedSandbox,
+		CredentialAccess:            fixture.profile.CredentialAccess,
+		ModelToolNetwork:            fixture.profile.ModelToolNetwork,
+		ModelToolCredentialAccess:   fixture.profile.ModelToolCredentialAccess,
+		AssessmentDigest:            assessmentDigest,
+		Stdout:                      stdout,
+		Stderr:                      stderr,
+		ThreadID:                    "thread-test-1",
+		StartedAt:                   startedAt,
+		CompletedAt:                 completedAt,
+		TargetStarted:               true,
+		ServiceQuiescent:            true,
+		ExitCode:                    0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fixture.control.PutArtifact(
+		ctx, protocol.VerifierExecutionReceiptMediaType, receiptRecord.CanonicalJSON,
+	)
+	if err != nil || digest != receiptRecord.Digest {
+		t.Fatalf("put verifier execution receipt = %q, %v", digest, err)
+	}
+	return protocol.Artifact{
+		Ref: digest, MediaType: protocol.VerifierExecutionReceiptMediaType, Digest: digest,
+	}
+}
+
+func (fixture *verifierLifecycleFixture) putVerifierCapture(
+	t *testing.T,
+	contents []byte,
+) protocol.CapturedArtifact {
+	t.Helper()
+	digest, err := fixture.control.PutArtifact(context.Background(), "application/octet-stream", contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return protocol.CapturedArtifact{
+		Ref: digest, MediaType: "application/octet-stream", Digest: digest, Size: int64(len(contents)),
+	}
+}
+
+func verifierLifecycleJSONL(t testing.TB, assessment []byte, threadID string) []byte {
+	t.Helper()
+	thread, err := json.Marshal(map[string]any{
+		"type": "thread.started", "thread_id": threadID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := json.Marshal(map[string]any{
+		"type": "item.completed",
+		"item": map[string]any{
+			"id": "item-test-1", "type": "agent_message", "text": string(assessment),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := []byte(strings.Join([]string{
+		string(thread),
+		`{"type":"turn.started"}`,
+		string(agent),
+		`{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}`,
+		"",
+	}, "\n"))
+	turn, err := protocol.ParseNativeCodexVerifierJSONL(contents)
+	if err != nil || string(turn.Assessment) != string(assessment) || turn.ThreadID != threadID {
+		t.Fatalf("construct verifier lifecycle JSONL = %#v, %v", turn, err)
+	}
+	return contents
 }
 
 func (fixture *verifierLifecycleFixture) assessment(

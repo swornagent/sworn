@@ -544,7 +544,7 @@ func verifierEffectResult(epoch int64, dispatchID string) VerifierEffectResult {
 			Ref: testVerifierAssessmentDigest, MediaType: verifierArtifactMediaType, Digest: testVerifierAssessmentDigest,
 		},
 		ExecutionReceipt: protocol.Artifact{
-			Ref: testVerifierExecutionReceiptDigest, MediaType: verifierExecutionReceiptMediaType,
+			Ref: testVerifierExecutionReceiptDigest, MediaType: protocol.VerifierExecutionReceiptMediaType,
 			Digest: testVerifierExecutionReceiptDigest,
 		},
 		StartedAt: "2026-07-21T00:00:00Z", CompletedAt: "2026-07-21T00:00:01Z",

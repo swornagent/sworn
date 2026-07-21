@@ -85,9 +85,10 @@ Historical approval remains provenance rather than a standing execution
 permit, and `reviewable` is not a verdict or `PASS`.
 
 This is a bounded production vertical, not yet the autonomous product loop. The
-v0.3.0 development line now contains an internal Store-owned verifier effect and
-verdict-routing lifecycle, but there is no native verifier adapter or public
-verifier command. There is still no public initializer, bounded repair policy,
+v0.3.0 development line now contains an internal Store-owned verifier effect,
+native memoryless Codex verifier worker, strict execution receipt, and
+verdict-routing lifecycle. The adapter is not yet composed into public
+`sworn run`. There is still no public initializer, bounded repair policy,
 integration edge, or scheduler. Its Store must already contain an exact planned
 and activated delivery. See [Running the bounded vertical](docs/run.md), [Exact
 local candidate](docs/exact-candidate.md), and [Independent verifier protocol
@@ -112,16 +113,18 @@ go run ./cmd/sworn version --json
 CGO_ENABLED=0 SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
 SWORN_CODEX_BINARY=/absolute/path/to/codex \
   SWORN_REQUIRE_CODEX_BOUNDARY=1 \
-  go test -run TestRealCodexCLIBoundaryFeasibility ./internal/adapter
+  go test -run 'TestReal(CodexCLIBoundaryFeasibility|PinnedCodexVerifierBoundary)$' ./internal/adapter
 ```
 
 The final two test commands are fail-if-unavailable real containment suites. The
-Codex proof requires an exact static CLI and exercises it against a local
-scripted Responses endpoint while mounting synthetic file-backed ChatGPT state,
-without making a provider model call. It also proves that a real nested tool
-cannot read the mounted authentication file. Both suites require the Linux
-capability floor described in the executor document. Ordinary tests skip those
-integration cases when their host capability or explicit binary is unavailable.
+Codex proofs require an exact static CLI and exercise the builder and verifier
+profiles against a local scripted Responses endpoint while mounting synthetic
+file-backed ChatGPT state, without making a provider model call. They prove that
+a real nested tool cannot read the mounted authentication file; the verifier
+proof additionally exercises its exact read-only candidate and review inputs
+without admitting builder context. Both suites require the Linux capability
+floor described in the executor document. Ordinary tests skip those integration
+cases when their host capability or explicit binary is unavailable.
 
 That scripted proof validates the credential mount and nested denial, but its
 test provider uses a separate synthetic bearer and does not prove that a model

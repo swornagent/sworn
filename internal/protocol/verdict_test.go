@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"bytes"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -177,6 +179,80 @@ func TestParseVerifierAssessmentRejectsEnvelopeAndShapeSmuggling(t *testing.T) {
 	}
 	if _, err := ParseVerifierAssessment(append([]byte("assessment: "), contents...)); err == nil {
 		t.Fatal("prose-wrapped assessment was accepted")
+	}
+}
+
+func TestVerifierAssessmentSchemaBoundsMatchSemanticParser(t *testing.T) {
+	t.Parallel()
+	maximum := maximumBoundedVerifierAssessment()
+	encoded := testJSONBytes(t, maximum)
+	if len(encoded) > MaximumVerifierAssessmentBytes {
+		t.Fatalf("maximum bounded assessment is %d bytes", len(encoded))
+	}
+	if len(maximum.Summary) <= maximumVerifierAssessmentSummaryCodePoints {
+		t.Fatal("maximum summary fixture does not prove code-point rather than byte counting")
+	}
+	if _, err := ParseVerifierAssessment(encoded); err != nil {
+		t.Fatalf("maximum schema-bounded assessment was rejected: %v", err)
+	}
+
+	overflowReferences := verifierAssessmentReferenceIDs(
+		"overflow", maximumVerifierAssessmentReferenceItems+1,
+	)
+	for name, mutate := range map[string]func(*VerifierAssessment){
+		"root summary": func(value *VerifierAssessment) {
+			value.Summary = strings.Repeat("界", maximumVerifierAssessmentSummaryCodePoints+1)
+		},
+		"acceptance summary": func(value *VerifierAssessment) {
+			value.AcceptanceResults[0].Summary = strings.Repeat("界", maximumVerifierResultSummaryCodePoints+1)
+		},
+		"assurance summary": func(value *VerifierAssessment) {
+			value.AssuranceResults[0].Summary = strings.Repeat("界", maximumVerifierResultSummaryCodePoints+1)
+		},
+		"finding summary": func(value *VerifierAssessment) {
+			value.Findings[0].Summary = strings.Repeat("界", maximumVerifierResultSummaryCodePoints+1)
+		},
+		"acceptance results": func(value *VerifierAssessment) {
+			value.AcceptanceResults = append(value.AcceptanceResults, AcceptanceResult{
+				AcceptanceID: "acceptance-overflow", Outcome: "pass",
+				EvidenceIDs: []string{"evidence-overflow"}, Summary: "bounded",
+			})
+		},
+		"assurance results": func(value *VerifierAssessment) {
+			value.AssuranceResults = append(value.AssuranceResults, AssuranceResult{
+				Pack: "pack-overflow@1", Outcome: "pass",
+				EvidenceIDs: []string{"evidence-overflow"}, Summary: "bounded",
+			})
+		},
+		"findings": func(value *VerifierAssessment) {
+			value.Findings = append(value.Findings, Finding{
+				ID: "finding-overflow", Kind: "implementation", Principle: "B3",
+				Severity: "non_blocking", Summary: "bounded",
+				AcceptanceIDs: []string{}, EvidenceIDs: []string{},
+			})
+		},
+		"acceptance evidence references": func(value *VerifierAssessment) {
+			value.AcceptanceResults[0].EvidenceIDs = overflowReferences
+		},
+		"assurance evidence references": func(value *VerifierAssessment) {
+			value.AssuranceResults[0].EvidenceIDs = overflowReferences
+		},
+		"finding acceptance references": func(value *VerifierAssessment) {
+			value.Findings[0].AcceptanceIDs = overflowReferences
+		},
+		"finding evidence references": func(value *VerifierAssessment) {
+			value.Findings[0].EvidenceIDs = overflowReferences
+		},
+	} {
+		name, mutate := name, mutate
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			value := cloneVerifierAssessment(maximum)
+			mutate(&value)
+			if _, err := ParseVerifierAssessment(testJSONBytes(t, value)); err == nil {
+				t.Fatal("assessment exceeding its generated-schema bound was accepted")
+			}
+		})
 	}
 }
 
@@ -701,6 +777,53 @@ func testAssessmentWithFindings(
 	assessment.Outcome = outcome
 	assessment.Findings = append([]Finding{}, findings...)
 	return assessment
+}
+
+func maximumBoundedVerifierAssessment() VerifierAssessment {
+	references := verifierAssessmentReferenceIDs(
+		"evidence", maximumVerifierAssessmentReferenceItems,
+	)
+	acceptanceReferences := verifierAssessmentReferenceIDs(
+		"acceptance", maximumVerifierAssessmentReferenceItems,
+	)
+	nestedSummary := strings.Repeat("界", maximumVerifierResultSummaryCodePoints)
+	assessment := VerifierAssessment{
+		SchemaVersion: VerifierAssessmentSchemaVersion,
+		Outcome:       "PASS",
+		Summary:       strings.Repeat("界", maximumVerifierAssessmentSummaryCodePoints),
+		AcceptanceResults: make(
+			[]AcceptanceResult, maximumVerifierAssessmentCollectionItems,
+		),
+		AssuranceResults: make(
+			[]AssuranceResult, maximumVerifierAssessmentCollectionItems,
+		),
+		Findings: make([]Finding, maximumVerifierAssessmentCollectionItems),
+	}
+	for index := 0; index < maximumVerifierAssessmentCollectionItems; index++ {
+		assessment.AcceptanceResults[index] = AcceptanceResult{
+			AcceptanceID: fmt.Sprintf("acceptance-%02d", index), Outcome: "pass",
+			EvidenceIDs: slices.Clone(references), Summary: nestedSummary,
+		}
+		assessment.AssuranceResults[index] = AssuranceResult{
+			Pack: fmt.Sprintf("pack-%02d@1", index), Outcome: "pass",
+			EvidenceIDs: slices.Clone(references), Summary: nestedSummary,
+		}
+		assessment.Findings[index] = Finding{
+			ID: fmt.Sprintf("finding-%02d", index), Kind: "implementation",
+			Principle: "B3", Severity: "non_blocking", Summary: nestedSummary,
+			AcceptanceIDs: slices.Clone(acceptanceReferences),
+			EvidenceIDs:   slices.Clone(references),
+		}
+	}
+	return assessment
+}
+
+func verifierAssessmentReferenceIDs(prefix string, count int) []string {
+	references := make([]string, count)
+	for index := range references {
+		references[index] = fmt.Sprintf("%s-%02d", prefix, index)
+	}
+	return references
 }
 
 func testBindingForSubmission(

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
@@ -53,7 +54,8 @@ func validateVerifierResultClosure(
 		result.ExecutionReceipt.Ref != result.ExecutionReceipt.Digest {
 		return errors.New("verifier result does not match its exact journal request")
 	}
-	if _, err := loadVerifierAttemptIdentity(ctx, resolver.query, effect); err != nil {
+	identity, err := loadVerifierAttemptIdentity(ctx, resolver.query, effect)
+	if err != nil {
 		return err
 	}
 	dispatchBytes, err := protocol.ResolveArtifact(
@@ -66,6 +68,32 @@ func validateVerifierResultClosure(
 	if err != nil || dispatch.DispatchID != effect.ID || dispatch.SubmissionDigest != request.SubmissionDigest ||
 		dispatch.Candidate != request.Candidate {
 		return errors.New("verifier dispatch does not match its effect request")
+	}
+	planKind, planBytes, err := loadRecord(ctx, resolver.query, request.PlanDigest)
+	if err != nil || planKind != protocol.DeliveryPlanSchemaVersion {
+		return errors.New("verifier execution lacks its exact delivery plan")
+	}
+	plan, err := protocol.ParseDeliveryPlan(planBytes)
+	if err != nil || plan.Record().Digest != request.PlanDigest || plan.DeliveryID() != request.DeliveryID {
+		return errors.New("verifier execution plan does not match its effect request")
+	}
+	submissionKind, submissionBytes, err := loadRecord(ctx, resolver.query, request.SubmissionDigest)
+	if err != nil || submissionKind != protocol.SubmissionSchemaVersion {
+		return errors.New("verifier execution lacks its exact submission")
+	}
+	submission, err := protocol.ParseSubmission(submissionBytes)
+	if err != nil {
+		return fmt.Errorf("parse verifier execution submission: %w", err)
+	}
+	submissionView := submission.View()
+	if submission.Record().Digest != request.SubmissionDigest || submissionView.SubmissionID != request.SubmissionID ||
+		submissionView.DeliveryID != request.DeliveryID || submissionView.WorkID != request.WorkID ||
+		submissionView.Attempt != request.WorkAttempt || submissionView.Candidate != request.Candidate {
+		return errors.New("verifier execution submission does not match its effect request")
+	}
+	review, err := protocol.ResolveExactVerifierReview(ctx, resolver, plan, submission)
+	if err != nil {
+		return fmt.Errorf("resolve exact verifier review: %w", err)
 	}
 	assessmentBytes, err := protocol.ResolveArtifact(
 		ctx, resolver, result.Assessment, protocol.MaximumVerifierAssessmentBytes,
@@ -82,16 +110,131 @@ func validateVerifierResultClosure(
 		!bytes.Equal(canonical, assessment.Record().CanonicalJSON) {
 		return errors.New("verifier assessment lacks its exact canonical record")
 	}
-	if _, err := protocol.ResolveArtifact(
-		ctx, resolver, result.ExecutionReceipt, engine.MaximumEffectPayloadBytes,
-	); err != nil {
+	receiptBytes, err := protocol.ResolveArtifact(
+		ctx, resolver, result.ExecutionReceipt, protocol.MaximumVerifierExecutionReceiptBytes,
+	)
+	if err != nil {
 		return fmt.Errorf("resolve verifier execution receipt: %w", err)
+	}
+	receipt, err := protocol.ParseVerifierExecutionReceipt(receiptBytes)
+	if err != nil {
+		return fmt.Errorf("parse verifier execution receipt: %w", err)
+	}
+	profilePointer := protocol.Artifact{
+		Ref: request.VerifierProfileDigest, MediaType: protocol.VerifierProfileMediaType,
+		Digest: request.VerifierProfileDigest,
+	}
+	profileBytes, err := protocol.ResolveArtifact(
+		ctx, resolver, profilePointer, protocol.MaximumVerifierProfileBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("resolve verifier profile: %w", err)
+	}
+	profile, err := protocol.ParseVerifierProfile(profileBytes)
+	if err != nil {
+		return fmt.Errorf("parse verifier profile: %w", err)
+	}
+	schemaBytes, err := protocol.VerifierAssessmentOutputSchema()
+	if err != nil {
+		return fmt.Errorf("derive verifier assessment schema: %w", err)
+	}
+	schemaPointer := protocol.Artifact{
+		Ref: profile.OutputSchemaDigest, MediaType: protocol.VerifierAssessmentSchemaMediaType,
+		Digest: profile.OutputSchemaDigest,
+	}
+	storedSchema, err := protocol.ResolveArtifact(
+		ctx, resolver, schemaPointer, protocol.MaximumVerifierAssessmentBytes,
+	)
+	if err != nil || !bytes.Equal(storedSchema, schemaBytes) {
+		return errors.New("verifier execution lacks its exact engine-owned assessment schema")
+	}
+	if err := validateVerifierReceiptBindings(
+		request, result, identity, dispatchBytes, planBytes, submissionBytes,
+		assessmentBytes, review, profile, schemaBytes, receipt,
+	); err != nil {
+		return err
+	}
+	var stdoutCapture []byte
+	for label, capture := range map[string]protocol.CapturedArtifact{
+		"stdout": receipt.Stdout,
+		"stderr": receipt.Stderr,
+	} {
+		contents, err := protocol.ResolveArtifact(ctx, resolver, capture.Pointer(), uint64(capture.Size))
+		if err != nil || int64(len(contents)) != capture.Size {
+			return fmt.Errorf("resolve verifier execution %s capture: invalid exact capture", label)
+		}
+		if label == "stdout" {
+			stdoutCapture = contents
+		}
+	}
+	turn, err := protocol.ParseNativeCodexVerifierJSONL(stdoutCapture)
+	if err != nil {
+		return fmt.Errorf("parse verifier execution stdout capture: %w", err)
+	}
+	if !bytes.Equal(turn.Assessment, assessmentBytes) || turn.ThreadID != receipt.ThreadID {
+		return errors.New("verifier execution stdout does not reproduce its exact assessment and thread")
 	}
 	journalStart := time.UnixMicro(effect.StartedAtUS).UTC().Format(time.RFC3339Nano)
 	startOrder, startErr := protocol.CompareDateTimes(journalStart, result.StartedAt)
 	dispatchOrder, dispatchErr := protocol.CompareDateTimes(dispatch.CreatedAt, result.StartedAt)
 	if effect.StartedAtUS <= 0 || startErr != nil || dispatchErr != nil || startOrder > 0 || dispatchOrder > 0 {
 		return errors.New("verifier result starts outside its dispatch and journal lease")
+	}
+	return nil
+}
+
+func validateVerifierReceiptBindings(
+	request engine.VerifierEffectRequest,
+	result engine.VerifierEffectResult,
+	identity engine.VerifierAttemptIdentity,
+	dispatchBytes, planBytes, submissionBytes, assessmentBytes []byte,
+	review protocol.ExactVerifierReview,
+	profile protocol.VerifierProfile,
+	schemaBytes []byte,
+	receipt protocol.VerifierExecutionReceipt,
+) error {
+	if receipt.EffectID != identity.EffectID || receipt.EffectAttempt != identity.EffectAttempt ||
+		receipt.InvocationID != identity.InvocationID || receipt.DeliveryRunID != request.DeliveryRunID ||
+		receipt.DeliveryID != request.DeliveryID || receipt.WorkID != request.WorkID ||
+		receipt.WorkAttempt != request.WorkAttempt || receipt.PlanDigest != request.PlanDigest ||
+		receipt.SubmissionID != request.SubmissionID || receipt.SubmissionDigest != request.SubmissionDigest ||
+		receipt.Candidate != request.Candidate || receipt.DispatchID != request.DispatchID ||
+		receipt.DispatchDigest != request.DispatchReceipt.Digest ||
+		receipt.VerifierProfileDigest != request.VerifierProfileDigest || receipt.Agent != request.Agent ||
+		receipt.VerificationEpoch != request.VerificationEpoch ||
+		receipt.AssessmentDigest != result.Assessment.Digest || receipt.StartedAt != result.StartedAt ||
+		receipt.CompletedAt != result.CompletedAt {
+		return errors.New("verifier execution receipt does not match its journal request and result")
+	}
+	if profile.Agent != request.Agent || profile.RepositoryID != request.Candidate.Repository ||
+		profile.ExecutorConfigurationDigest != receipt.ExecutorConfigurationDigest ||
+		profile.ExecutableInput != receipt.ExecutableInput || profile.BinaryDigest != receipt.ExecutableDigest ||
+		profile.Network != receipt.Network || profile.WorkspaceAccess != receipt.WorkspaceAccess ||
+		profile.NestedSandbox != receipt.NestedSandbox || profile.CredentialAccess != receipt.CredentialAccess ||
+		profile.ModelToolNetwork != receipt.ModelToolNetwork ||
+		profile.ModelToolCredentialAccess != receipt.ModelToolCredentialAccess {
+		return errors.New("verifier execution receipt does not match its exact profile")
+	}
+	expected := []protocol.VerifierExecutionInput{
+		{Name: "assessment-schema", Digest: profile.OutputSchemaDigest, Size: uint64(len(schemaBytes))},
+		{Name: profile.ExecutableInput, Digest: profile.BinaryDigest, Size: uint64(profile.BinarySize)},
+		{Name: "dispatch", Digest: request.DispatchReceipt.Digest, Size: uint64(len(dispatchBytes))},
+		{Name: "plan", Digest: request.PlanDigest, Size: uint64(len(planBytes))},
+		{Name: "submission", Digest: request.SubmissionDigest, Size: uint64(len(submissionBytes))},
+	}
+	for _, input := range review.Inputs() {
+		expected = append(expected, protocol.VerifierExecutionInput{
+			Name: input.Name, Digest: input.Digest, Size: uint64(len(input.Contents)),
+		})
+	}
+	slices.SortFunc(expected, func(left, right protocol.VerifierExecutionInput) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+	if !slices.Equal(receipt.Inputs, expected) {
+		return errors.New("verifier execution receipt does not bind its exact review input closure")
+	}
+	if protocol.RawDigest(assessmentBytes) != receipt.AssessmentDigest {
+		return errors.New("verifier execution receipt does not bind its raw assessment")
 	}
 	return nil
 }

@@ -122,9 +122,10 @@ fixes the corresponding content-bound check order without exposing a raw worker
 entry point. `Controller` owns the startup recovery barrier and the sole bounded
 builder-to-reviewable convergence. The Store now exposes the same controlled
 lifecycle for verifier dispatch, execution, result binding, recovery, and
-verdict admission, but no native verifier adapter or public controller
-composition invokes it yet. A foreign, stale, changed, or already-bound lease
-stops before external code can run.
+verdict admission. A native memoryless Codex worker invokes that internal
+lifecycle through its own exact profile and one-shot capability; public
+controller composition remains absent. A foreign, stale, changed, or
+already-bound lease stops before external code can run.
 
 `internal/store` now supplies the ownership which that barrier previously
 assumed. On Linux, before SQLite first connects it retains the exact database
@@ -343,9 +344,10 @@ The internal Store can now dispatch and bind one controlled verifier effect,
 admit a durable engine-stamped verdict, and route `PASS`, `FAIL`, `SPEC_BLOCK`,
 and `INCONCLUSIVE` through a maximum of three verification epochs. A third
 `INCONCLUSIVE` becomes explicit `attention/replan` rather than an impossible
-fourth retry. That kernel surface is not yet a product loop. There is no native
-verifier adapter, repair executor or policy, scheduler, integration path, or
-public controller composition. The public `sworn run` still converges only the
+fourth retry. The native memoryless Codex worker now closes that internal
+execution edge, but this kernel surface is not yet a product loop. There is no
+repair executor or policy, scheduler, integration path, or public verifier
+controller composition. The public `sworn run` still converges only the
 selected work item to `reviewable`, while `sworn board` remains a read-only
 projection of committed engine truth. See [Independent verifier protocol and
 Store lifecycle](verifier-protocol.md) and [ADR

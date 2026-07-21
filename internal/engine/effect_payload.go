@@ -21,9 +21,8 @@ const (
 	LocalCheckOutcomeControlled    = "controlled"
 	VerifierOutcomeAssessmentReady = "assessment_ready"
 
-	localCheckReceiptMediaType        = "application/vnd.sworn.local-check-receipt+json"
-	verifierArtifactMediaType         = "application/json"
-	verifierExecutionReceiptMediaType = "application/vnd.sworn.verifier-execution-receipt+json"
+	localCheckReceiptMediaType = "application/vnd.sworn.local-check-receipt+json"
+	verifierArtifactMediaType  = "application/json"
 )
 
 var objectIDPattern = regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`)
@@ -393,7 +392,7 @@ func validateVerifierEffectResult(result VerifierEffectResult) error {
 		return err
 	}
 	if !protocol.ValidNonEmpty(result.ExecutionReceipt.Ref) ||
-		result.ExecutionReceipt.MediaType != verifierExecutionReceiptMediaType ||
+		result.ExecutionReceipt.MediaType != protocol.VerifierExecutionReceiptMediaType ||
 		!protocol.ValidDigest(result.ExecutionReceipt.Digest) {
 		return errors.New("invalid verifier execution receipt pointer")
 	}
