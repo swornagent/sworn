@@ -24,7 +24,7 @@ const (
 )
 
 func runHostContained(executor *LinuxExecutor, ctx context.Context, invocation Invocation) (RawCompletion, error) {
-	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, nil, nil)
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, nil, nil, executionDefault)
 }
 
 func TestExecutorShimProcess(t *testing.T) {

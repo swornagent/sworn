@@ -20,7 +20,7 @@ func executorConfigurationDigest(options Options) string {
 		_, _ = hasher.Write([]byte{':'})
 		_, _ = hasher.Write([]byte(value))
 	}
-	bind("schema", "sworn-executor-configuration-v2")
+	bind("schema", "sworn-executor-configuration-v3")
 	bind("containment_policy", ContainmentPolicyVersion)
 	bind("invocation_schema", InvocationSchemaVersion)
 	bind("workspace_export_schema", WorkspaceExportSchemaVersion)

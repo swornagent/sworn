@@ -202,6 +202,79 @@ func TestCredentialFileRequiresExecutorAndWritableInvocationOptIn(t *testing.T) 
 	}
 }
 
+func TestCredentialReadOnlyEntryPointClassRequiresExactBoundary(t *testing.T) {
+	t.Parallel()
+	valid := Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		ID:               "run-1",
+		Role:             "verifier",
+		NestedSandbox:    true,
+		CredentialAccess: true,
+		Workspace:        "/work/candidate",
+		WorkspaceDigest:  testDigest("a"),
+		WorkspaceAccess:  WorkspaceReadOnly,
+		ExecutableInput:  "codex",
+		Inputs: []Input{{
+			Name: "codex", Path: "/opt/codex", Digest: testDigest("b"),
+		}},
+		Argv:    []string{"/inputs/codex", "exec"},
+		Network: NetworkHost,
+		Timeout: time.Minute,
+	}
+	options := Options{
+		Limits:              DefaultLimits(),
+		AllowHostNetwork:    true,
+		AllowNestedSandbox:  true,
+		CredentialFile:      "/secure/codex/auth.json",
+		AllowCredentialFile: true,
+	}
+	if err := valid.validateFor(options, executionCredentialReadOnly); err != nil {
+		t.Fatalf("validate credentialed read-only boundary: %v", err)
+	}
+	if err := valid.validate(options); err == nil || !strings.Contains(err.Error(), "writable executor") {
+		t.Fatalf("generic entry point admitted credentialed read-only invocation: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Invocation, *Options)
+		want   string
+	}{
+		{"credential absent", func(invocation *Invocation, _ *Options) { invocation.CredentialAccess = false }, "requires credential-file access"},
+		{"writable workspace", func(invocation *Invocation, _ *Options) { invocation.WorkspaceAccess = WorkspaceWritableExport }, "requires a host-runtime"},
+		{"content runtime", func(invocation *Invocation, _ *Options) { invocation.RuntimeDigest = testDigest("c") }, "requires a host-runtime"},
+		{"nested sandbox absent", func(invocation *Invocation, _ *Options) { invocation.NestedSandbox = false }, "requires a host-runtime"},
+		{"host network absent", func(invocation *Invocation, _ *Options) { invocation.Network = NetworkNone }, "requires a host-runtime"},
+		{"executable input absent", func(invocation *Invocation, _ *Options) {
+			invocation.ExecutableInput = ""
+			invocation.Argv = []string{"/usr/bin/true"}
+		}, "requires a host-runtime"},
+		{"executor host network denied", func(_ *Invocation, options *Options) { options.AllowHostNetwork = false }, "host network is not admitted"},
+		{"executor nested sandbox denied", func(_ *Invocation, options *Options) { options.AllowNestedSandbox = false }, "nested sandbox is not admitted"},
+		{"executor credential denied", func(_ *Invocation, options *Options) { options.AllowCredentialFile = false }, "requires one configured"},
+		{"credential inside workspace", func(invocation *Invocation, _ *Options) { invocation.Workspace = "/secure" }, "workspace overlaps"},
+		{"workspace inside credential home", func(invocation *Invocation, _ *Options) { invocation.Workspace = "/secure/codex/candidate" }, "workspace overlaps"},
+		{"credential copied as input", func(invocation *Invocation, _ *Options) {
+			invocation.Inputs = append(invocation.Inputs, Input{
+				Name: "secret", Path: "/secure/codex/auth.json", Digest: testDigest("c"),
+			})
+		}, "input \"secret\" overlaps"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invocation := valid
+			invocation.Argv = append([]string(nil), valid.Argv...)
+			invocation.Inputs = append([]Input(nil), valid.Inputs...)
+			candidateOptions := options
+			test.mutate(&invocation, &candidateOptions)
+			err := invocation.validateFor(candidateOptions, executionCredentialReadOnly)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestExecutableInputRequiresExactExistingInputAndArgv(t *testing.T) {
 	t.Parallel()
 	valid := Invocation{

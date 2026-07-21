@@ -3,11 +3,13 @@
 package executor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 type credentialFileLease struct {
@@ -15,6 +17,34 @@ type credentialFileLease struct {
 	file       *os.File
 	parentPath string
 	parent     *os.File
+}
+
+// withCredentialFile keeps the credential lifecycle identical for every
+// admitted executor entry point. The retained descriptor stays exclusively
+// locked until the systemd unit is proven quiescent; an unproven child keeps
+// the inherited open-file description and therefore the lock.
+func (executor *LinuxExecutor) withCredentialFile(
+	invocation Invocation,
+	execute func(*credentialFileLease) (RawCompletion, error),
+) (completion RawCompletion, resultErr error) {
+	if execute == nil {
+		return RawCompletion{}, errors.New("credential-file execution callback is required")
+	}
+	credential, err := acquireCredentialFile(executor.options.CredentialFile)
+	if err != nil {
+		return RawCompletion{}, fmt.Errorf("acquire invocation credential file: %w", err)
+	}
+	defer func() {
+		quiescenceContext, cancel := context.WithTimeout(context.Background(), shutdownGrace+2*time.Second)
+		quiescenceErr := executor.waitUnitQuiescent(quiescenceContext, executor.unitName(invocation.ID))
+		cancel()
+		validationErr := credential.validate()
+		releaseErr := finishCredentialFile(credential, quiescenceErr)
+		if err := errors.Join(quiescenceErr, validationErr, releaseErr); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("revalidate invocation credential file: %w", err))
+		}
+	}()
+	return execute(credential)
 }
 
 func validateConfiguredCredentialFile(options Options) error {

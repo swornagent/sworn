@@ -7,12 +7,21 @@ It has two workspace modes over the same Linux containment path:
 - `writable_export` stages a fresh writable copy for a builder and may return a
   quarantined, measured workspace.
 
-`RunContentBound` is the only exported read-only entry point. It requires an
-opaque internal runtime capability, copies that tree into the private invocation
-root, checks its configured manifest digest, remeasures the staged bytes, and
-mounts only that copy at `/usr`. There is no flag or empty-value fallback to
-host `/usr`. The separate writable builder entry point uses the host runtime but
+`RunContentBound` is the default read-only entry point. It requires an opaque
+internal runtime capability, copies that tree into the private invocation root,
+checks its configured manifest digest, remeasures the staged bytes, and mounts
+only that copy at `/usr`. There is no flag or empty-value fallback to host
+`/usr`. The separate writable builder entry point uses the host runtime but
 cannot claim a content-runtime digest or produce qualifying check evidence.
+
+v0.3 adds one second, deliberately narrow read-only entry point:
+`RunCredentialReadOnly`. It exists so a trusted native verifier CLI can use its
+CLI-managed ChatGPT authentication and host network while inspecting an exact
+read-only candidate. It admits only a host runtime, a named digest-pinned direct
+executable input, credential access, host network, and nested-sandbox support as
+one inseparable class. It does not itself prove the inner CLI policy: the future
+verifier adapter must bind and test the policy which denies model-directed
+tools the credential and network.
 
 The `check.local` effect worker calls only `RunContentBound`. Its
 request binds the exact runtime-manifest and check-definition digests and names
@@ -31,6 +40,12 @@ runtime residue, and returns an opaque cleanup proof. The check worker also
 removes the matching private candidate materialization before Store may
 authorize an unbound retry.
 
+Credentialed read-only execution uses the same shared runtime ownership and
+deterministic residue path. `ReconcileContentBound` therefore also supplies its
+mechanical process/runtime cleanup proof. A future verifier recovery result must
+seal that generic proof to the exact verifier effect, submission, invocation,
+and profile in Store; the cleanup object alone is never retry authority.
+
 The access mode is part of both the invocation and raw completion. Calling the
 wrong entry point fails before dispatch. Neither mode exposes the source
 workspace, repository metadata, target refs, the control database, or engine
@@ -40,7 +55,7 @@ state to the contained process.
 
 An invocation is rejected before dispatch unless it provides:
 
-- the exact v2 schema, invocation identity, role, workspace access, and finite
+- the exact v3 schema, invocation identity, role, workspace access, and finite
   timeout;
 - the exact runtime manifest digest when the content-bound entry point is used;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
@@ -52,8 +67,9 @@ An invocation is rejected before dispatch unless it provides:
 - either no network or an executor-enabled host-network exception; and
 - no nested user namespace unless both the invocation and executor admit it;
   and
-- no credential-file access unless the invocation uses the writable entry point
-  and the executor admits one exact configured source file.
+- no credential-file access unless the executor admits one exact configured
+  source file and the invocation uses either the writable entry point or the
+  narrow credentialed read-only class described below.
 
 Sworn never parses or constructs a shell command: argv is passed literally. An
 adapter may explicitly select a shell or interpreter, but that choice remains
@@ -117,12 +133,14 @@ network namespaces; drops all capabilities; and presents a temporary root
 containing only:
 
 - the exact staged content runtime for read-only checks, or host `/usr` for the
-  distinct writable builder path, read-only at `/usr`;
+  distinct writable builder and credentialed read-only CLI-parent paths,
+  read-only at `/usr`;
 - the staged workspace at `/workspace`, read-only or read-write exactly as the
   invocation declares;
 - pinned files at read-only `/inputs/<name>`;
-- for an explicitly credential-enabled writable invocation only, one retained
-  file bound read-write at `/home/sworn/.codex/auth.json`;
+- for an explicitly credential-enabled writable or credentialed read-only
+  invocation, one retained file bound read-write at
+  `/home/sworn/.codex/auth.json`;
 - minimal `/proc` and `/dev`; and
 - size-bounded temporary `/tmp` and `/home/sworn` filesystems.
 
@@ -136,12 +154,25 @@ or remove the kernel's user-namespace attack surface.
 
 ## Codex credential-file capability
 
-The production Codex builder is the sole caller of the initial credential-file
-capability. Executor construction must bind one clean absolute source path and
-enable credential admission. The invocation must separately request
-`credential_access`, must use the writable entry point, and, through the builder
-profile, must also request the nested sandbox. Content-bound checks never
-receive the mount.
+The production Codex builder is the caller of the initial writable
+credential-file capability. Executor construction must bind one clean absolute
+source path and enable credential admission. Its invocation separately requests
+`credential_access` through the writable entry point and, through the builder
+profile, also requests the nested sandbox. Content-bound checks never receive
+the mount.
+
+The v3 invocation and containment policy add a second admitted class for the
+future native verifier. `RunCredentialReadOnly` requires all of these facts at
+once: `read_only` workspace access, no content-runtime digest, one exact
+executable input used directly as argv[0], credential access, host network, and
+nested-sandbox admission. Removing or widening any one fact rejects the request
+before runtime ownership or credential acquisition. The staged candidate is
+mounted read-only and no workspace export can be returned. This executor
+capability is not yet a verifier adapter, dispatch, verdict, or autonomous loop.
+Declared workspace and ordinary-input paths which overlap the configured
+credential home are also rejected. The future verifier configuration must still
+prove its materialization root is disjoint from that home before constructing
+the invocation.
 
 On Linux, Sworn requires the source to be a non-empty regular file owned by the
 executor user, with exact mode `0600`, exactly one hard link, no symbolic-link
@@ -174,6 +205,11 @@ file's `0600` mode, is what keeps the authentication material unavailable to a
 tool running under the same outer UID. There is no Platform API-key environment
 or fallback path. See [ADR
 0009](adr/0009-codex-cli-managed-chatgpt-authentication.md).
+
+Credential acquisition is exclusive and nonblocking across Sworn processes.
+The current serial controller makes that sufficient; future parallel verifier
+scheduling must queue before this boundary or provision separate role-specific
+credential homes rather than treating a busy file as hidden serialization.
 
 ## Writable resource claim
 
@@ -212,11 +248,11 @@ which systemd removes every process in the service cgroup. The same cgroup
 cleanup runs on explicit cancellation, timeout, and stdout or stderr overflow.
 Unit names are deterministic opaque hashes of the executor's private runtime
 root and invocation ID. Writable runtime and workspace paths are deterministic
-from the same one-shot invocation identity. Content-bound runtime paths use the
-check attempt's own deterministic invocation identity. Residue is therefore
-discoverable after restart and a duplicate cannot be mistaken for a fresh run,
-while independent executor roots sharing one user systemd manager do not
-collide.
+from the same one-shot invocation identity. Read-only runtime paths use the
+check or verifier attempt's own deterministic invocation identity. Residue is
+therefore discoverable after restart and a duplicate cannot be mistaken for a
+fresh run, while independent executor roots sharing one user systemd manager do
+not collide.
 
 Bubblewrap reports its child start over a private JSON status descriptor. The
 shim writes a private host marker only after that event, and the executor checks
@@ -260,8 +296,9 @@ Sworn leaves the attempt-bound residue instead of racing a possible writer.
 exact deterministic unit inactive, removes both runtime and workspace paths,
 rechecks quiescence and absence, and only then returns an opaque cleanup proof.
 `ReconcileContentBound` applies the same no-racing-writer rule to the exact
-read-only check unit and runtime residue. Neither proof changes journal state by
-itself; a Store-issued recovery capability must seal it to the matching attempt.
+read-only check or credentialed verifier unit and runtime residue. Neither proof
+changes journal state by itself; a Store-issued recovery capability must seal it
+to the matching attempt.
 
 The exact-candidate boundary independently scans and stages Git-visible bytes.
 The native builder clones the original repository `Workspace` binding,
@@ -280,7 +317,9 @@ its own host account or administrator.
 
 This package is connected to the production Codex builder and `check.local`
 workers. `sworn run` reaches both through the sole controller; it does not expose
-either worker as a standalone command. A content-bound runtime proves which
+either worker as a standalone command. The credentialed read-only entry point is
+an uncomposed v0.3 enabling boundary until a profile-bound native verifier and
+its recovery path land. A content-bound runtime proves which
 bytes executed; it does not retain those bytes or claim hermetic reproduction.
 The kernel, CPU, systemd user manager, Bubblewrap, host `/usr`, and containment
 implementation remain trusted host facts.
