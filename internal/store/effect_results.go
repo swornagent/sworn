@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,90 @@ func validateBoundEffectResult(
 		if err := validateLocalCheckResultClosure(ctx, resolver, effect, result); err != nil {
 			return fmt.Errorf("validate result for effect %q: %w", effect.ID, err)
 		}
+	}
+	if engine.EffectKind(effect.Kind) == engine.EffectVerifier {
+		if err := validateVerifierResultClosure(ctx, resolver, effect, result); err != nil {
+			return fmt.Errorf("validate result for effect %q: %w", effect.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateVerifierResultClosure(
+	ctx context.Context,
+	resolver journalResultResolver,
+	effect Effect,
+	encoded json.RawMessage,
+) error {
+	request, requestErr := engine.ParseVerifierEffectRequest(effect.Request)
+	result, resultErr := engine.ParseVerifierEffectResult(encoded)
+	if requestErr != nil || resultErr != nil || request.DeliveryRunID != effect.DeliveryRunID ||
+		request.DispatchID != effect.ID || result.DispatchID != effect.ID ||
+		request.VerificationEpoch != result.VerificationEpoch ||
+		request.DispatchReceipt.Ref != request.DispatchReceipt.Digest ||
+		result.Assessment.Ref != result.Assessment.Digest ||
+		result.ExecutionReceipt.Ref != result.ExecutionReceipt.Digest {
+		return errors.New("verifier result does not match its exact journal request")
+	}
+	if _, err := loadVerifierAttemptIdentity(ctx, resolver.query, effect); err != nil {
+		return err
+	}
+	dispatchBytes, err := protocol.ResolveArtifact(
+		ctx, resolver, request.DispatchReceipt, protocol.MaximumControlReceiptBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("resolve verifier dispatch: %w", err)
+	}
+	dispatch, err := protocol.ParseVerifierDispatch(dispatchBytes)
+	if err != nil || dispatch.DispatchID != effect.ID || dispatch.SubmissionDigest != request.SubmissionDigest ||
+		dispatch.Candidate != request.Candidate {
+		return errors.New("verifier dispatch does not match its effect request")
+	}
+	assessmentBytes, err := protocol.ResolveArtifact(
+		ctx, resolver, result.Assessment, protocol.MaximumVerifierAssessmentBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("resolve verifier assessment: %w", err)
+	}
+	assessment, err := protocol.ParseVerifierAssessment(assessmentBytes)
+	if err != nil {
+		return fmt.Errorf("parse verifier assessment: %w", err)
+	}
+	kind, canonical, err := loadRecord(ctx, resolver.query, assessment.Record().Digest)
+	if err != nil || kind != protocol.VerifierAssessmentSchemaVersion ||
+		!bytes.Equal(canonical, assessment.Record().CanonicalJSON) {
+		return errors.New("verifier assessment lacks its exact canonical record")
+	}
+	if _, err := protocol.ResolveArtifact(
+		ctx, resolver, result.ExecutionReceipt, engine.MaximumEffectPayloadBytes,
+	); err != nil {
+		return fmt.Errorf("resolve verifier execution receipt: %w", err)
+	}
+	journalStart := time.UnixMicro(effect.StartedAtUS).UTC().Format(time.RFC3339Nano)
+	startOrder, startErr := protocol.CompareDateTimes(journalStart, result.StartedAt)
+	dispatchOrder, dispatchErr := protocol.CompareDateTimes(dispatch.CreatedAt, result.StartedAt)
+	if effect.StartedAtUS <= 0 || startErr != nil || dispatchErr != nil || startOrder > 0 || dispatchOrder > 0 {
+		return errors.New("verifier result starts outside its dispatch and journal lease")
+	}
+	return nil
+}
+
+// validateVerifierCompletionWindow prevents a syntactically valid future
+// review interval from becoming terminal journal truth. Binding may occur while
+// an effect is still running, so the upper bound belongs at completion and
+// bound-result recovery, where the exact durable completion time is known.
+func validateVerifierCompletionWindow(effect Effect, completedAtUS int64) error {
+	if engine.EffectKind(effect.Kind) != engine.EffectVerifier {
+		return nil
+	}
+	result, err := engine.ParseVerifierEffectResult(effect.Result)
+	if err != nil {
+		return err
+	}
+	completed := cloneEffect(effect)
+	completed.CompletedAtUS = completedAtUS
+	if !journalContains(completed, result.StartedAt, result.CompletedAt) {
+		return errors.New("verifier review timestamps fall outside its completed journal lease")
 	}
 	return nil
 }

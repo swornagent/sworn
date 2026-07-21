@@ -84,12 +84,14 @@ advance another work item, obtain an independent verdict, or update a target.
 Historical approval remains provenance rather than a standing execution
 permit, and `reviewable` is not a verdict or `PASS`.
 
-This is a bounded production vertical, not yet the autonomous product loop.
-There is no public initializer, verifier, verdict routing, bounded repair
-policy, integration edge, or scheduler. Its Store must already contain an exact
-planned and activated delivery. See [Running the bounded vertical](docs/run.md),
-[Exact local candidate](docs/exact-candidate.md), and
-[ADR 0008](docs/adr/0008-builder-to-reviewable-production-vertical.md).
+This is a bounded production vertical, not yet the autonomous product loop. The
+v0.3.0 development line now contains an internal Store-owned verifier effect and
+verdict-routing lifecycle, but there is no native verifier adapter or public
+verifier command. There is still no public initializer, bounded repair policy,
+integration edge, or scheduler. Its Store must already contain an exact planned
+and activated delivery. See [Running the bounded vertical](docs/run.md), [Exact
+local candidate](docs/exact-candidate.md), and [Independent verifier protocol
+and Store lifecycle](docs/verifier-protocol.md).
 
 SQLite is the sole Go production dependency. Linux execution relies on the
 host's systemd user manager, cgroup v2, and Bubblewrap; it fails closed when that

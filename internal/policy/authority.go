@@ -23,6 +23,8 @@ const (
 	AuthorityReceiptKind        = protocol.ControlReceiptSchemaVersion
 	BuildExecutionPurpose       = "build.execute"
 	CheckExecutionPurpose       = "check.execute"
+	VerifierExecutionPurpose    = "verifier.execute"
+	PASSAdmissionPurpose        = "verdict.pass.admit"
 
 	MaximumAuthoritySourceBytes = 64 << 10
 	MaximumAuthorityProofBytes  = 16 << 10
@@ -171,6 +173,130 @@ type CurrentCheckPermit struct {
 }
 
 func (permit CurrentCheckPermit) Facts() CheckPermitFacts { return permit.binding.facts }
+
+// VerifierExecutionPermitRequest is the complete controller-owned identity of
+// one pending isolated verifier dispatch. Contract must be the exact work
+// contract selected from the plan passed to AuthorizeVerifierExecution.
+type VerifierExecutionPermitRequest struct {
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	WorkID                string
+	WorkAttempt           int64
+	Contract              protocol.ExactWorkContract
+	SubmissionID          string
+	SubmissionDigest      string
+	VerifierEffectID      string
+	DispatchID            string
+	DispatchDigest        string
+	VerifierProfileDigest string
+}
+
+// VerifierExecutionPermitFacts is the immutable, non-authorizing projection
+// of a current verifier execution permit.
+type VerifierExecutionPermitFacts struct {
+	Purpose               string
+	ControllerID          string
+	RunID                 string
+	StateRevision         int64
+	PlanDigest            string
+	WorkID                string
+	WorkAttempt           int64
+	WorkContractDigest    string
+	SubmissionID          string
+	SubmissionDigest      string
+	VerifierEffectID      string
+	DispatchID            string
+	DispatchDigest        string
+	VerifierProfileDigest string
+	SourceRef             string
+	SourceVersion         int64
+	SourceDigest          string
+	AuthorizedAt          string
+}
+
+type verifierExecutionPermitBinding struct {
+	facts           VerifierExecutionPermitFacts
+	authorityDigest string
+	validFrom       string
+	validUntil      string
+}
+
+// CurrentVerifierExecutionPermit is an opaque, short-lived capability for one
+// exact isolated verifier execution. It remains bound to the Authority
+// instance which freshly resolved and authenticated it.
+type CurrentVerifierExecutionPermit struct {
+	authority *Authority
+	plan      protocol.ExactPlan
+	binding   verifierExecutionPermitBinding
+}
+
+func (permit CurrentVerifierExecutionPermit) Facts() VerifierExecutionPermitFacts {
+	return permit.binding.facts
+}
+
+// PASSAdmissionPermitRequest is the complete controller-owned identity of one
+// pending PASS admission. Outcome is present as an exact binding and only PASS
+// is accepted by AuthorizePASSAdmission.
+type PASSAdmissionPermitRequest struct {
+	ControllerID     string
+	RunID            string
+	StateRevision    int64
+	WorkID           string
+	WorkAttempt      int64
+	Contract         protocol.ExactWorkContract
+	SubmissionID     string
+	SubmissionDigest string
+	VerifierEffectID string
+	DispatchID       string
+	DispatchDigest   string
+	AssessmentDigest string
+	Outcome          string
+}
+
+// PASSAdmissionPermitFacts is the immutable, non-authorizing projection of a
+// current PASS admission permit.
+type PASSAdmissionPermitFacts struct {
+	Purpose            string
+	ControllerID       string
+	RunID              string
+	StateRevision      int64
+	PlanDigest         string
+	WorkID             string
+	WorkAttempt        int64
+	WorkContractDigest string
+	SubmissionID       string
+	SubmissionDigest   string
+	VerifierEffectID   string
+	DispatchID         string
+	DispatchDigest     string
+	AssessmentDigest   string
+	Outcome            string
+	SourceRef          string
+	SourceVersion      int64
+	SourceDigest       string
+	AuthorizedAt       string
+}
+
+type passAdmissionPermitBinding struct {
+	facts           PASSAdmissionPermitFacts
+	authorityDigest string
+	validFrom       string
+	validUntil      string
+}
+
+// CurrentPASSAdmissionPermit is an opaque, short-lived capability for
+// admitting exactly one PASS assessment. It is deliberately distinct from a
+// verifier execution permit: authority is freshly resolved again at admission.
+type CurrentPASSAdmissionPermit struct {
+	authority *Authority
+	plan      protocol.ExactPlan
+	binding   passAdmissionPermitBinding
+}
+
+func (permit CurrentPASSAdmissionPermit) Facts() PASSAdmissionPermitFacts {
+	return permit.binding.facts
+}
 
 // RequireLedger proves that this Authority was constructed with the exact
 // pointer-backed ledger supplied by its controller. Non-pointer ledger
@@ -379,6 +505,95 @@ func (authority *Authority) AuthorizeCheck(
 	}, nil
 }
 
+// AuthorizeVerifierExecution freshly resolves and authenticates current
+// authority for one exact isolated verifier execution. Historical approval is
+// not an execution permit, and the source observation is durable before grant
+// policy can return a permit or denial.
+func (authority *Authority) AuthorizeVerifierExecution(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+	request VerifierExecutionPermitRequest,
+) (CurrentVerifierExecutionPermit, error) {
+	if err := authority.validateInitialized(); err != nil {
+		return CurrentVerifierExecutionPermit{}, err
+	}
+	if err := validateVerifierExecutionPermitRequest(plan, request); err != nil {
+		return CurrentVerifierExecutionPermit{}, err
+	}
+	preparedSource, now, err := authority.resolvePersistedCurrentSource(ctx, plan)
+	if err != nil {
+		return CurrentVerifierExecutionPermit{}, err
+	}
+	if err := validateRequiredVerifierExecutionGrants(plan, &preparedSource); err != nil {
+		return CurrentVerifierExecutionPermit{}, err
+	}
+	facts := VerifierExecutionPermitFacts{
+		Purpose: VerifierExecutionPurpose, ControllerID: request.ControllerID,
+		RunID: request.RunID, StateRevision: request.StateRevision,
+		PlanDigest: plan.Record().Digest, WorkID: request.WorkID,
+		WorkAttempt: request.WorkAttempt, WorkContractDigest: request.Contract.Digest(),
+		SubmissionID: request.SubmissionID, SubmissionDigest: request.SubmissionDigest,
+		VerifierEffectID: request.VerifierEffectID, DispatchID: request.DispatchID,
+		DispatchDigest: request.DispatchDigest, VerifierProfileDigest: request.VerifierProfileDigest,
+		SourceRef: preparedSource.facts.SourceRef, SourceVersion: preparedSource.facts.SourceVersion,
+		SourceDigest: preparedSource.facts.SourceCanonicalDigest,
+		AuthorizedAt: now.Format(time.RFC3339Nano),
+	}
+	return CurrentVerifierExecutionPermit{
+		authority: authority,
+		plan:      plan,
+		binding: verifierExecutionPermitBinding{
+			facts: facts, authorityDigest: preparedSource.facts.AuthorityDigest,
+			validFrom: preparedSource.facts.ValidFrom, validUntil: preparedSource.facts.ValidUntil,
+		},
+	}, nil
+}
+
+// AuthorizePASSAdmission freshly resolves and authenticates current authority
+// for one exact PASS assessment. It requires no workspace grant beyond the
+// exact plan's grant set, but every grant in that plan must remain beneath the
+// freshly observed source ceiling.
+func (authority *Authority) AuthorizePASSAdmission(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+	request PASSAdmissionPermitRequest,
+) (CurrentPASSAdmissionPermit, error) {
+	if err := authority.validateInitialized(); err != nil {
+		return CurrentPASSAdmissionPermit{}, err
+	}
+	if err := validatePASSAdmissionPermitRequest(plan, request); err != nil {
+		return CurrentPASSAdmissionPermit{}, err
+	}
+	preparedSource, now, err := authority.resolvePersistedCurrentSource(ctx, plan)
+	if err != nil {
+		return CurrentPASSAdmissionPermit{}, err
+	}
+	if err := validateGrantCeiling(preparedSource); err != nil {
+		return CurrentPASSAdmissionPermit{}, err
+	}
+	facts := PASSAdmissionPermitFacts{
+		Purpose: PASSAdmissionPurpose, ControllerID: request.ControllerID,
+		RunID: request.RunID, StateRevision: request.StateRevision,
+		PlanDigest: plan.Record().Digest, WorkID: request.WorkID,
+		WorkAttempt: request.WorkAttempt, WorkContractDigest: request.Contract.Digest(),
+		SubmissionID: request.SubmissionID, SubmissionDigest: request.SubmissionDigest,
+		VerifierEffectID: request.VerifierEffectID, DispatchID: request.DispatchID,
+		DispatchDigest: request.DispatchDigest, AssessmentDigest: request.AssessmentDigest,
+		Outcome:   request.Outcome,
+		SourceRef: preparedSource.facts.SourceRef, SourceVersion: preparedSource.facts.SourceVersion,
+		SourceDigest: preparedSource.facts.SourceCanonicalDigest,
+		AuthorizedAt: now.Format(time.RFC3339Nano),
+	}
+	return CurrentPASSAdmissionPermit{
+		authority: authority,
+		plan:      plan,
+		binding: passAdmissionPermitBinding{
+			facts: facts, authorityDigest: preparedSource.facts.AuthorityDigest,
+			validFrom: preparedSource.facts.ValidFrom, validUntil: preparedSource.facts.ValidUntil,
+		},
+	}, nil
+}
+
 // ValidateBuildPermit accepts only an unexpired permit minted by this exact
 // Authority instance for the same complete controller request. It performs no
 // I/O: callers must therefore authorize immediately before dispatch rather
@@ -503,6 +718,180 @@ func (authority *Authority) ValidateCheckPermit(
 	nowToUntil, untilErr := protocol.CompareDateTimes(nowValue, permit.binding.validUntil)
 	if fromErr != nil || untilErr != nil || fromToNow > 0 || nowToUntil >= 0 {
 		return errors.New("check permit authority is no longer current")
+	}
+	return nil
+}
+
+// ValidateVerifierExecutionPermit accepts only an unexpired capability minted
+// by this exact Authority instance for the same complete verifier request. It
+// performs no I/O, so callers must authorize immediately before execution.
+func (authority *Authority) ValidateVerifierExecutionPermit(
+	permit CurrentVerifierExecutionPermit,
+	request VerifierExecutionPermitRequest,
+) error {
+	if err := authority.validateInitialized(); err != nil {
+		return err
+	}
+	if permit.authority != authority {
+		return errors.New("verifier execution permit belongs to another authority service")
+	}
+	if permit.binding.facts.Purpose != VerifierExecutionPurpose {
+		return errors.New("verifier execution permit has the wrong purpose")
+	}
+	if err := validateVerifierExecutionPermitRequest(permit.plan, request); err != nil {
+		return err
+	}
+	planRecord := permit.plan.Record()
+	planAuthority := permit.plan.Authority()
+	if permit.binding.facts.PlanDigest != planRecord.Digest ||
+		permit.binding.authorityDigest != planAuthority.Digest ||
+		permit.binding.facts.SourceRef != planAuthority.SourceRef ||
+		!protocol.ValidPositiveSafeInteger(permit.binding.facts.SourceVersion) ||
+		!protocol.ValidDigest(permit.binding.facts.SourceDigest) {
+		return errors.New("verifier execution permit no longer matches its exact authority")
+	}
+	want := permit.binding.facts
+	want.Purpose = VerifierExecutionPurpose
+	want.ControllerID = request.ControllerID
+	want.RunID = request.RunID
+	want.StateRevision = request.StateRevision
+	want.PlanDigest = planRecord.Digest
+	want.WorkID = request.WorkID
+	want.WorkAttempt = request.WorkAttempt
+	want.WorkContractDigest = request.Contract.Digest()
+	want.SubmissionID = request.SubmissionID
+	want.SubmissionDigest = request.SubmissionDigest
+	want.VerifierEffectID = request.VerifierEffectID
+	want.DispatchID = request.DispatchID
+	want.DispatchDigest = request.DispatchDigest
+	want.VerifierProfileDigest = request.VerifierProfileDigest
+	if permit.binding.facts != want {
+		return errors.New("verifier execution permit does not match the exact execution request")
+	}
+	if err := validateRequiredVerifierExecutionGrants(permit.plan, nil); err != nil {
+		return err
+	}
+	return authority.validateCurrentPermitWindow(
+		"verifier execution", permit.binding.facts.AuthorizedAt,
+		permit.binding.validFrom, permit.binding.validUntil,
+	)
+}
+
+// ValidatePASSAdmissionPermit accepts only an unexpired capability minted by
+// this exact Authority instance for the same complete PASS admission request.
+// It performs no I/O; admission must follow authorization immediately.
+func (authority *Authority) ValidatePASSAdmissionPermit(
+	permit CurrentPASSAdmissionPermit,
+	request PASSAdmissionPermitRequest,
+) error {
+	if err := authority.validateInitialized(); err != nil {
+		return err
+	}
+	if permit.authority != authority {
+		return errors.New("PASS admission permit belongs to another authority service")
+	}
+	if permit.binding.facts.Purpose != PASSAdmissionPurpose {
+		return errors.New("PASS admission permit has the wrong purpose")
+	}
+	if err := validatePASSAdmissionPermitRequest(permit.plan, request); err != nil {
+		return err
+	}
+	planRecord := permit.plan.Record()
+	planAuthority := permit.plan.Authority()
+	if permit.binding.facts.PlanDigest != planRecord.Digest ||
+		permit.binding.authorityDigest != planAuthority.Digest ||
+		permit.binding.facts.SourceRef != planAuthority.SourceRef ||
+		!protocol.ValidPositiveSafeInteger(permit.binding.facts.SourceVersion) ||
+		!protocol.ValidDigest(permit.binding.facts.SourceDigest) {
+		return errors.New("PASS admission permit no longer matches its exact authority")
+	}
+	want := permit.binding.facts
+	want.Purpose = PASSAdmissionPurpose
+	want.ControllerID = request.ControllerID
+	want.RunID = request.RunID
+	want.StateRevision = request.StateRevision
+	want.PlanDigest = planRecord.Digest
+	want.WorkID = request.WorkID
+	want.WorkAttempt = request.WorkAttempt
+	want.WorkContractDigest = request.Contract.Digest()
+	want.SubmissionID = request.SubmissionID
+	want.SubmissionDigest = request.SubmissionDigest
+	want.VerifierEffectID = request.VerifierEffectID
+	want.DispatchID = request.DispatchID
+	want.DispatchDigest = request.DispatchDigest
+	want.AssessmentDigest = request.AssessmentDigest
+	want.Outcome = request.Outcome
+	if permit.binding.facts != want {
+		return errors.New("PASS admission permit does not match the exact admission request")
+	}
+	return authority.validateCurrentPermitWindow(
+		"PASS admission", permit.binding.facts.AuthorizedAt,
+		permit.binding.validFrom, permit.binding.validUntil,
+	)
+}
+
+func (authority *Authority) validateInitialized() error {
+	if authority == nil || len(authority.roots) == 0 || authority.resolver == nil ||
+		authority.ledger == nil || authority.now == nil {
+		return errors.New("authority service is not initialized")
+	}
+	return nil
+}
+
+func (authority *Authority) resolvePersistedCurrentSource(
+	ctx context.Context,
+	plan protocol.ExactPlan,
+) (PreparedSource, time.Time, error) {
+	if err := authority.validateInitialized(); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	currentLedger, ok := authority.ledger.(CurrentAuthorityLedger)
+	if !ok {
+		return PreparedSource{}, time.Time{}, errors.New("authority ledger cannot assert the current source head")
+	}
+	preparedSource, authenticatedAt, err := authority.resolveAuthenticatedSource(ctx, plan)
+	if err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	if err := currentLedger.PutCurrentAuthoritySource(ctx, preparedSource); err != nil {
+		return PreparedSource{}, time.Time{}, fmt.Errorf("persist current authority source: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return PreparedSource{}, time.Time{}, errors.New("authority clock must return explicit UTC")
+	}
+	if now.Before(authenticatedAt) {
+		return PreparedSource{}, time.Time{}, errors.New("authority clock moved backward during current authorization")
+	}
+	if err := validateCurrentSourceWindow(preparedSource, now); err != nil {
+		return PreparedSource{}, time.Time{}, err
+	}
+	return preparedSource, now, nil
+}
+
+func (authority *Authority) validateCurrentPermitWindow(
+	label, authorizedAtValue, validFrom, validUntil string,
+) error {
+	now := authority.now()
+	if now.IsZero() || now.Location() != time.UTC {
+		return errors.New("authority clock must return explicit UTC")
+	}
+	authorizedAt, err := time.Parse(time.RFC3339Nano, authorizedAtValue)
+	if err != nil || authorizedAt.Location() != time.UTC || now.Before(authorizedAt) ||
+		now.Sub(authorizedAt) >= currentEffectPermitLifetime {
+		return fmt.Errorf("%s permit is stale", label)
+	}
+	nowValue := now.Format(time.RFC3339Nano)
+	fromToNow, fromErr := protocol.CompareDateTimes(validFrom, nowValue)
+	nowToUntil, untilErr := protocol.CompareDateTimes(nowValue, validUntil)
+	if fromErr != nil || untilErr != nil || fromToNow > 0 || nowToUntil >= 0 {
+		return fmt.Errorf("%s permit authority is no longer current", label)
 	}
 	return nil
 }
@@ -1000,6 +1389,27 @@ func validateRequiredCheckGrants(plan protocol.ExactPlan, source *PreparedSource
 	return nil
 }
 
+func validateRequiredVerifierExecutionGrants(plan protocol.ExactPlan, source *PreparedSource) error {
+	required := []string{"inspect", "execute"}
+	for _, grant := range plan.Authority().Grants {
+		for index, action := range required {
+			if grant.Action() == action {
+				if source != nil {
+					if _, allowed := source.grants[string(grant.CanonicalJSON())]; !allowed {
+						return fmt.Errorf("current authority source lacks %s workspace grant", action)
+					}
+				}
+				required = append(required[:index], required[index+1:]...)
+				break
+			}
+		}
+	}
+	if len(required) != 0 {
+		return fmt.Errorf("verifier execution authority requires %s workspace grant", required[0])
+	}
+	return nil
+}
+
 func validateBuildPermitRequest(plan protocol.ExactPlan, request BuildPermitRequest) error {
 	planRecord := plan.Record()
 	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
@@ -1040,6 +1450,61 @@ func validateCheckPermitRequest(plan protocol.ExactPlan, request CheckPermitRequ
 	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
 		request.Contract != exactContract || exactContract.Digest() != contractDigest {
 		return errors.New("check permit request does not match the exact work contract")
+	}
+	return nil
+}
+
+func validateVerifierExecutionPermitRequest(
+	plan protocol.ExactPlan,
+	request VerifierExecutionPermitRequest,
+) error {
+	planRecord := plan.Record()
+	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
+		return errors.New("verifier execution permit requires an exact delivery plan")
+	}
+	if !protocol.ValidID(request.ControllerID) || !protocol.ValidID(request.RunID) ||
+		!protocol.ValidPositiveSafeInteger(request.StateRevision) || !protocol.ValidID(request.WorkID) ||
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) || !protocol.ValidID(request.SubmissionID) ||
+		!protocol.ValidDigest(request.SubmissionDigest) || !protocol.ValidID(request.VerifierEffectID) ||
+		!protocol.ValidID(request.DispatchID) || !protocol.ValidDigest(request.DispatchDigest) ||
+		!protocol.ValidDigest(request.VerifierProfileDigest) {
+		return errors.New("verifier execution permit request has invalid controller, submission, or dispatch identity")
+	}
+	contractDigest := request.Contract.Digest()
+	contractView := request.Contract.View()
+	exactContract, exists := plan.Work(request.WorkID)
+	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
+		request.Contract != exactContract || exactContract.Digest() != contractDigest {
+		return errors.New("verifier execution permit request does not match the exact work contract")
+	}
+	return nil
+}
+
+func validatePASSAdmissionPermitRequest(
+	plan protocol.ExactPlan,
+	request PASSAdmissionPermitRequest,
+) error {
+	planRecord := plan.Record()
+	if planRecord.Kind != protocol.DeliveryPlanSchemaVersion || !protocol.ValidDigest(planRecord.Digest) {
+		return errors.New("PASS admission permit requires an exact delivery plan")
+	}
+	if request.Outcome != "PASS" {
+		return errors.New("PASS admission permit requires outcome PASS")
+	}
+	if !protocol.ValidID(request.ControllerID) || !protocol.ValidID(request.RunID) ||
+		!protocol.ValidPositiveSafeInteger(request.StateRevision) || !protocol.ValidID(request.WorkID) ||
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) || !protocol.ValidID(request.SubmissionID) ||
+		!protocol.ValidDigest(request.SubmissionDigest) || !protocol.ValidID(request.VerifierEffectID) ||
+		!protocol.ValidID(request.DispatchID) || !protocol.ValidDigest(request.DispatchDigest) ||
+		!protocol.ValidDigest(request.AssessmentDigest) {
+		return errors.New("PASS admission permit request has invalid controller, submission, dispatch, or assessment identity")
+	}
+	contractDigest := request.Contract.Digest()
+	contractView := request.Contract.View()
+	exactContract, exists := plan.Work(request.WorkID)
+	if !exists || contractView.ID != request.WorkID || !protocol.ValidDigest(contractDigest) ||
+		request.Contract != exactContract || exactContract.Digest() != contractDigest {
+		return errors.New("PASS admission permit request does not match the exact work contract")
 	}
 	return nil
 }

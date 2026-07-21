@@ -516,7 +516,7 @@ func TestMigrationEightPreservesPendingCheckAndRequiresMatchedRetryWitness(t *te
 	}
 	t.Cleanup(func() { _ = control.Close() })
 	var version int
-	if err := control.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+	if err := control.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != len(migrationNames) {
 		t.Fatalf("migrated version = %d, %v", version, err)
 	}
 	if _, err := control.db.ExecContext(ctx, `
@@ -552,5 +552,404 @@ func TestMigrationEightPreservesPendingCheckAndRequiresMatchedRetryWitness(t *te
 		"SELECT state, attempt FROM effects WHERE effect_id = 'effect-check-1'",
 	).Scan(&state, &attempt); err != nil || state != "pending" || attempt != 1 {
 		t.Fatalf("migrated check retry = state %q attempt %d, %v", state, attempt, err)
+	}
+}
+
+func TestMigrationNineCreatesStrictVerifierHistoryAtSchemaNine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "control.db")
+	database := rawDatabase(t, path)
+	if len(migrationNames) != 9 {
+		t.Fatalf("migration count = %d, want 9", len(migrationNames))
+	}
+	for index, name := range migrationNames[:8] {
+		contents, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.ExecContext(ctx, string(contents)); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+	}
+	var before int
+	if err := database.QueryRowContext(ctx, `
+		SELECT count(*) FROM sqlite_master
+		WHERE type = 'table' AND name IN ('verifier_dispatch_records', 'verdict_records')`,
+	).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if before != 0 {
+		t.Fatalf("schema eight already contains verifier history tables = %d", before)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA application_id = "+strconv.Itoa(applicationID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "PRAGMA user_version = 8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	control, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	var version int
+	if err := control.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+		t.Fatalf("migrated schema version = %d, %v", version, err)
+	}
+	for _, table := range []string{"verifier_dispatch_records", "verdict_records"} {
+		var strict int
+		if err := control.db.QueryRowContext(ctx,
+			"SELECT strict FROM pragma_table_list WHERE name = ?", table,
+		).Scan(&strict); err != nil {
+			t.Fatalf("inspect %s: %v", table, err)
+		}
+		if strict != 1 {
+			t.Fatalf("%s strict = %d, want 1", table, strict)
+		}
+	}
+	var triggerCount int
+	if err := control.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM sqlite_master
+		WHERE type = 'trigger' AND name IN (
+			'verifier_dispatch_records_require_dispatch',
+			'verifier_dispatch_records_no_update',
+			'verifier_dispatch_records_no_delete',
+			'verdict_records_require_admission',
+			'verdict_records_no_update',
+			'verdict_records_no_delete'
+		)`,
+	).Scan(&triggerCount); err != nil {
+		t.Fatal(err)
+	}
+	if triggerCount != 6 {
+		t.Fatalf("migration nine trigger count = %d, want 6", triggerCount)
+	}
+}
+
+func TestMigrationNineVerifierHistoryIsClosedAndImmutable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	control := openMigrationNineTestStore(t)
+	seedMigrationNineBase(t, control)
+	seedMigrationNineDispatchPrerequisites(t, control, "verifier-1", "dispatch-digest-1", "dispatch-command-1")
+	insertMigrationNineDispatch(t, control,
+		"verifier-1", "dispatch-digest-1", "dispatch-command-1", "submission-digest-1", 1,
+	)
+	seedMigrationNineVerdictPrerequisites(
+		t, control, "verdict-digest-1", "verdict-command-1", "verdict-event-1", "verdict.admitted", 4,
+	)
+	insertMigrationNineVerdict(t, control,
+		"verdict-1", "verdict-digest-1", "verdict-command-1", "verdict-event-1",
+		"verifier-1", "assessment-digest-1", 4, 1,
+	)
+
+	for name, statement := range map[string]string{
+		"dispatch update": `UPDATE verifier_dispatch_records
+			SET profile_digest = 'changed' WHERE dispatch_id = 'verifier-1'`,
+		"dispatch delete": `DELETE FROM verifier_dispatch_records WHERE dispatch_id = 'verifier-1'`,
+		"verdict update":  `UPDATE verdict_records SET outcome = 'FAIL' WHERE verdict_id = 'verdict-1'`,
+		"verdict delete":  `DELETE FROM verdict_records WHERE verdict_id = 'verdict-1'`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := control.db.ExecContext(ctx, statement); err == nil ||
+				!strings.Contains(err.Error(), "immutable") {
+				t.Fatalf("immutable history error = %v", err)
+			}
+		})
+	}
+	rows, err := control.db.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Fatal("valid verifier history contains a foreign-key violation")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrationNineRejectsBrokenClosureAndIdentityCollisions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	control := openMigrationNineTestStore(t)
+	seedMigrationNineBase(t, control)
+	seedMigrationNineDispatchPrerequisites(t, control, "verifier-1", "dispatch-digest-1", "dispatch-command-1")
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
+		VALUES ('submission-digest-other', 'submission-v1', CAST('{"other":true}' AS BLOB), 14, 20)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verifier_dispatch_records (
+			dispatch_id, digest, artifact_digest, submission_id, submission_digest,
+			effect_id, profile_digest, run_id, command_id, review_epoch, created_at_us
+		) VALUES (
+			'verifier-1', 'dispatch-digest-1', 'dispatch-digest-1', 'submission-1', 'submission-digest-other',
+			'verifier-1', 'profile-digest-1', 'run-1', 'dispatch-command-1', 1, 30
+		)`); err == nil || !strings.Contains(err.Error(), "exact applied command, effect, and submission") {
+		t.Fatalf("mismatched dispatch closure error = %v", err)
+	}
+	insertMigrationNineDispatch(t, control,
+		"verifier-1", "dispatch-digest-1", "dispatch-command-1", "submission-digest-1", 1,
+	)
+
+	seedMigrationNineDispatchPrerequisites(
+		t, control, "verifier-epoch-4", "dispatch-digest-epoch-4", "dispatch-command-epoch-4",
+	)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verifier_dispatch_records (
+			dispatch_id, digest, artifact_digest, submission_id, submission_digest,
+			effect_id, profile_digest, run_id, command_id, review_epoch, created_at_us
+		) VALUES (
+			'verifier-epoch-4', 'dispatch-digest-epoch-4', 'dispatch-digest-epoch-4',
+			'submission-1', 'submission-digest-1', 'verifier-epoch-4',
+			'profile-digest-1', 'run-1', 'dispatch-command-epoch-4', 4, 31
+		)`); err == nil || !strings.Contains(strings.ToLower(err.Error()), "check constraint") {
+		t.Fatalf("dispatch epoch four error = %v", err)
+	}
+
+	seedMigrationNineDispatchPrerequisites(
+		t, control, "verifier-duplicate-epoch", "dispatch-digest-duplicate-epoch",
+		"dispatch-command-duplicate-epoch",
+	)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verifier_dispatch_records (
+			dispatch_id, digest, artifact_digest, submission_id, submission_digest,
+			effect_id, profile_digest, run_id, command_id, review_epoch, created_at_us
+		) VALUES (
+			'verifier-duplicate-epoch', 'dispatch-digest-duplicate-epoch',
+			'dispatch-digest-duplicate-epoch', 'submission-1', 'submission-digest-1',
+			'verifier-duplicate-epoch', 'profile-digest-1', 'run-1',
+			'dispatch-command-duplicate-epoch', 1, 31
+		)`); err == nil || !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		t.Fatalf("duplicate submission review epoch error = %v", err)
+	}
+
+	seedMigrationNineDispatchPrerequisites(t, control, "verifier-2", "dispatch-digest-2", "dispatch-command-2")
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verifier_dispatch_records (
+			dispatch_id, digest, artifact_digest, submission_id, submission_digest,
+			effect_id, profile_digest, run_id, command_id, review_epoch, created_at_us
+		) VALUES (
+			'verifier-2', 'dispatch-digest-1', 'dispatch-digest-1', 'submission-1', 'submission-digest-1',
+			'verifier-2', 'profile-digest-1', 'run-1', 'dispatch-command-2', 2, 31
+		)`); err == nil || !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		t.Fatalf("dispatch digest collision error = %v", err)
+	}
+	insertMigrationNineDispatch(t, control,
+		"verifier-2", "dispatch-digest-2", "dispatch-command-2", "submission-digest-1", 2,
+	)
+
+	seedMigrationNineVerdictPrerequisites(
+		t, control, "verdict-digest-bad-event", "verdict-command-bad-event", "verdict-event-bad",
+		"verdict.rejected", 5,
+	)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verdict_records (
+			verdict_id, digest, submission_id, submission_digest, dispatch_id,
+			verifier_effect_id, assessment_digest, outcome, run_id, command_id,
+			event_id, event_revision, review_epoch, created_at_us
+		) VALUES (
+			'verdict-bad-event', 'verdict-digest-bad-event', 'submission-1', 'submission-digest-1', 'verifier-2',
+			'verifier-2', 'assessment-digest-1', 'PASS', 'run-1', 'verdict-command-bad-event',
+			'verdict-event-bad', 5, 2, 40
+		)`); err == nil || !strings.Contains(err.Error(), "exact applied admission event and dispatch") {
+		t.Fatalf("wrong-event verdict closure error = %v", err)
+	}
+
+	seedMigrationNineVerdictPrerequisites(
+		t, control, "verdict-digest-2", "verdict-command-2", "verdict-event-2", "verdict.admitted", 6,
+	)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verdict_records (
+			verdict_id, digest, submission_id, submission_digest, dispatch_id,
+			verifier_effect_id, assessment_digest, outcome, run_id, command_id,
+			event_id, event_revision, review_epoch, created_at_us
+		) VALUES (
+			'verdict-2', 'verdict-digest-2', 'submission-1', 'submission-digest-1', 'verifier-2',
+			'verifier-2', 'assessment-digest-missing', 'PASS', 'run-1', 'verdict-command-2',
+			'verdict-event-2', 6, 2, 41
+		)`); err == nil || !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+		t.Fatalf("missing assessment foreign-key error = %v", err)
+	}
+	insertMigrationNineVerdict(t, control,
+		"verdict-2", "verdict-digest-2", "verdict-command-2", "verdict-event-2",
+		"verifier-2", "assessment-digest-1", 6, 2,
+	)
+
+	seedMigrationNineVerdictPrerequisites(
+		t, control, "verdict-digest-3", "verdict-command-3", "verdict-event-3", "verdict.admitted", 7,
+	)
+	if _, err := control.db.ExecContext(ctx, `
+		INSERT INTO verdict_records (
+			verdict_id, digest, submission_id, submission_digest, dispatch_id,
+			verifier_effect_id, assessment_digest, outcome, run_id, command_id,
+			event_id, event_revision, review_epoch, created_at_us
+		) VALUES (
+			'verdict-3', 'verdict-digest-3', 'submission-1', 'submission-digest-1', 'verifier-2',
+			'verifier-2', 'assessment-digest-1', 'PASS', 'run-1', 'verdict-command-3',
+			'verdict-event-3', 7, 2, 42
+		)`); err == nil || !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		t.Fatalf("second verdict for one dispatch error = %v", err)
+	}
+}
+
+func openMigrationNineTestStore(t *testing.T) *Store {
+	t.Helper()
+	control, err := Open(context.Background(), filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	return control
+}
+
+func seedMigrationNineBase(t *testing.T, control *Store) {
+	t.Helper()
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO records (digest, kind, canonical_json, size, created_at_us) VALUES
+			('submission-digest-1', 'submission-v1', CAST('{"submission":1}' AS BLOB), 16, 1),
+			('assessment-digest-1', 'sworn-verifier-assessment-v1', CAST('{"assessment":1}' AS BLOB), 16, 2);
+		INSERT INTO runs (
+			run_id, delivery_id, repository_id, target_ref, plan_digest,
+			revision, phase, terminal, state_json, created_at_us, updated_at_us
+		) VALUES (
+			'run-1', 'delivery-1', 'repo-1', 'refs/heads/main', 'plan-digest-1',
+			0, 'active', 0, CAST('{}' AS BLOB), 1, 1
+		);
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES (
+			'submission-command-1', 'run-1', 'submission.admit', 0, 'request-submission-1',
+			CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 2
+		);
+		INSERT INTO submission_records (
+			submission_id, delivery_id, work_id, attempt, digest, run_id, command_id
+		) VALUES (
+			'submission-1', 'delivery-1', 'work-1', 1, 'submission-digest-1', 'run-1', 'submission-command-1'
+		)`,
+	); err != nil {
+		t.Fatalf("seed migration nine base: %v", err)
+	}
+}
+
+func seedMigrationNineDispatchPrerequisites(
+	t *testing.T,
+	control *Store,
+	dispatchID, digest, commandID string,
+) {
+	t.Helper()
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
+		VALUES (?, 'control-receipt-v1', CAST('{"dispatch":true}' AS BLOB), 17, 10)`, digest,
+	); err != nil {
+		t.Fatalf("seed dispatch %s record: %v", dispatchID, err)
+	}
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO artifacts (digest, media_type, content, size, created_at_us)
+		VALUES (?, 'application/json', CAST('{"dispatch":true}' AS BLOB), 17, 10)`, digest,
+	); err != nil {
+		t.Fatalf("seed dispatch %s artifact: %v", dispatchID, err)
+	}
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES (?, 'run-1', 'verifier.dispatch', 1, ?, CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 10)`,
+		commandID, "request-"+commandID,
+	); err != nil {
+		t.Fatalf("seed dispatch %s command: %v", dispatchID, err)
+	}
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO effects (
+			effect_id, run_id, command_id, ordinal, kind, request_json, state, attempt, created_at_us
+		) VALUES (?, 'run-1', ?, 0, 'runner.verifier', CAST('{}' AS BLOB), 'pending', 0, 10)`,
+		dispatchID, commandID,
+	); err != nil {
+		t.Fatalf("seed dispatch %s effect: %v", dispatchID, err)
+	}
+}
+
+func insertMigrationNineDispatch(
+	t *testing.T,
+	control *Store,
+	dispatchID, digest, commandID, submissionDigest string,
+	reviewEpoch int64,
+) {
+	t.Helper()
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO verifier_dispatch_records (
+			dispatch_id, digest, artifact_digest, submission_id, submission_digest,
+			effect_id, profile_digest, run_id, command_id, review_epoch, created_at_us
+		) VALUES (?, ?, ?, 'submission-1', ?, ?, 'profile-digest-1', 'run-1', ?, ?, 30)`,
+		dispatchID, digest, digest, submissionDigest, dispatchID, commandID, reviewEpoch,
+	); err != nil {
+		t.Fatalf("insert dispatch %s: %v", dispatchID, err)
+	}
+}
+
+func seedMigrationNineVerdictPrerequisites(
+	t *testing.T,
+	control *Store,
+	digest, commandID, eventID, eventKind string,
+	eventRevision int64,
+) {
+	t.Helper()
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO records (digest, kind, canonical_json, size, created_at_us)
+		VALUES (?, 'delivery-verdict-v1', CAST('{"verdict":true}' AS BLOB), 16, 40)`, digest,
+	); err != nil {
+		t.Fatalf("seed verdict %s record: %v", digest, err)
+	}
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO commands (
+			command_id, run_id, kind, expected_revision, request_digest,
+			request_json, outcome, result_json, recorded_at_us
+		) VALUES (?, 'run-1', 'verdict.admit', 2, ?, CAST('{}' AS BLOB), 'applied', CAST('{}' AS BLOB), 40)`,
+		commandID, "request-"+commandID,
+	); err != nil {
+		t.Fatalf("seed verdict %s command: %v", digest, err)
+	}
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO events (
+			event_id, run_id, command_id, revision, ordinal, kind, data_json, recorded_at_us
+		) VALUES (?, 'run-1', ?, ?, 0, ?, CAST('{}' AS BLOB), 40)`,
+		eventID, commandID, eventRevision, eventKind,
+	); err != nil {
+		t.Fatalf("seed verdict %s event: %v", digest, err)
+	}
+}
+
+func insertMigrationNineVerdict(
+	t *testing.T,
+	control *Store,
+	verdictID, digest, commandID, eventID, dispatchID, assessmentDigest string,
+	eventRevision, reviewEpoch int64,
+) {
+	t.Helper()
+	if _, err := control.db.ExecContext(context.Background(), `
+		INSERT INTO verdict_records (
+			verdict_id, digest, submission_id, submission_digest, dispatch_id,
+			verifier_effect_id, assessment_digest, outcome, run_id, command_id,
+			event_id, event_revision, review_epoch, created_at_us
+		) VALUES (
+			?, ?, 'submission-1', 'submission-digest-1', ?,
+			?, ?, 'PASS', 'run-1', ?, ?, ?, ?, 40
+		)`,
+		verdictID, digest, dispatchID, dispatchID, assessmentDigest,
+		commandID, eventID, eventRevision, reviewEpoch,
+	); err != nil {
+		t.Fatalf("insert verdict %s: %v", verdictID, err)
 	}
 }
