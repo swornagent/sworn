@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,15 +29,17 @@ import (
 )
 
 const (
-	requireCodexBoundaryEnvironment = "SWORN_REQUIRE_CODEX_BOUNDARY"
-	codexBinaryEnvironment          = "SWORN_CODEX_BINARY"
-	executorShimSentinel            = "__sworn_codex_boundary_executor_shim__"
-	nestedProbeSentinel             = "__sworn_codex_boundary_nested_probe__"
-	credentialCanaryPrefix          = "SWORN_CREDENTIAL_CANARY_"
-	codexBoundaryModel              = "gpt-5.4"
-	codexBoundaryCallID             = "sworn-boundary-call"
-	hostileProjectCanary            = "SWORN_HOSTILE_PROJECT_CONFIG_CANARY_55fd71cc"
-	proofContents                   = "nested-codex-sandbox-contained\n"
+	requireCodexBoundaryEnvironment   = "SWORN_REQUIRE_CODEX_BOUNDARY"
+	codexBinaryEnvironment            = "SWORN_CODEX_BINARY"
+	executorShimSentinel              = "__sworn_codex_boundary_executor_shim__"
+	nestedProbeSentinel               = "__sworn_codex_boundary_nested_probe__"
+	testProviderCredentialEnvironment = "SWORN_CODEX_BOUNDARY_PROVIDER_TOKEN"
+	testProviderCanaryPrefix          = "SWORN_TEST_PROVIDER_CANARY_"
+	authFileCanaryPrefix              = "SWORN_AUTH_FILE_CANARY_"
+	codexBoundaryModel                = "gpt-5.4"
+	codexBoundaryCallID               = "sworn-boundary-call"
+	hostileProjectCanary              = "SWORN_HOSTILE_PROJECT_CONFIG_CANARY_55fd71cc"
+	proofContents                     = "nested-codex-sandbox-contained\n"
 )
 
 // TestCodexBoundaryExecutorShimProcess is the real Sworn executor shim when
@@ -63,8 +66,10 @@ func TestCodexBoundaryNestedProbeProcess(t *testing.T) {
 func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 	required := os.Getenv(requireCodexBoundaryEnvironment) == "1"
 	codexBinary := requireExactCodexBinary(t, required)
-	credentialCanary := randomBoundaryCredential(t)
-	executorInstance, runtimeRoot, writableRoot := requireCodexBoundaryExecutor(t, required)
+	providerCanary := randomBoundaryCanary(t, testProviderCanaryPrefix)
+	authFileCanary := randomBoundaryCanary(t, authFileCanaryPrefix)
+	authFile := writeSyntheticCodexAuthFile(t, authFileCanary)
+	executorInstance, runtimeRoot, writableRoot := requireCodexBoundaryExecutor(t, required, authFile)
 	hostCanaryRoot := t.TempDir()
 	hostCanary := filepath.Join(hostCanaryRoot, "host-only-canary")
 	if err := os.WriteFile(hostCanary, []byte("host-only\n"), 0o600); err != nil {
@@ -96,15 +101,18 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var controlPlaneRequests atomic.Int32
-	var controlPlaneFailure atomic.Value
-	controlPlane := httptest.NewServer(newCodexResponsesHandler(
+	var modelDiscoveryRequests atomic.Int32
+	var providerRequests atomic.Int32
+	var providerFailure atomic.Value
+	providerBackend := httptest.NewServer(newCodexResponsesHandler(
 		hostCanary,
-		credentialCanary,
-		&controlPlaneRequests,
-		&controlPlaneFailure,
+		providerCanary,
+		authFileCanary,
+		&modelDiscoveryRequests,
+		&providerRequests,
+		&providerFailure,
 	))
-	t.Cleanup(controlPlane.Close)
+	t.Cleanup(providerBackend.Close)
 
 	contextWithDeadline, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -119,7 +127,8 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 		}
 		codexArgv[index] = `model_provider="sworn_boundary"`
 		provider := "model_providers.sworn_boundary=" + `{name="Sworn boundary",base_url=` +
-			strconv.Quote(controlPlane.URL+"/v1") + `,env_key="CODEX_API_KEY",wire_api="responses",supports_websockets=false}`
+			strconv.Quote(providerBackend.URL+"/v1") + `,env_key=` +
+			strconv.Quote(testProviderCredentialEnvironment) + `,wire_api="responses",supports_websockets=false}`
 		codexArgv = append(codexArgv[:index+1], append([]string{"-c", provider}, codexArgv[index+1:]...)...)
 		providerConfigured = true
 		break
@@ -128,14 +137,15 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 		t.Fatal("production Codex argv did not expose its fixed provider selector")
 	}
 	completion, err := executorInstance.RunWritable(contextWithDeadline, executor.Invocation{
-		SchemaVersion:   executor.InvocationSchemaVersion,
-		ID:              "real-codex-boundary",
-		Role:            "builder",
-		NestedSandbox:   true,
-		Workspace:       sourceWorkspace,
-		WorkspaceDigest: workspaceDigest,
-		WorkspaceAccess: executor.WorkspaceWritableExport,
-		ExecutableInput: "codex",
+		SchemaVersion:    executor.InvocationSchemaVersion,
+		ID:               "real-codex-boundary",
+		Role:             "builder",
+		NestedSandbox:    true,
+		CredentialAccess: true,
+		Workspace:        sourceWorkspace,
+		WorkspaceDigest:  workspaceDigest,
+		WorkspaceAccess:  executor.WorkspaceWritableExport,
+		ExecutableInput:  "codex",
 		Inputs: []executor.Input{{
 			Name:   "codex",
 			Path:   codexBinary,
@@ -146,7 +156,7 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 			Digest: probeDigest,
 		}},
 		Argv:        codexArgv,
-		Environment: map[string]string{"CODEX_API_KEY": credentialCanary},
+		Environment: map[string]string{testProviderCredentialEnvironment: providerCanary},
 		Network:     executor.NetworkHost,
 		Timeout:     25 * time.Second,
 	})
@@ -155,8 +165,8 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 			"run real Codex boundary: %v; exit=%d stdout=%q stderr=%q",
 			err,
 			completion.ExitCode,
-			redactBoundarySecret(completion.Stdout, credentialCanary),
-			redactBoundarySecret(completion.Stderr, credentialCanary),
+			redactBoundarySecrets(completion.Stdout, providerCanary, authFileCanary),
+			redactBoundarySecrets(completion.Stderr, providerCanary, authFileCanary),
 		)
 	}
 	if completion.ExitCode != 0 || completion.Cancelled || completion.TimedOut || completion.OutputTruncated {
@@ -166,19 +176,24 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 			completion.Cancelled,
 			completion.TimedOut,
 			completion.OutputTruncated,
-			redactBoundarySecret(completion.Stdout, credentialCanary),
-			redactBoundarySecret(completion.Stderr, credentialCanary),
+			redactBoundarySecrets(completion.Stdout, providerCanary, authFileCanary),
+			redactBoundarySecrets(completion.Stderr, providerCanary, authFileCanary),
 		)
 	}
-	if bytes.Contains(completion.Stdout, []byte(credentialCanary)) ||
-		bytes.Contains(completion.Stderr, []byte(credentialCanary)) {
-		t.Fatal("credential sentinel appeared in successful Codex output")
+	if containsBoundarySecret(completion.Stdout, providerCanary, authFileCanary) ||
+		containsBoundarySecret(completion.Stderr, providerCanary, authFileCanary) {
+		t.Fatal("provider or auth-file credential canary appeared in successful Codex output")
 	}
 	if err := validateCodexJSONL(completion.Stdout); err != nil {
 		t.Fatalf("production Codex JSONL completion contract: %v", err)
 	}
-	if completion.ExecutableInput != "codex" || len(completion.Inputs) != 2 {
-		t.Fatalf("executable binding = %q, inputs=%#v", completion.ExecutableInput, completion.Inputs)
+	if completion.ExecutableInput != "codex" || !completion.CredentialAccess || len(completion.Inputs) != 2 {
+		t.Fatalf(
+			"executable binding = %q, credential_access=%t, inputs=%#v",
+			completion.ExecutableInput,
+			completion.CredentialAccess,
+			completion.Inputs,
+		)
 	}
 	var boundCodex *executor.BoundInput
 	for index := range completion.Inputs {
@@ -192,21 +207,29 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 	if !bytes.Contains(completion.Stdout, []byte("nested-codex-sandbox-contained")) {
 		t.Fatalf(
 			"boundary proof marker absent: stdout=%q stderr=%q",
-			redactBoundarySecret(completion.Stdout, credentialCanary),
-			redactBoundarySecret(completion.Stderr, credentialCanary),
+			redactBoundarySecrets(completion.Stdout, providerCanary, authFileCanary),
+			redactBoundarySecrets(completion.Stderr, providerCanary, authFileCanary),
 		)
 	}
 	version := boundaryCodexVersion(completion.Stdout)
 	if version == "" {
-		t.Fatalf("Codex version absent from successful tool output: %q", redactBoundarySecret(completion.Stdout, credentialCanary))
+		t.Fatalf("Codex version absent from successful tool output: %q", redactBoundarySecrets(completion.Stdout, providerCanary, authFileCanary))
 	}
 	t.Logf("real Codex boundary binary: %s, %s", version, codexDigest)
-	if failure := controlPlaneFailure.Load(); failure != nil {
-		t.Fatalf("Responses control-plane validation: %s", failure.(string))
+	if failure := providerFailure.Load(); failure != nil {
+		t.Fatalf("Responses test-provider validation: %s", failure.(string))
 	}
-	if got := controlPlaneRequests.Load(); got != 2 {
-		t.Fatalf("Responses control-plane requests = %d, want model call plus tool output", got)
+	if got := modelDiscoveryRequests.Load(); got != 2 {
+		t.Fatalf("test-provider model discovery requests = %d, want 2", got)
 	}
+	if got := providerRequests.Load(); got != 2 {
+		t.Fatalf("Responses test-provider requests = %d, want model call plus tool output", got)
+	}
+	t.Logf(
+		"test-provider requests: model_discovery=%d responses=%d",
+		modelDiscoveryRequests.Load(),
+		providerRequests.Load(),
+	)
 	if completion.Export == nil {
 		t.Fatal("real Codex boundary did not produce a measured workspace export")
 	}
@@ -242,25 +265,50 @@ func TestRealCodexCLIBoundaryFeasibility(t *testing.T) {
 
 func newCodexResponsesHandler(
 	hostCanary string,
-	credentialCanary string,
+	providerCanary string,
+	authFileCanary string,
+	modelDiscoveryRequests *atomic.Int32,
 	requests *atomic.Int32,
 	failure *atomic.Value,
 ) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requestNumber := requests.Add(1)
 		fail := func(format string, arguments ...any) {
 			message := fmt.Sprintf(format, arguments...)
 			failure.Store(message)
 			http.Error(writer, message, http.StatusBadRequest)
 		}
+		if request.Header.Get("Authorization") != "Bearer "+providerCanary {
+			fail("test-provider request did not carry the exact provider credential")
+			return
+		}
+		for _, values := range request.Header {
+			for _, value := range values {
+				if strings.Contains(value, authFileCanary) {
+					fail("ChatGPT auth-file canary reached the test provider")
+					return
+				}
+			}
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/v1/models" {
+			modelDiscoveryRequests.Add(1)
+			body, err := io.ReadAll(io.LimitReader(request.Body, 1))
+			if err != nil {
+				fail("read model-discovery request: %v", err)
+				return
+			}
+			if len(body) != 0 {
+				fail("model-discovery request unexpectedly carried a body")
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(map[string]any{"models": []any{}})
+			return
+		}
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/responses" {
-			fail("unexpected Responses request %s %s", request.Method, request.URL.Path)
+			fail("unexpected test-provider request %s %s", request.Method, request.URL.Path)
 			return
 		}
-		if request.Header.Get("Authorization") != "Bearer "+credentialCanary {
-			fail("Responses request did not carry the exact sentinel credential")
-			return
-		}
+		requestNumber := requests.Add(1)
 		if encoding := request.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
 			fail("unsupported Responses request encoding %q", encoding)
 			return
@@ -274,8 +322,8 @@ func newCodexResponsesHandler(
 			fail("hostile candidate project instructions reached the model request")
 			return
 		}
-		if bytes.Contains(body, []byte(credentialCanary)) {
-			fail("credential sentinel reached the model request body")
+		if containsBoundarySecret(body, providerCanary, authFileCanary) {
+			fail("credential canary reached the model request body")
 			return
 		}
 		var payload struct {
@@ -446,21 +494,25 @@ func shellBoundaryQuote(value string) string {
 
 func runCodexBoundaryNestedProbe(arguments []string, stdout, stderr io.Writer) int {
 	if len(arguments) != 2 {
-		_, _ = fmt.Fprintln(stderr, "nested Codex boundary probe requires control plane and host canary")
+		_, _ = fmt.Fprintln(stderr, "nested Codex boundary probe requires provider backend and host canary")
 		return 2
 	}
-	if _, present := os.LookupEnv("CODEX_API_KEY"); present {
-		_, _ = fmt.Fprintln(stderr, "nested tool inherited CODEX_API_KEY")
+	if _, present := os.LookupEnv(testProviderCredentialEnvironment); present {
+		_, _ = fmt.Fprintln(stderr, "nested tool inherited the test-provider credential")
 		return 1
 	}
 	for _, value := range os.Environ() {
-		if strings.Contains(value, credentialCanaryPrefix) {
-			_, _ = fmt.Fprintln(stderr, "nested tool environment exposed the API-key sentinel")
+		if strings.Contains(value, testProviderCanaryPrefix) || strings.Contains(value, authFileCanaryPrefix) {
+			_, _ = fmt.Fprintln(stderr, "nested tool environment exposed a credential sentinel")
 			return 1
 		}
 	}
-	if err := assertNoVisibleProcContains(credentialCanaryPrefix); err != nil {
+	if err := assertNoVisibleProcContains(testProviderCanaryPrefix, authFileCanaryPrefix); err != nil {
 		_, _ = fmt.Fprintf(stderr, "nested /proc boundary: %v\n", err)
+		return 1
+	}
+	if err := assertCredentialCanaryUnreadable(authFileCanaryPrefix); err != nil {
+		_, _ = fmt.Fprintf(stderr, "nested credential-file boundary: %v\n", err)
 		return 1
 	}
 	if err := assertNoOpenSocketFD(); err != nil {
@@ -470,7 +522,7 @@ func runCodexBoundaryNestedProbe(arguments []string, stdout, stderr io.Writer) i
 	client := &http.Client{Timeout: 750 * time.Millisecond}
 	if response, err := client.Get(arguments[0]); err == nil {
 		_ = response.Body.Close()
-		_, _ = fmt.Fprintln(stderr, "nested tool reached the outer control plane")
+		_, _ = fmt.Fprintln(stderr, "nested tool reached the outer provider backend")
 		return 1
 	}
 	if info, err := os.Stat("/inputs/probe"); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
@@ -483,6 +535,7 @@ func runCodexBoundaryNestedProbe(arguments []string, stdout, stderr io.Writer) i
 	}
 	for _, path := range []string{
 		"/usr/sworn-codex-boundary-forbidden",
+		executor.CredentialFileTarget,
 		"/inputs/codex",
 		"/inputs/probe",
 		"/inputs/forbidden",
@@ -512,7 +565,11 @@ func requireExactCodexBinary(t *testing.T, required bool) string {
 	return path
 }
 
-func requireCodexBoundaryExecutor(t *testing.T, required bool) (*executor.LinuxExecutor, string, string) {
+func requireCodexBoundaryExecutor(
+	t *testing.T,
+	required bool,
+	authFile string,
+) (*executor.LinuxExecutor, string, string) {
 	t.Helper()
 	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntime == "" {
@@ -547,13 +604,15 @@ func requireCodexBoundaryExecutor(t *testing.T, required bool) (*executor.LinuxE
 	limits.StdoutBytes = 256 << 10
 	limits.StderrBytes = 256 << 10
 	executorInstance, err := executor.NewLinux(executor.Options{
-		RuntimeRoot:        runtimeRoot,
-		WritableRoot:       writableRoot,
-		ShimArgv:           []string{testBinary, "-test.run=^TestCodexBoundaryExecutorShimProcess$", "--", executorShimSentinel},
-		Limits:             limits,
-		AllowedEnvironment: []string{"CODEX_API_KEY"},
-		AllowHostNetwork:   true,
-		AllowNestedSandbox: true,
+		RuntimeRoot:         runtimeRoot,
+		WritableRoot:        writableRoot,
+		ShimArgv:            []string{testBinary, "-test.run=^TestCodexBoundaryExecutorShimProcess$", "--", executorShimSentinel},
+		Limits:              limits,
+		AllowedEnvironment:  []string{testProviderCredentialEnvironment},
+		AllowHostNetwork:    true,
+		AllowNestedSandbox:  true,
+		CredentialFile:      authFile,
+		AllowCredentialFile: true,
 	})
 	if err == nil {
 		probeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -573,6 +632,72 @@ func codexBoundaryUnavailable(t *testing.T, required bool, format string, argume
 		t.Fatal(message)
 	}
 	t.Skip(message)
+}
+
+func writeSyntheticCodexAuthFile(t *testing.T, canary string) string {
+	t.Helper()
+	authParent := filepath.Join(t.TempDir(), "codex-auth")
+	if err := os.Mkdir(authParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	authDocument := map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens": map[string]string{
+			"id_token": syntheticBoundaryJWT(t, map[string]any{
+				"email": "sworn-boundary@example.invalid",
+				"exp":   now.Add(24 * time.Hour).Unix(),
+				"https://api.openai.com/auth": map[string]string{
+					"chatgpt_account_id": "sworn-boundary-account",
+					"chatgpt_plan_type":  "test",
+				},
+			}),
+			"access_token": syntheticBoundaryJWT(t, map[string]any{
+				"aud": []string{"https://api.openai.com/v1"},
+				"exp": now.Add(24 * time.Hour).Unix(),
+				"https://api.openai.com/auth": map[string]string{
+					"chatgpt_account_id": "sworn-boundary-account",
+				},
+			}),
+			"refresh_token": "rt." + canary,
+			"account_id":    "sworn-boundary-account",
+		},
+		"last_refresh": now.Format(time.RFC3339Nano),
+	}
+	encoded, err := json.Marshal(authDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authFile := filepath.Join(authParent, "auth.json")
+	if err := os.WriteFile(authFile, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parentInfo, err := os.Stat(authParent)
+	if err != nil || parentInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("synthetic auth parent mode = %v, %v", parentInfo, err)
+	}
+	fileInfo, err := os.Stat(authFile)
+	if err != nil || fileInfo.Mode().Perm() != 0o600 || !fileInfo.Mode().IsRegular() {
+		t.Fatalf("synthetic auth file mode = %v, %v", fileInfo, err)
+	}
+	if contents, err := os.ReadFile(authFile); err != nil || !bytes.Contains(contents, []byte(canary)) {
+		t.Fatalf("synthetic auth file omitted its credential canary: %v", err)
+	}
+	return authFile
+}
+
+func syntheticBoundaryJWT(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	header, err := json.Marshal(map[string]string{"alg": "none", "typ": "JWT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(header) + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + ".boundary"
 }
 
 func writeHostileProjectCanaries(workspace string) error {
@@ -606,20 +731,33 @@ func digestBoundaryFile(path string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-func randomBoundaryCredential(t *testing.T) string {
+func randomBoundaryCanary(t *testing.T, prefix string) string {
 	t.Helper()
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		t.Fatal(err)
 	}
-	return credentialCanaryPrefix + hex.EncodeToString(random[:])
+	return prefix + hex.EncodeToString(random[:])
 }
 
-func redactBoundarySecret(contents []byte, credential string) []byte {
-	return bytes.ReplaceAll(contents, []byte(credential), []byte("[REDACTED]"))
+func redactBoundarySecrets(contents []byte, credentials ...string) []byte {
+	redacted := bytes.Clone(contents)
+	for _, credential := range credentials {
+		redacted = bytes.ReplaceAll(redacted, []byte(credential), []byte("[REDACTED]"))
+	}
+	return redacted
 }
 
-func assertNoVisibleProcContains(prefix string) error {
+func containsBoundarySecret(contents []byte, credentials ...string) bool {
+	for _, credential := range credentials {
+		if bytes.Contains(contents, []byte(credential)) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertNoVisibleProcContains(prefixes ...string) error {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return err
@@ -641,13 +779,68 @@ func assertNoVisibleProcContains(prefix string) error {
 				return err
 			}
 			visible++
-			if bytes.Contains(contents, []byte(prefix)) {
-				return fmt.Errorf("credential canary appears in visible process %s %s", entry.Name(), name)
+			for _, prefix := range prefixes {
+				if bytes.Contains(contents, []byte(prefix)) {
+					return fmt.Errorf("credential canary appears in visible process %s %s", entry.Name(), name)
+				}
 			}
 		}
 	}
 	if visible == 0 {
 		return errors.New("no process command lines were visible")
+	}
+	return nil
+}
+
+func assertCredentialCanaryUnreadable(prefix string) error {
+	paths := []string{
+		executor.CredentialFileTarget,
+		"/proc/self/root" + executor.CredentialFileTarget,
+		"/proc/thread-self/root" + executor.CredentialFileTarget,
+		"/proc/1/root" + executor.CredentialFileTarget,
+	}
+	processes, err := os.ReadDir("/proc")
+	if err != nil {
+		return err
+	}
+	for _, process := range processes {
+		if !process.IsDir() {
+			continue
+		}
+		if _, err := strconv.Atoi(process.Name()); err != nil {
+			continue
+		}
+		processRoot := filepath.Join("/proc", process.Name())
+		paths = append(paths,
+			filepath.Join(processRoot, "root")+executor.CredentialFileTarget,
+			filepath.Join(processRoot, "cwd")+"/../home/sworn/.codex/auth.json",
+			filepath.Join(processRoot, "cwd")+"/../../home/sworn/.codex/auth.json",
+		)
+		fileDescriptors, err := os.ReadDir(filepath.Join(processRoot, "fd"))
+		if err != nil {
+			continue
+		}
+		for _, descriptor := range fileDescriptors {
+			paths = append(paths, filepath.Join(processRoot, "fd", descriptor.Name()))
+		}
+	}
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if _, duplicate := seen[path]; duplicate {
+			continue
+		}
+		seen[path] = struct{}{}
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > 1<<20 {
+			continue
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if bytes.Contains(contents, []byte(prefix)) {
+			return fmt.Errorf("credential canary was readable through %s", path)
+		}
 	}
 	return nil
 }

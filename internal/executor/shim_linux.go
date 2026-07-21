@@ -26,10 +26,19 @@ const (
 // that pipe closes before Bubblewrap exits, the shim terminates its child and
 // returns; systemd then removes every remaining process in the service cgroup.
 func RunShim(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	startMarker, containedArgv, err := parseShimArgv(argv)
+	startMarker, broker, containedArgv, err := parseShimArgv(argv)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "sworn executor shim: %v\n", err)
 		return 126
+	}
+	var credential *os.File
+	if broker != nil {
+		credential, err = receiveCredentialFromBroker(*broker)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "sworn executor shim: receive credential capability: %v\n", err)
+			return 126
+		}
+		defer credential.Close() //nolint:errcheck
 	}
 	statusReader, statusWriter, err := os.Pipe()
 	if err != nil {
@@ -47,6 +56,9 @@ func RunShim(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	command.Stdout = stdout
 	command.Stderr = stderr
 	command.ExtraFiles = []*os.File{statusWriter}
+	if credential != nil {
+		command.ExtraFiles = append(command.ExtraFiles, credential)
+	}
 	if err := command.Start(); err != nil {
 		_, _ = fmt.Fprintf(stderr, "sworn executor shim: start contained process: %v\n", err)
 		if errors.Is(err, exec.ErrNotFound) {
@@ -105,19 +117,36 @@ func RunShim(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 }
 
-func parseShimArgv(argv []string) (string, []string, error) {
+func parseShimArgv(argv []string) (string, *credentialBrokerClient, []string, error) {
 	if len(argv) < 3 || argv[0] != shimStartMarkerArgument {
-		return "", nil, errors.New("start marker argument is required")
+		return "", nil, nil, errors.New("start marker argument is required")
 	}
 	marker := argv[1]
 	if !filepath.IsAbs(marker) || filepath.Clean(marker) != marker || strings.ContainsRune(marker, '\x00') {
-		return "", nil, errors.New("start marker must be a clean absolute path")
+		return "", nil, nil, errors.New("start marker must be a clean absolute path")
 	}
-	contained := argv[2:]
+	var broker *credentialBrokerClient
+	containedStart := 2
+	if argv[2] == shimCredentialBrokerArgument {
+		if len(argv) < 7 {
+			return "", nil, nil, errors.New("credential broker arguments are incomplete")
+		}
+		candidate := credentialBrokerClient{
+			runtimePath: argv[3],
+			socketName:  argv[4],
+			token:       argv[5],
+		}
+		if err := validateCredentialBrokerClient(candidate); err != nil {
+			return "", nil, nil, err
+		}
+		broker = &candidate
+		containedStart = 6
+	}
+	contained := argv[containedStart:]
 	if err := validateContainedArgv(contained); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	return marker, contained, nil
+	return marker, broker, contained, nil
 }
 
 func observeBubblewrapStatus(

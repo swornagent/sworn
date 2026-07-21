@@ -69,6 +69,7 @@ type BuilderWorker struct {
 	ExecutableInput  *executor.Input
 	Network          executor.NetworkMode
 	NestedSandbox    bool
+	CredentialAccess bool
 	CompletionPolicy BuilderCompletionPolicy
 }
 
@@ -90,6 +91,7 @@ type builderProfile struct {
 	Network                     executor.NetworkMode     `json:"network"`
 	WorkspaceAccess             executor.WorkspaceAccess `json:"workspace_access"`
 	NestedSandbox               bool                     `json:"nested_sandbox"`
+	CredentialAccess            bool                     `json:"credential_access"`
 	ExecutableInput             *builderExecutableInput  `json:"executable_input,omitempty"`
 	CompletionPolicyDigest      string                   `json:"completion_policy_digest,omitempty"`
 }
@@ -102,6 +104,7 @@ type buildConfiguration struct {
 	executableInput  *executor.Input
 	network          executor.NetworkMode
 	nestedSandbox    bool
+	credentialAccess bool
 	completionPolicy BuilderCompletionPolicy
 }
 
@@ -166,6 +169,9 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 	if network != executor.NetworkNone && network != executor.NetworkHost {
 		return buildConfiguration{}, errors.New("builder network mode is invalid")
 	}
+	if worker.CredentialAccess && !worker.NestedSandbox {
+		return buildConfiguration{}, errors.New("builder credential access requires the nested sandbox")
+	}
 	completionPolicyDigest := ""
 	if worker.CompletionPolicy != nil {
 		completionPolicyDigest = worker.CompletionPolicy.BuilderProfileDigest()
@@ -185,6 +191,7 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 		Network:                     network,
 		WorkspaceAccess:             executor.WorkspaceWritableExport,
 		NestedSandbox:               worker.NestedSandbox,
+		CredentialAccess:            worker.CredentialAccess,
 		CompletionPolicyDigest:      completionPolicyDigest,
 	}
 	if executableInput != nil {
@@ -200,7 +207,8 @@ func (worker BuilderWorker) configuration() (buildConfiguration, error) {
 		digest: protocol.RawDigest(canonical), argv: profile.Argv,
 		environment: cloneEnvironment(worker.Environment), limits: limits,
 		executableInput: executableInput, network: network,
-		nestedSandbox: worker.NestedSandbox, completionPolicy: worker.CompletionPolicy,
+		nestedSandbox: worker.NestedSandbox, credentialAccess: worker.CredentialAccess,
+		completionPolicy: worker.CompletionPolicy,
 	}, nil
 }
 
@@ -413,7 +421,8 @@ func (worker BuilderWorker) run(
 		Argv:        slices.Clone(configuration.argv),
 		Environment: cloneEnvironment(configuration.environment),
 		Network:     configuration.network, NestedSandbox: configuration.nestedSandbox,
-		Timeout: worker.Timeout,
+		CredentialAccess: configuration.credentialAccess,
+		Timeout:          worker.Timeout,
 	}
 	invoked = true
 	completion, runErr := worker.Runner.RunWritable(ctx, invocation)
@@ -470,7 +479,8 @@ func validateBuilderCompletion(
 	if completion.InvocationID != invocation.ID || completion.RuntimeDigest != "" ||
 		completion.WorkspaceDigest != invocation.WorkspaceDigest ||
 		completion.WorkspaceAccess != executor.WorkspaceWritableExport ||
-		completion.ExecutableInput != invocation.ExecutableInput {
+		completion.ExecutableInput != invocation.ExecutableInput ||
+		completion.CredentialAccess != invocation.CredentialAccess {
 		return errors.New("builder completion does not match its exact invocation")
 	}
 	if completion.Cancelled || completion.TimedOut || completion.OutputTruncated || completion.ExitCode != 0 {

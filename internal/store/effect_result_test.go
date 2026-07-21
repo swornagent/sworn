@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/executor"
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
@@ -388,7 +389,7 @@ func validContentEnvironment(runtimeDigest string) protocol.LocalEnvironment {
 			UserManager:       "running",
 			Controllers:       []string{"cpu", "memory", "pids"},
 		},
-		ExecutorPolicyVersion: "sworn-linux-containment-v1",
+		ExecutorPolicyVersion: executor.ContainmentPolicyVersion,
 		Limits: protocol.LocalExecutionLimits{
 			RuntimeNanoseconds: 10_000_000_000,
 			MemoryBytes:        64 << 20,

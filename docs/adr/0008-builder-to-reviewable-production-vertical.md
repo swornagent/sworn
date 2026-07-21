@@ -2,6 +2,9 @@
 
 - Date: 2026-07-21
 - Status: accepted
+- Superseded in part by: [ADR
+  0009](0009-codex-cli-managed-chatgpt-authentication.md), credential transport
+  and run-configuration source only
 
 ## Context
 
@@ -22,6 +25,9 @@ admission edge.
 
 ### Admit one exact Codex builder profile
 
+The production-adapter decision remains accepted. ADR 0009 supersedes only its
+credential transport and credential-related profile facts.
+
 Add one production adapter for the ADR 0007 binary and no adapter registry. It
 accepts only:
 
@@ -31,7 +37,8 @@ accepts only:
 - the adapter-owned OpenAI provider, literal hardened argv, pinned tool-schema
   digest, one executable input, host network, and nested sandbox;
 - one explicit deployment-selected model and finite timeout; and
-- one credential under the inner name `CODEX_API_KEY`.
+- one credential under the inner name `CODEX_API_KEY` (historical; superseded
+  by ADR 0009's dedicated file-backed ChatGPT authentication).
 
 Validation retains and copies the original binary descriptor, hashes the bytes
 of a private staged copy, inspects that copy as static PIE, and executes only the
@@ -104,11 +111,16 @@ planned and activated delivery. The strict `sworn-run-config-v1` file binds the
 existing private database, full repository binding, public authority roots and
 bundle directories, executor roots and executable paths, finite limits, content
 runtime, distinct builder and check roots, and the Codex binary, model, timeout,
-and host credential environment name. It accepts no private key, credential
-value, provider selection, helper command, or fallback. The JSON result is a
-secret-free monitoring projection; SQLite and the board remain authoritative.
+and host credential environment name. ADR 0009 replaces that credential source
+with `codex.chatgpt_auth_file`; the remaining strict configuration decision is
+unchanged. It accepts no private key, credential value, provider selection,
+helper command, or fallback. The JSON result is a secret-free monitoring
+projection; SQLite and the board remain authoritative.
 
 ## Accepted evidence and non-evidence
+
+The API-key boundary evidence below records the accepted historical slice. ADR
+0009 defines the current credential capability and its required evidence.
 
 The implementation tests the exact Codex profile and its staged-copy race
 boundary, hardened argv and completion schema, current check permits and source

@@ -39,7 +39,7 @@ func TestBuiltSwornBinaryEntersProductionRunComposition(t *testing.T) {
 	})
 
 	t.Run("reaches and enforces the exact Codex pin without executing it", func(t *testing.T) {
-		configuration, credentialName, credential, marker := completeRejectedCodexConfig(t)
+		configuration, authCanary, marker := completeRejectedCodexConfig(t)
 		encoded, err := json.Marshal(configuration)
 		if err != nil {
 			t.Fatal(err)
@@ -52,7 +52,6 @@ func TestBuiltSwornBinaryEntersProductionRunComposition(t *testing.T) {
 		command := exec.Command(
 			binary, "run", "run-1", "work-1", "--config", configPath, "--json",
 		)
-		command.Env = append(os.Environ(), credentialName+"="+credential)
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err = command.Run()
@@ -64,8 +63,8 @@ func TestBuiltSwornBinaryEntersProductionRunComposition(t *testing.T) {
 			!strings.Contains(stderr.String(), "is not pinned profile") {
 			t.Fatalf("built binary stderr = %q, want exact Codex pin rejection", stderr.String())
 		}
-		if strings.Contains(stderr.String(), credential) {
-			t.Fatal("built binary disclosed the configured credential")
+		if strings.Contains(stderr.String(), authCanary) {
+			t.Fatal("built binary disclosed the Codex ChatGPT credential")
 		}
 		if _, err := os.Stat(marker); !os.IsNotExist(err) {
 			t.Fatalf("rejected Codex executable ran; marker stat error = %v", err)
@@ -85,7 +84,7 @@ func buildSwornForProcessTest(t *testing.T) string {
 	return binary
 }
 
-func completeRejectedCodexConfig(t *testing.T) (app.Config, string, string, string) {
+func completeRejectedCodexConfig(t *testing.T) (app.Config, string, string) {
 	t.Helper()
 	root := t.TempDir()
 	repositoryRoot := filepath.Join(root, "repository")
@@ -121,8 +120,15 @@ func completeRejectedCodexConfig(t *testing.T) (app.Config, string, string, stri
 		t.Fatal(err)
 	}
 
-	credentialName := "SWORN_BINARY_TEST_CODEX_KEY"
-	credential := "token-that-must-not-leak-from-built-binary"
+	authRoot := filepath.Join(root, "codex-auth")
+	if err := os.Mkdir(authRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authCanary := "token-that-must-not-leak-from-built-binary"
+	authFile := filepath.Join(authRoot, "auth.json")
+	if err := os.WriteFile(authFile, []byte(`{"auth_mode":"chatgpt","token":"`+authCanary+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	configuration := app.Config{
 		SchemaVersion:   app.RunConfigSchemaVersion,
 		ControlDatabase: controlDatabase,
@@ -147,11 +153,11 @@ func completeRejectedCodexConfig(t *testing.T) (app.Config, string, string, stri
 			BuilderRoot: privateDirectories["builder"], CheckRoot: privateDirectories["checks"],
 		},
 		Codex: app.CodexConfig{
-			Binary: codex, Model: "gpt-5.4", TimeoutSeconds: 60,
-			CredentialEnvironment: credentialName,
+			Binary: codex, ChatGPTAuthFile: authFile,
+			Model: "gpt-5.4", TimeoutSeconds: 60,
 		},
 	}
-	return configuration, credentialName, credential, marker
+	return configuration, authCanary, marker
 }
 
 func executableTmpfsDirectory(t *testing.T) string {

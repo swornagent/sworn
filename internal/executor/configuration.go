@@ -20,7 +20,7 @@ func executorConfigurationDigest(options Options) string {
 		_, _ = hasher.Write([]byte{':'})
 		_, _ = hasher.Write([]byte(value))
 	}
-	bind("schema", "sworn-executor-configuration-v1")
+	bind("schema", "sworn-executor-configuration-v2")
 	bind("containment_policy", ContainmentPolicyVersion)
 	bind("invocation_schema", InvocationSchemaVersion)
 	bind("workspace_export_schema", WorkspaceExportSchemaVersion)
@@ -61,5 +61,9 @@ func executorConfigurationDigest(options Options) string {
 	bind("allowed_environment_count", strconv.Itoa(count))
 	bind("allow_host_network", strconv.FormatBool(options.AllowHostNetwork))
 	bind("allow_nested_sandbox", strconv.FormatBool(options.AllowNestedSandbox))
+	bind("credential_file_target", CredentialFileTarget)
+	bind("credential_file_maximum_bytes", strconv.FormatInt(maximumCredentialFileBytes, 10))
+	bind("credential_file", options.CredentialFile)
+	bind("allow_credential_file", strconv.FormatBool(options.AllowCredentialFile))
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }

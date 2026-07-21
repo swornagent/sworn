@@ -2,6 +2,9 @@
 
 - Date: 2026-07-21
 - Status: accepted
+- Superseded in part by: [ADR
+  0009](0009-codex-cli-managed-chatgpt-authentication.md), credential transport
+  and its API-key canary only
 
 ## Context
 
@@ -38,6 +41,11 @@ an agent framework: exact executable input, nested-sandbox admission, and host
 network admission.
 
 ### Prove one exact Codex CLI before building an adapter
+
+The executable, nested-sandbox, and outer-versus-tool capability split in this
+section remain accepted. ADR 0009 supersedes its credential transport: the
+production profile uses a dedicated CLI-managed ChatGPT `auth.json`, not an
+environment-supplied Platform API key or the generic credential language below.
 
 The first target is one static-PIE Codex CLI supplied by clean absolute path and
 copied through the executable-input boundary. The proof records its observed
@@ -80,6 +88,11 @@ admission of exact completed evidence remain deterministic history and do not
 gain a redundant permit check.
 
 ## Accepted feasibility evidence
+
+This is retained as historical evidence for the original process split. Its
+random bearer canary proved environment and process isolation, but ADR 0009's
+file-backed ChatGPT proof is the release evidence for current production
+authentication.
 
 `TestRealCodexCLIBoundaryFeasibility` runs the real CLI inside the production
 Linux executor against a local scripted Responses endpoint. It makes no

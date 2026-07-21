@@ -57,6 +57,12 @@ cleanup. Each pending local check separately requires freshly resolved current
 authority and an exact Store-issued execution capability. Interrupted checks
 likewise converge from a bound result or from an attempt-bound proof that the
 content process is quiescent and its private materialization has been removed.
+The Codex control process authenticates only through a dedicated, file-backed
+ChatGPT login managed by the Codex CLI. Sworn binds that single `auth.json`
+read-write for the trusted outer process so token refresh can persist; the
+model-directed tool sandbox has neither network access nor read access to the
+fixed Codex home. Sworn accepts no Platform API key and has no authentication
+fallback.
 
 `sworn run <run> [<work>] --config <absolute-path>` acquires exclusive Store
 ownership, completes the recovery barrier, and advances exactly the selected
@@ -98,17 +104,27 @@ SWORN_CODEX_BINARY=/absolute/path/to/codex \
 
 The final two test commands are fail-if-unavailable real containment suites. The
 Codex proof requires an exact static CLI and exercises it against a local
-scripted Responses endpoint without making a provider model call. Both require
-the Linux capability floor described in the executor document. Ordinary tests
-skip those integration cases when their host capability or explicit binary is
-unavailable.
+scripted Responses endpoint while mounting synthetic file-backed ChatGPT state,
+without making a provider model call. It also proves that a real nested tool
+cannot read the mounted authentication file. Both suites require the Linux
+capability floor described in the executor document. Ordinary tests skip those
+integration cases when their host capability or explicit binary is unavailable.
 
-That scripted proof is token-free. A real `sworn run` uses the built-in OpenAI
-provider and can consume billable model tokens; no live-provider delivery is
-part of the ordinary test suite. The accepted adapter currently requires the
-exact 304,169,008-byte `codex-cli 0.145.0-alpha.18` static binary described in
-[ADR 0007](docs/adr/0007-native-agent-boundary.md); Sworn does not yet install or
-acquire it.
+That scripted proof validates the credential mount and nested denial, but its
+test provider uses a separate synthetic bearer and does not prove that a model
+request used the mounted ChatGPT state. A real `sworn run` uses the built-in OpenAI
+provider through the operator's dedicated Codex CLI ChatGPT login and consumes
+that account's Codex usage. It never reads a Platform API key. No live-provider
+delivery is part of the ordinary test suite. On 2026-07-21, the opt-in release
+smoke test passed at the built-process boundary with `gpt-5.4`: one live turn
+created the exact candidate, passed its local check, and reached `reviewable`;
+a second process invocation converged without another model turn. The accepted
+adapter currently requires the exact 304,169,008-byte
+`codex-cli 0.145.0-alpha.18` static binary described in [ADR
+0007](docs/adr/0007-native-agent-boundary.md); Sworn does not yet install or
+acquire it. Authentication setup and rotation are documented in [Running the
+bounded vertical](docs/run.md) and [ADR
+0009](docs/adr/0009-codex-cli-managed-chatgpt-authentication.md).
 
 See [ADR 0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries
 and [the implementation sequence](docs/roadmap.md) for the walking skeleton.

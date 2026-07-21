@@ -41,24 +41,6 @@ func TestDeterministicOwnerIDIsStableAndRunBound(t *testing.T) {
 	}
 }
 
-func TestResolveCredentialUsesOnlyNamedBoundaryLookup(t *testing.T) {
-	t.Parallel()
-
-	requested := ""
-	credential, err := resolveCredential("OPENAI_API_KEY", func(name string) (string, bool) {
-		requested = name
-		return "secret-value", true
-	})
-	if err != nil || requested != "OPENAI_API_KEY" || credential != "secret-value" {
-		t.Fatalf("credential = %q, requested = %q, error = %v", credential, requested, err)
-	}
-	if _, err := resolveCredential("OPENAI_API_KEY", func(string) (string, bool) {
-		return "", false
-	}); err == nil || !strings.Contains(err.Error(), "not set") {
-		t.Fatalf("missing credential error = %v", err)
-	}
-}
-
 func activeRunState(state engine.WorkState) engine.State {
 	attempt := int64(1)
 	next := engine.ActionWait

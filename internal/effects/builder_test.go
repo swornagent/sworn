@@ -145,8 +145,9 @@ func (runner *fakeBuilderRunner) RunWritable(
 	}
 	return executor.RawCompletion{
 		InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
-		WorkspaceAccess: executor.WorkspaceWritableExport,
-		ExecutableInput: invocation.ExecutableInput, Inputs: bound,
+		WorkspaceAccess:  executor.WorkspaceWritableExport,
+		CredentialAccess: invocation.CredentialAccess,
+		ExecutableInput:  invocation.ExecutableInput, Inputs: bound,
 		StartedAt: builderCompletionTime.Add(-time.Minute), CompletedAt: builderCompletionTime,
 		ExitCode: 0,
 		Export: &executor.WorkspaceExport{
@@ -316,6 +317,7 @@ func TestBuilderProfileBindsSelectedExecutableAndAdapterCapabilities(t *testing.
 	}
 	fixture.worker.Network = executor.NetworkHost
 	fixture.worker.NestedSandbox = true
+	fixture.worker.CredentialAccess = true
 	fixture.worker.CompletionPolicy = policy
 	fixture.effect = builderEffectFor(t, fixture.worker, fixture.control.state)
 	baseline, err := fixture.worker.DispatchDigest()
@@ -330,7 +332,8 @@ func TestBuilderProfileBindsSelectedExecutableAndAdapterCapabilities(t *testing.
 	}
 	invocation := fixture.runner.invocations[0]
 	if invocation.ExecutableInput != "agent" || invocation.Network != executor.NetworkHost ||
-		!invocation.NestedSandbox || !slices.Equal(invocation.Argv, fixture.worker.Argv) {
+		!invocation.NestedSandbox || !invocation.CredentialAccess ||
+		!slices.Equal(invocation.Argv, fixture.worker.Argv) {
 		t.Fatalf("selected builder invocation = %#v", invocation)
 	}
 	if got := []string{
@@ -349,7 +352,11 @@ func TestBuilderProfileBindsSelectedExecutableAndAdapterCapabilities(t *testing.
 			worker.ExecutableInput = &selected
 		}},
 		{name: "network", mutate: func(worker *BuilderWorker) { worker.Network = executor.NetworkNone }},
-		{name: "nested sandbox", mutate: func(worker *BuilderWorker) { worker.NestedSandbox = false }},
+		{name: "nested sandbox", mutate: func(worker *BuilderWorker) {
+			worker.NestedSandbox = false
+			worker.CredentialAccess = false
+		}},
+		{name: "credential access", mutate: func(worker *BuilderWorker) { worker.CredentialAccess = false }},
 		{name: "completion policy", mutate: func(worker *BuilderWorker) {
 			worker.CompletionPolicy = &fakeBuilderCompletionPolicy{digest: protocol.RawDigest([]byte("other output policy"))}
 		}},

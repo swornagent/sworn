@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/swornagent/sworn/internal/adapter"
@@ -25,7 +24,6 @@ import (
 
 const (
 	RunResultSchemaVersion        = "sworn-run-result-v1"
-	codexExecutorCredentialName   = "CODEX_API_KEY"
 	maximumMaterializationEntries = 100_000
 )
 
@@ -189,15 +187,16 @@ func Run(ctx context.Context, request Request) (result Result, resultErr error) 
 		return Result{}, err
 	}
 	runner, err := executor.NewLinux(executor.Options{
-		RuntimeRoot:        configuration.Executor.RuntimeRoot,
-		WritableRoot:       configuration.Executor.WritableRoot,
-		BubblewrapPath:     configuration.Executor.Bubblewrap,
-		SystemdRunPath:     configuration.Executor.SystemdRun,
-		SystemctlPath:      configuration.Executor.Systemctl,
-		Limits:             limits,
-		AllowedEnvironment: []string{codexExecutorCredentialName},
-		AllowHostNetwork:   true,
-		AllowNestedSandbox: true,
+		RuntimeRoot:         configuration.Executor.RuntimeRoot,
+		WritableRoot:        configuration.Executor.WritableRoot,
+		BubblewrapPath:      configuration.Executor.Bubblewrap,
+		SystemdRunPath:      configuration.Executor.SystemdRun,
+		SystemctlPath:       configuration.Executor.Systemctl,
+		Limits:              limits,
+		CredentialFile:      configuration.Codex.ChatGPTAuthFile,
+		AllowCredentialFile: true,
+		AllowHostNetwork:    true,
+		AllowNestedSandbox:  true,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("configure contained executor: %w", err)
@@ -211,21 +210,15 @@ func Run(ctx context.Context, request Request) (result Result, resultErr error) 
 		return Result{}, fmt.Errorf("configure content runtime: %w", err)
 	}
 
-	credential, err := resolveCredential(configuration.Codex.CredentialEnvironment, os.LookupEnv)
-	if err != nil {
-		return Result{}, err
-	}
 	baseBuilder := effects.BuilderWorker{
 		Runner: runner, Repository: repository,
 		WorkspaceRoot: configuration.Workspaces.BuilderRoot,
 	}
 	builderWorker, err := adapter.NewCodexBuilder(ctx, baseBuilder, adapter.CodexBuilderOptions{
 		BinaryPath: configuration.Codex.Binary,
-		APIKey:     credential,
 		Model:      configuration.Codex.Model,
 		Timeout:    mustSecondsDuration(configuration.Codex.TimeoutSeconds),
 	})
-	credential = ""
 	if err != nil {
 		return Result{}, fmt.Errorf("configure pinned Codex builder: %w", err)
 	}
@@ -372,20 +365,6 @@ func commandResult(result store.ApplyResult) *CommandResult {
 		return nil
 	}
 	return &CommandResult{CommandID: result.CommandID, Revision: result.Revision, Replayed: result.Replayed}
-}
-
-func resolveCredential(name string, lookup func(string) (string, bool)) (string, error) {
-	if lookup == nil {
-		return "", errors.New("credential environment lookup is unavailable")
-	}
-	value, present := lookup(name)
-	if !present || value == "" {
-		return "", fmt.Errorf("Codex credential environment %q is not set", name)
-	}
-	if strings.TrimSpace(value) != value || len(value) > 8192 || strings.ContainsRune(value, '\x00') {
-		return "", fmt.Errorf("Codex credential environment %q has an invalid value", name)
-	}
-	return value, nil
 }
 
 func deterministicOwnerID(configuration Config, runID string) string {

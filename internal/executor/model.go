@@ -12,9 +12,12 @@ import (
 )
 
 const (
-	InvocationSchemaVersion      = "sworn-executor-invocation-v1"
+	InvocationSchemaVersion      = "sworn-executor-invocation-v2"
 	WorkspaceExportSchemaVersion = "sworn-workspace-export-v1"
-	ContainmentPolicyVersion     = "sworn-linux-containment-v1"
+	ContainmentPolicyVersion     = "sworn-linux-containment-v2"
+	CredentialHome               = "/home/sworn/.codex"
+	CredentialFileTarget         = CredentialHome + "/auth.json"
+	maximumCredentialFileBytes   = int64(64 << 10)
 )
 
 const (
@@ -45,20 +48,21 @@ type Input struct {
 }
 
 type Invocation struct {
-	SchemaVersion   string            `json:"schema_version"`
-	ID              string            `json:"id"`
-	Role            string            `json:"role"`
-	NestedSandbox   bool              `json:"nested_sandbox,omitempty"`
-	RuntimeDigest   string            `json:"runtime_digest,omitempty"`
-	Workspace       string            `json:"workspace"`
-	WorkspaceDigest string            `json:"workspace_digest"`
-	WorkspaceAccess WorkspaceAccess   `json:"workspace_access"`
-	ExecutableInput string            `json:"executable_input,omitempty"`
-	Inputs          []Input           `json:"inputs,omitempty"`
-	Argv            []string          `json:"argv"`
-	Environment     map[string]string `json:"environment,omitempty"`
-	Network         NetworkMode       `json:"network"`
-	Timeout         time.Duration     `json:"timeout"`
+	SchemaVersion    string            `json:"schema_version"`
+	ID               string            `json:"id"`
+	Role             string            `json:"role"`
+	NestedSandbox    bool              `json:"nested_sandbox,omitempty"`
+	CredentialAccess bool              `json:"credential_access,omitempty"`
+	RuntimeDigest    string            `json:"runtime_digest,omitempty"`
+	Workspace        string            `json:"workspace"`
+	WorkspaceDigest  string            `json:"workspace_digest"`
+	WorkspaceAccess  WorkspaceAccess   `json:"workspace_access"`
+	ExecutableInput  string            `json:"executable_input,omitempty"`
+	Inputs           []Input           `json:"inputs,omitempty"`
+	Argv             []string          `json:"argv"`
+	Environment      map[string]string `json:"environment,omitempty"`
+	Network          NetworkMode       `json:"network"`
+	Timeout          time.Duration     `json:"timeout"`
 }
 
 type Limits struct {
@@ -109,16 +113,18 @@ func (limits Limits) Validate() error {
 }
 
 type Options struct {
-	RuntimeRoot        string
-	WritableRoot       string
-	ShimArgv           []string
-	BubblewrapPath     string
-	SystemdRunPath     string
-	SystemctlPath      string
-	Limits             Limits
-	AllowedEnvironment []string
-	AllowHostNetwork   bool
-	AllowNestedSandbox bool
+	RuntimeRoot         string
+	WritableRoot        string
+	ShimArgv            []string
+	BubblewrapPath      string
+	SystemdRunPath      string
+	SystemctlPath       string
+	Limits              Limits
+	AllowedEnvironment  []string
+	AllowHostNetwork    bool
+	AllowNestedSandbox  bool
+	CredentialFile      string
+	AllowCredentialFile bool
 }
 
 type BoundInput struct {
@@ -164,22 +170,23 @@ type contentBoundCleanupProof struct{}
 func (cleanup ContentBoundCleanup) InvocationID() string { return cleanup.invocationID }
 
 type RawCompletion struct {
-	InvocationID    string           `json:"invocation_id"`
-	Unit            string           `json:"unit"`
-	RuntimeDigest   string           `json:"runtime_digest,omitempty"`
-	WorkspaceDigest string           `json:"workspace_digest"`
-	WorkspaceAccess WorkspaceAccess  `json:"workspace_access"`
-	ExecutableInput string           `json:"executable_input,omitempty"`
-	Inputs          []BoundInput     `json:"inputs,omitempty"`
-	StartedAt       time.Time        `json:"started_at"`
-	CompletedAt     time.Time        `json:"completed_at"`
-	ExitCode        int              `json:"exit_code"`
-	Stdout          []byte           `json:"stdout,omitempty"`
-	Stderr          []byte           `json:"stderr,omitempty"`
-	Cancelled       bool             `json:"cancelled,omitempty"`
-	TimedOut        bool             `json:"timed_out,omitempty"`
-	OutputTruncated bool             `json:"output_truncated,omitempty"`
-	Export          *WorkspaceExport `json:"export,omitempty"`
+	InvocationID     string           `json:"invocation_id"`
+	Unit             string           `json:"unit"`
+	RuntimeDigest    string           `json:"runtime_digest,omitempty"`
+	WorkspaceDigest  string           `json:"workspace_digest"`
+	WorkspaceAccess  WorkspaceAccess  `json:"workspace_access"`
+	CredentialAccess bool             `json:"credential_access,omitempty"`
+	ExecutableInput  string           `json:"executable_input,omitempty"`
+	Inputs           []BoundInput     `json:"inputs,omitempty"`
+	StartedAt        time.Time        `json:"started_at"`
+	CompletedAt      time.Time        `json:"completed_at"`
+	ExitCode         int              `json:"exit_code"`
+	Stdout           []byte           `json:"stdout,omitempty"`
+	Stderr           []byte           `json:"stderr,omitempty"`
+	Cancelled        bool             `json:"cancelled,omitempty"`
+	TimedOut         bool             `json:"timed_out,omitempty"`
+	OutputTruncated  bool             `json:"output_truncated,omitempty"`
+	Export           *WorkspaceExport `json:"export,omitempty"`
 }
 
 type ProbeReport struct {
@@ -219,6 +226,17 @@ func (invocation Invocation) validate(options Options) error {
 	}
 	if invocation.NestedSandbox && !options.AllowNestedSandbox {
 		return errors.New("nested sandbox is not admitted by this executor")
+	}
+	if err := validateCredentialConfigurationShape(options); err != nil {
+		return err
+	}
+	if invocation.CredentialAccess {
+		if !options.AllowCredentialFile {
+			return errors.New("credential-file access is not admitted by this executor")
+		}
+		if invocation.WorkspaceAccess != WorkspaceWritableExport {
+			return errors.New("credential-file access requires the writable executor entry point")
+		}
 	}
 	if err := validateAbsoluteDirectory(invocation.Workspace, "workspace"); err != nil {
 		return err
@@ -362,10 +380,25 @@ func validateAbsoluteDirectory(path, label string) error {
 
 func reservedEnvironment(name string) bool {
 	switch name {
-	case "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ":
+	case "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ", "CODEX_HOME":
 		return true
 	}
 	return strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "LD_")
+}
+
+func validateCredentialConfigurationShape(options Options) error {
+	if options.AllowCredentialFile != (options.CredentialFile != "") {
+		return errors.New("credential-file admission requires one configured source path")
+	}
+	if options.CredentialFile == "" {
+		return nil
+	}
+	if strings.ContainsRune(options.CredentialFile, '\x00') ||
+		!filepath.IsAbs(options.CredentialFile) ||
+		filepath.Clean(options.CredentialFile) != options.CredentialFile {
+		return errors.New("credential file must be a clean absolute path")
+	}
+	return nil
 }
 
 func validDigest(value string) bool {

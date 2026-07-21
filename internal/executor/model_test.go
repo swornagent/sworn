@@ -49,6 +49,7 @@ func TestInvocationValidationAdmitsOnlyExplicitBoundary(t *testing.T) {
 		{"input path without selector", func(inv *Invocation, _ *Options) { inv.Argv[0] = "/inputs/task" }, "mounted /usr"},
 		{"unlisted environment", func(inv *Invocation, _ *Options) { inv.Environment = map[string]string{"SECRET": "x"} }, "not allowlisted"},
 		{"reserved environment", func(inv *Invocation, _ *Options) { inv.Environment = map[string]string{"HOME": "/outside"} }, "invalid invocation environment"},
+		{"reserved Codex home", func(inv *Invocation, _ *Options) { inv.Environment = map[string]string{"CODEX_HOME": "/outside"} }, "invalid invocation environment"},
 		{"host network", func(inv *Invocation, _ *Options) { inv.Network = NetworkHost }, "host network is not admitted"},
 		{"nested sandbox", func(inv *Invocation, _ *Options) { inv.NestedSandbox = true }, "nested sandbox is not admitted"},
 		{"runtime ceiling", func(inv *Invocation, _ *Options) { inv.Timeout = 6 * time.Minute }, "timeout"},
@@ -114,6 +115,90 @@ func TestNestedSandboxRequiresExecutorAndInvocationOptIn(t *testing.T) {
 	invocation.NestedSandbox = false
 	if err := invocation.validate(Options{Limits: DefaultLimits()}); err != nil {
 		t.Fatalf("validate default non-nested invocation: %v", err)
+	}
+}
+
+func TestCredentialFileRequiresExecutorAndWritableInvocationOptIn(t *testing.T) {
+	t.Parallel()
+	invocation := Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		ID:               "run-1",
+		Role:             "builder",
+		CredentialAccess: true,
+		Workspace:        "/work/source",
+		WorkspaceDigest:  testDigest("a"),
+		WorkspaceAccess:  WorkspaceWritableExport,
+		Argv:             []string{"/usr/bin/true"},
+		Network:          NetworkNone,
+		Timeout:          time.Minute,
+	}
+	options := Options{
+		Limits:              DefaultLimits(),
+		CredentialFile:      "/secure/codex/auth.json",
+		AllowCredentialFile: true,
+	}
+	if err := invocation.validate(options); err != nil {
+		t.Fatalf("validate explicit credential-file opt-in: %v", err)
+	}
+
+	executorOnly := invocation
+	executorOnly.CredentialAccess = false
+	if err := executorOnly.validate(options); err != nil {
+		t.Fatalf("validate executor-only credential admission: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(*Invocation, *Options)
+		message string
+	}{
+		{
+			name: "invocation only",
+			mutate: func(_ *Invocation, options *Options) {
+				options.CredentialFile = ""
+				options.AllowCredentialFile = false
+			},
+			message: "not admitted",
+		},
+		{
+			name: "path without admission",
+			mutate: func(_ *Invocation, options *Options) {
+				options.AllowCredentialFile = false
+			},
+			message: "requires one configured",
+		},
+		{
+			name: "admission without path",
+			mutate: func(_ *Invocation, options *Options) {
+				options.CredentialFile = ""
+			},
+			message: "requires one configured",
+		},
+		{
+			name: "unclean source path",
+			mutate: func(_ *Invocation, options *Options) {
+				options.CredentialFile = "/secure/../auth.json"
+			},
+			message: "clean absolute",
+		},
+		{
+			name: "read-only entry point",
+			mutate: func(invocation *Invocation, _ *Options) {
+				invocation.WorkspaceAccess = WorkspaceReadOnly
+			},
+			message: "writable executor",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidateInvocation := invocation
+			candidateOptions := options
+			test.mutate(&candidateInvocation, &candidateOptions)
+			err := candidateInvocation.validate(candidateOptions)
+			if err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("validate error = %v, want substring %q", err, test.message)
+			}
+		})
 	}
 }
 
