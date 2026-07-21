@@ -132,6 +132,14 @@ type Submission struct {
 	Evidence         []Evidence     `json:"evidence"`
 }
 
+// ExactSubmission is an immutable strict submission capability. It binds the
+// validated view to the canonical record digest while keeping caller mutation
+// out of later verdict checks.
+type ExactSubmission struct {
+	record EncodedRecord
+	view   Submission
+}
+
 type EncodedRecord struct {
 	Kind          string
 	CanonicalJSON []byte
@@ -156,6 +164,59 @@ func EncodeSubmission(submission Submission) (EncodedRecord, error) {
 		CanonicalJSON: canonical,
 		Digest:        CanonicalDigest(canonical),
 	}, nil
+}
+
+// ParseSubmission validates a complete external submission value, including
+// strict I-JSON, exact nested field shape, and the same semantic invariants as
+// engine-owned encoding. It authenticates no artifact or authority by itself.
+func ParseSubmission(contents []byte) (ExactSubmission, error) {
+	var submission Submission
+	if err := decodeExactJSONShape(
+		contents, MaximumSubmissionBytes, "submission", &submission,
+	); err != nil {
+		return ExactSubmission{}, err
+	}
+	if err := validateSubmission(submission); err != nil {
+		return ExactSubmission{}, err
+	}
+	record, err := EncodeSubmission(submission)
+	if err != nil {
+		return ExactSubmission{}, err
+	}
+	return ExactSubmission{record: record, view: cloneSubmission(submission)}, nil
+}
+
+func (submission ExactSubmission) Record() EncodedRecord {
+	record := submission.record
+	record.CanonicalJSON = append([]byte(nil), record.CanonicalJSON...)
+	return record
+}
+
+func (submission ExactSubmission) View() Submission {
+	return cloneSubmission(submission.view)
+}
+
+func (submission ExactSubmission) valid() bool {
+	return submission.record.Kind == SubmissionSchemaVersion && ValidDigest(submission.record.Digest) &&
+		len(submission.record.CanonicalJSON) != 0
+}
+
+func cloneSubmission(submission Submission) Submission {
+	submission.Assurance.Packs = slices.Clone(submission.Assurance.Packs)
+	submission.ChangedPaths = slices.Clone(submission.ChangedPaths)
+	submission.Checks = slices.Clone(submission.Checks)
+	for index := range submission.Checks {
+		if submission.Checks[index].ExitCode != nil {
+			exitCode := *submission.Checks[index].ExitCode
+			submission.Checks[index].ExitCode = &exitCode
+		}
+	}
+	submission.Evidence = slices.Clone(submission.Evidence)
+	for index := range submission.Evidence {
+		submission.Evidence[index].AcceptanceIDs = slices.Clone(submission.Evidence[index].AcceptanceIDs)
+		submission.Evidence[index].PackIDs = slices.Clone(submission.Evidence[index].PackIDs)
+	}
+	return submission
 }
 
 func validateSubmission(submission Submission) error {

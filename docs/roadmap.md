@@ -201,6 +201,10 @@ external effects and transitions which grant effectful capabilities.
 - [x] Add the narrow v3 executor capability required by a trusted verifier CLI:
   exact executable and credential, host network, nested sandbox, and a
   physically read-only candidate, without widening either existing entry point.
+- [x] Add strict verifier-dispatch, model-assessment, and engine-stamped verdict
+  contracts with Baton-derived pure cross-record validation. This establishes
+  shape and binding, not durable admission or an executable verifier edge; see
+  [Independent verifier protocol boundary](verifier-protocol.md).
 - [ ] Dispatch the independent verifier through a native CLI adapter.
 - [ ] Make verifier turns memoryless: use ephemeral Codex sessions, disable
   history persistence, ignore user configuration and rules, and never resume a
@@ -208,8 +212,8 @@ external effects and transitions which grant effectful capabilities.
   narrow nested workspace sandbox wherever CLI-managed authentication is
   mounted.
 - [ ] Keep authorizer capability and verifier identity outside builder scope.
-- [ ] Bind each verdict to the exact dispatch, policy, submission, candidate,
-  and evidence.
+- [ ] Carry the pure verdict bindings through verifier-effect recovery and
+  durable Store admission, including current artifact and authority closure.
 - [ ] Implement bounded retry epochs without treating `INCONCLUSIVE` as
   implementation failure.
 
