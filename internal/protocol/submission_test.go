@@ -1,12 +1,103 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestParseSubmissionBindsExactImmutableRecord(t *testing.T) {
+	t.Parallel()
+
+	contents := testSnapshotBytes(t, "examples/standard-submission.json")
+	submission, err := ParseSubmission(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantDigest = "sha256:51532765e47ad1d3414a7753e025ac17646cbbae70cd8ec63f5f3487b125a2f6"
+	record := submission.Record()
+	canonical, err := CanonicalizeJSON(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Kind != SubmissionSchemaVersion || record.Digest != wantDigest ||
+		!bytes.Equal(record.CanonicalJSON, canonical) {
+		t.Fatalf("record = %#v, want exact snapshot digest %q", record, wantDigest)
+	}
+
+	view := submission.View()
+	if view.Assurance.Packs == nil {
+		t.Fatal("standard assurance packs lost their required empty-array shape")
+	}
+	view.Assurance.Packs = append(view.Assurance.Packs, "security@1")
+	view.ChangedPaths[0] = "mutated"
+	view.Evidence[0].AcceptanceIDs[0] = "MUTATED"
+	if view.Checks[0].ExitCode == nil {
+		t.Fatal("fixture check has no exit code")
+	}
+	*view.Checks[0].ExitCode = 99
+	record.CanonicalJSON[0] = 'x'
+
+	fresh := submission.View()
+	freshRecord := submission.Record()
+	if len(fresh.Assurance.Packs) != 0 || fresh.ChangedPaths[0] == "mutated" ||
+		fresh.Evidence[0].AcceptanceIDs[0] == "MUTATED" || *fresh.Checks[0].ExitCode != 0 ||
+		freshRecord.CanonicalJSON[0] != '{' || freshRecord.Digest != wantDigest {
+		t.Fatal("caller mutation escaped the exact submission capability")
+	}
+	reencoded, err := EncodeCanonical(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(reencoded, freshRecord.CanonicalJSON) {
+		t.Fatal("submission view no longer represents its exact record")
+	}
+}
+
+func TestParseSubmissionRejectsShapeDrift(t *testing.T) {
+	t.Parallel()
+
+	contents := testSnapshotBytes(t, "examples/standard-submission.json")
+	mutations := map[string]func(map[string]any){
+		"unknown root": func(root map[string]any) {
+			root["unexpected"] = true
+		},
+		"missing changed paths": func(root map[string]any) {
+			delete(root, "changed_paths")
+		},
+		"null changed paths": func(root map[string]any) {
+			root["changed_paths"] = nil
+		},
+		"missing assurance packs": func(root map[string]any) {
+			delete(testNestedObject(t, root, "assurance"), "packs")
+		},
+		"missing required false": func(root map[string]any) {
+			evidence := testArrayObject(t, testObjectArray(t, root, "evidence"), 0)
+			delete(evidence, "uses_mocks")
+		},
+		"unknown nested evidence field": func(root map[string]any) {
+			evidence := testArrayObject(t, testObjectArray(t, root, "evidence"), 0)
+			evidence["unexpected"] = true
+		},
+		"null evidence": func(root map[string]any) {
+			root["evidence"] = nil
+		},
+	}
+	for name, mutate := range mutations {
+		name, mutate := name, mutate
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := testJSONObject(t, contents)
+			mutate(root)
+			if _, err := ParseSubmission(testJSONBytes(t, root)); err == nil {
+				t.Fatal("shape drift was accepted")
+			}
+		})
+	}
+}
 
 func TestEncodeSubmissionMatchesAdmittedExample(t *testing.T) {
 	t.Parallel()

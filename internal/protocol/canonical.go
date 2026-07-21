@@ -64,6 +64,35 @@ func EncodeCanonical(value any) ([]byte, error) {
 	return CanonicalizeJSON(contents)
 }
 
+// decodeExactJSONShape accepts non-canonical presentation, but only when its
+// strict canonical value is exactly representable by destination's declared
+// JSON fields. The round trip rejects unknown properties, missing required
+// zero-value properties, null/omitted ambiguity, and nested shape drift without
+// weakening duplicate-name or I-JSON validation.
+func decodeExactJSONShape(contents []byte, maximumBytes int, label string, destination any) error {
+	if len(contents) == 0 || len(contents) > maximumBytes {
+		return fmt.Errorf("%s is empty or exceeds its byte ceiling", label)
+	}
+	canonical, err := CanonicalizeJSON(contents)
+	if err != nil {
+		return fmt.Errorf("%s is not strict I-JSON: %w", label, err)
+	}
+	if len(canonical) > maximumBytes {
+		return fmt.Errorf("canonical %s exceeds its byte ceiling", label)
+	}
+	if err := json.Unmarshal(canonical, destination); err != nil {
+		return fmt.Errorf("decode %s: %w", label, err)
+	}
+	reencoded, err := EncodeCanonical(destination)
+	if err != nil {
+		return fmt.Errorf("re-encode %s: %w", label, err)
+	}
+	if !bytes.Equal(canonical, reencoded) {
+		return fmt.Errorf("%s does not use its exact field shape", label)
+	}
+	return nil
+}
+
 type visit struct {
 	typeOf   reflect.Type
 	pointer  uintptr
