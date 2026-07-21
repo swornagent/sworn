@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +59,10 @@ func TestExecutorConfigurationDigestCanonicalAndComplete(t *testing.T) {
 		{"allowlist", func(options *Options) { options.AllowedEnvironment = append(options.AllowedEnvironment, "THIRD") }},
 		{"host network", func(options *Options) { options.AllowHostNetwork = true }},
 		{"nested sandbox", func(options *Options) { options.AllowNestedSandbox = true }},
+		{"credential file", func(options *Options) {
+			options.CredentialFile = "/secure/codex/auth.json"
+			options.AllowCredentialFile = true
+		}},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -74,6 +80,31 @@ func TestExecutorConfigurationDigestCanonicalAndComplete(t *testing.T) {
 	boundaryB.ShimArgv = []string{"/opt/sworn", "a", "bc"}
 	if executorConfigurationDigest(boundaryA) == executorConfigurationDigest(boundaryB) {
 		t.Fatal("shim argument boundaries collided")
+	}
+}
+
+func TestExecutorConfigurationDigestNeverBindsCredentialBytes(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(path, []byte("credential-one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := Options{
+		Limits:              DefaultLimits(),
+		CredentialFile:      path,
+		AllowCredentialFile: true,
+	}
+	want := executorConfigurationDigest(options)
+	if err := os.WriteFile(path, []byte("rotated-credential"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := executorConfigurationDigest(options); got != want {
+		t.Fatalf("credential rotation changed configuration digest: got %q, want %q", got, want)
+	}
+	changed := options
+	changed.CredentialFile += "-other"
+	if executorConfigurationDigest(changed) == want {
+		t.Fatal("credential source path did not change configuration digest")
 	}
 }
 

@@ -44,6 +44,9 @@ func NewLinux(options Options) (*LinuxExecutor, error) {
 	if err := options.Limits.Validate(); err != nil {
 		return nil, err
 	}
+	if err := validateConfiguredCredentialFile(options); err != nil {
+		return nil, fmt.Errorf("validate configured credential file: %w", err)
+	}
 	var err error
 	if options.BubblewrapPath, err = executablePath(options.BubblewrapPath, "bwrap"); err != nil {
 		return nil, err
@@ -207,7 +210,7 @@ func (executor *LinuxExecutor) RunContentBound(
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
-	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime)
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime, nil)
 }
 
 func (executor *LinuxExecutor) runInvocation(
@@ -215,6 +218,7 @@ func (executor *LinuxExecutor) runInvocation(
 	invocation Invocation,
 	expectedAccess WorkspaceAccess,
 	runtime *RuntimeTree,
+	credential *credentialFileLease,
 ) (completion RawCompletion, resultErr error) {
 	if err := invocation.validate(executor.options); err != nil {
 		return RawCompletion{}, err
@@ -230,6 +234,9 @@ func (executor *LinuxExecutor) runInvocation(
 	}
 	if runtime != nil && (expectedAccess != WorkspaceReadOnly || invocation.RuntimeDigest != runtime.digest) {
 		return RawCompletion{}, errors.New("content-bound execution requires the exact runtime digest and read-only workspace")
+	}
+	if invocation.CredentialAccess != (credential != nil) {
+		return RawCompletion{}, errors.New("credential-file invocation lacks its retained mount capability")
 	}
 	writable := expectedAccess == WorkspaceWritableExport
 	if writable && executor.options.WritableRoot == "" {
@@ -377,15 +384,38 @@ func (executor *LinuxExecutor) runInvocation(
 			return RawCompletion{}, err
 		}
 	}
+	var broker *credentialBroker
+	if credential != nil {
+		broker, err = startCredentialBroker(runRoot, credential)
+		if err != nil {
+			return RawCompletion{}, err
+		}
+		defer func() {
+			if broker == nil {
+				return
+			}
+			if err := broker.finish(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("finish credential broker: %w", err))
+			}
+		}()
+	}
 	bubblewrapArgv := append(
 		[]string{executor.options.BubblewrapPath},
 		executor.bubblewrapArgs(invocation, runtimePath, workspacePath, inputsPath, writable)...,
 	)
 	unit = executor.unitName(invocation.ID)
 	startMarker := filepath.Join(runRoot, "contained.started")
-	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv, startMarker)
+	completion, resultErr = executor.runService(ctx, invocation, unit, bubblewrapArgv, startMarker, broker)
+	if broker != nil {
+		brokerErr := broker.finish()
+		broker = nil
+		if brokerErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("finish credential broker: %w", brokerErr))
+		}
+	}
 	completion.RuntimeDigest = observedRuntimeDigest
 	completion.WorkspaceDigest = workspaceDigest
+	completion.CredentialAccess = invocation.CredentialAccess
 	completion.ExecutableInput = invocation.ExecutableInput
 	completion.Inputs = boundInputs
 	if resultErr != nil || !writable || completion.Cancelled || completion.TimedOut || completion.OutputTruncated {
@@ -447,6 +477,14 @@ func (executor *LinuxExecutor) bubblewrapArgs(
 	args = append(args, workspaceMount, workspacePath, "/workspace", "--dir", "/inputs")
 	for _, input := range invocation.Inputs {
 		args = append(args, "--ro-bind", filepath.Join(inputsPath, input.Name), "/inputs/"+input.Name)
+	}
+	if invocation.CredentialAccess {
+		args = append(
+			args,
+			"--dir", CredentialHome,
+			"--bind-fd", strconv.Itoa(credentialBubblewrapFD), CredentialFileTarget,
+			"--setenv", "CODEX_HOME", CredentialHome,
+		)
 	}
 	for _, value := range sortedEnvironment(invocation.Environment) {
 		args = append(args, "--setenv", value[0], value[1])
@@ -518,8 +556,9 @@ func (executor *LinuxExecutor) runService(
 	unit string,
 	bubblewrapArgv []string,
 	startMarker string,
+	broker *credentialBroker,
 ) (RawCompletion, error) {
-	serviceArgv := executor.systemdRunArgs(invocation, unit, bubblewrapArgv, startMarker)
+	serviceArgv := executor.systemdRunArgs(invocation, unit, bubblewrapArgv, startMarker, broker)
 	command := exec.Command(executor.options.SystemdRunPath, serviceArgv...)
 	command.Env = controlEnvironment()
 	watchReader, watchWriter, err := os.Pipe()
@@ -623,6 +662,7 @@ func (executor *LinuxExecutor) systemdRunArgs(
 	unit string,
 	bubblewrapArgv []string,
 	startMarker string,
+	broker *credentialBroker,
 ) []string {
 	runtimeLimit := invocation.Timeout + shutdownGrace
 	properties := executor.serviceProperties(runtimeLimit)
@@ -642,6 +682,16 @@ func (executor *LinuxExecutor) systemdRunArgs(
 	args = append(args, "--")
 	args = append(args, executor.options.ShimArgv...)
 	args = append(args, shimStartMarkerArgument, startMarker)
+	if broker != nil {
+		client := broker.client()
+		args = append(
+			args,
+			shimCredentialBrokerArgument,
+			client.runtimePath,
+			client.socketName,
+			client.token,
+		)
+	}
 	args = append(args, bubblewrapArgv...)
 	return args
 }

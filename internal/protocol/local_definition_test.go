@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/executor"
 )
 
 func TestLocalCheckDefinitionAllowsStrictNonCanonicalJSON(t *testing.T) {
@@ -112,7 +114,7 @@ func validLocalEnvironment() LocalEnvironment {
 			BubblewrapVersion: "bubblewrap 0.9.0", SystemdVersion: "systemd 255", CgroupV2: true,
 			UserManager: "running", Controllers: []string{"cpu", "memory", "pids"},
 		},
-		ExecutorPolicyVersion: "sworn-linux-containment-v1",
+		ExecutorPolicyVersion: executor.ContainmentPolicyVersion,
 		Limits: LocalExecutionLimits{
 			RuntimeNanoseconds: 1, MemoryBytes: 1, Tasks: 1, CPUPercent: 1, FileBytes: 1,
 			TempBytes: 1, HomeBytes: 1, InputBytes: 1, WorkspaceBytes: 1, StdoutBytes: 1, StderrBytes: 1,

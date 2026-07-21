@@ -31,8 +31,9 @@ it, deployment tooling must have:
 - provisioned private executor, writable, builder, and check roots, with the
   writable root on a finite executable tmpfs;
 - installed exact Bubblewrap, `systemd-run`, and `systemctl` executables; and
-- supplied the exact accepted Codex static binary and named credential
-  environment value.
+- supplied the exact accepted Codex static binary; and
+- created a dedicated private Codex home and authenticated it through the Codex
+  CLI's file-backed ChatGPT login.
 
 There is no public `init`, plan activation, repository-discovery, runtime-digest,
 config-generation, or authorizer command yet. These are deliberate adoption
@@ -98,9 +99,9 @@ and limit must be replaced with the deployment's measured value:
   },
   "codex": {
     "binary": "/srv/sworn/bin/codex",
+    "chatgpt_auth_file": "/srv/sworn/codex-home/auth.json",
     "model": "gpt-5.4",
-    "timeout_seconds": 300,
-    "credential_environment": "OPENAI_API_KEY"
+    "timeout_seconds": 300
   }
 }
 ```
@@ -139,10 +140,11 @@ present, it must be one complete object with all of these fields:
 ```
 
 The Codex model and timeout are explicit; there is no provider or model default
-in the config. `credential_environment` names one host environment variable.
-Sworn reads its value once and supplies it only to the trusted Codex control
-process under the adapter-owned name `CODEX_API_KEY`. The value is not part of
-the config, profile digest, command output, Store, or candidate workspace.
+in the config. `codex.chatgpt_auth_file` names only the `auth.json` created in a
+dedicated Codex CLI home. Sworn does not accept the credential bytes in the
+configuration or environment, and it does not hash or copy them into the Store,
+profile digest, command output, or candidate workspace. The configured path is
+part of the executor configuration binding; the secret file contents are not.
 
 Optional top-level `owner_id` may be a valid Sworn ID. If omitted, Sworn derives
 a deterministic identity bound to the Store path, repository identity, and run.
@@ -153,6 +155,66 @@ The production adapter currently accepts only the 304,169,008-byte static-PIE
 `16db86b6bf81cc426032fd42216dd97e60f97b149272f1f9963845a0675dae94`.
 Sworn does not yet download or install that alpha binary; a current or otherwise
 different Codex build is rejected.
+
+## Codex ChatGPT authentication
+
+Create a Codex home used only by Sworn, then run the accepted Codex binary's
+normal ChatGPT login with file storage forced explicitly:
+
+```sh
+install -d -m 0700 /srv/sworn/codex-home
+CODEX_HOME=/srv/sworn/codex-home \
+  /srv/sworn/bin/codex \
+  -c 'forced_login_method="chatgpt"' \
+  -c 'cli_auth_credentials_store="file"' \
+  login
+chmod 0600 /srv/sworn/codex-home/auth.json
+```
+
+The directory and `auth.json` must be owned by the account which runs Sworn and
+must remain private. The file must be a non-empty, non-symlink regular file with
+exact mode `0600`, exactly one hard link, and no more than 64 KiB. Point
+`codex.chatgpt_auth_file` at that exact file. Do not point Sworn at the Codex
+home used for interactive work, copy a transient access token into the file, or
+place the file under a repository or its Git metadata, an authority bundle,
+executor runtime, writable root, content runtime, builder root, or check root.
+It must also not be the control database or Codex binary.
+
+The Codex CLI owns the authentication format and refresh lifecycle. Sworn opens
+and locks the configured file, retains its exact identity, and binds only that
+single file read-write at `/home/sworn/.codex/auth.json` for the trusted outer
+Codex process. Read-write access is required because the CLI may refresh and
+rotate its ChatGPT tokens during a run. The rest of the configured Codex home is
+not mounted. The outer process receives broad host networking; its named nested
+permission profile disables network and denies the whole
+`/home/sworn/.codex` tree to model-directed tools. `CODEX_HOME` is fixed by the
+executor and cannot be supplied by an invocation.
+
+Sworn does not read `OPENAI_API_KEY`, `CODEX_API_KEY`, or another Platform API
+key, and the accepted profile has no API-key fallback. A missing, unsafe, busy,
+replaced, or Platform API-key-mode credential fails the run instead of
+selecting another authentication method. Sworn does not parse the CLI-owned
+file to reclassify other modes which the pinned CLI considers part of its
+ChatGPT login family; the dedicated-home provisioning procedure is therefore
+part of the operational boundary.
+
+Stop every Sworn process which uses this file before logging out, changing
+accounts, or reauthenticating. Then rerun the same pinned-CLI login command
+against the same dedicated `CODEX_HOME`, restore exact mode `0600`, and confirm
+the result before restarting Sworn:
+
+```sh
+CODEX_HOME=/srv/sworn/codex-home \
+  /srv/sworn/bin/codex \
+  -c 'forced_login_method="chatgpt"' \
+  -c 'cli_auth_credentials_store="file"' \
+  login status
+```
+
+See [Codex authentication](https://developers.openai.com/codex/auth) for the
+upstream login flow and [ADR
+0009](adr/0009-codex-cli-managed-chatgpt-authentication.md) for Sworn's narrower
+credential boundary.
 
 ## Convergence and output
 
@@ -189,9 +251,17 @@ atomically admitted. It is not an independent verdict or `PASS`. V1 still has
 no verifier adapter, verdict routing, bounded repair policy, scheduler,
 integration edge, or external authorizer transport.
 
-The outer Codex process has broad host-network access and receives the model
-credential; its nested tool process has neither. Production `sworn run` uses the
-built-in OpenAI provider and may consume billable model tokens. The automated
-real-Codex boundary proof uses a scripted local Responses endpoint and consumes
-no provider tokens. No live OpenAI delivery was run as release evidence for this
-vertical.
+The outer Codex process has broad host-network access and read-write access to
+the single managed ChatGPT authentication file; its nested tool process has
+neither network nor read access to the Codex home. Production `sworn run` uses
+the built-in OpenAI provider through that ChatGPT login and consumes the
+account's Codex usage. It never uses a Platform API key. The automated
+real-Codex boundary proof mounts synthetic file-backed ChatGPT state while using
+a scripted local Responses endpoint, so it consumes no provider tokens. No
+live delivery runs in the ordinary suite. On 2026-07-21, the separate opt-in
+release smoke test passed at the built-process boundary using `gpt-5.4` and the
+exact pinned CLI: one live turn created the exact candidate, passed its local
+check, reached `reviewable` at revision 4, and left the target ref unchanged; a
+second built-process invocation converged with no commands, effects, or model
+turn. The scripted provider authenticates with a separate test-only bearer, so
+that proof does not claim that its model request used the mounted ChatGPT state.

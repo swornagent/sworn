@@ -13,7 +13,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -30,8 +29,6 @@ const (
 	RunConfigSchemaVersion = "sworn-run-config-v1"
 	maximumRunConfigBytes  = 256 << 10
 )
-
-var environmentNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
 
 // Config is the complete non-secret deployment input for one bounded run. The
 // repository binding is persisted configuration, not live discovery: repo.Open
@@ -104,14 +101,14 @@ type WorkspaceConfig struct {
 	CheckRoot   string `json:"check_root"`
 }
 
-// CodexConfig carries the model and credential source explicitly. The parsed
-// configuration never contains the credential value and cannot choose a
-// provider or weaken the adapter-owned pinned tuple.
+// CodexConfig selects the auth.json from one dedicated Codex CLI home. Sworn
+// never accepts credential bytes, chooses a provider, or weakens the
+// adapter-owned pinned tuple.
 type CodexConfig struct {
-	Binary                string `json:"binary"`
-	Model                 string `json:"model"`
-	TimeoutSeconds        uint64 `json:"timeout_seconds"`
-	CredentialEnvironment string `json:"credential_environment"`
+	Binary          string `json:"binary"`
+	ChatGPTAuthFile string `json:"chatgpt_auth_file"`
+	Model           string `json:"model"`
+	TimeoutSeconds  uint64 `json:"timeout_seconds"`
 }
 
 // LoadConfig opens one exact private regular file and rejects aliases, size
@@ -206,6 +203,7 @@ func (configuration Config) validate() error {
 		{"builder workspace root", configuration.Workspaces.BuilderRoot},
 		{"check workspace root", configuration.Workspaces.CheckRoot},
 		{"Codex binary", configuration.Codex.Binary},
+		{"Codex ChatGPT auth file", configuration.Codex.ChatGPTAuthFile},
 	}
 	for _, selected := range paths {
 		if err := validateCleanAbsolutePath(selected.path, selected.label); err != nil {
@@ -237,9 +235,34 @@ func (configuration Config) validate() error {
 		strings.ContainsRune(configuration.Codex.Model, '\x00') {
 		return errors.New("Codex model must be explicit and bounded")
 	}
-	credentialName := configuration.Codex.CredentialEnvironment
-	if !environmentNamePattern.MatchString(credentialName) || reservedCredentialEnvironment(credentialName) {
-		return errors.New("Codex credential environment name is invalid or reserved")
+	authFile := configuration.Codex.ChatGPTAuthFile
+	for _, selected := range []struct{ label, path string }{
+		{"control database", configuration.ControlDatabase},
+		{"Codex binary", configuration.Codex.Binary},
+	} {
+		if selected.path == authFile {
+			return fmt.Errorf("Codex ChatGPT auth file must be distinct from %s", selected.label)
+		}
+	}
+	controlledTrees := []struct{ label, path string }{
+		{"repository root", configuration.Repository.Root},
+		{"repository common directory", configuration.Repository.Binding.CommonDir},
+		{"repository object directory", configuration.Repository.Binding.ObjectDir},
+		{"executor runtime root", configuration.Executor.RuntimeRoot},
+		{"executor writable root", configuration.Executor.WritableRoot},
+		{"content runtime source", configuration.ContentRuntime.Source},
+		{"builder workspace root", configuration.Workspaces.BuilderRoot},
+		{"check workspace root", configuration.Workspaces.CheckRoot},
+	}
+	for _, source := range configuration.Authority.Sources {
+		controlledTrees = append(controlledTrees, struct{ label, path string }{
+			label: "authority bundle directory", path: source.BundleDirectory,
+		})
+	}
+	for _, selected := range controlledTrees {
+		if pathWithin(authFile, selected.path) {
+			return fmt.Errorf("Codex ChatGPT auth file must be outside %s", selected.label)
+		}
 	}
 	timeout, err := secondsDuration(configuration.Codex.TimeoutSeconds, "Codex timeout")
 	if err != nil {
@@ -334,12 +357,12 @@ func secondsDuration(seconds uint64, label string) (time.Duration, error) {
 	return time.Duration(seconds) * time.Second, nil
 }
 
-func reservedCredentialEnvironment(name string) bool {
-	switch name {
-	case "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ":
-		return true
+func pathWithin(path, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
 	}
-	return strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "LD_")
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
 func requireCompleteLimitsObject(contents []byte, decodedPresent bool) error {

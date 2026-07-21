@@ -53,6 +53,12 @@ func TestParseConfigRejectsSchemaLoopholes(t *testing.T) {
 	withCodexMember := mutateConfigObject(t, valid, func(top map[string]any) {
 		top["codex"].(map[string]any)["provider"] = "ambient-provider"
 	})
+	withLegacyCredential := mutateConfigObject(t, valid, func(top map[string]any) {
+		top["codex"].(map[string]any)["credential_environment"] = "OPENAI_API_KEY"
+	})
+	withoutAuth := mutateConfigObject(t, valid, func(top map[string]any) {
+		delete(top["codex"].(map[string]any), "chatgpt_auth_file")
+	})
 	partialLimits := mutateConfigObject(t, valid, func(top map[string]any) {
 		top["executor"].(map[string]any)["limits"] = map[string]any{"runtime_seconds": 300}
 	})
@@ -66,6 +72,18 @@ func TestParseConfigRejectsSchemaLoopholes(t *testing.T) {
 	relativeControl := mutateConfigObject(t, valid, func(top map[string]any) {
 		top["control_database"] = "control.db"
 	})
+	relativeAuth := mutateConfigObject(t, valid, func(top map[string]any) {
+		top["codex"].(map[string]any)["chatgpt_auth_file"] = "codex-auth/auth.json"
+	})
+	sharedAuth := mutateConfigObject(t, valid, func(top map[string]any) {
+		top["codex"].(map[string]any)["chatgpt_auth_file"] = "/srv/sworn/executor"
+	})
+	repositoryAuth := mutateConfigObject(t, valid, func(top map[string]any) {
+		top["codex"].(map[string]any)["chatgpt_auth_file"] = "/srv/repository/.codex/auth.json"
+	})
+	authorityAuth := mutateConfigObject(t, valid, func(top map[string]any) {
+		top["codex"].(map[string]any)["chatgpt_auth_file"] = "/srv/sworn/authority/auth.json"
+	})
 	duplicate := bytes.Replace(valid, []byte(`"schema_version":"sworn-run-config-v1"`),
 		[]byte(`"schema_version":"sworn-run-config-v1","schema_version":"sworn-run-config-v1"`), 1)
 
@@ -76,10 +94,16 @@ func TestParseConfigRejectsSchemaLoopholes(t *testing.T) {
 	}{
 		{"secret member", withTopMember, "unknown field"},
 		{"provider member", withCodexMember, "unknown field"},
+		{"legacy API credential member", withLegacyCredential, "unknown field"},
+		{"missing ChatGPT auth file", withoutAuth, "clean absolute path"},
 		{"partial limits", partialLimits, "missing required field"},
 		{"null limits", nullLimits, "omitted or a complete object"},
 		{"public key length", badPublicKey, "Ed25519 public key"},
 		{"relative control", relativeControl, "clean absolute path"},
+		{"relative ChatGPT auth file", relativeAuth, "clean absolute path"},
+		{"shared ChatGPT auth path", sharedAuth, "outside executor runtime root"},
+		{"repository-contained ChatGPT auth file", repositoryAuth, "outside repository root"},
+		{"authority-contained ChatGPT auth file", authorityAuth, "outside authority bundle directory"},
 		{"duplicate member", duplicate, "duplicate object name"},
 	} {
 		test := test
@@ -194,8 +218,8 @@ func validRunConfig() Config {
 			BuilderRoot: "/srv/sworn/builder", CheckRoot: "/srv/sworn/checks",
 		},
 		Codex: CodexConfig{
-			Binary: "/srv/sworn/bin/codex", Model: "gpt-5.4",
-			TimeoutSeconds: 300, CredentialEnvironment: "OPENAI_API_KEY",
+			Binary: "/srv/sworn/bin/codex", ChatGPTAuthFile: "/srv/sworn/codex-auth/auth.json",
+			Model: "gpt-5.4", TimeoutSeconds: 300,
 		},
 	}
 }

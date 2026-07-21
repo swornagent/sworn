@@ -40,7 +40,7 @@ state to the contained process.
 
 An invocation is rejected before dispatch unless it provides:
 
-- the exact v1 schema, invocation identity, role, workspace access, and finite
+- the exact v2 schema, invocation identity, role, workspace access, and finite
   timeout;
 - the exact runtime manifest digest when the content-bound entry point is used;
 - one clean absolute workspace path and its deterministic SHA-256 manifest;
@@ -50,20 +50,26 @@ An invocation is rejected before dispatch unless it provides:
 - only explicitly allowlisted environment names;
 - individually named, SHA-256-pinned regular-file inputs;
 - either no network or an executor-enabled host-network exception; and
-- no nested user namespace unless both the invocation and executor admit it.
+- no nested user namespace unless both the invocation and executor admit it;
+  and
+- no credential-file access unless the invocation uses the writable entry point
+  and the executor admits one exact configured source file.
 
 Sworn never parses or constructs a shell command: argv is passed literally. An
 adapter may explicitly select a shell or interpreter, but that choice remains
 visible in the immutable dispatch instead of becoming an executor side effect.
 Environment defaults are fixed by the executor; reserved loader, Git, locale,
 home, path, and temporary-directory variables cannot be supplied by an
-invocation. Networking is absent by default.
+invocation. `CODEX_HOME` is also reserved. Networking and credential access are
+absent by default.
 
 The sole production executable-input profile is the pinned Codex builder. Its
 exact static-PIE version, SHA-256 digest, byte length, argv, model, tool schema,
-environment names, timeout, network request, nested-sandbox request, and
-executor configuration are bound into the builder profile. Sworn neither finds
-it through `PATH` nor accepts a different Codex release under the same profile.
+ChatGPT authentication mode, fixed Codex home, named permission profile,
+timeout, network request, nested-sandbox request, credential-access request,
+and executor configuration are bound into the builder profile. Sworn neither
+finds it through `PATH` nor accepts a different Codex release under the same
+profile.
 
 Before execution, Sworn copies the workspace and every admitted input. Inputs
 are staged read-only and non-executable. An invocation may select exactly one
@@ -78,6 +84,13 @@ ordinary rwx permission bits, symlink targets, and regular-file bytes. It exclud
 timestamps, ownership, and inode alias topology. Git metadata, special files,
 changed files during staging, excess logical bytes, and excess entries fail
 closed. The staged manifest must exactly match the invocation digest.
+
+The Codex authentication file is not an ordinary input. It is neither copied
+into `/inputs`, hashed into a content digest, made executable, nor reported as a
+`BoundInput`. It enters only through the separate credential capability
+described below. The raw invocation and completion bind whether that capability
+was used, while the executor configuration binds its fixed target, size ceiling,
+configured source path, and admission switch.
 
 Writable execution never binds the source workspace and never copies changes
 back over it. The initial tree is copied into a private host-visible directory
@@ -108,6 +121,8 @@ containing only:
 - the staged workspace at `/workspace`, read-only or read-write exactly as the
   invocation declares;
 - pinned files at read-only `/inputs/<name>`;
+- for an explicitly credential-enabled writable invocation only, one retained
+  file bound read-write at `/home/sworn/.codex/auth.json`;
 - minimal `/proc` and `/dev`; and
 - size-bounded temporary `/tmp` and `/home/sworn` filesystems.
 
@@ -118,6 +133,47 @@ requires a separate executor-level admission before that restriction is
 omitted; descendants still inherit the outer mount, network, capability, and
 cgroup boundary. This does not constrain deeper descendant namespace creation
 or remove the kernel's user-namespace attack surface.
+
+## Codex credential-file capability
+
+The production Codex builder is the sole caller of the initial credential-file
+capability. Executor construction must bind one clean absolute source path and
+enable credential admission. The invocation must separately request
+`credential_access`, must use the writable entry point, and, through the builder
+profile, must also request the nested sandbox. Content-bound checks never
+receive the mount.
+
+On Linux, Sworn requires the source to be a non-empty regular file owned by the
+executor user, with exact mode `0600`, exactly one hard link, no symbolic-link
+remap, and a maximum size of 64 KiB. It opens the file read-write with
+`O_NOFOLLOW`, acquires an exclusive nonblocking file lock, compares the retained
+descriptor with the live path, and keeps both descriptor and lock for the
+complete invocation. The contained service mounts that exact retained file
+rather than reopening the configured pathname. Sworn revalidates identity and
+file shape before releasing the lock. It explicitly unlocks only after systemd
+service quiescence is proven. If quiescence is unproven, the engine closes its
+descriptor without unlocking; a live shim's inherited open-file description
+keeps the flock held until that process exits. A busy, replaced, relinked,
+resized beyond the ceiling, or permission-drifted file fails closed.
+
+The bind target and outer `CODEX_HOME` are fixed at
+`/home/sworn/.codex/auth.json` and `/home/sworn/.codex`. Only `auth.json` is
+mounted from the dedicated host Codex home; other user configuration, sessions,
+logs, rules, and state do not enter the container. The mount is deliberately
+read-write because the trusted pinned CLI owns ChatGPT token refresh. Its
+contents are never supplied in an environment variable or stored in executor
+completion metadata.
+
+The outer Codex control process can read and refresh that file and has the
+separately admitted host-network exception. Every model-directed tool runs
+under the adapter's named Codex permission profile, which extends
+`:workspace`, disables nested network access, and denies read access to the
+entire `/home/sworn/.codex` tree. Its shell environment inherits nothing and
+contains only fixed non-secret values. This nested mask, rather than the host
+file's `0600` mode, is what keeps the authentication material unavailable to a
+tool running under the same outer UID. There is no Platform API-key environment
+or fallback path. See [ADR
+0009](adr/0009-codex-cli-managed-chatgpt-authentication.md).
 
 ## Writable resource claim
 
@@ -176,12 +232,12 @@ gone and the measured tree remains unchanged.
 ## Raw completion and measured export
 
 The executor returns raw, bounded stdout and stderr, exit status, timing,
-cancellation/timeout/truncation flags, declared workspace access, and the input
-bindings it actually staged. Content-bound completion also returns the exact
-runtime manifest digest observed while staging; the producer requires it to
-match the invocation before storing an environment or receipt. It does not
-interpret semantic success, create
-evidence, manufacture a submission, or advance engine state.
+cancellation/timeout/truncation flags, declared workspace and credential access,
+and the input bindings it actually staged. Content-bound completion also
+returns the exact runtime manifest digest observed while staging; the producer
+requires it to match the invocation before storing an environment or receipt.
+It does not interpret semantic success, create evidence, manufacture a
+submission, or advance engine state.
 
 A writable run yields no export after cancellation, timeout, output overflow,
 control-start failure, an unsafe tree, or an excessive tree. An ordinary
@@ -229,12 +285,14 @@ bytes executed; it does not retain those bytes or claim hermetic reproduction.
 The kernel, CPU, systemd user manager, Bubblewrap, host `/usr`, and containment
 implementation remain trusted host facts.
 
-The outer Codex control process receives the configured model credential and a
-broad host-network exception. Its model-directed tool process runs in Codex's
-nested sandbox with neither that credential nor network. This is not an egress
-firewall: the trusted outer process may reach arbitrary host-network
-destinations, and same-UID host observers remain inside the trust boundary. The
-executor does not infer quality from exit status. Effect completion validates
-runtime and artifact closure; atomic admission closes the embedded protocol
-snapshot before exposing reviewable. See [ADR
-0008](adr/0008-builder-to-reviewable-production-vertical.md).
+The outer Codex control process receives read-write access to the single
+CLI-managed ChatGPT authentication file and a broad host-network exception. Its
+model-directed tool process runs in Codex's nested sandbox with neither access
+to the Codex home nor network. This is not an egress firewall: the trusted outer
+process may reach arbitrary host-network destinations, and same-UID host
+observers remain inside the trust boundary. The executor does not infer quality
+from exit status. Effect completion validates runtime and artifact closure;
+atomic admission closes the embedded protocol snapshot before exposing
+reviewable. See [ADR
+0008](adr/0008-builder-to-reviewable-production-vertical.md) and [ADR
+0009](adr/0009-codex-cli-managed-chatgpt-authentication.md).

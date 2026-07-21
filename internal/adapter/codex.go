@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	CodexBuilderProfileSchemaVersion = "sworn-codex-builder-profile-v1"
+	CodexBuilderProfileSchemaVersion = "sworn-codex-builder-profile-v2"
 	CodexBuilderOutputSchemaVersion  = "codex-exec-jsonl-v1"
 
 	pinnedCodexVersion          = "codex-cli 0.145.0-alpha.18"
@@ -31,8 +31,10 @@ const (
 	pinnedCodexSize             = int64(304169008)
 	pinnedCodexToolSchemaDigest = "sha256:8d1a8331791d041c8f9ecae0f171b1f6c9df9bdaeb188d69020e8750436852aa"
 	codexExecutableInput        = "codex"
-	codexCredentialName         = "CODEX_API_KEY"
 	codexProvider               = "openai"
+	codexAuthentication         = "codex-cli-chatgpt-file-v1"
+	codexHome                   = "/home/sworn/.codex"
+	codexPermissionProfile      = "sworn_builder"
 	codexVersionTimeout         = 5 * time.Second
 	codexMaximumEventLine       = 1 << 20
 )
@@ -44,7 +46,6 @@ const codexBuilderPrompt = "Read /inputs/dispatch and /inputs/plan. Implement th
 // model has deliberately no default.
 type CodexBuilderOptions struct {
 	BinaryPath string
-	APIKey     string
 	Model      string
 	Timeout    time.Duration
 }
@@ -57,13 +58,16 @@ type codexBuilderProfile struct {
 	BinarySize          int64                    `json:"binary_size"`
 	ExecutableInput     string                   `json:"executable_input"`
 	Provider            string                   `json:"provider"`
+	Authentication      string                   `json:"authentication"`
+	CodexHome           string                   `json:"codex_home"`
+	PermissionProfile   string                   `json:"permission_profile"`
 	Model               string                   `json:"model"`
 	ToolSchemaDigest    string                   `json:"tool_schema_digest"`
 	Argv                []string                 `json:"argv"`
-	EnvironmentNames    []string                 `json:"environment_names"`
 	TimeoutNanoseconds  int64                    `json:"timeout_nanoseconds"`
 	Network             executor.NetworkMode     `json:"network"`
 	NestedSandbox       bool                     `json:"nested_sandbox"`
+	CredentialAccess    bool                     `json:"credential_access"`
 	WorkspaceAccess     executor.WorkspaceAccess `json:"workspace_access"`
 	OutputSchemaVersion string                   `json:"output_schema_version"`
 }
@@ -113,10 +117,13 @@ func configureCodexBuilder(
 		BinaryPath:    options.BinaryPath, BinaryVersion: pinnedCodexVersion,
 		BinaryDigest: pinnedCodexDigest, BinarySize: pinnedCodexSize,
 		ExecutableInput: codexExecutableInput,
-		Provider:        codexProvider, Model: options.Model, ToolSchemaDigest: toolDigest,
-		Argv: slices.Clone(argv), EnvironmentNames: []string{codexCredentialName},
+		Provider:        codexProvider, Authentication: codexAuthentication,
+		CodexHome: codexHome, PermissionProfile: codexPermissionProfile,
+		Model: options.Model, ToolSchemaDigest: toolDigest,
+		Argv:               slices.Clone(argv),
 		TimeoutNanoseconds: options.Timeout.Nanoseconds(), Network: executor.NetworkHost,
-		NestedSandbox: true, WorkspaceAccess: executor.WorkspaceWritableExport,
+		NestedSandbox: true, CredentialAccess: true,
+		WorkspaceAccess:     executor.WorkspaceWritableExport,
 		OutputSchemaVersion: CodexBuilderOutputSchemaVersion,
 	}
 	encoded, err := protocol.EncodeCanonical(profile)
@@ -126,13 +133,13 @@ func configureCodexBuilder(
 	profileDigest := protocol.RawDigest(encoded)
 	worker.Agent = pinnedCodexVersion
 	worker.Argv = argv
-	worker.Environment = map[string]string{codexCredentialName: options.APIKey}
 	worker.Timeout = options.Timeout
 	worker.ExecutableInput = &executor.Input{
 		Name: codexExecutableInput, Path: options.BinaryPath, Digest: pinnedCodexDigest,
 	}
 	worker.Network = executor.NetworkHost
 	worker.NestedSandbox = true
+	worker.CredentialAccess = true
 	worker.CompletionPolicy = codexCompletionPolicy{profileDigest: profileDigest}
 	return worker, nil
 }
@@ -140,7 +147,7 @@ func configureCodexBuilder(
 func validateUnconfiguredBuilder(worker effects.BuilderWorker) error {
 	if worker.Agent != "" || len(worker.Argv) != 0 || len(worker.Environment) != 0 ||
 		worker.Timeout != 0 || worker.ExecutableInput != nil || worker.Network != "" ||
-		worker.NestedSandbox || worker.CompletionPolicy != nil {
+		worker.NestedSandbox || worker.CredentialAccess || worker.CompletionPolicy != nil {
 		return errors.New("Codex adapter requires a process-neutral builder worker")
 	}
 	return nil
@@ -153,10 +160,6 @@ func validateCodexOptions(options CodexBuilderOptions) error {
 	if strings.TrimSpace(options.Model) != options.Model || options.Model == "" ||
 		len(options.Model) > 256 || strings.ContainsRune(options.Model, '\x00') {
 		return errors.New("Codex model must be explicit and bounded")
-	}
-	if strings.TrimSpace(options.APIKey) != options.APIKey || options.APIKey == "" ||
-		len(options.APIKey) > 8192 || strings.ContainsRune(options.APIKey, '\x00') {
-		return errors.New("Codex API key must be present and bounded")
 	}
 	if options.Timeout <= 0 {
 		return errors.New("Codex builder timeout must be positive")
@@ -351,11 +354,13 @@ func codexBuilderArgvWithPrompt(model, prompt string) []string {
 	return []string{
 		"/inputs/codex",
 		"-a", "never",
-		"-s", "workspace-write",
 		"-m", model,
 		"-c", `model_provider="openai"`,
+		"-c", `default_permissions="sworn_builder"`,
+		"-c", `permissions.sworn_builder={extends=":workspace",filesystem={"/home/sworn/.codex"="deny"},network={enabled=false}}`,
+		"-c", `forced_login_method="chatgpt"`,
+		"-c", `cli_auth_credentials_store="file"`,
 		"-c", `web_search="disabled"`,
-		"-c", `sandbox_workspace_write.network_access=false`,
 		"-c", `shell_environment_policy.inherit="none"`,
 		"-c", `shell_environment_policy.set={PATH="/usr/bin:/bin",HOME="/home/sworn",TMPDIR="/tmp",LANG="C",LC_ALL="C",TZ="UTC"}`,
 		"-c", `allow_login_shell=false`,

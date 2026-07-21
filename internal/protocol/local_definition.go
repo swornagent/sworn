@@ -138,7 +138,7 @@ func ParseLocalEnvironment(contents []byte) (LocalEnvironment, error) {
 		!nonEmpty(probe.BubblewrapVersion) || !nonEmpty(probe.SystemdVersion) || !probe.CgroupV2 ||
 		(probe.UserManager != "running" && probe.UserManager != "degraded") || len(probe.Controllers) == 0 ||
 		!slices.IsSorted(probe.Controllers) || duplicateStrings(probe.Controllers) ||
-		environment.ExecutorPolicyVersion != "sworn-linux-containment-v1" ||
+		environment.ExecutorPolicyVersion != executor.ContainmentPolicyVersion ||
 		limits.RuntimeNanoseconds <= 0 || limits.MemoryBytes == 0 || limits.Tasks == 0 ||
 		limits.CPUPercent == 0 || limits.CPUPercent > 1000 || limits.FileBytes == 0 ||
 		limits.TempBytes == 0 || limits.HomeBytes == 0 || limits.InputBytes == 0 ||

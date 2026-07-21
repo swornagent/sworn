@@ -110,7 +110,8 @@ func (runner *integrationBuilderRunner) RunWritable(
 	}
 	return executor.RawCompletion{
 		InvocationID: invocation.ID, WorkspaceDigest: invocation.WorkspaceDigest,
-		WorkspaceAccess: invocation.WorkspaceAccess, Inputs: inputs,
+		WorkspaceAccess: invocation.WorkspaceAccess, CredentialAccess: invocation.CredentialAccess,
+		Inputs:    inputs,
 		StartedAt: started, CompletedAt: time.Now().UTC(), ExitCode: 0,
 		Export: &executor.WorkspaceExport{
 			SchemaVersion: executor.WorkspaceExportSchemaVersion,
@@ -643,7 +644,7 @@ func completeIntegrationCheck(
 			BubblewrapVersion: "bubblewrap integration", SystemdVersion: "systemd integration",
 			CgroupV2: true, UserManager: "running", Controllers: []string{"cpu", "memory", "pids"},
 		},
-		ExecutorPolicyVersion: "sworn-linux-containment-v1",
+		ExecutorPolicyVersion: executor.ContainmentPolicyVersion,
 		Limits: protocol.LocalExecutionLimits{
 			RuntimeNanoseconds: 10_000_000_000, MemoryBytes: 64 << 20,
 			Tasks: 16, CPUPercent: 100, FileBytes: 1 << 20, TempBytes: 1 << 20,

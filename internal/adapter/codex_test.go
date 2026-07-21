@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -21,45 +20,47 @@ import (
 func TestConfigureCodexBuilderPinsOneExplicitProfile(t *testing.T) {
 	t.Parallel()
 	options := CodexBuilderOptions{
-		BinaryPath: "/opt/sworn/codex", APIKey: "secret-one",
-		Model: "gpt-explicit", Timeout: 4 * time.Minute,
+		BinaryPath: "/opt/sworn/codex", Model: "gpt-explicit", Timeout: 4 * time.Minute,
 	}
 	worker, err := configureCodexBuilder(effects.BuilderWorker{}, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if worker.Agent != pinnedCodexVersion || worker.Timeout != options.Timeout ||
-		worker.Network != executor.NetworkHost || !worker.NestedSandbox {
+		worker.Network != executor.NetworkHost || !worker.NestedSandbox || !worker.CredentialAccess {
 		t.Fatalf("Codex worker capability profile = %#v", worker)
 	}
 	if worker.ExecutableInput == nil || worker.ExecutableInput.Name != codexExecutableInput ||
 		worker.ExecutableInput.Path != options.BinaryPath || worker.ExecutableInput.Digest != pinnedCodexDigest {
 		t.Fatalf("Codex executable input = %#v", worker.ExecutableInput)
 	}
-	if !reflect.DeepEqual(worker.Environment, map[string]string{codexCredentialName: options.APIKey}) {
+	if len(worker.Environment) != 0 {
 		t.Fatalf("Codex environment = %#v", worker.Environment)
 	}
 	if len(worker.Argv) == 0 || worker.Argv[0] != "/inputs/codex" ||
 		!containsCodexArguments(worker.Argv, []string{"-m", options.Model}) ||
 		!containsCodexArguments(worker.Argv, []string{"-c", `model_provider="openai"`}) ||
+		!containsCodexArguments(worker.Argv, []string{"-c", `default_permissions="sworn_builder"`}) ||
+		!containsCodexArguments(worker.Argv, []string{"-c", `permissions.sworn_builder={extends=":workspace",filesystem={"/home/sworn/.codex"="deny"},network={enabled=false}}`}) ||
+		!containsCodexArguments(worker.Argv, []string{"-c", `forced_login_method="chatgpt"`}) ||
+		!containsCodexArguments(worker.Argv, []string{"-c", `cli_auth_credentials_store="file"`}) ||
 		!containsCodexArguments(worker.Argv, []string{"exec", "--strict-config", "--ephemeral", "--ignore-user-config", "--ignore-rules"}) ||
 		!containsCodexArguments(worker.Argv, []string{"--json", "--add-dir", "/workspace", codexBuilderPrompt}) {
 		t.Fatalf("Codex argv = %#v", worker.Argv)
 	}
 	joined := strings.Join(worker.Argv, "\x00")
 	if strings.Contains(joined, "base_url") || strings.Contains(joined, "model_providers.") ||
-		strings.Contains(joined, options.APIKey) {
+		strings.Contains(joined, "CODEX_API_KEY") || strings.Contains(joined, "OPENAI_API_KEY") ||
+		strings.Contains(joined, "sandbox_workspace_write") || containsCodexArguments(worker.Argv, []string{"-s"}) {
 		t.Fatalf("Codex argv introduced provider transport or credential: %q", joined)
 	}
 	firstDigest := worker.CompletionPolicy.BuilderProfileDigest()
-	rotated := options
-	rotated.APIKey = "secret-two"
-	rotatedWorker, err := configureCodexBuilder(effects.BuilderWorker{}, rotated)
+	repeatedWorker, err := configureCodexBuilder(effects.BuilderWorker{}, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rotatedWorker.CompletionPolicy.BuilderProfileDigest() != firstDigest {
-		t.Fatal("credential rotation changed the non-secret Codex profile digest")
+	if repeatedWorker.CompletionPolicy.BuilderProfileDigest() != firstDigest {
+		t.Fatal("identical ChatGPT CLI policy changed the Codex profile digest")
 	}
 	changedModel := options
 	changedModel.Model = "gpt-other"
@@ -75,7 +76,7 @@ func TestConfigureCodexBuilderPinsOneExplicitProfile(t *testing.T) {
 func TestCodexBuilderRequiresExplicitUnconfiguredInputs(t *testing.T) {
 	t.Parallel()
 	valid := CodexBuilderOptions{
-		BinaryPath: "/nonexistent/codex", APIKey: "key", Model: "gpt-explicit", Timeout: time.Minute,
+		BinaryPath: "/nonexistent/codex", Model: "gpt-explicit", Timeout: time.Minute,
 	}
 	for _, test := range []struct {
 		name    string
@@ -83,10 +84,10 @@ func TestCodexBuilderRequiresExplicitUnconfiguredInputs(t *testing.T) {
 		options CodexBuilderOptions
 		want    string
 	}{
-		{name: "model", options: CodexBuilderOptions{BinaryPath: valid.BinaryPath, APIKey: "key", Timeout: time.Minute}, want: "model"},
-		{name: "credential", options: CodexBuilderOptions{BinaryPath: valid.BinaryPath, Model: "gpt-explicit", Timeout: time.Minute}, want: "API key"},
-		{name: "timeout", options: CodexBuilderOptions{BinaryPath: valid.BinaryPath, APIKey: "key", Model: "gpt-explicit"}, want: "timeout"},
+		{name: "model", options: CodexBuilderOptions{BinaryPath: valid.BinaryPath, Timeout: time.Minute}, want: "model"},
+		{name: "timeout", options: CodexBuilderOptions{BinaryPath: valid.BinaryPath, Model: "gpt-explicit"}, want: "timeout"},
 		{name: "preconfigured", worker: effects.BuilderWorker{Agent: "other"}, options: valid, want: "process-neutral"},
+		{name: "credential access", worker: effects.BuilderWorker{CredentialAccess: true}, options: valid, want: "process-neutral"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := NewCodexBuilder(context.Background(), test.worker, test.options)

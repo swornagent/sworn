@@ -187,10 +187,16 @@ external effects and transitions which grant effectful capabilities.
 - [x] Compose the sole bounded `sworn run` through the exact production profile,
   current-authorized recoverable checks, and deterministic admission; expose no
   builder-only command.
-- [ ] Prove one successful ready-to-reviewable run at the built process boundary
+- [x] Prove one successful ready-to-reviewable run at the built process boundary
   with the exact pinned Codex artifact; make any live-provider token cost
-  explicit.
+  explicit. The opt-in `gpt-5.4` release proof passed on 2026-07-21; its second
+  process invocation converged without another model turn.
 - [ ] Dispatch the independent verifier through a native CLI adapter.
+- [ ] Make verifier turns memoryless: use ephemeral Codex sessions, disable
+  history persistence, ignore user configuration and rules, and never resume a
+  prior session. Disable approval prompts with `-a never` while retaining the
+  narrow nested workspace sandbox wherever CLI-managed authentication is
+  mounted.
 - [ ] Keep authorizer capability and verifier identity outside builder scope.
 - [ ] Bind each verdict to the exact dispatch, policy, submission, candidate,
   and evidence.
