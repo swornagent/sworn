@@ -43,8 +43,9 @@ vertical.
 The strict `sworn-run-config-v1` object names that file through
 `codex.chatgpt_auth_file`. The path is non-secret configuration; the file
 contents remain secret state owned by Codex. The old
-`codex.credential_environment` field is removed before the first public v1 run
-configuration ships. There is no compatibility reader, environment fallback,
+`codex.credential_environment` field is removed from the v0.2.0 run
+configuration. The `v1` suffix identifies that schema generation rather than
+the package's SemVer. There is no compatibility reader, environment fallback,
 or dual authentication mode.
 
 The dedicated directory is current-user-owned and mode `0700`. Its `auth.json`
@@ -123,9 +124,10 @@ tool schema, timeout, output schema, and executor configuration are bound by
 containment policy also advance to v2 so an older dispatch cannot be mistaken
 for this credential boundary.
 
-## Required release evidence
+## Required v0.2.0 release evidence
 
-The v0.2.0 release candidate must prove all of the following before merge:
+The v0.2.0 release candidate was required to prove all of the following before
+merge:
 
 1. strict run configuration accepts only `codex.chatgpt_auth_file` and rejects
    the removed credential-environment field, aliases, overlap, unsafe shape,
@@ -151,6 +153,9 @@ does not prove that its test-provider request authenticated from that file. A
 live `sworn run` is a separate operational smoke test and consumes the dedicated
 ChatGPT account's Codex usage; it is not part of the ordinary automated suite.
 That smoke test passed on 2026-07-21 with `gpt-5.4` and the exact pinned CLI.
+The candidate satisfied the complete six-part matrix above. The live smoke test
+remains opt-in because it consumes the dedicated ChatGPT account's Codex usage;
+ordinary CI continues to cover the deterministic and token-free boundaries.
 
 ## Consequences and deliberate limits
 

@@ -1,6 +1,6 @@
 # Running the bounded builder-to-reviewable vertical
 
-`sworn run` is Sworn v1's sole mutating command:
+`sworn run` is Sworn v0.2.0's sole mutating command:
 
 ```text
 sworn run <run> [<work>] --config <clean-absolute-path> [--json]
@@ -53,6 +53,10 @@ non-empty regular file no larger than 256 KiB, mode `0600` or otherwise without
 group or world permissions, reached by a clean absolute path with no symlink
 remap. JSON is strict: duplicate or unknown members, trailing values, invalid
 I-JSON, and an unknown schema version fail closed.
+
+The `v1` suffixes in this configuration and the command's JSON result identify
+their schema generations. They are intentionally independent of the v0.2.0
+package version and do not imply a Sworn 1.0 release.
 
 This example shows the complete shape. Every path, digest, public key, identity,
 and limit must be replaced with the deployment's measured value:
@@ -247,7 +251,7 @@ of committed truth.
 ## Deliberate limits
 
 `reviewable` means the exact local candidate and required local evidence were
-atomically admitted. It is not an independent verdict or `PASS`. V1 still has
+atomically admitted. It is not an independent verdict or `PASS`. v0.2.0 has
 no verifier adapter, verdict routing, bounded repair policy, scheduler,
 integration edge, or external authorizer transport.
 
@@ -265,3 +269,6 @@ check, reached `reviewable` at revision 4, and left the target ref unchanged; a
 second built-process invocation converged with no commands, effects, or model
 turn. The scripted provider authenticates with a separate test-only bearer, so
 that proof does not claim that its model request used the mounted ChatGPT state.
+
+See the [v0.2.0 release notes](releases/v0.2.0.md) for the packaged boundary and
+the [roadmap](roadmap.md) for the v0.3.0 verifier direction.

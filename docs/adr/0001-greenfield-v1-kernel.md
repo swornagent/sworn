@@ -3,6 +3,17 @@
 - Date: 2026-07-19
 - Status: accepted
 
+## Release identity
+
+The **v1** in this ADR names the greenfield kernel architecture and its first
+schema/reference generation. It is not a promise that the first packaged
+binary is SemVer 1.0. The first package from this code line is Sworn v0.2.0;
+identifiers such as `sworn-run-config-v1` remain unchanged because their
+versions describe wire contracts, not the executable release.
+
+The `release/v1.0.0` name records the original construction branch. It is
+historical context, not the package identity.
+
 ## Context
 
 Sworn v0 accumulated competing state stores, orchestration paths, provider and
@@ -60,8 +71,8 @@ Export failure cannot block, retry, resume, or alter a run. LangSmith may be a
 dogfood or evaluation destination; LangChain and LangGraph do not own kernel
 semantics. Sensitive content is not exported by default.
 
-The embedded protocol is pinned to Baton commit
-`732ba47672e12edb55494d120bb7325850187643`, admitted after 7 strict-JSON cases,
+The embedded protocol is Baton v1.0.0-rc.1 pinned to commit
+`dd41dcc8c46def2f8b7b86a4f9acd26aeb486667`, admitted after 7 strict-JSON cases,
 2 canonicalization vectors, 46 schema fixtures, and 99 cross-record cases
 passed. The 18 real-boundary engine cases remain explicitly unclaimed until
 they pass through the real Sworn binary.
@@ -96,6 +107,12 @@ PR/squash/merge-commit integration remain later capabilities.
 
 If this serial kernel needs dozens of packages or materially exceeds 8–10k
 production lines, implementation stops for architecture review.
+
+The v0.2.0 cut implements the bounded builder-to-local-checks-to-`reviewable`
+vertical. It deliberately stops before independent verification, verdict
+routing, repair epochs, integration, and the public autonomous loop. Those
+omissions narrow the release claim; they do not change this architectural
+decision. v0.3.0 begins with the fresh verifier and exact verdict binding.
 
 ## Consequences
 

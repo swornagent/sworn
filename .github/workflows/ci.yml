@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [release/v1.0.0]
+    branches: [main, "release/**"]
   pull_request:
-    branches: [release/v1.0.0]
+    branches: [main, "release/**"]
 
 permissions:
   contents: read
@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true

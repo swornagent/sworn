@@ -27,8 +27,8 @@ func TestVersionJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
 		t.Fatalf("decode stdout: %v", err)
 	}
-	if info.Version != "1.0.0-dev" {
-		t.Fatalf("version = %q, want 1.0.0-dev", info.Version)
+	if info.Version != "0.2.0-dev" {
+		t.Fatalf("version = %q, want 0.2.0-dev", info.Version)
 	}
 }
 

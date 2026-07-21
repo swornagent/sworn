@@ -1,10 +1,10 @@
 {
   "format": "sworn-baton-snapshot/v1",
   "protocol": "Baton",
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.0.0-rc.1",
   "source_repository": "https://github.com/sawy3r/baton",
-  "source_commit": "732ba47672e12edb55494d120bb7325850187643",
-  "captured_date": "2026-07-19",
+  "source_commit": "dd41dcc8c46def2f8b7b86a4f9acd26aeb486667",
+  "captured_date": "2026-07-21",
   "includes": [
     "VERSION",
     "baton",
