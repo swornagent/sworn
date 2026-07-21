@@ -2,281 +2,117 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"flag"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"errors"
-
-	"github.com/swornagent/sworn/internal/account"
-	"github.com/swornagent/sworn/internal/config"
-	"github.com/swornagent/sworn/internal/db"
-	"github.com/swornagent/sworn/internal/driver/registry"
-	"github.com/swornagent/sworn/internal/model"
-	"github.com/swornagent/sworn/internal/run"
-	"github.com/swornagent/sworn/internal/supervisor"
+	"github.com/swornagent/sworn/internal/app"
+	"github.com/swornagent/sworn/internal/engine"
 )
 
-// cmdRun implements the `sworn run` subcommand.
-//
-//	sworn run --task "<description>" [--implementer-model <provider/model>]
-//	           [--verifier-model <provider/model>] [--base <branch>]
-//	           [--retry-cap <n>] [--escalation-models <m1,m2,...>]
-//	           [--implement-timeout <duration>]
-//
-//	sworn run --parallel --release <name> [--verifier-model <provider/model>]
-//	           [--implementer-model <provider/model>]
-//	           [--implement-timeout <duration>]
-func cmdRun(args []string) int {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	task := fs.String("task", "", "dispatch planner for a single-slice task and run implement+verify")
-	implModel := fs.String("implementer-model", "", "implementer model (provider/model)")
-	verifierModel := fs.String("verifier-model", "", "verifier model (provider/model)")
-	base := fs.String("base", "main", "base branch to merge into on PASS")
-	_ = base
-	retryCap := fs.Int("retry-cap", -1, "max retries before escalating to human (-1 = use all escalation models)")
-	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
-	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
-	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
-	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
-	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
-	resume := fs.Bool("resume", false, "resume an in-flight parallel release — each track seeds from committed state (alias: every --parallel run already does this, the flag makes the contract explicit)")
-	docsPrefix := fs.String("docs-prefix", "docs", "git-ref path prefix for release boards; set to apps/docs/content/docs for monorepos where docs/ is a symlink (the oracle auto-detects, but the router + planned-files reader need this)")
-	_ = fs.Parse(args)
+type runApplication func(context.Context, app.Request) (app.Result, error)
 
-	// ── Load .env files ────────────────────────────────────────────────
-	// Keys are NOT bootstrapped here. The model layer resolves them itself
-	// (canonical env var, then credentials.json), so every command sees the same
-	// credentials. This used to call model.LoadDotEnv() — and it was the ONLY
-	// command that did, so a key written by `sworn init` was visible to the loop
-	// and invisible to llm-check, verify, reqverify and MCP.
-	// ── Basic CLI usage validation (before model resolution) ────────────
-	if *parallel {
-		if *releaseName == "" {
-			fmt.Fprintln(os.Stderr, "sworn run: --release is required with --parallel")
-			return 64
-		}
-	} else if *task == "" {
-		fmt.Fprintln(os.Stderr, "sworn run: --task is required (or use --parallel --release)")
-		return 64
-	}
+type runOptions struct {
+	request app.Request
+	asJSON  bool
+}
 
-	if *resume && !*parallel {
-		fmt.Fprintln(os.Stderr, "sworn run: --resume requires --parallel")
-		return 64
+func runDelivery(
+	ctx context.Context,
+	args []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	application runApplication,
+) int {
+	options, err := parseRunOptions(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "sworn run: %v\n", err)
+		fmt.Fprintln(stderr, "usage: sworn run <run> [<work>] --config <clean-absolute-path> [--json]")
+		return 2
 	}
-	// ── Dry-run short-circuit: skip model/config loading, verify reachability ─
-	if *dryRun && !*parallel {
-		return cmdRunTask(*task, "", "", nil, 0, 0, true, nil)
-	}
-
-	// ── Load config ────────────────────────────────────────────────────
-	cfg, cfgErr := config.Load()
-	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: load config: %v\n", cfgErr)
+	if application == nil {
+		fmt.Fprintln(stderr, "sworn run: production application is unavailable")
 		return 1
 	}
-
-	// ── Resolve implement timeout ─────────────────────────────────────
-	// Precedence: flag > env > default. No config-file tier — touching
-	// internal/config/config.go for S42 was the source of the BLOCKED verdict.
-	implementTimeout := resolveImplementTimeout(*implTimeout, os.Getenv("SWORN_IMPLEMENT_TIMEOUT"))
-
-	// ── Resolve verifier model ─────────────────────────────────────────
-	verifier, err := config.ResolveVerifierModel(*verifierModel, cfg)
+	result, err := application(ctx, options.request)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
-		return 2
+		fmt.Fprintf(stderr, "sworn run: %v\n", err)
+		return 1
 	}
-
-	// ── Resolve implementer model ──────────────────────────────────────
-	impl, err := config.ResolveImplementerModel(*implModel, cfg, "", "", "quality", 0)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
-		return 2
+	if err := writeRunResult(stdout, result, options.asJSON); err != nil {
+		fmt.Fprintf(stderr, "sworn run: write output: %v\n", err)
+		return 1
 	}
-
-	// ── Resolve captain model ──────────────────────────────────────────
-	// Its own role, not escalationModels[0]. See config.roleFallback.
-	captain, err := config.ResolveCaptainModel("", cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
-		return 2
-	}
-
-	// ── Resolve escalation models ──────────────────────────────────────
-	escalationModels := config.ResolveEscalationModels(parseEscalationFlag(*escalationFlag), cfg)
-
-	// ── Resolve max attempts ───────────────────────────────────────────
-	maxAttempts := config.ResolveMaxAttempts(*retryCap, cfg)
-
-	// Load credentials for the notifier (shared by both modes).
-	credsDir := filepath.Dir(account.CredentialsPath())
-	creds, _ := account.Load(credsDir)
-
-	var webhookURL string
-	if creds != nil {
-		webhookURL = creds.WebhookURL
-	}
-	notifier := account.NewNotifier(webhookURL, creds)
-
-	// ── Parallel mode ─────────────────────────────────────────────────
-	if *parallel {
-		// ── Startup resolution sweep (S07 AC-01) ────────────────────────
-		// Resolve every role RunSlice will need per-attempt — the full
-		// implementer escalation chain, the verifier, and the captain —
-		// through the registry BEFORE any worker spawns. Reuses
-		// run.ComposeEscalationModels/run.ResolveDispatch, the exact
-		// composition+resolution RunSlice performs per-attempt (S06 AC-02),
-		// so a model that resolves here is guaranteed to resolve identically
-		// inside every worker's RunSlice call — one composed/resolved list,
-		// never two independently-built ones that could drift.
-		//
-		// An implementer-, verifier-, or escalation-entry resolution
-		// failure exits non-zero naming the model, role, and registered
-		// alternatives, before openDefaultDB/supervisor.Open/RunParallel —
-		// no worker, DB handle, or event store is ever opened. A
-		// captain-leg resolution failure is surfaced as a warning and does
-		// NOT block startup, matching RunSlice's own per-attempt fail-open
-		// captain policy (Coach ratification 2026-07-10, S06
-		// captain-proceed.md pin 1, propagated to S07 captain-proceed.md
-		// pin 1 — sworn#86 tracks restoring role-universality). Enforcing
-		// AC-01's literal text against the captain leg would put the
-		// startup sweep and every in-flight RunSlice call on opposite
-		// policies for the identical role/model pair.
-		startupModels := run.ComposeEscalationModels(impl, escalationModels)
-		startupReg := registry.Default(model.ProviderConfigFromEnv())
-		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels, captain)
-		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "sworn run: %v\n", rerr)
-			return 1
-		}
-		if resolution.CaptainErr != nil {
-			fmt.Fprintf(os.Stderr,
-				"sworn run: warning: %v — captain leg proceeds (S06 D2 / S07 captain-proceed.md "+
-					"pin 1: no subprocess driver declares RoleCaptain yet; sworn#86); recorded "+
-					"per-slice as a design-gate deferral when the affected slice runs\n",
-				resolution.CaptainErr)
-		}
-
-		database, dbErr := openDefaultDB()
-		if dbErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn run: open database: %v\n", dbErr)
-			return 1
-		}
-		defer database.Close()
-
-		// Open the release-specific event store so events survive process exit.
-		eventDB, evErr := supervisor.Open(*releaseName, ".")
-		if evErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn run: open event store: %v\n", evErr)
-			database.Close()
-			return 1
-		}
-		defer eventDB.Close()
-		runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
-			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
-				ImplementerModel: impl,
-				VerifierModel:    verifier,
-				CaptainModel:     captain,
-				EscalationModels: escalationModels,
-				RetryCap:         maxAttempts,
-				ImplementTimeout: implementTimeout,
-				Notifier:         notifier,
-				DB:               database,
-			})
-		}
-		// Derive the project dir from the working directory so track worktrees
-		// are named per-repo — a consumer-repo run must not reuse "sworn". This is
-		// only the fallback name now; the repo-local default keys off the release
-		// worktree path (worker.go).
-		projectDir := "sworn"
-		if wd, wdErr := os.Getwd(); wdErr == nil {
-			projectDir = filepath.Base(wd)
-		}
-		err = run.RunParallel(context.Background(), run.ParallelOptions{ReleaseName: *releaseName,
-			WorkspaceRoot: ".",
-			DB:            database,
-			EventDB:       eventDB,
-			RunSliceFn:    runSliceFn,
-			ProjectDir:    projectDir,
-			DocsPrefix:    *docsPrefix,
-			Notifier:      notifier,
-			MergeTrackFn:  run.ProductionMergeTrack,
-		})
-		if err != nil {
-			printModelError(err)
-			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-	// ── Single-slice mode ──────────────────────────────────────────────
-	return cmdRunTask(*task, impl, verifier, escalationModels, maxAttempts, implementTimeout, *dryRun, notifier)
+	return 0
 }
 
-// resolveImplementTimeout returns the per-attempt implement timeout from the
-// first available source, in precedence order:
-//
-//  1. --implement-timeout flag (non-zero)
-//  2. $SWORN_IMPLEMENT_TIMEOUT env var (parsed as duration string)
-//  3. run.DefaultImplementTimeout constant (15m)
-//
-// A negative flag or env value means "no timeout" (opt-out). Zero means "use
-// default". There is intentionally no config-file tier — that was the source
-// of the S42 BLOCKED verdict (cross-track collision with config.go ownership).
-func resolveImplementTimeout(flagVal time.Duration, envVal string) time.Duration {
-	if flagVal != 0 {
-		if flagVal < 0 {
-			return 0 // opt-out
-		}
-		return flagVal
-	}
-	if envVal != "" {
-		if d, err := time.ParseDuration(envVal); err == nil {
-			if d < 0 {
-				return 0 // opt-out
+func parseRunOptions(args []string) (runOptions, error) {
+	var options runOptions
+	var positional []string
+	configSeen := false
+	jsonSeen := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--config":
+			if configSeen {
+				return runOptions{}, errors.New("--config may be specified only once")
 			}
-			return d
+			configSeen = true
+			index++
+			if index >= len(args) || args[index] == "" {
+				return runOptions{}, errors.New("--config requires a path")
+			}
+			options.request.ConfigPath = args[index]
+		case "--json":
+			if jsonSeen {
+				return runOptions{}, errors.New("--json may be specified only once")
+			}
+			jsonSeen, options.asJSON = true, true
+		default:
+			if strings.HasPrefix(args[index], "-") {
+				return runOptions{}, fmt.Errorf("unknown option %q", args[index])
+			}
+			positional = append(positional, args[index])
 		}
 	}
-	return run.DefaultImplementTimeout
-} // parseEscalationFlag splits a comma-separated escalation models string into
-// a []string. Returns nil when the flag is empty.
-func parseEscalationFlag(raw string) []string {
-	if raw == "" {
-		return nil
+	if len(positional) < 1 || len(positional) > 2 {
+		return runOptions{}, errors.New("select one run and at most one work item")
 	}
-	var models []string
-	for _, m := range strings.Split(raw, ",") {
-		m = strings.TrimSpace(m)
-		if m != "" {
-			models = append(models, m)
+	if !configSeen {
+		return runOptions{}, errors.New("--config is required")
+	}
+	if !filepath.IsAbs(options.request.ConfigPath) ||
+		filepath.Clean(options.request.ConfigPath) != options.request.ConfigPath {
+		return runOptions{}, errors.New("--config requires a clean absolute path")
+	}
+	options.request.RunID = positional[0]
+	if !engine.ValidID(options.request.RunID) {
+		return runOptions{}, errors.New("run id is invalid")
+	}
+	if len(positional) == 2 {
+		options.request.WorkID = positional[1]
+		if !engine.ValidID(options.request.WorkID) {
+			return runOptions{}, errors.New("work id is invalid")
 		}
 	}
-	return models
+	return options, nil
 }
 
-// openDefaultDB opens the default sworn SQLite database with schema initialization.
-func openDefaultDB() (*sql.DB, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
+func writeRunResult(output io.Writer, result app.Result, asJSON bool) error {
+	if err := result.Validate(); err != nil {
+		return fmt.Errorf("application returned an invalid bounded run result: %w", err)
 	}
-	return db.Open(filepath.Join(wd, db.DefaultDir, db.DefaultName))
-}
-
-// printModelError unwraps a *model.Error from err (via errors.As) and
-// prints its UserMessage to stderr. This gives the user actionable
-// guidance (e.g. "check the API key", "out of credits") instead of
-// raw provider JSON. If err is not a *model.Error, nothing is printed.
-func printModelError(err error) {
-	var me *model.Error
-	if errors.As(err, &me) {
-		fmt.Fprintf(os.Stderr, "sworn run: %s\n", me.UserMessage())
+	if asJSON {
+		encoder := json.NewEncoder(output)
+		encoder.SetEscapeHTML(false)
+		return encoder.Encode(result)
 	}
+	_, err := fmt.Fprintf(
+		output, "run %s work %s: %s (revision %d)\n",
+		result.RunID, result.WorkID, result.State, result.Revision,
+	)
+	return err
 }

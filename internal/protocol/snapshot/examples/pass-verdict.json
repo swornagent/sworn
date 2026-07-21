@@ -1,0 +1,32 @@
+{
+  "schema_version": "delivery-verdict-v1",
+  "verdict_id": "verdict-example-release-health-1",
+  "submission_id": "example-release.health-endpoint.1",
+  "submission_digest": "sha256:51532765e47ad1d3414a7753e025ac17646cbbae70cd8ec63f5f3487b125a2f6",
+  "delivery_id": "example-release",
+  "work_id": "health-endpoint",
+  "review": {
+    "run_id": "verifier-run-1",
+    "agent": "codex",
+    "fresh_context": true,
+    "dispatch_receipt": {
+      "ref": "examples/artifacts/dispatch/verifier-run-1.json",
+      "media_type": "application/json",
+      "digest": "sha256:25d5e84ec61e8c72c25b257e62d1397cd313cebd97d2038fa783f9926b22bf22"
+    },
+    "started_at": "2026-07-19T00:06:00Z",
+    "completed_at": "2026-07-19T00:07:00Z"
+  },
+  "outcome": "PASS",
+  "summary": "The exact candidate satisfies AC1 with assembled, mock-free evidence.",
+  "acceptance_results": [
+    {
+      "acceptance_id": "AC1",
+      "outcome": "pass",
+      "evidence_ids": ["health-smoke"],
+      "summary": "Confirmed the engine-captured assembled receipt against the exact candidate."
+    }
+  ],
+  "assurance_results": [],
+  "findings": []
+}

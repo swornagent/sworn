@@ -1,0 +1,50 @@
+{
+  "schema_version": "delivery-plan-v1",
+  "delivery_id": "example-release",
+  "outcome": "Expose a health endpoint that reports the assembled service as ready.",
+  "created_at": "2026-07-19T00:00:00Z",
+  "assurance_policy": {
+    "ref": "examples/assurance-policy.json",
+    "digest": "sha256:7a97154ed556cf6821be212cc8a8b97268e4bb74e5d6286e0337f157e00c2a23"
+  },
+  "target": {
+    "repository": "local:example",
+    "ref": "refs/heads/main"
+  },
+  "authority": {
+    "ref": "examples/authority-source.json",
+    "grants": [
+      { "action": "inspect", "target": "workspace" },
+      { "action": "edit", "target": "workspace" },
+      { "action": "execute", "target": "workspace" },
+      { "action": "commit", "target": "workspace" },
+      {
+        "action": "integrate",
+        "target": { "repository": "local:example", "ref": "refs/heads/main" }
+      }
+    ]
+  },
+  "work": [
+    {
+      "id": "health-endpoint",
+      "outcome": "The running service answers GET /health with a ready response.",
+      "scope": {
+        "include": ["src", "tests"],
+        "exclude": ["vendor"]
+      },
+      "acceptance": [
+        {
+          "id": "AC1",
+          "criterion": "Starting the assembled service and requesting GET /health returns HTTP 200 with {\"status\":\"ready\"}.",
+          "evidence_level": "assembled"
+        }
+      ],
+      "depends_on": [],
+      "assurance": {
+        "profile": "standard",
+        "packs": []
+      },
+      "constraints": ["Do not add a new runtime dependency."]
+    }
+  ]
+}

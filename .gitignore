@@ -1,42 +1,4 @@
-# build output
 /bin/
-/dist/
-# root-level built binary (anchored so a bare `sworn` doesn't also ignore cmd/sworn/)
-/sworn
-scratchpad/
-
-# go
-*.test
+/coverage/
+/.sworn/
 *.out
-coverage.*
-
-# editor / os
-.DS_Store
-.idea/
-.vscode/
-
-# marketing site — lives in swornagent/internal, not this repo
-/site/
-
-# stray sworn artefacts from running sworn outside repo root
-/cmd/sworn/docs/
-# scratch state/run dirs sworn writes relative to cwd (e.g. when run from cmd/sworn)
-cmd/sworn/.sworn/
-
-# SQLite process registry database (all directories)
-.sworn/
-
-# test scratch written into the tree — tests should use t.TempDir() instead;
-# ignored defensively so a stray fixture dir never trips the cleanliness gate
-test-fixture/
-
-# per-user coach-loop config — sourced at coach-loop startup; local to each
-# operator, must never be committed (may carry machine-specific paths/secrets)
-.coach-env
-
-# personal working notes — private, never commit to the public repo
-/BRAD-TODO.md
-
-# symlink into the private sibling repo (docs live in sworn-internal); must
-# never be tracked or packaged into the public tree
-/internal-docs

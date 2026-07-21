@@ -1,0 +1,26 @@
+{
+  "format": "sworn-baton-snapshot/v1",
+  "protocol": "Baton",
+  "protocol_version": "1.0.0-rc.1",
+  "source_repository": "https://github.com/sawy3r/baton",
+  "source_commit": "dd41dcc8c46def2f8b7b86a4f9acd26aeb486667",
+  "captured_date": "2026-07-21",
+  "includes": [
+    "VERSION",
+    "baton",
+    "schemas",
+    "conformance",
+    "examples"
+  ],
+  "portable_suite_at_admission": {
+    "strict_json_cases": 7,
+    "canonicalization_vectors": 2,
+    "schema_fixtures": 46,
+    "cross_record_cases": 99,
+    "result": "PASS"
+  },
+  "real_boundary_engine_cases": {
+    "count": 18,
+    "result": "NOT_RUN"
+  }
+}

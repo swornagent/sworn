@@ -1,6 +1,0 @@
-{
-  "slice_id": "SA-alpha",
-  "user_outcome": "A user does\n  alpha things\nspread across several lines.",
-  "touchpoints": ["internal/alpha/alpha.go", "internal/alpha/alpha_test.go"],
-  "effort_complexity": { "quadrant": "chore" }
-}

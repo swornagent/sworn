@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/submission-v1.json",
+  "title": "Baton submission v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "submission_id",
+    "delivery_id",
+    "work_id",
+    "attempt",
+    "created_at",
+    "plan_digest",
+    "contract_digest",
+    "authority_receipt",
+    "builder",
+    "base",
+    "candidate",
+    "assurance",
+    "changed_paths",
+    "checks",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": { "const": "submission-v1" },
+    "submission_id": { "$ref": "#/$defs/id" },
+    "delivery_id": { "$ref": "#/$defs/id" },
+    "work_id": { "$ref": "#/$defs/id" },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "contract_digest": { "$ref": "#/$defs/digest" },
+    "authority_receipt": { "$ref": "#/$defs/artifact" },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "agent", "started_at", "completed_at"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/id" },
+        "agent": { "$ref": "#/$defs/non_empty" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "base": { "$ref": "#/$defs/git_point" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "commit": { "$ref": "#/$defs/oid" },
+        "tree": { "$ref": "#/$defs/oid" }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "packs", "policy_ref", "policy_digest"],
+      "properties": {
+        "profile": { "enum": ["standard", "assured"] },
+        "packs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/pack_id" }
+        },
+        "policy_ref": { "$ref": "#/$defs/non_empty" },
+        "policy_digest": { "$ref": "#/$defs/digest" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "profile": { "const": "standard" } } },
+          "then": { "properties": { "packs": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "profile": { "const": "assured" } } },
+          "then": { "properties": { "packs": { "minItems": 1 } } }
+        }
+      ]
+    },
+    "changed_paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path" }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/evidence" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$(?![\\s\\S])"
+    },
+    "non_empty": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "pack_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[A-Za-z0-9][A-Za-z0-9._-]{0,31}$(?![\\s\\S])"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$(?![\\s\\S])"
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$(?![\\s\\S])"
+    },
+    "branch_ref": {
+      "type": "string",
+      "pattern": "^refs/heads/(?!.*//)(?!.*\\.\\.)(?!.*(?:^|/)\\.)(?!.*\\.lock(?:/|$))[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9_-])?$(?![\\s\\S])"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![\\s\\S]*\\u0000)(?![\\s\\S]*//)(?!\\.{1,2}(?:/|$))(?![\\s\\S]*/\\.{1,2}(?:/|$))(?![\\s\\S]*/$)[\\s\\S]+$(?![\\s\\S])"
+    },
+    "git_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "ref", "commit"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "ref": { "$ref": "#/$defs/branch_ref" },
+        "commit": { "$ref": "#/$defs/oid" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "media_type", "digest"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/non_empty" },
+        "media_type": { "$ref": "#/$defs/media_type" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "outcome", "run_id", "candidate_tree", "environment", "started_at", "completed_at", "receipt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "outcome": { "enum": ["pass", "fail", "skipped"] },
+        "run_id": { "$ref": "#/$defs/id" },
+        "candidate_tree": { "$ref": "#/$defs/oid" },
+        "environment": { "$ref": "#/$defs/environment" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "exit_code": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "receipt": { "$ref": "#/$defs/artifact" },
+        "command": { "$ref": "#/$defs/non_empty" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "boundary",
+        "environment",
+        "uses_mocks",
+        "producer_run_id",
+        "candidate_tree",
+        "captured_at",
+        "artifact",
+        "observed"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "acceptance_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "pack_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/pack_id" }
+        },
+        "kind": { "enum": ["test", "observation", "artifact", "attestation"] },
+        "boundary": { "enum": ["component", "assembled", "live"] },
+        "environment": { "$ref": "#/$defs/environment" },
+        "uses_mocks": { "type": "boolean" },
+        "producer_run_id": { "$ref": "#/$defs/id" },
+        "candidate_tree": { "$ref": "#/$defs/oid" },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "observed": { "$ref": "#/$defs/non_empty" },
+        "notes": { "$ref": "#/$defs/non_empty" }
+      },
+      "anyOf": [
+        { "required": ["acceptance_ids"] },
+        { "required": ["pack_ids"] }
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": { "enum": ["local", "ci", "sandbox", "staging", "production"] },
+        "ref": { "$ref": "#/$defs/non_empty" }
+      }
+    }
+  }
+}

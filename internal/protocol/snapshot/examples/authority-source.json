@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "source_id": "local-autonomy-v1",
+  "status": "active",
+  "repository": "local:example",
+  "target_ref": "refs/heads/main",
+  "maximum_grants": [
+    { "action": "inspect", "target": "workspace" },
+    { "action": "edit", "target": "workspace" },
+    { "action": "execute", "target": "workspace" },
+    { "action": "commit", "target": "workspace" },
+    {
+      "action": "integrate",
+      "target": { "repository": "local:example", "ref": "refs/heads/main" }
+    }
+  ],
+  "authorizer_ref": "identity:example-authorizer",
+  "valid_from": "2026-07-19T00:00:00Z",
+  "valid_until": "2026-07-20T00:00:00Z"
+}

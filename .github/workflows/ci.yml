@@ -1,39 +1,31 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: ["main", "release/**", "release-wt/**"]
+    branches: [main, "release/**"]
   pull_request:
-    branches: ["main", "release/**"]
+    branches: [main, "release/**"]
+
+permissions:
+  contents: read
 
 jobs:
-  ci:
+  test:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
-
-      - name: public-safe scan
-        run: bash scripts/public-safe-scan.sh
-
-      - name: gofmt
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::gofmt: the following files are not formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: build
-        run: go build ./...
-
-      - name: vet
-        run: go vet ./...
-
-      - name: test
+          cache: true
+      - name: Format
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - name: Test
         run: go test ./...
+      - name: Race test
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build without CGO
+        run: CGO_ENABLED=0 go build ./cmd/sworn

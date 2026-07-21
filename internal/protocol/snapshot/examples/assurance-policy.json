@@ -1,0 +1,24 @@
+{
+  "schema_version": "assurance-policy-v1",
+  "policy_id": "example-standard",
+  "checks": [
+    {
+      "id": "test",
+      "definition": {
+        "ref": "examples/policy/checks/test.json",
+        "media_type": "application/json",
+        "digest": "sha256:6151de5a31da2453883460a952adf269417da47c06c67227dbe5b4db100ff782"
+      }
+    }
+  ],
+  "packs": [
+    {
+      "id": "security@1",
+      "definition": {
+        "ref": "examples/policy/packs/security-v1.json",
+        "media_type": "application/json",
+        "digest": "sha256:38b36ce18742242fd613a9c807ef46e29897b94b4eec94553876f15e184ff501"
+      }
+    }
+  ]
+}

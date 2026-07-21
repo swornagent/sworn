@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/delivery-plan-v1.json",
+  "title": "Baton delivery plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "delivery_id",
+    "outcome",
+    "created_at",
+    "assurance_policy",
+    "target",
+    "authority",
+    "work"
+  ],
+  "properties": {
+    "schema_version": { "const": "delivery-plan-v1" },
+    "delivery_id": { "$ref": "#/$defs/id" },
+    "outcome": { "$ref": "#/$defs/non_empty" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "assurance_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "digest"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/non_empty" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "ref"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/non_empty" },
+        "ref": { "$ref": "#/$defs/branch_ref" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "grants"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/non_empty" },
+        "grants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/grant" }
+        }
+      }
+    },
+    "work": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/work_contract" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$(?![\\s\\S])"
+    },
+    "non_empty": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "branch_ref": {
+      "type": "string",
+      "pattern": "^refs/heads/(?!.*//)(?!.*\\.\\.)(?!.*(?:^|/)\\.)(?!.*\\.lock(?:/|$))[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9_-])?$(?![\\s\\S])"
+    },
+    "pack_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[A-Za-z0-9][A-Za-z0-9._-]{0,31}$(?![\\s\\S])"
+    },
+    "path_prefix": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:\\.|(?!/)(?!.*\\u0000)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[*?\\[\\]\\\\])(?!.*/$)(?!\\s*$).+)$(?![\\s\\S])"
+    },
+    "grant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "target"],
+          "properties": {
+            "action": { "enum": ["inspect", "edit", "execute", "commit"] },
+            "target": { "const": "workspace" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "target"],
+          "properties": {
+            "action": { "const": "integrate" },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "ref"],
+              "properties": {
+                "repository": { "$ref": "#/$defs/non_empty" },
+                "ref": { "$ref": "#/$defs/branch_ref" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "criterion", "evidence_level"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "criterion": { "$ref": "#/$defs/non_empty" },
+        "evidence_level": {
+          "enum": ["component", "assembled", "live"],
+          "description": "Minimum boundary the evidence must exercise."
+        }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "packs"],
+      "properties": {
+        "profile": { "enum": ["standard", "assured"] },
+        "packs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/pack_id" }
+        },
+        "risk_tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "profile": { "const": "standard" } } },
+          "then": { "properties": { "packs": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "profile": { "const": "assured" } } },
+          "then": { "properties": { "packs": { "minItems": 1 } } }
+        }
+      ]
+    },
+    "work_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "outcome",
+        "scope",
+        "acceptance",
+        "depends_on",
+        "assurance"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "outcome": { "$ref": "#/$defs/non_empty" },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include", "exclude"],
+          "properties": {
+            "include": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/path_prefix" }
+            },
+            "exclude": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/path_prefix" }
+            }
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/acceptance" }
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "assurance": { "$ref": "#/$defs/assurance" },
+        "constraints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/non_empty" }
+        }
+      }
+    }
+  }
+}

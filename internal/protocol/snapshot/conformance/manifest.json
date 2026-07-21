@@ -1,0 +1,589 @@
+{
+  "version": 1,
+  "strict_json_cases": [
+    {
+      "id": "accept-safe-integer-and-scalar",
+      "instance": "conformance/fixtures/raw-valid-edge.json",
+      "valid": true
+    },
+    {
+      "id": "reject-duplicate-object-name",
+      "instance": "conformance/fixtures/raw-invalid-duplicate-key.json",
+      "valid": false,
+      "error": "duplicate_key"
+    },
+    {
+      "id": "reject-nonfinite-number",
+      "instance": "conformance/fixtures/raw-invalid-nonfinite.json",
+      "valid": false,
+      "error": "nonfinite_number"
+    },
+    {
+      "id": "reject-lone-surrogate",
+      "instance": "conformance/fixtures/raw-invalid-unicode.json",
+      "valid": false,
+      "error": "invalid_unicode"
+    },
+    {
+      "id": "reject-unsafe-integer",
+      "instance": "conformance/fixtures/raw-invalid-unsafe-integer.json",
+      "valid": false,
+      "error": "unsafe_integer"
+    },
+    {
+      "id": "reject-unsafe-integer-valued-float",
+      "instance": "conformance/fixtures/raw-invalid-unsafe-float.json",
+      "valid": false,
+      "error": "unsafe_integer"
+    },
+    {
+      "id": "reject-unsafe-integer-valued-exponent",
+      "instance": "conformance/fixtures/raw-invalid-unsafe-exponent.json",
+      "valid": false,
+      "error": "unsafe_integer"
+    }
+  ],
+  "canonical_cases": [
+    {
+      "id": "rfc8785-number-form",
+      "number_strings": ["333333333.33333329", "1e+30", "4.50", "0.002", "1e-27"],
+      "expected": "[333333333.3333333,1e+30,4.5,0.002,1e-27]"
+    },
+    {
+      "id": "rfc8785-utf16-key-order",
+      "value": {
+        "€": "Euro",
+        "\r": "Carriage Return",
+        "דּ": "Hebrew",
+        "1": "One",
+        "😀": "Emoji",
+        "": "Control",
+        "ö": "Latin"
+      },
+      "expected": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin\",\"€\":\"Euro\",\"😀\":\"Emoji\",\"דּ\":\"Hebrew\"}"
+    }
+  ],
+  "schema_cases": [
+    {
+      "id": "valid-standard-plan",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "valid": true
+    },
+    {
+      "id": "valid-assurance-policy-registry",
+      "schema": "schemas/assurance-policy-v1.json",
+      "instance": "examples/assurance-policy.json",
+      "valid": true
+    },
+    {
+      "id": "reject-unversioned-policy-pack-id",
+      "schema": "schemas/assurance-policy-v1.json",
+      "instance": "examples/assurance-policy.json",
+      "mutation": "invalid_policy_pack_id",
+      "valid": false
+    },
+    {
+      "id": "reject-non-json-policy-definition",
+      "schema": "schemas/assurance-policy-v1.json",
+      "instance": "examples/assurance-policy.json",
+      "mutation": "invalid_policy_media_type",
+      "valid": false
+    },
+    {
+      "id": "reject-policy-without-baseline-checks",
+      "schema": "schemas/assurance-policy-v1.json",
+      "instance": "examples/assurance-policy.json",
+      "mutation": "missing_policy_checks",
+      "valid": false
+    },
+    {
+      "id": "valid-standard-submission",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "valid": true
+    },
+    {
+      "id": "valid-pass-verdict",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "valid": true
+    },
+    {
+      "id": "valid-board-projection",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "valid": true
+    },
+    {
+      "id": "valid-authority-control-receipt",
+      "schema": "schemas/control-receipt-v1.json",
+      "instance": "examples/artifacts/authority/plan-approval.json",
+      "valid": true
+    },
+    {
+      "id": "valid-verifier-dispatch-control-receipt",
+      "schema": "schemas/control-receipt-v1.json",
+      "instance": "examples/artifacts/dispatch/verifier-run-1.json",
+      "valid": true
+    },
+    {
+      "id": "valid-integration-control-receipt",
+      "schema": "schemas/control-receipt-v1.json",
+      "instance": "examples/artifacts/integration/target-cas.json",
+      "valid": true
+    },
+    {
+      "id": "reject-unknown-control-receipt-kind",
+      "schema": "schemas/control-receipt-v1.json",
+      "instance": "examples/artifacts/integration/target-cas.json",
+      "mutation": "wrong_control_receipt_kind",
+      "valid": false
+    },
+    {
+      "id": "reject-plan-id-trailing-newline",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "plan_id_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-plan-path-trailing-newline",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "plan_path_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-policy-pack-trailing-newline",
+      "schema": "schemas/assurance-policy-v1.json",
+      "instance": "examples/assurance-policy.json",
+      "mutation": "policy_pack_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-candidate-oid-trailing-newline",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "candidate_oid_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-verdict-digest-trailing-newline",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "verdict_digest_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-board-id-trailing-newline",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "mutation": "board_id_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-control-id-trailing-newline",
+      "schema": "schemas/control-receipt-v1.json",
+      "instance": "examples/artifacts/integration/target-cas.json",
+      "mutation": "control_id_trailing_newline",
+      "valid": false
+    },
+    {
+      "id": "valid-pre-submission-attention",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "mutation": "board_attention",
+      "valid": true
+    },
+    {
+      "id": "valid-reviewable-after-transport-failure",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "mutation": "board_reviewable",
+      "valid": true
+    },
+    {
+      "id": "reject-retry-without-inconclusive-verdict",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "mutation": "board_retry_without_verdict",
+      "valid": false
+    },
+    {
+      "id": "reject-plan-without-authority",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "conformance/fixtures/invalid-plan-missing-authority.json",
+      "valid": false
+    },
+    {
+      "id": "reject-submission-without-evidence",
+      "schema": "schemas/submission-v1.json",
+      "instance": "conformance/fixtures/invalid-submission-missing-evidence.json",
+      "valid": false
+    },
+    {
+      "id": "reject-pass-with-blocking-finding",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "conformance/fixtures/invalid-pass-blocking-finding.json",
+      "valid": false
+    },
+    {
+      "id": "reject-non-fresh-verdict",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "conformance/fixtures/invalid-verdict-not-fresh.json",
+      "valid": false
+    },
+    {
+      "id": "reject-invalid-date-time",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "invalid_plan_date",
+      "valid": false
+    },
+    {
+      "id": "accept-lowercase-rfc3339-date-time",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "lowercase_plan_date",
+      "valid": true
+    },
+    {
+      "id": "reject-rfc3339-leap-second",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "leap_second_plan_date",
+      "valid": false
+    },
+    {
+      "id": "reject-dot-segment-path",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "invalid_plan_path",
+      "valid": false
+    },
+    {
+      "id": "reject-invalid-object-id-length",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "invalid_candidate_oid",
+      "valid": false
+    },
+    {
+      "id": "reject-pass-with-empty-evidence-link",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "pass_empty_evidence",
+      "valid": false
+    },
+    {
+      "id": "reject-fail-with-upstream-blocker",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "fail_authority_only",
+      "valid": false
+    },
+    {
+      "id": "reject-inconclusive-with-upstream-blocker",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "inconclusive_with_authority",
+      "valid": false
+    },
+    {
+      "id": "reject-integrated-board-with-waiting-row",
+      "schema": "schemas/delivery-board-v1.json",
+      "instance": "examples/delivery-board.json",
+      "mutation": "board_integrated_waiting",
+      "valid": false
+    },
+    {
+      "id": "reject-whitespace-only-summary",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "whitespace_summary",
+      "valid": false
+    },
+    {
+      "id": "reject-invalid-branch-ref",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "invalid_branch_ref",
+      "valid": false
+    },
+    {
+      "id": "reject-branch-ref-newline-suffix",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "branch_ref_newline",
+      "valid": false
+    },
+    {
+      "id": "reject-whitespace-authority-ref",
+      "schema": "schemas/delivery-plan-v1.json",
+      "instance": "examples/standard-plan.json",
+      "mutation": "whitespace_authority_ref",
+      "valid": false
+    },
+    {
+      "id": "reject-nul-in-changed-path",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "nul_changed_path",
+      "valid": false
+    },
+    {
+      "id": "accept-literal-git-metacharacters-in-observed-path",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "observed_git_metachar_path",
+      "valid": true
+    },
+    {
+      "id": "accept-empty-observed-diff",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "empty_changed_paths",
+      "valid": true
+    },
+    {
+      "id": "reject-missing-evidence-media-type",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "missing_evidence_media_type",
+      "valid": false
+    },
+    {
+      "id": "reject-missing-dispatch-media-type",
+      "schema": "schemas/delivery-verdict-v1.json",
+      "instance": "examples/pass-verdict.json",
+      "mutation": "missing_dispatch_media_type",
+      "valid": false
+    },
+    {
+      "id": "reject-submission-without-check-run",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "missing_checks",
+      "valid": false
+    },
+    {
+      "id": "reject-noncanonical-media-type-case",
+      "schema": "schemas/submission-v1.json",
+      "instance": "examples/standard-submission.json",
+      "mutation": "uppercase_evidence_media_type",
+      "valid": false
+    }
+  ],
+  "model_cases": [
+    { "id": "coherent-standard-chain", "mutation": "none", "valid": true },
+    { "id": "coherent-assured-chain", "mutation": "assured_valid", "valid": true },
+    { "id": "reject-assured-chain-without-pack-result", "mutation": "assured_missing_result", "valid": false, "error": "assurance_result_set_mismatch" },
+    { "id": "ignore-unselected-unavailable-pack-definition", "mutation": "unselected_policy_definition_unavailable", "valid": true },
+    { "id": "reject-duplicate-work-id", "mutation": "duplicate_work", "valid": false, "error": "duplicate_work_id" },
+    { "id": "reject-duplicate-acceptance-id", "mutation": "duplicate_acceptance", "valid": false, "error": "duplicate_acceptance_id" },
+    { "id": "reject-unknown-dependency", "mutation": "unknown_dependency", "valid": false, "error": "unknown_dependency" },
+    { "id": "reject-dependency-cycle", "mutation": "dependency_cycle", "valid": false, "error": "dependency_cycle" },
+    { "id": "reject-plan-policy-digest-drift", "mutation": "plan_policy_digest", "valid": false, "error": "plan_policy_digest_mismatch" },
+    { "id": "reject-unresolved-policy-ref", "mutation": "plan_policy_ref", "valid": false, "error": "plan_policy_ref_unresolved" },
+    { "id": "reject-non-policy-at-policy-ref", "mutation": "policy_wrong_shape", "valid": false, "error": "policy_schema_invalid" },
+    { "id": "reject-undefined-selected-pack", "mutation": "unknown_policy_pack", "valid": false, "error": "unknown_policy_pack" },
+    { "id": "reject-duplicate-policy-pack-id", "mutation": "duplicate_policy_pack", "valid": false, "error": "duplicate_policy_pack_id" },
+    { "id": "reject-policy-check-definition-digest-drift", "mutation": "policy_definition_digest", "valid": false, "error": "policy_check_digest_mismatch" },
+    { "id": "reject-policy-check-definition-duplicate-json-name", "mutation": "policy_definition_invalid_json", "valid": false, "error": "policy_check_invalid_json" },
+    { "id": "reject-authority-artifact-drift", "mutation": "authority_artifact_bytes", "valid": false, "error": "authority_receipt_artifact_digest_mismatch" },
+    { "id": "reject-authority-receipt-wrong-media", "mutation": "authority_media_type", "valid": false, "error": "authority_receipt_media_type" },
+    { "id": "reject-authority-plan-binding-drift", "mutation": "authority_plan_digest", "valid": false, "error": "authority_plan_digest_mismatch" },
+    { "id": "reject-authority-object-binding-drift", "mutation": "authority_object_digest", "valid": false, "error": "authority_object_digest_mismatch" },
+    { "id": "reject-authority-source-binding-drift", "mutation": "authority_source_digest", "valid": false, "error": "authority_source_digest_mismatch" },
+    { "id": "reject-unresolved-authority-ref", "mutation": "authority_source_ref", "valid": false, "error": "authority_source_ref_unresolved" },
+    { "id": "reject-authority-grant-drift", "mutation": "authority_grants", "valid": false, "error": "authority_grants_mismatch" },
+    { "id": "reject-authority-target-drift", "mutation": "authority_target", "valid": false, "error": "authority_target_mismatch" },
+    { "id": "bank-integration-after-authority-revocation", "mutation": "authority_revoked", "valid": true },
+    { "id": "accept-attention-stop-after-revocation", "mutation": "authority_revoked_before_integration", "valid": true },
+    { "id": "bank-integration-before-later-authority-expiry", "mutation": "authority_expired_after_integration", "valid": true },
+    { "id": "reject-authority-expired-before-builder", "mutation": "authority_expired_before_builder", "valid": false, "error": "authority_expired_before_builder" },
+    { "id": "reject-authority-expired-before-pass", "mutation": "authority_expired_before_pass", "valid": false, "error": "authority_expired_before_pass" },
+    { "id": "reject-authority-expired-before-integration", "mutation": "authority_expired_before_integration", "valid": false, "error": "authority_expired_before_integration" },
+    { "id": "reject-plan-integration-target-drift", "mutation": "plan_integration_target", "valid": false, "error": "integration_grant_target_mismatch" },
+    { "id": "reject-submission-plan-drift", "mutation": "submission_plan_digest", "valid": false, "error": "submission_plan_digest_mismatch" },
+    { "id": "reject-contract-drift", "mutation": "contract_digest", "valid": false, "error": "contract_digest_mismatch" },
+    { "id": "reject-repository-drift", "mutation": "repository", "valid": false, "error": "candidate_repository_mismatch" },
+    { "id": "reject-target-ref-drift", "mutation": "base_ref", "valid": false, "error": "base_ref_mismatch" },
+    { "id": "reject-out-of-scope-path", "mutation": "out_of_scope_path", "valid": false, "error": "changed_path_out_of_scope" },
+    { "id": "reject-duplicate-check-id", "mutation": "duplicate_check", "valid": false, "error": "duplicate_check_id" },
+    { "id": "reject-check-tree-drift", "mutation": "check_tree", "valid": false, "error": "check_candidate_tree_mismatch" },
+    { "id": "reject-builder-stamped-check", "mutation": "builder_stamped_check", "valid": false, "error": "builder_stamped_check" },
+    { "id": "reject-check-artifact-drift", "mutation": "check_artifact_bytes", "valid": false, "error": "check_artifact_digest_mismatch" },
+    { "id": "reject-missing-policy-required-check", "mutation": "missing_policy_check", "valid": false, "error": "missing_policy_check" },
+    { "id": "reject-duplicate-evidence-id", "mutation": "duplicate_evidence", "valid": false, "error": "duplicate_evidence_id" },
+    { "id": "reject-evidence-tree-drift", "mutation": "evidence_tree", "valid": false, "error": "evidence_candidate_tree_mismatch" },
+    { "id": "reject-evidence-artifact-drift", "mutation": "evidence_artifact_bytes", "valid": false, "error": "evidence_artifact_digest_mismatch" },
+    { "id": "reject-insufficient-evidence-boundary", "mutation": "evidence_boundary", "valid": false, "error": "evidence_boundary_too_weak" },
+    { "id": "reject-mocked-assembled-evidence", "mutation": "evidence_mocks", "valid": false, "error": "mocked_high_boundary_evidence" },
+    { "id": "reject-dangling-evidence-acceptance", "mutation": "evidence_acceptance", "valid": false, "error": "unknown_evidence_acceptance" },
+    { "id": "reject-builder-as-verifier", "mutation": "same_runner", "valid": false, "error": "verifier_not_independent" },
+    { "id": "reject-dispatch-artifact-drift", "mutation": "dispatch_artifact_bytes", "valid": false, "error": "dispatch_artifact_digest_mismatch" },
+    { "id": "reject-dispatch-wrong-media", "mutation": "dispatch_media_type", "valid": false, "error": "dispatch_media_type" },
+    { "id": "reject-dispatch-submission-drift", "mutation": "dispatch_submission_digest", "valid": false, "error": "dispatch_submission_digest_mismatch" },
+    { "id": "reject-dispatch-with-remote", "mutation": "dispatch_remote", "valid": false, "error": "verifier_dispatch_not_isolated" },
+    { "id": "reject-verdict-submission-drift", "mutation": "verdict_submission_digest", "valid": false, "error": "verdict_submission_digest_mismatch" },
+    { "id": "reject-duplicate-acceptance-result", "mutation": "duplicate_acceptance_result", "valid": false, "error": "duplicate_acceptance_result" },
+    { "id": "reject-missing-acceptance-result", "mutation": "missing_acceptance_result", "valid": false, "error": "acceptance_result_set_mismatch" },
+    { "id": "reject-dangling-verdict-evidence", "mutation": "verdict_evidence", "valid": false, "error": "unknown_verdict_evidence" },
+    { "id": "reject-duplicate-finding-id", "mutation": "duplicate_finding", "valid": false, "error": "duplicate_finding_id" },
+    { "id": "reject-integration-bound-to-stale-verdict", "mutation": "integration_stale_verdict", "valid": false, "error": "board_integration_verdict_mismatch" },
+    { "id": "reject-board-bound-to-superseded-verdict", "mutation": "board_stale_current_verdict", "valid": false, "error": "board_current_verdict_mismatch" },
+    { "id": "reject-integration-from-unreachable-base", "mutation": "integration_base_not_reachable", "valid": false, "error": "integration_base_not_reachable" },
+    { "id": "reject-integration-bound-to-fail", "mutation": "integration_bound_to_fail", "valid": false, "error": "integration_without_pass" },
+    { "id": "accept-already-satisfied-no-change-delivery", "mutation": "no_change_candidate", "valid": true },
+    { "id": "reject-integration-without-grant", "mutation": "integrated_without_grant", "valid": false, "error": "integration_without_grant" },
+    { "id": "reject-integration-receipt-byte-drift", "mutation": "integration_artifact_bytes", "valid": false, "error": "integration_receipt_artifact_digest_mismatch" },
+    { "id": "reject-integration-authority-drift", "mutation": "integration_authority_digest", "valid": false, "error": "integration_authority_source_mismatch" },
+    { "id": "reject-integration-before-verdict", "mutation": "integration_before_verdict", "valid": false, "error": "integration_precedes_verdict" },
+    { "id": "reject-board-duplicate-work", "mutation": "board_duplicate_work", "valid": false, "error": "duplicate_board_work_id" },
+    { "id": "reject-board-missing-work", "mutation": "board_missing_work", "valid": false, "error": "board_work_set_mismatch" },
+    { "id": "reject-board-submission-drift", "mutation": "board_submission_digest", "valid": false, "error": "board_submission_digest_mismatch" },
+    { "id": "reject-board-verdict-drift", "mutation": "board_verdict_digest", "valid": false, "error": "board_verdict_digest_mismatch" },
+    { "id": "reject-verified-row-with-integration-grant", "mutation": "board_verified_with_grant", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-ready-row-without-integration-grant", "mutation": "board_ready_without_grant", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-board-observed-target-contradiction", "mutation": "board_not_integrated", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-integrated-row-at-base-target", "mutation": "board_integrated_target_base", "valid": false, "error": "integration_candidate_not_reachable" },
+    { "id": "reject-planned-board-with-ready-row", "mutation": "board_planned_ready", "valid": false, "error": "board_state_aggregate_mismatch" },
+    { "id": "reject-pass-projected-as-ready", "mutation": "board_pass_as_ready", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-pass-projected-as-reviewable", "mutation": "board_pass_as_reviewable", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-phantom-integrated-work", "mutation": "phantom_second_integrated", "valid": false, "error": "board_submission_unresolved" },
+    { "id": "reject-satisfied-dependent-left-waiting", "mutation": "dependent_waiting_after_pass", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "accept-banked-integration-with-revoked-pending-work", "mutation": "mixed_integrated_revoked_attention", "valid": true },
+    { "id": "reject-dependent-active-after-fail", "mutation": "dependent_active_after_fail", "valid": false, "error": "board_lifecycle_state_mismatch" },
+    { "id": "reject-dependent-builder-before-pass", "mutation": "dependency_builder_before_pass", "valid": false, "error": "dependency_not_passed_before_builder" },
+    { "id": "reject-dependent-builder-after-superseded-pass", "mutation": "dependency_pass_superseded", "valid": false, "error": "dependency_not_passed_before_builder" },
+    { "id": "reject-duplicate-integration-effect", "mutation": "duplicate_integration_effect", "valid": false, "error": "duplicate_integration_effect_id" },
+    { "id": "reject-authority-receipt-id-reuse", "mutation": "authority_receipt_id_reuse", "valid": false, "error": "authority_receipt_id_reused" },
+    { "id": "accept-coherent-two-work-serial-history", "mutation": "two_work_serial", "valid": true },
+    { "id": "reject-time-reversal", "mutation": "timestamp_order", "valid": false, "error": "builder_timestamp_order" },
+    { "id": "reject-fractional-time-reversal", "mutation": "fractional_timestamp_order", "valid": false, "error": "builder_timestamp_order" },
+    { "id": "reject-builder-before-approval", "mutation": "builder_before_approval", "valid": false, "error": "builder_precedes_authority" },
+    { "id": "reject-check-before-builder-completion", "mutation": "check_before_builder", "valid": false, "error": "check_precedes_builder" },
+    { "id": "reject-evidence-before-producer", "mutation": "evidence_before_producer", "valid": false, "error": "evidence_precedes_producer" },
+    { "id": "reject-builder-self-stamped-evidence", "mutation": "evidence_builder_producer", "valid": false, "error": "unknown_evidence_producer" },
+    { "id": "reject-invalid-structured-evidence", "mutation": "invalid_structured_evidence", "valid": false, "error": "evidence_artifact_invalid_json" },
+    { "id": "reject-invalid-json-suffix-evidence", "mutation": "invalid_json_suffix_evidence", "valid": false, "error": "evidence_artifact_invalid_json" },
+    { "id": "reject-reused-submission-id", "mutation": "submission_id_reuse", "valid": false, "error": "submission_id_reused" },
+    { "id": "reject-reused-verdict-id", "mutation": "verdict_id_reuse", "valid": false, "error": "verdict_id_reused" },
+    { "id": "reject-duplicate-work-attempt", "mutation": "duplicate_work_attempt", "valid": false, "error": "duplicate_work_attempt" },
+    { "id": "reject-duplicate-verifier-run", "mutation": "duplicate_verifier_run", "valid": false, "error": "duplicate_verifier_run_id" },
+    { "id": "accept-inconclusive-then-fresh-pass", "mutation": "inconclusive_then_pass", "valid": true },
+    { "id": "accept-fail-repair-then-fresh-pass", "mutation": "repair_then_pass", "valid": true }
+  ],
+  "engine_cases": [
+    {
+      "id": "derive-git-candidate-facts",
+      "principles": ["B1", "B3", "B5"],
+      "requires": "real Git object database",
+      "expect": "Prove repository identity, base ancestry, exact tree diff, rename scope, cleanliness, and candidate retention from Git facts."
+    },
+    {
+      "id": "contain-builder-and-verifier",
+      "principles": ["B1", "B4"],
+      "requires": "real subprocess and sandbox",
+      "expect": "Attempts to change parent paths, target refs, remotes, credentials, or leave child processes alive fail without side effects."
+    },
+    {
+      "id": "candidate-change-invalidates-pass",
+      "principles": ["B3", "B4", "B5"],
+      "requires": "real Git and verifier dispatch",
+      "expect": "Any candidate commit, tree, index, or tracked-byte change requires a new submission and verifier run."
+    },
+    {
+      "id": "authority-revocation-before-integration",
+      "principles": ["B1", "B5"],
+      "requires": "real authority resolver",
+      "expect": "Re-resolve the source immediately before integration and stop on expiry, revocation, digest drift, or a missing exact grant."
+    },
+    {
+      "id": "target-movement-refuses-integration",
+      "principles": ["B5"],
+      "requires": "real compare-and-swap target update",
+      "expect": "A moved target is never overwritten, rebased, merged, or silently composed under the old verdict."
+    },
+    {
+      "id": "board-is-derived",
+      "principles": ["B2"],
+      "requires": "real persistence and board projection",
+      "expect": "Editing a rendered board cannot change state; replaying the same durable facts produces the same semantic projection."
+    },
+    {
+      "id": "integration-recovery-is-idempotent",
+      "principles": ["B2", "B5"],
+      "requires": "crash injection around target compare-and-swap",
+      "expect": "After a crash, reconcile an equal or descendant target first, record one completion, and never issue a duplicate integration."
+    },
+    {
+      "id": "persistence-failure-never-projects-success",
+      "principles": ["B2", "B5"],
+      "requires": "real persistence fault injection",
+      "expect": "A failed durable record or effect receipt prevents verified or integrated projection."
+    },
+    {
+      "id": "typed-outcome-routing",
+      "principles": ["B1", "B4"],
+      "requires": "real reducer and runner invocations",
+      "expect": "FAIL repairs, SPEC_BLOCK requests authority or contract attention, and INCONCLUSIVE re-verifies the unchanged submission."
+    },
+    {
+      "id": "record-identities-are-write-once",
+      "principles": ["B2", "B4"],
+      "requires": "real durable persistence and replay",
+      "expect": "Reusing a submission or verdict ID for different canonical bytes is rejected across restarts and concurrent commands."
+    },
+    {
+      "id": "authority-delegation-never-enlarges-plan",
+      "principles": ["B1"],
+      "requires": "real authority resolver and local policy",
+      "expect": "Standing scope, protected paths, assurance floors, and grant ceilings are enforced; local configuration cannot grant an action absent from the exact plan."
+    },
+    {
+      "id": "approval-is-not-self-asserted",
+      "principles": ["B1"],
+      "requires": "real authorizer trust root or capability and runner isolation",
+      "expect": "Caller-written identity claims, synthetic TTY approval, forged proof, and runner-writable source replacement fail; valid approval requires an authorizer capability unavailable to caller, builder, and verifier."
+    },
+    {
+      "id": "verifier-control-is-engine-owned",
+      "principles": ["B4"],
+      "requires": "real native runner and candidate-local hostile configuration",
+      "expect": "Candidate AGENTS, CLAUDE, MCP, plugin, hook, and callback configuration is review data only and cannot alter verifier instructions or capabilities."
+    },
+    {
+      "id": "subprocess-resources-are-bounded",
+      "principles": ["B1", "B2"],
+      "requires": "real subprocess containment and resource limits",
+      "expect": "PID, memory, CPU, output, wall-time, and writable-storage exhaustion stops the invocation without host damage or a false success projection."
+    },
+    {
+      "id": "assurance-definition-semantics-are-enforced",
+      "principles": ["B1", "B3", "B4"],
+      "requires": "real policy definitions, producers, and verifier",
+      "expect": "A selected pack cannot PASS until its bound checks, evidence requirements, verifier questions, and authority gates are satisfied by the exact candidate."
+    },
+    {
+      "id": "required-check-failure-short-circuits-verifier",
+      "principles": ["B2", "B3", "B4"],
+      "requires": "real failing producer, invocation accounting, and durable store",
+      "expect": "A required check failure banks its receipt and repairs before any submission, verifier invocation, or delivery verdict exists."
+    },
+    {
+      "id": "already-satisfied-work-is-noop-safe",
+      "principles": ["B2", "B3", "B5"],
+      "requires": "real Git with candidate equal to base and an empty diff",
+      "expect": "Already-satisfied work verifies truthfully and reconciles as already observed without forcing an unrelated or empty commit."
+    },
+    {
+      "id": "serial-multiwork-history-remains-integrated",
+      "principles": ["B2", "B5"],
+      "requires": "real Git ancestry, two submissions, and board replay",
+      "expect": "The dependent builder starts only after predecessor PASS from a base containing that candidate; after target advancement every integrated row retains its exact receipt and ancestry, and phantom rows are rejected."
+    }
+  ]
+}

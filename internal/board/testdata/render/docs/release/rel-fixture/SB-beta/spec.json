@@ -1,6 +1,0 @@
-{
-  "slice_id": "SB-beta",
-  "user_outcome": "A user does beta | things with a pipe.",
-  "touchpoints": ["internal/beta/beta.go"],
-  "effort_complexity": { "quadrant": "grind" }
-}
