@@ -56,24 +56,14 @@ func (executor *LinuxExecutor) RunWritable(
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
-	var credential *credentialFileLease
 	if invocation.CredentialAccess {
-		credential, err = acquireCredentialFile(executor.options.CredentialFile)
-		if err != nil {
-			return RawCompletion{}, fmt.Errorf("acquire invocation credential file: %w", err)
-		}
-		defer func() {
-			quiescenceContext, cancel := context.WithTimeout(context.Background(), shutdownGrace+2*time.Second)
-			quiescenceErr := executor.waitUnitQuiescent(quiescenceContext, executor.unitName(invocation.ID))
-			cancel()
-			validationErr := credential.validate()
-			releaseErr := finishCredentialFile(credential, quiescenceErr)
-			if err := errors.Join(quiescenceErr, validationErr, releaseErr); err != nil {
-				resultErr = errors.Join(resultErr, fmt.Errorf("revalidate invocation credential file: %w", err))
-			}
-		}()
+		return executor.withCredentialFile(invocation, func(credential *credentialFileLease) (RawCompletion, error) {
+			return executor.runInvocation(
+				ctx, invocation, WorkspaceWritableExport, nil, credential, executionDefault,
+			)
+		})
 	}
-	return executor.runInvocation(ctx, invocation, WorkspaceWritableExport, nil, credential)
+	return executor.runInvocation(ctx, invocation, WorkspaceWritableExport, nil, nil, executionDefault)
 }
 
 // ReconcileWritable proves one exact invocation's systemd unit is quiescent,

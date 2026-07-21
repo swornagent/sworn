@@ -292,7 +292,7 @@ func TestCredentialFileValidationRejectsForeignOwnership(t *testing.T) {
 
 func TestBubblewrapCredentialMountIsExplicitAndWritable(t *testing.T) {
 	t.Parallel()
-	executor := &LinuxExecutor{options: Options{Limits: DefaultLimits()}}
+	executor := &LinuxExecutor{options: Options{Limits: DefaultLimits(), AllowNestedSandbox: true}}
 	invocation := Invocation{
 		CredentialAccess: true,
 		Argv:             []string{"/usr/bin/true"},
@@ -315,6 +315,25 @@ func TestBubblewrapCredentialMountIsExplicitAndWritable(t *testing.T) {
 	if !containsArgumentSequence(arguments, []string{"--setenv", "CODEX_HOME", CredentialHome}) {
 		t.Fatalf("fixed CODEX_HOME absent from arguments: %q", arguments)
 	}
+	readOnlyArguments := executor.bubblewrapArgs(invocation, "/usr", "/workspace", "/inputs", false)
+	if !containsArgumentSequence(readOnlyArguments, []string{"--ro-bind", "/workspace", "/workspace"}) {
+		t.Fatalf("credentialed read-only workspace was not mounted read-only: %q", readOnlyArguments)
+	}
+	if !containsArgumentSequence(readOnlyArguments, []string{
+		"--bind-fd", "4", CredentialFileTarget,
+	}) {
+		t.Fatalf("credential capability absent from read-only arguments: %q", readOnlyArguments)
+	}
+	isolatedParent := invocation
+	isolatedParent.Network = NetworkHost
+	isolatedParent.NestedSandbox = true
+	isolatedParentArguments := executor.bubblewrapArgs(isolatedParent, "/usr", "/workspace", "/inputs", false)
+	if containsString(isolatedParentArguments, "--unshare-net") {
+		t.Fatalf("host-network parent retained an isolated network namespace: %q", isolatedParentArguments)
+	}
+	if containsString(isolatedParentArguments, "--disable-userns") {
+		t.Fatalf("nested-sandbox parent disabled descendant user namespaces: %q", isolatedParentArguments)
+	}
 
 	blind := invocation
 	blind.CredentialAccess = false
@@ -323,6 +342,58 @@ func TestBubblewrapCredentialMountIsExplicitAndWritable(t *testing.T) {
 		containsString(blindArguments, CredentialHome) ||
 		containsString(blindArguments, "CODEX_HOME") {
 		t.Fatalf("blind invocation received credential state: %q", blindArguments)
+	}
+}
+
+func TestCredentialReadOnlyEntryPointRejectsBroadInvocationBeforeEffects(t *testing.T) {
+	t.Parallel()
+	executor := &LinuxExecutor{options: Options{
+		Limits:              DefaultLimits(),
+		AllowHostNetwork:    true,
+		AllowNestedSandbox:  true,
+		CredentialFile:      "/private/codex/auth.json",
+		AllowCredentialFile: true,
+	}}
+	invocation := Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		ID:               "credential-read-only-denial",
+		Role:             "verifier",
+		CredentialAccess: true,
+		Workspace:        "/workspace/source",
+		WorkspaceDigest:  testDigest("a"),
+		WorkspaceAccess:  WorkspaceReadOnly,
+		ExecutableInput:  "codex",
+		Inputs: []Input{{
+			Name: "codex", Path: "/opt/codex", Digest: testDigest("b"),
+		}},
+		Argv:    []string{"/inputs/codex", "exec"},
+		Network: NetworkHost,
+		Timeout: time.Second,
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*Invocation)
+	}{
+		{"nested sandbox absent", func(invocation *Invocation) { invocation.NestedSandbox = false }},
+		{"writable workspace", func(invocation *Invocation) {
+			invocation.NestedSandbox = true
+			invocation.WorkspaceAccess = WorkspaceWritableExport
+		}},
+		{"content runtime", func(invocation *Invocation) {
+			invocation.NestedSandbox = true
+			invocation.RuntimeDigest = testDigest("c")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := invocation
+			candidate.Argv = append([]string(nil), invocation.Argv...)
+			candidate.Inputs = append([]Input(nil), invocation.Inputs...)
+			test.mutate(&candidate)
+			if _, err := executor.RunCredentialReadOnly(context.Background(), candidate); err == nil ||
+				!strings.Contains(err.Error(), "requires a host-runtime") {
+				t.Fatalf("credentialed read-only entry-point error = %v", err)
+			}
+		})
 	}
 }
 

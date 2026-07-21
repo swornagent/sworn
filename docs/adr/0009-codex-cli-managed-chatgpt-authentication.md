@@ -59,10 +59,10 @@ deployment must not point Sworn at the Codex home used for interactive work.
 ### Add one narrow mutable credential capability
 
 Credential access is a separate fact in the v2 executor invocation, raw
-completion, builder dispatch, and profile. Executor configuration must admit
-one exact source path, and the invocation must separately request access through
-the writable entry point. The production Codex builder is the sole caller;
-content-bound checks receive no credential mount.
+completion, builder dispatch, and profile. Executor configuration admits one
+exact source path, and the invocation separately requests access through the
+writable entry point. In the v0.2 production vertical the Codex builder is the
+sole caller; content-bound checks receive no credential mount.
 
 On Linux, the executor opens the configured file read-write with `O_NOFOLLOW`,
 acquires a nonblocking exclusive file lock, verifies its retained identity and
@@ -123,6 +123,36 @@ tool schema, timeout, output schema, and executor configuration are bound by
 `sworn-codex-builder-profile-v2`. The executor configuration, invocation, and
 containment policy also advance to v2 so an older dispatch cannot be mistaken
 for this credential boundary.
+
+### v0.3 credentialed read-only extension
+
+The v0.3 verifier requires the same trusted-parent authentication split without
+granting the candidate write access. Executor invocation, configuration, and
+containment therefore advance to v3 and add one internal
+`RunCredentialReadOnly` class. It requires the complete conjunction of a
+read-only workspace, host runtime, exact digest-pinned executable input used as
+the direct entrypoint, CLI credential, host network, and nested-sandbox
+admission. Any missing or broader fact is rejected before credential
+acquisition. Ordinary `RunContentBound` remains credential-blind and the
+writable builder path is unchanged. Declared workspace and ordinary-input paths
+which overlap the configured credential home are rejected; verifier
+configuration must additionally keep its materialization root disjoint.
+
+The new entry point makes the trusted CLI parent possible; it does not prove
+the inner isolation policy. The verifier profile and immutable effect closure
+must bind the exact CLI binary, argv, memorylessness controls, permission
+profile, executor configuration, candidate, and input manifest. A real Codex
+boundary test must then prove that a model-directed child cannot read the
+mounted authentication file or use host network. Accordingly, disabling the
+inner sandbox with `--yolo` is not admitted by this architecture: approval
+prompts are disabled with `-a never`, while the nested sandbox remains the
+credential/network separation boundary.
+
+Credentialed read-only runs reuse the read-only runtime ownership and
+`ReconcileContentBound` machinery. Store must still bind cleanup to the exact
+verifier effect and profile before permitting recovery. Credential-file locking
+is exclusive and nonblocking; any future parallel verifier scheduler must queue
+outside the executor or use separate role-specific credential homes.
 
 ## Required v0.2.0 release evidence
 

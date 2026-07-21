@@ -12,6 +12,205 @@ import (
 	"time"
 )
 
+func TestCredentialReadOnlyPersistsRefreshAndCannotWriteCandidate(t *testing.T) {
+	executor, credentialPath := newCredentialReadOnlyTestExecutor(
+		t, `{"auth_mode":"chatgpt","token":"before"}`,
+	)
+	credentialBefore, err := os.Stat(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := t.TempDir()
+	writeTestFile(t, filepath.Join(workspace, "candidate.txt"), []byte("candidate\n"), 0o600)
+	workspaceDigest, _, err := MeasureWorkspace(
+		context.Background(), workspace, executor.options.Limits.InputBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := []byte(strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		`[ "$(cat /workspace/candidate.txt)" = "candidate" ]`,
+		"if printf mutation > /workspace/forbidden 2>/dev/null; then exit 90; fi",
+		`[ "$CODEX_HOME" = "/home/sworn/.codex" ]`,
+		`[ "$(cat /home/sworn/.codex/auth.json)" = '{"auth_mode":"chatgpt","token":"before"}' ]`,
+		`printf '%s' '{"auth_mode":"chatgpt","token":"refreshed"}' > /home/sworn/.codex/auth.json`,
+		"printf 'verified-read-only\\n'",
+	}, "\n") + "\n")
+	executablePath := filepath.Join(t.TempDir(), "verifier")
+	writeTestFile(t, executablePath, script, 0o755)
+
+	const invocationID = "credential-read-only-verifier"
+	completion, err := executor.RunCredentialReadOnly(context.Background(), Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		ID:               invocationID,
+		Role:             "verifier",
+		NestedSandbox:    true,
+		CredentialAccess: true,
+		Workspace:        workspace,
+		WorkspaceDigest:  workspaceDigest,
+		WorkspaceAccess:  WorkspaceReadOnly,
+		ExecutableInput:  "verifier",
+		Inputs: []Input{{
+			Name: "verifier", Path: executablePath, Digest: digestBytes(script),
+		}},
+		Argv:    []string{"/inputs/verifier"},
+		Network: NetworkHost,
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("run credentialed read-only invocation: %v; completion=%#v", err, completion)
+	}
+	if completion.ExitCode != 0 || string(completion.Stdout) != "verified-read-only\n" ||
+		completion.WorkspaceAccess != WorkspaceReadOnly || !completion.CredentialAccess ||
+		completion.ExecutableInput != "verifier" || completion.Export != nil || len(completion.Inputs) != 1 {
+		t.Fatalf("credentialed read-only completion = %#v", completion)
+	}
+	if bound := completion.Inputs[0]; bound.Name != "verifier" || bound.Digest != digestBytes(script) ||
+		bound.Size != uint64(len(script)) {
+		t.Fatalf("credentialed read-only executable binding = %#v", bound)
+	}
+	if observed, err := os.ReadFile(filepath.Join(workspace, "candidate.txt")); err != nil || string(observed) != "candidate\n" {
+		t.Fatalf("source candidate changed: contents=%q error=%v", observed, err)
+	}
+	if _, err := os.Lstat(filepath.Join(workspace, "forbidden")); !os.IsNotExist(err) {
+		t.Fatalf("read-only invocation wrote to source candidate: %v", err)
+	}
+	credentialContents, err := os.ReadFile(credentialPath)
+	if err != nil || string(credentialContents) != `{"auth_mode":"chatgpt","token":"refreshed"}` {
+		t.Fatalf("host credential after refresh = %q, %v", credentialContents, err)
+	}
+	credentialAfter, err := os.Stat(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(credentialBefore, credentialAfter) {
+		t.Fatal("credentialed read-only refresh replaced the credential inode")
+	}
+	if _, err := os.Lstat(executor.contentBoundRuntimePath(invocationID)); !os.IsNotExist(err) {
+		t.Fatalf("credentialed read-only runtime remains: %v", err)
+	}
+	cleanup, err := executor.ReconcileContentBound(context.Background(), invocationID)
+	if err != nil || cleanup.InvocationID() != invocationID {
+		t.Fatalf("reconcile credentialed read-only completion: cleanup=%#v error=%v", cleanup, err)
+	}
+}
+
+func TestCredentialReadOnlyCancellationReleasesBoundaryForReuse(t *testing.T) {
+	executor, _ := newCredentialReadOnlyTestExecutor(t, `{"auth_mode":"chatgpt","token":"before"}`)
+	workspace, workspaceDigest := emptyTestWorkspace(t, executor)
+	script := []byte(strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		`[ "$(cat /home/sworn/.codex/auth.json)" = '{"auth_mode":"chatgpt","token":"before"}' ]`,
+		`if [ "${1-}" = "cancel" ]; then printf 'started\n'; sleep 60; fi`,
+		"printf 'reused\\n'",
+	}, "\n") + "\n")
+	executablePath := filepath.Join(t.TempDir(), "verifier")
+	writeTestFile(t, executablePath, script, 0o755)
+	baseInvocation := Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		Role:             "verifier",
+		NestedSandbox:    true,
+		CredentialAccess: true,
+		Workspace:        workspace,
+		WorkspaceDigest:  workspaceDigest,
+		WorkspaceAccess:  WorkspaceReadOnly,
+		ExecutableInput:  "verifier",
+		Inputs: []Input{{
+			Name: "verifier", Path: executablePath, Digest: digestBytes(script),
+		}},
+		Network: NetworkHost,
+		Timeout: 10 * time.Second,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	cancelledInvocation := baseInvocation
+	cancelledInvocation.ID = "credential-read-only-cancel"
+	cancelledInvocation.Argv = []string{"/inputs/verifier", "cancel"}
+	cancelled, err := executor.RunCredentialReadOnly(ctx, cancelledInvocation)
+	if err != nil || !cancelled.Cancelled || cancelled.Export != nil || !cancelled.CredentialAccess {
+		t.Fatalf("credentialed read-only cancellation: completion=%#v error=%v", cancelled, err)
+	}
+	if _, err := os.Lstat(executor.contentBoundRuntimePath(cancelledInvocation.ID)); !os.IsNotExist(err) {
+		t.Fatalf("cancelled credentialed read-only runtime remains: %v", err)
+	}
+	cleanup, err := executor.ReconcileContentBound(context.Background(), cancelledInvocation.ID)
+	if err != nil || cleanup.InvocationID() != cancelledInvocation.ID {
+		t.Fatalf("reconcile cancelled credentialed read-only run: cleanup=%#v error=%v", cleanup, err)
+	}
+
+	reusedInvocation := baseInvocation
+	reusedInvocation.ID = "credential-read-only-after-cancel"
+	reusedInvocation.Argv = []string{"/inputs/verifier", "reuse"}
+	reused, err := executor.RunCredentialReadOnly(context.Background(), reusedInvocation)
+	if err != nil || reused.ExitCode != 0 || string(reused.Stdout) != "reused\n" ||
+		!reused.CredentialAccess || reused.Export != nil {
+		t.Fatalf("credentialed read-only reuse: completion=%#v error=%v", reused, err)
+	}
+	if _, err := executor.ReconcileContentBound(context.Background(), reusedInvocation.ID); err != nil {
+		t.Fatalf("reconcile reused credentialed read-only run: %v", err)
+	}
+}
+
+func TestCredentialReadOnlyBusyCredentialReleasesContentOwnership(t *testing.T) {
+	executor, credentialPath := newCredentialReadOnlyTestExecutor(t, `{"auth_mode":"chatgpt"}`)
+	held, err := acquireCredentialFile(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = releaseCredentialFile(held) })
+	workspace, workspaceDigest := emptyTestWorkspace(t, executor)
+	script := []byte("#!/bin/sh\nexit 0\n")
+	executablePath := filepath.Join(t.TempDir(), "verifier")
+	writeTestFile(t, executablePath, script, 0o755)
+	const invocationID = "credential-read-only-busy"
+	completion, err := executor.RunCredentialReadOnly(context.Background(), Invocation{
+		SchemaVersion:    InvocationSchemaVersion,
+		ID:               invocationID,
+		Role:             "verifier",
+		NestedSandbox:    true,
+		CredentialAccess: true,
+		Workspace:        workspace,
+		WorkspaceDigest:  workspaceDigest,
+		WorkspaceAccess:  WorkspaceReadOnly,
+		ExecutableInput:  "verifier",
+		Inputs: []Input{{
+			Name: "verifier", Path: executablePath, Digest: digestBytes(script),
+		}},
+		Argv:    []string{"/inputs/verifier"},
+		Network: NetworkHost,
+		Timeout: 10 * time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "credential file is busy") ||
+		completion.InvocationID != "" || completion.Unit != "" {
+		t.Fatalf("busy credentialed read-only invocation: completion=%#v error=%v", completion, err)
+	}
+	cleanup, err := executor.ReconcileContentBound(context.Background(), invocationID)
+	if err != nil || cleanup.InvocationID() != invocationID {
+		t.Fatalf("content ownership remained held after busy credential: cleanup=%#v error=%v", cleanup, err)
+	}
+}
+
+func newCredentialReadOnlyTestExecutor(t *testing.T, credentialContents string) (*LinuxExecutor, string) {
+	t.Helper()
+	base := requireLinuxExecutor(t)
+	credentialPath := newTestCredentialFile(t, credentialContents)
+	options := base.options
+	options.CredentialFile = credentialPath
+	options.AllowCredentialFile = true
+	options.AllowHostNetwork = true
+	options.AllowNestedSandbox = true
+	executor, err := NewLinux(options)
+	if err != nil {
+		t.Fatalf("configure credentialed read-only executor: %v", err)
+	}
+	return executor, credentialPath
+}
+
 func TestWritableCredentialFilePersistsRefreshThroughContainedService(t *testing.T) {
 	base := requireWritableLinuxExecutor(t)
 	credentialPath := newTestCredentialFile(t, `{"auth_mode":"chatgpt","token":"before"}`)

@@ -198,6 +198,9 @@ external effects and transitions which grant effectful capabilities.
   with the exact pinned Codex artifact; make any live-provider token cost
   explicit. The opt-in `gpt-5.4` release proof passed on 2026-07-21; its second
   process invocation converged without another model turn.
+- [x] Add the narrow v3 executor capability required by a trusted verifier CLI:
+  exact executable and credential, host network, nested sandbox, and a
+  physically read-only candidate, without widening either existing entry point.
 - [ ] Dispatch the independent verifier through a native CLI adapter.
 - [ ] Make verifier turns memoryless: use ephemeral Codex sessions, disable
   history persistence, ignore user configuration and rules, and never resume a

@@ -30,6 +30,10 @@ func (*LinuxExecutor) RunContentBound(context.Context, Invocation, RuntimeTree) 
 	return RawCompletion{}, errLinuxRequired
 }
 
+func (*LinuxExecutor) RunCredentialReadOnly(context.Context, Invocation) (RawCompletion, error) {
+	return RawCompletion{}, errLinuxRequired
+}
+
 func (*LinuxExecutor) RunWritable(context.Context, Invocation) (RawCompletion, error) {
 	return RawCompletion{}, errLinuxRequired
 }

@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	InvocationSchemaVersion      = "sworn-executor-invocation-v2"
+	InvocationSchemaVersion      = "sworn-executor-invocation-v3"
 	WorkspaceExportSchemaVersion = "sworn-workspace-export-v1"
-	ContainmentPolicyVersion     = "sworn-linux-containment-v2"
+	ContainmentPolicyVersion     = "sworn-linux-containment-v3"
 	CredentialHome               = "/home/sworn/.codex"
 	CredentialFileTarget         = CredentialHome + "/auth.json"
 	maximumCredentialFileBytes   = int64(64 << 10)
@@ -39,6 +39,13 @@ type WorkspaceAccess string
 const (
 	WorkspaceReadOnly       WorkspaceAccess = "read_only"
 	WorkspaceWritableExport WorkspaceAccess = "writable_export"
+)
+
+type executionClass uint8
+
+const (
+	executionDefault executionClass = iota
+	executionCredentialReadOnly
 )
 
 type Input struct {
@@ -159,6 +166,7 @@ func (cleanup WritableCleanup) InvocationID() string { return cleanup.invocation
 
 // ContentBoundCleanup is an opaque proof that one exact read-only invocation
 // was quiescent and its deterministic executor runtime residue was removed.
+// It covers both content-runtime and credentialed host-runtime entry points.
 // Only ReconcileContentBound can mint a non-zero proof.
 type ContentBoundCleanup struct {
 	invocationID string
@@ -203,6 +211,13 @@ var (
 )
 
 func (invocation Invocation) validate(options Options) error {
+	return invocation.validateFor(options, executionDefault)
+}
+
+func (invocation Invocation) validateFor(options Options, class executionClass) error {
+	if class != executionDefault && class != executionCredentialReadOnly {
+		return errors.New("unknown executor entry-point class")
+	}
 	if invocation.SchemaVersion != InvocationSchemaVersion {
 		return fmt.Errorf("unknown invocation schema %q", invocation.SchemaVersion)
 	}
@@ -234,9 +249,17 @@ func (invocation Invocation) validate(options Options) error {
 		if !options.AllowCredentialFile {
 			return errors.New("credential-file access is not admitted by this executor")
 		}
-		if invocation.WorkspaceAccess != WorkspaceWritableExport {
+		if class == executionCredentialReadOnly {
+			if invocation.WorkspaceAccess != WorkspaceReadOnly || invocation.RuntimeDigest != "" ||
+				!invocation.NestedSandbox || invocation.Network != NetworkHost ||
+				invocation.ExecutableInput == "" {
+				return errors.New("credentialed read-only execution requires a host-runtime, nested-sandboxed, exact executable with host network")
+			}
+		} else if invocation.WorkspaceAccess != WorkspaceWritableExport {
 			return errors.New("credential-file access requires the writable executor entry point")
 		}
+	} else if class == executionCredentialReadOnly {
+		return errors.New("credentialed read-only execution requires credential-file access")
 	}
 	if err := validateAbsoluteDirectory(invocation.Workspace, "workspace"); err != nil {
 		return err
@@ -290,6 +313,18 @@ func (invocation Invocation) validate(options Options) error {
 		}
 		if !validDigest(input.Digest) {
 			return fmt.Errorf("input %q requires an exact sha256 digest", input.Name)
+		}
+	}
+	if invocation.CredentialAccess {
+		credentialRoot := filepath.Dir(options.CredentialFile)
+		if beneathPath(invocation.Workspace, options.CredentialFile) ||
+			beneathPath(credentialRoot, invocation.Workspace) {
+			return errors.New("workspace overlaps the configured credential home")
+		}
+		for _, input := range invocation.Inputs {
+			if beneathPath(credentialRoot, input.Path) || beneathPath(input.Path, options.CredentialFile) {
+				return fmt.Errorf("input %q overlaps the configured credential home", input.Name)
+			}
 		}
 	}
 	return nil

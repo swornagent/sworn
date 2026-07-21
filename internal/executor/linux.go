@@ -210,7 +210,7 @@ func (executor *LinuxExecutor) RunContentBound(
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
-	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime, nil)
+	return executor.runInvocation(ctx, invocation, WorkspaceReadOnly, &runtime, nil, executionDefault)
 }
 
 func (executor *LinuxExecutor) runInvocation(
@@ -219,8 +219,9 @@ func (executor *LinuxExecutor) runInvocation(
 	expectedAccess WorkspaceAccess,
 	runtime *RuntimeTree,
 	credential *credentialFileLease,
+	class executionClass,
 ) (completion RawCompletion, resultErr error) {
-	if err := invocation.validate(executor.options); err != nil {
+	if err := invocation.validateFor(executor.options, class); err != nil {
 		return RawCompletion{}, err
 	}
 	if invocation.WorkspaceAccess != expectedAccess {
