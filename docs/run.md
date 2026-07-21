@@ -251,9 +251,10 @@ of committed truth.
 ## Deliberate limits
 
 `reviewable` means the exact local candidate and required local evidence were
-atomically admitted. It is not an independent verdict or `PASS`. v0.2.0 has
-no verifier adapter, verdict routing, bounded repair policy, scheduler,
-integration edge, or external authorizer transport.
+atomically admitted. It is not an independent verdict or `PASS`. The v0.3
+development line contains an internal native verifier adapter and Store verdict
+routing, but public `sworn run` does not compose them yet. It also has no bounded
+repair policy, scheduler, integration edge, or external authorizer transport.
 
 The outer Codex process has broad host-network access and read-write access to
 the single managed ChatGPT authentication file; its nested tool process has

@@ -19,8 +19,8 @@ v0.3 adds one second, deliberately narrow read-only entry point:
 CLI-managed ChatGPT authentication and host network while inspecting an exact
 read-only candidate. It admits only a host runtime, a named digest-pinned direct
 executable input, credential access, host network, and nested-sandbox support as
-one inseparable class. It does not itself prove the inner CLI policy: the future
-verifier adapter must bind and test the policy which denies model-directed
+one inseparable class. It does not itself prove the inner CLI policy: the native
+verifier adapter binds and tests the exact policy which denies model-directed
 tools the credential and network.
 
 The `check.local` effect worker calls only `RunContentBound`. Its
@@ -42,9 +42,10 @@ authorize an unbound retry.
 
 Credentialed read-only execution uses the same shared runtime ownership and
 deterministic residue path. `ReconcileContentBound` therefore also supplies its
-mechanical process/runtime cleanup proof. A future verifier recovery result must
-seal that generic proof to the exact verifier effect, submission, invocation,
-and profile in Store; the cleanup object alone is never retry authority.
+mechanical process/runtime cleanup proof. The verifier worker requires matching
+cleanup before it may stamp service quiescence or persist a successful execution
+receipt. The cleanup object alone is never retry authority, and an interrupted
+unbound verifier attempt remains `unknown` rather than being requeued.
 
 The access mode is part of both the invocation and raw completion. Calling the
 wrong entry point fails before dispatch. Neither mode exposes the source
@@ -162,17 +163,18 @@ profile, also requests the nested sandbox. Content-bound checks never receive
 the mount.
 
 The v3 invocation and containment policy add a second admitted class for the
-future native verifier. `RunCredentialReadOnly` requires all of these facts at
+native verifier. `RunCredentialReadOnly` requires all of these facts at
 once: `read_only` workspace access, no content-runtime digest, one exact
 executable input used directly as argv[0], credential access, host network, and
 nested-sandbox admission. Removing or widening any one fact rejects the request
 before runtime ownership or credential acquisition. The staged candidate is
 mounted read-only and no workspace export can be returned. This executor
-capability is not yet a verifier adapter, dispatch, verdict, or autonomous loop.
+capability is now consumed by the profile-bound verifier worker, but it is not
+itself a dispatch, verdict, or autonomous loop.
 Declared workspace and ordinary-input paths which overlap the configured
-credential home are also rejected. The future verifier configuration must still
-prove its materialization root is disjoint from that home before constructing
-the invocation.
+credential home are also rejected. Verifier configuration proves its
+materialization root is disjoint from that home before constructing the
+invocation.
 
 On Linux, Sworn requires the source to be a non-empty regular file owned by the
 executor user, with exact mode `0600`, exactly one hard link, no symbolic-link
@@ -315,11 +317,12 @@ as the same host UID is inside the engine's trust boundary; it could race or
 alter any same-UID filesystem object. Sworn does not claim to defend itself from
 its own host account or administrator.
 
-This package is connected to the production Codex builder and `check.local`
-workers. `sworn run` reaches both through the sole controller; it does not expose
-either worker as a standalone command. The credentialed read-only entry point is
-an uncomposed v0.3 enabling boundary until a profile-bound native verifier and
-its recovery path land. A content-bound runtime proves which
+This package is connected to the production Codex builder, `check.local`, and
+native verifier workers. `sworn run` reaches the first two through the sole
+public controller and does not expose any worker as a standalone command. The
+credentialed read-only entry point is now consumed by the internal profile-bound
+verifier; public verifier composition remains a later v0.3 slice. A
+content-bound runtime proves which
 bytes executed; it does not retain those bytes or claim hermetic reproduction.
 The kernel, CPU, systemd user manager, Bubblewrap, host `/usr`, and containment
 implementation remain trusted host facts.

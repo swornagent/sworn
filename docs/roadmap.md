@@ -185,8 +185,9 @@ a scripted, token-free Responses turn. The executor gained only two explicit
 capabilities: one digest-pinned input may be the direct entrypoint, and nested
 user namespaces require invocation plus executor admission. Ordinary
 invocations retain the prior boundary. That feasibility milestone itself added
-no adapter or command; the following production vertical composes the exact
-profile through the existing controller and Store. Historical replay and
+no adapter or command. The following v0.3 slices now compose the exact profile
+through a native memoryless verifier worker and the existing Store lifecycle.
+Public `sworn run` composition remains separate. Historical replay and
 deterministic reviewable admission remain historical; current authority gates
 external effects and transitions which grant effectful capabilities.
 
@@ -210,13 +211,13 @@ external effects and transitions which grant effectful capabilities.
   Store slice now carries those records through controlled dispatch and durable
   admission; see [Independent verifier protocol and Store
   lifecycle](verifier-protocol.md).
-- [ ] Dispatch the independent verifier through a native CLI adapter.
-- [ ] Make verifier turns memoryless: use ephemeral Codex sessions, disable
+- [x] Dispatch the independent verifier through a native CLI adapter.
+- [x] Make verifier turns memoryless: use ephemeral Codex sessions, disable
   history persistence, ignore user configuration and rules, and never resume a
   prior session. Disable approval prompts with `-a never` while retaining the
   narrow nested workspace sandbox wherever CLI-managed authentication is
   mounted.
-- [ ] Prove in the native adapter that authorizer capability and verifier
+- [x] Prove in the native adapter that authorizer capability and verifier
   identity remain outside builder scope.
 - [x] Carry exact dispatch, assessment, and verdict bindings through controlled
   verifier-effect execution, conservative bound-result recovery, and durable

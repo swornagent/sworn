@@ -6,7 +6,7 @@ Baton delivery-verdict envelope, and route committed delivery state.
 
 The v0.3.0 Store lifecycle now carries that boundary from a `reviewable`
 submission through a controlled verifier effect and durable verdict admission.
-It remains an internal kernel path: the native Codex verifier adapter, public
+The native Codex verifier worker now closes that internal execution path. Public
 `sworn run` composition, repair execution, and integration are not implemented.
 
 ## Three closed records
@@ -71,10 +71,61 @@ releases the Store. Completed historical verifier results remain valid under a
 later profile rotation because configuration is an execution gate, not a
 retroactive validity rule.
 
-The dispatch isolation fields remain claims until a future native adapter and
-its tests close the actual materialization and process profile. This slice binds
-an execution-receipt CAS pointer and the exact configured profile identity; it
-does not interpret that receipt as process proof or execute Codex itself.
+The dispatch isolation fields become proven execution facts only after the
+native worker rejoins the exact review closure, materializes the retained
+candidate afresh, and completes the profile-bound contained invocation below.
+
+## Native memoryless Codex boundary
+
+The process-neutral verifier worker derives one canonical
+`sworn-verifier-profile-v1` from the pinned adapter plus the configured executor,
+repository, private workspace root, timeout, and materialization ceilings. The
+profile is content-addressed and must equal the digest and agent selected by the
+Store effect. It binds the exact native binary, explicit model, prompt, output
+schema, argv, permission profile, credential mode, executor configuration, and
+outer/inner isolation split. Store validates the retained profile bytes when it
+later binds or recovers the result; profile rotation does not rewrite history.
+
+The accepted Codex invocation is deliberately narrow:
+
+- `-a never` removes interactive approval prompts while retaining the nested
+  sandbox; `--yolo` and every approval/sandbox bypass are forbidden;
+- `exec --strict-config --ephemeral --ignore-user-config --ignore-rules` starts
+  one new turn with no resume path;
+- history and memory use/generation are disabled, project instructions have a
+  zero-byte budget, and the working directory is `/tmp`;
+- the trusted outer CLI alone has host network and the dedicated CLI-managed
+  ChatGPT credential; model-directed tools have neither and use the named
+  read-only permission profile; and
+- no `--add-dir`, last-message file, API key, model default, inherited process
+  environment, builder transcript, Git metadata, remote, or writable target is
+  admitted.
+
+The model sees the fresh read-only candidate, canonical plan, submission,
+dispatch, and engine-owned assessment schema. It also receives deterministic
+`review-*` files: the exact assurance policy and authority receipt plus one
+canonical bundle per policy check containing its definition, receipt, local
+environment, and base64-encoded stdout and stderr. Those files are reconstructed
+from the already durable artifact closure and their names, digests, and sizes
+are recorded in the execution receipt.
+
+Codex stdout is treated as a bounded JSONL protocol, not prose. The adapter
+requires exactly one thread, one turn, one completed agent message containing a
+strict `sworn-verifier-assessment-v1`, and one successful terminal event. The
+output schema contains assessment fields only and is sized so one maximum valid
+agent-message event remains below the parser ceiling. A failed process, timeout,
+cancellation, truncation, malformed event stream, extra final message, invalid
+assessment, or cleanup failure returns a control error and manufactures no
+assessment or verdict.
+
+After the process returns, the worker mechanically reconciles the exact
+content-bound service before claiming quiescence, then removes its private
+candidate and input root. A successful execution receipt records the attempt,
+systemd unit, profile, candidate workspace digest, complete staged-input
+manifest, raw JSONL and stderr CAS captures, fresh thread ID, engine timestamps,
+ordinary exit facts, and the absence of an export. It is observation, not
+authority: only Store may bind it, and only the later verdict path may interpret
+the assessment.
 
 ## Typed result and conservative recovery
 
@@ -87,7 +138,13 @@ and proves:
 - exact effect request, dispatch artifact, submission, candidate, profile,
   agent, and epoch equality;
 - strict assessment parsing and persistence of its canonical record;
-- resolution of the assessment and execution-receipt CAS bytes; and
+- canonical profile, assessment-schema, and execution-receipt parsing from
+  their exact CAS bytes;
+- exact plan, policy, authority, check-evidence, executable, staged-input,
+  workspace, executor, and isolation closure;
+- resolution and size validation of the raw assessment, JSONL stdout, and
+  stderr captures, followed by Store-owned replay of the fixed JSONL grammar
+  to recover the same assessment bytes and fresh thread identity; and
 - a review start no earlier than either dispatch creation or the journal claim.
 
 The result schema also requires `started_at <= completed_at`. Completion and

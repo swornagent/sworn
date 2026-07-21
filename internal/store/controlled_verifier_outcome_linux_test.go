@@ -269,32 +269,23 @@ func executeNoncanonicalVerifierAssessment(
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := protocol.EncodeCanonical(map[string]any{
-		"schema_version": "sworn-verifier-execution-receipt-test-v1",
-		"effect_id":      prepared.effect.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiptDigest, err := fixture.control.PutArtifact(ctx, verifierExecutionReceiptType, receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, err := engine.ParseVerifierEffectRequest(prepared.effect.Request)
 	if err != nil {
 		t.Fatal(err)
 	}
+	startedAt := atomicAdmissionTime.Format(time.RFC3339Nano)
+	receipt := fixture.putVerifierExecutionReceipt(
+		t, prepared.effect, request, raw, startedAt, startedAt,
+	)
 	encoded, err := engine.EncodeVerifierEffectResult(engine.VerifierEffectResult{
 		SchemaVersion:     engine.VerifierEffectResultSchemaVersion,
 		Outcome:           engine.VerifierOutcomeAssessmentReady,
 		DispatchID:        prepared.effect.ID,
 		VerificationEpoch: request.VerificationEpoch,
 		Assessment:        protocol.Artifact{Ref: rawDigest, MediaType: "application/json", Digest: rawDigest},
-		ExecutionReceipt: protocol.Artifact{
-			Ref: receiptDigest, MediaType: verifierExecutionReceiptType, Digest: receiptDigest,
-		},
-		StartedAt:   atomicAdmissionTime.Format(time.RFC3339Nano),
-		CompletedAt: atomicAdmissionTime.Format(time.RFC3339Nano),
+		ExecutionReceipt:  receipt,
+		StartedAt:         startedAt,
+		CompletedAt:       startedAt,
 	})
 	if err != nil {
 		t.Fatal(err)
