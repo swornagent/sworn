@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	BatonVersion      = "1.0.0"
-	BatonSourceCommit = "732ba47672e12edb55494d120bb7325850187643"
+	BatonVersion      = "1.0.0-rc.1"
+	BatonSourceCommit = "dd41dcc8c46def2f8b7b86a4f9acd26aeb486667"
 	checksumFile      = "snapshot/FILES.sha256"
 )
 

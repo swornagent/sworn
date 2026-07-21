@@ -1,11 +1,18 @@
-# Sworn v1 walking skeleton
+# Sworn architectural v1 walking skeleton
 
 Each milestone must remain runnable and preserve one control truth. Later work
 may extend a record or reducer path, but may not introduce a second engine.
 
+Architectural v1 is the greenfield kernel and schema generation, not Sworn's
+SemVer major. v0.2.0 packages the completed control, candidate, authority, and
+bounded builder-to-checks-to-`reviewable` path below. The next release line is
+v0.3.0, beginning with fresh independent verification and bounded verdict
+routing. Existing `*-v1` schemas and reference identifiers remain unchanged.
+
 ## 0. Protocol and repository boundary
 
-- [x] Start from a fresh clone on disconnected orphan branch `release/v1.0.0`.
+- [x] Start from a fresh clone on the disconnected construction branch
+  `release/v1.0.0`; package its first release as v0.2.0.
 - [x] Preserve and restoration-test v0 archaeology.
 - [x] Embed and checksum the admitted Baton snapshot.
 - [x] Install v1-specific CI before any kernel implementation.
@@ -210,11 +217,14 @@ external effects and transitions which grant effectful capabilities.
 - [ ] Add manual latch release and compare-and-swap fast-forward integration.
 - [ ] Pass the 18 Baton real-boundary cases through the built binary.
 
-Recovery proof is necessary but not sufficient for unattended use or a
-default-branch cutover. Native builder and local-check recovery, exclusive
-ownership, current execution authority, and a strict bounded-run configuration
-now compose without a second engine. A token-free built-process proof reaches
-and enforces the exact Codex pin gate; a successful ready-to-reviewable process
-run with that artifact remains open. Independent verification, bounded repair
-policy, integration, the 18 Baton real-boundary cases, and the public loop remain
-later gates.
+Recovery proof is necessary but not sufficient for unattended use. Native
+builder and local-check recovery, exclusive ownership, current execution
+authority, and a strict bounded-run configuration compose in v0.2.0 without a
+second engine. The token-free real-Codex boundary proof and the separate live
+`gpt-5.4` built-process delivery both passed; the latter reached `reviewable`
+and then converged on a second invocation without another model turn.
+
+v0.2.0 deliberately stops at `reviewable`. Independent verification, bounded
+repair policy, integration, the 18 Baton real-boundary cases, and the public
+loop remain later gates. v0.3.0 starts with the memoryless verifier and exact
+verdict binding rather than widening the builder path.

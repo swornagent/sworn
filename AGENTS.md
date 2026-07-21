@@ -1,8 +1,10 @@
-# Sworn v1 engineering rules
+# Sworn greenfield-kernel engineering rules
 
-This orphan branch is a greenfield implementation. Never merge or copy v0
+This code line is a greenfield implementation. Never merge or copy v0
 production packages into it. Port an invariant only when a focused test states
-the failure it prevents.
+the failure it prevents. The architectural **v1** label and `*-v1` schema or
+reference identifiers are independent of package SemVer; the first packaged
+milestone from this line is v0.2.0.
 
 Sworn is a small deterministic delivery engine. Native coding-agent CLIs own
 model interaction, tools, and context. Sworn owns authority, isolation, exact

@@ -1,19 +1,30 @@
-# Sworn v1
+# Sworn v0.2.0
 
-Sworn is a small deterministic delivery engine for autonomous software work. It
-turns an approved Baton plan into an exact Git candidate, obtains a fresh
-independent verdict, recovers external effects safely, and exposes a truthful
-board.
+Sworn v0.2.0 is a small deterministic delivery kernel for autonomous software
+work. Its bounded `sworn run` advances one already planned and active work item
+through a native Codex builder, exact local checks, and atomic admission to
+`reviewable`, while recovering external effects safely and exposing a truthful
+board. It does not yet obtain an independent verifier verdict or update the
+target ref.
 
-The `release/v1.0.0` branch is a greenfield, pre-alpha implementation with
-disconnected history. Sworn v0 remains available as protected archaeology at
+Sworn's architectural target is the complete autonomous loop through fresh
+independent verification and safe integration.
+
+v0.2.0 is the first packaged milestone from Sworn's greenfield architectural
+v1 kernel. In this repository, **v1** names the kernel architecture and the
+first generation of stable schema and reference identifiers; it is not the
+binary's SemVer major. Identifiers such as `sworn-run-config-v1` therefore
+remain v1 in the v0.2.0 package.
+
+The implementation was developed on the disconnected `release/v1.0.0`
+construction branch. Sworn v0 remains available as protected archaeology at
 `legacy/v0` and `legacy/v0-final`; it is not an implementation base for this
-branch.
+code line.
 
-The v1 foundation establishes the trust boundary:
+The v0.2.0 foundation establishes the architectural v1 trust boundary:
 
-- a Baton 1.0 release-candidate snapshot pinned to commit
-  `732ba47672e12edb55494d120bb7325850187643`;
+- a Baton v1.0.0-rc.1 snapshot pinned to commit
+  `dd41dcc8c46def2f8b7b86a4f9acd26aeb486667`;
 - checksum verification for every embedded protocol file;
 - a `sworn version` command that reports the snapshot digest;
 - one transactional control store and pure reducer;
@@ -22,7 +33,7 @@ The v1 foundation establishes the trust boundary:
 - an exact Codex builder profile with attempt-bound publication and recovery;
 - current-authorized, restart-recoverable local checks;
 - one bounded `sworn run` path from an active work item to `reviewable`; and
-- v1-specific CI.
+- release-line CI.
 
 The intended command surface is `init`, `run`, `revise`, `retry`, `board`,
 `integrate`, `doctor`, and `version`. Unimplemented commands fail explicitly;
@@ -73,10 +84,10 @@ advance another work item, obtain an independent verdict, or update a target.
 Historical approval remains provenance rather than a standing execution
 permit, and `reviewable` is not a verdict or `PASS`.
 
-This is a bounded production vertical, not the autonomous product loop. There
-is no public initializer, verifier, verdict routing, bounded repair policy,
-integration edge, or scheduler. Its Store must already contain an exact planned
-and activated delivery. See [Running the bounded vertical](docs/run.md),
+This is a bounded production vertical, not yet the autonomous product loop.
+There is no public initializer, verifier, verdict routing, bounded repair
+policy, integration edge, or scheduler. Its Store must already contain an exact
+planned and activated delivery. See [Running the bounded vertical](docs/run.md),
 [Exact local candidate](docs/exact-candidate.md), and
 [ADR 0008](docs/adr/0008-builder-to-reviewable-production-vertical.md).
 
@@ -96,7 +107,7 @@ go test -race ./...
 go vet ./...
 go build ./cmd/sworn
 go run ./cmd/sworn version --json
-SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
+CGO_ENABLED=0 SWORN_REQUIRE_LINUX_EXECUTOR=1 go test ./internal/executor
 SWORN_CODEX_BINARY=/absolute/path/to/codex \
   SWORN_REQUIRE_CODEX_BOUNDARY=1 \
   go test -run TestRealCodexCLIBoundaryFeasibility ./internal/adapter
@@ -126,5 +137,7 @@ acquire it. Authentication setup and rotation are documented in [Running the
 bounded vertical](docs/run.md) and [ADR
 0009](docs/adr/0009-codex-cli-managed-chatgpt-authentication.md).
 
-See [ADR 0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries
-and [the implementation sequence](docs/roadmap.md) for the walking skeleton.
+See the [v0.2.0 release notes](docs/releases/v0.2.0.md), [ADR
+0001](docs/adr/0001-greenfield-v1-kernel.md) for ownership boundaries, and [the
+implementation sequence](docs/roadmap.md) for the walking skeleton and v0.3.0
+direction.
