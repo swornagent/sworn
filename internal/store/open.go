@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/engine"
+	"github.com/swornagent/sworn/internal/protocol"
 	"github.com/swornagent/sworn/internal/repo"
 
 	_ "modernc.org/sqlite"
@@ -37,6 +38,7 @@ var migrationNames = []string{
 	"migrations/006_bound_result_recovery.sql",
 	"migrations/007_attempt_bound_retry.sql",
 	"migrations/008_local_check_retry.sql",
+	"migrations/009_verifier_verdict.sql",
 }
 
 type Store struct {
@@ -48,6 +50,8 @@ type Store struct {
 	leaseIssuer                     *leaseIssuer
 	localCheckRuntimeManifestDigest string
 	builderDispatchDigest           string
+	verifierProfileDigest           string
+	verifierAgent                   string
 	repository                      *repo.Repository
 }
 
@@ -57,6 +61,8 @@ type Store struct {
 type ControlConfiguration struct {
 	LocalCheckRuntimeManifestDigest string
 	BuilderDispatchDigest           string
+	VerifierProfileDigest           string
+	VerifierAgent                   string
 	Repository                      *repo.Repository
 }
 
@@ -76,18 +82,72 @@ func OpenConfigured(ctx context.Context, path string, configuration ControlConfi
 	if configuration.BuilderDispatchDigest != "" && !engine.ValidDigest(configuration.BuilderDispatchDigest) {
 		return nil, errors.New("configured control store has an invalid builder dispatch digest")
 	}
-	if configuration.BuilderDispatchDigest != "" {
+	if (configuration.VerifierProfileDigest == "") != (configuration.VerifierAgent == "") {
+		return nil, errors.New("configured verifier requires both a profile digest and agent identity")
+	}
+	if configuration.VerifierProfileDigest != "" &&
+		(!engine.ValidDigest(configuration.VerifierProfileDigest) ||
+			!protocol.ValidNonEmpty(configuration.VerifierAgent)) {
+		return nil, errors.New("configured control store has an invalid verifier profile")
+	}
+	if configuration.BuilderDispatchDigest != "" || configuration.VerifierProfileDigest != "" {
 		if configuration.Repository == nil {
-			return nil, errors.New("configured native builder requires an immutable repository")
+			return nil, errors.New("configured native execution requires an immutable repository")
 		}
 		if err := configuration.Repository.Binding().Validate(); err != nil {
-			return nil, fmt.Errorf("configured native builder repository: %w", err)
+			return nil, fmt.Errorf("configured native execution repository: %w", err)
 		}
 	}
-	if configuration.LocalCheckRuntimeManifestDigest == "" && configuration.BuilderDispatchDigest == "" {
+	if configuration.LocalCheckRuntimeManifestDigest == "" && configuration.BuilderDispatchDigest == "" &&
+		configuration.VerifierProfileDigest == "" {
 		return nil, errors.New("configured control store requires an execution digest")
 	}
-	return open(ctx, path, configuration)
+	store, err := open(ctx, path, configuration)
+	if err != nil {
+		return nil, err
+	}
+	if err := store.validatePendingVerifierConfiguration(ctx, store.db); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// validatePendingVerifierConfiguration prevents a configured process from
+// accepting a pending verifier dispatched for another profile or agent. Open
+// uses it for an early diagnostic and ownership activation repeats it in the
+// authoritative owned snapshot. Succeeded history is intentionally excluded.
+func (s *Store) validatePendingVerifierConfiguration(ctx context.Context, query rowsQuerier) error {
+	rows, err := query.QueryContext(ctx, `
+		SELECT effect_id, request_json
+		FROM effects
+		WHERE kind = ? AND state = 'pending'
+		ORDER BY effect_id`, engine.EffectVerifier)
+	if err != nil {
+		return fmt.Errorf("inspect pending verifier configuration: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var effectID string
+		var encoded []byte
+		if err := rows.Scan(&effectID, &encoded); err != nil {
+			return fmt.Errorf("read pending verifier configuration: %w", err)
+		}
+		request, err := engine.ParseVerifierEffectRequest(encoded)
+		if err != nil {
+			return fmt.Errorf("pending verifier effect %q has an invalid request: %w", effectID, err)
+		}
+		if request.VerifierProfileDigest != s.verifierProfileDigest || request.Agent != s.verifierAgent {
+			return fmt.Errorf(
+				"pending verifier effect %q requires profile %q and agent %q; configured profile and agent differ",
+				effectID, request.VerifierProfileDigest, request.Agent,
+			)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate pending verifier configuration: %w", err)
+	}
+	return nil
 }
 
 func open(ctx context.Context, path string, configuration ControlConfiguration) (*Store, error) {
@@ -100,6 +160,8 @@ func open(ctx context.Context, path string, configuration ControlConfiguration) 
 		now: time.Now, leaseIssuer: &leaseIssuer{},
 		localCheckRuntimeManifestDigest: configuration.LocalCheckRuntimeManifestDigest,
 		builderDispatchDigest:           configuration.BuilderDispatchDigest,
+		verifierProfileDigest:           configuration.VerifierProfileDigest,
+		verifierAgent:                   configuration.VerifierAgent,
 		repository:                      configuration.Repository,
 	}
 	if err := store.migrate(ctx); err != nil {
@@ -263,6 +325,19 @@ func (s *Store) RequireCheckConfiguration(runtimeDigest string, binding repo.Bin
 	return nil
 }
 
+// RequireVerifierConfiguration closes the composition boundary before a
+// native verifier can receive a controlled credentialed read-only capability.
+func (s *Store) RequireVerifierConfiguration(profileDigest, agent string, binding repo.Binding) error {
+	if s.readOnly || !engine.ValidDigest(profileDigest) || s.verifierProfileDigest != profileDigest ||
+		!protocol.ValidNonEmpty(agent) || s.verifierAgent != agent {
+		return errors.New("control store does not match the native verifier profile")
+	}
+	if s.repository == nil || s.repository.Binding() != binding {
+		return errors.New("control store does not match the native verifier repository")
+	}
+	return nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -329,6 +404,10 @@ func (s *Store) verifyIdentity(ctx context.Context, readOnly bool) error {
 
 type rowQuerier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+type rowsQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 func identity(ctx context.Context, query rowQuerier) (application int, version int, err error) {

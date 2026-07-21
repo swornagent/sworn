@@ -5,9 +5,10 @@ may extend a record or reducer path, but may not introduce a second engine.
 
 Architectural v1 is the greenfield kernel and schema generation, not Sworn's
 SemVer major. v0.2.0 packages the completed control, candidate, authority, and
-bounded builder-to-checks-to-`reviewable` path below. The next release line is
-v0.3.0, beginning with fresh independent verification and bounded verdict
-routing. Existing `*-v1` schemas and reference identifiers remain unchanged.
+bounded builder-to-checks-to-`reviewable` path below. The v0.3.0 release line
+adds the internal fresh independent-verification and bounded verdict-routing
+kernel before composing a native adapter or public loop. Existing `*-v1` schemas
+and reference identifiers remain unchanged.
 
 ## 0. Protocol and repository boundary
 
@@ -100,9 +101,10 @@ sole submission writer. See
 Exact-plan and authenticated historical approval facts survive restart through
 the single control store. Check scheduling and admission reload their exact
 relational closure, but it is not current effect authority: source re-resolution
-now occurs immediately before each builder or check execution. Accepting
-`PASS` and integration remain later gates. See [Exact plan and authenticated
-authority](authenticated-authority.md).
+now occurs immediately before each builder or check execution. Verifier dispatch
+and execution now have the same distinct fresh-authority treatment, while
+accepting `PASS` has its own current-admission gate. Integration remains a later
+gate. See [Exact plan and authenticated authority](authenticated-authority.md).
 
 Submission construction resolves policy and check definitions from the exact
 plan and rejects caller-selected substitutes. The intent-only admission command
@@ -148,8 +150,10 @@ artifact, runtime, snapshot, chronology, and Git closure revalidates.
   resolver, selected by exact source reference and plan digest and reread at
   every current-authority gate.
 - [x] Extend current permits to each pending local-check execution.
-- [ ] Extend current permits to verifier dispatch, accepting `PASS`, and
-  integration as those edges become executable.
+- [x] Add distinct fresh current-authority gates for verifier dispatch,
+  verifier execution, and `PASS` admission while keeping exact non-PASS results
+  bankable after later authority loss.
+- [ ] Extend current authority to integration when that edge becomes executable.
 
 `Controller` owns one explicit bounded convergence and no poller, scheduler, or
 retry policy. Builder and check execution, bound-result cleanup, and unbound
@@ -202,20 +206,24 @@ external effects and transitions which grant effectful capabilities.
   exact executable and credential, host network, nested sandbox, and a
   physically read-only candidate, without widening either existing entry point.
 - [x] Add strict verifier-dispatch, model-assessment, and engine-stamped verdict
-  contracts with Baton-derived pure cross-record validation. This establishes
-  shape and binding, not durable admission or an executable verifier edge; see
-  [Independent verifier protocol boundary](verifier-protocol.md).
+  contracts with Baton-derived pure cross-record validation. The following
+  Store slice now carries those records through controlled dispatch and durable
+  admission; see [Independent verifier protocol and Store
+  lifecycle](verifier-protocol.md).
 - [ ] Dispatch the independent verifier through a native CLI adapter.
 - [ ] Make verifier turns memoryless: use ephemeral Codex sessions, disable
   history persistence, ignore user configuration and rules, and never resume a
   prior session. Disable approval prompts with `-a never` while retaining the
   narrow nested workspace sandbox wherever CLI-managed authentication is
   mounted.
-- [ ] Keep authorizer capability and verifier identity outside builder scope.
-- [ ] Carry the pure verdict bindings through verifier-effect recovery and
-  durable Store admission, including current artifact and authority closure.
-- [ ] Implement bounded retry epochs without treating `INCONCLUSIVE` as
-  implementation failure.
+- [ ] Prove in the native adapter that authorizer capability and verifier
+  identity remain outside builder scope.
+- [x] Carry exact dispatch, assessment, and verdict bindings through controlled
+  verifier-effect execution, conservative bound-result recovery, and durable
+  Store admission, including current artifact and authority closure.
+- [x] Implement a maximum of three verification epochs, with redispatch only
+  from an admitted `INCONCLUSIVE`, explicit attention when the third epoch is
+  still inconclusive, and distinct routing for all four outcomes.
 
 ## 5. Public loop and integration
 
@@ -231,7 +239,8 @@ second engine. The token-free real-Codex boundary proof and the separate live
 `gpt-5.4` built-process delivery both passed; the latter reached `reviewable`
 and then converged on a second invocation without another model turn.
 
-v0.2.0 deliberately stops at `reviewable`. Independent verification, bounded
-repair policy, integration, the 18 Baton real-boundary cases, and the public
-loop remain later gates. v0.3.0 starts with the memoryless verifier and exact
-verdict binding rather than widening the builder path.
+The packaged v0.2.0 command deliberately stops at `reviewable`. The v0.3.0
+development line now has the internal controlled verifier and exact verdict
+admission substrate, but it still lacks the native memoryless adapter, public
+controller composition, bounded repair execution, integration, and the 18 Baton
+real-boundary cases. Those are the next gates; the builder path remains narrow.

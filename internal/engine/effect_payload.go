@@ -15,12 +15,15 @@ import (
 )
 
 const (
-	BuildOutcomeCandidateReady   = "candidate_ready"
-	LocalCheckOutcomePass        = "pass"
-	LocalCheckOutcomeNotAdmitted = "not_admitted"
-	LocalCheckOutcomeControlled  = "controlled"
+	BuildOutcomeCandidateReady     = "candidate_ready"
+	LocalCheckOutcomePass          = "pass"
+	LocalCheckOutcomeNotAdmitted   = "not_admitted"
+	LocalCheckOutcomeControlled    = "controlled"
+	VerifierOutcomeAssessmentReady = "assessment_ready"
 
-	localCheckReceiptMediaType = "application/vnd.sworn.local-check-receipt+json"
+	localCheckReceiptMediaType        = "application/vnd.sworn.local-check-receipt+json"
+	verifierArtifactMediaType         = "application/json"
+	verifierExecutionReceiptMediaType = "application/vnd.sworn.verifier-execution-receipt+json"
 )
 
 var objectIDPattern = regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`)
@@ -66,6 +69,41 @@ type LocalCheckEffectResult struct {
 	Receipt       protocol.Artifact `json:"receipt"`
 }
 
+// VerifierEffectRequest closes one fresh verifier invocation over exact plan,
+// submission, candidate, dispatch, profile, agent, and verification-epoch
+// truth. Adapters consume this value but cannot choose any of its bindings.
+type VerifierEffectRequest struct {
+	SchemaVersion         string                  `json:"schema_version"`
+	DeliveryRunID         string                  `json:"delivery_run_id"`
+	DeliveryID            string                  `json:"delivery_id"`
+	WorkID                string                  `json:"work_id"`
+	WorkAttempt           int64                   `json:"work_attempt"`
+	PlanDigest            string                  `json:"plan_digest"`
+	SubmissionID          string                  `json:"submission_id"`
+	SubmissionDigest      string                  `json:"submission_digest"`
+	Candidate             protocol.CandidatePoint `json:"candidate"`
+	DispatchID            string                  `json:"dispatch_id"`
+	DispatchReceipt       protocol.Artifact       `json:"dispatch_receipt"`
+	VerifierProfileDigest string                  `json:"verifier_profile_digest"`
+	Agent                 string                  `json:"agent"`
+	VerificationEpoch     int64                   `json:"verification_epoch"`
+}
+
+// VerifierEffectResult retains the exact raw assessment pointer and
+// adapter-recorded review timestamps. The configured verifier agent remains
+// authoritative in the request rather than being repeated as adapter-selected
+// result data.
+type VerifierEffectResult struct {
+	SchemaVersion     string            `json:"schema_version"`
+	Outcome           string            `json:"outcome"`
+	DispatchID        string            `json:"dispatch_id"`
+	VerificationEpoch int64             `json:"verification_epoch"`
+	Assessment        protocol.Artifact `json:"assessment"`
+	ExecutionReceipt  protocol.Artifact `json:"execution_receipt"`
+	StartedAt         string            `json:"started_at"`
+	CompletedAt       string            `json:"completed_at"`
+}
+
 func EncodeBuildEffectResult(result BuildEffectResult) (json.RawMessage, error) {
 	if err := validateBuildEffectResult(result); err != nil {
 		return nil, err
@@ -105,6 +143,24 @@ func ParseCheckAttemptIdentity(encoded json.RawMessage) (CheckAttemptIdentity, e
 	}
 	if err := validateCheckAttemptIdentity(identity); err != nil {
 		return CheckAttemptIdentity{}, err
+	}
+	return identity, nil
+}
+
+func EncodeVerifierAttemptIdentity(identity VerifierAttemptIdentity) (json.RawMessage, error) {
+	if err := validateVerifierAttemptIdentity(identity); err != nil {
+		return nil, err
+	}
+	return encodeCanonicalEffectPayload(identity, "verifier attempt identity")
+}
+
+func ParseVerifierAttemptIdentity(encoded json.RawMessage) (VerifierAttemptIdentity, error) {
+	identity, err := decodeCanonicalEffectPayload[VerifierAttemptIdentity](encoded, "verifier attempt identity")
+	if err != nil {
+		return VerifierAttemptIdentity{}, err
+	}
+	if err := validateVerifierAttemptIdentity(identity); err != nil {
+		return VerifierAttemptIdentity{}, err
 	}
 	return identity, nil
 }
@@ -159,6 +215,42 @@ func ParseLocalCheckEffectResult(encoded json.RawMessage) (LocalCheckEffectResul
 	return result, nil
 }
 
+func EncodeVerifierEffectRequest(request VerifierEffectRequest) (json.RawMessage, error) {
+	if err := validateVerifierEffectRequest(request); err != nil {
+		return nil, err
+	}
+	return encodeCanonicalEffectPayload(request, "verifier effect request")
+}
+
+func ParseVerifierEffectRequest(encoded json.RawMessage) (VerifierEffectRequest, error) {
+	request, err := decodeCanonicalEffectPayload[VerifierEffectRequest](encoded, "verifier effect request")
+	if err != nil {
+		return VerifierEffectRequest{}, err
+	}
+	if err := validateVerifierEffectRequest(request); err != nil {
+		return VerifierEffectRequest{}, err
+	}
+	return request, nil
+}
+
+func EncodeVerifierEffectResult(result VerifierEffectResult) (json.RawMessage, error) {
+	if err := validateVerifierEffectResult(result); err != nil {
+		return nil, err
+	}
+	return encodeCanonicalEffectPayload(result, "verifier effect result")
+}
+
+func ParseVerifierEffectResult(encoded json.RawMessage) (VerifierEffectResult, error) {
+	result, err := decodeCanonicalEffectPayload[VerifierEffectResult](encoded, "verifier effect result")
+	if err != nil {
+		return VerifierEffectResult{}, err
+	}
+	if err := validateVerifierEffectResult(result); err != nil {
+		return VerifierEffectResult{}, err
+	}
+	return result, nil
+}
+
 // ValidateEffectResult binds exact journal bytes to their declared row kind.
 // Content-addressed artifact closure remains a persistence/admission concern.
 func ValidateEffectResult(kind EffectKind, effectID string, request, result json.RawMessage) error {
@@ -184,6 +276,20 @@ func ValidateEffectResult(kind EffectKind, effectID string, request, result json
 		}
 		_, err := ParseLocalCheckEffectResult(result)
 		return err
+	case EffectVerifier:
+		requestValue, err := ParseVerifierEffectRequest(request)
+		if err != nil {
+			return err
+		}
+		resultValue, err := ParseVerifierEffectResult(result)
+		if err != nil {
+			return err
+		}
+		if requestValue.DispatchID != effectID || resultValue.DispatchID != requestValue.DispatchID ||
+			resultValue.VerificationEpoch != requestValue.VerificationEpoch {
+			return errors.New("verifier request or result does not match its effect, dispatch, and verification epoch")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported effect kind %q", kind)
 	}
@@ -224,6 +330,17 @@ func validateCheckAttemptIdentity(identity CheckAttemptIdentity) error {
 	return nil
 }
 
+func validateVerifierAttemptIdentity(identity VerifierAttemptIdentity) error {
+	expected, err := VerifierAttemptIdentityFor(
+		identity.EffectID, identity.EffectAttempt, identity.DispatchID, identity.DispatchDigest,
+		identity.VerifierProfileDigest, identity.Agent, identity.VerificationEpoch,
+	)
+	if err != nil || identity != expected {
+		return errors.New("invalid verifier attempt identity")
+	}
+	return nil
+}
+
 func validateLocalCheckEffectRequest(request LocalCheckEffectRequest) error {
 	if request.SchemaVersion != LocalCheckEffectRequestSchemaVersion ||
 		!ValidID(request.DeliveryRunID) || !ValidID(request.DeliveryID) || !ValidID(request.WorkID) ||
@@ -244,6 +361,64 @@ func validateLocalCheckEffectResult(result LocalCheckEffectResult) error {
 	if !protocol.ValidNonEmpty(result.Receipt.Ref) || result.Receipt.MediaType != localCheckReceiptMediaType ||
 		!protocol.ValidDigest(result.Receipt.Digest) {
 		return errors.New("invalid local check receipt pointer")
+	}
+	return nil
+}
+
+func validateVerifierEffectRequest(request VerifierEffectRequest) error {
+	if request.SchemaVersion != VerifierEffectRequestSchemaVersion ||
+		!ValidID(request.DeliveryRunID) || !ValidID(request.DeliveryID) || !ValidID(request.WorkID) ||
+		!protocol.ValidPositiveSafeInteger(request.WorkAttempt) || !ValidDigest(request.PlanDigest) ||
+		!ValidID(request.SubmissionID) || !ValidDigest(request.SubmissionDigest) ||
+		!ValidID(request.DispatchID) || !ValidDigest(request.VerifierProfileDigest) ||
+		!protocol.ValidNonEmpty(request.Agent) || !validVerificationEpoch(request.VerificationEpoch) {
+		return errors.New("invalid verifier effect request")
+	}
+	if err := validateVerifierCandidatePoint(request.Candidate); err != nil {
+		return err
+	}
+	if err := validateVerifierArtifact(request.DispatchReceipt, "dispatch receipt"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateVerifierEffectResult(result VerifierEffectResult) error {
+	if result.SchemaVersion != VerifierEffectResultSchemaVersion ||
+		result.Outcome != VerifierOutcomeAssessmentReady || !ValidID(result.DispatchID) ||
+		!validVerificationEpoch(result.VerificationEpoch) {
+		return errors.New("invalid verifier effect result schema, outcome, or dispatch")
+	}
+	if err := validateVerifierArtifact(result.Assessment, "assessment"); err != nil {
+		return err
+	}
+	if !protocol.ValidNonEmpty(result.ExecutionReceipt.Ref) ||
+		result.ExecutionReceipt.MediaType != verifierExecutionReceiptMediaType ||
+		!protocol.ValidDigest(result.ExecutionReceipt.Digest) {
+		return errors.New("invalid verifier execution receipt pointer")
+	}
+	if !protocol.ValidDateTime(result.StartedAt) || !protocol.ValidDateTime(result.CompletedAt) {
+		return errors.New("invalid verifier effect timestamps")
+	}
+	order, err := protocol.CompareDateTimes(result.StartedAt, result.CompletedAt)
+	if err != nil || order > 0 {
+		return errors.New("invalid verifier effect timestamp order")
+	}
+	return nil
+}
+
+func validateVerifierCandidatePoint(candidate protocol.CandidatePoint) error {
+	if !protocol.ValidNonEmpty(candidate.Repository) || !objectIDPattern.MatchString(candidate.Commit) ||
+		!objectIDPattern.MatchString(candidate.Tree) || len(candidate.Commit) != len(candidate.Tree) {
+		return errors.New("invalid verifier candidate")
+	}
+	return nil
+}
+
+func validateVerifierArtifact(artifact protocol.Artifact, label string) error {
+	if !protocol.ValidNonEmpty(artifact.Ref) || artifact.MediaType != verifierArtifactMediaType ||
+		!protocol.ValidDigest(artifact.Digest) {
+		return fmt.Errorf("invalid verifier %s pointer", label)
 	}
 	return nil
 }

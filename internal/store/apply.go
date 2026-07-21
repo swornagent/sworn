@@ -36,8 +36,15 @@ type ApplyResult struct {
 }
 
 func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult, error) {
-	if command.Kind == engine.CommandDispatchBuild {
+	switch command.Kind {
+	case engine.CommandDispatchBuild:
 		return ApplyResult{}, errors.New("build.dispatch requires current controller authority")
+	case engine.CommandDispatchVerifier:
+		return ApplyResult{}, errors.New("verifier.dispatch requires current controller authority")
+	case engine.CommandAdmitVerdict:
+		return ApplyResult{}, errors.New("verdict.admit requires Store-owned verdict admission")
+	case engine.CommandRaiseDeliveryAttention:
+		return ApplyResult{}, errors.New("delivery.attention requires Store-owned control facts")
 	}
 	return s.applyCommand(ctx, command, nil)
 }
@@ -45,13 +52,10 @@ func (s *Store) Apply(ctx context.Context, command engine.Command) (ApplyResult,
 func (s *Store) applyCommand(
 	ctx context.Context,
 	command engine.Command,
-	authorization *controlledBuildAuthorization,
+	authorization any,
 ) (ApplyResult, error) {
 	if s.readOnly {
 		return ApplyResult{}, errors.New("control store is read-only")
-	}
-	if command.Kind != engine.CommandDispatchBuild && authorization != nil {
-		return ApplyResult{}, errors.New("controlled build authority cannot authorize another command")
 	}
 	if !engine.ValidID(command.ID) || !engine.ValidID(command.RunID) {
 		return ApplyResult{}, errors.New("valid command and run ids are required for durable idempotency")
@@ -66,10 +70,43 @@ func (s *Store) applyCommand(
 		return ApplyResult{}, fmt.Errorf("begin command transaction: %w", err)
 	}
 	defer transaction.Rollback() //nolint:errcheck
-	if authorization != nil {
-		if err := s.validateControlledBuildTransaction(ctx, transaction, *authorization, command); err != nil {
+	var verifierDispatch *preparedVerifierDispatch
+	var verdictAdmission *preparedVerdictAdmission
+	switch typed := authorization.(type) {
+	case nil:
+	case *controlledBuildAuthorization:
+		if command.Kind != engine.CommandDispatchBuild {
+			return ApplyResult{}, errors.New("controlled build authority cannot authorize another command")
+		}
+		if err := s.validateControlledBuildTransaction(ctx, transaction, *typed, command); err != nil {
 			return ApplyResult{}, err
 		}
+	case *controlledVerifierDispatchAuthorization:
+		if command.Kind != engine.CommandDispatchVerifier {
+			return ApplyResult{}, errors.New("controlled verifier authority cannot authorize another command")
+		}
+		if err := s.validateControlledVerifierDispatchTransaction(ctx, transaction, *typed, command); err != nil {
+			return ApplyResult{}, err
+		}
+		verifierDispatch = &typed.prepared
+	case *controlledVerdictAdmissionAuthorization:
+		if command.Kind != engine.CommandAdmitVerdict {
+			return ApplyResult{}, errors.New("controlled verdict admission cannot authorize another command")
+		}
+		prepared, err := s.prepareVerdictAdmission(ctx, transaction, *typed, command)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+		verdictAdmission = prepared
+	case *controlledAttentionAuthorization:
+		if command.Kind != engine.CommandRaiseDeliveryAttention {
+			return ApplyResult{}, errors.New("controlled attention facts cannot authorize another command")
+		}
+		if err := s.validateControlledAttentionTransaction(ctx, transaction, *typed, command); err != nil {
+			return ApplyResult{}, err
+		}
+	default:
+		return ApplyResult{}, errors.New("unsupported command authorization")
 	}
 
 	if priorDigest, prior, found, err := loadCommandResult(ctx, transaction, command.ID); err != nil {
@@ -103,6 +140,17 @@ func (s *Store) applyCommand(
 			return ApplyResult{}, fmt.Errorf("validate submission admission preconditions: %w", err)
 		}
 		decision, reduceErr = engine.ReduceAdmission(currentPointer, command, admission.facts)
+	}
+	if errors.Is(reduceErr, engine.ErrVerifierDispatchFactsRequired) && verifierDispatch != nil {
+		decision, reduceErr = engine.ReduceVerifierDispatch(currentPointer, command, verifierDispatch.facts)
+	}
+	if errors.Is(reduceErr, engine.ErrVerdictAdmissionFactsRequired) && verdictAdmission != nil {
+		decision, reduceErr = engine.ReduceVerdictAdmission(currentPointer, command, verdictAdmission.facts)
+	}
+	if errors.Is(reduceErr, engine.ErrDeliveryAttentionFactsRequired) {
+		if typed, ok := authorization.(*controlledAttentionAuthorization); ok {
+			decision, reduceErr = engine.ReduceDeliveryAttention(currentPointer, command, typed.facts)
+		}
 	}
 	if reduceErr != nil {
 		if rejection, ok := engine.RejectionOf(reduceErr); ok {
@@ -222,6 +270,27 @@ func (s *Store) applyCommand(
 			return ApplyResult{}, errors.New("submission admission cannot emit effects")
 		}
 		if err := persistAdmission(ctx, transaction, command, *admission, nowUS); err != nil {
+			return ApplyResult{}, err
+		}
+	}
+	if verifierDispatch != nil {
+		if len(decision.Effects) != 1 || decision.Effects[0].Kind != engine.EffectVerifier ||
+			len(effectIDs) != 1 || effectIDs[0] != verifierDispatch.facts.DispatchID {
+			return ApplyResult{}, errors.New("verifier dispatch did not emit its exact single effect")
+		}
+		if err := persistVerifierDispatch(
+			ctx, transaction, command, *verifierDispatch, effectIDs[0], nowUS,
+		); err != nil {
+			return ApplyResult{}, err
+		}
+	}
+	if verdictAdmission != nil {
+		if len(decision.Effects) != 0 {
+			return ApplyResult{}, errors.New("verdict admission cannot emit effects")
+		}
+		if err := persistVerdictAdmission(
+			ctx, transaction, command, eventID, decision.State.Revision, *verdictAdmission, nowUS,
+		); err != nil {
 			return ApplyResult{}, err
 		}
 	}

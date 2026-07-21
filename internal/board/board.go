@@ -12,12 +12,13 @@ import (
 const SchemaVersion = "delivery-board-v1"
 
 type Projection struct {
-	SchemaVersion  string `json:"schema_version"`
-	DeliveryID     string `json:"delivery_id"`
-	PlanDigest     string `json:"plan_digest"`
-	SourceRevision int64  `json:"source_revision"`
-	State          string `json:"state"`
-	Work           []Work `json:"work"`
+	SchemaVersion  string   `json:"schema_version"`
+	DeliveryID     string   `json:"delivery_id"`
+	PlanDigest     string   `json:"plan_digest"`
+	SourceRevision int64    `json:"source_revision"`
+	State          string   `json:"state"`
+	Work           []Work   `json:"work"`
+	Attention      []string `json:"attention,omitempty"`
 }
 
 type Work struct {
@@ -25,7 +26,9 @@ type Work struct {
 	State   string `json:"state"`
 	Attempt int64  `json:"attempt"`
 	engine.SubmissionBinding
+	engine.VerdictBinding
 	NextAction string `json:"next_action"`
+	Attention  string `json:"attention,omitempty"`
 }
 
 func FromState(state engine.State) (Projection, error) {
@@ -37,19 +40,48 @@ func FromState(state engine.State) (Projection, error) {
 		DeliveryID:     state.DeliveryID,
 		PlanDigest:     state.PlanDigest,
 		SourceRevision: state.Revision,
-		State:          string(state.Phase),
+		State:          aggregateState(state),
 		Work:           make([]Work, len(state.Work)),
+		Attention:      append([]string(nil), state.Attention...),
 	}
 	for index, work := range state.Work {
 		projection.Work[index] = Work{
 			ID: work.ID, State: string(work.State), Attempt: work.Attempt,
-			SubmissionBinding: work.SubmissionBinding, NextAction: string(work.NextAction),
+			SubmissionBinding: work.SubmissionBinding, VerdictBinding: work.VerdictBinding,
+			NextAction: string(work.NextAction), Attention: work.Attention,
 		}
 		if work.State == engine.WorkChecking {
 			projection.Work[index].State = string(engine.WorkActive)
 		}
 	}
 	return projection, nil
+}
+
+func aggregateState(state engine.State) string {
+	if len(state.Attention) != 0 {
+		return "attention"
+	}
+	for _, work := range state.Work {
+		if work.State == engine.WorkBlocked || work.Attention != "" {
+			return "attention"
+		}
+	}
+	if allWorkState(state.Work, engine.WorkWaiting) {
+		return "planned"
+	}
+	if allWorkState(state.Work, engine.WorkVerified) {
+		return "verified"
+	}
+	return "active"
+}
+
+func allWorkState(work []engine.Work, want engine.WorkState) bool {
+	for _, item := range work {
+		if item.State != want {
+			return false
+		}
+	}
+	return len(work) != 0
 }
 
 func WriteJSON(output io.Writer, projection Projection) error {

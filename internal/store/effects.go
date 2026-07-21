@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/engine"
 	"github.com/swornagent/sworn/internal/policy"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type EffectState string
@@ -443,7 +444,7 @@ func (s *Store) claimPendingEffect(
 		WHERE pending.state = 'pending'
 		  AND (? = '' OR pending.run_id = ?)
 		  AND (? = '' OR pending.kind = ?)
-		  AND (? = 0 OR pending.kind NOT IN (?, ?))
+		  AND (? = 0 OR pending.kind NOT IN (?, ?, ?))
 		  AND NOT EXISTS (
 			SELECT 1 FROM effects AS earlier
 			WHERE earlier.command_id = pending.command_id
@@ -452,7 +453,7 @@ func (s *Store) claimPendingEffect(
 		  )
 		ORDER BY pending.created_at_us, pending.command_id, pending.ordinal, pending.effect_id
 		LIMIT ?`, runID, runID, kind, kind, boolInteger(excludeControlled),
-		engine.EffectBuild, engine.EffectLocalCheck, limit)
+		engine.EffectBuild, engine.EffectLocalCheck, engine.EffectVerifier, limit)
 	if err != nil {
 		return EffectLease{}, fmt.Errorf("select pending effect: %w", err)
 	}
@@ -518,6 +519,19 @@ func boolInteger(value bool) int {
 
 func (s *Store) claimReceipt(effect Effect) (json.RawMessage, error) {
 	switch engine.EffectKind(effect.Kind) {
+	case engine.EffectVerifier:
+		request, err := engine.ParseVerifierEffectRequest(effect.Request)
+		if err != nil {
+			return nil, fmt.Errorf("parse claimed verifier request: %w", err)
+		}
+		identity, err := engine.VerifierAttemptIdentityFor(
+			effect.ID, effect.Attempt, request.DispatchID, request.DispatchReceipt.Digest,
+			request.VerifierProfileDigest, request.Agent, request.VerificationEpoch,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return engine.EncodeVerifierAttemptIdentity(identity)
 	case engine.EffectLocalCheck:
 		request, err := engine.ParseLocalCheckEffectRequest(effect.Request)
 		if err != nil {
@@ -562,7 +576,8 @@ func (s *Store) BindEffectResult(ctx context.Context, lease EffectLease, result 
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild ||
+		kind == engine.EffectLocalCheck || kind == engine.EffectVerifier {
 		return errors.New("controlled effect result binding requires an authorized lease")
 	}
 	return s.bindEffectResult(ctx, lease, result, nil)
@@ -620,6 +635,28 @@ func (s *Store) bindEffectResult(
 		}
 		return fmt.Errorf("effect %q is already bound to a different result", effect.ID)
 	}
+	if engine.EffectKind(effect.Kind) == engine.EffectVerifier {
+		parsed, parseErr := engine.ParseVerifierEffectResult(result)
+		if parseErr != nil {
+			return parseErr
+		}
+		assessmentBytes, resolveErr := protocol.ResolveArtifact(
+			ctx, journalResultResolver{query: transaction}, parsed.Assessment,
+			protocol.MaximumVerifierAssessmentBytes,
+		)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve verifier assessment for binding: %w", resolveErr)
+		}
+		assessment, parseErr := protocol.ParseVerifierAssessment(assessmentBytes)
+		if parseErr != nil {
+			return fmt.Errorf("parse verifier assessment for binding: %w", parseErr)
+		}
+		if err := putRecordTransaction(
+			ctx, transaction, assessment.Record(), s.now().UTC().UnixMicro(), "verifier assessment",
+		); err != nil {
+			return err
+		}
+	}
 	if err := validateBoundEffectResult(ctx, journalResultResolver{query: transaction}, effect, result); err != nil {
 		return err
 	}
@@ -646,7 +683,8 @@ func (s *Store) CompleteEffect(ctx context.Context, lease EffectLease) error {
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild ||
+		kind == engine.EffectLocalCheck || kind == engine.EffectVerifier {
 		return errors.New("controlled effect completion requires an authorized lease")
 	}
 	return s.completeEffect(ctx, lease, nil)
@@ -704,6 +742,9 @@ func (s *Store) completeEffect(
 		}
 	}
 	now := s.now().UTC().UnixMicro()
+	if err := validateVerifierCompletionWindow(effect, now); err != nil {
+		return err
+	}
 	update, err := transaction.ExecContext(ctx, `
 		UPDATE effects
 		SET state = 'succeeded', last_error = NULL, completed_at_us = ?
@@ -732,7 +773,8 @@ func (s *Store) FailEffect(ctx context.Context, lease EffectLease, detail string
 	if err := s.validateEffectLease(lease); err != nil {
 		return err
 	}
-	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild || kind == engine.EffectLocalCheck {
+	if kind := engine.EffectKind(lease.effect.Kind); kind == engine.EffectBuild ||
+		kind == engine.EffectLocalCheck || kind == engine.EffectVerifier {
 		return errors.New("controlled effect failure requires controller recovery")
 	}
 	return s.failEffect(ctx, lease, detail)
@@ -965,10 +1007,17 @@ func (s *Store) recoverBoundEffect(
 			return err
 		}
 	}
+	completionTime := effect.CompletedAtUS
+	if effect.State == EffectUnknown {
+		completionTime = s.now().UTC().UnixMicro()
+	}
+	if err := validateVerifierCompletionWindow(effect, completionTime); err != nil {
+		return err
+	}
 	if effect.State == EffectSucceeded {
 		return nil
 	}
-	now := s.now().UTC().UnixMicro()
+	now := completionTime
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE effects
 		SET state = 'succeeded', last_error = NULL, completed_at_us = ?

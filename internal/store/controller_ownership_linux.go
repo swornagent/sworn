@@ -478,6 +478,12 @@ func (ownership *ControllerOwnership) Activate(
 	if unresolved != 0 {
 		return fmt.Errorf("controller recovery has %d unresolved effects", unresolved)
 	}
+	// OpenConfigured performs the same check for an early diagnostic, but only
+	// this owned snapshot closes the race with a prior controller dispatching
+	// under an older verifier profile before releasing its retained locks.
+	if err := control.validatePendingVerifierConfiguration(ctx, transaction); err != nil {
+		return fmt.Errorf("prove pending verifier configuration: %w", err)
+	}
 	if err := ownership.validateStateLocked(control, ownerID, controllerOwnershipRecovery); err != nil {
 		return err
 	}
