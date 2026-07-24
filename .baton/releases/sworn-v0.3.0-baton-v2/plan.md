@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 5,
-  "previous_plan": "b8b0a35212dae45e232fd178333c45731c8ea71c",
+  "revision": 6,
+  "previous_plan": "70b4da4f3b2253222026d9fe02aa5fc3c57cd235",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v5",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v6",
   "tracks": [
     {
       "id": "T0-admission",
@@ -134,27 +134,27 @@
           "id": "W4-topology-recovery",
           "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
           "scope": {
-            "include": ["cmd/sworn", "internal/baton", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e"],
+            "include": ["cmd/sworn", "internal/baton", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e", "tools/batongolden"],
             "exclude": []
           },
           "acceptance": [
             {
               "id": "A-W4-topology",
-              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track. Before a consumed slice is designed, one typed idempotent CAS action composes its exact current consumed PASS candidates, in plan order, into an explicit track base. Those candidates remain ancestors of the consumer; implementation scope is measured only from the composed base; recovery cannot substitute, omit, or double-apply an input. Final composition is serial and plan-ordered. When it creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-slice direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
+              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track. Before design, one typed idempotent CAS action prepares each track from its current authority, the exact approved target, and its plan-ordered consumed PASS candidates. Those inputs remain ancestors of the consumer; implementation scope is measured only from the prepared base; recovery cannot substitute, omit, or double-apply an input. Final composition is serial and plan-ordered. When it creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-slice direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
             },
             {
               "id": "A-W4-recovery",
-              "text": "Pause, resume, cancel, retry, and takeover are typed idempotent commands with persisted hard caps. Timeouts, crashes, lease expiry, logs, and bookkeeping gaps are operational facts, never Baton verdicts or reasons to replan. Every mutating runtime action and candidate seal binds the exact installed plan, release, target, and Baton before-state vector. Authority drift atomically prevents stale mutation; recovery reconciles every claimed effect before new work, safely rolls back an exact stale candidate when required, and terminalizes stale effects without reuse; target staleness preempts model work."
+              "text": "Pause, resume, cancel, retry, and takeover are typed idempotent commands with persisted hard caps. Timeouts, crashes, lease expiry, logs, and bookkeeping gaps are operational facts, never Baton verdicts or reasons to replan. Every mutating runtime action and candidate seal binds the exact installed plan, release, target, and Baton before-state vector. Receipt replay is bounded to the current release epoch so inherited prior-release receipts cannot gain authority. Authority drift atomically prevents stale mutation; recovery reconciles every claimed effect before new work, safely rolls back an exact stale candidate when required, and terminalizes stale effects without reuse; target staleness preempts model work."
             },
             {
               "id": "A-W4-replan",
               "text": "Replanning appends an approved plan revision and preserves the release, unchanged slice identities, and valid receipt continuity across each contiguous unchanged plan lineage. It invalidates only changed slices and consumers whose exact input product pins changed. Prepared bases are reconciled or replaced by exact CAS; replanning never resets, locks, or renames an otherwise valid slice set."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
-          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/driver/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/... ./tools/batongolden/..."],
+          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact. Ancillary tests, oracles, support files, and additional focused checks may repair forward under this unchanged outcome.", "The embedded release is Baton v1.0.0-rc.7: annotated tag 60a60347b280219917da5fc06c3ebaf8aff2680c, peeled commit 02cb2dbee4d64cb4d5be71542cd0dd42ece6d0d9, tree 4861d05042027847d0cde510297b702319cdc444, archive SHA-256 9cac7f7bc47e05f076864979d87f7795f80ba4dbd2ea368431cb2223aa620838, and generated support package digest sha256:a8d5ea690fe1ce3e6e94ef80174cfbb0e2dcdc707d8def5c89ca19230516d023. Production driver behavior may not change.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
-          "consumes": ["W3-walking-skeleton"]
+          "consumes": ["W3-walking-skeleton", "W5-production-adapters"]
         }
       ]
     },
@@ -244,11 +244,11 @@
           "acceptance": [
             {
               "id": "A-W8-conformance",
-              "text": "The real binary passes every autonomous-engine case in the pinned RC5 manifest. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
+              "text": "The real binary passes every autonomous-engine case in the pinned RC7 manifest. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
             },
             {
               "id": "A-W8-parity",
-              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.5, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
+              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.7, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
             },
             {
               "id": "A-W8-journey",
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v5` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v6` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -322,6 +322,15 @@ W5 retain their contracts, identities, attempts, candidates, and PASS facts.
 W4 requires one new attempt; only W6 and W8 are invalidated as actual consumers
 of its changed product. No slice is added, retired, replaced, renamed, or
 globally reset.
+
+Revision 6 supersedes the unapproved earlier revision-6 proposal. It changes
+only W4 plus the still-unattempted W8 release gate. W4 now binds the published
+Baton RC7 release and its repair-forward commitment, consumed-input continuity,
+release-epoch, and approved-target preparation semantics. W0 through W3 and W5
+retain their contracts, attempts, candidates, products, and PASS facts. W4
+advances from attempt 7 to attempt 8 on the same slice; W6 remains its unchanged
+downstream consumer; W8 has no prior attempt and now proves RC7. No production
+driver behavior, slice identity, or prior PASS is reset.
 
 # Scope
 
