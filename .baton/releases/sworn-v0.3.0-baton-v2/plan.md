@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 6,
-  "previous_plan": "70b4da4f3b2253222026d9fe02aa5fc3c57cd235",
+  "revision": 7,
+  "previous_plan": "6f2a908a5eac57ed33bc1364710918caeab34df7",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v6",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v7",
   "tracks": [
     {
       "id": "T0-admission",
@@ -152,7 +152,7 @@
             }
           ],
           "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/driver/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/... ./tools/batongolden/..."],
-          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact. Ancillary tests, oracles, support files, and additional focused checks may repair forward under this unchanged outcome.", "The embedded release is Baton v1.0.0-rc.7: annotated tag 60a60347b280219917da5fc06c3ebaf8aff2680c, peeled commit 02cb2dbee4d64cb4d5be71542cd0dd42ece6d0d9, tree 4861d05042027847d0cde510297b702319cdc444, archive SHA-256 9cac7f7bc47e05f076864979d87f7795f80ba4dbd2ea368431cb2223aa620838, and generated support package digest sha256:a8d5ea690fe1ce3e6e94ef80174cfbb0e2dcdc707d8def5c89ca19230516d023. Production driver behavior may not change.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
+          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact. Ancillary tests, oracles, support files, and additional focused checks may repair forward under this unchanged outcome.", "The embedded release is Baton v1.0.0-rc.8: annotated tag 749714b60ac6356fbeb43d91ee3ad478820f2ad8, peeled commit a8fdb397e0839bdc58ad4b865e163dd37654752c, tree b39fe4c538a06ce7f28b70edd551395f99a8373c, archive SHA-256 bcbc310c2c5c98f82c721968ced7929ec58b0cdc2ab531a615fec706fe863582, and generated support package digest sha256:339799b218d4f8846cec1114a9756dda96a51744a72eb975bb9b632c4e349726. Sworn admits RC8 product-base resolution and derives it only from the exact approved target, ordered prior-slice PASS authority, and exact consumed PASS bindings; no runtime, driver, or agent may supply a raw merge base or conflict choice. Production driver behavior may not change.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
           "consumes": ["W3-walking-skeleton", "W5-production-adapters"]
         }
@@ -244,11 +244,11 @@
           "acceptance": [
             {
               "id": "A-W8-conformance",
-              "text": "The real binary passes every autonomous-engine case in the pinned RC7 manifest. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
+              "text": "The real binary passes every autonomous-engine case in the Baton v1.0.0-rc.8 conformance manifest, blob 97b04caeda45d6ff334bd0c2168c1c333b270edb and SHA-256 a53ae10a76dcca1f1e426f16385cb1487c9a1f690e2ab5ebb21463ec74cbea73. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
             },
             {
               "id": "A-W8-parity",
-              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.7, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
+              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.8, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
             },
             {
               "id": "A-W8-journey",
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v6` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v7` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -330,6 +330,15 @@ release-epoch, and approved-target preparation semantics. W0 through W3 and W5
 retain their contracts, attempts, candidates, products, and PASS facts. W4
 advances from attempt 7 to attempt 8 on the same slice; W6 remains its unchanged
 downstream consumer; W8 has no prior attempt and now proves RC7. No production
+driver behavior, slice identity, or prior PASS is reset.
+
+Revision 7 changes only W4 plus the still-unattempted W8 release gate. W4 now
+binds the published Baton RC8 release and its authority-derived product-base
+fallback after an ordinary composition conflict. Sworn supplies the admitted
+resolver; no agent or runtime caller supplies a raw base or conflict choice.
+W0 through W3 and W5 retain their contracts, attempts, candidates, products,
+and PASS facts. W4 remains the same slice at attempt 8; W6 remains its unchanged
+downstream consumer; W8 has no prior attempt and now proves RC8. No production
 driver behavior, slice identity, or prior PASS is reset.
 
 # Scope
