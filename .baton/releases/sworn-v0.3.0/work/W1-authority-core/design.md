@@ -2,35 +2,34 @@
 
 W1 will implement only the admitted authority kernel for plan
 `sha256:cf6e9103219c76a12834fbaf1eb9da8576b765dfe0602ebe416e756ed8ca10f8`.
-It starts from T1 materialisation
-`b2bb28778a4f73f5841bb936a993860d0b10d0ce`, whose exact release base is
-`48d640ba5cdd28f5f1f00e3cb58cec844d2f2a36` and whose frozen T0 dependency is
+This revision is selected from owner head
+`4f3b726abfaf33085dd96af2a46cc4d36160419f`, where Captain review/1 returned
+`REVISE` over design/1. The retained T1 materialisation marker is
+`b2bb28778a4f73f5841bb936a993860d0b10d0ce`; its exact release base is
+`48d640ba5cdd28f5f1f00e3cb58cec844d2f2a36` and its frozen T0 dependency is
 `d00163283b33d384e5769a14da64ed30a1fad93a`. The implementation will not reuse
 the retired v0.2 kernel or treat earlier design captures as authority.
 
 The smallest implementation has two production layers and one development-only
 oracle corpus, with no new module dependency:
 
-1. `internal/baton` owns immutable Baton values and pure validation. A bounded
-   strict-JSON parser will validate UTF-8 before decoding and reject duplicate
-   names, trailing values, lone surrogates, non-finite numbers, integer-valued
-   numbers outside the interoperable safe range, excessive depth or bytes, and
-   malformed tokens. Closed-shape conversion will then enforce the RC2 plan and
-   status field sets, limits, identifiers, refs, paths, fixed
-   `.baton/releases` root, dependency DAGs, independent-track disjointness,
-   status projections, and every cross-field binding. A reference-compatible
-   JSON writer will retain parsed member order and emit deterministic
-   `JSON.stringify`-equivalent compact bytes plus the required final LF for
-   status commits.
-2. `internal/gitx` imports `internal/baton` and owns the repository boundary,
-   authority selection, product identity, candidate-history admission,
-   deterministic composition, and the sole safe seven-action facade. Its
-   exported mutation surface will be an opaque plan-bound `Actions` value with
+1. `internal/baton` owns the complete Baton contract: immutable strict records,
+   evidence admissions, captured authoritative projection and selection,
+   work/track/assembly eligibility, candidate and record-history validation,
+   lifecycle, retry reconciliation, receipts, and the sole seven typed
+   actions. Its mutation surface is an opaque plan-bound `Actions` value with
    exactly `InstallApprovedPlan`, `ReboundPristinePlan`, `RecordTransition`,
    `MaterializeTrack`, `ComposeTrack`, `PrepareAssembly`, and
-   `IntegrateRelease`. There will be no exported raw command runner, arbitrary
-   ref updater, caller-provided record path or commit message, parent list, or
-   merge-mode selector.
+   `IntegrateRelease`.
+2. `internal/gitx` is a Baton-agnostic mechanical dependency. It knows no plan,
+   approval, evidence, lifecycle, owner, work, track, assembly, record-root
+   policy or action. It executes sanitized Git and exposes only typed,
+   captured-OID reads, tree/product hashing primitives, deterministic
+   blob/tree/commit or composition preparation, and an atomic exact-ref
+   transaction. `internal/baton` owns the narrow repository interface it
+   consumes and alone translates the admitted plan into refs, paths, commit
+   metadata, parents and compare-and-set operations. There is no raw command
+   runner or caller-selected merge mode.
 3. `tools/batongolden` owns checked-in, development-only vectors emitted by the
    pinned JavaScript reference. Go tests consume those bytes without Node,
    the user installation, the network, or the JavaScript reference at test or
@@ -45,8 +44,9 @@ mutate one after validation. Typed errors retain the stable RC2 error code so
 goldens can compare behavior without depending on prose.
 
 Structural status validity remains separate from trusted action admission.
-The action constructor receives an explicit `guided` or `autonomous` profile
-and two trusted engine callbacks:
+The `internal/baton` action constructor receives an explicit `guided` or
+`autonomous` profile, one implementation of its consumer-owned `Repository`
+interface, and two trusted engine callbacks:
 
 - the evidence resolver returns exact approval or Verifier-dispatch bytes plus
   closed provenance; the kernel checks the raw digest, protected ref,
@@ -62,31 +62,66 @@ profile. A parsed status, copied board row, boolean claim, or inertness decision
 for another commit is insufficient. Missing, asynchronous, malformed,
 `consumed`, or otherwise unknown resolver output fails closed.
 
-The Git boundary will execute an absolute, regular, real-pathed Git binary
+The consumer-owned repository interface is deliberately mechanical and closed:
+capture an ordered set of exact head refs; inspect object format; read one or a
+bounded batch of blobs at a captured OID; enumerate a captured tree; read
+parents, ancestry and changed paths for exact OIDs; calculate a tree identity
+with an explicit exclusion prefix; prepare a deterministic tree/commit or
+composition from a closed value request; and execute one closed atomic
+create/update/verify ref transaction. Its implementation is `internal/gitx`.
+Requests contain typed refs, canonical repository paths, exact OIDs, bytes and
+fixed commit metadata, never argv, environment, shell text or callbacks. All
+Baton meaning and admission occurs before `internal/baton` makes one of these
+mechanical calls.
+
+W1 also exposes an explicit read-only Baton projection for W3. A
+plan-bound `Reader` captures the plan refs once and returns an opaque immutable
+`Snapshot`. The snapshot provides:
+
+- `SelectWork(workID)` and `SelectAssembly()` with the exact selected
+  baseline/owner/composed source, captured ref/OID, strict status and handoff
+  digests;
+- `NextWorkForTrack(trackID)` and `MayAdvanceWork(workID)` for serial work
+  eligibility;
+- `MaterializationFor(trackID)`, `TrackReadyForComposition(trackID)` and
+  `ReleaseReadyForAssembly()` for exact dependency and collective gates.
+
+These methods return only Baton domain values and typed structural errors.
+They do not resolve trusted evidence, create an admission, expose record paths
+or repository mutation, retain a repository callback, or define workers,
+leases, retries, effects, journal rows or scheduler state. An action always
+captures and validates fresh authority again, so a W3 scheduling snapshot is
+never mutation authority.
+
+The `internal/gitx` boundary will execute an explicitly configured absolute,
+regular, real-pathed Git binary
 directly, never through a shell or inherited `PATH`. Every invocation uses a
 closed environment with C locale, temporary home/config/hooks/index state,
 literal pathspecs, terminal prompts and pagers disabled, system/global config
 disabled, replace refs disabled, fsmonitor disabled, and only the narrowly
 required author/committer or engine-owned object-directory variables. Reads use
 full captured commit OIDs, NUL-delimited output, fatal UTF-8 decoding for paths,
-closed path/ref validation, and the RC2 byte/count/history ceilings. The fixed
-record root is rejected if any launch-worktree or captured-tree component is a
-symlink or non-tree.
+closed path/ref validation, and the RC2 byte/count/history ceilings. Repository
+opening fixes one explicit `sha1` or `sha256` object format, and every later OID
+must have the matching 40- or 64-lowercase-hex length. The generic tree reader
+reports exact modes/types; `internal/baton` uses those facts to reject its fixed
+record root if any launch-worktree or captured-tree component is a symlink or
+non-tree.
 
-Authority is selected from one bounded snapshot of the target, release and all
-planned owner refs. The release projection and each present owner projection
-are read at those exact OIDs. An absent owner admits only a pristine release
-baseline. A present owner must share one materialisation, begin with the exact
-collective record-only marker, retain that marker in release ancestry, and use
-its planned owner ref. Owner state remains authoritative until the release
-projection proves a collective completed transfer bound to that exact frozen
-owner head. Missing or malformed owner records, partial transfers, foreign
-copies, erased markers, timestamps, and “newest” guesses never select
-authority.
+`internal/baton` selects authority from one bounded repository snapshot of the
+target, release and all planned owner refs. The release projection and each
+present owner projection are read at those exact OIDs. An absent owner admits
+only a pristine release baseline. A present owner must share one
+materialisation, begin with the exact collective record-only marker, retain
+that marker in release ancestry, and use its planned owner ref. Owner state
+remains authoritative until the release projection proves a collective
+completed transfer bound to that exact frozen owner head. Missing or malformed
+owner records, partial transfers, foreign copies, erased markers, timestamps,
+and “newest” guesses never select authority.
 
-Candidate admission replays first-parent history from the exact materialisation
-base for the first work, or the preceding work's exact passed candidate for
-later work. It will:
+`internal/baton` candidate admission replays first-parent history from the
+exact materialisation base for the first work, or the preceding work's exact
+passed candidate for later work. It will:
 
 - require the proof repository, base, candidate OID, ordinary tree OID and
   product-tree digest to match Git and require the candidate to be reachable
@@ -102,10 +137,11 @@ later work. It will:
   candidate, for that work's status/design/proof paths, and reject any hidden
   product change.
 
-Product identity first resolves the exact candidate and its ordinary Git tree.
-After an exact `inert` policy admission for that OID, it inventories the
-recursive tree, excludes only `.baton/releases` and descendants, sorts entries
-by raw UTF-8 path bytes, and hashes for each entry:
+For product identity, `internal/baton` first resolves an exact `inert` policy
+admission for the candidate OID, then asks the Baton-agnostic repository
+primitive to inventory the exact recursive tree and exclude its supplied
+`.baton/releases` prefix. `internal/gitx` sorts entries by raw UTF-8 path bytes
+and hashes for each entry:
 
 ```text
 path NUL mode NUL type NUL object LF
@@ -125,10 +161,11 @@ invocations, makes terminal status write-once, permits byte-unchanged
 redispatch only for `NO_VERDICT`, and keeps assembly `FAIL`/`BLOCKED` routed to
 Planner without inventing an in-place repair transition.
 
-Each action snapshots its dedicated Go input and all handoff bytes before the
-first repository read, derives every ref/path/message/topology choice from the
-admitted plan, prepares immutable commits, validates their prospective
-plan-bound snapshot, then applies one exact compare-and-set transaction and
+Each `internal/baton` action snapshots its dedicated Go input and all handoff
+bytes before the first repository read, derives every
+ref/path/message/topology choice from the admitted plan, asks the mechanical
+repository interface to prepare immutable commits, validates their prospective
+plan-bound snapshot, then supplies one exact compare-and-set transaction and
 re-reads installed heads. Record commits use one exact parent, `100644` blobs
 in an engine-owned temporary index, fixed `Baton Records
 <records@baton.invalid>` author/committer identity, parent timestamp plus one
@@ -176,19 +213,23 @@ predecessor, stale ref, partial effect, or already-consumed state is an error.
 Receipts are opaque immutable Go values whose accessors and JSON marshaling
 return copies of engine-owned JSON-only data.
 
-Composition is deterministic and conflict-free. If the expected head is an
-ancestor of the passed candidate, the result is that exact fast-forward. If the
-candidate is already contained by the expected head, the new action is
-rejected. Otherwise an engine-owned bare context and temporary index compute
+Composition is deterministic and conflict-free. After `internal/baton`
+establishes lifecycle eligibility and derives the exact expected/candidate
+OIDs and fixed metadata, `internal/gitx` mechanically returns the only possible
+mode. If expected is an ancestor of candidate, the result is that exact
+fast-forward. If candidate is already contained by expected, preparation
+fails. Otherwise an engine-owned bare context and temporary index compute
 `merge-tree --write-tree --no-messages` with ordered inputs
 `expected, candidate`. Both trees are checked for merge attributes; custom
 drivers are rejected before execution, while only Git's built-in
 unspecified/text/binary/union semantics from the expected side are installed
 in the isolated context. A conflict is an error. The two-parent commit uses
-ordered parents `[expected, candidate]`, the computed tree, fixed Baton Merge
-identity, timestamp `max(parent timestamps)+1`, and the exact derived message.
-Verification independently recomputes the tree and rejects a forged tree,
-reversed/extra parents, or a noncanonical sibling OID.
+ordered parents `[expected, candidate]`, the computed tree, the supplied fixed
+Baton Merge identity, timestamp `max(parent timestamps)+1`, and the supplied
+plan-derived message. The primitive accepts no merge-mode parameter.
+`internal/baton` independently recomputes and binds the returned tree/parents/
+OID in its prospective transition, rejecting a forged tree, reversed/extra
+parents, or noncanonical sibling.
 
 The JavaScript oracle generator under `tools/batongolden` will refuse any
 reference root unless these exact RC2 source digests match:
@@ -209,35 +250,67 @@ It also binds Baton tag commit
 The generator imports only that JavaScript reference, builds deterministic
 disposable Git repositories, invokes the safe seven-action facade, and emits
 canonical JSON cases plus a path/size/digest manifest. It never imports,
-executes, or reads Go output. Checked-in groups cover strict records, lifecycle,
-product identity, owner/history selection, composition and a complete
-seven-action release. `batongolden verify` validates the admitted package and
-the complete corpus manifest. Ordinary Go tests use the checked-in corpus only;
-regeneration is explicit and is never part of build, test, generation or
-runtime startup.
+executes, or reads Go output.
+
+Fixture generation forbids `PATH` lookup and requires `--git` to name an
+absolute executable. It resolves and records that real path, `git --version`,
+the closed sanitized-environment profile, and the exact object format in the
+corpus provenance. The checked-in manifest pins that observed absolute real
+path; reproduction passes it explicitly and fails if it is unavailable rather
+than falling back to `PATH`. Both the JavaScript oracle and Go reproduction are
+configured with that absolute Git path; hostile inherited
+`PATH`, config, hooks, attributes, replace refs and fsmonitor settings remain
+canaries rather than inputs.
+
+Every repository recipe fixes branch refs, file bytes and modes, merge
+attributes, author and committer names/emails, integer timestamps, time zones,
+parent order and commit messages. It creates commits through plumbing rather
+than ambient user config or wall-clock `git commit`. The corpus is a matrix
+over repositories initialized explicitly with
+`--object-format=sha1` and `--object-format=sha256`. Each case records
+`object_format`, `oid_hex_length`, every input OID and every expected OID;
+40-hex values are accepted only in the SHA-1 cases and 64-hex values only in
+the SHA-256 cases. Parser vectors also reject truncated, uppercase, mixed-width
+and format-mismatched OIDs. Product identity, fast-forward and two-parent
+composition, ref transactions, complete seven-action delivery and exact retry
+run in both formats.
+
+Checked-in groups cover strict records, lifecycle, product identity,
+owner/history selection, composition and a complete seven-action release.
+`batongolden verify` validates the admitted package and the complete corpus
+manifest. Ordinary Go tests use the checked-in corpus only; regeneration is
+explicit and is never part of build, test or runtime startup.
 
 # Surfaces
 
 - Product changes in `internal/baton`: retain `release.json`,
   `snapshot/**`, and their admission identities byte-for-byte; add the strict
   parser/writer, immutable plan/status types, stable errors, semantic binding,
-  evidence admission, path derivation and pure lifecycle validation. Existing
-  asset admission may share the new strict decoder only if all W0 mutation
-  tests remain unchanged.
+  evidence admission, plan-derived paths, immutable read-only
+  snapshot/selection/eligibility API, authority and candidate-history
+  validation, lifecycle/reconciliation, opaque receipts and all seven typed
+  actions. Existing asset admission may share the new strict decoder only if
+  all W0 mutation tests remain unchanged.
 - Product changes in `internal/gitx`: replace the documentation-only seam with
-  the sanitized Git executor, captured-ref/record readers, product identity,
-  authority and candidate-history validators, deterministic composition, exact
-  ref transaction support, opaque receipts and the seven-action facade.
+  the Baton-agnostic sanitized executor, object-format-bound OIDs, exact head
+  capture, captured-OID blob/tree/graph reads, generic product-tree identity,
+  deterministic tree/commit/composition preparation and atomic
+  create/update/verify ref transactions. It adds no Baton record, evidence,
+  authority, lifecycle, eligibility, receipt or action type.
 - Development changes in `tools/batongolden`: extend `verify`, add the
   reference-only oracle generator, and add the digest-manifested RC2 vector
   corpus.
 - Tests in `internal/baton`: focused strict-JSON, plan graph, status semantics,
-  raw-digest, immutability/aliasing, evidence-provenance, lifecycle and golden
-  parity tables.
+  raw-digest, immutability/aliasing, evidence-provenance, read-only W3
+  projection, authority/eligibility, candidate history, lifecycle, each typed
+  action, exact retry and golden parity tables. External-package integration
+  tests instantiate the real `internal/gitx` implementation without moving
+  Baton policy into it.
 - Tests in `internal/gitx`: real temporary-repository tests for product
-  identity, captured authority, materialisation, candidate replay, each action,
-  exact retry, deterministic composition, and hostile Git/ref/path/policy
-  behavior.
+  identity, exact captured-OID reads, SHA-1/SHA-256 validation, fixed-metadata
+  commit preparation, deterministic composition, atomic ref transactions and
+  hostile Git/ref/path/environment behavior. Tests contain no plan, approval,
+  work, lifecycle or action fixture.
 - Tests in `tools/batongolden`: source/corpus manifest closure, deterministic
   verification output, missing/extra/changed vector rejection, and CLI
   invocation closure.
@@ -256,11 +329,16 @@ runtime startup.
 
 # Consequential decisions and risks
 
-- **Package direction and safe API:** `internal/gitx` imports the pure
-  `internal/baton` model and contains the action facade. This avoids a package
-  cycle and keeps all raw Git helpers private. The risk is that later runtime
-  code may seek lower-level effects; compile-time API tests and W3 integration
-  must use only the seven actions.
+- **Package direction and safe API:** `internal/baton` imports the
+  Baton-agnostic `internal/gitx` implementation and owns the consumer
+  interface, read projection and action facade. The risk is leaking generic
+  mechanics upward as alternate authority; API-shape tests prohibit argv/raw
+  mutation helpers, and W3 receives only `Reader`/`Snapshot` plus the seven
+  typed actions.
+- **Read projection staleness:** W3 may schedule from a snapshot after a ref
+  moves. Snapshot values remain honest because they bind exact OIDs, but never
+  authorize mutation; every action recaptures authority and stale work loses
+  eligibility or compare-and-set.
 - **Strict parser parity:** Go's stock JSON decoder is not sufficient for
   duplicate names, lone surrogates or reference number behavior. A small
   bounded parser/writer is more code, but avoids a dependency and is tested
@@ -276,9 +354,10 @@ runtime startup.
   never admits a candidate or retry.
 - **Ambient Git behavior:** hooks, config, replace refs, fsmonitor, path
   quoting, custom merge drivers and inherited environment can alter facts or
-  effects. One literal, allowlisted executor plus adversarial canaries closes
-  these inputs. Unsupported Git object format or required merge capability
-  fails closed.
+  effects. One explicitly absolute literal executor plus adversarial canaries
+  closes these inputs. Repository object format is captured once and exact OID
+  width is enforced thereafter; unsupported format or merge capability fails
+  closed.
 - **Composition portability:** built-in Git merge semantics can expose
   version-sensitive behavior. The implementation uses the same plumbing
   operations as RC2, checks exact golden trees/OIDs for simple fast-forward and
@@ -307,10 +386,13 @@ runtime startup.
 
 - **A-W1-authority / independent oracle:** the corpus manifest records the
   exact RC2 tag/commit/tree/support and four JavaScript source digests above,
-  every vector path, size and digest, and the deterministic generator version.
-  Two explicit oracle runs in separate temporary directories must produce
-  byte-identical corpora. Go tests reject a changed, missing, duplicate or extra
-  vector. No Go test invokes Node.
+  absolute real-pathed Git executable and version, sanitized-environment
+  profile, fixed repository/commit recipe, explicit object format, every vector
+  path/size/digest, and deterministic generator version. Two explicit oracle
+  runs in separate temporary directories for both `sha1` and `sha256` must
+  produce byte-identical format-specific corpora. Go tests reject changed,
+  missing, duplicate, extra, wrong-width or cross-format vectors. No Go test
+  invokes Node or searches `PATH`.
 - **A-W1-authority / strict records and bindings:** table tests consume all
   seven admitted raw strict-JSON fixtures plus invalid UTF-8, trailing input,
   hostile names, size/depth/list limits and single-field plan/status mutations.
@@ -323,31 +405,43 @@ runtime startup.
   `BLOCKED`, assembly `PASS`/`FAIL`/`BLOCKED`, `MATERIALIZE`, pristine
   `REBOUND`, unchanged `NO_VERDICT`, and terminal write-once behavior. Every
   non-admitted result and one-field gate mutation fails.
+- **A-W1-authority / read-only W3 contract:** compile-time external-package
+  tests use only `Reader.Capture`, immutable work/assembly selection and the
+  four eligibility queries. Mutation, repository handles, record paths,
+  evidence admissions and runtime/journal fields are absent. A ref moved after
+  capture leaves the old snapshot exact while the next action independently
+  rejects its stale authority.
 - **A-W1-authority / product and history:** deterministic repositories cover
   ordinary tree plus ordered path/mode/type/object product digest, executable,
   symlink and submodule entries, record-only equality, product inequality,
   equal-product but wrong ancestry, wrong candidate/tree, consumed/unknown
   exclusion, symlinked root, product-after-candidate, mixed commit, cross-work
   record commit, product-before-`PROCEED`, out-of-order work, scope escape and
-  a non-product final candidate.
+  a non-product final candidate. The identity and ancestry table runs with
+  exact 40-hex SHA-1 and 64-hex SHA-256 objects.
 - **A-W1-authority / authority selection:** real-Git cases progress baseline to
   exact owner to proven collective transfer. Missing owners, foreign/newer
   copies, erased markers, divergent materialisations, unmet or reordered
   dependency heads and partial transfers fail with captured refs unchanged.
 - **A-W1-authority / all seven actions and retries:** one oracle-bound
-  autonomous scenario invokes every action through work and fresh assembly
-  `PASS` to exact integration and compares canonical statuses, handoff digests,
-  receipts, commit OIDs, trees and final refs. Each action is immediately
-  retried and must return the exact `changed:false` receipt with no new commit
-  or ref movement. Copied post-states, noncanonical sibling commits, stale
+  autonomous scenario per explicit object format invokes every
+  `internal/baton` action through work and fresh assembly `PASS` to exact
+  integration and compares canonical statuses, handoff digests, receipts,
+  commit OIDs, trees and final refs. Each action is immediately retried and
+  must return the exact `changed:false` receipt with no new commit or ref
+  movement. Copied post-states, noncanonical sibling commits, stale
   predecessors and advanced states must fail reconciliation.
 - **A-W1-authority / Git and composition:** fast-forward and ordered
-  two-parent cases compare the exact oracle tree and result OID. Conflict,
-  candidate-already-contained, forged tree, reversed/extra parents, custom
-  merge driver, hostile `PATH`/config/hook/fsmonitor/replace-ref, malformed
-  NUL/path output and unsupported capability cases fail closed. Contention at
-  install, record, materialisation, composition and integration snapshots all
-  relevant refs before and after and proves no partial ref advancement.
+  two-parent cases compare the exact oracle tree and result OID in SHA-1 and
+  SHA-256 repositories built with fixed metadata through the pinned absolute
+  Git path. Conflict, candidate-already-contained, forged tree, reversed/extra
+  parents, custom merge driver, hostile `PATH`/config/hook/fsmonitor/
+  replace-ref, malformed NUL/path output, OID-width mismatch and unsupported
+  capability cases fail closed. Contention at install, record,
+  materialisation, composition and integration snapshots all relevant refs
+  before and after and proves no partial ref advancement. Package/API tests
+  also prove `internal/gitx` contains no Baton plan, evidence, lifecycle,
+  authority, action or receipt policy and exports no argv runner.
 - **Required check:** run exactly
   `GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./tools/batongolden/...`
   from a clean product candidate. Retain focused verbose outputs for the
@@ -364,6 +458,26 @@ runtime startup.
 
 # Revisions
 
-Initial plan-bound W1 design. It is derived from the admitted RC2 plan,
-compiled conformance/driver assets, and the digest-pinned JavaScript record
-reference. Earlier Sworn captures and v0.2 history remain archaeology only.
+Design/2 after Captain
+`codex:/root/w1_authority_captain/sworn-v0.3.0/T1-authority/W1-authority-core/review/1`
+returned `REVISE` over design/1. Producer invocation:
+`codex:/root/w1_authority_implementer/sworn-v0.3.0/T1-authority/W1-authority-core/design/2`.
+
+- Moved strict records, evidence, authoritative selection/eligibility,
+  candidate validation, reconciliation, receipts and all seven typed actions
+  into `internal/baton`.
+- Reduced `internal/gitx` to a Baton-agnostic implementation of the narrow
+  consumer-owned repository interface: captured-OID facts, product/tree/commit
+  preparation and atomic ref transactions only.
+- Added the immutable read-only Baton `Reader`/`Snapshot` selection and
+  eligibility contract needed by W3, without mutation or runtime/journal
+  types.
+- Made deterministic evidence bind an explicitly absolute sanitized Git
+  executable, fully fixed commit metadata and explicit SHA-1/SHA-256 fixture
+  matrices covering RC2's 40- and 64-hex OIDs.
+
+All other design/1 lifecycle, retry, record/product separation, composition,
+adversarial evidence and W1 scope boundaries remain. The design is derived
+from the admitted RC2 plan, compiled conformance/driver assets and
+digest-pinned JavaScript record reference; earlier Sworn captures and v0.2
+history remain archaeology only.
