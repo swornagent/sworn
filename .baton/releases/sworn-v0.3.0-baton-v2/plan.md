@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 8,
-  "previous_plan": "d783c68119ff4c0103cd5b8de730c0adee22ae05",
+  "revision": 9,
+  "previous_plan": "1bca24d5f23933dc42a5991e0a7015c2ef59b986",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v8",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v9",
   "tracks": [
     {
       "id": "T0-admission",
@@ -238,17 +238,17 @@
           "id": "W8-parity-release",
           "outcome": "Prove Coach-loop parity and Sworn v0.3 technical readiness through the real binary.",
           "scope": {
-            "include": ["README.md", "cmd/sworn", "docs/releases/v0.3.0", "internal/driver", "internal/runtime", "test/e2e"],
+            "include": ["README.md", "cmd/sworn", "docs/releases/v0.3.0", "internal/baton", "internal/driver", "internal/runtime", "test/e2e"],
             "exclude": []
           },
           "acceptance": [
             {
               "id": "A-W8-conformance",
-              "text": "The real binary passes every autonomous-engine case in the Baton v1.0.0-rc.8 conformance manifest, blob 97b04caeda45d6ff334bd0c2168c1c333b270edb and SHA-256 a53ae10a76dcca1f1e426f16385cb1487c9a1f690e2ab5ebb21463ec74cbea73. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
+              "text": "The real binary passes every autonomous-engine case in the Baton v1.0.0-rc.9 conformance manifest, blob 859ec28547a2cce4f70571d795954ba0fd80ba7b and SHA-256 cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
             },
             {
               "id": "A-W8-parity",
-              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.8, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
+              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.9, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
             },
             {
               "id": "A-W8-journey",
@@ -264,7 +264,7 @@
             }
           ],
           "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver certify --all --config \"$SWORN_DRIVER_CONFIG\" --json", "git diff --check"],
-          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "The deterministic fake and scripted manifests remain test and recovery compatibility surfaces and cannot satisfy the production journey or live driver readiness. W8 integrates the existing scheduler and role-neutral driver contract; it adds no second scheduler, provider tool loop, orchestration framework, or dependency. Secrets never enter manifests, journals, evaluation, telemetry, or public diagnostics.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
+          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "The deterministic fake and scripted manifests remain test and recovery compatibility surfaces and cannot satisfy the production journey or live driver readiness. W8 integrates the existing scheduler and role-neutral driver contract; it adds no second scheduler, provider tool loop, orchestration framework, or dependency. Secrets never enter manifests, journals, evaluation, telemetry, or public diagnostics.", "RC9 revendoring is limited to its exact embedded release identity, README, and conformance-manifest changes. The protocol, five operations, record and board references, Coach baseline, and twelve autonomous cases remain byte-identical to RC8. Sworn does not vendor RC9 installers, skills, wrappers, client paths, or any replacement engine behavior.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
           "depends_on": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"],
           "consumes": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"]
         }
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v8` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v9` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -351,6 +351,15 @@ Bedrock family and common tool loop. W0 through W6 retain their contracts,
 attempts, candidates, products, and PASS facts. W8 remains the same unattempted
 slice. No prior PASS, slice identity, scheduler, provider loop, or dependency is
 reset or added.
+
+Revision 9 changes only W8. It revendors the published Baton RC9 identity and
+conformance manifest while preserving the byte-identical protocol, operations,
+record and board references, Coach baseline, and twelve autonomous cases. It
+imports no RC9 client installer or skills machinery and changes no engine
+behavior. W0 through W6 keep their contracts, attempts, products, and PASS
+facts. W8 keeps the same slice identity; its existing unsealed work may be
+reused as implementation input, but fresh design, Captain, candidate, and
+Verifier decisions bind revision 9.
 
 # Scope
 
