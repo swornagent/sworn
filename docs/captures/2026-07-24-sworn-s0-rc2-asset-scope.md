@@ -1,9 +1,11 @@
 # Sworn S0 Baton RC2 asset scope
 
 Date: 2026-07-24
-Status: Captain-revised release closure admitted; snapshot verified; runtime not started
-Sworn design head: `f1d90e902238040eaaf175e82aff69fb3b32f1a4`
+Status: Captain PROCEED and fresh Verifier PASS; admission published; runtime not started
+Sworn asset admission commit: `a15a04c3b5993d6002265e0a9412fbe9dad33bc0`
+Sworn asset admission tree: `23a289dc0e5242cfa2c76a99c8c66861823bf43a`
 Sworn admission base: `9e6a81da0034b578e98d4bd18354f66c2d5b12dc`
+Published ref: `origin/release/v0.3.0` at the asset admission commit
 Baton annotated tag object: `b80f3e27f0e0a71a4883bcc282e4843e085f0e04`
 Baton peeled commit: `890238ef063bb53cf51fb3359f1ff527f14846c6`
 Baton peeled tree: `97513f3e6f798f3ad04d5b510a49496a605a8ea4`
@@ -17,11 +19,12 @@ JavaScript reference, fixtures, and portable-kit runners remain development
 and CI evidence. Sworn does not ship a second copy of Baton's implementation
 or make a generated manifest a competing runtime authority.
 
-The publication gate is now satisfied. `internal/baton/release.json` records
-the immutable release identity and `internal/baton/snapshot/manifest.json`
-records the closed generated asset inventory. This work unit adds admission
-data and its checks only; it does not implement a Baton transition, scheduler,
-journal, driver, startup path, or database behavior.
+The publication gate is satisfied. `internal/baton/release.json` records the
+digest-pinned published release identity and
+`internal/baton/snapshot/manifest.json` records the closed generated asset
+inventory. The published work unit adds admission data and its checks only; it
+does not implement a Baton transition, scheduler, journal, driver, startup
+path, or database behavior.
 
 ## Production embed
 
@@ -63,16 +66,22 @@ and publication identity as golden metadata. The generator replay separately
 proves the tagged Git blob modes. Checkout umask or shared-repository group
 write bits are host policy, not Baton identity.
 
-### Captain revision
+### Superseded candidate history
 
-The first unpushed local Implementer candidate contained the originally
-approved 11-blob inventory. A fresh Captain returned `REVISE`: the authored
-operations require `templates/plan.md`, `templates/design.md`, and
-`templates/proof.md`, so those templates are part of the self-contained engine
-contract rather than optional explanatory content. The candidate had not been
-pushed or integrated. Implementation reopened, regenerated the
+<!-- sworn-history-only:begin -->
+The first unpushed local Implementer candidate contained an 11-asset inventory
+of 47,374 bytes and retained a publication hold. A fresh Captain returned
+`REVISE`: the authored operations require `templates/plan.md`,
+`templates/design.md`, and `templates/proof.md`, so those templates are part of
+the self-contained engine contract rather than optional explanatory content.
+That candidate was never pushed or integrated and its decision is superseded,
+not an alternative active scope. Implementation reopened, regenerated the
 path-preserving snapshot from the same tagged commit, and expanded the closed
-inventory by exactly 3,013 bytes. No runtime code entered the repair.
+inventory by exactly 3,013 bytes. The final 14-asset/50,387-byte candidate then
+received Captain `PROCEED`, fresh Verifier `PASS`, and publication at
+`a15a04c3b5993d6002265e0a9412fbe9dad33bc0`. No runtime code entered the
+repair.
+<!-- sworn-history-only:end -->
 
 ### Canonical operation paths
 
@@ -135,6 +144,7 @@ digest is not the published archive digest.
 | Portable corpus | tagged checkout: Python reports 7 strict JSON cases, 1 Draft 2020-12 schema, 2 positive and 6 negative fixtures; Node reports 132/132 tests passing | PASS |
 | Generated support | tagged `adapters/generated/generated-manifest.json` reports package version `1.0.0-rc.2`, operation version `baton.operation/v1`, and package digest `sha256:676c630c…` | PASS |
 | Sworn admission checks | `GOFLAGS=-buildvcs=false go test ./...`, `GOFLAGS=-buildvcs=false go vet ./...`, formatting, and diff checks validate the closed release metadata and generated snapshot | PASS |
+| Independent Sworn admission | Captain `PROCEED` and a fresh Verifier `PASS` bind candidate `a15a04c3…`, tree `23a289dc…`, the 14-path inventory, 50,387-byte total, and checkout-permission policy; `origin/release/v0.3.0` publishes that exact candidate | PASS |
 
 In this shared multi-worktree checkout, Go VCS stamping fails with Git exit
 128, including inside the two existing built-binary tests. The
