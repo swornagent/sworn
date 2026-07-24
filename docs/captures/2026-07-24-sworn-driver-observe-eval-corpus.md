@@ -99,7 +99,7 @@ Results are recorded per driver; one adapter's result cannot satisfy another.
 | P07 | Output is capped at `limits.output_bytes`; deadline and cancellation reach the child/HTTP request and stop further work. A killed process cannot fabricate a result. |
 | P08 | No default, fallback, retry, provider rotation, role-derived model, or provider scheduling occurs. A deliberate null model remains null in the contract case. |
 | P09 | A seeded implementation task produces the exact expected file digest and bounded final handoff, rather than only returning a completion envelope. |
-| P10 | Verifier starts as a new process in a read-only workspace; attempted mutation fails and candidate/ref digests remain unchanged. |
+| P10 | Verifier starts as a new process in a read-only workspace; attempted mutation and memory-based context features are unavailable; candidate/ref digests remain unchanged. |
 
 The canonical Baton fake itself is a process fixture, not HTTP:
 `driver info` and `driver run` use strict stdin/stdout JSON. Its deterministic
@@ -130,8 +130,8 @@ exercise credential rejection without reading credentials.
 
 ## Versioned native CLI argv
 
-The Codex adapter test fixture is named `codex-exec-argv/v0.145.0` and compares
-this ordered argv exactly after placeholder substitution:
+The Codex adapter test fixture is named `codex-exec-argv/v0.145.0`. It compares
+this ordered argv exactly after placeholder substitution for non-Verifier roles:
 
 ```text
 [
@@ -148,20 +148,40 @@ this ordered argv exactly after placeholder substitution:
 ]
 ```
 
+Verifier invocations append the supported ordered pair `--disable`, `memories` in
+the ordered position before model selection:
+
+```text
+[
+  "codex", "exec",
+  "--dangerously-bypass-approvals-and-sandbox",
+  "--ephemeral",
+  "-C", "${workspace}",
+  "--json",
+  "-o", "${engine_control_dir}/last-message",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "--disable", "memories",
+  "--model", "${model}",
+  "-"
+]
+```
+
 The Baton instructions are supplied on stdin. JSONL stdout and the
 engine-owned, bounded last-message file are captured by the adapter; neither
 is the driver's stdout result until parsed and validated. The fixture rejects
 the unsupported `codex run`, `--accept-feedback`, `--yes`, `--workdir`, and
 `--format` spellings, reordered/extra argv, `resume`, and a missing explicit
-model.
+model. Verifier fixtures additionally reject omitted `--disable memories`; the
+ordered presence of this pair is required for the Verifier role.
 
 The bypass flag is permitted only inside Sworn's external containment. For
 Verifier, the executor mounts/provides the candidate workspace read-only,
 places the control output outside it, starts a new OS process without resume,
-and proves no candidate or ref mutation. `--ephemeral`,
-`--ignore-user-config`, and `--ignore-rules` prevent session persistence and
-unrelated configuration/rules, but CLI flags are not accepted as proof of
-read-only isolation or freshness.
+and proves no candidate or ref mutation and no memory capability. For verifier-only
+clean context, `--ephemeral`, `--ignore-user-config`, and `--ignore-rules`
+do not disable memories and are insufficient to satisfy the memory-unavailable
+requirement.
 
 Claude argv is admitted only after its installed version/help is captured and
 an ordered executable fixture is added. This document does not guess it. The
@@ -252,7 +272,9 @@ same deterministic checks; model strength changes task assignment, not gates.
 
 The capture is satisfied only when every named driver passes P01-P10, each
 configured live smoke reports its own truthful status, Codex argv matches the
-0.145.0 fixture byte-for-byte, Verifier containment is externally proven,
+0.145.0 fixture under role-aware expectations byte-for-byte, Verifier containment
+and memory capability disablement are externally proven, and non-Verifier roles
+retain the current fixture when not requiring memory disabling,
 engine validation keeps transport separate from Baton handoffs, telemetry
 allowlists/cardinality and failure isolation pass, and parallel owners have no
 overlapping writes.
