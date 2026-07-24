@@ -1,0 +1,184 @@
+{
+  "schema_version": "baton.conformance-manifest/v2",
+  "baton_version": "1.0.0-rc.2",
+  "profiles": {
+    "portable_kit": {
+      "status": "EXECUTABLE",
+      "commands": [
+        "python3 conformance/check.py",
+        "node --test test/records/*.test.mjs test/operations/*.test.mjs test/adapters/*.test.mjs test/install/*.test.mjs test/board/*.test.mjs test/driver/*.test.mjs test/dogfood/*.test.mjs test/release/*.test.mjs"
+      ],
+      "record_contract": {
+        "schema": {
+          "path": "schemas/work-status-v1.json",
+          "digest": "sha256:70219641e954afefa35fe20cf702eeabac3ce7c9290d09d5ce29082bf4a497c1"
+        },
+        "strict_json_cases": [
+          {
+            "instance": "conformance/fixtures/raw-valid-edge.json",
+            "valid": true
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-duplicate-key.json",
+            "valid": false,
+            "error": "duplicate_key"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-nonfinite.json",
+            "valid": false,
+            "error": "nonfinite_number"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unicode.json",
+            "valid": false,
+            "error": "invalid_unicode"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-integer.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-float.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-exponent.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          }
+        ],
+        "valid_status_fixtures": [
+          "conformance/fixtures/valid-work-status.json",
+          "conformance/fixtures/valid-assembly-status.json"
+        ],
+        "invalid_schema_fixtures": [
+          "conformance/fixtures/invalid-active-status.json",
+          "conformance/fixtures/invalid-no-verdict-outcome.json",
+          "conformance/fixtures/invalid-unknown-field-status.json",
+          "conformance/fixtures/invalid-malformed-digest-status.json",
+          "conformance/fixtures/invalid-ref-status.json"
+        ],
+        "invalid_semantic_fixtures": [
+          "conformance/fixtures/invalid-semantic-stale-proof-status.json"
+        ]
+      },
+      "cases": [
+        {
+          "id": "strict-plan-status-and-sole-schema",
+          "suites": [
+            "conformance/check.py",
+            "test/records/schema.test.mjs",
+            "test/records/transition.test.mjs"
+          ]
+        },
+        {
+          "id": "owner-aware-git-topology-and-cas",
+          "suites": [
+            "test/records/actions.test.mjs",
+            "test/records/git-topology.test.mjs",
+            "test/records/product-tree.test.mjs",
+            "test/records/hardening.test.mjs",
+            "test/records/git-trust-adversarial.test.mjs"
+          ]
+        },
+        {
+          "id": "operations-generated-adapters-and-install",
+          "suites": [
+            "test/operations/operations.test.mjs",
+            "test/adapters/generated.test.mjs",
+            "test/install/install.test.mjs"
+          ]
+        },
+        {
+          "id": "oracle-terminal-webui-and-performance",
+          "suites": [
+            "test/board/cli.test.mjs",
+            "test/board/oracle.test.mjs",
+            "test/board/terminal.test.mjs",
+            "test/board/web.test.mjs",
+            "test/board/performance.test.mjs"
+          ]
+        },
+        {
+          "id": "role-neutral-fake-driver",
+          "suites": [
+            "test/driver/fake-driver.test.mjs"
+          ]
+        },
+        {
+          "id": "real-git-manual-dogfood",
+          "suites": [
+            "test/dogfood/*.test.mjs"
+          ]
+        },
+        {
+          "id": "release-overhead-and-manifest-truth",
+          "suites": [
+            "test/release/conformance.test.mjs",
+            "test/release/overhead.test.mjs"
+          ]
+        }
+      ],
+      "measurements": {
+        "command": "node scripts/measure-overhead.mjs --check",
+        "baseline": "conformance/baselines/v0.16.0-overhead.json"
+      }
+    },
+    "autonomous_engine": {
+      "status": "NOT RUN",
+      "adapter_contract": "conformance/engine-adapter.md",
+      "cases": [
+        {
+          "id": "protected-external-approval",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "role-instruction-credential-workspace-process-isolation",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "clean-read-only-fresh-verifier-dispatch",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "one-writer-per-track-with-independent-track-concurrency",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "durable-invocation-attempt-and-effect-identity",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "crash-recovery-at-every-effect-boundary",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "timeout-cancellation-cleanup-and-bounded-retry",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "dependency-scheduling-and-one-serial-worker-per-track",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "exact-track-composition-and-ownership-transfer",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "fresh-assembly-verification",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "moved-target-compare-and-set-refusal",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "exact-release-integration",
+          "status": "NOT RUN"
+        }
+      ]
+    }
+  }
+}
