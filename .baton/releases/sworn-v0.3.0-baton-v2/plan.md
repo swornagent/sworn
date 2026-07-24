@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 3,
-  "previous_plan": "46ceee57f0e2135839befbed8789c2c695aade97",
+  "revision": 4,
+  "previous_plan": "308c2aed213c0fef769ed5495248fa1a704de67f",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v3",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v4",
   "tracks": [
     {
       "id": "T0-admission",
@@ -134,7 +134,7 @@
           "id": "W4-topology-recovery",
           "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
           "scope": {
-            "include": ["cmd/sworn", "internal/baton", "internal/journal", "internal/runtime", "test/e2e"],
+            "include": ["cmd/sworn", "internal/baton", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e"],
             "exclude": []
           },
           "acceptance": [
@@ -144,14 +144,14 @@
             },
             {
               "id": "A-W4-recovery",
-              "text": "Pause, resume, cancel, retry, and takeover are typed idempotent commands with persisted hard caps. Timeouts, crashes, lease expiry, logs, and bookkeeping gaps are operational facts, never Baton verdicts or reasons to replan."
+              "text": "Pause, resume, cancel, retry, and takeover are typed idempotent commands with persisted hard caps. Timeouts, crashes, lease expiry, logs, and bookkeeping gaps are operational facts, never Baton verdicts or reasons to replan. Every mutating runtime action and candidate seal binds the exact installed plan, release, target, and Baton before-state vector. Authority drift atomically prevents stale mutation; recovery reconciles every claimed effect before new work, safely rolls back an exact stale candidate when required, and terminalizes stale effects without reuse; target staleness preempts model work."
             },
             {
               "id": "A-W4-replan",
               "text": "Replanning appends an approved plan revision, preserves the release and unchanged slice identities, and invalidates only changed slices and actual consumers. It never resets or locks an otherwise valid slice set."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
           "constraints": ["Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
           "consumes": ["W3-walking-skeleton"]
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v1` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v4` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -308,6 +308,11 @@ permitted only if the goal, target, or authority is replaced.
   fresh design, Captain, evidence, and Verifier decisions.
 - W3, W4, W5, W6, and W8 retain their stable outcome identities.
 - No outcome is added or retired, and no prior PASS is reused.
+
+Revision 4 changes only W4: it admits `internal/gitx` and binds recovery to
+exact authority. W0 through W3 retain their current PASS because their contracts
+and consumed inputs are unchanged. W5, W6, and W8 retain their identities and
+remain downstream gates. No slice is added, retired, renamed, or reset.
 
 # Scope
 
