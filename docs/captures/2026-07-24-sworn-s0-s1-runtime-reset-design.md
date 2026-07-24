@@ -1,814 +1,589 @@
 # Sworn S0/S1 runtime reset design
 
 Date: 2026-07-24
-Status: Captain-approved implementation design; Baton package admission blocked
-until publication
+Status: corrected after Captain REVISE; pending fresh Captain and Verifier review
 Scope: S0 reset/conformance seam and S1 single-track walking skeleton
-Worktree: `/home/brad/projects/sworn-worktrees/v0.3.0-P1-runtime-reset`
+Implementation base: `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f`
+Baton authority: local commit
+`893f6fe8b6a52cebc8e7ccecc745ed5d138f3184` (1.0.0-rc.2)
 
-## Captain outcome
+## Outcome
 
-Replace the current production kernel. Do not refactor it into the new runtime.
-Keep the one SQLite dependency and port only failure-preventing invariants,
-each introduced by a new focused test. The S0/S1 implementation has six
-production packages, one command service, one SQLite journal, one scheduler
-loop, one external-process boundary, and no mutable copy of Baton's lifecycle.
+Replace the production kernel rather than refactoring it. Keep the single
+SQLite dependency and port only failure-preventing invariants introduced by
+focused tests. S0/S1 has six production packages, one command service, one
+SQLite journal, one scheduler loop, one contained-process boundary, and no
+mutable copy of Baton's lifecycle.
 
-S0 may start destructive source replacement only after the intended Baton RC2
-has both an annotated tag and a published release. Admission must bind the tag
-object, peeled commit, source tree, package bytes, package digest, and operation
-contract supplied by that release. This capture deliberately names no RC2 tag,
-commit, schema digest, or conformance claim.
+`internal/baton` is a self-contained Go implementation of Baton's complete
+deterministic record, transition, product-identity, Git-composition, and
+seven-action contract. Baton RC2 does not publish a scheduler-facing
+action-selection or result-validation API. Sworn therefore computes eligible
+work from exact committed records and refs and invokes the Go action facade; it
+does not pretend to adapt nonexistent exported methods.
 
-S1 proves one approved, one-track delivery through a deterministic external
-fake: derive the next Baton operation, claim one track, use isolated Git
-worktrees, obtain a fresh track verification, compose with expected-old-value
-checks, obtain a separate fresh assembly verification, and move the exact
-target ref with compare-and-swap. Every external-effect edge is crash-cut and
-reconciled before any retry.
+The released RC2 JavaScript reference is a development oracle only. CI uses it
+to generate or verify checked-in golden conformance vectors. The production
+binary does not execute Node, ship a JavaScript bridge, or depend on Node being
+installed.
 
-## Audited baseline
+S1 proves one approved one-track delivery through the deterministic external
+fake: materialise the exact owner ref, dispatch roles through a common
+submission proxy, admit exact handoffs and verdicts, publish a passed track,
+compose it, verify the assembly in a fresh invocation, and atomically integrate
+the exact release result and terminal record. Each external edge is journalled
+and reconciled before retry.
 
-### Exact refs and trees
+This document is not Captain-approved. Its implementation gate remains closed
+until a fresh Captain reviews these exact bytes and an independent Verifier
+reviews the resulting candidate and proof.
 
-The audit was read-only and limited to this checkout's Git object database and
-working tree.
+## Binding authority and baseline
 
-| Fact | Exact audited value |
-| --- | --- |
-| current branch | `refs/heads/prep/v0.3.0-runtime-reset` |
-| current/base commit | `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f` (`docs: add Sworn site release cutover`) |
-| base tree | `88b1174df81be536e7c0e1cb0051fabeb3166b77` |
-| local `release/v0.3.0` | `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f` |
-| local `origin/release/v0.3.0` | `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f` |
-| `origin/main` | `009ea6476d75376975a75907e6c69686a5f6d6b9` |
-| `origin/main` tree | `409a98b3052fb5ceb254fc2a257ed21dc7e5ac2e` |
-| annotated `v0.2.0` tag object | `fc9ce1cf7b0a70addb855787dc3803cbf1a624ba` |
-| `v0.2.0` peeled commit | `009ea6476d75376975a75907e6c69686a5f6d6b9` |
-| annotated archive tag object | `7ec0df2d737c153ef0eca00f0318332f6862e00f` |
-| archive tag | `refs/tags/archive/pre-baton-rc2-kernel-2026-07-24` |
-| archive peeled commit | `ae387d22691b7aadfac392fa6ec44ff65fd700b0` |
+The protocol contract is the exact bytes at Baton commit `893f6fe…`:
 
-The base differs from `origin/main` by only
-`docs/captures/2026-07-24-sworn-v0.3-greenfield-scope.md`. Its four commits
-after `origin/main` are:
+- `baton/PROTOCOL.md`;
+- `reference/records/actions.mjs`;
+- `reference/records/transition.mjs`;
+- `reference/records/records.mjs`;
+- `reference/records/git.mjs`;
+- `reference/driver/contract.md`;
+- `conformance/manifest.json`; and
+- `conformance/engine-adapter.md`.
 
-1. `969157ad77db543ae6a50ca7bab0ee3104c1f55f` —
-   `docs: define the lean Sworn v0.3 rebuild`;
-2. `ccde1ebe9d55212003cc9899952ea5759edd41c6` —
-   `docs: link the v0.3 rebuild epic`;
-3. `aa95b3da022d43915b49c28ef7b073967d6a31ef` —
-   `docs: bind Codex automation flags`; and
-4. `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f` — the current base.
+S0 records the released annotated tag object, peeled commit, tree, package
+archive digest, every embedded asset digest, operation-document digests, schema
+digest, and conformance manifest digest. Startup checks the compiled asset
+manifest before admitting a run. A missing publication, lightweight tag,
+changed byte, incomplete asset set, unknown schema/operation version, or
+digest mismatch fails closed.
 
-Only the current full commit is an implementation input; abbreviated hashes
-above identify adjacent documentation history, not pinned dependencies.
+The greenfield scope is the exact capture at base `6ab7dc…`. The v0.2 kernel
+and archived v0.3 construction are archaeology, not sources. Useful invariants
+to restate in new tests are:
 
-No local tag matched `*rc.2*` at audit time. No remote release lookup or package
-admission was performed, so this is not a claim about publication state outside
-the audited object database.
+- atomic command/effect insertion and idempotency conflict;
+- immutable results and stop-before-retry for uncertain effects;
+- exact candidate objects, expected revisions, and ref compare-and-set;
+- private read-only verification and contained child processes;
+- no cleanup until a writable process tree is proven quiescent;
+- old/foreign SQLite databases never migrate on open; and
+- paths, symlinks, replacement objects, hooks, config, credentials, and
+  canonical Git metadata fail closed at process and worktree boundaries.
 
-### Code, tests, schema, and dependencies
+## Product cut
 
-At the base:
+### S0: reset and Baton seam
 
-- 67 non-test production Go files contain 20,443 physical lines;
-- 66 Go test files contain 22,523 physical lines and 336 named tests;
-- 16 production packages exist: `cmd/sworn` plus 15 `internal/*` packages;
-- four production files exceed 700 lines, led by
-  `internal/store/effects.go` at 1,271 and
-  `internal/policy/authority.go` at 1,236;
-- eight migrations total 753 SQL lines and leave 11 durable domain/journal
-  tables;
-- `go.mod` uses Go 1.26.5 and has one direct dependency,
-  `modernc.org/sqlite v1.54.0`, nine explicitly listed indirect dependencies,
-  and 26 modules in the resolved build list; and
-- `go.sum` has 51 lines.
+S0:
 
-`GOFLAGS=-buildvcs=false go test ./...` passes all packages in this linked
-worktree. The flag is needed by tests that launch nested `go build` commands;
-it changes VCS stamping only, not test semantics.
-
-The present package graph makes Sworn own plan parsing, canonical JSON,
-authority grants, assurance selection, work phase/state, submission admission,
-board projection, builder/check lifecycle, workspace artifacts, executor
-capabilities, and adapter policy. Those are the wrong ownership seams for the
-approved architecture: Baton now owns protocol and lifecycle truth, while
-Sworn owns runtime effects and recovery.
-
-### Relevant archaeology
-
-These commits were inspected for failure statements, not as code sources:
-
-| Commit | Useful evidence |
-| --- | --- |
-| `08d5a14746bfd62072e69c3fa806d9b149dc43e0` | atomic command/effect transaction and idempotency |
-| `8c15da153a45c33604a5236b0c3e0afca0670f62` | exact candidate objects and ref CAS |
-| `fb0593e31b060b3c42431569c4676ed22f28c667` | contained read-only subprocess boundary |
-| `056d7bb8a2f016eb75585a4562b54ce0eb1f2cbf` | no blind retry of interrupted effects |
-| `0cb058d47332809fd40d6ba67443572468bfb933` | writable-process quiescence before cleanup |
-| `3601bb82bb1c53cf8b1eeb263fea73022cb6577d` | native CLI/tool capability split |
-| `221ee4c8c43dd7515cb99a366805370e4ad25d66` | bounded real-binary vertical |
-| `89d3966782a4f7eb162eb46bb3b60e34ab65ef0e` | credential-free read-only verifier boundary |
-
-The archived construction adds four post-base commits and changes 62 files
-with 15,964 insertions and 542 deletions. In particular,
-`bd7a9c0c407faee56e5b6f85181d267f5614d9e4` and
-`74e0dd38e3a433b6b0be7f738224e9ae97473ff3` add a second verifier lifecycle
-through Store, engine, policy, protocol, effects, and adapter layers. That is
-evidence that extending the current abstractions increases duplicated Baton
-state; it is not a base for S1.
-
-## Delete, retain, and rebuild
-
-No current production Go package is reused verbatim.
-
-| Current surface | S0 action | What survives |
-| --- | --- | --- |
-| `internal/protocol`, embedded RC1 snapshot | delete once the published replacement is admitted | strict-package and digest tests rewritten against released Baton bytes |
-| `internal/engine`, `internal/control` | delete | atomic command/effect and stop-before-retry invariants only |
-| `internal/store`, all eight migrations | delete; start a new incompatible database identity and schema | private file, `application_id`, `user_version`, `foreign_keys`, `trusted_schema=OFF`, `synchronous=FULL`, one-connection tests |
-| `internal/repo`, `internal/workspace` | delete | Git object validation, sanitized Git environment, literal path scope, readback, and `update-ref --no-deref NEW OLD` tests |
-| `internal/executor`, `internal/effects` | delete | bounded output, cancellation, child-tree quiescence, read-only workspace, and stale-owner tests |
-| `internal/adapter`, `internal/producer` | delete | one role-independent invocation/result shape; no provider code in S0/S1 |
-| `internal/policy`, `internal/config` | delete | explicit configured runner/model and fail-closed unknown capability, implemented at the new seam |
-| `internal/board` | delete | Baton board is called as a read-only projection; runtime overlay is deferred |
-| `internal/app`, `internal/buildinfo` | delete | thin CLI lifecycle and version output rebuilt in `cmd/sworn` |
-| existing white-box tests | delete with owners | only named black-box failure cases are rewritten before production behavior |
-| `go.mod`, `go.sum` | retain module identity; minimize after deletion | Go directive and the single SQLite direct dependency |
-| CI/release workflows, licence, release docs, historical ADRs | retain | history and repository policy, not runtime authority |
-
-Focused tests should preserve these old failure statements: idempotency conflict,
-atomic effect insertion, immutable result binding, interrupted effects never
-retry blindly, late leases cannot publish, completion/recovery races converge,
-candidate ref collision fails closed, target movement blocks integration,
-read-only database open never migrates, process cancellation kills descendants,
-writable recovery waits for quiescence, and path replacement/symlink attacks
-fail before mutation. Test code and fixtures may be newly expressed; production
-implementations may not be copied.
-
-## S0/S1 product cut
-
-### S0: reset and immutable Baton seam
-
-S0 does only the following:
-
-1. Verify that the selected Baton release has an annotated tag and release
-   publication, then record its exact tag object, peeled commit, tree, package
-   bytes, package digest, operation contract identity, and fixture manifest.
-2. Replace the old production tree and database schema.
-3. Embed or otherwise make immutable the exact released package selected by
-   the audited release mechanism. Startup recomputes and checks its digest.
-4. Expose Sworn version plus Baton identity/digest without describing the
-   package as Baton v1.0.0 final.
-5. Run Baton's portable driver and engine fixtures through the real built
-   `sworn` harness. Claims list only fixtures actually passed.
-
-If the release package shape differs from the seam below, S0 adjusts the
-adapter after publication; it does not translate or weaken the package.
+1. admits the published RC2 package by exact release evidence;
+2. replaces the old production tree and starts a new incompatible database
+   identity and schema;
+3. embeds the released protocol, schema, operations, fixture manifest, and
+   other assets required by the Go compatibility implementation;
+4. exposes Sworn and exact Baton package identity/digests;
+5. runs the portable-kit fixtures against the Go implementation and built
+   fake-driver harness; and
+6. exposes the autonomous-engine adapter without claiming unexecuted cases.
 
 ### S1: one-track walking skeleton
 
-S1 begins with an already externally approved Baton plan and exact approval
-evidence. It supports one run and one track but uses track and release claims
-that remain valid when concurrency is added later. The end-to-end sequence is:
+S1 begins with an externally approved strict Baton plan. It supports one run
+and one track, but uses the exact release and track authority refs required by
+Baton. It performs:
 
 ```text
-read exact committed records and refs
-  -> Baton derives one exact operation
-  -> accept operation + create effect + claim track atomically
-  -> execute one external edge outside SQLite
-  -> bind or reconcile an immutable result
-  -> re-read records and refs and derive again
-  -> fresh read-only track verification
-  -> expected-old-value release composition
-  -> separate fresh read-only assembly verification
-  -> exact target update-ref compare-and-swap
+capture committed plan, records, approval evidence, and all authority heads
+  -> compute the next eligible responsibility or mechanical action
+  -> atomically record intent, effect, and scope claim in SQLite
+  -> execute one contained process or exact Git action
+  -> seal and bind its immutable observation
+  -> resolve trusted evidence and validate prospective records/transitions
+  -> reread every bound ref and record before the next action
+  -> compose the frozen passed track and transfer authority
+  -> prepare assembly proof/status and dispatch a fresh read-only Verifier
+  -> atomically integrate the passed assembly and terminal release status
 ```
 
-Planner/design/Captain/Implementer details remain opaque Baton operations.
-Sworn dispatches the operation and enforces its declared role, workspace
-access, freshness, and limits. It does not store a mutable enum saying that a
-work item is designed, approved, implemented, verified, or merged.
+Planner, Implementer, Captain, and Verifier author bytes or decisions through
+the submission proxy. Merge is deterministic engine-owned action execution;
+no model chooses refs, parents, tree, merge mode, target, or commit message.
 
-Deferred from S0/S1 are real model drivers, parallel dispatch, user-facing
-pause/resume/cancel/retry/takeover, HTTP providers, telemetry export, cockpit,
-and DBOS. The schema has no speculative columns for them.
+Real model drivers, parallel/dependency scheduling, operator controls, HTTP
+providers, telemetry, cockpit, and DBOS remain outside S0/S1. The shared proxy
+contract is defined now so S2 native CLIs and S4 HTTP tool loops cannot create
+new lifecycle seams. S3 supplies parallel/dependency execution and its evidence.
 
-## Production packages and interfaces
-
-The walking skeleton has exactly these six production packages:
+## Six production packages
 
 ```text
-cmd/sworn         parsing, signals, process lifetime, version, real-binary harness
-internal/baton    admitted package identity, validation, operation derivation
+cmd/sworn         CLI, signals, process lifetime, version, real-binary harness
+internal/baton    embedded RC2 assets, strict records, validation, seven actions
 internal/runtime  command service, scheduler, recovery, effect dispatch
-internal/journal  SQLite transactions, claims, receipts, events, outbox
-internal/gitx     repository identity, worktrees, object facts, exact ref CAS
-internal/driver   role-independent contract, contained process, deterministic fake
+internal/journal  SQLite commands, claims, effects, receipts, events, outbox
+internal/gitx     repository binding, private worktrees, exact Git primitives
+internal/driver   driver contract, submission proxy, containment, external fake
 ```
 
-There is no shared `model`, `types`, `effects`, `policy`, `executor`, or
-`util` package. Types live with their owner; consumer-side narrow interfaces
-are declared only where a focused fake is needed.
+There is no shared model/types/policy/executor utility package. Owner types stay
+with their package and consumers declare narrow interfaces only at test seams.
 
-### `internal/baton`
+## Complete Go Baton contract
 
-The concrete package adapter owns:
+### Compatibility ownership
 
-```go
-type PackageIdentity struct {
-    TagObject, Commit, Tree, PackageDigest, OperationContract string
-}
+`internal/baton` owns a literal Go compatibility implementation of the
+released contract, not a reduced adapter:
 
-type Facts struct {
-    RepositoryID string
-    Refs         []BoundRef
-    Records      []BoundRecord
-    PolicyDigest string
-}
+- strict JSON parsing, closed record shapes, limits, canonical paths and refs;
+- admitted plan metadata, approval bindings, status identity and semantics;
+- work and assembly transition validation, including unchanged `NO_VERDICT`;
+- owner-aware record selection and materialisation evidence;
+- handoff byte/digest checks and trusted-evidence admission;
+- candidate first-parent history, product-tree identity, path scope, and
+  record-only transition validation;
+- exact fast-forward or deterministic two-parent composition verification;
+- atomic expected-head ref transactions and retry reconciliation; and
+- all seven deterministic actions below.
 
-type Decision struct {
-    OperationBytes  []byte
-    OperationDigest string
-    TrackID         string
-    Role            string
-    Workspace       WorkspaceRequirement
-    FreshContext    bool
-    Terminal        bool
-}
+The Go names may be idiomatic, but behavior, accepted values, exact bytes,
+commit construction, parent ordering, failure conditions, and receipts map
+one-for-one to RC2. Unknown fields, states, outcomes, roles, action inputs,
+refs, evidence, Git modes, or reconciliation observations fail closed.
 
-func OpenPinned() (*Package, error)
-func (p *Package) Derive(Facts) (Decision, error)
-func (p *Package) ValidateResult(Decision, []byte) (ValidatedResult, error)
-```
+The compatibility map is checked in beside the implementation:
 
-`Facts` are assembled from Git object IDs and exact record bytes, sorted and
-domain-separated before hashing. `Decision.OperationBytes` are the exact
-package-produced driver input. The adapter makes defensive copies. Unknown
-fields, capabilities, roles, workspace modes, result kinds, or terminal facts
-fail before an effect is inserted. The final mapping to published Baton types
-is an S0 task; the names above are Sworn-internal and claim no unpublished
-schema.
+| Baton action | Go facade responsibility |
+| --- | --- |
+| `installApprovedPlan` | install exact plan and baseline statuses |
+| `reboundPristinePlan` | replace only a pristine unmaterialised plan |
+| `recordTransition` | validate and record ordinary work/assembly transition |
+| `materializeTrack` | create owner marker and atomically move release/create track |
+| `composeTrack` | compose frozen track and transfer all work authority |
+| `prepareAssembly` | write Merge-produced proof and initial assembly status |
+| `integrateRelease` | integrate passed assembly and terminal status atomically |
 
-`Derive` is pure and repeatable for identical facts. The decision is never
-updated in place. A later pass always rereads Git and derives anew.
+The public production surface is one immutable package value with those seven
+typed methods plus read-only parsing, snapshot, eligibility, and validation
+queries. The queries are pure over supplied bytes, Git object facts, and an
+opaque evidence admission. They cannot mutate a ref or status. The action
+methods accept logical identities and exact authored bytes only; they derive
+all refs, paths, messages, trees, parents, and expected values from the
+admitted plan and captured snapshot.
 
-### `internal/journal`
+`internal/gitx` supplies narrowly typed object reads, product-tree calculation,
+prospective record-only commit construction, deterministic merge-tree and
+commit-tree construction, and atomic ref transactions. It cannot independently
+advance Baton lifecycle. `internal/runtime` decides when an eligible facade
+method becomes a journalled effect, but cannot weaken facade validation.
+SQLite stores only runtime claims, attempts, effect identities, and receipts.
 
-`Store.Apply` is the only state-changing entry point used by the command
-service. Narrow query/claim methods return copied values and opaque lease
-tokens:
+### Golden compatibility
 
-```go
-func (s *Store) Apply(context.Context, Command) (Receipt, error)
-func (s *Store) Claim(context.Context, ClaimRequest) (Lease, error)
-func (s *Store) Renew(context.Context, Lease) error
-func (s *Store) Bind(context.Context, Lease, EffectReceipt) error
-func (s *Store) Events(context.Context, RunID, AfterSequence) ([]Event, error)
-```
+Development tooling may run the exact RC2 reference modules to produce
+fixtures containing inputs, canonical output bytes, digests, prospective
+commit identities under fixed Git identity/time, receipts, and typed errors.
+Checked-in vectors cover every transition, seven actions, owner selection,
+record limits, adversarial Git facts, fast-forward, two-parent composition,
+retry, and stale/third-value refusal.
 
-`Bind`, renewal, expiry, and reconciliation are internally represented as
-closed typed commands and pass through the same transaction/reducer as
-operator commands. The exported methods do not contain a second reducer.
+Go tests consume the vectors without starting Node. A separate CI job with the
+released package regenerates them and requires a byte-for-byte clean diff.
+Reference JavaScript, generated vector tooling, and portable fixture runners
+are non-production assets and are measured separately.
 
-### `internal/gitx`
+## Strict driver and submission boundaries
 
-`Repository` is concrete and admits one canonical common Git directory, object
-format, exact `git` executable identity, and repository ID. Its small surface is:
+### Exact `baton.driver/v1`
 
-```go
-func Open(Binding) (*Repository, error)
-func (r *Repository) ReadFacts(context.Context, FactRequest) (baton.Facts, error)
-func (r *Repository) EnsureWorktree(context.Context, WorktreeIntent) (Observation, error)
-func (r *Repository) ReconcileWorktree(context.Context, WorktreeIntent) (Observation, error)
-func (r *Repository) Compose(context.Context, CompositionIntent) (Observation, error)
-func (r *Repository) UpdateRefCAS(context.Context, RefIntent) (Observation, error)
-```
+Every process driver implements `info` and `run` exactly as RC2 specifies.
+`baton.driver-request/v1` contains:
 
-This is not a general Git library. `CompositionIntent` is created only from a
-validated Baton decision and binds source commit/tree, destination old
-commit/tree, exact operation, output ref, and allowed paths. `RefIntent` always
-contains a full ref, expected old OID (or the repository's zero OID), and new
-commit OID.
+- stable `invocation_id` and exact Baton role;
+- canonical operation `id`, `version`, digest, and raw instructions;
+- explicit non-empty model or deliberate `null`;
+- absolute workspace path and `read_only` or `read_write`;
+- ordered uniquely named inputs with canonical repository-relative path and
+  raw-byte digest;
+- explicit `fresh_context`; and
+- positive timeout and output limits.
 
-### `internal/driver`
+The driver validates the whole operation tuple against the canonical embedded
+operation, not against caller-replacement text.
 
-There is one role-independent boundary:
+`baton.driver-result/v1` binds invocation, driver identity/version, observed
+model, duration, optional usage, bounded response text, and exactly one
+transport status. `completed` text is transport-only. Sworn never parses it as
+a design, proof, status, decision, verdict, evidence, or Merge instruction.
 
-```go
-type Request struct {
-    InvocationID, OperationDigest, Role, RepositoryID string
-    OperationBytes []byte
-    CandidateOID   string
-    Workspace      Workspace
-    FreshContext   bool
-    Driver, Model  string
-    Limits         Limits
-}
+### `sworn.submission/v1` action proxy
 
-type Result struct {
-    Driver, ObservedModel string
-    Transport             TransportOutcome
-    BatonBytes            []byte
-    ExitCode              int
-    Duration              time.Duration
-    Diagnostic            string
-    Capabilities          []string
-}
+Sworn owns one strict, versioned logical envelope for external fake, native
+CLI, and HTTP tool-loop drivers. It is transported on a control endpoint
+outside the candidate workspace:
 
-type Driver interface {
-    Invoke(context.Context, Request) (Result, error)
-    Reconcile(context.Context, InvocationIdentity) (ProcessObservation, error)
-}
-```
+- fake and native CLI processes receive an inherited, invocation-bound control
+  descriptor whose address and credentials are not placed in model text;
+- HTTP tool loops expose the same operation as an allowlisted server-side tool
+  bound to the invocation; and
+- all transports decode to the same Go `sworn.submission/v1` value before any
+  runtime or Baton code sees it.
 
-The S1 fake implements this interface as a separate bounded subprocess, not an
-in-memory shortcut. The same fake executable can deterministically edit,
-commit, pass, fail, emit `NO_VERDICT`, block, hang, exit, or crash at a named
-step. Transport outcome and Baton outcome are distinct. An invocation error
-never becomes a Baton verdict.
-
-The contained-process implementation is private to `internal/driver`; it is
-not another public package or driver-specific agent loop.
-
-### `internal/runtime`
-
-`Service` composes one admitted Baton package, journal, repository, and driver
-set. Its only loop is:
-
-```go
-func (s *Service) Tick(context.Context, RunID) error
-func (s *Service) Recover(context.Context, RunID) error
-func (s *Service) Apply(context.Context, Command) (journal.Receipt, error)
-```
-
-`Tick` refuses to derive while the run has an unresolved uncertain effect or a
-disabled dispatch gate. It snapshots Git facts, derives, revalidates the
-decision against the package, then submits a typed accept/claim command with
-the fact and operation digests. After each result it rereads facts; it never
-advances a cached operation.
-
-## Minimal SQLite journal
-
-SQLite remains behind `database/sql` with `modernc.org/sqlite`. Use one
-serialized connection, rollback journal mode, `synchronous=FULL`,
-`foreign_keys=ON`, `trusted_schema=OFF`, DQS disabled, a bounded busy timeout,
-a new application ID, and schema version 1. A read-only open uses
-`mode=ro,query_only=ON`, never creates, and never migrates.
-
-There is no migration from the v0.2 database. Opening an old or foreign
-application ID fails with an explicit diagnostic and leaves the file
-untouched.
-
-The initial schema has seven tables:
-
-| Table | Minimal columns and key | Ownership |
-| --- | --- | --- |
-| `runs` | `run_id` PK; immutable repository/package/plan/target/release bindings; `revision`; `dispatch_enabled`; bounded reason/timestamps | current Sworn runtime control only |
-| `commands` | `command_id` PK; `run_id`; closed `kind`; `expected_revision`; exact payload bytes and digest; accepted time | append-only request identity |
-| `effects` | `effect_id` PK; command + ordinal; operation/facts digests; scope; closed kind; exact request + digest; state; attempt; result receipt FK; timestamps | mutable external-effect journal, not Baton state |
-| `claims` | PK `(run_id, resource_kind, resource_id)`; owner; random lease token digest; generation; effect/attempt; acquired/renewed/expires times | finite one-writer lease for track, release, target, effect, or outbox row |
-| `receipts` | `receipt_id` PK; run; exactly one command/effect origin; attempt; closed outcome; exact body + digest; time; unique command result and effect-attempt result | append-only idempotent outcomes |
-| `events` | monotonic integer sequence PK; stable event ID; run; optional command/effect; closed kind; exact body + digest; time | append-only operator/runtime history |
-| `outbox` | `outbox_id` PK; unique `(event_sequence,sink)`; state; attempts; next time; claim generation; bounded last error | lossy asynchronous projection only |
-
-All tables are `STRICT`. IDs, digest syntax, non-negative revisions/attempts,
-bounded byte lengths, closed enums, origin exclusivity, and timestamp ordering
-have `CHECK` constraints. Immutable tables have no-update/no-delete triggers.
-`effects`, `runs`, `claims`, and `outbox` have triggers allowing only the
-enumerated changes below. Every accepted or deterministically rejected command
-gets exactly one immutable receipt. Infrastructure failures do not.
-
-An outbox row is inserted in the same transaction as its event only when a
-configured sink exists. Outbox loss, backoff, duplicate delivery, or permanent
-failure cannot alter a run, command, effect, verdict, or exit status. The local
-board/event stream reads `events`, not the outbox.
-
-### Journal invariants
-
-1. Reusing a command ID with identical bytes returns the original receipt;
-   different bytes return `ErrIdempotencyConflict` without mutation.
-2. A command transition, effects, receipt, event, and enabled outbox rows commit
-   in one `BEGIN IMMEDIATE` transaction.
-3. `(run, track)` has at most one live writer claim. Release composition and
-   target movement use distinct singleton claims and still rely on Git CAS.
-4. Every lease is store-instance, resource, generation, owner, effect-attempt,
-   and expiry bound. A late or copied lease cannot bind.
-5. An effect request and result are immutable bytes with separate digests.
-   Result binding cannot change request identity or attempt.
-6. An expired or ownerless executing effect becomes uncertain, never pending.
-7. An uncertain effect blocks dispatch for its scope until reconciliation
-   proves `performed`, `not_performed`, or an explicit inconsistency.
-8. `not_performed` closes that attempt; retry creates a new effect identity.
-9. Git records/refs and Baton records remain truth. `runs` and `effects` store
-   only Sworn control and recovery facts.
-10. Receipt or event text cannot manufacture `PASS`, `FAIL`, `BLOCKED`, or
-    integration authority; only validated Baton bytes bound to current facts
-    can do so.
-
-## Command and effect transitions
-
-S0/S1 command kinds are closed: create run, accept derived operation, claim,
-renew, bind result, mark uncertain, record reconciliation, apply observed
-result, and disable/enable dispatch. Only create run and run-to-completion are
-initial CLI surfaces; the rest are internal commands with the same durable
-receipt rules.
-
-Run revision changes only through `Apply`:
+The closed envelope binds:
 
 ```text
-valid command + expected revision
-  -> reducer validates current runtime projection
-  -> one transaction writes command, new projection, effects, receipt, event
-stale but valid command
-  -> one transaction writes command + rejected receipt + event; no projection/effect
-malformed or unknown command
-  -> fail before write
+schema version
+invocation id
+ordered proposed artifacts: kind, canonical Baton path, digest, exact bytes
+optional role decision and exact bounded evidence bytes
+one requested Baton action plus only its logical RC2 arguments
 ```
 
-Effect states are operational:
+Exact bytes use one canonical binary encoding in the envelope and are hashed
+after decoding. The only artifact kinds are design, work proof, assembly proof,
+work status, and assembly status. Decisions are closed to Captain outcomes,
+Verifier outcomes, and `NO_VERDICT` where the current responsibility permits
+them. Action requests are closed to the seven facade methods and their RC2
+logical parameters; refs, object IDs chosen by the caller, Git commands,
+paths outside the admitted record paths, commit messages, merge modes, and
+arbitrary effect descriptions are forbidden.
+
+Before dispatch, runtime mints an invocation capability bound to role,
+operation tuple, current authority ref/head, fact digest, plan and approval,
+work/track/release identity, candidate/product identity, permitted artifact
+kinds, permitted decision/action, workspace mode, freshness, and limits. The
+capability is held by the control endpoint, not serialized into the workspace,
+prompt, input record, model output, or candidate. The proxy accepts at most one
+final submission and binds its digest to the effect receipt.
+
+Admission is:
+
+1. validate strict envelope syntax, size, uniqueness, byte digests, invocation,
+   and invocation capability;
+2. reread current canonical facts and reject any changed binding;
+3. resolve protected evidence outside the workspace;
+4. pass exact proposed records and opaque admission to the Go Baton facade;
+5. prospectively validate every transition, commit, and ref transaction; and
+6. only then journal and execute the permitted action.
+
+For Captain or Verifier, invalid/missing submission yields operational
+`NO_VERDICT`: durable Baton status remains byte-for-byte unchanged. For an
+authoring or mechanical responsibility it is an operational failure with no
+Baton transition. Transport failure is never converted to `FAIL`, `BLOCKED`,
+`PASS`, or `MERGED`.
+
+## Trusted evidence and opaque admission
+
+The evidence resolver is engine-owned and never mounted or described to an
+agent. Given an exact status and execution profile, it reads protected approval
+and Verifier-dispatch evidence by canonical reference, verifies exact bytes,
+digest, provenance, candidate read-only access, clean/fresh context,
+invocation separation, and profile-specific isolation, then returns immutable
+bytes plus provenance to `internal/baton`.
+
+The facade mints an opaque, unforgeable in-process admission bound to:
+
+- exact status bytes/digest and action;
+- plan, approval, authority ref/head, target and component heads;
+- execution profile (`guided` or `autonomous`);
+- exact resolved evidence bytes/digests and provenance;
+- candidate, candidate tree, product tree, workspace mode, and freshness; and
+- current record-root behavioral-inertness result.
+
+Admissions are single-snapshot values, never accepted from JSON, the journal,
+the board, a candidate file, or a driver. They are not visible to agents and
+cannot be copied to a changed status or profile. Recovery resolves fresh
+evidence after recapturing refs; a stored evidence digest is diagnostic and
+does not recreate admission.
+
+## SQLite runtime truth
+
+SQLite remains behind `database/sql` and `modernc.org/sqlite`, with one
+serialized connection, rollback journal, `synchronous=FULL`,
+`foreign_keys=ON`, `trusted_schema=OFF`, DQS disabled, bounded busy timeout,
+new application ID, and schema version 1. Read-only open never creates or
+migrates. Old or foreign stores fail untouched.
+
+Seven strict tables are sufficient:
+
+| Table | Truth owned |
+| --- | --- |
+| `runs` | immutable repo/package/plan bindings; revision and dispatch gate |
+| `commands` | idempotent closed command bytes and expected revision |
+| `effects` | external intent, attempt, scope, immutable request, state |
+| `claims` | finite owner/generation/token-bound scope leases |
+| `receipts` | immutable command/effect observations |
+| `events` | append-only runtime/operator history |
+| `outbox` | optional bounded lossy projection only |
+
+Every command transition, effects, receipt, event, and configured outbox row
+commits in one `BEGIN IMMEDIATE` transaction. Reusing a command ID with the same
+bytes returns its receipt; different bytes fail without mutation. Expired or
+ownerless executing effects become uncertain, never pending. No effect retries
+until reconciliation proves performed, not performed, or inconsistent.
+
+The journal never stores a mutable Baton stage/status/outcome projection.
+Committed refs and records remain lifecycle truth. Receipt/event text cannot
+manufacture verdict or integration authority. Outbox loss or Linux containment
+availability is not an architectural blocker: a disabled sink is valid, and
+unsupported containment fails dispatch without weakening records.
+
+The S1 effect registry covers:
 
 ```text
-planned   --claim + track lease------------------------> executing
-executing --valid immutable result---------------------> observed
-executing --owner death / expired lease---------------> uncertain
-uncertain --external proof + reconciliation receipt---> observed
-observed  --validate and consume receipt---------------> consumed
+private-repository.ensure   driver.invoke          candidate.import
+baton-action.apply          verifier-workspace.ensure
+process.stop                private-workspace.remove
 ```
 
-`observed` receipts distinguish performed success, performed operational
-failure, proved not-performed, transport failure, cancellation, `NO_VERDICT`,
-and inconsistent external state. Inconsistent state atomically disables
-dispatch and remains visible; it is never converted to pending. `consumed`
-means the runtime observation was applied and a fresh Baton derivation may
-occur, not that Baton work passed.
+`baton-action.apply` records the exact facade action request, complete captured
+snapshot, prepared result, and atomic ref transaction as one externally
+observable Git edge. It does not expose an arbitrary workflow language.
 
-The S1 effect-kind registry is closed:
+## Exact authority refs and Git actions
+
+The admitted plan must name:
 
 ```text
-attempt.git.ensure
-driver.invoke
-candidate.import
-track-ref.publish
-release-worktree.ensure
-release.compose
-release-ref.publish
-target-ref.publish
-worktree.remove
+refs/heads/release-wt/<release>
+refs/heads/track/<release>/<track>
 ```
 
-The registry is a fixed switch, not a workflow language. A mutating operation
-uses ensure, invoke, import, track publication, and cleanup. A verification
-uses ensure, invoke, and cleanup against a private read-only worktree.
-Composition uses the release-worktree, compose, release-publication recipe.
-Exact Merge uses only target publication. Each next edge is derived from the
-validated Baton operation plus immutable prior receipts; no generic graph or
-user-defined step vocabulary exists.
+These are the only Baton release and track authority refs. Private
+`refs/sworn/...` refs may retain imported, quarantined, or attempt objects, but
+they never replace an authority ref, select authoritative status, prove
+composition, or satisfy a Baton expected-head check. The target is the exact
+full branch ref in the approved plan.
 
-A healthy worker renews its effect and scope claims while the subprocess runs.
-Cancellation stops new dispatch, terminates the contained process tree, waits
-for quiescence, and then binds cancellation. It does not edit Baton records.
+Plan installation makes a record-only commit from the target and atomically
+creates the release ref while verifying target and absent owner refs.
+Materialisation makes one record-only marker containing the release base and
+dependency heads, then in one `update-ref --stdin` transaction updates the
+release ref and creates the track ref at that same marker while verifying all
+other bound heads. A partial materialisation cannot be observed as success.
 
-## Worktree, process, and Git boundaries
+Work advances on the track ref through product-only candidate commits and
+record-only lifecycle commits. The passed frozen track head remains immutable.
+Composition is exactly either:
 
-### Repository and refs
+- a fast-forward to that eligible frozen track head; or
+- a deterministic two-parent commit whose ordered parents are expected
+  release head then frozen track head, and whose tree is the exact deterministic
+  merge tree.
 
-Run creation binds the canonical common Git directory, object directory,
-object format, sanitized exact Git executable, target ref/OID, release ref/OID,
-approved-plan digest, and repository ID. Every engine use revalidates the
-binding. The canonical common directory and object directory are never visible
-in a driver child. Git commands use no shell, no prompts, no hooks, no
-global/system config, no replacement objects, no lazy fetch, no credential
-helper, and bounded output.
+After composition, one record-only release commit transfers every work status
+together to `merge / complete / none`, binds the frozen head, expected release
+head, composition result, and transfer commit, and advances only the release
+authority in an atomic transaction that verifies target and every track head.
+Partial work transfer is invalid.
 
-Engine refs use one validated namespace derived from the run ID:
+Assembly preparation writes Merge-produced proof plus
+`verify / ready / verifier` status in one record-only release commit. It binds
+the pre-preparation release head as both base and candidate and binds every
+ordered frozen component. A fresh read-only Verifier must admit `PASS`.
 
-```text
-refs/sworn/runs/<run>/tracks/<track>
-refs/sworn/runs/<run>/release
-```
+Release integration again uses exact fast-forward or deterministic two-parent
+composition between the expected target and passed assembly candidate. It also
+prepares the final record-only release commit with assembly
+`merge / complete / none`, outcome `merged`, and exact expected/result binding.
+One atomic ref transaction updates both target to the composition result and
+release ref to the final status commit while verifying every track head. Thus
+product integration and terminal record publication succeed together or
+neither ref moves.
 
-The target remains the approved full ref. All engine and target writes use
-`git update-ref --no-deref <ref> <new> <expected-old>` followed by an exact
-readback. No force update, symbolic target, remote push, merge command, squash,
-or branch checkout is an S1 integration primitive.
+All Git writes use the sanitized fixed executable, full refs, literal OIDs,
+`--no-deref`, and exact old values. Retry first captures all refs:
 
-### Worktrees
+- if every ref is at the old values, recompute the exact prospective objects
+  and apply once;
+- if every affected ref is at the exact new values and prospective commits
+  reproduce byte-for-byte, return the original durable result with no commit;
+- if an action's atomic transaction left all refs old, record not performed
+  and create a new effect only after reconciliation;
+- any mixed, symbolic, missing, stale, or third value is inconsistent and
+  disables dispatch.
 
-- Each driver attempt gets a fresh private Git repository with its own metadata
-  and refs, seeded by the engine with only the objects needed for the exact
-  input commit, plus a detached worktree. It has no remote or alternate path
-  back to the canonical repository.
-- A mutating role may write only its private attempt worktree and Git metadata.
-  Its commits cannot update canonical objects or refs.
-- Each verification gets a different private repository/worktree at the exact
-  candidate commit, mounted or staged read-only for the child.
-- The release has one dedicated engine-only detached composition worktree.
-  Only this worktree may share canonical metadata, and no driver process can
-  see it.
-- Worktree paths are engine-derived beneath the private run root. Existing,
-  symlinked, replaced, foreign, dirty, or wrong-HEAD paths fail reconciliation.
-- Agents never receive the journal, canonical Git directory/object store,
-  control refs, release worktree, other track worktrees, credentials, or
-  another checkout.
-- Agent-written files and commits are observations only. Sworn validates object
-  parent/tree/path facts in a quarantine, imports content-addressed objects
-  without accepting refs/config/hooks, and publishes an exact retention ref by
-  CAS before the candidate can be used.
+Deterministic commit identity fixes author/committer identity, timestamps,
+message, parent order, and tree. A composition conflict never triggers model
+resolution, merge, rebase, squash, force update, or retry with new inputs.
 
-Seeding and import are engine-only Git operations. The implementation may use a
-temporary bundle, pack, or quarantine repository, but the selected mechanism
-must prove that no canonical ref, config, hook, index, or worktree is writable
-through the attempt. Candidate import is its own journalled, idempotent effect:
-all expected objects validate and exist canonically, or the import is not
-complete; a partial temporary pack is disposable and never evidence.
+## Worktree and process containment
 
-`EnsureWorktree` is idempotent only for an exact private repository, registered
-worktree path, HEAD, gitdir, mode, and clean-state observation. Otherwise
-recovery stops for operator attention. Cleanup happens only after process
-quiescence and retained Git facts make the workspace disposable.
+Each driver attempt receives a fresh private repository and detached worktree
+seeded only with exact required objects. It has no remote, alternate, canonical
+object path, control ref, release worktree, journal, credentials, or sibling
+workspace. A mutating role may write only there. Candidate objects enter a
+quarantine, pass parent/tree/path/history checks, and are imported
+content-addressably before an authority action may reference them.
 
-### Driver processes
+Every verification receives a different private repository at the exact
+candidate, staged read-only for a fresh process. Sworn proves after exit that
+OID, tree, manifest, status, and relevant refs did not change. Failure of OS
+enforcement or post-proof is operational `NO_VERDICT`, never a verdict.
 
-Every role, including the fake, runs as a new OS process in an attempt-specific
-private root with a clean fixed environment, bounded stdin/stdout/stderr,
-deadline, resource bounds, cancellation, and descendant-tree ownership.
-Invocation identity and process-supervisor identity are written before launch.
-Completion is first sealed to an fsynced, atomically renamed spool receipt,
-then bound to SQLite.
+Every fake or later real driver is a new bounded process with fixed clean
+environment, bounded stdin/stdout/stderr, deadline, cancellation, resource
+limits, descendant ownership, and invocation-bound service identity. Result
+and submission receipts are fsynced and atomically renamed before SQLite bind.
 
-S1 production execution is Linux-only and fail-closed. R4 rebuilds the narrow
-proven shape with Bubblewrap for mount/PID/network isolation and a transient
-systemd user service for cgroup ownership, limits, `KillMode=control-group`,
-`Restart=no`, inspection, and kill-after-engine-death. Startup probes exact
-configured executables, required namespace/mount behavior, cgroup v2
-controllers, and the user manager before accepting a run. Exact minimum
-versions are set by those new tests, not copied from the old package. Other
-platforms may run pure package/unit fixtures but cannot claim S1 contained
-delivery until they provide the same process and crash corpus.
+S1 production execution is Linux-first and fail-closed. Bubblewrap supplies
+mount/PID/network isolation and a transient systemd user service supplies
+cgroup ownership, limits, `KillMode=control-group`, inspection, and cleanup.
+Startup probes required behavior. Other systems may run pure/portable tests but
+cannot claim autonomous S1 execution without an equivalent crash corpus.
 
-On engine death, recovery proves the old process tree is absent or terminates
-and waits for it before inspecting or deleting the attempt root. A live or
-unidentifiable process keeps the effect uncertain. PID alone is not proof;
-the implementation uses a deterministic invocation-bound service unit,
-recorded unit properties, and an attempt lock proven by the process-boundary
-tests.
+On restart, a live or unidentified old process keeps its effect uncertain.
+Recovery terminates and proves the entire process tree quiescent before reading
+or removing writable roots. PID alone is never proof.
 
-Verifier requests must set fresh context and read-only workspace. They receive
-only exact operation/record bytes and the candidate under review, with empty
-home/config/session directories and no inherited rules, memory, conversation,
-or writable Git metadata. After exit Sworn proves the candidate OID/tree,
-worktree manifest/status, and relevant refs did not change. Failure of either
-OS enforcement or after-the-fact proof is an operational failure, never a
-verdict.
+## Reconciliation and crash corpus
 
-Track verification and assembly verification are separate invocations with
-different invocation IDs and operation digests. Assembly verification always
-runs, even with one track or when composition yields the same commit OID. Its
-verdict binds the composed release candidate and the still-current expected
-target.
+Every external edge has test cuts:
 
-### Composition and exact Merge
+1. after durable intent/claim, before the call;
+2. after start or partial progress;
+3. after external result/ref transaction, before SQLite bind; and
+4. after bind, before consumption and fresh fact capture.
 
-The Baton decision supplies the exact composition inputs and ordering. Sworn
-checks source candidate and destination release old values, performs the
-specified Git object operation in the release worktree, validates output
-parent/tree/path facts, then CAS-updates the release ref. A conflict or third
-value disables dispatch; Sworn does not invent conflict resolution.
+SQLite cuts immediately before and after commit. The harness kills the real
+binary without deferred cleanup, restarts on the same repository/journal,
+runs recovery twice, and completes or reports the exact inconsistency.
 
-After a fresh assembly `PASS` is admitted by Baton and a final derive still
-requests integration, exact Merge is:
-
-```text
-git update-ref --no-deref <target-ref> <verified-release-oid> <expected-target-oid>
-```
-
-Readback must equal the verified release OID. This creates no new commit. A
-target move is a stale candidate, not a reason to merge, rebase, or retry.
-
-## Uncertain-effect reconciliation
-
-Reconciliation runs before normal scheduling on every activation and whenever
-a claim expires. It uses the same typed commands and receipts as normal
-completion.
-
-| External edge | `performed` proof | `not_performed` proof | Inconsistent/blocked |
+| Edge | Performed | Not performed | Inconsistent |
 | --- | --- | --- | --- |
-| create private repository/worktree | registered exact path/gitdir/HEAD/mode exists; canonical store is unreachable | path and registration both absent | foreign, dirty, replaced, mismatched, or canonical path exposed |
-| mutating driver | sealed receipt matches invocation; process quiescent; candidate facts validate | process quiescent and no sealed receipt; discard isolated root | live/unidentifiable process, foreign receipt, unverifiable Git object |
-| read-only verifier | sealed receipt matches invocation and read-only post-proof passes | process quiescent and no sealed receipt; fresh rerun allowed | mutation, live process, identity mismatch, result bound to wrong candidate |
-| import candidate objects | every expected object validates in canonical store; an exact partial content-addressed import may be completed by reconciliation; no ref changed | no complete candidate closure is present and temporary residue is safely removed; unreachable valid objects are harmless | malformed object, unexpected ref/config change, or source identity loss during partial import |
-| publish track ref | ref equals requested new OID | ref equals exact expected old OID | any third OID, symbolic ref, invalid object |
-| compose release | sealed composition receipt and output OID validate against exact source and destination old OIDs; worktree is clean at output | no sealed receipt and engine worktree is clean at the exact destination old OID | conflict, dirty/foreign worktree, or unverifiable output |
-| publish release ref | ref equals requested output OID | ref equals exact expected old OID | third value or object mismatch |
-| assembly verifier | same as read-only verifier, bound to release OID and target old | same as read-only verifier | mutation or stale candidate/target binding |
-| exact target Merge | target equals verified release OID | target equals expected old OID | any third OID or symbolic target |
-| remove worktree | registration and exact path absent | exact worktree still present and quiescent, so removal may run | replaced path, foreign registration, active process |
+| private workspace | exact registered identity/HEAD/mode | path and registration absent | foreign, dirty, replaced, canonical path exposed |
+| driver/submission | sealed bound receipts and quiescence | quiescent, no receipts, disposable root | live/unidentified process, foreign receipt, changed candidate |
+| candidate import | full expected object closure validates | no complete closure; residue disposable | malformed object or canonical ref/config mutation |
+| Baton action | all affected refs exact new and objects replay | all affected refs exact old | mixed, third, symbolic, missing, or replay mismatch |
+| cleanup | exact path and registration absent | exact quiescent workspace remains | replacement path, foreign registration, live process |
 
-For driver effects, absence of a result is not automatically `not_performed`.
-Quiescence plus absence of an authoritative publication and disposal of the
-isolated attempt resolves the uncertainty. The retry is a new invocation and
-new worktree. For Git ref effects, only the expected old/new/third-value
-trichotomy is accepted. S0/S1 configure no outbox sink, so there is no outbox
-send effect in the crash registry.
+The corpus asserts one live writer per implemented scope, no uncertain retry,
+late lease rejection, idempotent recovery, no synthesized status/verdict,
+authority refs only at exact old/new values, unchanged verifier workspaces,
+no leaked processes, and a target equal to the assembly-verified integration
+result. New effect kinds fail tests until they have all cuts and a reconciler.
 
-## Crash-injection contract
+## Conformance truth
 
-Every external edge above exposes test-only cuts at the same four points:
+Portable-kit execution and autonomous-engine evidence are separate.
 
-1. after durable intent/claim commit, before the external call;
-2. after the external call starts or makes partial progress;
-3. after the external result or Git mutation, before SQLite result binding; and
-4. after immutable result binding, before apply/rederive.
+Portable-kit fixtures validate strict records, reference compatibility,
+operations, installed assets, board/driver fixtures, dogfood, and release
+overhead. Passing them against Go and the built fake proves compatibility only;
+it never changes an autonomous case result. Their command logs, fixture
+digests, and golden-vector diff are recorded as S0 evidence.
 
-SQLite transitions also cut immediately before and after transaction commit.
-The harness kills the real `sworn` process with no deferred cleanup, restarts a
-new process on the same journal/repository, runs recovery twice, then completes
-the delivery. For every cut it asserts:
+Autonomous cases run only through `baton.engine-conformance/v1` against the real
+binary, journal, scheduler, driver, workspace, process, and Git boundaries.
+The harness independently inspects its temporary repository and evidence
+digests. All twelve are currently `NOT RUN`. The S0/S1 exit reporting is:
 
-- at most one live track writer and one release writer;
-- no uncertain attempt is redispatched;
-- stale workers and leases cannot bind;
-- recovery is idempotent;
-- no Baton status or verdict is synthesized;
-- only the exact expected refs move;
-- verifier worktrees remain unchanged;
-- no live process or disposable worktree remains; and
-- the final target OID is exactly the assembly-verified OID.
-
-A failpoint is an injected dependency at the edge, not production branching or
-environment-variable behavior. The crash corpus enumerates all registered
-edges and fails if a new external-effect kind lacks the four cuts and a
-reconciler.
-
-## Failure and recovery matrix
-
-| Failure | Immediate durable state | Recovery/next action |
+| Autonomous case ID | Current | S0/S1 exit |
 | --- | --- | --- |
-| crash before command commit | no command/effect, or complete prior transaction | replay same command ID |
-| crash after command commit, before claim | `planned` effect | claim once after fresh fact validation |
-| crash after claim, before call | `executing`, later `uncertain` | prove edge not performed, close attempt, create new effect |
-| process hangs or engine is cancelled | executing with live supervisor | stop tree, prove quiescence, bind cancellation |
-| process exits without sealed receipt | uncertain | prove quiescence/publication absence, discard root, record not-applied |
-| result sealed, DB bind missing | uncertain | validate sealed receipt and bind idempotently |
-| DB bind succeeds, apply missing | observed | apply same immutable receipt, reread facts |
-| worker returns after lease loss | later generation owns scope | reject stale bind; reconcile old attempt |
-| SQLite busy/IO/commit error | no inferred transition | stop; retry only the database command after inspecting receipt |
-| worktree path replaced/symlinked | uncertain/inconsistent | disable dispatch; never remove the foreign path |
-| candidate changes outside approved paths | operational failure receipt | Baton does not see a successful result; repair via new attempt if derived |
-| track verification transport failure | transport failure, no Baton verdict | fresh derive decides whether another invocation is allowed |
-| verifier emits malformed/unknown result | operational `NO_VERDICT` | no pass/fail mapping; fresh derive |
-| release composition conflict | inconsistent; release dispatch disabled | external repair/replan; no automatic conflict resolution |
-| target moves before Merge | exact Merge not applied | invalidate assembly assessment and rederive |
-| crash after target CAS | uncertain Merge effect | read target; equal new means applied, equal old means not applied, third blocks |
-| outbox unavailable/overflowing | delivery retry/drop event | bounded projection loss only; delivery continues |
-| unknown Baton capability/state/field | no effect inserted | stop closed and require package/runtime update |
+| `protected-external-approval` | NOT RUN | PASS only with real adapter evidence |
+| `role-instruction-credential-workspace-process-isolation` | NOT RUN | PASS only with real adapter evidence |
+| `clean-read-only-fresh-verifier-dispatch` | NOT RUN | PASS only with real adapter evidence |
+| `one-writer-per-track-with-independent-track-concurrency` | NOT RUN | NOT RUN until S3 |
+| `durable-invocation-attempt-and-effect-identity` | NOT RUN | PASS only with real adapter evidence |
+| `crash-recovery-at-every-effect-boundary` | NOT RUN | PASS only with real adapter evidence |
+| `timeout-cancellation-cleanup-and-bounded-retry` | NOT RUN | PASS only with real adapter evidence |
+| `dependency-scheduling-and-one-serial-worker-per-track` | NOT RUN | NOT RUN until S3 |
+| `exact-track-composition-and-ownership-transfer` | NOT RUN | PASS only with real adapter evidence |
+| `fresh-assembly-verification` | NOT RUN | PASS only with real adapter evidence |
+| `moved-target-compare-and-set-refusal` | NOT RUN | PASS only with real adapter evidence |
+| `exact-release-integration` | NOT RUN | PASS only with real adapter evidence |
 
-## Implementation slicing and touchpoints
+Until each applicable case actually runs, its status remains `NOT RUN`; a design
+target is not a result. `FAIL` means it ran and an observation failed. Missing
+support, timeout before start, absent credentials, model output, portable
+fixture success, or adapter assertion cannot produce `PASS`.
 
-These are ordered work items, not an admitted Baton plan. Their final plan bytes
-and approval must be created only after the Baton release gate.
+## Implementation slices
 
-| Slice | Dependencies | Exclusive paths | Acceptance |
-| --- | --- | --- | --- |
-| R0 reset and release admission | published annotated Baton tag + release | all deleted old production/test paths; `go.mod`, `go.sum` | exact package identity recorded; old DB rejected; no old production package remains |
-| R1 Baton seam/conformance | R0 | `internal/baton/**` | package self-check and portable fixtures pass through built harness |
-| R2 journal kernel | R0 | `internal/journal/**` | schema, command idempotency, claims, receipts, uncertain barrier, read-only tests |
-| R3 exact Git boundary | R0 | `internal/gitx/**` | isolated worktrees, candidate validation, old/new/third CAS corpus |
-| R4 fake/process boundary | R0 | `internal/driver/**` | external fake, fresh read-only mode, limits, quiescence, sealed receipts |
-| R5 runtime walking skeleton | R1-R4 | `internal/runtime/**`, `cmd/sworn/**` | one track reaches distinct assembly verification and exact Merge |
-| R6 crash and real-binary proof | R5 | package-local tests plus one `test/e2e/**` harness if needed | every registered edge passes all crash cuts and restart-twice proof |
+| Slice | Owner paths | Acceptance |
+| --- | --- | --- |
+| R0 reset/admission | deleted old tree, module files, CI | exact RC2 identity/assets; old DB rejected |
+| R1 Go Baton compatibility | `internal/baton/**` | all seven actions, validators, goldens, portable fixtures |
+| R2 journal | `internal/journal/**` | strict schema, idempotency, claims, uncertainty |
+| R3 Git boundary | `internal/gitx/**` | isolation, object identity, atomic old/new/third corpus |
+| R4 proxy/process/fake | `internal/driver/**` | shared envelope, external fake, containment, receipts |
+| R5 walking skeleton | `internal/runtime/**`, `cmd/sworn/**` | exact one-track authority, assembly, integration |
+| R6 crash/conformance | package tests, optional `test/e2e/**` | crash cuts and applicable autonomous evidence |
 
-R1-R4 may run independently after R0 because their production paths do not
-overlap. R5 is the sole composition owner for `cmd/sworn` and runtime wiring.
-R6 does not make opportunistic cross-package fixes: a failure returns to the
-owning slice, is repaired there, and is recomposed.
+R1-R4 may proceed independently after R0. R5 owns composition. A failed R6
+case returns to its owning slice rather than creating a cross-package repair.
+No production behavior precedes its focused failing boundary test.
 
-Shared touchpoints are deliberately few:
+Test order is:
 
-- R0 alone changes `go.mod`, `go.sum`, CI, application ID, and old-tree
-  deletions.
-- `internal/runtime` owns orchestration types; other packages expose their own
-  values rather than editing a shared model package.
-- each owner keeps its fixtures and tests beside its package;
-- only `cmd/sworn` imports all runtime components; and
-- the end-to-end harness consumes the binary and public CLI, not internal
-  package hooks except the compiled test failpoint registry.
+1. release/assets admission and startup self-check;
+2. strict parser, schema, transition, evidence, owner, and seven-action goldens;
+3. new SQLite identity, transaction, lease, receipt, uncertainty, and outbox;
+4. repository binding, quarantine, product identity, exact composition, and
+   atomic multi-ref retry;
+5. common submission envelope and external fake containment;
+6. role output admission, missing/invalid submission, and stale capability;
+7. one-track materialisation, work, composition, assembly, and integration;
+8. generated crash matrix with restart-twice recovery;
+9. portable-kit suite and real autonomous adapter cases applicable to S0/S1;
+10. full tests, race tests, vet, formatting, size/dependency measurements, and
+    `git diff --check`.
 
-## Test-first build order
+## Adjusted budgets and stop gates
 
-1. Release admission tests reject a lightweight tag, missing release evidence,
-   wrong peeled commit/tree, altered package byte, digest mismatch, incomplete
-   fixture manifest, and unknown operation contract.
-2. A built-binary fixture proves the admitted Baton identity and one portable
-   fake-driver operation; only then remove RC1 protocol code.
-3. Journal tests define the seven-table schema, foreign/old DB rejection,
-   private/read-only opens, strict commands, idempotent receipts, atomic effect
-   creation, immutable events, and disabled outbox behavior.
-4. Claim tests prove same-track exclusion, independent-scope eligibility,
-   lease generation/expiry, late-owner rejection, and uncertain-before-retry.
-5. Git tests define repository rebinding rejection, worktree identity, literal
-   path scope, candidate parent/tree/path facts, and old/new/third-value CAS for
-   track, release, and target refs.
-6. Driver tests run the fake as a real child and prove clean environment,
-   bounded output/time/resources, cancellation, descendant death, receipt
-   sealing, writable isolation, and fresh read-only verifier mutation failure.
-7. Runtime tests prove identical Git facts derive identical operation bytes,
-   changed facts force rederive, unknown decisions dispatch nothing, and a
-   transport failure cannot become a Baton verdict.
-8. One-track integration proves mutating operation(s), track verification,
-   release composition, separate assembly verification, and exact target CAS.
-9. Generate the crash matrix from the effect registry and pass every four-cut
-   edge test, including stale target and third-value conflicts.
-10. Run portable Baton engine cases through the built binary, then run
-    `go test ./...`, race tests for journal/runtime, `go vet ./...`, formatting,
-    stripped-size measurement, direct-dependency count, and `git diff --check`.
-
-Production code for each step starts only after its failing boundary test
-exists. A copied old test that passes without new behavior is not evidence.
-
-## Budgets and stop gates
-
-S0/S1 budgets are tighter than the full-release limits:
+The complete Go Baton contract makes the previous 6,000-line and 18 MiB targets
+unrealistic. The reset remains small relative to the 20,443-line kernel:
 
 | Measure | S0/S1 target | Mandatory stop |
 | --- | ---: | ---: |
 | production packages | 6 | 6 |
-| non-generated production Go lines | <= 6,000 | 7,500 |
-| production SQL | <= 350 lines | 500 lines |
-| direct dependencies | 1 (`modernc.org/sqlite`) | 2 without a short ADR |
-| production file length | <= 500 lines | 700 lines |
-| stripped binary | <= 18 MiB target | 25 MiB |
-| journal tables | 7 | 7 without Captain schema review |
-| effect kinds | only edges exercised by S1 | any kind lacking reconciliation/crash corpus |
+| handwritten production Go | <= 10,000 lines | 12,500 |
+| `internal/baton` handwritten Go | <= 4,000 lines | 5,000 |
+| production SQL | <= 350 lines | 500 |
+| direct dependencies | 1 (`modernc.org/sqlite`) | 2 without ADR |
+| production file length | <= 500 lines | 700 |
+| stripped Linux binary | <= 25 MiB | 30 MiB |
+| journal tables | 7 | 7 without Captain review |
+| effect kinds | only S1 observed edges | any without reconciler/crash cuts |
 
-The immutable released Baton package and generated fixture bytes are measured
-separately from handwritten Go, but their size and digest are reported. No
-provider SDK, workflow framework, ORM, migration framework, Git library,
-logging framework, UUID dependency, or generated compatibility layer is
-admitted. IDs and digests use the standard library. SQLite remains the sole
-direct dependency unless measured implementation evidence earns an ADR.
+Embedded released assets and checked-in golden vectors are reported separately
+from handwritten Go. There is no provider SDK, Git library, workflow framework,
+ORM, migration framework, JavaScript runtime, generated compatibility layer,
+or production Node dependency. Exceeding a stop gate pauses for deletion or
+fresh Captain review; it does not invite compressed code.
 
-Exceeding a stop gate pauses implementation for deletion or Captain review; it
-does not invite code compression.
+## Decisions preserved
 
-## Explicit Captain verdicts
+1. Reset all old production packages; port only tested invariants.
+2. Baton records/refs own lifecycle; SQLite owns runtime recovery only.
+3. Implement the complete RC2 deterministic contract in pure Go and verify it
+   against exact released assets/goldens.
+4. Keep one custom Go command service and seven-table SQLite journal.
+5. Reject old databases rather than migrate them.
+6. Keep serial rollback journal and one writer until measurement says otherwise.
+7. Use finite SQLite claims plus Git expected-head checks and OS quiescence.
+8. Keep the fake external and role-neutral.
+9. Require fresh read-only verification and separate assembly verification.
+10. Keep Merge mechanical and engine-owned, including exact composition and
+    atomic terminal record publication.
+11. Keep the outbox optional, bounded, lossy, and non-controlling.
+12. Keep Linux systemd/Bubblewrap containment for production S1.
+13. Defer independent-track concurrency and dependency scheduling evidence to
+    S3 without weakening single-track authority semantics.
 
-1. **Reset versus reuse — RESET.** Delete every current production Go package.
-   Reuse invariant statements only through new focused tests.
-2. **Baton RC2 identity — DEFER.** Do not pin, name, or claim it until both the
-   annotated tag and release exist and their exact bytes pass admission.
-3. **Lifecycle ownership — BATON ONLY.** Sworn stores operation/fact digests,
-   runtime controls, claims, and effects; it does not store Baton work states.
-4. **Runtime architecture — CUSTOM GO + SQLITE.** DBOS, Temporal, LangGraph,
-   and an internal workflow DSL are rejected for S0/S1. The bounded DBOS
-   experiment remains S5 work.
-5. **Database compatibility — CLEAN SCHEMA.** Do not migrate or read the v0.2
-   store as authority. Fail it closed and provide an explicit new-run path.
-6. **SQLite mode — SERIAL ROLLBACK JOURNAL.** Keep one writer,
-   `synchronous=FULL`, and rollback mode until contention measurements justify
-   WAL and its checkpoint lifecycle.
-7. **Claims — SQLITE TRUTH, OS QUIESCENCE PROOF.** Filesystem locks and process
-   supervisors support liveness; they do not replace durable claims. Git CAS
-   remains the final authority for refs.
-8. **Effect granularity — ONE OBSERVABLE EDGE.** Do not journal an entire Baton
-   operation as one ambiguous effect, and do not make a framework of internal
-   syscalls. Journal process, worktree, composition, verification, ref, and
-   cleanup edges that need independent reconciliation.
-9. **Fake driver — EXTERNAL PROCESS.** An in-memory fake cannot prove
-   containment, crash, receipt, or freshness boundaries and is rejected for
-   shared conformance.
-10. **Verifier — FRESH AND READ-ONLY.** A new process and a new read-only
-    worktree are mandatory. Cleanup plus `git status` alone is insufficient.
-11. **Assembly verification — ALWAYS DISTINCT.** A one-track release does not
-    reuse its track verdict; composition is followed by a new invocation.
-12. **Merge — EXACT REF CAS.** S1 creates no merge/squash/rebase commit and no
-    PR. The verified release OID becomes the target OID or integration fails.
-13. **Outbox — LOSSY PROJECTION.** It can duplicate, back off, or drop within a
-    bound and can never control scheduling or recovery.
-14. **Parallel-ready, not a framework — CLAIM KEYS ONLY.** S1 implements
-    track/release/target claim keys now; dependency-ready parallel scheduling
-    and operator controls remain S3.
-15. **S1 containment platform — LINUX SYSTEMD + BUBBLEWRAP.** Rebuild only the
-    contained capabilities needed by the fake and fresh Verifier inside
-    `internal/driver`. Non-Linux execution fails before dispatch; platform
-    generalisation waits for an equivalent crash corpus.
+## Readiness gate
 
-## Implementation readiness gate
+Implementation may begin only after:
 
-Implementation may begin when:
+- the intended annotated RC2 release and exact assets are admitted;
+- a fresh Captain returns `PROCEED` for this corrected design;
+- the approved plan assigns the non-overlapping slices and exact authority refs;
+- initial tests enumerate every S1 effect, action, failure, and reconciler; and
+- base, target, release, track, evidence, and package bindings are recaptured
+  immediately before the first source-changing commit.
 
-- the intended Baton release publication gate is satisfied;
-- R0 records the exact released package evidence without changing these
-  ownership decisions;
-- the externally approved Baton plan assigns the non-overlapping slices above;
-- the initial tests name every S1 effect edge and reconciler; and
-- the base ref and expected release head are rechecked immediately before the
-  first source-changing commit.
-
-If publication changes the Baton operation surface enough to alter package
-ownership, effect granularity, composition semantics, or the test slices, stop
-for an authorised plan revision. Field-name adaptation inside
-`internal/baton` is not such a change; weakening or reimplementing the package
-is.
+If released bytes change package ownership, action semantics, record validation,
+composition, or the shared proxy boundary, stop for an authorised plan
+revision. Field-name translation that preserves exact RC2 behavior stays inside
+`internal/baton`; weakening or partially implementing the contract does not.
