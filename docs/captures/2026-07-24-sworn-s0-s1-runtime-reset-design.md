@@ -255,32 +255,62 @@ work/track/release identity, candidate/product identity, permitted artifact
 kinds, permitted decision/action, workspace mode, freshness, and limits. The
 capability is held by the control endpoint, not serialized into the workspace,
 prompt, input record, model output, or candidate. The proxy accepts at most one
-final submission and binds its digest to the effect receipt.
+final submission, seals its digest to the invocation receipt, and returns no
+Baton action receipt. Submission capture cannot mutate canonical records,
+objects, or refs.
 
-Admission is:
+After the role process exits, admission is:
 
-1. validate strict envelope syntax, size, uniqueness, byte digests, invocation,
+1. prove the complete process tree quiescent and both driver and submission
+   receipts sealed to the same invocation;
+2. validate strict envelope syntax, size, uniqueness, byte digests, invocation,
    and invocation capability;
-2. reread current canonical facts and reject any changed binding;
-3. resolve protected evidence outside the workspace;
-4. pass exact proposed records and opaque admission to the Go Baton facade;
-5. prospectively validate every transition, commit, and ref transaction; and
-6. only then journal and execute the permitted action.
+3. for a writable role, validate and quarantine the finished private candidate;
+   for a Verifier, prove the read-only candidate, manifest, and refs remained
+   exact;
+4. reread current canonical facts and reject any changed binding;
+5. resolve protected evidence and record-root behavioral inertness outside the
+   workspace against that fresh snapshot;
+6. pass exact proposed records and opaque admissions to the Go Baton facade;
+7. prospectively validate every transition, commit, and ref transaction; and
+8. only then journal and execute the permitted action.
 
-For Captain or Verifier, invalid/missing submission yields operational
-`NO_VERDICT`: durable Baton status remains byte-for-byte unchanged. For an
-authoring or mechanical responsibility it is an operational failure with no
-Baton transition. Transport failure is never converted to `FAIL`, `BLOCKED`,
+Any failure before step 8 leaves durable Baton status byte-for-byte unchanged
+and records only a Sworn operational observation. For a Verifier this is
+operational `NO_VERDICT`; for Captain it is no decision and for an authoring or
+mechanical responsibility it is an operational failure. No Captain
+`recordTransition` is attempted without `PROCEED`, `REVISE`, or `ESCALATE`.
+Transport or submission failure is never converted to `FAIL`, `BLOCKED`,
 `PASS`, or `MERGED`.
 
 ## Trusted evidence and opaque admission
 
-The evidence resolver is engine-owned and never mounted or described to an
-agent. Given an exact status and execution profile, it reads protected approval
-and Verifier-dispatch evidence by canonical reference, verifies exact bytes,
-digest, provenance, candidate read-only access, clean/fresh context,
-invocation separation, and profile-specific isolation, then returns immutable
-bytes plus provenance to `internal/baton`.
+The evidence resolver and behavioral-inertness resolver are separate
+engine-owned policy authorities. Neither is mounted or described to an agent.
+Given an exact status and execution profile, the evidence resolver reads
+protected approval and Verifier-dispatch evidence by canonical reference,
+verifies exact bytes, digest, provenance, candidate read-only access,
+clean/fresh context, invocation separation, and profile-specific isolation,
+then returns immutable bytes plus provenance to `internal/baton`.
+
+Product-tree exclusion uses a distinct opaque admission. For every immutable
+commit whose product identity excludes `.baton/releases`, the trusted host
+policy resolver receives exactly:
+
+```text
+kind: baton.record-root-inertness/v1
+repository: canonical repository identity and real path
+record_root: .baton/releases
+commit: exact immutable commit OID
+```
+
+It returns the same exact binding plus only `inert` or `consumed`. The policy
+authority must establish that build, test, package, deploy, hook, and runtime
+behavior at that commit do not consume the record root; an agent assertion is
+not evidence. An unavailable, throwing, asynchronous, malformed, extra-field,
+or mismatched decision fails closed before action. `consumed` is a
+`RECORD_ROOT_CONSUMED` refusal: Sworn cannot exclude the records or admit the
+candidate.
 
 The facade mints an opaque, unforgeable in-process admission bound to:
 
@@ -289,13 +319,15 @@ The facade mints an opaque, unforgeable in-process admission bound to:
 - execution profile (`guided` or `autonomous`);
 - exact resolved evidence bytes/digests and provenance;
 - candidate, candidate tree, product tree, workspace mode, and freshness; and
-- current record-root behavioral-inertness result.
+- the exact repository/root/commit-bound `inert` policy decision.
 
 Admissions are single-snapshot values, never accepted from JSON, the journal,
 the board, a candidate file, or a driver. They are not visible to agents and
 cannot be copied to a changed status or profile. Recovery resolves fresh
-evidence after recapturing refs; a stored evidence digest is diagnostic and
-does not recreate admission.
+evidence and a fresh inertness decision for every required commit after
+recapturing refs. A decision may be cached only inside one facade admission;
+stored evidence or policy digests are diagnostic and never recreate either
+admission.
 
 ## SQLite runtime truth
 
