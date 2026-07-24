@@ -1,269 +1,258 @@
-# Sworn Driver + Observability + Eval Corpus
+# Sworn driver, observability, and evaluation corpus
 
 Date: 2026-07-24
 Track: P2-driver-eval
-Branch base: `release/v0.3.0` at `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f`
+Revision base: `0f219da3b8dfe2207656ad2eb8a5f5bffbeb0bd5`
 
-## Sources and refs
+## Current authorities
 
-### Scope and contract inputs
-- `docs/captures/2026-07-24-sworn-v0.3-greenfield-scope.md`
-- `docs/roadmap.md`
-- `docs/roadmap-drafts/driver-architecture.md`
-- `docs/captured/driver.md`
-- `docs/run.md`
-- `docs/contained-executor.md`
-- `docs/measured-submission.md`
+- Sworn scope:
+  `docs/captures/2026-07-24-sworn-v0.3-greenfield-scope.md`, read in this
+  worktree at the revision base above.
+- Baton process contract:
+  `reference/driver/contract.md` at Baton worktree commit
+  `893f6fe8b6a52cebc8e7ccecc745ed5d138f3184`.
+- Baton engine adapter:
+  `conformance/engine-adapter.md` at the same Baton commit.
+- Executable fake-driver cases:
+  `test/driver/fake-driver.test.mjs` at the same Baton commit.
+- Local executable authority: `codex-cli 0.145.0`, from `codex --version` and
+  the complete current output of `codex exec --help` on 2026-07-24.
 
-### Baton seam and role-driver shape
-- `/home/brad/projects/baton/docs/captures/2026-07-22-baton-v1-rc2-rebuild-plan.md`
-- `/home/brad/projects/baton/docs/captures/2026-07-24-baton-rc2-sworn-coach-parity-execution-charter.md`
+The previously cited `docs/roadmap-drafts/driver-architecture.md` and
+`docs/captured/driver.md` do not exist in this branch and are not authorities.
+No credential or secret file or value was read. Historical v0 implementation
+is not an implementation base for this greenfield line.
 
-### Prior driver artifacts (for reusable translation patterns)
-- `internal/adapter/codex.go` (this tree)
-- `internal/adapter/codex_test.go`
-- `internal/adapter/codex_boundary_linux_test.go`
+## Contract decision
 
-### Historical Baton references (adapter history)
-- `/home/brad/projects/fired/baton-install-backup/baton/runtime-drivers.md`
-- `/home/brad/projects/fired/baton-install-backup/bin/bats/test_dispatch_driver_contract.bats`
-- `/home/brad/projects/fired/baton-install-backup/bin/bats/test_driver_codex.bats`
-- `/home/brad/projects/fired/baton-install-backup/bin/bats/test_driver_claude_cli.bats`
-- `/home/brad/projects/fired/baton-install-backup/bin/test-driver-live.sh`
+Every driver is an executable implementing exactly:
 
-### Open driver/credential design references
-- `/home/brad/projects/fired/baton-install-backup/opencode/commands/drivers/codex.sh`
-- `/home/brad/projects/fired/baton-install-backup/opencode/commands/drivers/oai-compat.sh`
-- `/home/brad/projects/fired/baton-install-backup/opencode/skills/baton/runtime-drivers.md`
-- `/home/brad/projects/sworn-internal/docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`
-- `/home/brad/projects/sworn-internal/docs/strategy/2026-06-30-aws-agentcore-intersection.md`
-- `/home/brad/projects/sworn-internal/docs/strategy/2026-06-30-telemetry-eval-transport.md`
+```text
+driver info
+driver run < request.json > result.json
+```
 
-No credential or secret file was read.
+`info` emits one strict object containing only `contract_version`, `driver_id`,
+and `driver_version`. `run` reads one strict
+`baton.driver-request/v1` object from stdin and emits one strict
+`baton.driver-result/v1` object to stdout. Exit zero means a valid result was
+emitted, including a typed transport failure. Non-zero means stdout is empty.
+Stderr diagnostics are bounded and contain no credentials or request contents.
 
-## Required corpus goals
+The request fields are exactly:
 
-- Single shared, parallel-executable corpus for S2/S4/S5 without provider-specific orchestration.
-- No model/provider defaulting or fallback in any role path.
-- Explicit driver and model selection per role.
-- Deterministic fake and live-smoke split with the same request/result contract.
-- Transport outcome recorded separately from Baton outcome.
-- Deterministic run behavior in Verifier: read-only command, bounded output, bounded memory, cancellable.
-- OTel as opt-in and explicit allow-listing, privacy-safe by construction.
-- Eval corpus usable by low-cost model for coverage and strongest model for critical translation edges.
+- `schema_version`;
+- `invocation_id`;
+- `role`;
+- `operation` with exact `id`, `version`, canonical SHA-256 `digest`, and raw
+  `instructions`;
+- `model`, an explicit non-empty string or deliberate `null`;
+- `workspace` with absolute `path` and `read_only | read_write` access;
+- `inputs`, an ordered list of unique `name`, repository-relative `path`, and
+  raw-byte SHA-256 `digest`;
+- `fresh_context`; and
+- `limits` with positive `timeout_ms` and `output_bytes`.
 
-## 1) Deterministic fake driver corpus (local-first)
+The result fields are exactly `schema_version`, request `invocation_id`,
+`driver_id`, `driver_version`, non-empty-or-null `observed_model`,
+non-negative `duration_ms`, optional reported `usage`, bounded `text`, and one
+`transport_status`:
 
-### 1.1 Fake server contract
-- `test/fake_drivers` owns a local HTTP endpoint that accepts a minimal Baton-compatible request envelope and returns deterministic JSON.
-- Request correlation uses `run_id`, `candidate_id`, `role` and `trace_id` fields.
-- Behavior is purely deterministic per `(transport_case, seed, input_hash)`.
+```text
+completed | transport_error | timeout | cancelled | runner_error
+```
 
-### 1.2 Golden responses
-For each role/driver combo, fixed outputs are required:
-- `ok`: valid final result object.
-- `no_result`: transport returns no choice tokens but valid envelope.
-- `error`: transport returns structured fatal error object.
-- `bad_stream`: stream/frame syntax violation and recovery expectations.
-- `error_max_turns`: max-turns limit exceeded before completion.
+`completed` is transport-only. The engine separately validates the returned
+text into the required Captain decision, Verifier verdict, proof, or Merge
+handoff before any Baton transition. A transport failure cannot become a Baton
+verdict or outcome. No extra result fields are admitted.
 
-### 1.3 Verifier assertions on fake
-- Verifier command must be read-only (`-R`, `--readonly`, non-writing working directory, no mutation of candidate artifacts).
-- Request object is canonicalized before sending: no provider-specific defaults inserted.
-- Result parser accepts missing usage as `usage=unknown` (never coerces to zero).
-- Missing/invalid usage is captured as `usage_status=unknown` with explicit test assertion.
+The only roles are `planner`, `implementer`, `captain`, `verifier`, and
+`merge`, bound respectively to the canonical operations `baton-plan`,
+`baton-implement`, `baton-design-review`, `baton-verify`, and `baton-merge`.
+The engine explicitly selects a driver executable/configuration and a model
+for each invocation. Driver selection is not an added request field. The same
+driver implementation serves all five roles.
 
-## 2) CLI shape corpus (headless/yolo/ephemeral)
+Drivers translate one invocation. They never schedule, choose defaults, retry,
+fall back, rotate providers, or reinterpret roles. Sworn owns dispatch,
+cancellation, timeout, retry policy, fresh process isolation, and workspace
+access outside model instructions.
 
-### 2.1 Codex CLI
-- Headless mode required and asserted through CLI args, for example:
-  - `codex run --accept-feedback --yes --sandbox read-only --workdir <dir> --format json --output <tmp>/result.json --`
-- Codex must be run in deterministic mode (single-shot request input file, no interactive prompt dependencies).
-- Response parser must verify `usage` if present and treat missing/empty usage as unknown.
+## Deterministic corpus
 
-### 2.2 Claude CLI shape
-- The harness must invoke a Claude CLI-like executable through driver abstraction with explicit model + role args.
-- Record a truthful, test-controlled gate: **no local Claude account available in this environment for live execution**.
-- Fake path remains required for all non-live paths and must enforce read-only/no-persistence constraints.
+All cases run without network access or credentials. Every named driver
+(`baton.fake`, Codex CLI, Claude Code CLI, OpenAI-compatible, DeepSeek profile,
+Gemini, and Bedrock) must pass the same case IDs through its real process
+adapter, using a fake CLI process or fake HTTP server behind that adapter.
+Results are recorded per driver; one adapter's result cannot satisfy another.
 
-### 2.3 OpenAI-compatible HTTP driver shape
-- HTTP JSON payload shape is provider-normalized.
-- URL, model, headers, timeout, retries are configuration-driven but never defaulted by role.
-- Transport outcome includes `transport_status`, `http_status`, and `parse_status` independent of Baton result.
+| ID | Required observation |
+|---|---|
+| P01 | `info` has exactly the three contract fields and one JSON object. |
+| P02 | All five roles use one executable; operation tuple, explicit model, workspace access, input order/digests, freshness, and limits survive translation exactly. |
+| P03 | Duplicate names, trailing JSON, unknown/missing fields, relative workspace, duplicate inputs, stale/substituted operation bytes, and role/operation mismatch fail closed. |
+| P04 | Each of the five transport profiles emits exactly one valid bound result with exit zero; optional usage is absent, not zero, when unreported. |
+| P05 | `completed` contains no verdict, outcome, proof, Merge fact, or freshness claim; engine handoff validation is a separate assertion. |
+| P06 | Invalid command/request, crash, missing result, extra stdout, and result-binding mismatch are protocol failures with empty result and bounded diagnostics. |
+| P07 | Output is capped at `limits.output_bytes`; deadline and cancellation reach the child/HTTP request and stop further work. A killed process cannot fabricate a result. |
+| P08 | No default, fallback, retry, provider rotation, role-derived model, or provider scheduling occurs. A deliberate null model remains null in the contract case. |
+| P09 | A seeded implementation task produces the exact expected file digest and bounded final handoff, rather than only returning a completion envelope. |
+| P10 | Verifier starts as a new process in a read-only workspace; attempted mutation fails and candidate/ref digests remain unchanged. |
 
-### 2.4 DeepSeek profile
-- Separate model profile entry point with explicit provider model map and no fallback from base OpenAI-compatible profile.
+The canonical Baton fake itself is a process fixture, not HTTP:
+`driver info` and `driver run` use strict stdin/stdout JSON. Its deterministic
+profiles are exactly the five transport statuses above. The corpus reuses
+Baton's valid request/result fixtures and process crash, missing-result, and
+stderr-noise boundaries.
 
-### 2.5 Gemini driver shape
-- Explicit provider profile with JSON schema for role/task framing.
-- Non-streaming transport in fake/live default path unless streaming test explicitly enabled.
+For native Codex and Claude adapters, a controlled fake executable validates
+argv/stdin, performs the seeded implementation attempt through the contained
+workspace, emits bounded native-shaped output, blocks until cancelled when
+asked, and attempts a forbidden write in P10. Native production CLIs retain
+their own agentic tool loops; Sworn does not reproduce or interpret their tool
+calls.
 
-### 2.6 Bedrock signing/protocol boundary
-- Bedrock tests are protocol-boundary tests only in this tree:
-  - request signing input serialization,
-  - canonical payload hash,
-  - required headers,
-  - reject-path for missing credentials/region/profile without network use.
-- Live credential-gated smoke is deferred until credential environment exists (see provider questions below).
+HTTP providers use one shared, small allowlisted workspace-tool loop. The fake
+server drives a deterministic read, patch, allowlisted check, and final
+response. Tests cap tool-call count, per-call and aggregate bytes, command
+allowlist, repository-relative path containment, elapsed time, and final
+output. Cancellation prevents the next tool call. Read-only access rejects
+patches. Provider adapters only translate authentication, messages, tool
+calls, usage, cancellation, and errors into the common loop/result.
 
-## 3) Common request/result matrix (role-neutral driver contract)
+DeepSeek is a named configuration profile over the OpenAI-compatible runner
+interface. It has no special lifecycle, implicit header behavior, fallback, or
+retry path. Gemini and Bedrock have translation/signing fixtures but return the
+same process result shape. Synthetic configuration and fake signing inputs
+exercise credential rejection without reading credentials.
 
-### 3.1 Roles and explicit selections
-No default model/provider is allowed. Each role in each test case must provide all fields:
-- `role`
-- `driver`
-- `model`
-- `provider_profile`
-- `max_tokens`
-- `timeout_ms`
-- `output_budget`
+## Versioned native CLI argv
 
-| Role | Request object minimum | Transport outcome assertions | Baton outcome assertions |
-|---|---|---|---|
-| planner | `{goal, constraints, context_refs}` + driver explicit selection | `transport_status` present; parse/HTTP statuses asserted separately | `status in {ok,no_result,error,error_max_turns,bad_stream}` |
-| architect | same fields + `design_scope` | timeout/cancel semantics explicitly asserted | `status` and `result` deterministic vs fake goldens |
-| implementer | same fields + `patch_id` | bounded output byte cap validated | parse to `ok` with bounded output + no side effects |
-| verifier | same fields + `read_only=true` | process executes with read-only executor contract | no fs mutation and read-only error on write attempts |
+The Codex adapter test fixture is named `codex-exec-argv/v0.145.0` and compares
+this ordered argv exactly after placeholder substitution:
 
-### 3.2 Shared success/failure matrix
+```text
+[
+  "codex", "exec",
+  "--dangerously-bypass-approvals-and-sandbox",
+  "--ephemeral",
+  "-C", "${workspace}",
+  "--json",
+  "-o", "${engine_control_dir}/last-message",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "--model", "${model}",
+  "-"
+]
+```
 
-| Case | Input class | Expected Baton status | Transport status expectation | Notes |
-|---|---|---|---|---|
-| happy path | complete JSON + explicit role model | `ok` | `transport_status=transport_ok` | parse/status mapped to Baton status only |
-| empty completion | valid envelope, empty assistant content | `no_result` | transport parse OK | verifies semantic no-result path |
-| usage missing | usage omitted | `ok` or `error` depending parser policy | `usage_status=unknown` | never convert to zero |
-| max turns | long iterative fake stream | `error_max_turns` | transport ok; transport stop cause surfaced |
-| stream corrupt | invalid chunk frame | `bad_stream` | transport parse failure recorded separately |
-| timeout | budget exceeded | `error` (verifier-level) or provider-level transport reason | `transport_status=timeout` |
-| cancel | explicit cancellation signal | `error` | transport status includes cancel reason |
-| invalid role | undefined role | `error` | contract rejects before driver selection |
+The Baton instructions are supplied on stdin. JSONL stdout and the
+engine-owned, bounded last-message file are captured by the adapter; neither
+is the driver's stdout result until parsed and validated. The fixture rejects
+the unsupported `codex run`, `--accept-feedback`, `--yes`, `--workdir`, and
+`--format` spellings, reordered/extra argv, `resume`, and a missing explicit
+model.
 
-## 4) Provider-specific translation cases
+The bypass flag is permitted only inside Sworn's external containment. For
+Verifier, the executor mounts/provides the candidate workspace read-only,
+places the control output outside it, starts a new OS process without resume,
+and proves no candidate or ref mutation. `--ephemeral`,
+`--ignore-user-config`, and `--ignore-rules` prevent session persistence and
+unrelated configuration/rules, but CLI flags are not accepted as proof of
+read-only isolation or freshness.
 
-| Provider profile | Mapping focus | Test fixture | Expected output fields | Expected rejects |
-|---|---|---|---|---|
-| deterministic-fake | schema-only pass-through | local fixture file | `content`, optional `usage`, `finish_reason` | malformed payloads and bad streams |
-| codex-cli | CLI argv + JSON parser shape | fixed fixture | `run.exit_code`, `stdout_payload`, `stderr` | interactive mode flags or missing required args |
-| claude-cli | role-aware wrapper | fake wrapper fixture | `status`, `message`, `usage` optional | missing local account context |
-| oai-compatible | endpoint + auth + model body | fake HTTP server | standardized result object | provider error objects preserved as transport errors |
-| deepseek-compat | same as oai-compatible + profile header | profile fixture | compatible normalized result | unknown profile id rejected |
-| gemini | provider key profile + framing | fake fixture | `role`, `model`, `completion` | unsupported response shape |
-| bedrock-boundary | signer and request envelope | signer fixture | signed_request metadata | missing region/profile/retries contract |
+Claude argv is admitted only after its installed version/help is captured and
+an ordered executable fixture is added. This document does not guess it. The
+current lack of a configured Claude account makes its live smoke `NOT RUN`;
+the deterministic Claude adapter corpus remains mandatory.
 
-## 5) Fake-server / live-smoke separation
+## Live-smoke separation
 
-### Fake-server suite (always runnable)
-- Deterministic matrix above.
-- Uses local stub binary/server only.
-- No external network, no secrets, no credentials.
-- Verifier read-only semantics and output bounds enforced.
+Live smokes are a separate credential-gated suite. Gate requirements,
+credential injection, endpoint restrictions, and account readiness come from
+explicit driver configuration, not hard-coded or guessed environment-variable
+names. Tests use an opaque fake gate resolver and never inspect a credential
+file or value.
 
-### Live-smoke suite (credential-gated)
-- Skipped unless `*_CREDENTIAL` and `*_ENDPOINT` gates are set.
-- One test per provider class: codex/claude/oai-compatible/bedrock/gemini/DeepSeek profile.
-- Must assert exact CLI argv/model/driver for each role.
-- Failure mode must be explicit when gates missing (not skipped silently with pass reason only).
-- Bedrock live smoke remains boundary-first; no claim in corpus that transport has been validated without real credentials.
+Each configured smoke proves only the actual external boundary: selected
+driver/model, authentication handoff, one bounded invocation, cancellation
+wiring, and parseable contract result. It does not inherit deterministic
+corpus evidence or prove Baton approval, implementation quality, isolation,
+recovery, or integration.
 
-## 6) Versioned CLI argv assertions
+The live report uses the engine-conformance vocabulary `PASS | FAIL | NOT RUN`.
+A missing gate, account, executable, or supported live boundary is `NOT RUN`,
+never PASS or a deterministic-corpus failure. Release evidence lists the gate
+state for every named driver independently.
 
-Every role+driver test fixture must include exact argv assertions:
-- `driver`
-- `binary`
-- `--accept-feedback` / equivalent acceptance flags
-- timeout/retry values
-- read-only enforcement flags
-- output redirection path
-- model argument
-- format argument (`json`/provider equivalent)
-- env allowlist keys
+## Local evaluation record
 
-Examples are represented as versioned schema fixtures (v1, v1.1, v1.2) and must be compared in-order during tests.
+The local corpus record contains corpus/case version; run, candidate, and
+invocation IDs; Baton and Sworn versions; role and operation; configured
+driver/model and observed driver/model; workspace access/freshness; exact
+transport status; process exit; duration; reported-usage presence and values;
+output byte count/truncation; tool count/cap/cancellation facts; candidate
+before/after digests; handoff kind/validation/digest; and live
+`PASS | FAIL | NOT RUN` where applicable. Unknown usage stays unknown.
 
-## 7) OTel span/metric field allowlist and forbidden telemetry
+Measures include delivery and exact-integration rate, false green/red,
+blocked/no-verdict rate, transport-status rate, protocol rejection, output
+truncation, cancellation latency, tool-cap/path/read-only violations, handoff
+validation, reported-usage coverage, elapsed/orchestration time, verifier
+disagreement, repair effectiveness, and results by version/driver/model/case.
+Local records are authoritative evaluation inputs, not OTel control truth.
 
-### Allowed OTel fields
-- `trace_id`, `span_id`
-- `service.name`, `service.version`
-- `baton.run.id`, `baton.role`, `baton.provider`, `baton.driver`, `baton.model`
-- `transport.name`, `transport.phase`, `transport.status`
-- `outcome.category` (`transport|baton`)
-- `timing.ms`, `attempt`
-- `limits.max_tokens`, `limits.timeout_ms`, `output.bytes`
+## OTel allowlists and failure behavior
 
-### Explicitly forbidden fields
-- raw credentials, token/secrets/API keys
-- full user prompts or raw source code snippets
-- file paths containing absolute local paths under workspace
-- evaluator evidence blobs, stdout/stderr contents in full
-- exact command lines with secrets substituted
-- `candidate_diff` or other high-cardinality raw content
+Telemetry is disabled by default, explicitly opt-in, asynchronous, bounded,
+lossy, and backed by a no-op default. Queue overflow and exporter failure drop
+telemetry and cannot change scheduling, retry, verdict, integration, records,
+exit status, or delivery.
 
-### Telemetry constraints
-- OTel export defaults to disabled.
-- When enabled, export endpoint and headers must be in env allowlist only.
-- Local evaluation results are stored locally (read/write under eval store), never sent as structured truth.
-- Commercial aggregation reads only anonymized summaries; no payload-level prompts/outputs/results.
-- Cardinality caps: provider/driver/model/role at fixed enum cardinality, bounded `attempt` numeric bucketing only.
+Span attributes may include service name/version; run, candidate, and
+invocation IDs; role; operation ID; driver ID/version; configured/observed
+model; transport status; attempt; duration; output bytes; and usage-known.
+Run, candidate, and invocation IDs are never metric labels.
 
-## 8) Eval schema and measures
+Metric labels are limited to fixed low-cardinality values: role, operation ID,
+driver family, transport status, usage-known, and bounded outcome category.
+Model, driver version, case ID, error text, attempt number, and all identities
+are excluded from metric labels.
 
-### Core schema fields
-- `run_id`, `candidate_id`, `role`, `driver`, `model`, `provider`
-- `request_hash`/`request_size_bytes`
-- `transport_status`, `baton_status`, `usage_status`
-- `duration_ms`, `timeout_ms`, `cancelled`
-- `max_output_bytes`, `captured_output_bytes`
-- `read_only_violation` boolean
-- `error_class`, `error_code`
+No prompt, completion, model output, source, diff, proof/evidence body,
+repository or filesystem path, credential, request content, stdout/stderr
+body, raw argv, or tool arguments/results are exported by default. Allowlist
+tests inspect every emitted span/metric and fail on unknown fields or excessive
+label series.
 
-### Measures
-- pass rate by role/driver/model triplet
-- transport failure rate split by status class
-- parse rejection rate
-- max-turn/error rate
-- output truncation rate
-- read-only violation rate
-- usage_coverage (`known|unknown`) and unknown-vs-zero distinction
-- median and p95 latency per provider profile
+## Parallel-safe ownership and model allocation
 
-### Acceptance thresholds for shared corpus
-- fake suite: 100% matrix conformance in parser+status separation.
-- live-smoke: only requires successful invocation for credential-gated providers with clear gate metadata and exact-argv conformance.
+- S2 owns `internal/driver/{contract,fake,codex,claude,process_test}*.go` and
+  `internal/driver/testdata/process/**`; it publishes the shared process
+  harness before S4 consumes it.
+- S4 owns `internal/driver/{http_tool_loop,openai_compatible,deepseek_profile,gemini,bedrock}*.go`
+  and `internal/driver/testdata/http/**`. It consumes but does not edit S2
+  fixtures; contract changes return to S2.
+- S5 exclusively owns `internal/observe` and `internal/observe/testdata`.
+  It consumes immutable driver result records and does not edit S2/S4 files.
+- This capture has one owner during implementation; parallel stages do not
+  edit it concurrently. Integration order is S2 harness, S4 adapters, then S5
+  projections, with each stage committed independently.
 
-## 9) Credential isolation and gating
+Spark owns mechanical strict-JSON matrices, golden fixtures, low-cardinality
+metric checks, redaction checks, and deterministic happy paths. The strongest
+available model owns native argv translation, HTTP tool-loop implementation,
+Bedrock signing edges, cancellation/process-death races, Verifier containment,
+and Captain/Verifier/proof/Merge handoff validation. Both allocations run the
+same deterministic checks; model strength changes task assignment, not gates.
 
-1. No credentials loaded at test declaration time.
-2. Credentials are read only from process env at execution time.
-3. Gate checks happen before transport creation:
-   - required env key exists,
-   - command/endpoint host is allowlisted,
-   - redaction policy in place.
-4. If gate missing:
-   - fake tests run unchanged,
-   - live suites report `SKIPPED_CREDENTIAL_GATED` with explicit provider name and expected env keys.
+## Acceptance
 
-## 10) Parallel-safe ownership plan for S2 / S4 / S5
-
-- `docs/captures/2026-07-24-sworn-driver-observe-eval-corpus.md` is shared source of truth; no other file mutation required in this track.
-- S2 owns fake fixture and test matrix authoring.
-- S4 owns transport status/error translation assertions and protocol boundary cases.
-- S5 owns OTel allow-list, eval schema/metrics, and telemetry gating.
-- Any implementation PR must cite this capture and reuse identical test IDs to avoid duplication.
-
-## 11) Test allocation by workload
-
-1. Small deterministic matrix and protocol fixtures: run on Spark.
-2. Cross-driver translation and cancellation/timeout behavior: run on strongest model.
-3. Live smoke gating/error messaging and protocol boundary for Bedrock signing: run on strongest model with explicit credential note.
-4. OTel cardinality and redaction checklists: run on Spark with targeted assertions.
-
-## 12) Self-review gates (role-driver / managed inference drift)
-
-- If any runner mutates `driver`/`model` defaults before execution: violation.
-- If any mapping logic infers `model` from role: violation.
-- If transport and Baton outcomes are conflated: violation.
-- If usage missing is normalized to zero: violation.
-- If Verifier can write outside read-only policy: violation.
-- If telemetry transmits local prompt/result/evidence/credentials: violation.
-
+The capture is satisfied only when every named driver passes P01-P10, each
+configured live smoke reports its own truthful status, Codex argv matches the
+0.145.0 fixture byte-for-byte, Verifier containment is externally proven,
+engine validation keeps transport separate from Baton handoffs, telemetry
+allowlists/cardinality and failure isolation pass, and parallel owners have no
+overlapping writes.
