@@ -155,12 +155,12 @@ func TestRC2ReleaseAdmission(t *testing.T) {
 	for _, entry := range manifest.Assets {
 		gotPaths = append(gotPaths, entry.Path)
 		body := readFile(t, filepath.Join("snapshot", "assets", filepath.FromSlash(entry.Path)))
-		info, err := os.Stat(filepath.Join("snapshot", "assets", filepath.FromSlash(entry.Path)))
+		info, err := os.Lstat(filepath.Join("snapshot", "assets", filepath.FromSlash(entry.Path)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o644 {
-			t.Fatalf("%s mode = %o, want 644", entry.Path, info.Mode().Perm())
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 != 0 {
+			t.Fatalf("%s mode = %s, want a regular non-executable file", entry.Path, info.Mode())
 		}
 		if int64(len(body)) != entry.Size || digest(body) != entry.SHA256 {
 			t.Fatalf("%s does not match its manifest entry", entry.Path)

@@ -57,9 +57,11 @@ exact closed inventory. The checked-in release identity separately binds:
 
 The generated manifest is itself bound as
 `sha256:74243a42dcbaa65eadac161126e9cfa8710803a136b827dd7001f5648459986c`.
-The admission test treats the 14 paths, modes, sizes, bytes, operation names and
-versions, schema bindings, manifest digest, and publication identity as golden
-metadata.
+The admission test treats the 14 paths, regular non-executable file shape,
+sizes, bytes, operation names and versions, schema bindings, manifest digest,
+and publication identity as golden metadata. The generator replay separately
+proves the tagged Git blob modes. Checkout umask or shared-repository group
+write bits are host policy, not Baton identity.
 
 ### Captain revision
 
