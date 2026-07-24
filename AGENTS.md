@@ -31,4 +31,8 @@ and the truthful board.
 Keep packages aligned with the architecture record. New production dependencies
 need a short ADR explaining ownership, failure behavior, and removal cost.
 Prefer tests at invariant and process boundaries over mocks of internal wiring.
-Run `go test ./...`, `go vet ./...`, and the formatting check before committing.
+The Baton authority root `.baton/releases` is never a product, model, check,
+candidate, or package input. Keep it out of generic walkers and build identity.
+Run `GOFLAGS=-buildvcs=false go test ./...`,
+`GOFLAGS=-buildvcs=false go vet ./...`, and the product-only formatting check
+before committing. Official binaries use `-buildvcs=false -trimpath`.

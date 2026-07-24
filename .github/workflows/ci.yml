@@ -12,6 +12,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -buildvcs=false
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -20,7 +22,10 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Format
-        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+        run: >-
+          test -z "$(git ls-files -z -- '*.go'
+          ':(exclude,top).baton/releases/**'
+          | xargs -0 -r gofmt -l)"
       - name: Test
         run: go test ./...
       - name: Race test
@@ -28,4 +33,4 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Build without CGO
-        run: CGO_ENABLED=0 go build ./cmd/sworn
+        run: CGO_ENABLED=0 go build -buildvcs=false -trimpath ./cmd/sworn
