@@ -78,6 +78,37 @@ func TestSnapshotIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestCleanGitEnvironmentDisablesImplicitFetchAndInheritedAuthority(t *testing.T) {
+	t.Setenv("GIT_DIR", "/untrusted")
+	t.Setenv("GIT_OBJECT_DIRECTORY", "/untrusted")
+	t.Setenv("GIT_NO_LAZY_FETCH", "0")
+
+	values := make(map[string]string)
+	for _, entry := range cleanGitEnvironment() {
+		key, value, found := strings.Cut(entry, "=")
+		if found {
+			values[key] = value
+		}
+	}
+	for key, want := range map[string]string{
+		"GIT_NO_LAZY_FETCH":      "1",
+		"GIT_NO_REPLACE_OBJECTS": "1",
+		"GIT_CONFIG_GLOBAL":      "/dev/null",
+		"GIT_CONFIG_NOSYSTEM":    "1",
+		"GIT_TERMINAL_PROMPT":    "0",
+		"LC_ALL":                 "C",
+	} {
+		if got := values[key]; got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{"GIT_DIR", "GIT_OBJECT_DIRECTORY"} {
+		if _, exists := values[key]; exists {
+			t.Fatalf("clean Git environment retained %s", key)
+		}
+	}
+}
+
 func TestSnapshotReadsCommitNotIndexWorktreeOrReplacement(t *testing.T) {
 	repo, commit := fixtureRepository(t)
 	originalOID := strings.TrimSpace(git(t, repo, "rev-parse", commit+":alpha.txt"))

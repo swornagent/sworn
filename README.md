@@ -1,60 +1,75 @@
 # Sworn
 
-Sworn is being rebuilt as the lean, vendor-agnostic engine for the Baton
-protocol.
+Sworn runs autonomous software delivery with the Baton protocol.
 
-This branch is currently a maintenance bridge. The old v0.2 delivery kernel is
-still present as archaeology, but it is not a supported delivery path:
-
-- `sworn run` stops immediately with a maintenance message;
-- the legacy SQLite `board` stops immediately;
-- the hidden executor shim stops immediately;
-- the old release workflow is disabled; and
-- official builds ignore ordinary Git commit metadata.
-
-This keeps Baton records under `.baton/releases` out of product builds while
-the v0.3 engine replaces the old kernel.
-
-## Available commands
+It gives coding agents clear responsibilities, isolated worktrees, durable
+evidence and exact gates. The model or vendor can change without changing the
+delivery rules.
 
 ```text
+Planner
+   |
+   v
+Implementer --> Captain
+   ^              |
+   +---- revise --+
+   |
+   +---- proceed --> Implementer --> Verifier --> Merge
+```
+
+- The Planner proposes the work.
+- The Implementer designs and builds it.
+- The Captain checks the design before code changes.
+- The Verifier reviews the finished candidate with clean context.
+- Merge is a deterministic engine action, not a model decision.
+
+## Current v0.3 checkpoint
+
+The old v0.2 engine has been removed from the active source tree. Sworn now
+contains one small greenfield foundation and an exact embedded copy of Baton
+`v1.0.0-rc.2`.
+
+The supported product commands at this checkpoint are:
+
+```sh
 sworn version [--json]
 sworn help
 ```
 
-The old SQLite `board` is unavailable during the bridge. It will return as the
-Baton release-and-track oracle rather than exposing the retired control store.
+It validates the compiled Baton package before reporting its exact tag, commit,
+tree, release-archive digest and generated-support digest. `sworn run` and
+`sworn board` return in later v0.3 work after their authority and recovery
+paths are proven.
 
-`sworn board` and `sworn run` will return when the v0.3 Baton loop is ready.
-That loop is being built around five clear responsibilities: Planner,
-Implementer, Captain, clean-context Verifier, and deterministic Merge.
+The previous engine remains available from tag `v0.2.0`, branch `legacy/v0`
+and Git history.
+
+## Source layout
+
+```text
+cmd/sworn         command-line entry point
+internal/baton    embedded protocol and deterministic Baton authority
+internal/runtime  command service, scheduling and recovery
+internal/journal  durable commands, effects, receipts and events
+internal/gitx     exact Git facts and mutations
+internal/driver   common invocation and sealed-submission boundary
+```
+
+The four future seams intentionally contain no placeholder behavior yet.
 
 ## Development
 
-Go 1.26.5 or newer is required. Use the VCS-free commands below so a record-only
-commit cannot change the resulting binary:
+Go 1.26.5 or newer is required.
 
 ```sh
+GOFLAGS=-buildvcs=false \
+  go test ./tools/batonassets/... ./tools/batongolden/... ./cmd/sworn/...
 GOFLAGS=-buildvcs=false go test ./...
 GOFLAGS=-buildvcs=false go test -race ./...
 GOFLAGS=-buildvcs=false go vet ./...
 CGO_ENABLED=0 GOFLAGS=-buildvcs=false \
   go build -buildvcs=false -trimpath ./cmd/sworn
-GOFLAGS=-buildvcs=false \
-  go run -buildvcs=false -trimpath ./cmd/sworn version --json
 ```
 
-The retained internal packages still have regression tests over isolated
-fixtures. Those tests preserve useful archaeology; they do not make the old
-delivery composition available through the shipped CLI.
-
-## Rebuild record
-
-The active scope and bootstrap reasoning are captured in:
-
-- [Sworn Baton record-root bootstrap bridge](docs/captures/2026-07-24-sworn-baton-record-root-bootstrap.md)
-- [Sworn RC2 asset scope](docs/captures/2026-07-24-sworn-s0-rc2-asset-scope.md)
-- [Sworn v0.3 rebuild issue](https://github.com/swornagent/sworn/issues/157)
-
-The v0.2 code remains recoverable from Git history and its release tag. It is
-not the architecture base for v0.3.
+`.baton/releases` holds delivery authority. It is deliberately excluded from
+product copies, archives and binary identity.
