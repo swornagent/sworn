@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 7,
-  "previous_plan": "6f2a908a5eac57ed33bc1364710918caeab34df7",
+  "revision": 8,
+  "previous_plan": "d783c68119ff4c0103cd5b8de730c0adee22ae05",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v7",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v8",
   "tracks": [
     {
       "id": "T0-admission",
@@ -238,7 +238,7 @@
           "id": "W8-parity-release",
           "outcome": "Prove Coach-loop parity and Sworn v0.3 technical readiness through the real binary.",
           "scope": {
-            "include": ["README.md", "cmd/sworn", "docs/releases/v0.3.0", "test/e2e"],
+            "include": ["README.md", "cmd/sworn", "docs/releases/v0.3.0", "internal/driver", "internal/runtime", "test/e2e"],
             "exclude": []
           },
           "acceptance": [
@@ -252,19 +252,19 @@
             },
             {
               "id": "A-W8-journey",
-              "text": "One disposable fixture completes unattended delivery across three tracks, includes a dependency and two serial slices, uses two driver families and distinct configured role models, and finishes with a target tree exactly equal to the passed assembly."
+              "text": "One disposable fixture completes unattended delivery across three tracks, includes a dependency and two serial slices, uses two production driver families through the common configured registry with distinct explicit role models and no scripted submissions, fallback, or substitution, survives restart with the same secret-free configuration identity, and finishes with a target tree exactly equal to the passed assembly."
             },
             {
               "id": "A-W8-drivers",
-              "text": "The real CLI exposes inspect, doctor, and certify for Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, and Bedrock. Each family passes the shared corpus and a credential-backed live smoke with an explicit configured model. NOT CERTIFIED, skipped, substituted, or fallback results fail technical readiness unless the repository owner ratifies an exact named deferral in a revised plan."
+              "text": "The real CLI exposes inspect, doctor, and certify for Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, and Bedrock. Bedrock certifies both the native Runtime Converse/SigV4 surface and the bedrock-mantle OpenAI-compatible Chat Completions surface behind the same role-neutral contract. Mantle reuses the common OpenAI-compatible codec and bounded tool loop while supporting an Amazon Bedrock API key or the standard AWS credential chain; it is an endpoint dialect, not a seventh driver family or a second provider loop. Each family and both Bedrock surfaces pass the shared corpus and a credential-backed live smoke with an explicit configured model. NOT CERTIFIED, skipped, substituted, or fallback results fail technical readiness unless the repository owner ratifies an exact named deferral in a revised plan."
             },
             {
               "id": "A-W8-release",
               "text": "Fresh product-only copies pass full, race, vet, format, and reproducible build checks. Release evidence binds exact product, binary, package, dependency, size, scenario, usage, retry, timing, and quality facts."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "git diff --check"],
-          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
+          "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver certify --all --config \"$SWORN_DRIVER_CONFIG\" --json", "git diff --check"],
+          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "The deterministic fake and scripted manifests remain test and recovery compatibility surfaces and cannot satisfy the production journey or live driver readiness. W8 integrates the existing scheduler and role-neutral driver contract; it adds no second scheduler, provider tool loop, orchestration framework, or dependency. Secrets never enter manifests, journals, evaluation, telemetry, or public diagnostics.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
           "depends_on": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"],
           "consumes": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"]
         }
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v7` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v8` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -341,11 +341,23 @@ and PASS facts. W4 remains the same slice at attempt 8; W6 remains its unchanged
 downstream consumer; W8 has no prior attempt and now proves RC8. No production
 driver behavior, slice identity, or prior PASS is reset.
 
+Revision 8 changes only the still-unattempted W8 release gate. It admits the
+existing driver and runtime product surfaces needed to replace fake-script-only
+dispatch with the already-built common production registry, and makes the
+unattended no-script multi-driver journey and live all-family certification
+explicit. It also certifies both classic Bedrock Runtime and the recommended
+OpenAI-compatible bedrock-mantle endpoint as two dialects behind the same
+Bedrock family and common tool loop. W0 through W6 retain their contracts,
+attempts, candidates, products, and PASS facts. W8 remains the same unattempted
+slice. No prior PASS, slice identity, scheduler, provider loop, or dependency is
+reset or added.
+
 # Scope
 
-Included are the complete local engine, six production driver profiles, safe
-parallelism and recovery, the terminal/browser cockpit, public local operations
-surfaces, evaluation, opt-in OTel, and executable Coach parity.
+Included are the complete local engine, six production driver families,
+classic and Mantle Bedrock endpoint dialects, safe parallelism and recovery,
+the terminal/browser cockpit, public local operations surfaces, evaluation,
+opt-in OTel, and executable Coach parity.
 
 Excluded are managed inference, hosted credentials, the hosted control plane,
 publication, and speculative website claims.
@@ -373,8 +385,9 @@ track.
 # Checks
 
 Each slice runs its listed focused checks. W8 repeats the full, race, vet,
-format, reproducibility, and real-binary parity suites. A worker exit or command
-success is never evidence for a Baton verdict.
+format, reproducibility, real-binary parity, and credential-backed all-family
+certification suites. A missing driver configuration, skipped or substituted
+profile, worker exit, or command success is never evidence for a Baton verdict.
 
 # Constraints
 
