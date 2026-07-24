@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 2,
-  "previous_plan": "007c91dbbda143ac98fed48cace5757cd05107a0",
+  "revision": 3,
+  "previous_plan": "46ceee57f0e2135839befbed8789c2c695aade97",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v2",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v3",
   "tracks": [
     {
       "id": "T0-admission",
@@ -134,7 +134,7 @@
           "id": "W4-topology-recovery",
           "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
           "scope": {
-            "include": ["cmd/sworn", "internal/journal", "internal/runtime", "test/e2e"],
+            "include": ["cmd/sworn", "internal/baton", "internal/journal", "internal/runtime", "test/e2e"],
             "exclude": []
           },
           "acceptance": [
@@ -151,7 +151,7 @@
               "text": "Replanning appends an approved plan revision, preserves the release and unchanged slice identities, and invalidates only changed slices and actual consumers. It never resets or locks an otherwise valid slice set."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
           "constraints": ["Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
           "consumes": ["W3-walking-skeleton"]
