@@ -1,11 +1,11 @@
 # Approach
 
-Bind this work to admitted plan
+Bind this revision to admitted plan
 `sha256:cf6e9103219c76a12834fbaf1eb9da8576b765dfe0602ebe416e756ed8ca10f8`,
 approval
 `sha256:1cf79386fa391d93c19e03abe322e0425455967bec5a03785a046356b8aa2a0c`,
-and the clean materialized T2 head
-`3665ed05a6a0b1744eda4dad0f35b2903222daaa`. W2 changes only
+and the clean current T2 authority head
+`d1f2bb62e011a0e14ccee4a73cd2f91115346fc6`. W2 changes only
 `internal/driver`. It establishes one role-neutral process, submission, and
 receipt boundary for W3 and W5; it does not advance Baton state or implement a
 provider.
@@ -28,10 +28,13 @@ provider.
    `baton-merge`.
 3. Preserve Baton's limits: at most 1,048,576 request bytes, 262,144 operation
    instruction bytes, 256 ordered uniquely named and uniquely pathed inputs,
-   timeout from 1 through 86,400,000 milliseconds, and result text from 1
-   through 1,048,576 bytes. IDs, semantic versions, digests, canonical
-   repository-relative input paths, canonical absolute workspace paths, and
-   JSON integers receive closed validators matching the RC2 reference.
+   timeout from 1 through 86,400,000 milliseconds, request
+   `limits.output_bytes` from 1 through 1,048,576, and result `text` from 0
+   through 1,048,576 bytes. An empty result string is valid; the positive
+   minimum applies only to the request limit. IDs, semantic versions, digests,
+   canonical repository-relative input paths, canonical absolute workspace
+   paths, and JSON integers receive closed validators matching the RC2
+   reference.
 4. Keep the portable codec wider than Sworn production dispatch. It accepts all
    five role values and an explicit non-empty model or deliberate JSON `null`,
    as Baton requires. A direct conformance invocation exercises `merge` with
@@ -73,13 +76,16 @@ schedule, retry, reconcile, interpret Baton state, or own lifecycle.
   `<workspace>/.sworn-inputs/v1/` projection. Every request input path used by
   Sworn production dispatch must be beneath that prefix. Portable codec tests
   remain able to validate Baton's generic repository-relative fixture paths.
-- Before start, W2 rejects an existing tracked or filesystem
-  `.sworn-inputs` prefix, a symlink or non-regular staged input, a duplicate or
-  reordered input, a path escape, and any byte-count or digest mismatch. It
-  stages at most 256 files, 1,048,576 bytes per file, and 8,388,608 bytes in
-  aggregate in a private directory, then mounts that directory read-only into
-  the disposable workspace view. The reserved prefix is never eligible for
-  candidate capture.
+- Before start, W2 uses only filesystem and mount observations to reject an
+  existing `.sworn-inputs` entry or mount conflict, a symlink or non-regular
+  staged input, a duplicate or reordered input, a path escape, and any
+  byte-count or digest mismatch. It stages at most 256 files, 1,048,576 bytes
+  per file, and 8,388,608 bytes in aggregate in a private directory, then mounts
+  that directory read-only into the disposable workspace view. W2 does not run
+  Git, inspect tracked/untracked/ignored entries, establish product-only
+  workspace provenance, or decide whether the reserved prefix is eligible for
+  candidate capture. W1/W3 own those Git/product facts and reserved-prefix
+  capture exclusion before and after invocation.
 - On Linux, a small Bubblewrap launch profile creates the mount/PID namespace,
   an empty home and temporary directory, a fixed locale/timezone/PATH, no
   inherited environment, and no network for the fake. A read-only invocation
@@ -196,7 +202,9 @@ values through the same code. Its explicit per-process profile is one of
 Every profile exits zero with one valid bound result; `completed` echoes the
 explicit model, reports duration zero and observed token zeros, while the other
 profiles omit usage. Text is fixed by profile/role and truncated safely to the
-request limit.
+request limit. A digest-bound conformance script may select the distinct
+contract-valid completed variant with `text:""`; this does not add a sixth
+transport profile.
 
 For sealed-handoff tests and W3 fixtures, an optional canonical fake script is
 itself an ordered digest-bound file in the read-only input overlay. It selects
@@ -249,7 +257,9 @@ wire result and seal bytes.
   instructions.
 - **The workspace is caller-supplied but mount-minimal.** W3 must provide a
   disposable private workspace. W2 proves what it mounts and rejects reserved
-  paths; it does not create canonical Git worktrees or import candidates.
+  filesystem/mount conflicts only; it does not query Git, establish
+  product-only provenance, exclude a path from candidate capture, create
+  canonical Git worktrees, or import candidates. W1/W3 own those facts.
 - **Provider secrets stay out of generic configuration.** W2 deliberately
   supplies only opaque references and a clean launch environment. W5 must add
   typed provider-specific resolution and independently prove its credential
@@ -283,6 +293,10 @@ wire result and seal bytes.
   `.sworn-inputs/v1` data among repository/engine material. Conflicting
   `.sworn-inputs`, record-root, journal, resolver, canonical-worktree, engine
   log, inherited-environment, and sibling-invocation canaries remain absent.
+  Filesystem file/directory/symlink and mount conflicts at `.sworn-inputs` fail
+  before start, while an instrumented boundary proves W2 invokes no Git command
+  and performs no tracked/ignored-entry query. W1/W3 tests separately own
+  product provenance and candidate-capture exclusion.
 - Exercise every submission permission row with exact accepted bytes, then
   swap role, invocation, artifact order/kind, decision, operation, driver/model,
   input digest, and endpoint. Each swap rejects without an eligible handoff.
@@ -297,11 +311,13 @@ wire result and seal bytes.
   process, no result/seal after cancellation, and only an operational
   observation.
 - Run completed, transport-error, timeout, cancelled, runner-error, child
-  crash, non-zero-with-stdout, zero-without-result, malformed JSON, duplicate
-  object, extra stdout, oversized stdout/stderr/text, partial submission frame,
-  and rejected submission cases. Only one clean `completed` result plus one
-  accepted bound seal can release a handoff; none creates a Baton verdict in
-  W2.
+  crash, a valid completed result with `text:""`, non-zero-with-stdout,
+  zero-without-result, malformed JSON, duplicate object, extra stdout,
+  oversized stdout/stderr/text, partial submission frame, and rejected
+  submission cases. The empty-text case must parse and bind successfully; an
+  empty stdout stream remains a missing-result failure. Only one clean
+  `completed` result plus one accepted bound seal can release a handoff; none
+  creates a Baton verdict in W2.
 - Test usage `{0,0}`, positive safe integers, absent usage, negative/float/
   overflow values, partial cost triples, zero reported cost, bad currency,
   forbidden estimated source, and unavailable cost. Canonical receipt bytes
@@ -314,7 +330,7 @@ wire result and seal bytes.
 | Envelope drift | Unknown/missing/duplicate fields, role-operation mismatch, self-consistent replacement instructions, reordered/duplicate inputs, path escape, extra result fields, and changed RC2 golden bytes fail closed. |
 | Cross-talk | Parallel invocations cannot exchange result IDs, submission endpoints, permissions, scripts, staged inputs, models, or seals; no descriptor leaks to a sibling child. |
 | Secret leakage | Raw-key config fields are rejected; a canary in the parent environment, hostile stdout/stderr, malformed output, and fake input is absent from returned errors, diagnostics, receipts, and serialized observations. |
-| Malformed output | Empty, multiple, invalid-UTF-8, trailing, partial, oversized, wrong-driver/model/invocation, and non-zero-with-output cases return no result or eligible seal. |
+| Malformed output | Empty stdout, multiple objects, invalid-UTF-8, trailing, partial, oversized, wrong-driver/model/invocation, and non-zero-with-output cases return no result or eligible seal; a single valid result whose `text` is empty succeeds. |
 | Cancellation and bounds | Deadline, explicit cancellation, output overflow, control-frame overflow, and blocked descendants terminate the whole process tree within the test bound and leave a read-only workspace unchanged. |
 | Deterministic replay | Strict encode/decode is byte-stable; identical submission replay returns the original seal bytes; conflicting replay cannot replace it; repeated fake request/profile/script produces identical result, usage, and seal bytes. |
 
@@ -336,3 +352,11 @@ The approved plan and admitted Baton RC2 driver contract are authority. The
 Coach, driver/evaluation, runtime-reset, and v0.2 captures informed failure
 tests only; no legacy package, provider implementation, lifecycle, journal,
 cockpit, or telemetry design is carried forward.
+
+Revision 2 produced by
+`codex:/root/w2_driver_implementer/sworn-v0.3.0/T2-driver/W2-driver-core/design/2`
+after Captain `REVISE`. It corrects RC2 result `text` to allow 0 through
+1,048,576 bytes while retaining the positive request output limit and an
+explicit empty-text conformance case. It also contracts W2's
+`.sworn-inputs` responsibility to filesystem/mount conflict checks and assigns
+Git provenance plus reserved-prefix candidate-capture exclusion to W1/W3.
