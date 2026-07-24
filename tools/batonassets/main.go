@@ -104,8 +104,8 @@ func parsePaths(raw string) ([]string, error) {
 		return nil, errors.New("paths JSON is not valid UTF-8")
 	}
 	var paths []string
-	if err := json.Unmarshal([]byte(raw), &paths); err != nil || paths == nil {
-		return nil, errors.New("paths must be one JSON array of strings")
+	if err := json.Unmarshal([]byte(raw), &paths); err != nil || len(paths) == 0 {
+		return nil, errors.New("paths must be one non-empty JSON array of strings")
 	}
 	for i, value := range paths {
 		if err := validatePath(value); err != nil {
@@ -347,7 +347,7 @@ func publish(out, commit string, assets []asset, rename func(string, string) err
 		}
 		digest := sha256.Sum256(item.data)
 		entries = append(entries, manifestEntry{
-			Path: item.path, Size: int64(len(item.data)), SHA256: fmt.Sprintf("%x", digest),
+			Path: item.path, Size: int64(len(item.data)), SHA256: "sha256:" + fmt.Sprintf("%x", digest),
 		})
 	}
 	body, err := json.Marshal(manifest{Schema: manifestSchema, Commit: commit, Assets: entries})

@@ -42,10 +42,19 @@ func TestSnapshotIsDeterministic(t *testing.T) {
 	alphaDigest := sha256.Sum256([]byte("committed alpha\n"))
 	scriptDigest := sha256.Sum256([]byte("#!/bin/sh\nexit 0\n"))
 	wantManifest := `{"schema":"sworn.baton-assets/v1","commit":"` + commit +
-		`","assets":[{"path":"alpha.txt","size":16,"sha256":"` + hex.EncodeToString(alphaDigest[:]) +
-		`"},{"path":"scripts/run.sh","size":17,"sha256":"` + hex.EncodeToString(scriptDigest[:]) + `"}]}` + "\n"
+		`","assets":[{"path":"alpha.txt","size":16,"sha256":"sha256:` + hex.EncodeToString(alphaDigest[:]) +
+		`"},{"path":"scripts/run.sh","size":17,"sha256":"sha256:` + hex.EncodeToString(scriptDigest[:]) + `"}]}` + "\n"
 	if got := string(firstTree["manifest.json"]); got != wantManifest {
 		t.Fatalf("manifest mismatch:\ngot  %q\nwant %q", got, wantManifest)
+	}
+	var decoded manifest
+	if err := json.Unmarshal(firstTree["manifest.json"], &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range decoded.Assets {
+		if len(entry.SHA256) != 71 || !strings.HasPrefix(entry.SHA256, "sha256:") {
+			t.Fatalf("asset digest is not canonical: %q", entry.SHA256)
+		}
 	}
 	if got := firstTree["assets/alpha.txt"]; !bytes.Equal(got, []byte("committed alpha\n")) {
 		t.Fatalf("alpha bytes = %q", got)
@@ -100,6 +109,7 @@ func TestSnapshotReadsCommitNotIndexWorktreeOrReplacement(t *testing.T) {
 func TestParsePathsRejectsMalformedAndTrailingJSON(t *testing.T) {
 	cases := []string{
 		``,
+		`[]`,
 		`null`,
 		`{}`,
 		`["alpha"] trailing`,
