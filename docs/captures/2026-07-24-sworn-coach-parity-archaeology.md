@@ -1,149 +1,192 @@
 # Coach-loop parity archaeology baseline
 
-Date: 2026-07-24  
-Branch: `prep/v0.3.0-coach-parity`  
-Head: `6ab7dc251ff4cac23cdbffa9cd1a828961efe61f`
+Date: 2026-07-24
+Status: corrected after Captain `REVISE`
+Branch: `prep/v0.3.0-coach-parity`
+Revision base: `9bb29e7c33a782a797c503a23c3ee25da9dee026`
 
-## 1) Exact commits/paths inspected
+## Authority and evidence discipline
 
-- Local Sworn repo baseline:
-  - `docs/captures/2026-07-24-sworn-v0.3-greenfield-scope.md` @ `6ab7dc25`, `aa95b3da`, `ccde1ebe`, `969157ad`, `6fab4f43`
-  - `docs/captures/2026-07-24-sworn-coach-parity-archaeology.md` (this file)
-  - `docs/roadmap.md` @ `6fab4f43`, `bcc31d9c`, `221ee4c8`, `3601bb82`, `74d4bf3c`, `af1c9696`
-- `docs/adr/0001-greenfield-v1-kernel.md` @ `6fab4f43`, `65f00c35`, `eeda9731`, `03522666`
-- `docs/adr/0006-current-authority-controller.md` @ `8f01b2ab`, `3f3e2ecb`, `a7b1f75e`, `af1c9696`, `74d4bf3c`
-- `docs/adr/0007-native-agent-boundary.md` @ `bcc31d9c`, `3601bb82`
-- `docs/releases/v0.2.0.md` @ `6ab7dc25`
-- `AGENTS.md` @ `6fab4f43`, `03522666`
-- Historical loop sources from Fired installation mirror:
-  - Container git for this inspection: `/home/brad/projects/fired` @ `592c9f91ddb5003da6c108bcfed6c2087a8d2751`
-  - `.../baton-install-backup/opencode/commands/captain-dispatch.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/captain-route.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/captain-prepare.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/coach` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/coach-loop` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/coach-ntfy-bridge.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/release-board-status.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/release-board-ui.mjs` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/lib/release-board.mjs` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - `.../baton-install-backup/opencode/commands/release-verify.sh` @ not git-anchored in this workspace (file evidence from `/home/brad/projects/fired` snapshot)
-  - Drivers from the mirror:
-    - `.../baton-install-backup/opencode/commands/drivers/codex.sh` @ not git-anchored in this workspace (snapshot)
-    - `.../baton-install-backup/opencode/commands/drivers/claude-cli.sh` @ not git-anchored in this workspace (snapshot)
-    - `.../baton-install-backup/opencode/commands/drivers/oai-compat.sh` @ not git-anchored in this workspace (snapshot)
-    - `.../baton-install-backup/opencode/commands/drivers/ollama-native.sh` @ not git-anchored in this workspace (snapshot)
-    - `.../baton-install-backup/opencode/commands/drivers/completion.sh` @ not git-anchored in this workspace (snapshot)
-- Internal strategy memory (for rebuild direction):
-  - `.../sworn-internal/docs/captures/2026-06-24-baton-v0.4.0-opencore-session-handoff.md` @ `ba8aac4`, `b568e99`, `449e110`
-  - `.../sworn-internal/docs/captures/2026-06-28-synthesis-and-forward-plan.md` @ `a1d7b07`, `449e110`
-  - `.../sworn-internal/docs/captures/2026-06-28-session-handoff.md` @ `a1d7b07`
-- Internal strategy docs:
-  - `.../sworn-internal/docs/strategy/2026-06-12-baton-extraction-scope.md` @ `449e110`
-  - `.../sworn-internal/docs/strategy/2026-06-13-baton-mvp-launch-spec.md` @ `449e110`
-  - `.../sworn-internal/docs/strategy/2026-06-14-swornagent-reference-implementation-no-orchestration-segment.md` @ `449e110`
-  - `.../sworn-internal/docs/strategy/2026-06-15-swornagent-mvp-pivot-e2e-native-turnkey.md` @ `449e110`
+The ratified authority is the complete Baton course-correction capture:
 
-Missing path requested but not present: `/home/brad/projects/fired/docs/releases` (directory does not exist in current filesystem).
+`/home/brad/projects/baton/docs/captures/2026-07-22-baton-v1-course-correction.md`
 
-## 2) Recovered topology and user experience (verified vs inferred)
+The target acceptance authority is:
 
-- Verified: Topology is worktree/branch based:
-  - Track-level worktrees are explicit in board metadata (`worktreePath`, `worktreeBranch`).
-  - `release-wt/<release>` branch carries release-wide composition and completion metadata.
-  - Track ownership is tracked by branch (`track/<release>/<track-id>`) and index track field.
-  - Slice state is read from branch-scoped `status.json`, with fallback to release-wt and working tree only when needed.
-- Verified: Single oracle drives all scheduling decisions:
-  - `release-board.mjs` is the branch-aware oracle for terminal and web views.
-  - Both `release-board-status.sh` and `release-board-ui.mjs` render from that oracle (same truth).
-  - `captain-dispatch.sh` filters actionable slices by track-order, state, dependencies, and touchpoint collisions.
-  - `captain-route.sh` drives transitions for each state (`planned`, `design_review`, `implemented`, `failed_verification`, `verified`, merge gates).
-- Verified: Recovered control flow (reference journey):
-  - Planner creates/replans release (`/plan-release`, `/replan-release`) and sets tracks.
-  - Implementer runs `/implement-slice` -> writes progress, can reach `design_review` and `implemented`.
-  - Captain reviews via `/review-tldr`, emits `review.md` and enforces ACK/DECLINE contract.
-  - Verifier runs `/verify-slice` in fresh context and writes verdict (pass/fail/blocked, violations, pending).
-  - Merge path performs `/merge-track` and then `/merge-release` after all tracks are merged into `release-wt`.
-  - Coach loop pauses for human intervention when required (`PAGE`, blocked, ack decisions, ship).
-- Verified: Recovery and orchestration behavior in loop:
-  - One scheduler per track (parallel mode), one worker per active track; coordinator and worker manifests/logging.
-  - pause / resume / retry / take/attach semantics exposed by `coach` commands and `coach-loop` state files.
-  - In-flight / orphan protections for `in_progress`, stale `verification.result=pending`, and merge gating via git ancestry.
-- Verified: User experience surfaces:
-  - Terminal: `coach` command center (`status`, `next`, `dispatch`, `board`, `workers`, `log`, `pause`, `resume`, `loop`).
-  - Web: `release-board-ui.mjs` (live-ish board, next-command hints, per-slice drill-down, worker panel).
-  - Phone: `coach-ntfy-bridge.sh` with command grammar `status|review|ack|decline|note|note!|pause|resume|loop`.
-  - Gate/instrumentation: deterministic board view, event/log trails, worker metrics (cost/duration), per-slice evidence links.
-- Inferred (not directly confirmed in this run): exact behavior of some planner/operator command implementations (`plan-release`, `implement-slice`, etc.) that live as runtime role prompts/agents outside the inspected script set; inferred from orchestrator contracts.
+`docs/captures/2026-07-24-sworn-v0.3-greenfield-scope.md`
 
-## 3) Feature-by-feature mapping to v0.3 stages and Gate 9
+The strict pre-Sworn cutoff is Fired commit `386d4589`. The current
+`baton-install-backup` snapshot is an accreted endpoint, not a baseline.
 
-| Stage | Feature | Baseline recovery | Sworn v0.3 parity intent |
-|---|---|---|---|
-| S0 | Branch reset / evidence seam | Verified (scope doc + v0.2 release notes): pinned baseline and documented release cutover sequencing | Preserve pinned Baton snapshot + protocol evidence gating; no mixed claims about RC2+ parity before evidence |
-| S1 | Single-track correctness | Inferred/supplemented by `coach-loop` sequential defaults and state machine | Keep as first runnable track in isolated S0 track; then fan out |
-| S2 | Native CLI roles | Verified: Codex/Claude/OAI/ollama/OAI-comp compat drivers, role-specific invocation | Keep role-independent driver contract; per-role model selection remains configurable |
-| S3 | Coach topology + recovery | Verified: `coach-loop`, `captain-route`, `captain-dispatch`, release-wt/track model | Implement one track + one worker per track, deterministic routing, orphan/CRASH recoveries, pause/resume/takeover, merge gating |
-| S4 | HTTP/cloud variants | Inferred: presence of HTTP-compatible driver in scope and driver files | Retain adapter surface but defer hardening to real integration tests |
-| S5 | Observability | Verified: worker manifests/events logs, board UI metrics, `top`/`workers` command | Preserve operator-readable evidence + measurable metrics (cost, duration, retries) with optional telemetry |
-| S6 | Cockpit (terminal/web) | Verified: status/board/workers commands + dashboard UI + ntfy bridge | Keep terminal + embedded web overlay for live control, replay-safe over restart |
-| S7 | Parity proof | Verified: acceptance gate 9 defined in scope; explicit S06/M07 lessons in internal docs | Publish scenario-level parity matrix + measured evidence bundle before claiming `ready` |
-| S8 | Public cutover | Verified: explicit post-S7 release-readiness prerequisite in scope | Only update public product surface after gate-9 completion |
+Exact Fired evidence inspected with `git show`:
 
-### Gate 9 mapping (to parity evidence)
+- `e984d658`: the four `baton/role-prompts/*.md` files; `commands/implement-slice.md`,
+  `merge-track.md`, and `merge-release.md`; `bin/lib/release-board.mjs`;
+  `bin/release-board-status.sh`; and `bin/release-board-ui.mjs`.
+- `5d836ed6`: the `bin/coach` and `bin/coach-loop` change that removed tmux and
+  dispatched fresh inline role processes.
+- `2c8ce241`: changes to the release index template, Planner prompt,
+  `merge-track.md`, and `verify-slice.md` separating authored plan membership
+  from authoritative `status.json` state and derived views.
+- `0c7b1460`: the `bin/coach-loop` and `commands/review-tldr.md` ACK/DECLINE
+  triage change. This is later behaviour, not the canonical Captain contract.
+- `b7654a30`: `baton/runtime-drivers.md` and
+  `bin/bats/test_dispatch_driver_contract.bats`, which define and exercise one
+  common process driver boundary.
+- `124265bd`: commit metadata and `baton/runtime-drivers.md`; this is
+  multi-provider compatibility evidence, not a source fork point.
+- `386d4589`: the exact product-split change in
+  `apps/docs/content/docs/captures/2026-06-13-baton-mvp-launch-spec.md`.
 
-- Gate 1: “real autonomous-engine cases” → must run old-logic scenarios against rebuilt scheduler.
-- Gate 2: real multi-track completion → run multi-track unattended to `merge-release`.
-- Gate 3: all drivers pass shared deterministic/live smoke → codex/claude + one cloud driver minimum.
-- Gate 4: verifier freshness + containment → fresh-context verifier semantics with immutable artifacts.
-- Gate 5: recovery at all external-effect edges → kill/restart loop+workers paths.
-- Gate 6: terminal/web truth during restart/failure → board/worker overlays remain consistent.
-- Gate 7: telemetry fault-tolerant → optional projection only.
-- Gate 8: no unratified gap in parity matrix → every row below must be either “implemented” or explicitly deferred.
-- Gate 9: measured delta (time/token/retry/quality) vs preserved baseline runbook.
+The lineage meaning and recovery choice below come from the ratified capture;
+they are not inferred from filenames. Historical timing, token, retry, and
+quality baselines remain unknown until a preserved run is executed. Fired
+release documentation, when needed, must be resolved under the canonical
+`/home/brad/projects/fired/apps/docs/content/docs/releases` path; the former
+root `docs` path may be a symlink or branch-dependent.
 
-## 4) What should not be carried forward into Sworn
+## Ratified lineage and recovery formula
 
-- The private Bash loop orchestration itself (`coach-loop`, `coach`) as production implementation; recreate as kernel-native behavior instead of embedding private scripts.
-- Opaque/private operational details that depend on fired-specific machine state (e.g., `~/.claude` project corpus assumptions, local credential hosts).
-- The legacy “memory-search” semantic retrieval that depends on a fixed personal Ollama host corpus.
-- Scrub-sensitive shell-topic/host leakage patterns that were only incidentally present in legacy scripts.
-- The exact bash interpreter heuristics that were tied to old host/environment behavior (replace with explicit typed state transitions in Go).
-- Any claim of Baton RC2 or later marketing claims without corresponding parity evidence in v0.3 bundle.
+| Commit | Ratified contribution | Treatment |
+|---|---|---|
+| `e984d658` (27 May) | Earliest recoverable five-responsibility loop, role prompts, commands, Git oracle, terminal board, read-only WebUI | Architecture evidence |
+| `5d836ed6` (29 May) | Removes tmux; each responsibility is a fresh inline dispatch | Process-isolation evidence |
+| `2c8ce241` (29 May) | Stateless board; authored plans separated from sole machine-authoritative work state | Baseline semantics |
+| `0c7b1460` (30 May) | Calibrated autonomous Captain triage | Evidence only; do not restore ACK/DECLINE as the Captain contract |
+| `b7654a30` (10 June) | One role-independent runtime-driver contract for every responsibility | Baseline boundary |
+| `124265bd` (14 June) | Fuller multi-provider and model-rotation behaviour | Compatibility evidence only |
+| `386d4589` (14 June) | SwornAgent name and Baton/Sworn product split ratified | Strict cutoff; exclude it and everything after |
 
-## 5) Missing evidence (explicit gaps)
+Recovery formula:
 
-- Exact current versions of `plan-release`, `implement-slice`, `merge-track`, `merge-release`, and `review-tldr` command implementations are not fully recovered from this snapshot (only caller/oracle behavior is captured).
-- Legacy exact driver matrix for all cloud adapters is partially implied (not fully enumerated in inspected files).
-- `release-wt` and `track/*` garbage-collection lifecycle timing across very long-running sessions was only partially evidenced.
-- Concrete historical timing/latency baselines for gate-9 metrics require a runnable baseline run dataset.
+> Rebuild the May 29 stateless loop and board semantics, add only the June 10
+> common role-independent driver boundary, and treat surrounding code as
+> archaeology.
 
-## 6) Executable S7 parity scenarios (measurable)
+There is no pristine fork commit and no permission to copy the historical Bash
+loop into the greenfield kernel.
 
-These are acceptance tests to execute against the rebuilt Sworn v0.3 loop against a fixture repo.
+## Canonical responsibility flow
 
-1. Multi-track dependency+parallel dispatch
-   - Run one release with at least 2 tracks and one `depends_on` track edge.
-   - Expected: only non-blocked tracks dispatch initially; dependent track remains idle until prerequisite track merged into `release-wt`.
-   - Measure: no invalid `/implement-slice` dispatched against dependency-gated slices; wall time to dependent dispatch.
+```text
+Planner -> proposed bounded plan -> external authorization
+        -> Implementer design -> stop
+        -> Captain
+             PROCEED  -> resumed Implementer build + exact evidence
+             REVISE   -> resumed Implementer design revision
+             ESCALATE -> human decision or authorized replan
+        -> fresh, read-only Verifier
+             PASS       -> exact composition / Merge
+             FAIL       -> Implementer repair
+             BLOCKED    -> Planner or human specification decision
+             no verdict -> operational retry or attention
+        -> Merge only the exact passed candidate
+```
 
-2. One-worker-per-track isolation
-   - Add two independent slices in separate tracks and run orchestrator with parallel enabled.
-   - Expected: max one active worker per track, no inter-track working-tree conflicts.
-   - Measure: worker manifest count equals track count; no shared-track double occupancy.
+Captain returns only `PROCEED`, `REVISE`, or `ESCALATE` against the design
+revision. Late `/review-tldr` ACK/DECLINE handling is not the role baseline.
+`BLOCKED` means the specification or authority must change; timeout, transport
+failure, or process death produces no verdict. Verifier freshness is a clean
+context with no implementation transcript, and read-only containment is
+mandatory.
 
-3. Crash-orphan recovery
-   - Kill process mid `/implement-slice`; restart loop.
-   - Expected: orphaned `in_progress` slice is resumed; progress continues to `implemented` then `verified` where appropriate.
-   - Measure: recovery time-to-resume and no duplicate conflicting dispatch to same slice.
+For Sworn multi-track delivery, exact passed track candidates compose serially
+into one immutable assembly candidate. A distinct fresh, read-only assembly
+Verifier must pass that exact commit before exact Merge to the unchanged target.
 
-4. Verifier freshness + stale pending
-   - Force a verifier crash to leave `implemented` with `verification.result=pending`.
-   - Expected: next route re-dispatches verifier and stale verdict is overwritten by new run.
-   - Measure: count of pending verdicts returns to 0 after successful retry.
+## Baseline parity boundary
 
-5. Merge sequence strictness
-   - Complete all slices in Track A but leave Track B unmerged.
-   - Expected: no `/merge-release` until every tracked branch is ancestry-merged into `release-wt`; route goes through pending merge-track.
-   - Measure: command sequence `merge-track*` occurrences precede first `merge-release`.
+Carry forward:
 
-Unresolved archaeology question (still open): whether historical runbooks include a canonical numeric budget for acceptable stale/retry thresholds by scenario (e.g., max acceptable retries and max stale-branch tolerance) that should be carried as hard gate criteria.
+- bounded plan authority; Implementer design/build separation; Captain design
+  decision; fresh adversarial verification; exact composition and Merge;
+- committed `status` plus Git facts as delivery truth, with authored plan
+  membership separate and terminal/WebUI views sharing one read-only oracle;
+- one common driver contract with per-role runner and optional model selection;
+- operational failure distinct from Baton verdict, and restart recovery through
+  durable, idempotent command/effect paths.
+
+Do not treat later active mission-control actions, large provider scripts,
+model rotation, platform copies, ntfy, memory-search, or extra artefacts as
+baseline parity. The v0.3 cockpit, provider adapters, evaluation, and optional
+telemetry remain Sworn product scope, but must be rebuilt behind the greenfield
+boundaries rather than justified as historical essence.
+
+## Mapping of all nine v0.3 acceptance gates
+
+| Gate | Required parity proof | Concrete evidence |
+|---|---|---|
+| 1 | Real binary passes Baton autonomous-engine cases | Case IDs, binary/version/digest, pass/fail totals, and zero false protocol verdicts |
+| 2 | Real multi-track repo integrates unattended | Track/candidate/assembly/target commits and trees; final tree equals exact passed assembly |
+| 3 | Every named driver passes shared corpus and configured live smoke | Driver, configured and observed model, case totals, transport result, and nullable usage/cost |
+| 4 | Verifier freshness and read-only containment | Fresh invocation receipt, immutable candidate/proof digests, and zero verifier writes |
+| 5 | Recovery covers every external-effect boundary | Fault point matrix, effect/receipt identities, retry counts, and zero duplicate uncertain effects |
+| 6 | Terminal and WebUI stay truthful through restart/failure | Both views match the same Baton projection and durable runtime snapshot before and after restart |
+| 7 | Telemetry cannot affect delivery | Identical candidate, verdict, Merge result, and exit status with export disabled, failing, and backpressured |
+| 8 | Useful Coach parity matrix has no unratified gap | Every row links ratified authority plus executable evidence, or an explicit authorized deferral |
+| 9 | Baseline delta is measured | Elapsed/orchestration time, protocol tokens, artefact count, retries, and quality with denominators |
+
+Gate 9 values are recorded per scenario and in aggregate. Missing provider
+usage, cost, or historical baselines are `unknown`/null, never numeric zero.
+Zero is reserved for an observed zero.
+
+## Executable S7 parity scenarios
+
+All scenarios run through the real `sworn` binary against disposable fixture
+repositories. Evidence binds the Baton package/version, Sworn binary/version,
+scenario input digest, configured and observed driver/model, exact commits and
+trees, invocation/command/effect receipts, verdicts, timings, retries, and
+nullable usage/cost.
+
+1. **Timeout / no verdict.** Force a role process past its configured deadline.
+   Expect bounded termination and operational `NO_VERDICT`, with no `PASS`,
+   `FAIL`, or `BLOCKED`. Measure deadline, observed duration, exit/signal,
+   attempts, and zero protocol verdicts.
+2. **Process death recovery.** Kill Sworn at every journaled external-effect
+   edge, restart, and reconcile. Expect the same command receipt on replay, no
+   blind retry while outcome is uncertain, and eventual progress or explicit
+   operational attention. Measure recovery latency and unique effect executions.
+3. **Stale target.** Move the target after assembly `PASS` but before Merge.
+   Expect compare-and-swap refusal, no Merge receipt, and no target mutation by
+   Sworn. Record expected and observed target commits and exactly one refusal.
+4. **Verifier `FAIL` and repair.** Verify candidate C1 as `FAIL`, resume its
+   Implementer to produce C2, and invoke a fresh Verifier. Expect only C2 to
+   become eligible after `PASS`; C1 never composes. Record both candidate/proof
+   digests, two fresh invocation IDs, repair duration, and verdict sequence.
+5. **`BLOCKED` specification.** Give the Verifier an acceptance ambiguity that
+   cannot be decided from current authority. Expect `BLOCKED` routed to Planner
+   or human, no automatic repair/retry, and no Merge. Record blocker bytes and
+   zero runtime-failure classification.
+6. **Composition conflict.** Make two otherwise ready tracks modify the same
+   composition hunk. Expect serial composition to stop, preserve the prior
+   release ref, record conflicting paths, and skip assembly verification and
+   Merge. Measure one conflict receipt and zero release-ref advances.
+7. **Fresh assembly verification.** Compose at least two exact passed track
+   candidates, including one dependency edge. Expect a new immutable assembly
+   commit, a distinct clean read-only Verifier invocation, then Merge of exactly
+   that passed commit. Record track, assembly, verifier, and final target
+   identities; verifier write count must be zero.
+8. **Multi-driver and per-role models.** Complete an unattended multi-track run
+   with at least two driver families and different configured role models using
+   the same driver contract. Expect each receipt's observed driver/model to
+   match configuration with no silent fallback. Report corpus cases per
+   driver/model; unreported tokens/cost stay unknown.
+9. **Truthful restart views.** Capture terminal and WebUI projections, kill
+   Sworn with active and uncertain work, restart, and reconnect from snapshot
+   plus event offset. Expect identical Baton stage/status/role/outcome and
+   durable runtime facts, then only evidence-backed advancement. Measure zero
+   phantom transitions and zero view disagreements.
+10. **Telemetry non-interference.** Repeat the same deterministic run with
+    telemetry disabled, exporter failure, and sustained backpressure. Expect
+    identical candidate/assembly/target digests, verdicts, receipts, and exit
+    status. Record dropped/exported counts and delivery delta of zero; unknown
+    telemetry/provider values remain null.
+
+## Remaining evidence gaps
+
+- No runnable preserved historical dataset yet supplies Gate 9 timing, token,
+  retry, artefact, or quality numbers.
+- The required live-smoke evidence remains credential-gated and must be
+  reported per configured driver without silent substitution.
+- Exact long-run thresholds are v0.3 acceptance choices unless ratified
+  authority is found; archaeology alone cannot invent them.
