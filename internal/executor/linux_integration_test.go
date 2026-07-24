@@ -441,33 +441,40 @@ func TestLinuxExecutorEngineDeathStopsServiceCgroup(t *testing.T) {
 	assertCgroupEmpty(t, controlGroup, 8*time.Second)
 }
 
-func TestBuiltSwornBinaryProvidesExecutorShim(t *testing.T) {
-	executor := requireLinuxExecutor(t)
+func TestBuiltSwornBinaryRefusesExecutorShimInMaintenanceBootstrap(t *testing.T) {
 	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(t.TempDir(), "sworn")
-	build := exec.Command("/usr/local/go/bin/go", "build", "-o", binary, "./cmd/sworn")
+	build := exec.Command(
+		"go",
+		"build",
+		"-mod=readonly",
+		"-buildvcs=false",
+		"-trimpath",
+		"-o", binary,
+		"./cmd/sworn",
+	)
 	build.Dir = moduleRoot
+	build.Env = append(os.Environ(), "GOFLAGS=-buildvcs=false", "CGO_ENABLED=0", "GOPROXY=off", "GOSUMDB=off")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build sworn: %v: %s", err, output)
 	}
-	executor.options.ShimArgv = []string{binary, "__executor-shim"}
-	workspace, digest := emptyTestWorkspace(t, executor)
-	completion, err := runHostContained(executor, context.Background(), Invocation{
-		SchemaVersion:   InvocationSchemaVersion,
-		ID:              "integration-built-shim",
-		Role:            "builder",
-		Workspace:       workspace,
-		WorkspaceDigest: digest,
-		WorkspaceAccess: WorkspaceReadOnly,
-		Argv:            []string{"/usr/bin/true"},
-		Network:         NetworkNone,
-		Timeout:         10 * time.Second,
-	})
-	if err != nil || completion.ExitCode != 0 {
-		t.Fatalf("built shim completion=%#v, error=%v", completion, err)
+
+	command := exec.Command(binary, "__executor-shim", "--sworn-start-marker", filepath.Join(t.TempDir(), "sworn.marker"))
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err = command.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("built shim refusal exit = %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("built shim stdout = %q, want no output", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "__executor-shim is unavailable while v0.3 delivery is in maintenance bootstrap") {
+		t.Fatalf("built shim stderr = %q, want maintenance bootstrap refusal", stderr.String())
 	}
 }
 

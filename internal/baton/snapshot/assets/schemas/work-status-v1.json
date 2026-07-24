@@ -1,0 +1,446 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/work-status-v1.json",
+  "title": "Baton work status v1",
+  "description": "The sole durable current projection for one planned work item or assembled release.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "kind",
+    "release",
+    "owner_ref",
+    "authority_ref",
+    "target_ref",
+    "plan",
+    "stage",
+    "status",
+    "next_role",
+    "outcome"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://baton.sawy3r.net/schemas/work-status-v1.json"
+    },
+    "schema_version": {
+      "const": "baton.work-status/v1"
+    },
+    "kind": {
+      "enum": [
+        "work",
+        "assembly"
+      ]
+    },
+    "release": {
+      "$ref": "#/$defs/identity"
+    },
+    "work_id": {
+      "$ref": "#/$defs/identity"
+    },
+    "track_id": {
+      "$ref": "#/$defs/identity"
+    },
+    "owner_ref": {
+      "$ref": "#/$defs/headRef"
+    },
+    "authority_ref": {
+      "$ref": "#/$defs/headRef"
+    },
+    "target_ref": {
+      "$ref": "#/$defs/headRef"
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "approval"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "digest"
+          ],
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/artifactRef"
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      }
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_commit",
+        "dependencies"
+      ],
+      "properties": {
+        "base_commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "dependencies": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "track_id",
+              "frozen_head"
+            ],
+            "properties": {
+              "track_id": {
+                "$ref": "#/$defs/identity"
+              },
+              "frozen_head": {
+                "$ref": "#/$defs/objectId"
+              }
+            }
+          }
+        }
+      }
+    },
+    "stage": {
+      "enum": [
+        "plan",
+        "design",
+        "implement",
+        "verify",
+        "merge"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "blocked",
+        "complete"
+      ]
+    },
+    "next_role": {
+      "enum": [
+        "planner",
+        "implementer",
+        "captain",
+        "verifier",
+        "merge",
+        "none"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "none",
+        "proceed",
+        "revise",
+        "escalate",
+        "pass",
+        "fail",
+        "blocked",
+        "merged"
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "summary"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "producer_invocation"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "producer_invocation": {
+          "$ref": "#/$defs/invocation"
+        }
+      }
+    },
+    "captain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "invocation",
+        "plan_digest",
+        "design_digest"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "proceed",
+            "revise",
+            "escalate"
+          ]
+        },
+        "invocation": {
+          "$ref": "#/$defs/invocation"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "design_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "producer_invocation",
+        "repository",
+        "base_commit",
+        "candidate_commit",
+        "candidate_tree",
+        "product_tree",
+        "plan_digest",
+        "approval_digest",
+        "components"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "producer_invocation": {
+          "$ref": "#/$defs/invocation"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "base_commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "candidate_commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "candidate_tree": {
+          "$ref": "#/$defs/objectId"
+        },
+        "product_tree": {
+          "$ref": "#/$defs/digest"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "approval_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "design_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "captain_invocation": {
+          "$ref": "#/$defs/invocation"
+        },
+        "components": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "track_id",
+              "head"
+            ],
+            "properties": {
+              "track_id": {
+                "$ref": "#/$defs/identity"
+              },
+              "head": {
+                "$ref": "#/$defs/objectId"
+              }
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "invocation",
+        "attestation_ref",
+        "attestation_digest",
+        "plan_digest",
+        "proof_digest",
+        "candidate_commit",
+        "product_tree"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "pass",
+            "fail",
+            "blocked"
+          ]
+        },
+        "invocation": {
+          "$ref": "#/$defs/invocation"
+        },
+        "attestation_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "attestation_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "proof_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "candidate_commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "product_tree": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "passed_candidate",
+        "expected_target",
+        "outcome",
+        "observed_target",
+        "result_commit",
+        "plan_digest",
+        "verification_attestation_digest"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "track",
+            "release"
+          ]
+        },
+        "passed_candidate": {
+          "$ref": "#/$defs/objectId"
+        },
+        "frozen_track_head": {
+          "$ref": "#/$defs/objectId"
+        },
+        "expected_target": {
+          "$ref": "#/$defs/objectId"
+        },
+        "outcome": {
+          "const": "merged"
+        },
+        "observed_target": {
+          "$ref": "#/$defs/objectId"
+        },
+        "result_commit": {
+          "$ref": "#/$defs/objectId"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "verification_attestation_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "work"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "work_id",
+          "track_id"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "work_id"
+              ]
+            },
+            {
+              "required": [
+                "track_id"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identity": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "objectId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "headRef": {
+      "type": "string",
+      "pattern": "^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]{0,240}$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "invocation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    }
+  }
+}

@@ -2,3 +2,5 @@
 *.json text eol=lf
 *.md text eol=lf
 *.go text eol=lf
+/.baton/releases export-ignore
+/.baton/releases/** export-ignore

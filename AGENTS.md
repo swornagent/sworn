@@ -4,7 +4,7 @@ This code line is a greenfield implementation. Never merge or copy v0
 production packages into it. Port an invariant only when a focused test states
 the failure it prevents. The architectural **v1** label and `*-v1` schema or
 reference identifiers are independent of package SemVer; the first packaged
-milestone from this line is v0.2.0.
+milestone from this line is v0.3.0.
 
 Sworn is a small deterministic delivery engine. Native coding-agent CLIs own
 model interaction, tools, and context. Sworn owns authority, isolation, exact
@@ -31,4 +31,8 @@ and the truthful board.
 Keep packages aligned with the architecture record. New production dependencies
 need a short ADR explaining ownership, failure behavior, and removal cost.
 Prefer tests at invariant and process boundaries over mocks of internal wiring.
-Run `go test ./...`, `go vet ./...`, and the formatting check before committing.
+The Baton authority root `.baton/releases` is never a product, model, check,
+candidate, or package input. Keep it out of generic walkers and build identity.
+Run `GOFLAGS=-buildvcs=false go test ./...`,
+`GOFLAGS=-buildvcs=false go vet ./...`, and the product-only formatting check
+before committing. Official binaries use `-buildvcs=false -trimpath`.
