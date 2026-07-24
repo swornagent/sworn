@@ -1,11 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-
-	"github.com/swornagent/sworn/internal/buildinfo"
 )
 
 const usage = `Sworn v0.3 is in maintenance bootstrap.
@@ -18,6 +17,18 @@ Temporarily unavailable:
   sworn board [<run>] [--store <path>] [--json]
   sworn run <run> [<work>] --config <clean-absolute-path> [--json]
 `
+
+const (
+	maintenanceVersion = "0.3.0-dev"
+	maintenanceCommit  = "unknown"
+	maintenanceState   = "maintenance-bootstrap"
+)
+
+type versionInfo struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	State   string `json:"state"`
+}
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "__executor-shim" {
@@ -41,7 +52,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "usage: sworn version [--json]")
 			return 2
 		}
-		if err := buildinfo.Write(stdout, asJSON); err != nil {
+		if err := writeVersion(stdout, asJSON); err != nil {
 			fmt.Fprintf(stderr, "sworn version: %v\n", err)
 			return 1
 		}
@@ -63,4 +74,25 @@ func writeCommandUnavailable(command string, stderr io.Writer) int {
 		command,
 	)
 	return 1
+}
+
+func writeVersion(out io.Writer, asJSON bool) error {
+	info := versionInfo{
+		Version: maintenanceVersion,
+		Commit:  maintenanceCommit,
+		State:   maintenanceState,
+	}
+	if asJSON {
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(info)
+	}
+	_, err := fmt.Fprintf(
+		out,
+		"sworn %s (%s)\nstate %s\n",
+		info.Version,
+		info.Commit,
+		info.State,
+	)
+	return err
 }

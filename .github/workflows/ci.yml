@@ -22,10 +22,14 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Format
-        run: >-
-          test -z "$(git ls-files -z -- '*.go'
-          ':(exclude,top).baton/releases/**'
-          | xargs -0 -r gofmt -l)"
+        run: |
+          set -euo pipefail
+          unformatted="$(
+            git ls-files -z -- '*.go' \
+              ':(exclude,top).baton/releases/**' |
+              xargs -0 -r gofmt -l
+          )"
+          test -z "$unformatted"
       - name: Test
         run: go test ./...
       - name: Race test

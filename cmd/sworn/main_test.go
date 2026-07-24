@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/swornagent/sworn/internal/buildinfo"
 )
 
 func TestVersionJSON(t *testing.T) {
@@ -16,12 +14,12 @@ func TestVersionJSON(t *testing.T) {
 	if code := run([]string{"version", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() code = %d, stderr = %q", code, stderr.String())
 	}
-	var info buildinfo.Info
+	var info versionInfo
 	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
 		t.Fatalf("decode stdout: %v", err)
 	}
-	if info.Version != "0.2.0-dev" {
-		t.Fatalf("version = %q, want 0.2.0-dev", info.Version)
+	if info.Version != maintenanceVersion || info.Commit != maintenanceCommit || info.State != maintenanceState {
+		t.Fatalf("version info = %+v, want maintenance bootstrap identity", info)
 	}
 }
 

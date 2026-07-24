@@ -5,23 +5,36 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"context"
+	gobuildinfo "debug/buildinfo"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestBuiltSwornBinaryRefusesRunAndShimInMaintenanceBootstrap(t *testing.T) {
 	binary := buildSwornForProcessTest(t)
 
 	t.Run("run command refuses", func(t *testing.T) {
-		command := exec.Command(binary, "run", "run-1", "--config", "/tmp/missing-run-config.json", "--json")
+		configPath := filepath.Join(t.TempDir(), "run-config.fifo")
+		if err := syscall.Mkfifo(configPath, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, binary, "run", "run-1", "--config", configPath, "--json")
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err := command.Run()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatal("built run blocked while consuming the configuration path")
+		}
 		assertProcessExit(t, err, 1)
 		if stdout.Len() != 0 {
 			t.Fatalf("built run stdout = %q, want no JSON result", stdout.String())
@@ -35,7 +48,8 @@ func TestBuiltSwornBinaryRefusesRunAndShimInMaintenanceBootstrap(t *testing.T) {
 	})
 
 	t.Run("shim entry point refuses", func(t *testing.T) {
-		command := exec.Command(binary, "__executor-shim", "--sworn-start-marker", filepath.Join(t.TempDir(), "sworn.marker"))
+		marker := filepath.Join(t.TempDir(), "sworn.marker")
+		command := exec.Command(binary, "__executor-shim", "--sworn-start-marker", marker)
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err := command.Run()
@@ -46,6 +60,9 @@ func TestBuiltSwornBinaryRefusesRunAndShimInMaintenanceBootstrap(t *testing.T) {
 		if !strings.Contains(stderr.String(), "__executor-shim is unavailable while v0.3 delivery is in maintenance bootstrap") {
 			t.Fatalf("built shim stderr = %q, want maintenance bootstrap refusal", stderr.String())
 		}
+		if _, err := os.Lstat(marker); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("built shim touched start marker: %v", err)
+		}
 	})
 
 	t.Run("board refuses before opening Baton record store", func(t *testing.T) {
@@ -53,13 +70,18 @@ func TestBuiltSwornBinaryRefusesRunAndShimInMaintenanceBootstrap(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(storePath, []byte(`{"canary":"must-not-be-opened"}`), 0o600); err != nil {
+		if err := syscall.Mkfifo(storePath, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		command := exec.Command(binary, "board", "--store", storePath, "--json")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, binary, "board", "--store", storePath, "--json")
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err := command.Run()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatal("built board blocked while opening the Baton record store")
+		}
 		assertProcessExit(t, err, 1)
 		if stdout.Len() != 0 {
 			t.Fatalf("built board stdout = %q, want no projection", stdout.String())
@@ -70,6 +92,44 @@ func TestBuiltSwornBinaryRefusesRunAndShimInMaintenanceBootstrap(t *testing.T) {
 	})
 }
 
+func TestBuiltSwornBinaryExcludesLegacyOperationalPackages(t *testing.T) {
+	binary := buildSwornForProcessTest(t)
+	output, err := exec.Command("go", "tool", "nm", binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("inspect built symbols: %v: %s", err, output)
+	}
+	for _, packagePath := range []string{
+		"internal/app",
+		"internal/control",
+		"internal/effects",
+		"internal/engine",
+		"internal/executor",
+		"internal/policy",
+		"internal/producer",
+		"internal/protocol",
+		"internal/repo",
+		"internal/store",
+		"internal/workspace",
+	} {
+		if bytes.Contains(output, []byte("github.com/swornagent/sworn/"+packagePath)) {
+			t.Fatalf("official binary retains legacy operational package %q", packagePath)
+		}
+	}
+}
+
+func TestBuiltSwornBinaryHasNoVCSSettings(t *testing.T) {
+	binary := buildSwornForProcessTest(t)
+	info, err := gobuildinfo.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range info.Settings {
+		if strings.HasPrefix(setting.Key, "vcs") {
+			t.Fatalf("official binary retained VCS setting %q=%q", setting.Key, setting.Value)
+		}
+	}
+}
+
 func TestBuiltSwornBinaryTwinBuildReproducibilityIgnoresBatonRecordRoot(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -77,6 +137,17 @@ func TestBuiltSwornBinaryTwinBuildReproducibilityIgnoresBatonRecordRoot(t *testi
 	}
 	plain := copyCandidateModuleToPlainTree(t, root)
 	withRecord := copyCandidateModuleToPlainTree(t, root)
+	for _, repository := range []string{plain, withRecord} {
+		runGitForCandidateCopy(t, repository, "init", "--quiet")
+		runGitForCandidateCopy(t, repository, "add", "--all")
+		runGitForCandidateCopy(
+			t,
+			repository,
+			"-c", "user.name=Sworn Bootstrap Test",
+			"-c", "user.email=sworn-bootstrap@example.invalid",
+			"commit", "--quiet", "-m", "product",
+		)
+	}
 
 	first := filepath.Join(t.TempDir(), "sworn-first")
 	buildOfficialSwornBinary(t, plain, first, "./cmd/sworn")
@@ -88,6 +159,14 @@ func TestBuiltSwornBinaryTwinBuildReproducibilityIgnoresBatonRecordRoot(t *testi
 	if err := os.WriteFile(recordRoot, []byte(`{"status":"maintenance-bootstrap"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	runGitForCandidateCopy(t, withRecord, "add", "--", ".baton/releases/maintenance-bootstrap/status.json")
+	runGitForCandidateCopy(
+		t,
+		withRecord,
+		"-c", "user.name=Sworn Bootstrap Test",
+		"-c", "user.email=sworn-bootstrap@example.invalid",
+		"commit", "--quiet", "-m", "record only",
+	)
 
 	second := filepath.Join(t.TempDir(), "sworn-second")
 	buildOfficialSwornBinary(t, withRecord, second, "./cmd/sworn")

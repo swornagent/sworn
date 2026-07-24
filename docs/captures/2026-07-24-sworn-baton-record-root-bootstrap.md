@@ -39,7 +39,7 @@ state explicit in the README and CLI help. The raw model transcript is
 disposable; this bounded capture and the reviewed Git diff are the durable
 evidence.
 
-## Authoritative candidate evidence
+## First authoritative candidate evidence
 
 The reviewed implementation was transferred onto
 `bootstrap/v0.3.0-record-inertness` at the exact base above. Excluding this
@@ -57,12 +57,11 @@ The authoritative worktree passed:
 - process smokes proving `run`, `board`, and `__executor-shim` all refuse
   before argument paths can be consumed.
 
-`go version -m` reports no VCS settings for the official binary. The focused
-integration tests additionally prove separate-source/fresh-cache twin builds
-are byte-identical and normalized product archive entries are unchanged after
-adding a record-only commit.
+`go version -m` reported no VCS settings for the official binary. These were
+the Implementer's candidate-1 claims; the Verifier later rejected the
+sufficiency of three focused proofs as captured below.
 
-## Authoritative Captain decision
+## First authoritative Captain decision
 
 Decision: `PROCEED`
 
@@ -79,11 +78,65 @@ The independent read-only Captain confirmed:
 5. the README, agent rules, CLI help, and this capture state the narrow
    maintenance boundary truthfully.
 
+## First authoritative Verifier result
+
+Candidate: `51c09b53e1acc01034e9517ca5eb45b2228a135a`
+
+Tree: `7ab58f65a565cb44a967c6a17ba062db111bd0ef`
+
+Verifier invocation: `/root/bridge_verifier_exact`
+
+Verdict: `FAIL`
+
+The clean-context Verifier found four false-green boundaries:
+
+1. the `version` command imported the monolithic legacy protocol package,
+   retaining executor and repository initializers in the shipped binary;
+2. process tests proved refusal text but did not prove that the shim marker or
+   blocking run/board input paths remained untouched;
+3. twin builds used Git-free copies, so they could not detect reintroduced VCS
+   stamping across a record-only commit; and
+4. the CI format command could hide a failing discovery or formatter pipeline.
+
+The Implementer repair removes the legacy import graph from the shipped
+maintenance binary, adds exact linked-package and build-metadata assertions,
+uses blocking path canaries plus an untouched shim marker, commits the
+record-only twin-build mutation, and makes CI formatting fail under pipeline
+errors. Candidate 1 remains immutable failure evidence.
+
+## Replacement candidate evidence
+
+The repair is the exact child of failed candidate 1. Excluding this capture,
+its diff has SHA-256
+`60fc61bacdde73139a3cef04fecf772ab042e6864ef5d52f3f1733fb99269678`.
+
+The replacement passed product-only formatting, full tests, race tests, vet,
+diff checking, and a CGO-free VCS-free trimmed build. The built binary has
+SHA-256
+`85f59f5013fe602b517192b89a42c98df23f8b03c540d70bf4891f83458da9c7`,
+reports `0.3.0-dev` and `maintenance-bootstrap`, has no `vcs.*` build settings,
+and contains no `github.com/swornagent/sworn/internal/` symbol.
+
+## Replacement Captain decision
+
+Decision: `PROCEED`
+
+Captain invocation: `/root/bridge_captain_exact`
+
+The Captain bound the repair to parent
+`51c09b53e1acc01034e9517ca5eb45b2228a135a`, full staged repair digest
+`49f80ac41af2b1b53baa20664409329bb38c08cbb65872475b8f571b695e0b03`,
+and the non-capture digest above. The review confirmed all four Verifier
+findings are addressed without scope escape. The replacement now awaits a
+fresh Verifier verdict.
+
 ## Discovered consumers
 
 Affected binaries and paths are:
 - `sworn run`
 - `sworn __executor-shim`
+- `cmd/sworn/main.go`
+- `cmd/sworn/main_test.go`
 - `cmd/sworn/board.go`
 - `cmd/sworn/run.go`
 - `cmd/sworn/live_delivery_linux_test.go`
