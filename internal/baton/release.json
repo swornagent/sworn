@@ -1,30 +1,30 @@
 {
   "schema": "sworn.baton-release/v1",
-  "package_version": "1.0.0-rc.2",
+  "package_version": "1.0.0-rc.3",
   "source_repository": "https://github.com/sawy3r/baton",
-  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.2",
-  "published_at": "2026-07-24T09:46:02Z",
+  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.3",
+  "published_at": "2026-07-25T05:23:03Z",
   "tag": {
-    "name": "v1.0.0-rc.2",
-    "object": "b80f3e27f0e0a71a4883bcc282e4843e085f0e04",
+    "name": "v1.0.0-rc.3",
+    "object": "34324784694696a38d951061c2313363b405c1e4",
     "object_type": "tag",
-    "peeled_commit": "890238ef063bb53cf51fb3359f1ff527f14846c6",
-    "peeled_tree": "97513f3e6f798f3ad04d5b510a49496a605a8ea4"
+    "peeled_commit": "affaf16cc37f845b5dc43b22988d8b680ff1f212",
+    "peeled_tree": "a26078b7db4ee36bdae4f28a48447ff2df782f4f"
   },
   "archive": {
-    "name": "baton-1.0.0-rc.2.tar.gz",
-    "sha256": "sha256:968088ede0c3bfbafb0a9372d3abbf6853556cc2a6e85ffc25615d6332977e63",
-    "embedded_commit": "890238ef063bb53cf51fb3359f1ff527f14846c6"
+    "name": "baton-1.0.0-rc.3.tar.gz",
+    "sha256": "sha256:4757078049d8e9f0ac3db2aee91e65f8df48f31b0cccf26478343ca3d79d5166",
+    "embedded_commit": "affaf16cc37f845b5dc43b22988d8b680ff1f212"
   },
   "generated_support": {
     "manifest_schema": "baton.generated-adapters/v1",
     "generator_version": "baton.adapter-generator/v1",
     "operation_version": "baton.operation/v1",
-    "package_digest": "sha256:676c630c6a4ef3f752d604efaa5e51958adec0d8580b74cec7fb1e689b1d3436"
+    "package_digest": "sha256:e5927a82f7c8a0daf3aa1196e7aa56231044449bb141cc2d7efd1cc8cca209bd"
   },
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:74243a42dcbaa65eadac161126e9cfa8710803a136b827dd7001f5648459986c",
+    "manifest_sha256": "sha256:b58b3c2f844c0c0b07195c3ef5af8c1819871f11b51d697e06207ad0d4b2ec9c",
     "asset_count": 14,
     "total_bytes": 50387
   },
@@ -82,7 +82,7 @@
       "kind": "conformance_manifest",
       "source": "conformance/manifest.json",
       "version": "baton.conformance-manifest/v2",
-      "sha256": "sha256:3bf2535cc1e92ac132576dd0c646062b9d33a0ba33201823f1d92409a6387a92"
+      "sha256": "sha256:51e31cc623700f6ddba8e18932b816fc981f350f83c5a6ea1e4693d86cbafa98"
     },
     {
       "kind": "work_status",

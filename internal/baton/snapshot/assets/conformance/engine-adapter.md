@@ -30,7 +30,7 @@ The request has exactly:
   "schema_version": "baton.engine-conformance-request/v1",
   "invocation_id": "unique stable string",
   "case_id": "manifest autonomous case id",
-  "baton_version": "1.0.0-rc.2",
+  "baton_version": "1.0.0-rc.3",
   "repository": "/absolute/path/to/temporary/repository",
   "limits": {
     "timeout_ms": 600000
