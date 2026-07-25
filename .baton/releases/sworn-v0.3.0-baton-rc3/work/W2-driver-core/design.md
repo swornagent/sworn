@@ -4,24 +4,26 @@
 
 This revision is for `sworn-v0.3.0-baton-rc3 / T2-driver /
 W2-driver-core`, produced by
-`codex:/root/w2-rc3-design-implementer/sworn-v0.3.0-baton-rc3/T2-driver/W2-driver-core/design/2`.
+`codex:/root/w2-rc3-design-implementer/sworn-v0.3.0-baton-rc3/T2-driver/W2-driver-core/design/3`.
 It binds plan
 `sha256:66dd2c09b538b4eb41783128b3c4d110d10d04124a15f46b2d354858b2409d74`,
 approval
 `sha256:35415561708d3421c1272fbebada8e56748166077313ba1b540ec96736bc7602`,
 authoritative owner head
-`4362f5a0ed44a004981495c858e94af505c1b769`, materialization marker
+`7588b71a9a46c79a0fcf8705b3563bae06c12777`, materialization marker
 `5d4c5eb117087e306be6868103891dc685319528`, base
 `c846e8d8b9c1e054657e4b94dd586c4b8e7afac7`, and frozen T0 head
 `7d925851dc91a4ee324d9fe29c33d631f44d1a56`.
 
-The owner status records v1 design
-`sha256:02e2a0fe66ad4271eb15309b6b230bd7e348639badfb854399614450118e2bd2`
+The owner status records v2 design
+`sha256:a25afc69ac71eff13e6604332bb0492e3b96eb0fba151325292df345969ed554`
 and Captain `REVISE` invocation
-`codex:/root/w2-rc3-design-captain/sworn-v0.3.0-baton-rc3/T2-driver/W2-driver-core/review/1`.
-This revision preserves v1's sound contract, scope, isolation, fake,
-submission, usage, and evidence decisions while replacing the four rejected
-bindings.
+`codex:/root/w2-rc3-design-captain/sworn-v0.3.0-baton-rc3/T2-driver/W2-driver-core/review/2`.
+This revision preserves v2's accepted pins, scope, budgets, mutation
+prevention, W5 ownership, role contract, fake, submission, usage, and
+evidence decisions. It changes only accepted-submit/result ordering and the
+directly affected tests, proof, risks, implementation sequence, and stop
+conditions.
 
 Product and test changes are confined to `internal/driver`. No Baton record,
 journal, resolver, runtime, Git, command, module, or configuration surface is
@@ -158,11 +160,14 @@ There is no Merge permission. Artifact and evidence bytes carry exact byte
 counts and SHA-256 digests; strict canonical framing, per-kind, aggregate, and
 frame limits apply.
 
-The submission server seals on the first attempted body, accepted or rejected.
-An exact replay produces the same immutable seal for reconciliation; a
-different body is a conflict; a seal from another invocation is refused.
-Inside a live process, the first complete submit frame closes admission
-permanently and no late or second frame can alter the seal.
+The submission server closes admission on the first attempted body, accepted
+or rejected. An exact replay identifies the same immutable candidate seal for
+reconciliation; a different body is a conflict; a seal from another
+invocation is refused. Inside a live process, the first complete submit frame
+closes admission permanently and no late or second frame can alter it. A
+valid accepted body is only a pending candidate: it is neither acknowledged
+nor provisional/publishable until the arbiter has observed exactly one
+complete valid request-bound `transport_status=completed` result.
 
 ## Serialized terminal arbiter
 
@@ -200,12 +205,31 @@ The exact successful accepted-submit sequence is:
 
 1. The endpoint reads one complete canonical submit frame. Under the arbiter
    mutex, it allocates the submit event sequence, closes admission, validates
-   the body against the invocation permission, and records the immutable
-   accepted seal as provisional.
-2. If no fatal event has already linearized, the endpoint writes exactly one
-   accepted seal response. A response write failure is a protocol/transport
-   failure and suppresses the seal.
-3. After the acknowledgement write completes, the arbiter closes the
+   the body against the invocation permission, and stores the immutable
+   accepted seal as a pending candidate. The submitting endpoint remains
+   blocked: it receives no acknowledgement, and the handoff is not yet
+   provisional or publishable.
+2. Independently, stdout must deliver exactly one complete newline-terminated
+   strict result object. Before recording a completed-result event, the
+   arbiter validates its schema, canonical framing, invocation ID, driver ID
+   and version, observed explicit model, duration, text/output bound, optional
+   usage, and `transport_status=completed` against the exact request and
+   selection. The complete result and the accepted submit candidate may
+   linearize in either order, but acknowledgement is forbidden until both
+   exist. Any missing, partial, malformed, duplicate, extra, invocation-,
+   driver-, version-, or model-mismatched result, or any non-completed
+   transport status, is the existing timeout/protocol/transport failure path
+   and can never release a handoff. A not-yet-reported result simply keeps the
+   submitting call blocked within the invocation deadline; it is never
+   treated as completed.
+3. Once both the accepted candidate and exactly one valid completed result
+   have linearized, and no fatal event has linearized, the arbiter promotes
+   the candidate to a provisional accepted seal and writes exactly one seal
+   acknowledgement. A response write failure is a protocol/transport failure
+   and suppresses the provisional seal. Any stdout byte after the one complete
+   result, including a replayed fake's post-ack result, is duplicate/extra
+   output, records fatal protocol failure, and suppresses publication.
+4. After the acknowledgement write completes, the arbiter closes the
    endpoint, records `engine_stop_after_submit`, sends SIGTERM to the complete
    process group, escalates to SIGKILL after the fixed grace period, and waits.
    This engine-caused stop is the required successful termination mechanism:
@@ -213,30 +237,32 @@ The exact successful accepted-submit sequence is:
    this stop is classified `engine_terminated_after_submit`, not as a runner
    non-zero exit or transport failure. A spontaneous non-zero exit or other
    signal that linearized before the engine stop remains transport failure.
-4. The arbiter proves the process group and descendants quiescent, performs
+5. The arbiter proves the process group and descendants quiescent, performs
    the source post-check, removes the outside-worktree input projection, and
    joins every stream, endpoint and wait producer. The parent
    cancellation/deadline watcher remains armed through publication.
-5. The arbiter takes the publication mutex, performs a final synchronous
+6. The arbiter takes the publication mutex, performs a final synchronous
    parent-context/deadline check, and linearizes either failure or publication.
    On publication it records `published`, closes the watcher through its
    separate stop channel, releases the mutex, and joins the watcher. A watcher
    that already observed cancellation contends for the same mutex: watcher
    first records fatal failure; publication first means completion linearized
-   before that later cancellation. Only an accepted provisional seal with
-   successful acknowledgement, the expected engine-caused termination
-   classification, quiescence, post-check and cleanup becomes a
-   `SealedHandoff`. No driver `completed` result is synthesized; usage is
-   unavailable unless it was independently present in an already validated
-   typed observation allowed by the contract.
+   before that later cancellation. Only an accepted provisional seal paired
+   with its exactly one validated completed result, successful
+   acknowledgement, expected engine-caused termination classification,
+   quiescence, post-check and cleanup becomes a `SealedHandoff`. No completed
+   result is synthesized or inferred; usage is normalized only from that
+   validated result, with omitted usage remaining unavailable.
 
-A rejected first submission follows the same acknowledge, close,
-engine-stop, wait and cleanup sequence but publishes no handoff or Baton
-decision. Rejection is not converted into a transport verdict.
+A rejected first submission is acknowledged as rejected only after exactly
+one valid request-bound completed result has been observed, then follows the
+same close, engine-stop, wait and cleanup sequence and publishes no handoff or
+Baton decision. Missing or invalid result takes the existing failure path
+without acknowledgement. Rejection is not converted into a transport verdict.
 
 Any fatal event that linearizes before the publication point suppresses an
-accepted provisional seal, even when submit and acknowledgement happened
-first. Fatal classes have diagnostic precedence
+accepted provisional seal, even when the completed result and
+acknowledgement happened first. Fatal classes have diagnostic precedence
 `parent cancellation > timeout > stdout/stderr overflow > endpoint/protocol
 failure > driver transport/process failure > source/post-check/cleanup
 failure`; every class has the same no-handoff effect. A submit event is below
@@ -246,21 +272,27 @@ Concurrent sources are resolved by the same mutex and publication point:
 
 - cancellation, timeout, overflow, protocol or transport failure that
   linearizes before publication wins and suppresses the seal;
-- submit may linearize first and cause the intentional stop, but remains
-  provisional, so a later fatal event before publication still wins;
+- submit and the completed result may linearize in either order, but the
+  submitter remains blocked until both exist; only then may acknowledgement
+  and the intentional stop occur, and a later fatal event before publication
+  still wins;
 - at the final gate, cancellation and publication contend on the same mutex;
   cancellation first means failure, publication first means the invocation
   completed before that later cancellation;
 - stream, endpoint and wait producers are joined before the gate, while the
   cancellation/deadline watcher stays armed and uses the publication mutex,
   so no pre-publication event can arrive unobserved afterward;
-- late frames, stdout, exits, exact replays, or conflicting bodies cannot
-  reopen admission or revive a failed invocation.
+- late frames, any second/extra stdout byte after the complete result, exits,
+  exact replays, or conflicting bodies cannot reopen admission or revive a
+  failed invocation.
 
 Barrier-controlled tests exercise each pairwise ordering, including
-cancel-before-submit, cancel-after-seal-before-ack, cancel-after-ack-before
-quiescence, cancel racing publication, overflow racing submit, process exit
-racing engine stop, and late replay/conflict.
+result-before-submit, submit-before-result, missing/partial/malformed/
+duplicate/mismatched/non-completed result, cancel-before-submit,
+cancel-after-submit-before-result, cancel-after-result-before-ack,
+cancel-after-ack-before-quiescence, cancel racing publication, overflow
+racing submit/result, process exit racing engine stop, post-ack stdout, and
+late replay/conflict.
 
 ## Fake and usage
 
@@ -270,9 +302,19 @@ profiles. Shared conformance covers every transport status, all four
 model-facing roles with explicit models, portable `merge/model:null`,
 canonical operation bytes, ordered inputs, empty completed text, zero usage,
 unavailable usage, and sealed shapes. Scripted helpers additionally produce
-valid/rejected/conflicting submissions, parent/child blocking, stdout flood,
-stderr flood, malformed/late frames, workspace writes, forbidden-surface
-reads, and cancel-after-submission races.
+valid/rejected/conflicting submissions with result-before-submit and
+submit-before-result orderings; missing, partial, malformed, duplicate,
+mismatched, non-completed and post-ack results; parent/child blocking; stdout
+and stderr floods; malformed/late frames; workspace writes;
+forbidden-surface reads; and cancel-after-submission races.
+
+For a positive sealed-submit fixture, the fake starts the submit call in a
+goroutine, keeps that caller blocked, writes its one completed result from the
+supervising path, receives the acknowledgement only after the arbiter validates
+that result, and emits no later stdout. The replayed submit-then-result fake
+that waits for acknowledgement before writing stdout is retained as a
+negative timeout/no-handoff canary; it cannot satisfy the new ordering or race
+post-ack output into an accepted observation.
 
 The fake's minimal executable/system mount map proves W2's common containment
 mechanics only. It is not evidence that any W5 production profile, runtime
@@ -289,9 +331,9 @@ engine-caused submit stop into zero are rejected.
 ## Implementation sequence
 
 1. Reconfirm the exact owner head, clean worktree, eligible `REVISE` status,
-   plan, approval, dependency, v1 design/Captain binding, these revision
-   bytes, and then a current Captain `PROCEED`. Stop before using RC2 product
-   input if any binding differs.
+   plan, approval, dependency, v1 and v2 design/Captain bindings, these
+   revision bytes, and then a current Captain `PROCEED`. Stop before using RC2
+   product input if any binding differs.
 2. Recompute all three full-index patch digests, the one-shot patch digest,
    and final subtree. Replay only `internal/driver` product bytes onto the RC3
    materialization; import no old record or evidence bytes.
@@ -302,8 +344,10 @@ engine-caused submit stop into zero are rejected.
    graph, reserved/symlink masks, Verifier admission checks, read-only
    prevention, and honest persistent-delta post-check.
 5. Implement the first-attempt sealed endpoint and serialized terminal
-   arbiter, including the acknowledged engine-stop path, hard stdout/stderr
-   limits, process-group cleanup, event linearization and publication gate.
+   arbiter, including the mandatory exactly-one completed-result gate before
+   acknowledgement, post-result output refusal, intentional engine-stop path,
+   hard stdout/stderr limits, process-group cleanup, event linearization and
+   publication gate.
 6. Make usage availability explicit and extend the shared fake and adversarial
    process helpers without adding W5 profile certification.
 7. Run the focused, adversarial, race, shuffle, repeat, full, vet, build,
@@ -371,9 +415,15 @@ aggregate are binding gates.
   detect persistent pre/post deltas only; prevent model writes at the mount
   boundary and do not claim detection of host mutate-and-restore behavior.
 - **Submission/cancellation races could release a decision after failure.**
-  Mitigation: one arbiter, event sequence, provisional seal, exact
+  Mitigation: one arbiter, event sequence, mandatory exactly-one bound
+  completed result before acknowledgement/provisional state, exact
   acknowledge/engine-stop classification, joined producers, quiescence, and
   one linearized publication gate.
+- **Acknowledging submit before transport completion could mask a real runner
+  failure or permit post-ack stdout.** Mitigation: keep the submitter blocked
+  until a complete canonical request-bound `completed` result linearizes;
+  missing, malformed, duplicate, mismatched, non-completed, or later stdout is
+  fatal and no handoff is released.
 - **Output flooding could bypass memory bounds or look successful after
   truncation.** Mitigation: hard per-stream counters trigger termination;
   truncation is never a success path.
@@ -404,8 +454,10 @@ aggregate are binding gates.
   mutate-and-restore limitation assertion; outside-worktree input and cleanup
   checks; stdout and stderr flood termination; timeout, cancellation,
   descendant cleanup, malformed transport and no-handoff checks;
-  accepted/rejected submit acknowledgement and intentional termination;
-  synchronized cancel/overflow/exit/submission/publication races; reported
+  accepted/rejected submit blocked before result, exactly-one completed-result
+  acknowledgement, intentional termination, and missing/partial/malformed/
+  duplicate/mismatched/non-completed/post-ack result refusal; synchronized
+  result/submission/ack/cancel/overflow/exit/publication races; reported
   non-zero, reported zero, unavailable and invalid partial usage/cost cases.
 - **A-W2-rebind:** exact RC2 patch/subtree verification log, RC3-only changed
   paths, renamed/generalized tests, old-lineage/equal-operation-byte replay
@@ -435,16 +487,17 @@ The process tests must explicitly report trusted Bubblewrap common
 feature/provenance, the fake-only mount map, workspace/input/reserved/symlink
 visibility, process-group descendants after intentional and failure
 termination, hard stdout/stderr counters, terminal event sequences,
-publication decisions, and absence of a handoff on every failure path. They
-must not label this evidence as production provider/profile runtime-closure
-certification.
+the exactly-one completed-result binding before each submit acknowledgement,
+post-ack stdout refusal, publication decisions, and absence of a handoff on
+every failure path. They must not label this evidence as production
+provider/profile runtime-closure certification.
 
 Scope evidence lists every path and proves the candidate delta is wholly under
 `internal/driver`, with no `.baton/releases`, module, generated, or
 out-of-scope change. History evidence binds the materialization marker,
-recorded v1 `REVISE`, fresh v2 Captain result, implementation start, candidate
-ancestry, and proves no product commit preceded `PROCEED` and no old lineage
-or hidden post-candidate product bytes were imported.
+recorded v1 and v2 `REVISE` decisions, fresh v3 Captain result, implementation
+start, candidate ancestry, and proves no product commit preceded `PROCEED` and
+no old lineage or hidden post-candidate product bytes were imported.
 
 Budget evidence uses the same byte-defined physical-line classifier and
 separately records:
@@ -462,7 +515,8 @@ Fresh `proof.md` must bind repository, materialization base, frozen dependency,
 candidate commit/tree, product-tree digest, plan, approval, this revision,
 Captain and Implementer invocation identities, admitted RC3 package identity,
 ordered input/request/permission digests, changed-file and all five
-physical-line manifests, check-output digests, terminal-arbiter race matrix,
+physical-line manifests, check-output digests, the exactly-one completed
+result/submit/ack/stop/publication event trace, terminal-arbiter race matrix,
 and the adversarial observation matrix. It must state that RC2
 records/design/proof/PASS/history were not reused and that W5 profile
 certification is not claimed.
@@ -478,7 +532,11 @@ model; writable or non-fresh Verifier; unavailable or incomplete common
 isolation; unproved descriptor/read-only/mask/symlink boundary; forbidden
 canary visibility; persistent source mutation; incomplete process-tree
 cleanup; overflow that does not terminate; unclassified submit-caused exit;
-accepted seal published before acknowledgement, quiescence, post-check,
+submit acknowledgement or provisional handoff before exactly one complete
+canonical request-, driver-, version- and model-bound
+`transport_status=completed` result; missing, partial, malformed, duplicate,
+extra, mismatched, non-completed or post-result stdout; accepted seal
+published before acknowledgement, intentional stop, quiescence, post-check,
 cleanup, producer join and final context check; any pre-publication fatal
 event releasing a handoff; late/replayed submission changing a seal; any W2
 claim of W5 provider/profile certification; flaky/racy/failed check;
@@ -503,3 +561,11 @@ files/10,464 lines.
   11/3,277 and +10/+3,274 plus post-W1 19/7,190 and aggregate 29/10,464; and
   assigns production profile runtime-closure/provider certification solely to
   W5.
+- **Revision 3:** In response to Captain review/2, keeps the submitter blocked
+  and the accepted seal non-provisional until exactly one complete canonical
+  request-bound `transport_status=completed` result is observed. Only then may
+  acknowledgement and intentional engine termination begin. Missing,
+  malformed, duplicate, mismatched, non-completed, or post-result output is
+  fatal, so an accepted submit cannot mask transport failure or revive the
+  replayed fake's post-ack stdout race. All v2 scope, identity, isolation,
+  budget, mutation-prevention, usage, and W5-ownership bindings are unchanged.
