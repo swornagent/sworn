@@ -1,3 +1,3 @@
-// Package driver will own Sworn's role-neutral invocation and sealed
-// submission boundary. Provider adapters share this one contract.
+// Package driver implements Sworn's role-neutral process boundary without
+// lifecycle or Baton-record authority; the caller applies sealed submissions.
 package driver
