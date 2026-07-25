@@ -1,20 +1,35 @@
 # W1 authority-core design
 
 Implementer invocation:
-`codex:/root/w1-rc3-design-implementer/sworn-v0.3.0-baton-rc3/T1-authority/W1-authority-core/design/1`.
+`codex:/root/w1-rc3-design-implementer/sworn-v0.3.0-baton-rc3/T1-authority/W1-authority-core/design/2`.
 
 ## Authority and fixed inputs
 
 This design is for `sworn-v0.3.0-baton-rc3`, track `T1-authority`, work
 `W1-authority-core`, and no other work.
 
-- Design materialization and owner head:
-  `c846e8d8b9c1e054657e4b94dd586c4b8e7afac7`, clean, on
+- W1 materialization marker:
+  `c846e8d8b9c1e054657e4b94dd586c4b8e7afac7`, the clean initial design
+  materialization on
   `refs/heads/track/sworn-v0.3.0-baton-rc3/T1-authority`.
+- Current W1 revision-authority head:
+  `756ac5799d8a6126176cef3c863574af63021798`, a record-only first-parent
+  descendant of the materialization marker. It binds v1 design
+  `sha256:16f9b85babdac25715c564d4f9253dc11eb24a85449af13fee9bf940fc97242b`
+  and Captain `REVISE` invocation
+  `codex:/root/w1-rc3-design-captain/sworn-v0.3.0-baton-rc3/T1-authority/W1-authority-core/review/1`.
 - Materialization base:
   `0f8d1dea208620cb34226670e66ad1632c0a3402`.
 - Frozen dependency `T0-admission`:
   `7d925851dc91a4ee324d9fe29c33d631f44d1a56`.
+- Current release materialization marker:
+  `5d4c5eb117087e306be6868103891dc685319528`, exactly, on
+  `refs/heads/release-wt/sworn-v0.3.0-baton-rc3`.
+- Current independent T2 owner observation:
+  `4362f5a0ed44a004981495c858e94af505c1b769` on
+  `refs/heads/track/sworn-v0.3.0-baton-rc3/T2-driver`. T2 is not a W1
+  dependency or authority input and is explicitly free to advance without
+  invalidating W1 design, start, implementation, evidence or candidate.
 - Plan:
   `sha256:66dd2c09b538b4eb41783128b3c4d110d10d04124a15f46b2d354858b2409d74`.
 - Protected approval:
@@ -28,13 +43,17 @@ This design is for `sworn-v0.3.0-baton-rc3`, track `T1-authority`, work
   `sha256:e66e4bd771651154d2feee6efb35a852047115bffb99846d605958ddd80826f0`.
 
 At implementation start, recapture the exact post-design, post-Captain owner
-head. It must be a first-parent, record-only descendant of `c846e8d8`, retain
+head. It must be a first-parent, record-only descendant of `756ac579`, retain
 the same non-record product identity as the materialization, retain the plan
 and approval above, remain `implement/ready/implementer`, and contain a current
-Captain `PROCEED` for the exact bytes of this design. The target, release,
-dependency and materialization bindings must not have moved. The product
-candidate is one product-only child of that captured owner head; Baton actions,
-not product implementation, later own proof and status commits.
+Captain `PROCEED` for the exact bytes of this design. The release marker must
+remain exactly `5d4c5eb1`; the planned T0 frozen dependency, W1 materialization
+base/marker, target binding and non-record product identity must remain exact.
+W1 gates only those facts relevant to its own Plan and start. It does not gate
+the independent T2 owner head or any other dependency-ready track, and their
+advance is not W1 drift. The product candidate is one product-only child of
+the captured W1 owner head; Baton actions, not product implementation, later
+own proof and status commits.
 
 The old product is non-authoritative implementation input only. Before using
 it, reconstruct the scoped delta
@@ -230,25 +249,35 @@ in tests.
 
 On every child outcome, including apparent success, post-commit failure and
 lost acknowledgement, the parent closes pipes, aborts when still pre-commit,
-terminates the transaction process group when necessary, waits exactly once
-for every started process, removes the private hooks/home/index directories,
-and recaptures the operation refs through the same Snapshot capture API.
-Cleanup failure is retained as evidence but cannot override an authoritative
-post-state classification.
+and terminates the complete transaction process group when necessary. Before
+examining refs, it must positively confirm that the transaction child and every
+inspection child are quiescent, every started process has been reaped exactly
+once, the process group has no surviving member, and every prepared exact-ref
+lock has been released. It then recaptures the operation refs through the same
+Snapshot capture API. Any kill, wait, reap, process-group or lock-release
+uncertainty bypasses ref classification and returns recovery-required, even
+when a diagnostic ref read appears all-desired or all-pre. Only failure to
+remove already inert private hooks/home/index directories after all quiescence,
+reap and lock confirmations may remain subordinate cleanup evidence; it cannot
+change the ref result.
 
-Reconciliation has exactly three classes:
+After that mandatory quiescence gate, reconciliation has exactly three
+classes:
 
 1. `desired`: every requested ref is a direct commit at the desired vector.
    This is typed success, including exact retry, post-commit exit/signal/
-   timeout/output/protocol failure, acknowledgement loss, and pure verify.
+   timeout/output/protocol failure, acknowledgement loss, and pure verify, but
+   only after process and lock quiescence is confirmed.
 2. `pre`: the transaction is meaningful and every meaningful ref exactly
    matches its captured direct/absent pre-state. This is typed
    snapshot-scoped `not-applied`; there is no internal retry. It explicitly
-   states that the snapshot cannot disprove a transient commit-and-revert.
+   states that the snapshot cannot disprove a transient commit-and-revert and
+   is available only after process and lock quiescence is confirmed.
 3. `ambiguous`: any mixed pre/desired vector, third OID, unexpected presence or
    absence, symbolic/broken/non-commit/unreadable state, capture failure, or
-   vector mismatch. This is typed `recovery-required` and must never be
-   automatically retried.
+   vector mismatch, plus any kill/wait/reap/process-group/lock-release
+   uncertainty. This is typed `recovery-required` and must never be
+   automatically retried, regardless of a best-effort ref observation.
 
 Desired is checked before pre, so pure verify remains success after
 acknowledgement loss. Reflogs are diagnostic evidence only, never universal
@@ -323,7 +352,8 @@ exact-ref cases as named top-level tests:
    create/update/verify refuse beneath the prepared exact locks;
 7. every pre-commit helper/acknowledgement fault aborts, waits and releases its
    lock;
-8. post-commit transport and cleanup faults reconcile as idempotent success;
+8. post-commit transport and inert temporary-directory cleanup faults
+   reconcile as idempotent success only after process/lock quiescence;
 9. pure verify succeeds when transport is lost after commit acknowledgement;
 10. every mixed or invalid reconciliation is ambiguous and is never internally
     retried; and
@@ -332,13 +362,18 @@ exact-ref cases as named top-level tests:
 The pre-commit matrix includes timeout, SIGKILL, early exit, missing/malformed/
 extra acknowledgement, forced inspection failure and bounded stdout/stderr
 overflow. Each row proves the complete pre-vector, transaction-child exit,
-wait completion, no loose lock, removed private directories and a successful
-follow-on CAS. The post-commit matrix includes non-zero exit, signal, distinct
-timeout, extra/oversized output, parser failure, acknowledgement loss and
-parent cleanup failure; each proves the desired vector and an exact retry with
-no additional ref/reflog mutation. Ambiguity fixtures include mixed pre/post,
-third OID, alias, unexpected presence/absence, broken direct ref, direct
-non-commit ref and reconciliation failure, with exactly one helper attempt.
+all started children reaped, process-group quiescence, no prepared or loose
+lock, inert-private-directory handling and a successful follow-on CAS. The
+post-commit matrix includes non-zero exit, signal, distinct timeout,
+extra/oversized output, parser failure, acknowledgement loss and inert
+temporary-directory cleanup failure; each proves child/process-group
+quiescence, complete reaping and lock release before the desired classification,
+then an exact retry with no additional ref/reflog mutation. Separate negative
+fixtures make kill, wait, reap, surviving-process and lock-release uncertainty
+recovery-required even when refs appear desired or pre. Ambiguity fixtures
+also include mixed pre/post, third OID, alias, unexpected presence/absence,
+broken direct ref, direct non-commit ref and reconciliation failure, with
+exactly one helper attempt.
 
 Additional tests cover:
 
@@ -362,9 +397,32 @@ The budget is a hard composition invariant, not a target:
 - After W1, runtime production must have exactly 19 files and 7,190 lines.
   W1-owned `internal/baton` plus `internal/gitx` must be exactly 15 files and
   7,091 lines; the unchanged other four runtime files contribute 99 lines.
-- Planned W2 contributes exactly 10 new runtime files and 3,274 net lines
-  (including the `internal/driver/doc.go` change), producing exactly 29 files
-  and 10,464 physical lines.
+- The measurement-only W2 input contains exactly these three production
+  commits and their `internal/driver` binary full-index parent patches:
+  `3b30295e6f8d04963266f9b98880df434f9c4f6c` from parent
+  `a85668ef5abd0a6a3ca1fc722b130a7a1f1cdf6c`, patch
+  `sha256:aa00493645b22d5e90ec0199ee5e93bc54b8107dc6744286a3cdf4350a43a751`;
+  `287f83d05dff3540831996553c5610002c92f3da` from parent
+  `bd28ce7cab6be63e1e4615876185c68533e538c5`, patch
+  `sha256:37a2ee63a67e5554d8070cfc110486b3871015cbcf4f31761a08cfac4523bf93`;
+  and `0136a96c4355e60c815b5cab043b54e860d00062` from parent
+  `287f83d05dff3540831996553c5610002c92f3da`, patch
+  `sha256:ade0486ab9784047026475e80d127ae82382c0f23d2c8254c7204afb4807bd44`.
+  The one-shot binary full-index product patch from shared W0 base
+  `b2bb28778a4f73f5841bb936a993860d0b10d0ce` to `0136a96c` restricted
+  to `internal/driver` must be
+  `sha256:9bcaa63667fc4e0ac159439307c82a5c9192de538a7b76203db0898f600b3d52`,
+  and the candidate `internal/driver` subtree must be
+  `85eed1c35838c241f7edf6a3331cb771c59c66ce`.
+- Classified independently, that W2 input has exactly 11
+  runtime-production files and 3,277 physical lines. Relative to W0 it
+  contributes exactly 10 new runtime files and 3,274 net lines, including the
+  `internal/driver/doc.go` change. Composed with post-W1 19/7,190 it produces
+  exactly 29 files and 10,464 physical lines.
+
+The W2 commits, objects and patch are measurement inputs only. A W2 status,
+design, Captain result, proof or verdict is not W1 authority and is neither
+copied nor used to admit W1 behavior.
 
 RC3 lines are paid for inside W1 by deleting the old duplicate ref parsers,
 symbolic/existence probes, ad hoc resolution paths, repeated command-error
@@ -384,12 +442,16 @@ post-W1, and a scratch composition of post-W1 plus the exact planned W2 patch:
 
 Tests, tooling, fixtures and generated Go are reported separately with exact
 counts and deltas and cannot offset runtime growth. The scratch W2 composition
-must use the pinned W2 product patch, remain disjoint from W1, apply cleanly and
-produce 29/10,464; it is evidence only and is not committed by W1.
+must reconstruct all three per-commit digests, the pinned one-shot patch and
+subtree, remain disjoint from W1, apply cleanly, independently reproduce W2
+11/3,277 and its net +10/+3,274, and produce 29/10,464. It is evidence only
+and is not committed by W1.
 
 Proof must retain raw digest-addressed outputs for:
 
-- start authority, plan/approval, materialization/dependency and ref inventory;
+- start authority, plan/approval, exact release marker `5d4c5eb1`, W1
+  materialization/T0 dependency and ref inventory; report T2 as an independent
+  observation without imposing an unchanged-head gate;
 - RC3 tag/commit/tree/support/`git.mjs` reconstruction;
 - old 26-path patch/path-list reconstruction and candidate path closure;
 - both independent oracle generations and their byte-for-byte comparison;
@@ -400,30 +462,38 @@ Proof must retain raw digest-addressed outputs for:
   `GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton/... ./internal/gitx/... ./tools/batongolden/...`;
 - non-race focused checks, `go vet`, `gofmt -l`, `go mod tidy -diff`,
   `git diff --check`, and candidate-only changed paths;
-- W0, post-W1 and planned post-W2 line/category manifests;
+- W0 and post-W1 line/category manifests; all three W2 commit-patch digests,
+  its one-shot patch/subtree identities, independent W2 11/3,277 and
+  +10/+3,274 measurement, and planned post-W2 29/10,464 manifests;
 - candidate commit, ordinary tree, product-tree identity, parent, exact
   product-only paths and clean worktree; and
-- unchanged target/release/dependency/old-lineage refs before and after.
+- unchanged W1-relevant target/release/T0/materialization and old-lineage refs
+  before and after. Advancement of independent T2 is explicitly excluded from
+  this unchanged-ref assertion.
 
 ## Stop conditions
 
 Stop without product implementation or ref movement on any of:
 
 - stale/foreign status, changed plan/approval/design, missing current
-  `PROCEED`, dirty start, non-record owner history, moved target/release/
-  dependency/materialization, or changed product identity before edits;
+  `PROCEED`, dirty start, non-record W1 owner history, a release marker other
+  than `5d4c5eb1`, moved W1 target/T0 dependency/materialization, or changed
+  W1 product identity before edits; independent T2 advancement is not a stop;
 - failure to reconstruct any pinned RC3 identity or either old-input digest;
 - any old control artifact, path outside the exact 26, `.baton/releases`
   product change, module change, or caller-selectable Git/ref/path/merge
   surface;
 - inability to establish genuine absence, direct-commit representation,
   sanitized absolute execution, prepared-lock recheck, full kill/wait/lock
-  cleanup, or desired/pre/ambiguous reconciliation;
+  cleanup, confirmed child/process-group quiescence and reaping, or
+  desired/pre/ambiguous reconciliation;
 - any recovery-required ambiguity during implementation evidence;
 - non-identical independent oracle generations, missing/non-PASS adversarial
   case, failed check/race test, or dirty evidence;
 - post-W1 values other than 19 runtime files/7,190 lines, W1 surfaces other
-  than 15/7,091, or planned post-W2 values other than 29/10,464; or
+  than 15/7,091, W2 measurement values other than 11/3,277 and +10/+3,274,
+  any mismatch in the pinned W2 commits/patches/subtree, or planned post-W2
+  values other than 29/10,464; or
 - product changes hidden after the candidate.
 
 Any necessary change to outcome, authority, public action surface, safety
