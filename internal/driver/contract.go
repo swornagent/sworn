@@ -627,8 +627,12 @@ func validateRepositoryPath(value string) error {
 		path.IsAbs(value) || path.Clean(value) != value {
 		return fail("INVALID_PATH")
 	}
-	for _, segment := range strings.Split(value, "/") {
-		if segment == "" || segment == "." || segment == ".." || segment == ".git" {
+	segments := strings.Split(value, "/")
+	if segments[0] == ".git" {
+		return fail("INVALID_PATH")
+	}
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
 			return fail("INVALID_PATH")
 		}
 	}

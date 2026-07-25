@@ -240,22 +240,22 @@ func TestRC2WorkspaceAndRepositoryPathBoundaries(t *testing.T) {
 	}
 
 	for name, repositoryPath := range map[string]string{
-		"1000 bytes":    strings.Repeat("p", 1000),
-		"git-like name": "nested/.gitignore",
+		"1000 bytes":         strings.Repeat("p", 1000),
+		"git-like name":      "nested/.gitignore",
+		"nested git segment": "nested/.git/file",
 	} {
 		if err := validateRepositoryPath(repositoryPath); err != nil {
 			t.Fatalf("%s repository path error = %v", name, err)
 		}
 	}
 	for name, repositoryPath := range map[string]string{
-		"over byte limit":    strings.Repeat("p", 1001),
-		"root git segment":   ".git/config",
-		"nested git segment": "nested/.git/config",
-		"root parent":        "..",
-		"nested parent":      "nested/../escape",
-		"C0 control":         "nested/\x1fchild",
-		"C1 control":         "nested/\u0085child",
-		"invalid UTF-8":      "nested/\xffchild",
+		"over byte limit":  strings.Repeat("p", 1001),
+		"root git segment": ".git/config",
+		"root parent":      "..",
+		"nested parent":    "nested/../escape",
+		"C0 control":       "nested/\x1fchild",
+		"C1 control":       "nested/\u0085child",
+		"invalid UTF-8":    "nested/\xffchild",
 	} {
 		if err := validateRepositoryPath(repositoryPath); !IsCode(err, "INVALID_PATH") {
 			t.Fatalf("%s repository path error = %v", name, err)
