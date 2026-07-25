@@ -90,12 +90,6 @@ func ParseOID(format ObjectFormat, value string) (OID, error) {
 	return OID{format: format, hex: value}, nil
 }
 
-// RefHead is one exact captured full branch ref. A nil Head means absent.
-type RefHead struct {
-	Ref  string
-	Head *OID
-}
-
 // TreeEntry is one recursive leaf entry in a captured tree.
 type TreeEntry struct {
 	Path string
@@ -109,6 +103,11 @@ type Repository struct {
 	root   string
 	git    string
 	format ObjectFormat
+
+	// afterRefPrepare is a same-package test seam. Production repositories
+	// leave it nil; it lets tests challenge the prepared ref locks without
+	// adding a callback to the exported mechanical boundary.
+	afterRefPrepare func()
 }
 
 // Open admits an existing repository and an explicit absolute Git executable.
@@ -226,19 +225,29 @@ func (r *Repository) run(stdin []byte, extraEnv []string, args ...string) ([]byt
 	return r.runWithAttributes(stdin, extraEnv, "/dev/null", args...)
 }
 
-func (r *Repository) runWithAttributes(stdin []byte, extraEnv []string, attributesFile string, args ...string) ([]byte, error) {
+func (r *Repository) newLiteralCommand(extraEnv []string, attributesFile string, args ...string) (*exec.Cmd, func(), error) {
 	home, err := os.MkdirTemp("", "sworn-git-home-*")
 	if err != nil {
-		return nil, fail("GIT_EXECUTION_FAILED", "create isolated Git home", err)
+		return nil, nil, err
 	}
-	defer os.RemoveAll(home)
+	cleanup := func() { _ = os.RemoveAll(home) }
 	hooks := filepath.Join(home, "hooks")
 	if err := os.Mkdir(hooks, 0o700); err != nil {
-		return nil, fail("GIT_EXECUTION_FAILED", "create isolated hooks directory", err)
+		cleanup()
+		return nil, nil, err
 	}
 	commandArgs := append([]string{"-C", r.root, "-c", "core.hooksPath=" + hooks, "-c", "core.fsmonitor=false", "-c", "core.quotePath=false"}, args...)
 	command := exec.Command(r.git, commandArgs...)
 	command.Env = literalEnvironment(home, extraEnv, attributesFile)
+	return command, cleanup, nil
+}
+
+func (r *Repository) runWithAttributes(stdin []byte, extraEnv []string, attributesFile string, args ...string) ([]byte, error) {
+	command, cleanup, err := r.newLiteralCommand(extraEnv, attributesFile, args...)
+	if err != nil {
+		return nil, fail("GIT_EXECUTION_FAILED", "create isolated Git command", err)
+	}
+	defer cleanup()
 	if stdin != nil {
 		command.Stdin = bytes.NewReader(stdin)
 	}
@@ -309,66 +318,6 @@ func ValidatePath(value string, allowRoot bool) error {
 		}
 	}
 	return nil
-}
-
-// CaptureHeadRefs captures an ordered set of exact branch heads in one
-// for-each-ref read. Missing refs are represented by nil heads.
-func (r *Repository) CaptureHeadRefs(refs []string) ([]RefHead, error) {
-	if len(refs) == 0 || len(refs) > MaxHeadRefs {
-		return nil, fail("RESOURCE_LIMIT", "capture refs", fmt.Errorf("requires 1-%d refs", MaxHeadRefs))
-	}
-	seen := make(map[string]struct{}, len(refs))
-	for _, ref := range refs {
-		if err := ValidateHeadRef(ref); err != nil {
-			return nil, err
-		}
-		if _, duplicate := seen[ref]; duplicate {
-			return nil, fail("DUPLICATE_REF", "capture refs", fmt.Errorf("%s is repeated", ref))
-		}
-		seen[ref] = struct{}{}
-	}
-	args := []string{"for-each-ref", "--format=%(refname)%00%(objectname)%00"}
-	args = append(args, refs...)
-	raw, err := r.run(nil, nil, args...)
-	if err != nil {
-		return nil, err
-	}
-	fields := bytes.Split(raw, []byte{0})
-	observed := make(map[string]OID)
-	for index := 0; index+1 < len(fields); index += 2 {
-		ref := strings.TrimSpace(string(fields[index]))
-		oidText := strings.TrimSpace(string(fields[index+1]))
-		if ref == "" && oidText == "" {
-			continue
-		}
-		if _, expected := seen[ref]; !expected {
-			return nil, fail("UNEXPECTED_REF", "capture refs", fmt.Errorf("Git returned %s", ref))
-		}
-		oid, err := r.parseOID(oidText)
-		if err != nil {
-			return nil, err
-		}
-		observed[ref] = oid
-	}
-	result := make([]RefHead, 0, len(refs))
-	for _, ref := range refs {
-		entry := RefHead{Ref: ref}
-		if oid, ok := observed[ref]; ok {
-			copyOID := oid
-			entry.Head = &copyOID
-		}
-		result = append(result, entry)
-	}
-	return result, nil
-}
-
-// resolveHead resolves one exact branch ref. Missing refs return a nil head.
-func (r *Repository) resolveHead(ref string) (*OID, error) {
-	heads, err := r.CaptureHeadRefs([]string{ref})
-	if err != nil {
-		return nil, err
-	}
-	return heads[0].Head, nil
 }
 
 // TreeOID returns the ordinary tree of an exact commit.

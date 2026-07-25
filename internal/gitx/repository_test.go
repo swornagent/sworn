@@ -108,6 +108,14 @@ func newRepository(t *testing.T, format ObjectFormat) (*Repository, OID) {
 	return repository, head
 }
 
+func requireGitxErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != code {
+		t.Fatalf("error = %#v, want gitx code %s", err, code)
+	}
+}
+
 func TestOpenRequiresLiteralExecutableAndFixesObjectFormat(t *testing.T) {
 	t.Parallel()
 	repository, head := newRepository(t, SHA1)
@@ -218,6 +226,243 @@ func TestProductIdentityRecordPreparationAndAtomicCASBothFormats(t *testing.T) {
 				t.Fatalf("failed transaction moved ref: %v %v", again, err)
 			}
 		})
+	}
+}
+
+func TestCaptureHeadRefsRejectsSymbolicAndNonCommitRefs(t *testing.T) {
+	t.Parallel()
+	for _, format := range []ObjectFormat{SHA1, SHA256} {
+		format := format
+		t.Run(string(format), func(t *testing.T) {
+			t.Parallel()
+			repository, _ := newRepository(t, format)
+			blobText := runTestGit(t, repository.Root(), []byte("not a commit\n"), "hash-object", "-w", "--stdin")
+			blob, err := ParseOID(format, blobText)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Git's porcelain refuses a non-commit branch, so model a corrupt
+			// or externally-written loose ref directly.
+			if err := os.WriteFile(
+				filepath.Join(repository.Root(), ".git", "refs", "heads", "blob"),
+				[]byte(blob.String()+"\n"),
+				0o644,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repository.CaptureHeadRefs([]string{"refs/heads/blob"}); err == nil {
+				t.Fatal("CaptureHeadRefs accepted a blob-headed branch")
+			} else {
+				requireGitxErrorCode(t, err, "NON_DIRECT_COMMIT_REF")
+			}
+
+			runTestGit(t, repository.Root(), nil, "symbolic-ref", "refs/heads/alias", "refs/heads/main")
+			if _, err := repository.CaptureHeadRefs([]string{"refs/heads/alias"}); err == nil {
+				t.Fatal("CaptureHeadRefs resolved a symbolic branch alias")
+			} else {
+				requireGitxErrorCode(t, err, "NON_DIRECT_COMMIT_REF")
+			}
+
+			runTestGit(t, repository.Root(), nil, "symbolic-ref", "refs/heads/broken-alias", "refs/heads/missing")
+			if _, err := repository.CaptureHeadRefs([]string{"refs/heads/broken-alias"}); err == nil {
+				t.Fatal("CaptureHeadRefs treated a broken symbolic branch as absent")
+			} else {
+				requireGitxErrorCode(t, err, "NON_DIRECT_COMMIT_REF")
+			}
+		})
+	}
+}
+
+func TestAtomicUpdateRefsRejectsNonCommitNewHead(t *testing.T) {
+	t.Parallel()
+	repository, _ := newRepository(t, SHA1)
+	blobText := runTestGit(t, repository.Root(), []byte("not a commit\n"), "hash-object", "-w", "--stdin")
+	blob, err := ParseOID(SHA1, blobText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = repository.AtomicUpdateRefs([]RefOperation{{
+		Kind: CreateRef, Ref: "refs/heads/result/blob", NewHead: &blob,
+	}})
+	requireGitxErrorCode(t, err, "NON_COMMIT_OBJECT")
+	captured, err := repository.CaptureHeadRefs([]string{"refs/heads/result/blob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured[0].Head != nil {
+		t.Fatalf("non-commit transaction created %s", captured[0].Head)
+	}
+}
+
+func TestAtomicUpdateRefsRejectsSymbolicNamedRefsWithoutMutation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		operation func(ref string, base, next OID) RefOperation
+	}{
+		{
+			name: "create",
+			operation: func(ref string, _, next OID) RefOperation {
+				return RefOperation{Kind: CreateRef, Ref: ref, NewHead: &next}
+			},
+		},
+		{
+			name: "update",
+			operation: func(ref string, base, next OID) RefOperation {
+				return RefOperation{Kind: UpdateRef, Ref: ref, NewHead: &next, Expected: &base}
+			},
+		},
+		{
+			name: "verify",
+			operation: func(ref string, base, _ OID) RefOperation {
+				return RefOperation{Kind: VerifyRef, Ref: ref, Expected: &base}
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			repository, base := newRepository(t, SHA1)
+			timestamp, err := repository.CommitTimestamp(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next, err := repository.PrepareRecord(RecordRequest{
+				Parent: base, Changes: []BlobChange{{Path: "next.txt", Bytes: []byte("next\n")}},
+				Message: "next\n", Identity: Identity{Name: "Fixture", Email: "fixture@example.invalid"}, Timestamp: timestamp + 1,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := "refs/heads/alias"
+			runTestGit(t, repository.Root(), nil, "symbolic-ref", ref, "refs/heads/main")
+			indexBefore := runTestGit(t, repository.Root(), nil, "write-tree")
+			statusBefore := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all")
+			worktreeBefore, err := os.ReadFile(filepath.Join(repository.Root(), "product.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := repository.AtomicUpdateRefs([]RefOperation{test.operation(ref, base, next.Commit)}); err == nil {
+				t.Fatalf("%s against symbolic ref unexpectedly passed", test.name)
+			}
+			if got := runTestGit(t, repository.Root(), nil, "symbolic-ref", "--no-recurse", ref); got != "refs/heads/main" {
+				t.Fatalf("symbolic alias target = %q", got)
+			}
+			if got := runTestGit(t, repository.Root(), nil, "rev-parse", "refs/heads/main"); got != base.String() {
+				t.Fatalf("symbolic referent moved to %s", got)
+			}
+			if got := runTestGit(t, repository.Root(), nil, "rev-parse", ref); got != base.String() {
+				t.Fatalf("symbolic alias resolved to %s", got)
+			}
+			if got := runTestGit(t, repository.Root(), nil, "write-tree"); got != indexBefore {
+				t.Fatalf("attached index changed: %s != %s", got, indexBefore)
+			}
+			if got := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all"); got != statusBefore {
+				t.Fatalf("attached worktree status changed: %q != %q", got, statusBefore)
+			}
+			worktreeAfter, err := os.ReadFile(filepath.Join(repository.Root(), "product.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(worktreeAfter, worktreeBefore) {
+				t.Fatalf("attached worktree bytes changed: %q != %q", worktreeAfter, worktreeBefore)
+			}
+		})
+	}
+}
+
+func TestPreparedRefLockRejectsDirectToSymbolicRewrite(t *testing.T) {
+	t.Parallel()
+	repository, base := newRepository(t, SHA1)
+	timestamp, err := repository.CommitTimestamp(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := repository.PrepareRecord(RecordRequest{
+		Parent: base, Changes: []BlobChange{{Path: "next.txt", Bytes: []byte("next\n")}},
+		Message: "next\n", Identity: Identity{Name: "Fixture", Email: "fixture@example.invalid"}, Timestamp: timestamp + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "refs/heads/race"
+	runTestGit(t, repository.Root(), nil, "update-ref", ref, base.String())
+	indexBefore := runTestGit(t, repository.Root(), nil, "write-tree")
+	statusBefore := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all")
+	var rewriteErr error
+	var rewriteOutput []byte
+	repository.afterRefPrepare = func() {
+		command := exec.Command(testGit, "-C", repository.Root(), "symbolic-ref", ref, "refs/heads/main")
+		rewriteOutput, rewriteErr = command.CombinedOutput()
+	}
+	if err := repository.AtomicUpdateRefs([]RefOperation{{
+		Kind: UpdateRef, Ref: ref, NewHead: &next.Commit, Expected: &base,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if rewriteErr == nil || !bytes.Contains(rewriteOutput, []byte("race.lock")) {
+		t.Fatalf("symbolic rewrite crossed prepared lock: err=%v output=%q", rewriteErr, rewriteOutput)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "rev-parse", ref); got != next.Commit.String() {
+		t.Fatalf("prepared transaction installed %s, want %s", got, next.Commit)
+	}
+	command := exec.Command(testGit, "-C", repository.Root(), "symbolic-ref", "--quiet", "--no-recurse", ref)
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("race ref became symbolic: %q", output)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "rev-parse", "refs/heads/main"); got != base.String() {
+		t.Fatalf("attached referent moved to %s", got)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "write-tree"); got != indexBefore {
+		t.Fatalf("prepared transaction changed attached index: %s != %s", got, indexBefore)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all"); got != statusBefore {
+		t.Fatalf("prepared transaction changed attached worktree: %q != %q", got, statusBefore)
+	}
+}
+
+func TestSymbolicRefRejectionAbortsEveryPreparedUpdate(t *testing.T) {
+	t.Parallel()
+	repository, base := newRepository(t, SHA1)
+	timestamp, err := repository.CommitTimestamp(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := repository.PrepareRecord(RecordRequest{
+		Parent: base, Changes: []BlobChange{{Path: "next.txt", Bytes: []byte("next\n")}},
+		Message: "next\n", Identity: Identity{Name: "Fixture", Email: "fixture@example.invalid"}, Timestamp: timestamp + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultRef := "refs/heads/result/atomic"
+	aliasRef := "refs/heads/alias"
+	runTestGit(t, repository.Root(), nil, "update-ref", resultRef, base.String())
+	runTestGit(t, repository.Root(), nil, "symbolic-ref", aliasRef, "refs/heads/main")
+	indexBefore := runTestGit(t, repository.Root(), nil, "write-tree")
+	statusBefore := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all")
+
+	err = repository.AtomicUpdateRefs([]RefOperation{
+		{Kind: UpdateRef, Ref: resultRef, NewHead: &next.Commit, Expected: &base},
+		{Kind: UpdateRef, Ref: aliasRef, NewHead: &next.Commit, Expected: &base},
+	})
+	requireGitxErrorCode(t, err, "NON_DIRECT_COMMIT_REF")
+	if got := runTestGit(t, repository.Root(), nil, "rev-parse", resultRef); got != base.String() {
+		t.Fatalf("ordinary ref partially advanced to %s", got)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "symbolic-ref", "--no-recurse", aliasRef); got != "refs/heads/main" {
+		t.Fatalf("symbolic alias target = %q", got)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "rev-parse", "refs/heads/main"); got != base.String() {
+		t.Fatalf("symbolic referent moved to %s", got)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "write-tree"); got != indexBefore {
+		t.Fatalf("aborted transaction changed attached index: %s != %s", got, indexBefore)
+	}
+	if got := runTestGit(t, repository.Root(), nil, "status", "--porcelain=v1", "--untracked-files=all"); got != statusBefore {
+		t.Fatalf("aborted transaction changed attached worktree: %q != %q", got, statusBefore)
 	}
 }
 
