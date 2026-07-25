@@ -1,0 +1,673 @@
+package gitx
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+	"unicode/utf8"
+)
+
+const (
+	recordRoot        = ".baton/releases"
+	MaxHeadRefs       = 128
+	MaxBatchPaths     = 1025
+	MaxFileBytes      = 262_144
+	MaxBatchBytes     = MaxBatchPaths * MaxFileBytes
+	MaxTreeEntries    = 100_000
+	MaxTreeBytes      = 64 * 1024 * 1024
+	MaxChangedPaths   = 100_000
+	MaxHistory        = 10_000
+	MaxMessageBytes   = 1000
+	MaxRepositoryPath = 1000
+	MaxCommandOutput  = 64 * 1024 * 1024
+	MaxDiagnostic     = 512 * 1024
+	CommandTimeout    = 30 * time.Second
+)
+
+type Error struct {
+	Code, Op string
+	Err      error
+}
+
+func (e *Error) Error() string {
+	if e.Err == nil {
+		return e.Code + ": " + e.Op
+	}
+	return e.Code + ": " + e.Op + ": " + e.Err.Error()
+}
+func (e *Error) Unwrap() error              { return e.Err }
+func fail(code, op string, err error) error { return &Error{Code: code, Op: op, Err: err} }
+
+type ObjectFormat string
+
+const (
+	SHA1   ObjectFormat = "sha1"
+	SHA256 ObjectFormat = "sha256"
+)
+
+func (f ObjectFormat) oidLength() int {
+	if f == SHA1 {
+		return 40
+	}
+	if f == SHA256 {
+		return 64
+	}
+	return 0
+}
+
+type OID struct {
+	format ObjectFormat
+	hex    string
+}
+
+func (o OID) String() string       { return o.hex }
+func (o OID) Format() ObjectFormat { return o.format }
+func (o OID) IsZero() bool         { return o.hex == "" }
+func ParseOID(format ObjectFormat, value string) (OID, error) {
+	if len(value) != format.oidLength() || value == "" {
+		return OID{}, fail("INVALID_OBJECT_ID", "parse OID", fmt.Errorf("expected %d lowercase hex characters", format.oidLength()))
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return OID{}, fail("INVALID_OBJECT_ID", "parse OID", errors.New("OID is not lowercase hexadecimal"))
+		}
+	}
+	return OID{format: format, hex: value}, nil
+}
+
+type TreeEntry struct {
+	Path, Mode, Type string
+	OID              OID
+}
+type Repository struct {
+	root      string
+	git       string
+	commonDir string
+	format    ObjectFormat
+	refFault  *refFault
+}
+
+// Open admits one canonical repository and literal absolute Git executable.
+func Open(repository, gitExecutable string) (*Repository, error) {
+	git, err := admitGitExecutable(gitExecutable)
+	if err != nil {
+		return nil, err
+	}
+	if repository == "" || !filepath.IsAbs(repository) {
+		return nil, fail("INVALID_REPOSITORY", "open repository", errors.New("repository path must be absolute"))
+	}
+	rootCandidate, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		return nil, fail("INVALID_REPOSITORY", "resolve repository", err)
+	}
+	info, err := os.Stat(rootCandidate)
+	if err != nil || !info.IsDir() {
+		return nil, fail("INVALID_REPOSITORY", "inspect repository", err)
+	}
+	repo := &Repository{root: filepath.Clean(rootCandidate), git: git}
+	rootBytes, err := repo.run(nil, nil, "rev-parse", "--path-format=absolute", "--show-toplevel")
+	if err != nil {
+		rootBytes, err = repo.run(nil, nil, "rev-parse", "--path-format=absolute", "--git-dir")
+		if err != nil {
+			return nil, fail("INVALID_REPOSITORY", "resolve Git root", err)
+		}
+	}
+	root := strings.TrimSuffix(string(rootBytes), "\n")
+	if !filepath.IsAbs(root) || strings.ContainsRune(root, 0) {
+		return nil, fail("INVALID_REPOSITORY", "resolve Git root", errors.New("Git returned a non-absolute root"))
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fail("INVALID_REPOSITORY", "canonicalize Git root", err)
+	}
+	repo.root = filepath.Clean(root)
+	formatBytes, err := repo.run(nil, nil, "rev-parse", "--show-object-format")
+	if err != nil {
+		return nil, fail("UNSUPPORTED_OBJECT_FORMAT", "read object format", err)
+	}
+	repo.format = ObjectFormat(strings.TrimSpace(string(formatBytes)))
+	if repo.format != SHA1 && repo.format != SHA256 {
+		return nil, fail("UNSUPPORTED_OBJECT_FORMAT", "read object format", fmt.Errorf("%q", repo.format))
+	}
+	commonBytes, err := repo.run(nil, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return nil, fail("INVALID_REPOSITORY", "resolve Git common directory", err)
+	}
+	common := strings.TrimSuffix(string(commonBytes), "\n")
+	common, err = filepath.EvalSymlinks(common)
+	if err != nil {
+		return nil, fail("INVALID_REPOSITORY", "canonicalize Git common directory", err)
+	}
+	info, err = os.Stat(common)
+	if err != nil || !info.IsDir() {
+		return nil, fail("INVALID_REPOSITORY", "inspect Git common directory", err)
+	}
+	repo.commonDir = filepath.Clean(common)
+	return repo, nil
+}
+func admitGitExecutable(value string) (string, error) {
+	if value == "" || !filepath.IsAbs(value) {
+		return "", fail("INVALID_GIT_EXECUTABLE", "admit Git", errors.New("Git executable must be absolute"))
+	}
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil {
+		return "", fail("INVALID_GIT_EXECUTABLE", "resolve Git", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fail("INVALID_GIT_EXECUTABLE", "inspect Git", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return "", fail("INVALID_GIT_EXECUTABLE", "inspect Git", errors.New("Git is not an executable regular file"))
+	}
+	return filepath.Clean(resolved), nil
+}
+func (r *Repository) Root() string               { return r.root }
+func (r *Repository) GitExecutable() string      { return r.git }
+func (r *Repository) ObjectFormat() ObjectFormat { return r.format }
+func (r *Repository) parseOID(value string) (OID, error) {
+	return ParseOID(r.format, strings.TrimSpace(value))
+}
+func (r *Repository) validateOID(value OID) error {
+	if value.format != r.format || value.hex == "" {
+		return fail("OBJECT_FORMAT_MISMATCH", "validate OID", errors.New("OID does not belong to this repository format"))
+	}
+	_, err := ParseOID(r.format, value.hex)
+	return err
+}
+func literalEnvironment(home string, extra []string, attributesFile string) []string {
+	environment := []string{
+		"HOME=" + home, "XDG_CONFIG_HOME=" + filepath.Join(home, "xdg"), "LANG=C", "LC_ALL=C",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_ATTR_NOSYSTEM=1", "GIT_NO_REPLACE_OBJECTS=1", "GIT_LITERAL_PATHSPECS=1",
+		"GIT_PROTOCOL_FROM_USER=0", "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never",
+		"GIT_PAGER=cat", "PAGER=cat", "GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_COUNT=4",
+		"GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + filepath.Join(home, "hooks"),
+		"GIT_CONFIG_KEY_1=core.fsmonitor", "GIT_CONFIG_VALUE_1=false", "GIT_CONFIG_KEY_2=core.quotePath",
+		"GIT_CONFIG_VALUE_2=false", "GIT_CONFIG_KEY_3=core.attributesFile",
+		"GIT_CONFIG_VALUE_3=" + attributesFile,
+	}
+	return append(environment, extra...)
+}
+
+type boundedBuffer struct {
+	bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (b *boundedBuffer) Write(value []byte) (int, error) {
+	if b.overflow {
+		return len(value), nil
+	}
+	remaining := b.limit - b.Len()
+	if remaining < len(value) {
+		if remaining > 0 {
+			_, _ = b.Buffer.Write(value[:remaining])
+		}
+		b.overflow = true
+		return len(value), nil
+	}
+	return b.Buffer.Write(value)
+}
+
+type commandOutcome struct {
+	stdout, stderr                                  []byte
+	exitCode                                        int
+	signal                                          string
+	timedOut, overflow, started, reaped, groupQuiet bool
+	waitErr, cleanupErr                             error
+}
+
+func (o commandOutcome) successful() bool {
+	return o.started && o.reaped && o.groupQuiet && !o.timedOut && !o.overflow &&
+		o.waitErr == nil && o.exitCode == 0 && o.signal == ""
+}
+func (r *Repository) command(home string, group int, extraEnv []string, attributesFile string, args ...string) *exec.Cmd {
+	hooks := filepath.Join(home, "hooks")
+	commandArgs := append([]string{"-C", r.root, "-c", "core.hooksPath=" + hooks, "-c", "core.fsmonitor=false", "-c", "core.quotePath=false"}, args...)
+	command := exec.Command(r.git, commandArgs...)
+	command.Env = literalEnvironment(home, extraEnv, attributesFile)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: group}
+	return command
+}
+func processGroupQuiet(ctx context.Context, group int) bool {
+	if group <= 0 {
+		return false
+	}
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for !errors.Is(syscall.Kill(-group, 0), syscall.ESRCH) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+	return true
+}
+func (r *Repository) runOutcome(
+	ctx context.Context,
+	home string,
+	group int,
+	stdin []byte,
+	extraEnv []string,
+	attributesFile string,
+	outputLimit int,
+	args ...string,
+) (result commandOutcome) {
+	result.exitCode = -1
+	ownedHome := home == ""
+	if ownedHome {
+		home, result.waitErr = os.MkdirTemp("", "sworn-git-home-*")
+		if result.waitErr != nil {
+			return
+		}
+		defer func() { result.cleanupErr = os.RemoveAll(home) }()
+	}
+	if err := os.MkdirAll(filepath.Join(home, "hooks"), 0o700); err != nil {
+		result.waitErr = err
+		return
+	}
+	command := r.command(home, group, extraEnv, attributesFile, args...)
+	if stdin != nil {
+		command.Stdin = bytes.NewReader(stdin)
+	}
+	stdout := &boundedBuffer{limit: outputLimit}
+	stderr := &boundedBuffer{limit: MaxDiagnostic}
+	command.Stdout, command.Stderr = stdout, stderr
+	if err := command.Start(); err != nil {
+		result.waitErr = err
+		return
+	}
+	result.started = true
+	ownerGroup := group == 0
+	if ownerGroup {
+		group = command.Process.Pid
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- command.Wait() }()
+	select {
+	case result.waitErr = <-waited:
+		result.reaped = true
+	case <-ctx.Done():
+		result.timedOut = true
+		_ = syscall.Kill(-group, syscall.SIGKILL)
+		result.waitErr = <-waited
+		result.reaped = true
+	}
+	if state := command.ProcessState; state != nil {
+		result.exitCode = state.ExitCode()
+		if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			result.signal = status.Signal().String()
+		}
+	}
+	if ownerGroup && !processGroupQuiet(ctx, group) {
+		_ = syscall.Kill(-group, syscall.SIGKILL)
+		result.groupQuiet = processGroupQuiet(ctx, group)
+	} else {
+		result.groupQuiet = true
+	}
+	result.stdout, result.stderr = append([]byte(nil), stdout.Bytes()...), append([]byte(nil), stderr.Bytes()...)
+	result.overflow = stdout.overflow || stderr.overflow
+	return
+}
+func (r *Repository) runStatus(ctx context.Context, home string, group int, outputLimit int, args ...string) commandOutcome {
+	return r.runOutcome(ctx, home, group, nil, nil, "/dev/null", outputLimit, args...)
+}
+func (r *Repository) run(stdin []byte, extraEnv []string, args ...string) ([]byte, error) {
+	return r.runWithAttributes(stdin, extraEnv, "/dev/null", args...)
+}
+func (r *Repository) runWithAttributes(stdin []byte, extraEnv []string, attributesFile string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
+	defer cancel()
+	result := r.runOutcome(ctx, "", 0, stdin, extraEnv, attributesFile, MaxCommandOutput, args...)
+	if result.successful() && result.cleanupErr == nil {
+		return result.stdout, nil
+	}
+	message := strings.TrimSpace(string(result.stderr))
+	if message == "" && result.waitErr != nil {
+		message = result.waitErr.Error()
+	}
+	if result.timedOut {
+		message = "command deadline exceeded"
+	} else if result.overflow {
+		message = "command output exceeded its byte bound"
+	} else if !result.groupQuiet || !result.reaped {
+		message = "command process group was not confirmed quiescent"
+	} else if result.cleanupErr != nil {
+		message = "private command directory cleanup failed: " + result.cleanupErr.Error()
+	}
+	return nil, fail("GIT_EXECUTION_FAILED", strings.Join(args, " "), errors.New(message))
+}
+func ValidateHeadRef(value string) error {
+	const prefix = "refs/heads/"
+	if len(value) <= len(prefix) || len(value) > 250 || !strings.HasPrefix(value, prefix) {
+		return fail("INVALID_REF", "validate head ref", errors.New("ref must be a full refs/heads ref"))
+	}
+	tail := strings.TrimPrefix(value, prefix)
+	if strings.Contains(tail, "..") || strings.Contains(tail, "@{") {
+		return fail("INVALID_REF", "validate head ref", errors.New("ref contains a forbidden sequence"))
+	}
+	for _, segment := range strings.Split(tail, "/") {
+		if segment == "" || segment == "." || segment == ".." || strings.HasPrefix(segment, ".") ||
+			strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, ".lock") {
+			return fail("INVALID_REF", "validate head ref", errors.New("ref has a noncanonical segment"))
+		}
+	}
+	if strings.ContainsAny(tail, `\ ~^:?*[]`) {
+		return fail("INVALID_REF", "validate head ref", errors.New("ref contains a forbidden character"))
+	}
+	for _, character := range tail {
+		if character < 0x20 || character == 0x7f {
+			return fail("INVALID_REF", "validate head ref", errors.New("ref contains a control character"))
+		}
+	}
+	return nil
+}
+func ValidatePath(value string, allowRoot bool) error {
+	if value == "." && allowRoot {
+		return nil
+	}
+	if value == "" || len(value) > MaxRepositoryPath || filepath.IsAbs(value) ||
+		strings.Contains(value, `\`) || !utf8.ValidString(value) {
+		return fail("INVALID_PATH", "validate repository path", errors.New("path must be canonical repository-relative UTF-8"))
+	}
+	segments := strings.Split(value, "/")
+	if segments[0] == ".git" {
+		return fail("INVALID_PATH", "validate repository path", errors.New(".git is forbidden"))
+	}
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			return fail("INVALID_PATH", "validate repository path", errors.New("path has a noncanonical segment"))
+		}
+		for _, character := range segment {
+			if character < 0x20 || character == 0x7f {
+				return fail("INVALID_PATH", "validate repository path", errors.New("path contains a control character"))
+			}
+		}
+	}
+	return nil
+}
+func (r *Repository) TreeOID(commit OID) (OID, error) {
+	if err := r.validateOID(commit); err != nil {
+		return OID{}, err
+	}
+	raw, err := r.run(nil, nil, "rev-parse", "--verify", commit.String()+"^{tree}")
+	if err != nil {
+		return OID{}, err
+	}
+	return r.parseOID(string(raw))
+}
+func (r *Repository) ReadBlob(commit OID, relativePath string) ([]byte, error) {
+	values, err := r.ReadBlobs(commit, []string{relativePath})
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), values[relativePath]...), nil
+}
+func (r *Repository) ReadBlobs(commit OID, paths []string) (map[string][]byte, error) {
+	if err := r.validateOID(commit); err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 || len(paths) > MaxBatchPaths {
+		return nil, fail("RESOURCE_LIMIT", "read blobs", fmt.Errorf("requires 1-%d paths", MaxBatchPaths))
+	}
+	seen := make(map[string]struct{}, len(paths))
+	var input strings.Builder
+	for _, name := range paths {
+		if err := ValidatePath(name, false); err != nil {
+			return nil, err
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fail("DUPLICATE_PATH", "read blobs", fmt.Errorf("%s is repeated", name))
+		}
+		seen[name] = struct{}{}
+		input.WriteString(commit.String())
+		input.WriteByte(':')
+		input.WriteString(name)
+		input.WriteByte('\n')
+	}
+	raw, err := r.run([]byte(input.String()), nil, "cat-file", "--batch")
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]byte, len(paths))
+	offset := 0
+	total := 0
+	for _, name := range paths {
+		lineEnd := bytes.IndexByte(raw[offset:], '\n')
+		if lineEnd < 0 {
+			return nil, fail("INVALID_GIT_OUTPUT", "read blobs", errors.New("cat-file header is truncated"))
+		}
+		lineEnd += offset
+		header := string(raw[offset:lineEnd])
+		offset = lineEnd + 1
+		if strings.HasSuffix(header, " missing") {
+			return nil, fail("BLOB_NOT_FOUND", "read blobs", fmt.Errorf("%s is absent at %s", name, commit))
+		}
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[1] != "blob" {
+			return nil, fail("INVALID_GIT_OUTPUT", "read blobs", fmt.Errorf("unexpected cat-file header %q", header))
+		}
+		if _, err := r.parseOID(fields[0]); err != nil {
+			return nil, err
+		}
+		size, err := strconv.Atoi(fields[2])
+		if err != nil || size < 0 {
+			return nil, fail("INVALID_GIT_OUTPUT", "read blobs", fmt.Errorf("invalid blob size %q", fields[2]))
+		}
+		if size > MaxFileBytes {
+			return nil, fail("RESOURCE_LIMIT", "read blobs", fmt.Errorf("%s exceeds %d bytes", name, MaxFileBytes))
+		}
+		total += size
+		if total > MaxBatchBytes || offset+size >= len(raw) {
+			return nil, fail("RESOURCE_LIMIT", "read blobs", fmt.Errorf("batch exceeds %d bytes or is truncated", MaxBatchBytes))
+		}
+		body := append([]byte(nil), raw[offset:offset+size]...)
+		offset += size
+		if raw[offset] != '\n' {
+			return nil, fail("INVALID_GIT_OUTPUT", "read blobs", errors.New("cat-file body has no delimiter"))
+		}
+		offset++
+		result[name] = body
+	}
+	if offset != len(raw) {
+		return nil, fail("INVALID_GIT_OUTPUT", "read blobs", errors.New("cat-file returned trailing output"))
+	}
+	return result, nil
+}
+func (r *Repository) ListTree(commit OID) ([]TreeEntry, error) {
+	if err := r.validateOID(commit); err != nil {
+		return nil, err
+	}
+	raw, err := r.run(nil, nil, "ls-tree", "-r", "-z", "--full-tree", commit.String())
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > MaxTreeBytes {
+		return nil, fail("RESOURCE_LIMIT", "list tree", fmt.Errorf("tree output exceeds %d bytes", MaxTreeBytes))
+	}
+	records := bytes.Split(raw, []byte{0})
+	entries := make([]TreeEntry, 0, len(records))
+	for _, record := range records {
+		if len(record) == 0 {
+			continue
+		}
+		header, nameBytes, ok := bytes.Cut(record, []byte{'\t'})
+		if !ok || !utf8.Valid(nameBytes) {
+			return nil, fail("INVALID_GIT_OUTPUT", "list tree", errors.New("malformed or non-UTF-8 tree entry"))
+		}
+		parts := strings.Split(string(header), " ")
+		if len(parts) != 3 {
+			return nil, fail("INVALID_GIT_OUTPUT", "list tree", errors.New("malformed tree header"))
+		}
+		name := string(nameBytes)
+		if err := ValidatePath(name, false); err != nil {
+			return nil, err
+		}
+		oid, err := r.parseOID(parts[2])
+		if err != nil {
+			return nil, err
+		}
+		if parts[1] != "blob" && parts[1] != "commit" {
+			return nil, fail("INVALID_GIT_OUTPUT", "list tree", fmt.Errorf("unexpected leaf type %s", parts[1]))
+		}
+		entries = append(entries, TreeEntry{Path: name, Mode: parts[0], Type: parts[1], OID: oid})
+		if len(entries) > MaxTreeEntries {
+			return nil, fail("RESOURCE_LIMIT", "list tree", fmt.Errorf("tree exceeds %d entries", MaxTreeEntries))
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
+}
+func (r *Repository) ProductTreeIdentity(commit OID) (string, error) {
+	entries, err := r.ListTree(commit)
+	if err != nil {
+		return "", err
+	}
+	hasher := sha256.New()
+	for _, entry := range entries {
+		if entry.Path == recordRoot || strings.HasPrefix(entry.Path, recordRoot+"/") {
+			continue
+		}
+		io.WriteString(hasher, entry.Path)
+		hasher.Write([]byte{0})
+		io.WriteString(hasher, entry.Mode)
+		hasher.Write([]byte{0})
+		io.WriteString(hasher, entry.Type)
+		hasher.Write([]byte{0})
+		io.WriteString(hasher, entry.OID.String())
+		hasher.Write([]byte{'\n'})
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
+}
+func (r *Repository) Parents(commit OID) ([]OID, error) {
+	if err := r.validateOID(commit); err != nil {
+		return nil, err
+	}
+	raw, err := r.run(nil, nil, "show", "-s", "--format=%P", commit.String())
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(string(raw))
+	result := make([]OID, 0, len(fields))
+	for _, field := range fields {
+		oid, err := r.parseOID(field)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, oid)
+	}
+	return result, nil
+}
+func (r *Repository) CommitTimestamp(commit OID) (int64, error) {
+	if err := r.validateOID(commit); err != nil {
+		return 0, err
+	}
+	raw, err := r.run(nil, nil, "show", "-s", "--format=%ct", commit.String())
+	if err != nil {
+		return 0, err
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil || value < 0 {
+		return 0, fail("INVALID_GIT_OUTPUT", "read commit timestamp", err)
+	}
+	return value, nil
+}
+func (r *Repository) IsAncestor(ancestor, descendant OID) (bool, error) {
+	if err := r.validateOID(ancestor); err != nil {
+		return false, err
+	}
+	if err := r.validateOID(descendant); err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
+	defer cancel()
+	result := r.runStatus(ctx, "", 0, MaxDiagnostic, "merge-base", "--is-ancestor", ancestor.String(), descendant.String())
+	if result.successful() && result.cleanupErr == nil {
+		return true, nil
+	}
+	if result.started && result.reaped && result.groupQuiet && !result.timedOut &&
+		!result.overflow && result.exitCode == 1 && result.signal == "" &&
+		len(result.stdout) == 0 && len(result.stderr) == 0 && result.cleanupErr == nil {
+		return false, nil
+	}
+	return false, fail("GIT_EXECUTION_FAILED", "check ancestry", result.waitErr)
+}
+func (r *Repository) ChangedPaths(base, candidate OID) ([]string, error) {
+	if err := r.validateOID(base); err != nil {
+		return nil, err
+	}
+	if err := r.validateOID(candidate); err != nil {
+		return nil, err
+	}
+	raw, err := r.run(nil, nil, "diff", "--name-only", "-z", "--no-renames", base.String(), candidate.String(), "--")
+	if err != nil {
+		return nil, err
+	}
+	fields := bytes.Split(raw, []byte{0})
+	result := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if len(field) == 0 {
+			continue
+		}
+		if !utf8.Valid(field) {
+			return nil, fail("INVALID_GIT_OUTPUT", "changed paths", errors.New("path is not UTF-8"))
+		}
+		name := string(field)
+		if err := ValidatePath(name, false); err != nil {
+			return nil, err
+		}
+		result = append(result, name)
+		if len(result) > MaxChangedPaths {
+			return nil, fail("RESOURCE_LIMIT", "changed paths", fmt.Errorf("more than %d paths", MaxChangedPaths))
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+func (r *Repository) FirstParentHistory(base, head OID) ([]OID, error) {
+	if err := r.validateOID(base); err != nil {
+		return nil, err
+	}
+	if err := r.validateOID(head); err != nil {
+		return nil, err
+	}
+	ancestor, err := r.IsAncestor(base, head)
+	if err != nil {
+		return nil, err
+	}
+	if !ancestor {
+		return nil, fail("INVALID_HISTORY", "first-parent history", errors.New("base is not an ancestor of head"))
+	}
+	raw, err := r.run(nil, nil, "rev-list", "--first-parent", "--reverse", "--max-count="+strconv.Itoa(MaxHistory+1), head.String(), "^"+base.String())
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Fields(string(raw))
+	if len(lines) > MaxHistory {
+		return nil, fail("RESOURCE_LIMIT", "first-parent history", fmt.Errorf("more than %d commits", MaxHistory))
+	}
+	result := make([]OID, 0, len(lines))
+	for _, line := range lines {
+		oid, err := r.parseOID(line)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, oid)
+	}
+	return result, nil
+}

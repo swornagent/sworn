@@ -1,0 +1,66 @@
+{
+  "schema": "sworn.baton-golden-corpus/v1",
+  "generator_version": "sworn.batongolden/v1",
+  "oracle_sha256": "sha256:7bec5d4aa783aef6ea8bf8dfe81bbdfc34ef3dc44aba1bb93531d91966cc8ad6",
+  "baton": {
+    "tag": "v1.0.0-rc.3",
+    "commit": "affaf16cc37f845b5dc43b22988d8b680ff1f212",
+    "tree": "a26078b7db4ee36bdae4f28a48447ff2df782f4f",
+    "support_digest": "sha256:e5927a82f7c8a0daf3aa1196e7aa56231044449bb141cc2d7efd1cc8cca209bd"
+  },
+  "reference_sources": [
+    {
+      "path": "actions.mjs",
+      "sha256": "sha256:dd450cbf7073dd7979c7ea74b806c5555169c0defb4dd941923933dd35dc8f78"
+    },
+    {
+      "path": "git.mjs",
+      "sha256": "sha256:e66e4bd771651154d2feee6efb35a852047115bffb99846d605958ddd80826f0"
+    },
+    {
+      "path": "records.mjs",
+      "sha256": "sha256:447e0277e3f088578427cc00828c5da0f83f828238b72b639d4e9aca42772c84"
+    },
+    {
+      "path": "transition.mjs",
+      "sha256": "sha256:87e89368749516cfefe9b5e0735a5d29089c28ed0edc117fb340d48d51241fa3"
+    }
+  ],
+  "git": {
+    "real_path": "/usr/bin/git",
+    "version": "git version 2.43.0",
+    "sanitized_environment": "sworn.git-literal/v1"
+  },
+  "object_formats": [
+    {
+      "name": "sha1",
+      "oid_hex_length": 40
+    },
+    {
+      "name": "sha256",
+      "oid_hex_length": 64
+    }
+  ],
+  "files": [
+    {
+      "path": "actions.json",
+      "size": 75234,
+      "sha256": "sha256:db80bb216798d26d0083c40bca424b7071a77ac85dd1a40aa591ef5d3da6eb94"
+    },
+    {
+      "path": "git.json",
+      "size": 2168,
+      "sha256": "sha256:cb49495fcc23db86f951e13845f5ca01c690b3ec75985cd134bef648daa69474"
+    },
+    {
+      "path": "lifecycle.json",
+      "size": 2728,
+      "sha256": "sha256:bb24d0df10c2048f5b56098aaee34ef84a00ccfaf1b2751ff04471d814185dfb"
+    },
+    {
+      "path": "records.json",
+      "size": 2788,
+      "sha256": "sha256:da581a2c3f271c1b985c02905240d9ea4d294d4f2676f0123de1a4ce63242139"
+    }
+  ]
+}
