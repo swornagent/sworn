@@ -1,0 +1,48 @@
+{
+  "schema": "sworn.baton-golden-git/v1",
+  "product_tuple": "path NUL mode NUL type NUL object LF",
+  "formats": [
+    {
+      "object_format": "sha1",
+      "oid_hex_length": 40,
+      "base": "632ebce5f6925c60f4319b38cee1bc9aba9785e7",
+      "left": "914a44c764e5a097a98df638bc50494f767f7448",
+      "right": "ada59188aa2ce77c2e0cf96daa2c8724897e3707",
+      "fast_forward": {
+        "mode": "fast-forward",
+        "expected": "632ebce5f6925c60f4319b38cee1bc9aba9785e7",
+        "candidate": "914a44c764e5a097a98df638bc50494f767f7448",
+        "result": "914a44c764e5a097a98df638bc50494f767f7448"
+      },
+      "two_parent": {
+        "mode": "two-parent",
+        "expected": "914a44c764e5a097a98df638bc50494f767f7448",
+        "candidate": "ada59188aa2ce77c2e0cf96daa2c8724897e3707",
+        "result": "4544e2620a37a51ead919dbc16c43ad0306304f7"
+      },
+      "contained_outcome": "CANDIDATE_ALREADY_CONTAINED",
+      "result_product_tree": "sha256:cf53bfc0b3214d46c7e3c3aca8c8b3469b31386c05409503ce0dd5af9b1044d4"
+    },
+    {
+      "object_format": "sha256",
+      "oid_hex_length": 64,
+      "base": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7",
+      "left": "9e8e61d1c4e87a3a157765912b2a877dd60746fa0afaf0f411d082d3c4c2de6d",
+      "right": "7ba999f2662862bc0de984582dc9081eb497685ffd6bbfe2f993e3e3e06a57d8",
+      "fast_forward": {
+        "mode": "fast-forward",
+        "expected": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7",
+        "candidate": "9e8e61d1c4e87a3a157765912b2a877dd60746fa0afaf0f411d082d3c4c2de6d",
+        "result": "9e8e61d1c4e87a3a157765912b2a877dd60746fa0afaf0f411d082d3c4c2de6d"
+      },
+      "two_parent": {
+        "mode": "two-parent",
+        "expected": "9e8e61d1c4e87a3a157765912b2a877dd60746fa0afaf0f411d082d3c4c2de6d",
+        "candidate": "7ba999f2662862bc0de984582dc9081eb497685ffd6bbfe2f993e3e3e06a57d8",
+        "result": "c47dc22285c31e2ff226d999c917c0521f6fbbf42d881553cd9ea57d01313557"
+      },
+      "contained_outcome": "CANDIDATE_ALREADY_CONTAINED",
+      "result_product_tree": "sha256:4a3cd4a438280ef145d7ba0f0d8c8fa41c5d893e1e10b775f19872d15709175e"
+    }
+  ]
+}

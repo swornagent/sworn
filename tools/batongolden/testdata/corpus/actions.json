@@ -1,0 +1,2012 @@
+{
+  "schema": "sworn.baton-golden-actions/v1",
+  "profile": "autonomous",
+  "formats": [
+    {
+      "object_format": "sha1",
+      "oid_hex_length": 40,
+      "base_commit": "632ebce5f6925c60f4319b38cee1bc9aba9785e7",
+      "plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+      "approval_digest": "sha256:6cc0c0a3f3fe5e833c980ce81261b90e097c4e300a40e9d4b0572a12a51c56d5",
+      "product_candidate": "366d94afb39dbaa045282880e512806f6a5a1242",
+      "product_tree": "sha256:ceeba17d0cc13296f735e502f1817165545aed05040291919d186b9938025df1",
+      "events": [
+        {
+          "name": "installApprovedPlan",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "installApprovedPlan",
+            "changed": true,
+            "release_head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f",
+            "before": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": null
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "installApprovedPlan",
+            "changed": false,
+            "release_head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f",
+            "before": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "materializeTrack",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "materializeTrack",
+            "changed": true,
+            "track_id": "T1",
+            "base_commit": "e38ccb4073711cb1228a30f661a23d8d21e8d81f",
+            "owner_head": "deba03c76062bcefbed66cd045c1ba526ad86032",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "e38ccb4073711cb1228a30f661a23d8d21e8d81f"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "materializeTrack",
+            "changed": false,
+            "track_id": "T1",
+            "base_commit": "e38ccb4073711cb1228a30f661a23d8d21e8d81f",
+            "owner_head": "deba03c76062bcefbed66cd045c1ba526ad86032",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:DESIGN_WRITTEN",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "DESIGN_WRITTEN",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "DESIGN_WRITTEN",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:PROCEED",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PROCEED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "a9055791cfe75639951416c29cd9408c27348ea2",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "be5eaf45ca4d0c79c80a61b5ff5a66426d90a629"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "a9055791cfe75639951416c29cd9408c27348ea2"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PROCEED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "a9055791cfe75639951416c29cd9408c27348ea2",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "a9055791cfe75639951416c29cd9408c27348ea2"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "a9055791cfe75639951416c29cd9408c27348ea2"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:IMPLEMENTED",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "IMPLEMENTED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "93fd00baf637714a6cbe4274baaafd4aa16a3b77",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "366d94afb39dbaa045282880e512806f6a5a1242"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "93fd00baf637714a6cbe4274baaafd4aa16a3b77"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "IMPLEMENTED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "93fd00baf637714a6cbe4274baaafd4aa16a3b77",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "93fd00baf637714a6cbe4274baaafd4aa16a3b77"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "93fd00baf637714a6cbe4274baaafd4aa16a3b77"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:PASS",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PASS",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "93fd00baf637714a6cbe4274baaafd4aa16a3b77"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PASS",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "composeTrack",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "composeTrack",
+            "changed": true,
+            "track_id": "T1",
+            "frozen_track_head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "composition_commit": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "transfer_commit": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "deba03c76062bcefbed66cd045c1ba526ad86032"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "composeTrack",
+            "changed": false,
+            "track_id": "T1",
+            "frozen_track_head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "composition_commit": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68",
+            "transfer_commit": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "prepareAssembly",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "prepareAssembly",
+            "changed": true,
+            "assembly_candidate": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "preparation_commit": "048969eb5a20c3ff2c01301854ac08a30af967f6",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "048969eb5a20c3ff2c01301854ac08a30af967f6"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "prepareAssembly",
+            "changed": false,
+            "assembly_candidate": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "preparation_commit": "048969eb5a20c3ff2c01301854ac08a30af967f6",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "048969eb5a20c3ff2c01301854ac08a30af967f6"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "048969eb5a20c3ff2c01301854ac08a30af967f6"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:ASSEMBLY_PASS",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "assembly",
+            "work_id": null,
+            "result": "PASS",
+            "authority_ref": "refs/heads/release-wt/demo-v1",
+            "commit": "f0b8bdf2898ca883535c553589ee6b77b1106fb8",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "048969eb5a20c3ff2c01301854ac08a30af967f6"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f0b8bdf2898ca883535c553589ee6b77b1106fb8"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "assembly",
+            "work_id": null,
+            "result": "PASS",
+            "authority_ref": "refs/heads/release-wt/demo-v1",
+            "commit": "f0b8bdf2898ca883535c553589ee6b77b1106fb8",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f0b8bdf2898ca883535c553589ee6b77b1106fb8"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f0b8bdf2898ca883535c553589ee6b77b1106fb8"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "integrateRelease",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "integrateRelease",
+            "changed": true,
+            "assembly_candidate": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "integration_commit": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "status_commit": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f0b8bdf2898ca883535c553589ee6b77b1106fb8"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "integrateRelease",
+            "changed": false,
+            "assembly_candidate": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "integration_commit": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc",
+            "status_commit": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "final_refs": [
+        {
+          "ref": "refs/heads/release/v0.3.0",
+          "head": "a082c00f3e23c80b7324a1628d7b8c6d55bfd2cc"
+        },
+        {
+          "ref": "refs/heads/release-wt/demo-v1",
+          "head": "af3f93ea851a4f8ade8e488a225f713a36f6cf3d"
+        },
+        {
+          "ref": "refs/heads/track/demo-v1/T1",
+          "head": "6a057b4645cf1fd0fcaab39b7145ae3f86292d68"
+        }
+      ]
+    },
+    {
+      "object_format": "sha256",
+      "oid_hex_length": 64,
+      "base_commit": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7",
+      "plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+      "approval_digest": "sha256:6cc0c0a3f3fe5e833c980ce81261b90e097c4e300a40e9d4b0572a12a51c56d5",
+      "product_candidate": "b7d803c3929a0ed37d6d480247b454d860d5c2a8510cc47553fc841ff481efab",
+      "product_tree": "sha256:749e50aaa3f202bc04f7a4ae1ffd973a6cfcdc3c9d826eb403d461cce89ec742",
+      "events": [
+        {
+          "name": "installApprovedPlan",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "installApprovedPlan",
+            "changed": true,
+            "release_head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e",
+            "before": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": null
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "installApprovedPlan",
+            "changed": false,
+            "release_head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e",
+            "before": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "materializeTrack",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "materializeTrack",
+            "changed": true,
+            "track_id": "T1",
+            "base_commit": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e",
+            "owner_head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": null
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "materializeTrack",
+            "changed": false,
+            "track_id": "T1",
+            "base_commit": "87148f6aecbb123cfb02d51a62511a5f07bbd865c2a2147f63dc6ed7bac07d4e",
+            "owner_head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:DESIGN_WRITTEN",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "DESIGN_WRITTEN",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "DESIGN_WRITTEN",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:PROCEED",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PROCEED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "e674250285ef1cf385eafa2af2ef6fe98afe29a50f32687220fad6258dc95073",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "5b4d7b4a3bc859e95d2707179d88a6f98c7b892d1afeddaf0772fc1bad35faa2"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "e674250285ef1cf385eafa2af2ef6fe98afe29a50f32687220fad6258dc95073"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PROCEED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "e674250285ef1cf385eafa2af2ef6fe98afe29a50f32687220fad6258dc95073",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "e674250285ef1cf385eafa2af2ef6fe98afe29a50f32687220fad6258dc95073"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "e674250285ef1cf385eafa2af2ef6fe98afe29a50f32687220fad6258dc95073"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:IMPLEMENTED",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "IMPLEMENTED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "b7d803c3929a0ed37d6d480247b454d860d5c2a8510cc47553fc841ff481efab"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "IMPLEMENTED",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:PASS",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PASS",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "80442dcb2e6ec306262a392ab4697a5630c99d5125750f6ff755b2b25329817d"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "work",
+            "work_id": "W1",
+            "result": "PASS",
+            "authority_ref": "refs/heads/track/demo-v1/T1",
+            "commit": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "composeTrack",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "composeTrack",
+            "changed": true,
+            "track_id": "T1",
+            "frozen_track_head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "composition_commit": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "transfer_commit": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "115a038b7ca741cd3af5d0467ac4545df91e7b296dcb6b7e1ee1bbbe063cd33b"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "composeTrack",
+            "changed": false,
+            "track_id": "T1",
+            "frozen_track_head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "composition_commit": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad",
+            "transfer_commit": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "prepareAssembly",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "prepareAssembly",
+            "changed": true,
+            "assembly_candidate": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "preparation_commit": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "prepareAssembly",
+            "changed": false,
+            "assembly_candidate": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "preparation_commit": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "recordTransition:ASSEMBLY_PASS",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": true,
+            "scope": "assembly",
+            "work_id": null,
+            "result": "PASS",
+            "authority_ref": "refs/heads/release-wt/demo-v1",
+            "commit": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "05d2c8f59bcba5c2e175a230ca6ea73879651e8dda94c8521d401cc1dcb14c23"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "recordTransition",
+            "changed": false,
+            "scope": "assembly",
+            "work_id": null,
+            "result": "PASS",
+            "authority_ref": "refs/heads/release-wt/demo-v1",
+            "commit": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "integrateRelease",
+          "first": {
+            "kind": "baton.action-receipt/v1",
+            "action": "integrateRelease",
+            "changed": true,
+            "assembly_candidate": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "integration_commit": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "status_commit": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "85e4e1e541bad9e4ffc245bf25546af2822d7d6bce479cbdf2509498b6b5d0c1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          },
+          "retry": {
+            "kind": "baton.action-receipt/v1",
+            "action": "integrateRelease",
+            "changed": false,
+            "assembly_candidate": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "integration_commit": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935",
+            "status_commit": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1",
+            "before": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            },
+            "after": {
+              "release": {
+                "ref": "refs/heads/release-wt/demo-v1",
+                "head": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1"
+              },
+              "target": {
+                "ref": "refs/heads/release/v0.3.0",
+                "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/demo-v1/T1",
+                  "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "final_refs": [
+        {
+          "ref": "refs/heads/release/v0.3.0",
+          "head": "f4922e6c1782aa74f46871ec70825bab1a1a0d173e191ef355baeae903ad1935"
+        },
+        {
+          "ref": "refs/heads/release-wt/demo-v1",
+          "head": "55cfdc8c168b418dbd55d9272dbecdea736f0cec5ea5e6bdc7e58854a8ff24e1"
+        },
+        {
+          "ref": "refs/heads/track/demo-v1/T1",
+          "head": "882d1820d403929c17648cffeb51d1db57b1aa30482f1893521e326dbbecfdad"
+        }
+      ]
+    }
+  ],
+  "rebounds": [
+    {
+      "object_format": "sha1",
+      "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+      "revised_plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+      "previous_approval_digest": "sha256:8746d598329b1dad468283ead7010bddd7fe408425e74c656801abe8477877cb",
+      "revised_approval_digest": "sha256:d09a409f09bfe0afb0fe20dcc8f0a9d7ef72f31c77826f89d4f60b96b72d9a59",
+      "first": {
+        "kind": "baton.action-receipt/v1",
+        "action": "reboundPristinePlan",
+        "changed": true,
+        "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+        "plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+        "release_head": "83922b700160e191993d0850b4c1157cee98d2a8",
+        "before": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "fd654701c355fbc44926b764b5154624050b28fd"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        },
+        "after": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "83922b700160e191993d0850b4c1157cee98d2a8"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        }
+      },
+      "retry": {
+        "kind": "baton.action-receipt/v1",
+        "action": "reboundPristinePlan",
+        "changed": false,
+        "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+        "plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+        "release_head": "83922b700160e191993d0850b4c1157cee98d2a8",
+        "before": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "83922b700160e191993d0850b4c1157cee98d2a8"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        },
+        "after": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "83922b700160e191993d0850b4c1157cee98d2a8"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "632ebce5f6925c60f4319b38cee1bc9aba9785e7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "object_format": "sha256",
+      "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+      "revised_plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+      "previous_approval_digest": "sha256:8746d598329b1dad468283ead7010bddd7fe408425e74c656801abe8477877cb",
+      "revised_approval_digest": "sha256:d09a409f09bfe0afb0fe20dcc8f0a9d7ef72f31c77826f89d4f60b96b72d9a59",
+      "first": {
+        "kind": "baton.action-receipt/v1",
+        "action": "reboundPristinePlan",
+        "changed": true,
+        "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+        "plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+        "release_head": "8061d2d85405b8639d92896ec6ad416a2d1db327e4c722f3768f48016e6c629b",
+        "before": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "671d4a89b187b11e90c8b0ec4bbb3a094a2c6bda2c99e626201db12e1e47f57f"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        },
+        "after": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "8061d2d85405b8639d92896ec6ad416a2d1db327e4c722f3768f48016e6c629b"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        }
+      },
+      "retry": {
+        "kind": "baton.action-receipt/v1",
+        "action": "reboundPristinePlan",
+        "changed": false,
+        "previous_plan_digest": "sha256:9bf0608bfbd1bda9f1b165b24de04ca4f02f4a661c96184251f3ec4a531311e2",
+        "plan_digest": "sha256:bb17b0b51729873c06677532e843078e980500edc9552e4cd3c079f4726735cf",
+        "release_head": "8061d2d85405b8639d92896ec6ad416a2d1db327e4c722f3768f48016e6c629b",
+        "before": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "8061d2d85405b8639d92896ec6ad416a2d1db327e4c722f3768f48016e6c629b"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        },
+        "after": {
+          "release": {
+            "ref": "refs/heads/release-wt/demo-v1",
+            "head": "8061d2d85405b8639d92896ec6ad416a2d1db327e4c722f3768f48016e6c629b"
+          },
+          "target": {
+            "ref": "refs/heads/release/v0.3.0",
+            "head": "0765de34cd64df7eecd895a14811d187e8b60e0d1db6d083a195701a76d77cd7"
+          },
+          "tracks": [
+            {
+              "id": "T1",
+              "ref": "refs/heads/track/demo-v1/T1",
+              "head": null
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "schema": "sworn.baton-golden-lifecycle/v1",
+  "cases": [
+    {
+      "name": "design-written",
+      "result": "DESIGN_WRITTEN",
+      "source": "design/ready/implementer",
+      "target": "design/ready/captain",
+      "outcome": "pass"
+    },
+    {
+      "name": "captain-proceed",
+      "result": "PROCEED",
+      "source": "design/ready/captain",
+      "target": "implement/ready/implementer",
+      "outcome": "pass"
+    },
+    {
+      "name": "captain-revise",
+      "result": "REVISE",
+      "source": "design/ready/captain",
+      "target": "design/ready/implementer",
+      "outcome": "pass"
+    },
+    {
+      "name": "captain-escalate",
+      "result": "ESCALATE",
+      "source": "design/ready/captain",
+      "target": "design/blocked/planner",
+      "outcome": "pass"
+    },
+    {
+      "name": "implemented",
+      "result": "IMPLEMENTED",
+      "source": "implement/ready/implementer",
+      "target": "verify/ready/verifier",
+      "outcome": "pass"
+    },
+    {
+      "name": "work-pass",
+      "result": "PASS",
+      "source": "verify/ready/verifier",
+      "target": "merge/ready/merge",
+      "outcome": "pass"
+    },
+    {
+      "name": "work-fail",
+      "result": "FAIL",
+      "source": "verify/ready/verifier",
+      "target": "implement/ready/implementer",
+      "outcome": "pass"
+    },
+    {
+      "name": "work-blocked",
+      "result": "BLOCKED",
+      "source": "verify/ready/verifier",
+      "target": "verify/blocked/planner",
+      "outcome": "pass"
+    },
+    {
+      "name": "assembly-pass",
+      "result": "PASS",
+      "source": "verify/ready/verifier",
+      "target": "merge/ready/merge",
+      "outcome": "pass"
+    },
+    {
+      "name": "assembly-fail",
+      "result": "FAIL",
+      "source": "verify/ready/verifier",
+      "target": "verify/ready/planner",
+      "outcome": "pass"
+    },
+    {
+      "name": "assembly-blocked",
+      "result": "BLOCKED",
+      "source": "verify/ready/verifier",
+      "target": "verify/blocked/planner",
+      "outcome": "pass"
+    },
+    {
+      "name": "merged",
+      "result": "MERGED",
+      "source": "merge/ready/merge",
+      "target": "merge/complete/none",
+      "outcome": "pass"
+    },
+    {
+      "name": "materialize",
+      "result": "MATERIALIZE",
+      "source": "design/ready/implementer",
+      "target": "design/ready/implementer",
+      "outcome": "pass"
+    },
+    {
+      "name": "rebound",
+      "result": "REBOUND",
+      "source": "design/ready/implementer",
+      "target": "design/ready/implementer",
+      "outcome": "pass"
+    },
+    {
+      "name": "no-verdict",
+      "result": "NO_VERDICT",
+      "source": "verify/ready/verifier",
+      "target": "verify/ready/verifier",
+      "outcome": "pass"
+    }
+  ]
+}
