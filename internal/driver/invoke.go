@@ -87,6 +87,12 @@ func validateInvocation(invocation Invocation) error {
 		invocation.Selected.Provider.DriverVersion == "" {
 		return fail("INVOCATION_BINDING_MISMATCH")
 	}
+	if err := validateNetworkPolicy(
+		invocation.Selected.Provider.DriverID,
+		invocation.Selected.Provider.Network,
+	); err != nil {
+		return err
+	}
 	descriptor, err := invocation.Permission.Describe()
 	if err != nil {
 		return err

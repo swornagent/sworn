@@ -72,7 +72,7 @@ func serveSubmissionEndpoint(stream io.ReadWriter, server *SubmissionServer) err
 			response.Seal = &seal
 			response.SealBytes = base64.StdEncoding.EncodeToString(sealBytes)
 			if submitErr != nil {
-				response.Code = "rejected"
+				response.Code = submissionResponseCode(submitErr)
 			}
 		default:
 			return fail("INVALID_CONTROL_REQUEST")
@@ -202,9 +202,25 @@ func (client *EndpointClient) Submit(body []byte) (Seal, []byte, error) {
 		return Seal{}, nil, fail("INVALID_CONTROL_RESPONSE")
 	}
 	if response.Code != "ok" {
-		return *response.Seal, sealBytes, fail("SUBMISSION_REJECTED")
+		switch response.Code {
+		case "SUBMISSION_REJECTED", "SUBMISSION_CONFLICT":
+			return *response.Seal, sealBytes, fail(response.Code)
+		default:
+			return Seal{}, nil, fail("INVALID_CONTROL_RESPONSE")
+		}
 	}
 	return *response.Seal, sealBytes, nil
+}
+
+func submissionResponseCode(err error) string {
+	switch {
+	case IsCode(err, "SUBMISSION_CONFLICT"):
+		return "SUBMISSION_CONFLICT"
+	case IsCode(err, "SUBMISSION_REJECTED"):
+		return "SUBMISSION_REJECTED"
+	default:
+		return "SUBMISSION_REJECTED"
+	}
 }
 
 func (client *EndpointClient) exchange(request endpointRequest) (endpointResponse, error) {

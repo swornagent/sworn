@@ -221,6 +221,48 @@ func TestRequestRejectsReplacementOperationRoleDriftAndBadInputs(t *testing.T) {
 	}
 }
 
+func TestRC2WorkspaceAndRepositoryPathBoundaries(t *testing.T) {
+	t.Parallel()
+
+	validWorkspace := "/" + strings.Repeat("w", 4095)
+	if err := validateWorkspace(Workspace{Path: validWorkspace, Access: ReadOnly}); err != nil {
+		t.Fatalf("4096-byte workspace error = %v", err)
+	}
+	for name, workspace := range map[string]string{
+		"over byte limit": "/" + strings.Repeat("w", 4096),
+		"C0 control":      "/workspace/\x1fchild",
+		"C1 control":      "/workspace/\u0085child",
+		"invalid UTF-8":   "/workspace/\xffchild",
+	} {
+		if err := validateWorkspace(Workspace{Path: workspace, Access: ReadOnly}); !IsCode(err, "INVALID_WORKSPACE") {
+			t.Fatalf("%s workspace error = %v", name, err)
+		}
+	}
+
+	for name, repositoryPath := range map[string]string{
+		"1000 bytes":    strings.Repeat("p", 1000),
+		"git-like name": "nested/.gitignore",
+	} {
+		if err := validateRepositoryPath(repositoryPath); err != nil {
+			t.Fatalf("%s repository path error = %v", name, err)
+		}
+	}
+	for name, repositoryPath := range map[string]string{
+		"over byte limit":    strings.Repeat("p", 1001),
+		"root git segment":   ".git/config",
+		"nested git segment": "nested/.git/config",
+		"root parent":        "..",
+		"nested parent":      "nested/../escape",
+		"C0 control":         "nested/\x1fchild",
+		"C1 control":         "nested/\u0085child",
+		"invalid UTF-8":      "nested/\xffchild",
+	} {
+		if err := validateRepositoryPath(repositoryPath); !IsCode(err, "INVALID_PATH") {
+			t.Fatalf("%s repository path error = %v", name, err)
+		}
+	}
+}
+
 func TestResultCodecAllowsEmptyTextAndBindsEveryIdentity(t *testing.T) {
 	t.Parallel()
 	result := Result{

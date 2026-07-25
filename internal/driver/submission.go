@@ -311,10 +311,11 @@ func NewSubmissionPermission(
 	if !providerKeyPattern.MatchString(selected.Provider.Key) ||
 		!driverIdentityPattern.MatchString(selected.Provider.DriverID) ||
 		!versionPattern.MatchString(selected.Provider.DriverVersion) ||
-		!digestPattern.MatchString(selected.Provider.Executable.Digest) ||
-		(selected.Provider.Network != NetworkNone &&
-			selected.Provider.Network != NetworkRequired) {
+		!digestPattern.MatchString(selected.Provider.Executable.Digest) {
 		return SubmissionPermission{}, fail("PERMISSION_BINDING_MISMATCH")
+	}
+	if err := validateNetworkPolicy(selected.Provider.DriverID, selected.Provider.Network); err != nil {
+		return SubmissionPermission{}, err
 	}
 	requestBody, err := EncodeRequest(request)
 	if err != nil {
@@ -506,7 +507,9 @@ func (server *SubmissionServer) Submit(body []byte) (Seal, []byte, error) {
 			}
 			return server.seal, append([]byte(nil), server.sealBytes...), nil
 		}
-		return Seal{}, nil, fail("SUBMISSION_CONFLICT")
+		return server.seal,
+			append([]byte(nil), server.sealBytes...),
+			fail("SUBMISSION_CONFLICT")
 	}
 	server.sealed = true
 	server.body = append([]byte(nil), body...)

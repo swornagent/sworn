@@ -126,8 +126,10 @@ func TestEverySubmissionPermissionRowAcceptsOnlyItsExactShape(t *testing.T) {
 			}
 			conflict := append([]byte(nil), body...)
 			conflict[len(conflict)-2] ^= 1
-			if _, _, err := server.Submit(conflict); !IsCode(err, "SUBMISSION_CONFLICT") {
-				t.Fatalf("conflict error = %v", err)
+			conflictSeal, conflictBytes, err := server.Submit(conflict)
+			if !IsCode(err, "SUBMISSION_CONFLICT") ||
+				conflictSeal != seal || !bytes.Equal(conflictBytes, sealBytes) {
+				t.Fatalf("conflict seal = %#v, bytes=%q, error=%v", conflictSeal, conflictBytes, err)
 			}
 		})
 	}
@@ -313,6 +315,69 @@ func TestEndpointDescribeSubmitAndCrossInvocationRefusal(t *testing.T) {
 	_ = child.Close()
 	if err := <-done; !IsCode(err, "SUBMISSION_BINDING_MISMATCH") {
 		t.Fatalf("server error = %v", err)
+	}
+}
+
+func TestEndpointPreservesAcceptedReplayAndSubmissionConflict(t *testing.T) {
+	t.Parallel()
+	permission, request := permissionFixture(t, RolePlanner, PlannerProposal)
+	server, err := NewSubmissionServer(permission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, child := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- serveSubmissionEndpoint(parent, server)
+	}()
+	client, err := NewEndpointClient(child, request.InvocationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstBody, err := EncodeSubmission(Submission{
+		SchemaVersion: SubmissionSchemaVersion,
+		InvocationID:  request.InvocationID,
+		Artifacts:     []Artifact{artifactFixture(t, ArtifactPlan)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSeal, firstSealBytes, err := client.Submit(firstBody)
+	if err != nil || !firstSeal.Accepted {
+		t.Fatalf("first seal = %#v, error = %v", firstSeal, err)
+	}
+	replaySeal, replaySealBytes, err := client.Submit(firstBody)
+	if err != nil || replaySeal != firstSeal || !bytes.Equal(replaySealBytes, firstSealBytes) {
+		t.Fatalf("replay seal = %#v, bytes=%q, error=%v", replaySeal, replaySealBytes, err)
+	}
+
+	conflictingArtifact, err := NewArtifact(ArtifactPlan, []byte("conflicting plan bytes\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingBody, err := EncodeSubmission(Submission{
+		SchemaVersion: SubmissionSchemaVersion,
+		InvocationID:  request.InvocationID,
+		Artifacts:     []Artifact{conflictingArtifact},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictSeal, conflictSealBytes, err := client.Submit(conflictingBody)
+	if !IsCode(err, "SUBMISSION_CONFLICT") ||
+		conflictSeal != firstSeal || !bytes.Equal(conflictSealBytes, firstSealBytes) {
+		t.Fatalf("conflict seal = %#v, bytes=%q, error=%v", conflictSeal, conflictSealBytes, err)
+	}
+	acceptedBody, acceptedSeal, acceptedSealBytes, ok := server.Accepted()
+	if !ok || !bytes.Equal(acceptedBody, firstBody) ||
+		acceptedSeal != firstSeal || !bytes.Equal(acceptedSealBytes, firstSealBytes) {
+		t.Fatal("conflicting replay replaced the accepted submission")
+	}
+
+	_ = child.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

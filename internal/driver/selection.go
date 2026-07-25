@@ -198,13 +198,23 @@ func validateProviderConfig(config ProviderConfig) error {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return fail("INVALID_EXECUTABLE")
 	}
-	if config.Network != NetworkNone && config.Network != NetworkRequired {
-		return fail("INVALID_NETWORK_POLICY")
+	if err := validateNetworkPolicy(config.DriverID, config.Network); err != nil {
+		return err
 	}
 	if config.CredentialRef != nil {
 		if !providerKeyPattern.MatchString(*config.CredentialRef) {
 			return fail("INVALID_CREDENTIAL_REFERENCE")
 		}
+	}
+	return nil
+}
+
+func validateNetworkPolicy(driverID string, network NetworkPolicy) error {
+	if network != NetworkNone && network != NetworkRequired {
+		return fail("INVALID_NETWORK_POLICY")
+	}
+	if driverID == FakeDriverID && network != NetworkNone {
+		return fail("INVALID_NETWORK_POLICY")
 	}
 	return nil
 }

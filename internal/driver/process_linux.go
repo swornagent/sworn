@@ -87,7 +87,10 @@ func platformInvoke(parent context.Context, invocation Invocation) (Observation,
 	if err != nil {
 		return Observation{}, fail("ISOLATION_UNAVAILABLE")
 	}
-	args := bubblewrapArguments(invocation)
+	args, err := bubblewrapArguments(invocation)
+	if err != nil {
+		return Observation{}, err
+	}
 	command := exec.Command(bwrap, args...)
 	command.Stdin = bytes.NewReader(requestBody)
 	command.Env = []string{}
@@ -292,7 +295,13 @@ func trustedBubblewrap() (string, error) {
 	return executable, nil
 }
 
-func bubblewrapArguments(invocation Invocation) []string {
+func bubblewrapArguments(invocation Invocation) ([]string, error) {
+	if err := validateNetworkPolicy(
+		invocation.Selected.Provider.DriverID,
+		invocation.Selected.Provider.Network,
+	); err != nil {
+		return nil, err
+	}
 	workspace := invocation.Request.Workspace.Path
 	targetProjection := filepath.Join(workspace, ".sworn-inputs", "v1")
 	arguments := []string{
@@ -345,7 +354,7 @@ func bubblewrapArguments(invocation Invocation) []string {
 	arguments = append(arguments,
 		"/sworn/driver", "run",
 	)
-	return arguments
+	return arguments, nil
 }
 
 func openPinnedDirectory(name string) (*os.File, error) {

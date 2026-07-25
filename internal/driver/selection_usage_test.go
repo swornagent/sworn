@@ -148,6 +148,11 @@ func TestProviderConfigurationHasNoGenericSecretOrLaunchEscapeHatch(t *testing.T
 	if _, err := NewSelectionRegistry([]ProviderConfig{bad}); !IsCode(err, "INVALID_NETWORK_POLICY") {
 		t.Fatalf("bad network error = %v", err)
 	}
+	fakeWithNetwork := providerFixture(t, "fake-provider", FakeDriverID)
+	fakeWithNetwork.Network = NetworkRequired
+	if _, err := NewSelectionRegistry([]ProviderConfig{fakeWithNetwork}); !IsCode(err, "INVALID_NETWORK_POLICY") {
+		t.Fatalf("networked fake error = %v", err)
+	}
 }
 
 func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {

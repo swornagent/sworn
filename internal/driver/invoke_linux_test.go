@@ -122,6 +122,50 @@ func executableConfig(t *testing.T) ProviderConfig {
 	}
 }
 
+func TestFakeBubblewrapArgumentsCannotSelectSharedNetwork(t *testing.T) {
+	t.Parallel()
+	invocation := Invocation{
+		Request: Request{
+			Workspace: Workspace{Path: "/workspace/project", Access: ReadOnly},
+		},
+		Selected: SelectedProvider{
+			Provider: ProviderConfig{
+				DriverID: FakeDriverID,
+				Network:  NetworkNone,
+			},
+		},
+		FakeProfile: FakeCompleted,
+	}
+	arguments, err := bubblewrapArguments(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slicesContain(arguments, "--share-net") {
+		t.Fatal("networkless fake selected --share-net")
+	}
+
+	invocation.Selected.Provider.Network = NetworkRequired
+	arguments, err = bubblewrapArguments(invocation)
+	if !IsCode(err, "INVALID_NETWORK_POLICY") || arguments != nil {
+		t.Fatalf("networked fake arguments = %q, error = %v", arguments, err)
+	}
+
+	invocation.Selected.Provider.DriverID = "vendor.driver"
+	arguments, err = bubblewrapArguments(invocation)
+	if err != nil || !slicesContain(arguments, "--share-net") {
+		t.Fatalf("networked vendor arguments = %q, error = %v", arguments, err)
+	}
+}
+
+func slicesContain(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func fakeInvocation(
 	t *testing.T,
 	invocationID string,

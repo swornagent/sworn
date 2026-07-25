@@ -602,16 +602,15 @@ func validateText(value string, maximum int, allowEmpty bool) error {
 	if (!allowEmpty && value == "") || len([]byte(value)) > maximum || !utf8.ValidString(value) {
 		return fail("INVALID_FIELD")
 	}
-	for _, r := range value {
-		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) {
-			return fail("INVALID_FIELD")
-		}
+	if containsControlCharacter(value) {
+		return fail("INVALID_FIELD")
 	}
 	return nil
 }
 
 func validateWorkspace(workspace Workspace) error {
-	if workspace.Path == "" || len(workspace.Path) > 4096 ||
+	if workspace.Path == "" || len([]byte(workspace.Path)) > 4096 ||
+		!utf8.ValidString(workspace.Path) || containsControlCharacter(workspace.Path) ||
 		!filepath.IsAbs(workspace.Path) || filepath.Clean(workspace.Path) != workspace.Path ||
 		strings.ContainsRune(workspace.Path, '\x00') {
 		return fail("INVALID_WORKSPACE")
@@ -623,12 +622,26 @@ func validateWorkspace(workspace Workspace) error {
 }
 
 func validateRepositoryPath(value string) error {
-	if value == "" || strings.Contains(value, `\`) || strings.ContainsRune(value, '\x00') ||
-		strings.HasPrefix(value, "/") || path.Clean(value) != value || value == "." ||
-		strings.HasPrefix(value, "../") {
+	if value == "" || len([]byte(value)) > 1000 || !utf8.ValidString(value) ||
+		containsControlCharacter(value) || strings.Contains(value, `\`) ||
+		path.IsAbs(value) || path.Clean(value) != value {
 		return fail("INVALID_PATH")
 	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." || segment == ".git" {
+			return fail("INVALID_PATH")
+		}
+	}
 	return nil
+}
+
+func containsControlCharacter(value string) bool {
+	for _, r := range value {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneString(value *string) *string {
