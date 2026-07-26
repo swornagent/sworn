@@ -151,7 +151,7 @@
               "text": "Replanning appends an approved plan revision, preserves the release and unchanged slice identities, and invalidates only changed slices and actual consumers. It never resets or locks an otherwise valid slice set."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
           "constraints": ["Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
           "consumes": ["W3-walking-skeleton"]
