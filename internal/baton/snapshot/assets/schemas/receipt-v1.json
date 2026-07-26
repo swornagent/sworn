@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/receipt-v1.json",
+  "title": "Baton receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "release",
+    "role",
+    "result",
+    "plan",
+    "binds",
+    "detail",
+    "summary"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "release": {
+      "$ref": "#/$defs/identity"
+    },
+    "slice": {
+      "$ref": "#/$defs/identity"
+    },
+    "role": {
+      "enum": [
+        "planner",
+        "implementer",
+        "captain",
+        "verifier",
+        "merge"
+      ]
+    },
+    "result": {
+      "enum": [
+        "approved",
+        "retired",
+        "designed",
+        "candidate",
+        "proceed",
+        "revise",
+        "escalate",
+        "pass",
+        "fail",
+        "blocked",
+        "merged"
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "plan": {
+      "$ref": "#/$defs/object"
+    },
+    "contract": {
+      "$ref": "#/$defs/digest"
+    },
+    "binds": {
+      "$ref": "#/$defs/object"
+    },
+    "detail": {
+      "$ref": "#/$defs/digest"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "target": {
+      "$ref": "#/$defs/object"
+    },
+    "base": {
+      "$ref": "#/$defs/object"
+    },
+    "candidate": {
+      "$ref": "#/$defs/object"
+    },
+    "product_tree": {
+      "$ref": "#/$defs/digest"
+    },
+    "inputs": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "$ref": "#/$defs/identity"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/digest"
+      }
+    },
+    "checks": {
+      "$ref": "#/$defs/digest"
+    },
+    "result_commit": {
+      "$ref": "#/$defs/object"
+    }
+  },
+  "$defs": {
+    "identity": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "object": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
