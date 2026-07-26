@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "007c91dbbda143ac98fed48cace5757cd05107a0",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v1",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v2",
   "tracks": [
     {
       "id": "T0-admission",
@@ -140,7 +140,7 @@
           "acceptance": [
             {
               "id": "A-W4-topology",
-              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track; composition is serial and plan-ordered; a distinct fresh assembly Verifier gates exact Merge."
+              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track; composition is serial and plan-ordered. When composition creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-track direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
             },
             {
               "id": "A-W4-recovery",
@@ -264,7 +264,7 @@
             }
           ],
           "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "git diff --check"],
-          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Target at most 18064 lines under that classifier; 18065 through 19264 requires proof-backed Captain justification; above 19264 requires a plan revision.", "At most 8 production Go packages and 10 direct dependencies. A stripped binary at most 25 MiB passes; above 25 through 32 MiB requires proof-backed Captain justification; above 32 MiB requires a plan revision.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
+          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
           "depends_on": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"],
           "consumes": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"]
         }
