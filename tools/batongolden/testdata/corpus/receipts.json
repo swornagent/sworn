@@ -1,0 +1,134 @@
+{
+  "plan": {
+    "bytes_base64": "YGBgYmF0b24tcGxhbi12Mgp7CiAgInNjaGVtYV92ZXJzaW9uIjogImJhdG9uLnBsYW4vdjIiLAogICJyZWxlYXNlIjogImdvbGRlbi1wYXJzZXIiLAogICJyZXZpc2lvbiI6IDEsCiAgInByZXZpb3VzX3BsYW4iOiBudWxsLAogICJyZXBvc2l0b3J5IjogImdvbGRlbi9zd29ybiIsCiAgInRhcmdldF9yZWYiOiAicmVmcy9oZWFkcy9tYWluIiwKICAiYXBwcm92YWxfcmVmIjogImdvbGRlbjovL2FwcHJvdmFsL2dvbGRlbi1wYXJzZXIvMSIsCiAgInRyYWNrcyI6IFsKICAgIHsKICAgICAgImlkIjogIlQxIiwKICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgICAgInNsaWNlcyI6IFsKICAgICAgICB7CiAgICAgICAgICAiaWQiOiAiUzEiLAogICAgICAgICAgIm91dGNvbWUiOiAiRGVsaXZlciBTMS4iLAogICAgICAgICAgInNjb3BlIjogewogICAgICAgICAgICAiaW5jbHVkZSI6IFsKICAgICAgICAgICAgICAib25lLnR4dCIKICAgICAgICAgICAgXSwKICAgICAgICAgICAgImV4Y2x1ZGUiOiBbXQogICAgICAgICAgfSwKICAgICAgICAgICJhY2NlcHRhbmNlIjogWwogICAgICAgICAgICB7CiAgICAgICAgICAgICAgImlkIjogIkEtUzEiLAogICAgICAgICAgICAgICJ0ZXh0IjogIlMxIGlzIGV4YWN0LiIKICAgICAgICAgICAgfQogICAgICAgICAgXSwKICAgICAgICAgICJjaGVja3MiOiBbCiAgICAgICAgICAgICJjaGVjayBTMSIKICAgICAgICAgIF0sCiAgICAgICAgICAiY29uc3RyYWludHMiOiBbCiAgICAgICAgICAgICJkZXRlcm1pbmlzdGljIgogICAgICAgICAgXSwKICAgICAgICAgICJkZXBlbmRzX29uIjogW10sCiAgICAgICAgICAiY29uc3VtZXMiOiBbXQogICAgICAgIH0KICAgICAgXQogICAgfQogIF0KfQpgYGAKCkdvbGRlbiBwbGFuLgo=",
+    "digest": "sha256:3f2ed6bf02e2808d3fb2de6e284b228f11e52c7015a247c87a4b5bb6ea44c2a2",
+    "metadata": {
+      "schema_version": "baton.plan/v2",
+      "release": "golden-parser",
+      "revision": 1,
+      "previous_plan": null,
+      "repository": "golden/sworn",
+      "target_ref": "refs/heads/main",
+      "approval_ref": "golden://approval/golden-parser/1",
+      "tracks": [
+        {
+          "id": "T1",
+          "depends_on": [],
+          "slices": [
+            {
+              "id": "S1",
+              "outcome": "Deliver S1.",
+              "scope": {
+                "include": [
+                  "one.txt"
+                ],
+                "exclude": []
+              },
+              "acceptance": [
+                {
+                  "id": "A-S1",
+                  "text": "S1 is exact."
+                }
+              ],
+              "checks": [
+                "check S1"
+              ],
+              "constraints": [
+                "deterministic"
+              ],
+              "depends_on": [],
+              "consumes": []
+            }
+          ]
+        }
+      ],
+      "contracts": {
+        "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446"
+      }
+    },
+    "markdown": "\nGolden plan.\n"
+  },
+  "strict_json": [
+    {
+      "name": "canonical",
+      "ok": true,
+      "value": {
+        "a": 1,
+        "b": [
+          true,
+          null
+        ]
+      }
+    },
+    {
+      "name": "duplicate",
+      "ok": false,
+      "code": "DUPLICATE_NAME"
+    },
+    {
+      "name": "fraction",
+      "ok": false,
+      "code": "UNSAFE_INTEGER"
+    },
+    {
+      "name": "unsafe",
+      "ok": false,
+      "code": "UNSAFE_INTEGER"
+    },
+    {
+      "name": "lone_surrogate",
+      "ok": false,
+      "code": "INVALID_UNICODE"
+    }
+  ],
+  "receipt": {
+    "canonical": "{\"attempt\":1,\"binds\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"contract\":\"sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446\",\"detail\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"plan\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"release\":\"golden-parser\",\"result\":\"designed\",\"role\":\"implementer\",\"slice\":\"S1\",\"summary\":\"Design exact parser fixture.\",\"version\":1}",
+    "parsed": {
+      "attempt": 1,
+      "binds": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+      "detail": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "plan": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "release": "golden-parser",
+      "result": "designed",
+      "role": "implementer",
+      "slice": "S1",
+      "summary": "Design exact parser fixture.",
+      "version": 1
+    },
+    "rendered_base64": "YmF0b24oZ29sZGVuLXBhcnNlci9TMSk6IGltcGxlbWVudGVyIGRlc2lnbmVkCgpCYXRvbi1EZXRhaWwtQmVnaW4KZ29sZGVuIGRldGFpbApCYXRvbi1EZXRhaWwtRW5kCgpCYXRvbi1SZWNlaXB0OiB7ImF0dGVtcHQiOjEsImJpbmRzIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsImNvbnRyYWN0Ijoic2hhMjU2OmM1MGI1ZGM2ZGZlYTMxZTgzYWFiZDg5YmI3NGYzYzA1NmI2ODFmNjVhODQ3NzczMmNmMWE1OGU5M2UyMzQ0NDYiLCJkZXRhaWwiOiJzaGEyNTY6ZjU4NGM0MTNkMDBkNWVjNDIwZTk0ODgzY2VlYzNkNDNkNGYzODhlYWRiY2NiZDExMmQyZTM5ODgyYTBiMjEwNyIsInBsYW4iOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwicmVsZWFzZSI6ImdvbGRlbi1wYXJzZXIiLCJyZXN1bHQiOiJkZXNpZ25lZCIsInJvbGUiOiJpbXBsZW1lbnRlciIsInNsaWNlIjoiUzEiLCJzdW1tYXJ5IjoiRGVzaWduIGV4YWN0IHBhcnNlciBmaXh0dXJlLiIsInZlcnNpb24iOjF9Cg==",
+    "parsed_commit": {
+      "subject": "baton(golden-parser/S1): implementer designed",
+      "detail_base64": "Z29sZGVuIGRldGFpbA==",
+      "receipt": {
+        "attempt": 1,
+        "binds": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+        "detail": "sha256:f584c413d00d5ec420e94883ceec3d43d4f388eadbccbd112d2e39882a0b2107",
+        "plan": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "release": "golden-parser",
+        "result": "designed",
+        "role": "implementer",
+        "slice": "S1",
+        "summary": "Design exact parser fixture.",
+        "version": 1
+      }
+    },
+    "noncanonical": {
+      "ok": false,
+      "code": "NON_CANONICAL_RECEIPT"
+    }
+  },
+  "invalid_plans": [
+    {
+      "name": "v1",
+      "ok": false,
+      "code": "INVALID_PLAN_FENCE"
+    },
+    {
+      "name": "duplicate_fence",
+      "ok": false,
+      "code": "INVALID_PLAN_FENCE"
+    }
+  ]
+}
