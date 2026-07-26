@@ -1,56 +1,53 @@
 ---
 operation: baton-verify
-version: baton.operation/v1
+version: baton.operation/v2
 ---
 
 ## Purpose
 
-Independently verify either one work candidate or the complete assembled
-release against exact approved evidence.
+Independently verify one slice candidate or the complete assembled product
+against the applicable approved contract.
 
 ## Inputs
 
-- Scope: `work` with a work identity, or `assembly` without one.
-- The admitted plan, authoritative status, exact proof bytes, and candidate.
-- Protected clean, read-only dispatch evidence for this invocation.
-- Required checks and raw evidence references.
+- Scope: one stable slice or the assembled release.
+- The applicable approved plan revision and exact candidate.
+- The applicable Captain decision for slice verification.
+- Required checks, observable evidence, and protected fresh read-only dispatch
+  evidence.
 
 ## Authority
 
-Begin in fresh context with read-only candidate access. For work, the Verifier
-must differ from the design producer, Implementer, and Captain. For assembly,
-it must differ from the Merge proof producer. Verification binds the current
-plan, proof, candidate, product tree, and dispatch evidence.
+Begin in fresh context with read-only candidate access. Differ from the
+Implementer and Captain. Bind the decision to the exact plan revision,
+candidate, product identity, evidence, and invocation.
 
 ## Actions
 
-1. Re-select authoritative state from captured refs and validate every current
-   binding before inspecting the candidate.
-2. Read only the approved plan, status, proof, candidate, and necessary live
-   repository evidence.
-3. Re-run required checks and test each acceptance claim at the boundary it
-   describes. For assembly, verify every exact composed component and the
-   complete product together.
-4. Choose exactly one Baton verdict: `PASS`, `FAIL`, or `BLOCKED`.
-5. Construct the exact next status and record that result through
-   `recordTransition`.
-6. If execution, transport, or persistence fails before a verdict, return
-   `NO_VERDICT` operationally and leave durable status byte-for-byte unchanged.
+1. Re-establish every trust-critical binding from immutable facts.
+2. Inspect the real candidate, rerun required checks, and test each acceptance
+   claim at its named boundary.
+3. For assembly, check every composed component and the complete product.
+4. Return exactly one verdict:
+   - `PASS` when the exact candidate satisfies the contract;
+   - `FAIL` when the contract is adequate but candidate or evidence is wrong;
+   - `BLOCKED` when safe progress requires changed authority, contract, or an
+     external decision.
 
 ## Required output
 
-Return the scope, verdict, numbered evidence or violations, bound identities,
-resulting projection, and action receipt. On operational failure, return the
-failure and unchanged-state evidence, not a verdict.
+Return scope, verdict, exact bindings, numbered evidence or violations,
+Verifier invocation, and concise reason. Do not write the Verifier receipt.
+On operational failure, return the condition and no verdict.
 
 ## Stop conditions
 
-Stop on contaminated or writable context, stale bindings, changed candidate,
-missing proof, untrusted dispatch evidence, unavailable required evidence, or
-any action error. Absence of evidence cannot become `PASS`.
+Never return `PASS` for contaminated context, writable candidate access,
+missing approval, stale Captain decision, changed candidate, ambiguous
+evidence, or unavailable required checks.
 
 ## Next handoff
 
-Work `PASS` hands to `baton-merge track`; work `FAIL` returns to
-`baton-implement`; `BLOCKED` or assembly `FAIL` hands to `baton-plan`. Assembly
-`PASS` hands to `baton-merge release`.
+Slice `PASS` hands to `baton-merge`; `FAIL` adds an implementation attempt on
+the same slice; `BLOCKED` hands to `baton-plan`. Assembly `PASS` permits final
+Merge.
