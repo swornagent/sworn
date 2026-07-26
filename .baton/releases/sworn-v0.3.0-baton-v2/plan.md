@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 2,
-  "previous_plan": "007c91dbbda143ac98fed48cace5757cd05107a0",
+  "revision": 3,
+  "previous_plan": "46ceee57f0e2135839befbed8789c2c695aade97",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v2",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v3",
   "tracks": [
     {
       "id": "T0-admission",
@@ -134,7 +134,7 @@
           "id": "W4-topology-recovery",
           "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
           "scope": {
-            "include": ["cmd/sworn", "internal/journal", "internal/runtime", "test/e2e"],
+            "include": ["cmd/sworn", "internal/baton", "internal/journal", "internal/runtime", "test/e2e"],
             "exclude": []
           },
           "acceptance": [
