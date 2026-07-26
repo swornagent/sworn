@@ -2,9 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [main, "release/**"]
+    branches:
+      - main
+      - "release/**"
+      - "release-wt/**"
+      - "track/**"
   pull_request:
-    branches: [main, "release/**"]
+    branches:
+      - main
+      - "release/**"
+      - "release-wt/**"
 
 permissions:
   contents: read
@@ -12,16 +19,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GOFLAGS: -buildvcs=false
-    timeout-minutes: 10
+      GOWORK: "off"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
-      - name: Format
+      - name: Product formatting
+        shell: bash
         run: |
           set -euo pipefail
           unformatted="$(
@@ -30,11 +41,40 @@ jobs:
               xargs -0 -r gofmt -l
           )"
           test -z "$unformatted"
+          product_pathspec=(
+            .
+            ':(exclude,top).baton/releases'
+            ':(exclude,top).baton/releases/**'
+          )
+          git diff --check -- "${product_pathspec[@]}"
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            git diff --check \
+              "${{ github.event.pull_request.base.sha }}...HEAD" \
+              -- "${product_pathspec[@]}"
+          elif [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]] &&
+            git cat-file -e "${{ github.event.before }}^{commit}"; then
+            git diff --check \
+              "${{ github.event.before }}..HEAD" \
+              -- "${product_pathspec[@]}"
+          else
+            git diff-tree --check --root -r HEAD \
+              -- "${product_pathspec[@]}"
+          fi
+      - name: Module is tidy
+        run: go mod tidy -diff
+      - name: W0 admission contract
+        run: go test -count=1 ./tools/batonassets/... ./tools/batongolden/... ./cmd/sworn/...
       - name: Test
-        run: go test ./...
+        run: go test -count=1 ./...
       - name: Race test
-        run: go test -race ./...
+        run: go test -count=1 -race ./...
       - name: Vet
         run: go vet ./...
-      - name: Build without CGO
-        run: CGO_ENABLED=0 go build -buildvcs=false -trimpath ./cmd/sworn
+      - name: Official binary
+        run: |
+          CGO_ENABLED=0 go build \
+            -mod=readonly \
+            -buildvcs=false \
+            -trimpath \
+            -o "${RUNNER_TEMP}/sworn" \
+            ./cmd/sworn
