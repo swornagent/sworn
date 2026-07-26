@@ -314,6 +314,7 @@ func cleanGitEnvironment() []string {
 		}
 	}
 	return append(environment,
+		"GIT_NO_LAZY_FETCH=1",
 		"GIT_NO_REPLACE_OBJECTS=1",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",

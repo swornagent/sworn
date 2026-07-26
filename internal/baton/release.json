@@ -1,94 +1,90 @@
 {
   "schema": "sworn.baton-release/v1",
-  "package_version": "1.0.0-rc.2",
+  "package_version": "1.0.0-rc.5",
   "source_repository": "https://github.com/sawy3r/baton",
-  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.2",
-  "published_at": "2026-07-24T09:46:02Z",
+  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.5",
+  "published_at": "2026-07-25T23:14:50Z",
   "tag": {
-    "name": "v1.0.0-rc.2",
-    "object": "b80f3e27f0e0a71a4883bcc282e4843e085f0e04",
+    "name": "v1.0.0-rc.5",
+    "object": "306ed09c3152e8a7413e6b9d09d63d00ee12ff4a",
     "object_type": "tag",
-    "peeled_commit": "890238ef063bb53cf51fb3359f1ff527f14846c6",
-    "peeled_tree": "97513f3e6f798f3ad04d5b510a49496a605a8ea4"
+    "peeled_commit": "b0133b9e53755484f7aa9140fc3c1b349e2f50dd",
+    "peeled_tree": "c079d41d3955d9690a9be39d1711ef45fa3625f3"
   },
   "archive": {
-    "name": "baton-1.0.0-rc.2.tar.gz",
-    "sha256": "sha256:968088ede0c3bfbafb0a9372d3abbf6853556cc2a6e85ffc25615d6332977e63",
-    "embedded_commit": "890238ef063bb53cf51fb3359f1ff527f14846c6"
+    "name": "baton-1.0.0-rc.5.tar.gz",
+    "sha256": "sha256:8fea81036dc678e9a0aa4c2d1fb0c8ed016c23b9e7d77c183f3f168467002dd5",
+    "embedded_commit": "b0133b9e53755484f7aa9140fc3c1b349e2f50dd"
   },
   "generated_support": {
     "manifest_schema": "baton.generated-adapters/v1",
     "generator_version": "baton.adapter-generator/v1",
-    "operation_version": "baton.operation/v1",
-    "package_digest": "sha256:676c630c6a4ef3f752d604efaa5e51958adec0d8580b74cec7fb1e689b1d3436"
+    "operation_version": "baton.operation/v2",
+    "package_digest": "sha256:cd3f1285318820ca5ee3a96785ab40915f7b2970ec14d9e3f578898de4a953c1"
   },
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:74243a42dcbaa65eadac161126e9cfa8710803a136b827dd7001f5648459986c",
-    "asset_count": 14,
-    "total_bytes": 50387
+    "manifest_sha256": "sha256:5af96cf4fae812a49b63328e3bae94d87a2332ea6bb7d022bcc35e00fe07da53",
+    "asset_count": 24,
+    "total_bytes": 290743
   },
   "operations": [
     {
-      "name": "baton-design-review",
-      "source": "operations/baton-design-review.md",
-      "version": "baton.operation/v1",
-      "sha256": "sha256:ead3a7d0e22a794ca5430fdbaca5c29f3ae5d5f6fad7c102d1f2bd878f28e356"
+      "name": "baton-plan",
+      "source": "operations/baton-plan.md",
+      "version": "baton.operation/v2",
+      "sha256": "sha256:91197ccfdda4475b09f70d50e6dd1fe248f7135625172618051b81dc98016088"
     },
     {
       "name": "baton-implement",
       "source": "operations/baton-implement.md",
-      "version": "baton.operation/v1",
-      "sha256": "sha256:2444bead5b1a32188003ce515ac8862bd04d373b740bd89646a86ac5341c2f88"
+      "version": "baton.operation/v2",
+      "sha256": "sha256:8e3a056fe6b0a0db5f30679b4f6cc2a2ba44d53c33538a0ec3d2db04cba7f5f1"
     },
     {
-      "name": "baton-merge",
-      "source": "operations/baton-merge.md",
-      "version": "baton.operation/v1",
-      "sha256": "sha256:94b8fb6026c903569cd375cafd11d27868759072dde256265556c710387ae62c"
-    },
-    {
-      "name": "baton-plan",
-      "source": "operations/baton-plan.md",
-      "version": "baton.operation/v1",
-      "sha256": "sha256:e5c3ace4177cb10c9b0d3b5e569aa7cbe43bfdb3b7f4a17071a925a5ba3b77d3"
+      "name": "baton-design-review",
+      "source": "operations/baton-design-review.md",
+      "version": "baton.operation/v2",
+      "sha256": "sha256:cef3db42acdeca0696e939e5cc58b2628469992dbefaa3b0e2429987903b9381"
     },
     {
       "name": "baton-verify",
       "source": "operations/baton-verify.md",
-      "version": "baton.operation/v1",
-      "sha256": "sha256:a6f0e9b9bf95cb59e5030b7f95f72d8d3545b52ef771c7d20e7be44a20e45bed"
+      "version": "baton.operation/v2",
+      "sha256": "sha256:080034f552086a7e73fc27fb9f155320ac7638749481b477d16af4afdc59afaf"
+    },
+    {
+      "name": "baton-merge",
+      "source": "operations/baton-merge.md",
+      "version": "baton.operation/v2",
+      "sha256": "sha256:ccc995fd1b38814858f5fcf1122c61409acbbd281596cb259c6de4ba18a6df1b"
     }
   ],
   "templates": [
     {
-      "name": "design",
-      "source": "templates/design.md",
-      "sha256": "sha256:10e4a2097bffab99464454f9389b5c72f8e3cb12680943ae945401e7b0ebc146"
-    },
-    {
       "name": "plan",
       "source": "templates/plan.md",
-      "sha256": "sha256:7caac5f8fc8baccacb2787902c1f86d97a92728db0a42b63a4674444886a276c"
-    },
-    {
-      "name": "proof",
-      "source": "templates/proof.md",
-      "sha256": "sha256:0bc58a34505859792ac734ff50a23420ad9f24e0227aee19c4e71d84ef9fd225"
+      "sha256": "sha256:9228d93d050071faa6269db913a2b8373f24b7b27813f08a97478e42c2090913"
     }
   ],
   "contracts": [
     {
+      "kind": "engine_adapter",
+      "source": "conformance/engine-adapter.md",
+      "version": "baton.engine-conformance/v1",
+      "sha256": "sha256:8946bcb51b0ce8349617c5d7a65cb3835445c9fadb14d15e62e901c6a8b83629"
+    },
+    {
       "kind": "conformance_manifest",
       "source": "conformance/manifest.json",
       "version": "baton.conformance-manifest/v2",
-      "sha256": "sha256:3bf2535cc1e92ac132576dd0c646062b9d33a0ba33201823f1d92409a6387a92"
+      "sha256": "sha256:5ab96576337d1617dbcd50b1405b1d174f5595e44d364fe04a71f1c9d0275833"
     },
     {
-      "kind": "work_status",
-      "source": "schemas/work-status-v1.json",
-      "version": "baton.work-status/v1",
-      "sha256": "sha256:70219641e954afefa35fe20cf702eeabac3ce7c9290d09d5ce29082bf4a497c1"
+      "kind": "receipt",
+      "source": "schemas/receipt-v1.json",
+      "version": "receipt-v1",
+      "sha256": "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"
     }
   ]
 }
