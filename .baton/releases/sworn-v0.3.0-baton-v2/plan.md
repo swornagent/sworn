@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 4,
-  "previous_plan": "308c2aed213c0fef769ed5495248fa1a704de67f",
+  "revision": 5,
+  "previous_plan": "b8b0a35212dae45e232fd178333c45731c8ea71c",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v4",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v5",
   "tracks": [
     {
       "id": "T0-admission",
@@ -140,7 +140,7 @@
           "acceptance": [
             {
               "id": "A-W4-topology",
-              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track; composition is serial and plan-ordered. When composition creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-track direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
+              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track. Before a consumed slice is designed, one typed idempotent CAS action composes its exact current consumed PASS candidates, in plan order, into an explicit track base. Those candidates remain ancestors of the consumer; implementation scope is measured only from the composed base; recovery cannot substitute, omit, or double-apply an input. Final composition is serial and plan-ordered. When it creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-slice direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
             },
             {
               "id": "A-W4-recovery",
@@ -148,11 +148,11 @@
             },
             {
               "id": "A-W4-replan",
-              "text": "Replanning appends an approved plan revision, preserves the release and unchanged slice identities, and invalidates only changed slices and actual consumers. It never resets or locks an otherwise valid slice set."
+              "text": "Replanning appends an approved plan revision and preserves the release, unchanged slice identities, and valid receipt continuity across each contiguous unchanged plan lineage. It invalidates only changed slices and consumers whose exact input product pins changed. Prepared bases are reconciled or replaced by exact CAS; replanning never resets, locks, or renames an otherwise valid slice set."
             }
           ],
           "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
-          "constraints": ["Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
+          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
           "consumes": ["W3-walking-skeleton"]
         }
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v4` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v5` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -313,6 +313,15 @@ Revision 4 changes only W4: it admits `internal/gitx` and binds recovery to
 exact authority. W0 through W3 retain their current PASS because their contracts
 and consumed inputs are unchanged. W5, W6, and W8 retain their identities and
 remain downstream gates. No slice is added, retired, renamed, or reset.
+
+Revision 5 changes only W4 after live downstream work exposed two gaps in its
+existing acceptance: the Go reducer rejected a valid unchanged-slice repair
+across an unrelated plan revision, and dependent workspaces did not receive
+their exact consumed PASS products as a scope-neutral base. W0 through W3 and
+W5 retain their contracts, identities, attempts, candidates, and PASS facts.
+W4 requires one new attempt; only W6 and W8 are invalidated as actual consumers
+of its changed product. No slice is added, retired, replaced, renamed, or
+globally reset.
 
 # Scope
 
