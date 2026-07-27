@@ -61,6 +61,19 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 		broker,
 		capability,
 		map[string]any{
+			"jsonrpc": "2.0", "method": "notifications/initialized",
+			"params": map[string]any{},
+		},
+	)
+	responseBodies = append(responseBodies, body)
+	if status != http.StatusAccepted {
+		t.Fatalf("initialized notification = %d %s", status, body)
+	}
+	status, body = brokerRequest(
+		t,
+		broker,
+		capability,
+		map[string]any{
 			"jsonrpc": "2.0", "id": 2, "method": "tools/list",
 			"params": map[string]any{},
 		},
@@ -84,7 +97,7 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 		!bytes.Contains(body, []byte(`"message":"not_open"`)) {
 		t.Fatalf("pre-open call = %d %s", status, body)
 	}
-	if err := broker.Open(); err != nil {
+	if err := broker.Arm(); err != nil {
 		t.Fatal(err)
 	}
 	status, body = brokerRequest(
@@ -278,7 +291,7 @@ func TestNativeBrokerRejectsMalformedUnauthorizedCancelledAndExcessUse(t *testin
 		t.Fatalf("oversize status = %d", response.StatusCode)
 	}
 
-	if err := broker.Open(); err != nil {
+	if err := broker.Arm(); err != nil {
 		t.Fatal(err)
 	}
 	broker.Cancel()

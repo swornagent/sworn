@@ -9,8 +9,17 @@ func platformInvokeNative(
 	Invocation,
 	NativeAdapterConfig,
 	string,
+	nativeSurfaceCertificate,
 ) (Observation, error) {
 	return Observation{}, fail("UNSUPPORTED_HOST")
+}
+
+func platformCaptureNativeSurface(
+	context.Context,
+	Invocation,
+	NativeAdapterConfig,
+) (nativeSurfaceCertificate, error) {
+	return nativeSurfaceCertificate{}, fail("UNSUPPORTED_HOST")
 }
 
 func nativeVersion(context.Context, NativeAdapterConfig) ([]byte, error) {

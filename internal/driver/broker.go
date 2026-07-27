@@ -30,24 +30,52 @@ const (
 	brokerCancelled
 )
 
-type nativeBroker struct {
-	mu          sync.Mutex
-	callMu      sync.Mutex
-	state       brokerState
-	calls       int
-	address     string
-	token       []byte
-	session     *toolSession
-	server      *http.Server
-	listener    net.Listener
-	terminal    chan struct{}
-	closeOnce   sync.Once
-	connMu      sync.Mutex
-	connections map[net.Conn]struct{}
+type nativeHandshakeEvidence struct {
+	Protocol           string
+	ClientName         string
+	ClientVersion      string
+	InitializeDigest   string
+	NotificationDigest string
+	ListDigest         string
+	ToolDigest         string
 }
 
-func newNativeBroker(session *toolSession) (*nativeBroker, error) {
+type nativeBroker struct {
+	mu                 sync.Mutex
+	callMu             sync.Mutex
+	state              brokerState
+	armed              bool
+	initialized        bool
+	notified           bool
+	listed             bool
+	ready              bool
+	protocol           string
+	clientName         string
+	clientVer          string
+	initializeDigest   string
+	notificationDigest string
+	listDigest         string
+	expected           *nativeHandshakeEvidence
+	calls              int
+	address            string
+	token              []byte
+	session            *toolSession
+	server             *http.Server
+	listener           net.Listener
+	terminal           chan struct{}
+	closeOnce          sync.Once
+	connMu             sync.Mutex
+	connections        map[net.Conn]struct{}
+}
+
+func newNativeBroker(
+	session *toolSession,
+	expected ...nativeHandshakeEvidence,
+) (*nativeBroker, error) {
 	if session == nil {
+		return nil, fail("INVALID_BROKER")
+	}
+	if len(expected) > 1 {
 		return nil, fail("INVALID_BROKER")
 	}
 	rawToken := make([]byte, 32)
@@ -65,6 +93,22 @@ func newNativeBroker(session *toolSession) (*nativeBroker, error) {
 		state: brokerClosed, address: listener.Addr().String(),
 		token: token, session: session, listener: listener,
 		terminal: make(chan struct{}), connections: make(map[net.Conn]struct{}),
+	}
+	if len(expected) == 1 {
+		value := expected[0]
+		if value.Protocol == "" || value.ClientName == "" ||
+			value.ClientVersion == "" ||
+			!digestPattern.MatchString(value.InitializeDigest) ||
+			!digestPattern.MatchString(value.NotificationDigest) ||
+			!digestPattern.MatchString(value.ListDigest) ||
+			value.ToolDigest != nativeToolSurfaceDigest(
+				session.invocation.Request.Workspace.Access,
+			) {
+			_ = listener.Close()
+			clearBytes(token)
+			return nil, fail("INVALID_BROKER")
+		}
+		broker.expected = &value
 	}
 	broker.server = &http.Server{
 		Handler:           broker,
@@ -89,14 +133,60 @@ func (broker *nativeBroker) capability() []byte {
 	return append([]byte(nil), broker.token...)
 }
 
-func (broker *nativeBroker) Open() error {
+func (broker *nativeBroker) Arm() error {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
-	if broker.state != brokerClosed {
+	if broker.state != brokerClosed || broker.armed {
 		return fail("BROKER_STATE_INVALID")
 	}
-	broker.state = brokerOpen
+	broker.armed = true
+	broker.maybeOpenLocked()
 	return nil
+}
+
+func (broker *nativeBroker) Ready() bool {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	return broker.ready
+}
+
+func (broker *nativeBroker) HandshakeEvidence() (nativeHandshakeEvidence, error) {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	if !broker.ready {
+		return nativeHandshakeEvidence{}, fail("BROKER_STATE_INVALID")
+	}
+	return nativeHandshakeEvidence{
+		Protocol:           broker.protocol,
+		ClientName:         broker.clientName,
+		ClientVersion:      broker.clientVer,
+		InitializeDigest:   broker.initializeDigest,
+		NotificationDigest: broker.notificationDigest,
+		ListDigest:         broker.listDigest,
+		ToolDigest:         nativeToolSurfaceDigest(broker.session.invocation.Request.Workspace.Access),
+	}, nil
+}
+
+func (broker *nativeBroker) maybeOpenLocked() {
+	if broker.state == brokerClosed && broker.armed &&
+		broker.initialized && broker.notified && broker.listed &&
+		broker.matchesExpectedLocked() {
+		broker.state = brokerOpen
+		broker.ready = true
+	}
+}
+
+func (broker *nativeBroker) matchesExpectedLocked() bool {
+	return broker.expected == nil ||
+		(broker.protocol == broker.expected.Protocol &&
+			broker.clientName == broker.expected.ClientName &&
+			broker.clientVer == broker.expected.ClientVersion &&
+			broker.initializeDigest == broker.expected.InitializeDigest &&
+			broker.notificationDigest == broker.expected.NotificationDigest &&
+			broker.listDigest == broker.expected.ListDigest &&
+			nativeToolSurfaceDigest(
+				broker.session.invocation.Request.Workspace.Access,
+			) == broker.expected.ToolDigest)
 }
 
 func (broker *nativeBroker) Cancel() {
@@ -201,14 +291,18 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
+		if err := broker.markNotified(root["params"]); err != nil {
+			writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
+			return
+		}
 		writer.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		if _, present := root["id"]; !present ||
-			!emptyBrokerParams(root["params"]) {
+			!validBrokerListParams(root["params"]) {
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
-		broker.listTools(writer, id)
+		broker.listTools(writer, id, root["params"])
 	case "tools/call":
 		if _, present := root["id"]; !present {
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
@@ -236,7 +330,7 @@ func (broker *nativeBroker) initialize(
 	}
 	protocol, _ := object["protocolVersion"].(string)
 	if protocol != "2024-11-05" && protocol != "2025-03-26" &&
-		protocol != "2025-06-18" {
+		protocol != "2025-06-18" && protocol != "2025-11-25" {
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "protocol_refused")
 		return
 	}
@@ -244,18 +338,46 @@ func (broker *nativeBroker) initialize(
 	clientInfo, clientInfoErr := closedObject(
 		object["clientInfo"],
 		[]string{"name", "version"},
-		[]string{"title"},
+		[]string{"title", "description", "websiteUrl"},
 	)
 	clientName, nameOK := clientInfo["name"].(string)
 	clientVersion, versionOK := clientInfo["version"].(string)
+	clientInfoOK := true
+	for _, field := range []string{"title", "description", "websiteUrl"} {
+		if value, present := clientInfo[field]; present {
+			text, ok := value.(string)
+			clientInfoOK = clientInfoOK &&
+				ok && validateText(text, 512, false) == nil
+		}
+	}
+	initializeBody, initializeErr := canonicalJSON(params)
+	defer clearBytes(initializeBody)
 	if !capabilitiesOK ||
 		!closedBrokerCapabilities(capabilities) ||
-		clientInfoErr != nil || !nameOK || !versionOK ||
+		clientInfoErr != nil || !clientInfoOK || !nameOK || !versionOK ||
 		validateText(clientName, 256, false) != nil ||
-		validateText(clientVersion, 256, false) != nil {
+		validateText(clientVersion, 256, false) != nil ||
+		initializeErr != nil {
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
+	broker.mu.Lock()
+	if broker.state != brokerClosed || broker.initialized ||
+		(broker.expected != nil &&
+			(protocol != broker.expected.Protocol ||
+				clientName != broker.expected.ClientName ||
+				clientVersion != broker.expected.ClientVersion ||
+				Digest(initializeBody) != broker.expected.InitializeDigest)) {
+		broker.mu.Unlock()
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
+		return
+	}
+	broker.initialized = true
+	broker.protocol = protocol
+	broker.clientName = clientName
+	broker.clientVer = clientVersion
+	broker.initializeDigest = Digest(initializeBody)
+	broker.mu.Unlock()
 	writeBrokerResult(writer, id, map[string]any{
 		"protocolVersion": protocol,
 		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
@@ -263,7 +385,47 @@ func (broker *nativeBroker) initialize(
 	})
 }
 
-func (broker *nativeBroker) listTools(writer http.ResponseWriter, id json.RawMessage) {
+func (broker *nativeBroker) markNotified(params any) error {
+	body, err := canonicalJSON(params)
+	if err != nil {
+		return fail("BROKER_STATE_INVALID")
+	}
+	defer clearBytes(body)
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	digest := Digest(body)
+	if broker.state != brokerClosed || !broker.initialized || broker.notified ||
+		(broker.expected != nil &&
+			digest != broker.expected.NotificationDigest) {
+		return fail("BROKER_STATE_INVALID")
+	}
+	broker.notified = true
+	broker.notificationDigest = digest
+	return nil
+}
+
+func (broker *nativeBroker) listTools(
+	writer http.ResponseWriter,
+	id json.RawMessage,
+	params any,
+) {
+	paramsBody, err := canonicalJSON(params)
+	if err != nil {
+		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
+		return
+	}
+	defer clearBytes(paramsBody)
+	paramsDigest := Digest(paramsBody)
+	broker.mu.Lock()
+	if broker.state != brokerClosed || !broker.initialized ||
+		!broker.notified || broker.listed ||
+		(broker.expected != nil &&
+			paramsDigest != broker.expected.ListDigest) {
+		broker.mu.Unlock()
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
+		return
+	}
+	broker.mu.Unlock()
 	definitions := toolDefinitions(broker.session.invocation.Request.Workspace.Access)
 	tools := make([]map[string]any, len(definitions))
 	for index, definition := range definitions {
@@ -277,6 +439,16 @@ func (broker *nativeBroker) listTools(writer http.ResponseWriter, id json.RawMes
 			"inputSchema": schema,
 		}
 	}
+	broker.mu.Lock()
+	if broker.state != brokerClosed || broker.listed {
+		broker.mu.Unlock()
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
+		return
+	}
+	broker.listed = true
+	broker.listDigest = paramsDigest
+	broker.maybeOpenLocked()
+	broker.mu.Unlock()
 	writeBrokerResult(writer, id, map[string]any{"tools": tools})
 }
 
@@ -397,6 +569,39 @@ func emptyBrokerParams(value any) bool {
 	}
 	object, ok := value.(map[string]any)
 	return ok && len(object) == 0
+}
+
+func validBrokerListParams(value any) bool {
+	if emptyBrokerParams(value) {
+		return true
+	}
+	object, err := closedObject(value, nil, []string{"cursor", "_meta"})
+	if err != nil {
+		return false
+	}
+	if cursor, present := object["cursor"]; present {
+		if cursor != nil {
+			text, ok := cursor.(string)
+			if !ok || validateText(text, 4_096, false) != nil {
+				return false
+			}
+		}
+	}
+	if meta, present := object["_meta"]; present {
+		metaObject, err := closedObject(meta, nil, []string{"progressToken"})
+		if err != nil {
+			return false
+		}
+		if token, present := metaObject["progressToken"]; present {
+			if _, ok := safeJSONInt(token); !ok {
+				text, textOK := token.(string)
+				if !textOK || validateText(text, 256, false) != nil {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 func closedBrokerCapabilities(capabilities map[string]any) bool {

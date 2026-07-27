@@ -38,20 +38,42 @@ type NativeAdapterConfig struct {
 	MaxCredentialBytes     int64
 }
 
+// NativeSmokeBuilder supplies only the already-authorized invocation used by
+// native certification. The adapter owns the executable, provider endpoint,
+// broker configuration, launch, capture, and certification result.
+type NativeSmokeBuilder func(context.Context, SelectedProfile) (Invocation, error)
+
+type nativeSurfaceCertificate struct {
+	Family                ProfileFamily
+	ProfileDigest         string
+	Model                 string
+	AdapterConfigDigest   string
+	ExecutableDigest      string
+	CLIVersion            string
+	ToolDigest            string
+	CaptureEvidenceDigest string
+	Protocol              string
+	ClientName            string
+	ClientVersion         string
+	InitializeDigest      string
+	NotificationDigest    string
+	ListDigest            string
+}
+
 type nativeAdapter struct {
-	identity  AdapterIdentity
-	config    NativeAdapterConfig
-	resolve   FileCredentialResolver
-	liveProbe ProfileLiveProbe
-	refs      map[string]struct{}
-	certMu    sync.RWMutex
-	certified map[string]struct{}
+	identity     AdapterIdentity
+	config       NativeAdapterConfig
+	resolve      FileCredentialResolver
+	smokeBuilder NativeSmokeBuilder
+	refs         map[string]struct{}
+	certMu       sync.RWMutex
+	certified    map[string]nativeSurfaceCertificate
 }
 
 func NewNativeAdapter(
 	config NativeAdapterConfig,
 	resolver FileCredentialResolver,
-	probe ProfileLiveProbe,
+	builder NativeSmokeBuilder,
 ) (Adapter, error) {
 	if !providerKeyPattern.MatchString(config.Key) ||
 		!driverIdentityPattern.MatchString(config.ID) ||
@@ -86,8 +108,8 @@ func NewNativeAdapter(
 			Key: config.Key, ID: config.ID, Version: config.Version,
 			ConfigurationDigest: Digest(body),
 		},
-		config: config, resolve: resolver, liveProbe: probe, refs: refs,
-		certified: make(map[string]struct{}),
+		config: config, resolve: resolver, smokeBuilder: builder, refs: refs,
+		certified: make(map[string]nativeSurfaceCertificate),
 	}, nil
 }
 
@@ -230,16 +252,48 @@ func (adapter *nativeAdapter) checkProfile(
 		}
 		return ReadinessPass, "native_binary_ready"
 	case checkCertify:
-		if adapter.liveProbe == nil {
-			return ReadinessNotCertified, "live_probe_not_configured"
+		if adapter.smokeBuilder == nil {
+			return ReadinessNotCertified, "native_smoke_not_configured"
 		}
-		if err := adapter.liveProbe(ctx, *profile.CredentialRef, model); err != nil {
-			return ReadinessFail, "live_probe_failed"
+		selected := SelectedProfile{
+			Profile: cloneProfileConfig(profile),
+			Adapter: adapter.identity,
+			Model:   model,
+			adapter: adapter,
+		}
+		invocation, err := adapter.smokeBuilder(ctx, selected)
+		if err != nil || validateNativeSmokeInvocation(
+			invocation,
+			selected,
+			adapter,
+		) != nil {
+			return ReadinessFail, "native_smoke_invalid"
+		}
+		certificate, err := platformCaptureNativeSurface(
+			ctx,
+			invocation,
+			adapter.config,
+		)
+		if err != nil {
+			return ReadinessFail, "native_surface_failed"
+		}
+		pathValue, err := adapter.resolve(ctx, *profile.CredentialRef)
+		if err != nil {
+			return ReadinessNotCertified, "credential_not_configured"
+		}
+		if _, err := platformInvokeNative(
+			ctx,
+			invocation,
+			adapter.config,
+			pathValue,
+			certificate,
+		); err != nil {
+			return ReadinessFail, "live_smoke_failed"
 		}
 		adapter.certMu.Lock()
-		adapter.certified[*profile.CredentialRef+"\x00"+model] = struct{}{}
+		adapter.certified[nativeCertificationKey(profile, model)] = certificate
 		adapter.certMu.Unlock()
-		return ReadinessPass, "live_probe_passed"
+		return ReadinessPass, "live_smoke_passed"
 	default:
 		return ReadinessFail, "check_kind_invalid"
 	}
@@ -258,7 +312,10 @@ func (adapter *nativeAdapter) invoke(
 		return Observation{}, fail("CREDENTIAL_NOT_CERTIFIED")
 	}
 	adapter.certMu.RLock()
-	_, certified := adapter.certified[ref+"\x00"+invocation.Selected.Model]
+	certificate, certified := adapter.certified[nativeCertificationKey(
+		invocation.Selected.Profile,
+		invocation.Selected.Model,
+	)]
 	adapter.certMu.RUnlock()
 	if !certified {
 		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
@@ -267,7 +324,58 @@ func (adapter *nativeAdapter) invoke(
 	if err != nil {
 		return Observation{}, fail("CREDENTIAL_NOT_CERTIFIED")
 	}
-	return platformInvokeNative(ctx, invocation, adapter.config, pathValue)
+	return platformInvokeNative(
+		ctx,
+		invocation,
+		adapter.config,
+		pathValue,
+		certificate,
+	)
+}
+
+func validateNativeSmokeInvocation(
+	invocation Invocation,
+	selected SelectedProfile,
+	adapter *nativeAdapter,
+) error {
+	if adapter == nil || invocation.Selected.adapter != adapter ||
+		invocation.Selected.Adapter != selected.Adapter ||
+		invocation.Selected.Model != selected.Model ||
+		invocation.Selected.Profile.Key != selected.Profile.Key ||
+		invocation.Selected.Profile.Adapter != selected.Profile.Adapter ||
+		invocation.Selected.Profile.Network != selected.Profile.Network ||
+		!sameOptionalString(
+			invocation.Selected.Profile.CredentialRef,
+			selected.Profile.CredentialRef,
+		) ||
+		invocation.Request.Workspace.Access != ReadWrite {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	return validateInvocation(invocation)
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func nativeCertificationKey(profile ProfileConfig, model string) string {
+	body, err := canonicalJSON(profile)
+	if err != nil {
+		return ""
+	}
+	return Digest(body) + "\x00" + model
+}
+
+func nativeToolSurfaceDigest(access WorkspaceAccess) string {
+	definitions := toolDefinitions(access)
+	body, err := canonicalJSON(definitions)
+	if err != nil {
+		return ""
+	}
+	return Digest(body)
 }
 
 func openNativeClosure(config NativeAdapterConfig) ([]*os.File, error) {

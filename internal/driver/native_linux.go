@@ -19,16 +19,23 @@ import (
 	"time"
 )
 
+const nativeOutputSchemaJSON = `{"type":"object","additionalProperties":true}`
+
 type nativeEventState struct {
-	mu          sync.Mutex
-	family      ProfileFamily
-	model       string
-	access      WorkspaceAccess
-	broker      *nativeBroker
-	initialized bool
-	usage       Usage
-	hasUsage    bool
-	err         error
+	mu         sync.Mutex
+	family     ProfileFamily
+	model      string
+	access     WorkspaceAccess
+	broker     *nativeBroker
+	nativeSeen bool
+	usage      Usage
+	hasUsage   bool
+	err        error
+}
+
+type nativeCaptureRun struct {
+	provider    *nativeProviderCapture
+	certificate nativeSurfaceCertificate
 }
 
 func platformInvokeNative(
@@ -36,8 +43,93 @@ func platformInvokeNative(
 	invocation Invocation,
 	config NativeAdapterConfig,
 	credentialPath string,
+	certificate nativeSurfaceCertificate,
+) (Observation, error) {
+	if validateNativeSurfaceCertificate(
+		certificate,
+		invocation,
+		config,
+	) != nil {
+		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	return platformRunNative(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		nil,
+		&certificate,
+	)
+}
+
+func platformCaptureNativeSurface(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+) (nativeSurfaceCertificate, error) {
+	if parent == nil || parent.Err() != nil ||
+		validateInvocation(invocation) != nil ||
+		invocation.Request.Workspace.Access != ReadWrite {
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	provider, err := newNativeProviderCapture(
+		config.Family,
+		invocation.Selected.Model,
+		invocation.Request.Workspace.Access,
+	)
+	if err != nil {
+		return nativeSurfaceCertificate{}, err
+	}
+	defer provider.Close()
+	credentialBody, err := nativeCaptureCredentialBody(provider)
+	if err != nil {
+		return nativeSurfaceCertificate{}, err
+	}
+	credentialDirectory, err := os.MkdirTemp("", "sworn-native-capture-")
+	if err != nil {
+		clearBytes(credentialBody)
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	defer os.RemoveAll(credentialDirectory)
+	credentialPath := filepath.Join(credentialDirectory, "credential")
+	if err := os.WriteFile(credentialPath, credentialBody, 0o600); err != nil {
+		clearBytes(credentialBody)
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	clearBytes(credentialBody)
+	run := &nativeCaptureRun{provider: provider}
+	if _, err := platformRunNative(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		run,
+		nil,
+	); err != nil {
+		return nativeSurfaceCertificate{}, err
+	}
+	if validateNativeSurfaceCertificate(
+		run.certificate,
+		invocation,
+		config,
+	) != nil {
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	return run.certificate, nil
+}
+
+func platformRunNative(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	captureRun *nativeCaptureRun,
+	certificate *nativeSurfaceCertificate,
 ) (observation Observation, resultErr error) {
 	started := time.Now()
+	if (captureRun == nil) == (certificate == nil) {
+		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
+	}
 	session, err := newToolSession(invocation)
 	if err != nil {
 		return Observation{}, err
@@ -48,13 +140,31 @@ func platformInvokeNative(
 			resultErr = joinErrors(resultErr, closeErr)
 		}
 	}()
-	broker, err := newNativeBroker(session)
+	var broker *nativeBroker
+	if certificate != nil {
+		broker, err = newNativeBroker(session, nativeHandshakeEvidence{
+			Protocol:           certificate.Protocol,
+			ClientName:         certificate.ClientName,
+			ClientVersion:      certificate.ClientVersion,
+			InitializeDigest:   certificate.InitializeDigest,
+			NotificationDigest: certificate.NotificationDigest,
+			ListDigest:         certificate.ListDigest,
+			ToolDigest: nativeToolSurfaceDigest(
+				invocation.Request.Workspace.Access,
+			),
+		})
+	} else {
+		broker, err = newNativeBroker(session)
+	}
 	if err != nil {
 		return Observation{}, err
 	}
 	defer broker.Close()
 	capability := broker.capability()
 	defer clearBytes(capability)
+	if captureRun != nil {
+		captureRun.provider.bindBrokerCapability(capability)
+	}
 	credential, err := acquireFileCredential(
 		credentialPath,
 		invocation.HostWorkspace,
@@ -74,7 +184,13 @@ func platformInvokeNative(
 		return Observation{}, err
 	}
 	defer closeNativeFiles(closure)
-	configFiles, err := nativeConfigFiles(config, invocation, broker.URL(), capability)
+	configFiles, err := nativeConfigFiles(
+		config,
+		invocation,
+		broker.URL(),
+		capability,
+		captureRun,
+	)
 	if err != nil {
 		return Observation{}, err
 	}
@@ -86,11 +202,10 @@ func platformInvokeNative(
 	arguments, environment, extraFiles, err := nativeCommand(
 		config,
 		invocation,
-		broker.URL(),
-		capability,
 		credential,
 		closure,
 		configFiles,
+		captureRun,
 	)
 	if err != nil {
 		return Observation{}, err
@@ -126,13 +241,25 @@ func platformInvokeNative(
 		return Observation{}, fail("PROCESS_START_FAILED")
 	}
 	stderr := newSecretGuard(capability, MaxStderrBytes)
+	var captureStderr *secretGuard
+	stderrWriter := io.Writer(stderr)
+	var captureToken []byte
+	if captureRun != nil {
+		captureToken = captureRun.provider.bearer()
+		defer clearBytes(captureToken)
+		captureStderr = newSecretGuard(captureToken, MaxStderrBytes)
+		stderrWriter = io.MultiWriter(stderr, captureStderr)
+	}
 	stderrFinalized := false
 	defer func() {
 		if !stderrFinalized {
 			_ = stderr.leaked()
+			if captureStderr != nil {
+				_ = captureStderr.leaked()
+			}
 		}
 	}()
-	command.Stderr = stderr
+	command.Stderr = stderrWriter
 	state := &nativeEventState{
 		family: config.Family, model: invocation.Selected.Model,
 		access: invocation.Request.Workspace.Access, broker: broker,
@@ -159,6 +286,7 @@ func platformInvokeNative(
 		closure,
 		session.projection.Root(),
 		capability,
+		captureRun,
 	); runtimeErr != nil {
 		_ = syscall.Kill(-processGroup, syscall.SIGKILL)
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
@@ -168,14 +296,38 @@ func platformInvokeNative(
 	}
 	scanDone := make(chan error, 1)
 	go func() {
-		scanDone <- scanNativeEvents(stdout, capability, state)
+		scanDone <- scanNativeEvents(
+			stdout,
+			capability,
+			state,
+			captureToken,
+		)
 	}()
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- command.Wait() }()
 	var waitErr error
 	var scanErr error
 	scanReceived := false
+	var providerEvidence nativeProviderEvidence
+	captureReceived := false
+	var captureChannel <-chan nativeProviderEvidence
+	if captureRun != nil {
+		captureChannel = captureRun.provider.Captured()
+	}
 	select {
+	case providerEvidence = <-captureChannel:
+		captureReceived = true
+		if !waitNativeCaptureGate(ctx, state, broker) {
+			_ = syscall.Kill(-processGroup, syscall.SIGKILL)
+		} else {
+			_ = syscall.Kill(-processGroup, syscall.SIGTERM)
+		}
+		select {
+		case waitErr = <-waitDone:
+		case <-time.After(processTerminationGrace):
+			_ = syscall.Kill(-processGroup, syscall.SIGKILL)
+			waitErr = <-waitDone
+		}
 	case <-broker.Terminal():
 		_ = syscall.Kill(-processGroup, syscall.SIGTERM)
 		select {
@@ -219,18 +371,73 @@ func platformInvokeNative(
 		return Observation{}, ctx.Err()
 	}
 	stderrLeak := stderr.leaked()
+	if captureStderr != nil {
+		stderrLeak = captureStderr.leaked() || stderrLeak
+	}
 	stderrFinalized = true
 	if scanErr != nil || stderrLeak {
 		return Observation{}, fail("NATIVE_SURFACE_INVALID")
 	}
 	state.mu.Lock()
 	eventErr := state.err
-	initialized := state.initialized
+	nativeSeen := state.nativeSeen
 	usageValue := state.usage
 	hasUsage := state.hasUsage
 	state.mu.Unlock()
-	if eventErr != nil || !initialized {
+	if eventErr != nil || !nativeSeen || !broker.Ready() {
 		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+	}
+	if captureRun != nil {
+		if !captureReceived ||
+			providerEvidence.ToolDigest != nativeToolSurfaceDigest(
+				invocation.Request.Workspace.Access,
+			) {
+			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		}
+		handshake, err := broker.HandshakeEvidence()
+		if err != nil {
+			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		}
+		configDigest, err := nativeConfigSurfaceDigest(configFiles)
+		if err != nil {
+			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		}
+		brokerIdentity := append([]byte(broker.URL()), 0)
+		brokerIdentity = append(brokerIdentity, capability...)
+		evidenceBody, err := canonicalJSON(struct {
+			ProviderRequest  string
+			ProviderEndpoint string
+			BrokerIdentity   string
+			ConfigSurface    string
+		}{
+			ProviderRequest:  providerEvidence.RequestDigest,
+			ProviderEndpoint: captureRun.provider.endpointDigest(),
+			BrokerIdentity:   Digest(brokerIdentity),
+			ConfigSurface:    configDigest,
+		})
+		if err != nil {
+			clearBytes(brokerIdentity)
+			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		}
+		captureRun.certificate = nativeSurfaceCertificate{
+			Family:                config.Family,
+			ProfileDigest:         nativeProfileDigest(invocation.Selected.Profile),
+			Model:                 invocation.Selected.Model,
+			AdapterConfigDigest:   invocation.Selected.Adapter.ConfigurationDigest,
+			ExecutableDigest:      config.CLI.Digest,
+			CLIVersion:            config.CLIVersion,
+			ToolDigest:            providerEvidence.ToolDigest,
+			CaptureEvidenceDigest: Digest(evidenceBody),
+			Protocol:              handshake.Protocol,
+			ClientName:            handshake.ClientName,
+			ClientVersion:         handshake.ClientVersion,
+			InitializeDigest:      handshake.InitializeDigest,
+			NotificationDigest:    handshake.NotificationDigest,
+			ListDigest:            handshake.ListDigest,
+		}
+		clearBytes(evidenceBody)
+		clearBytes(brokerIdentity)
+		return Observation{}, nil
 	}
 	submitted, submitErr := session.submitted()
 	if submitErr != nil {
@@ -253,6 +460,57 @@ func platformInvokeNative(
 		return Observation{}, err
 	}
 	return completedToolObservation(started, usage, session.handoff()), nil
+}
+
+func waitNativeCaptureGate(
+	ctx context.Context,
+	state *nativeEventState,
+	broker *nativeBroker,
+) bool {
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state.mu.Lock()
+		seen := state.nativeSeen && state.err == nil
+		state.mu.Unlock()
+		if seen && broker.Ready() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
+func nativeConfigSurfaceDigest(files []*os.File) (string, error) {
+	if len(files) != 3 {
+		return "", fail("NATIVE_SURFACE_INVALID")
+	}
+	var surface []byte
+	defer clearBytes(surface)
+	for _, file := range files {
+		if _, err := file.Seek(0, 0); err != nil {
+			return "", fail("NATIVE_SURFACE_INVALID")
+		}
+		body, err := io.ReadAll(io.LimitReader(file, 65_537))
+		if err != nil || len(body) > 65_536 {
+			clearBytes(body)
+			return "", fail("NATIVE_SURFACE_INVALID")
+		}
+		surface = append(surface, body...)
+		surface = append(surface, 0)
+		clearBytes(body)
+		if _, err := file.Seek(0, 0); err != nil {
+			return "", fail("NATIVE_SURFACE_INVALID")
+		}
+	}
+	return Digest(surface), nil
 }
 
 func nativeVersion(ctx context.Context, config NativeAdapterConfig) ([]byte, error) {
@@ -291,11 +549,17 @@ func certifyNativeRuntime(
 	closure []*os.File,
 	projectionRoot string,
 	capability []byte,
+	captureRun *nativeCaptureRun,
 ) error {
 	if pid <= 0 || credential == nil || credential.File() == nil ||
 		len(closure) != len(config.RuntimeFiles)+1 ||
 		len(capability) == 0 {
 		return fail("NATIVE_SURFACE_INVALID")
+	}
+	var captureToken []byte
+	if captureRun != nil {
+		captureToken = captureRun.provider.bearer()
+		defer clearBytes(captureToken)
 	}
 	procRoot := "/proc/" + itoa(pid)
 	hostNetwork, hostErr := os.Readlink("/proc/self/ns/net")
@@ -308,6 +572,7 @@ func certifyNativeRuntime(
 	}
 	cmdline, err := readBoundedProcFile(procRoot+"/cmdline", 262_144)
 	if err != nil || bytes.Contains(cmdline, capability) ||
+		containsCapability(cmdline, captureToken) ||
 		bytes.Contains(cmdline, []byte(invocation.HostWorkspace)) ||
 		bytes.Contains(cmdline, []byte(projectionRoot)) {
 		clearBytes(cmdline)
@@ -319,7 +584,9 @@ func certifyNativeRuntime(
 		environment,
 		config.Family,
 		capability,
+		captureRun,
 	) != nil ||
+		containsCapability(environment, captureToken) ||
 		bytes.Contains(environment, []byte(invocation.HostWorkspace)) ||
 		bytes.Contains(environment, []byte(projectionRoot)) {
 		clearBytes(environment)
@@ -352,7 +619,7 @@ func certifyNativeRuntime(
 		}
 	}()
 	for _, configPath := range []string{
-		"/sworn/config/mcp.json",
+		nativeMCPConfigTarget(config.Family),
 		"/sworn/config/output-schema.json",
 		"/sworn/config/models.json",
 	} {
@@ -369,11 +636,14 @@ func certifyNativeRuntime(
 	defer clearBytes(configSurface)
 	switch config.Family {
 	case ProfileCodex:
-		if bytes.Contains(configSurface, capability) {
+		if bytes.Count(configSurface, capability) != 1 ||
+			(captureRun != nil &&
+				bytes.Count(configSurface, captureToken) != 1) {
 			return fail("NATIVE_SURFACE_INVALID")
 		}
 	case ProfileClaude:
-		if bytes.Count(configSurface, capability) != 1 {
+		if bytes.Count(configSurface, capability) != 1 ||
+			containsCapability(configSurface, captureToken) {
 			return fail("NATIVE_SURFACE_INVALID")
 		}
 	default:
@@ -424,6 +694,7 @@ func validateNativeProcessEnvironment(
 	body []byte,
 	family ProfileFamily,
 	capability []byte,
+	captureRun *nativeCaptureRun,
 ) error {
 	expected := map[string][]byte{
 		"HOME":   []byte("/home/sworn"),
@@ -435,17 +706,24 @@ func validateNativeProcessEnvironment(
 	switch family {
 	case ProfileClaude:
 		expected["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = []byte("1")
+		expected["CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY"] = []byte("1")
+		expected["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = []byte("1")
 		expected["DISABLE_AUTOUPDATER"] = []byte("1")
 		expected["DISABLE_TELEMETRY"] = []byte("1")
 		expected["DISABLE_ERROR_REPORTING"] = []byte("1")
+		expected["DISABLE_FEEDBACK_COMMAND"] = []byte("1")
+		if captureRun != nil {
+			expected["ANTHROPIC_BASE_URL"] = []byte(
+				captureRun.provider.BaseURL(),
+			)
+		}
 		if bytes.Contains(body, capability) {
 			return fail("NATIVE_SURFACE_INVALID")
 		}
 	case ProfileCodex:
-		expected["SWORN_MCP_CAPABILITY"] = capability
 		expected["CODEX_HOME"] = []byte("/home/sworn/.codex")
 		expected["CODEX_EXEC_SERVER_URL"] = []byte("none")
-		if bytes.Count(body, capability) != 1 {
+		if bytes.Contains(body, capability) {
 			return fail("NATIVE_SURFACE_INVALID")
 		}
 	default:
@@ -488,6 +766,7 @@ func nativeConfigFiles(
 	invocation Invocation,
 	brokerURL string,
 	capability []byte,
+	captureRun *nativeCaptureRun,
 ) ([]*os.File, error) {
 	mcpConfiguration := map[string]any{"mcpServers": map[string]any{}}
 	if config.Family == ProfileClaude {
@@ -500,7 +779,57 @@ func nativeConfigFiles(
 			},
 		}}
 	}
-	mcpBody, err := json.Marshal(mcpConfiguration)
+	var mcpBody []byte
+	var err error
+	switch config.Family {
+	case ProfileClaude:
+		mcpBody, err = json.Marshal(mcpConfiguration)
+	case ProfileCodex:
+		prefix :=
+			`model_catalog_json = "/sworn/config/models.json"` + "\n" +
+				`web_search = "disabled"` + "\n" +
+				`include_permissions_instructions = false` + "\n" +
+				`include_apps_instructions = false` + "\n" +
+				`include_collaboration_mode_instructions = false` + "\n" +
+				`include_environment_context = false` + "\n"
+		if captureRun != nil {
+			token := captureRun.provider.bearer()
+			prefix +=
+				`model_provider = "sworn_capture"` + "\n" +
+					`[model_providers.sworn_capture]` + "\n" +
+					`name = "Sworn capture"` + "\n" +
+					`base_url = "` + captureRun.provider.BaseURL() + `"` + "\n" +
+					`wire_api = "responses"` + "\n" +
+					`experimental_bearer_token = "` + string(token) + `"` + "\n"
+			clearBytes(token)
+		}
+		mcpBody = []byte(
+			prefix +
+				`[analytics]` + "\n" +
+				`enabled = false` + "\n" +
+				`[agents]` + "\n" +
+				`enabled = false` + "\n" +
+				`[orchestrator.skills]` + "\n" +
+				`enabled = false` + "\n" +
+				`[orchestrator.mcp]` + "\n" +
+				`enabled = false` + "\n" +
+				`[tools.experimental_request_user_input]` + "\n" +
+				`enabled = false` + "\n" +
+				`[mcp_servers.sworn]` + "\n" +
+				`url = "` + brokerURL + `"` + "\n" +
+				`http_headers = { Authorization = "Bearer ` +
+				string(capability) + `" }` + "\n" +
+				`required = true` + "\n" +
+				`startup_timeout_sec = 5` + "\n" +
+				`tool_timeout_sec = 300` + "\n" +
+				`[skills]` + "\n" +
+				`include_instructions = false` + "\n" +
+				`[skills.bundled]` + "\n" +
+				`enabled = false` + "\n",
+		)
+	default:
+		err = fail("NATIVE_NOT_CERTIFIED")
+	}
 	if err != nil {
 		return nil, fail("INVALID_BROKER")
 	}
@@ -509,7 +838,7 @@ func nativeConfigFiles(
 	if err != nil {
 		return nil, err
 	}
-	schemaBody := []byte(`{"type":"object","additionalProperties":true}`)
+	schemaBody := []byte(nativeOutputSchemaJSON)
 	schema, err := unlinkedConfigFile(schemaBody)
 	clearBytes(schemaBody)
 	if err != nil {
@@ -535,11 +864,10 @@ func nativeConfigFiles(
 func nativeCommand(
 	config NativeAdapterConfig,
 	invocation Invocation,
-	brokerURL string,
-	capability []byte,
 	credential nativeCredentialLease,
 	closure []*os.File,
 	configFiles []*os.File,
+	captureRun *nativeCaptureRun,
 ) ([]string, [][]byte, []*os.File, error) {
 	if len(closure) != len(config.RuntimeFiles)+1 || len(configFiles) != 3 ||
 		credential.File() == nil {
@@ -564,6 +892,7 @@ func nativeCommand(
 		}
 	}
 	addParents(config.CredentialTarget)
+	addParents(nativeMCPConfigTarget(config.Family))
 	for _, runtimeFile := range config.RuntimeFiles {
 		addParents(runtimeFile.Target)
 	}
@@ -584,7 +913,7 @@ func nativeCommand(
 	arguments = append(arguments,
 		"--ro-bind-fd", "3", "/sworn/bin/agent",
 		"--bind-fd", "4", config.CredentialTarget,
-		"--perms", "0600", "--ro-bind-data", "5", "/sworn/config/mcp.json",
+		"--perms", "0600", "--ro-bind-data", "5", nativeMCPConfigTarget(config.Family),
 		"--perms", "0600", "--ro-bind-data", "6", "/sworn/config/output-schema.json",
 		"--perms", "0600", "--ro-bind-data", "7", "/sworn/config/models.json",
 	)
@@ -604,20 +933,30 @@ func nativeCommand(
 	case ProfileClaude:
 		environment = append(environment,
 			[]byte("CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"),
+			[]byte("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1"),
+			[]byte("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"),
 			[]byte("DISABLE_AUTOUPDATER=1"),
 			[]byte("DISABLE_TELEMETRY=1"),
 			[]byte("DISABLE_ERROR_REPORTING=1"),
+			[]byte("DISABLE_FEEDBACK_COMMAND=1"),
 		)
-		cliArguments = claudeArguments(invocation.Selected.Model)
+		if captureRun != nil {
+			environment = append(
+				environment,
+				[]byte("ANTHROPIC_BASE_URL="+captureRun.provider.BaseURL()),
+			)
+		}
+		cliArguments = claudeArguments(
+			invocation.Selected.Model,
+			invocation.Request.Workspace.Access,
+		)
 	case ProfileCodex:
 		environment = append(environment,
-			append([]byte("SWORN_MCP_CAPABILITY="), capability...),
 			[]byte("CODEX_HOME=/home/sworn/.codex"),
 			[]byte("CODEX_EXEC_SERVER_URL=none"),
 		)
 		cliArguments = codexArguments(
 			invocation.Selected.Model,
-			brokerURL,
 			invocation.Request.FreshContext,
 		)
 	default:
@@ -628,27 +967,32 @@ func nativeCommand(
 	return arguments, environment, extra, nil
 }
 
-func claudeArguments(model string) []string {
+func claudeArguments(model string, access WorkspaceAccess) []string {
+	tools := make([]string, 0, len(toolDefinitions(access)))
+	for _, definition := range toolDefinitions(access) {
+		tools = append(tools, "mcp__sworn__"+definition.Name)
+	}
+	toolList := strings.Join(tools, ",")
 	return []string{
 		"-p",
 		"--setting-sources", "",
 		"--strict-mcp-config",
 		"--mcp-config", "/sworn/config/mcp.json",
-		"--tools", "",
-		"--allowedTools", "mcp__sworn__*",
+		"--tools", toolList,
+		"--allowedTools", toolList,
 		"--permission-mode", "dontAsk",
 		"--disable-slash-commands",
 		"--no-chrome",
 		"--no-session-persistence",
 		"--max-turns", itoa(MaxProviderTurns),
 		"--model", model,
-		"--json-schema", "/sworn/config/output-schema.json",
+		"--json-schema", nativeOutputSchemaJSON,
 		"--output-format", "stream-json",
 		"--verbose",
 	}
 }
 
-func codexArguments(model, brokerURL string, fresh bool) []string {
+func codexArguments(model string, fresh bool) []string {
 	arguments := []string{
 		"exec",
 		"--ephemeral",
@@ -661,12 +1005,6 @@ func codexArguments(model, brokerURL string, fresh bool) []string {
 		"-m", model,
 		"--output-schema", "/sworn/config/output-schema.json",
 		"-o", "/tmp/final",
-		"-c", `model_catalog_json="/sworn/config/models.json"`,
-		"-c", `mcp_servers.sworn.url="` + brokerURL + `"`,
-		"-c", `mcp_servers.sworn.bearer_token_env_var="SWORN_MCP_CAPABILITY"`,
-		"-c", `mcp_servers.sworn.required=true`,
-		"-c", `mcp_servers.sworn.startup_timeout_sec=5`,
-		"-c", `mcp_servers.sworn.tool_timeout_sec=300`,
 	}
 	for _, feature := range codexDisabledFeatures {
 		arguments = append(arguments, "--disable", feature)
@@ -675,6 +1013,13 @@ func codexArguments(model, brokerURL string, fresh bool) []string {
 		arguments = append(arguments, "--ignore-rules")
 	}
 	return append(arguments, "-")
+}
+
+func nativeMCPConfigTarget(family ProfileFamily) string {
+	if family == ProfileCodex {
+		return "/etc/codex/config.toml"
+	}
+	return "/sworn/config/mcp.json"
 }
 
 var codexDisabledFeatures = []string{
@@ -719,6 +1064,7 @@ func scanNativeEvents(
 	reader io.Reader,
 	capability []byte,
 	state *nativeEventState,
+	additionalSecrets ...[]byte,
 ) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), MaxProviderResponseBytes)
@@ -726,7 +1072,11 @@ func scanNativeEvents(
 	for scanner.Scan() {
 		line := append([]byte(nil), scanner.Bytes()...)
 		total += len(line)
-		if total > MaxProviderResponseBytes || containsCapability(line, capability) {
+		secretFound := containsCapability(line, capability)
+		for _, secret := range additionalSecrets {
+			secretFound = secretFound || containsCapability(line, secret)
+		}
+		if total > MaxProviderResponseBytes || secretFound {
 			clearBytes(line)
 			return fail("NATIVE_SURFACE_INVALID")
 		}
@@ -767,23 +1117,28 @@ func (state *nativeEventState) accept(body []byte) error {
 				[]string{
 					"session_id", "cwd", "apiKeySource", "claude_code_version",
 					"output_style", "agents", "fast_mode_state", "uuid",
+					"capabilities", "analytics_disabled",
+					"product_feedback_disabled",
 				},
 			); err != nil {
 				return fail("NATIVE_SURFACE_INVALID")
 			}
-			if state.initialized || root["model"] != state.model ||
+			if state.nativeSeen || root["model"] != state.model ||
 				root["permissionMode"] != "dontAsk" ||
 				!emptyJSONArray(root["slash_commands"]) ||
 				!emptyJSONArray(root["skills"]) ||
 				!emptyJSONArray(root["plugins"]) ||
 				!exactClaudeTools(root["tools"], state.access) ||
-				!exactClaudeMCP(root["mcp_servers"]) {
+				!exactClaudeMCP(root["mcp_servers"]) ||
+				!exactClaudeCapabilities(root["capabilities"]) ||
+				root["analytics_disabled"] != true ||
+				root["product_feedback_disabled"] != true {
 				return fail("NATIVE_SURFACE_INVALID")
 			}
-			if err := state.broker.Open(); err != nil {
+			if err := state.broker.Arm(); err != nil {
 				return err
 			}
-			state.initialized = true
+			state.nativeSeen = true
 		}
 		if eventType == "result" {
 			state.captureUsage(root["usage"])
@@ -798,13 +1153,13 @@ func (state *nativeEventState) accept(body []byte) error {
 			threadID, threadIDOK := thread["thread_id"].(string)
 			if threadErr != nil || !threadIDOK ||
 				validateText(threadID, 256, false) != nil ||
-				state.initialized {
+				state.nativeSeen {
 				return fail("NATIVE_SURFACE_INVALID")
 			}
-			if err := state.broker.Open(); err != nil {
+			if err := state.broker.Arm(); err != nil {
 				return err
 			}
-			state.initialized = true
+			state.nativeSeen = true
 		}
 		if eventType == "item.started" || eventType == "item.completed" {
 			if _, err := closedObject(
@@ -853,15 +1208,38 @@ func (state *nativeEventState) captureUsage(value any) {
 	state.hasUsage = true
 }
 
+func exactClaudeCapabilities(value any) bool {
+	array, ok := value.([]any)
+	if !ok || len(array) != 2 {
+		return false
+	}
+	expected := map[string]struct{}{
+		"interrupt_receipt_v1": {},
+		"msg_lifecycle_v1":     {},
+	}
+	for _, value := range array {
+		name, ok := value.(string)
+		if !ok {
+			return false
+		}
+		if _, present := expected[name]; !present {
+			return false
+		}
+		delete(expected, name)
+	}
+	return len(expected) == 0
+}
+
 func exactClaudeTools(value any, access WorkspaceAccess) bool {
 	array, ok := value.([]any)
-	if !ok {
+	if !ok || len(array) != len(toolDefinitions(access))+1 {
 		return false
 	}
 	expected := make(map[string]struct{})
 	for _, definition := range toolDefinitions(access) {
 		expected["mcp__sworn__"+definition.Name] = struct{}{}
 	}
+	expected["StructuredOutput"] = struct{}{}
 	if len(array) != len(expected) {
 		return false
 	}
