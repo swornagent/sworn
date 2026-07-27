@@ -130,12 +130,24 @@ func (capture *nativeProviderCapture) ServeHTTP(
 	if request.Method != http.MethodPost ||
 		request.Host != capture.address ||
 		request.URL.Path != capture.expectedPath() ||
-		request.URL.RawQuery != capture.expectedQuery() ||
-		!strings.HasPrefix(
-			strings.ToLower(request.Header.Get("Content-Type")),
-			"application/json",
-		) ||
-		!capture.authorized(request) {
+		request.URL.RawQuery != capture.expectedQuery() {
+		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
+		return
+	}
+	if !capture.authorized(request) {
+		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
+		return
+	}
+	first := false
+	capture.once.Do(func() { first = true })
+	if !first {
+		writeNativeCaptureError(writer, capture.family, http.StatusConflict)
+		return
+	}
+	if !strings.HasPrefix(
+		strings.ToLower(request.Header.Get("Content-Type")),
+		"application/json",
+	) {
 		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
 		return
 	}
@@ -168,15 +180,7 @@ func (capture *nativeProviderCapture) ServeHTTP(
 		RequestDigest: Digest(body),
 		ToolDigest:    toolDigest,
 	}
-	recorded := false
-	capture.once.Do(func() {
-		capture.captured <- evidence
-		recorded = true
-	})
-	if !recorded {
-		writeNativeCaptureError(writer, capture.family, http.StatusConflict)
-		return
-	}
+	capture.captured <- evidence
 	writeNativeCaptureError(writer, capture.family, http.StatusServiceUnavailable)
 }
 
