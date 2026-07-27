@@ -39,6 +39,21 @@ func TestNativeProviderCaptureConsumesMalformedFirstRequest(t *testing.T) {
 			contentType: "text/plain",
 			body:        exactBody,
 		},
+		{
+			name:        "content type suffix",
+			contentType: "application/jsonp",
+			body:        exactBody,
+		},
+		{
+			name:        "content type malformed parameter",
+			contentType: "application/json; charset",
+			body:        exactBody,
+		},
+		{
+			name:        "content type malformed quoted parameter",
+			contentType: `application/json; charset="utf-8`,
+			body:        exactBody,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			capture, err := newNativeProviderCapture(
@@ -127,12 +142,13 @@ func TestNativeProviderCaptureRecordsOnlyValidFirstRequest(t *testing.T) {
 	}
 	defer capture.Close()
 
-	if status := sendNativeCaptureRequest(
+	if status := sendNativeCaptureRequestWithContentType(
 		t,
 		capture,
 		http.MethodPost,
 		capture.BaseURL()+"/responses",
 		true,
+		`Application/JSON; Charset="UTF-8"`,
 		marshalNativeCaptureRequest(
 			t,
 			codexFirstProviderRequestFixture(t, model, ReadWrite),

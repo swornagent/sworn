@@ -9,9 +9,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"mime"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
@@ -144,10 +144,10 @@ func (capture *nativeProviderCapture) ServeHTTP(
 		writeNativeCaptureError(writer, capture.family, http.StatusConflict)
 		return
 	}
-	if !strings.HasPrefix(
-		strings.ToLower(request.Header.Get("Content-Type")),
-		"application/json",
-	) {
+	mediaType, _, err := mime.ParseMediaType(
+		request.Header.Get("Content-Type"),
+	)
+	if err != nil || mediaType != "application/json" {
 		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
 		return
 	}
