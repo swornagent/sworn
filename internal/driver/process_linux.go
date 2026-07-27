@@ -100,7 +100,7 @@ func platformInvoke(
 		projectionFile,
 		statusWriter,
 	}
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.SysProcAttr = linuxSandboxProcessAttributes()
 	var done = make(chan struct{})
 	terminationDone := make(chan struct{})
 	var terminateOnce sync.Once
@@ -245,6 +245,7 @@ func trustedBubblewrap() (string, error) {
 		defer cancel()
 		command := exec.CommandContext(ctx, executable, "--help")
 		command.Env = []string{}
+		command.SysProcAttr = linuxSandboxProcessAttributes()
 		output, err := command.Output()
 		if err != nil {
 			bubblewrapProbeErr = fail("ISOLATION_UNAVAILABLE")
@@ -258,6 +259,8 @@ func trustedBubblewrap() (string, error) {
 			"--clearenv",
 			"--ro-bind-fd",
 			"--bind-fd",
+			"--ro-bind-data",
+			"--perms",
 			"--die-with-parent",
 			"--info-fd",
 			"--new-session",
@@ -274,6 +277,14 @@ func trustedBubblewrap() (string, error) {
 	}
 	return executable, nil
 }
+
+func linuxSandboxProcessAttributes() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		Setpgid:   true,
+		Pdeathsig: syscall.SIGKILL,
+	}
+}
+
 func bubblewrapArguments(invocation Invocation) ([]string, error) {
 	if err := validateNetworkPolicy(
 		invocation.Selected.Adapter.ID,
