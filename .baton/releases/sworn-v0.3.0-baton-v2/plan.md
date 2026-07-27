@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 5,
-  "previous_plan": "b8b0a35212dae45e232fd178333c45731c8ea71c",
+  "revision": 6,
+  "previous_plan": "70b4da4f3b2253222026d9fe02aa5fc3c57cd235",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v5",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v6",
   "tracks": [
     {
       "id": "T0-admission",
@@ -134,7 +134,7 @@
           "id": "W4-topology-recovery",
           "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
           "scope": {
-            "include": ["cmd/sworn", "internal/baton", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e"],
+            "include": ["cmd/sworn", "internal/baton", "internal/driver/contract_test.go", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e", "tools/batongolden/main.go", "tools/batongolden/testdata/corpus/manifest.json"],
             "exclude": []
           },
           "acceptance": [
@@ -151,10 +151,10 @@
               "text": "Replanning appends an approved plan revision and preserves the release, unchanged slice identities, and valid receipt continuity across each contiguous unchanged plan lineage. It invalidates only changed slices and consumers whose exact input product pins changed. Prepared bases are reconciled or replaced by exact CAS; replanning never resets, locks, or renames an otherwise valid slice set."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
-          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/driver/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/... ./tools/batongolden/..."],
+          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact.", "The Baton maintenance bridge embeds the exact post-tag snapshot at commit afad775121d7d37244f4d3798b7b4c6a9fbfe9b2, tree 81d089c28639eb3aaeea8f6ced2eb2fad0f596a3, and support package digest sha256:cd7db90c183ca4dc443673c370d64a3287d4e31323ea3f7972c5fec83d193bbf while retaining RC5 tag object 306ed09c3152e8a7413e6b9d09d63d00ee12ff4a and peeled release commit b0133b9e53755484f7aa9140fc3c1b349e2f50dd as immutable provenance. Its only non-core touchpoints are the exact test and oracle bindings named in this slice scope; production driver behavior may not change.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
           "depends_on": ["W3-walking-skeleton"],
-          "consumes": ["W3-walking-skeleton"]
+          "consumes": ["W3-walking-skeleton", "W5-production-adapters"]
         }
       ]
     },
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v5` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v6` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -322,6 +322,15 @@ W5 retain their contracts, identities, attempts, candidates, and PASS facts.
 W4 requires one new attempt; only W6 and W8 are invalidated as actual consumers
 of its changed product. No slice is added, retired, replaced, renamed, or
 globally reset.
+
+Revision 6 changes only W4 after the published Baton continuity repair made
+three exact transitive test and oracle pins part of the maintenance bridge.
+It adds only those paths and binds the honest split between immutable RC5
+release provenance and the exact post-tag snapshot Sworn embeds. W0 through W3
+and W5 retain their contracts, attempts, candidates, products, and PASS facts.
+W4 advances from attempt 7 to attempt 8 on the same slice; W6 and W8 remain
+downstream gates. No production driver behavior, slice identity, or prior PASS
+is reset.
 
 # Scope
 
