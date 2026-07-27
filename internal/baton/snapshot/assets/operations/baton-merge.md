@@ -1,58 +1,53 @@
 ---
 operation: baton-merge
-version: baton.operation/v1
+version: baton.operation/v2
 ---
 
 ## Purpose
 
-Perform deterministic track composition, assembly preparation, or final release
-integration without discretionary conflict resolution.
+Mechanically compose passed track candidates or integrate the exact assembled
+candidate covered by current `PASS`.
 
 ## Inputs
 
-- Scope: `track`, `assembly`, or `release`.
-- The admitted plan and one captured authoritative ref snapshot.
-- For track scope, the track identity and every ordered work status.
-- For assembly scope, the exact assembled proof bytes and producer invocation.
-- For release scope, the assembly status covered by `PASS`.
+- The applicable approved plan revision and one captured Git snapshot.
+- For track composition, the ordered passed slice candidates.
+- For release integration, the exact assembled candidate and fresh assembly
+  `PASS`.
 
 ## Authority
 
-Use only `composeTrack`, `prepareAssembly`, and `integrateRelease` from the
-admitted action surface. Those actions derive refs, candidates, targets,
-topology, commit messages, and compare-and-set expectations from the plan.
-Merge never invents a verdict or resolves a product conflict.
+Merge never invents a verdict or resolves a product conflict. Derive candidates,
+topology, and expected targets from approved facts. Refuse unsafe mutation, then
+allow the surrounding system to rescan and reconcile operational outcomes.
 
 ## Actions
 
-1. For `track`, require every ordered work item at `merge / ready / merge`,
-   freeze the exact track head, call `composeTrack`, and collectively transfer
-   all work statuses to the release lineage in one record-only update.
-2. After every planned track transfer is complete, use `assembly` to render
-   `proof.md` for the complete product and call `prepareAssembly`. This
-   atomically records the exact candidate, ordered component heads, proof, and
-   initial `verify / ready / verifier` status.
-3. Stop for a fresh `baton-verify assembly` invocation.
-4. For `release`, require assembly `PASS` over the unchanged candidate and call
-   `integrateRelease` against the exact expected target.
-5. On an exact retry, return the existing canonical receipt without another
-   commit.
+1. For a track, prove every required slice has applicable `PASS`, freeze the
+   exact candidate, and compose it through the approved topology.
+2. After all tracks are present, identify the exact assembled candidate and
+   stop for fresh `baton-verify` assembly.
+3. For release Merge, recheck the assembly `PASS`, candidate, authority, and
+   expected target immediately before integration.
+4. Perform the exact Git effect and observe the resulting target.
+5. On an exact retry, return the already observed canonical result without
+   duplicating the effect.
 
 ## Required output
 
-Return the scope, expected and observed heads, frozen component identities,
-composition or integration result, transfer or preparation commit, and action
-receipt.
+Return the scope, applicable pass bindings, component candidates, expected and
+observed targets, resulting commit, and concise outcome for a machine-written
+receipt. Never report partial success as `MERGED`.
 
 ## Stop conditions
 
-Stop before mutation on incomplete work, absent prerequisites, conflict, stale
-heads, changed candidates, moved targets, foreign records, unexpected parents
-or trees, invalid assembly evidence, or any action error. Never report partial
-success.
+Stop before mutation on missing `PASS`, changed candidate, unsafe target
+movement, conflict, unexpected ancestry or tree, ambiguous authority, or an
+unreconciled effect. A stale snapshot is an operational rescan condition, not a
+Baton verdict.
 
 ## Next handoff
 
-Completed track scope waits for remaining tracks or proceeds to `assembly`.
-Prepared assembly hands to `baton-verify assembly`. Completed release scope is
-terminal for Baton delivery; deployment state is external.
+Completed track composition waits for remaining tracks or assembly
+verification. Exact release integration is terminal for Baton; deployment is
+external.
