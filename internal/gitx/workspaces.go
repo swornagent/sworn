@@ -21,9 +21,11 @@ import (
 )
 
 const (
-	workspaceRootSchema  = "sworn.workspace-root/v2"
-	workspaceLeaseSchema = "sworn.workspace-lease/v2"
-	workspaceBaseName    = "sworn-workspaces-v2"
+	workspaceRootSchema   = "sworn.workspace-root/v2"
+	workspaceLeaseSchema  = "sworn.workspace-lease/v2"
+	workspaceWriterSchema = "sworn.workspace-writer/v1"
+	workspaceBaseName     = "sworn-workspaces-v2"
+	workspaceWriterBase   = "sworn-workspace-writers-v1"
 )
 
 var (
@@ -56,15 +58,16 @@ type TrackKey struct {
 }
 
 type WorkspaceLease struct {
-	owner    *Workspaces
-	path     string
-	token    string
-	key      TrackKey
-	view     WorkspaceView
-	access   WorkspaceAccess
-	head     OID
-	closed   bool
-	readOnly bool
+	owner      *Workspaces
+	path       string
+	token      string
+	key        TrackKey
+	view       WorkspaceView
+	access     WorkspaceAccess
+	head       OID
+	closed     bool
+	readOnly   bool
+	writerLock *os.File
 }
 
 // ReleaseAssemblyLease deliberately exposes no workspace path. It is an
@@ -209,6 +212,14 @@ func workspaceIdentity(commonDir, runID string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func workspaceWriterIdentity(commonDir string, key TrackKey) string {
+	digest := sha256.Sum256([]byte(
+		workspaceWriterSchema + "\x00" + commonDir + "\x00" +
+			key.Release + "\x00" + key.Track,
+	))
+	return "writer-" + hex.EncodeToString(digest[:])
+}
+
 func workspaceBase() (string, error) {
 	temp, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil || !filepath.IsAbs(temp) || filepath.Clean(temp) == string(filepath.Separator) {
@@ -245,6 +256,76 @@ func pathsOverlap(first, second string) bool {
 }
 
 func acquireWorkspaceLock(base, identity string) (*os.File, error) {
+	return acquirePrivateLock(
+		base,
+		identity,
+		rootMarker(identity),
+		"workspace owner",
+	)
+}
+
+func acquireWorkspaceWriterLock(
+	commonDir string,
+	key TrackKey,
+) (*os.File, error) {
+	// The canonical Git common directory is shared by the primary checkout,
+	// linked worktrees, and runtimes with different temporary directories.
+	// Keep lock files permanently: unlinking a locked path would let a second
+	// process create a new inode and acquire a competing lock.
+	base := filepath.Join(commonDir, workspaceWriterBase)
+	if err := ensurePrivateDirectory(base); err != nil {
+		return nil, err
+	}
+	identity := workspaceWriterIdentity(commonDir, key)
+	return acquirePrivateLock(
+		base,
+		identity,
+		writerMarker(identity),
+		"workspace writer",
+	)
+}
+
+func validateWorkspaceWriterLock(
+	file *os.File,
+	commonDir string,
+	key TrackKey,
+) error {
+	if file == nil {
+		return fail("INVALID_WORKSPACE_REQUEST", "admit writable workspace", nil)
+	}
+	identity := workspaceWriterIdentity(commonDir, key)
+	path := filepath.Join(commonDir, workspaceWriterBase, identity+".lock")
+	if file.Name() != path {
+		return fail(
+			"WORKSPACE_OWNERSHIP_MISMATCH",
+			"validate workspace writer lock path",
+			nil,
+		)
+	}
+	openInfo, err := file.Stat()
+	if err != nil {
+		return fail(
+			"WORKSPACE_OWNERSHIP_MISMATCH",
+			"inspect open workspace writer lock",
+			err,
+		)
+	}
+	pathInfo, err := os.Lstat(path)
+	if err != nil || !os.SameFile(openInfo, pathInfo) {
+		return fail(
+			"WORKSPACE_OWNERSHIP_MISMATCH",
+			"validate workspace writer lock file",
+			err,
+		)
+	}
+	return validateMarker(path, writerMarker(identity))
+}
+
+func acquirePrivateLock(
+	base, identity string,
+	expected []byte,
+	kind string,
+) (*os.File, error) {
 	path := filepath.Join(base, identity+".lock")
 	fd, err := syscall.Open(
 		path,
@@ -252,12 +333,12 @@ func acquireWorkspaceLock(base, identity string) (*os.File, error) {
 		0o600,
 	)
 	if err != nil {
-		return nil, fail("WORKSPACE_CREATE_FAILED", "open workspace owner lock", err)
+		return nil, fail("WORKSPACE_CREATE_FAILED", "open "+kind+" lock", err)
 	}
 	file := os.NewFile(uintptr(fd), path)
 	if file == nil {
 		_ = syscall.Close(fd)
-		return nil, fail("WORKSPACE_CREATE_FAILED", "open workspace owner lock", nil)
+		return nil, fail("WORKSPACE_CREATE_FAILED", "open "+kind+" lock", nil)
 	}
 	failLock := func(code, operation string, err error) (*os.File, error) {
 		_ = file.Close()
@@ -266,41 +347,40 @@ func acquireWorkspaceLock(base, identity string) (*os.File, error) {
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return failLock(
-			"WORKSPACE_OWNERSHIP_MISMATCH", "inspect workspace owner lock", err)
+			"WORKSPACE_OWNERSHIP_MISMATCH", "inspect "+kind+" lock", err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || int(stat.Uid) != os.Geteuid() {
 		return failLock(
-			"WORKSPACE_OWNERSHIP_MISMATCH", "inspect workspace owner lock owner", nil)
+			"WORKSPACE_OWNERSHIP_MISMATCH", "inspect "+kind+" lock owner", nil)
 	}
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return failLock("WORKSPACE_OWNER_ACTIVE", "acquire workspace owner lock", nil)
+			return failLock("WORKSPACE_OWNER_ACTIVE", "acquire "+kind+" lock", nil)
 		}
-		return failLock("WORKSPACE_CREATE_FAILED", "acquire workspace owner lock", err)
+		return failLock("WORKSPACE_CREATE_FAILED", "acquire "+kind+" lock", err)
 	}
-	expected := rootMarker(identity)
 	switch {
 	case info.Size() == 0:
 		if _, err := file.WriteAt(expected, 0); err != nil {
 			_ = syscall.Flock(fd, syscall.LOCK_UN)
-			return failLock("WORKSPACE_CREATE_FAILED", "write workspace owner lock", err)
+			return failLock("WORKSPACE_CREATE_FAILED", "write "+kind+" lock", err)
 		}
 		if err := file.Sync(); err != nil {
 			_ = syscall.Flock(fd, syscall.LOCK_UN)
-			return failLock("WORKSPACE_CREATE_FAILED", "sync workspace owner lock", err)
+			return failLock("WORKSPACE_CREATE_FAILED", "sync "+kind+" lock", err)
 		}
 	case info.Size() != int64(len(expected)):
 		_ = syscall.Flock(fd, syscall.LOCK_UN)
 		return failLock(
-			"WORKSPACE_OWNERSHIP_MISMATCH", "validate workspace owner lock", nil)
+			"WORKSPACE_OWNERSHIP_MISMATCH", "validate "+kind+" lock", nil)
 	default:
 		observed := make([]byte, len(expected))
 		if _, err := file.ReadAt(observed, 0); err != nil ||
 			!bytes.Equal(observed, expected) {
 			_ = syscall.Flock(fd, syscall.LOCK_UN)
 			return failLock(
-				"WORKSPACE_OWNERSHIP_MISMATCH", "validate workspace owner lock", err)
+				"WORKSPACE_OWNERSHIP_MISMATCH", "validate "+kind+" lock", err)
 		}
 	}
 	return file, nil
@@ -312,10 +392,17 @@ func (w *Workspaces) releaseLock() error {
 	}
 	file := w.lock
 	w.lock = nil
+	return releasePrivateLock(file, "workspace owner")
+}
+
+func releasePrivateLock(file *os.File, kind string) error {
+	if file == nil {
+		return nil
+	}
 	unlockErr := syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	closeErr := file.Close()
 	if err := errors.Join(unlockErr, closeErr); err != nil {
-		return fail("WORKSPACE_CLEANUP_FAILED", "release workspace owner lock", err)
+		return fail("WORKSPACE_CLEANUP_FAILED", "release "+kind+" lock", err)
 	}
 	return nil
 }
@@ -353,6 +440,10 @@ func (w *Workspaces) removeLockFile() error {
 
 func rootMarker(identity string) []byte {
 	return []byte(workspaceRootSchema + "\n" + identity + "\n")
+}
+
+func writerMarker(identity string) []byte {
+	return []byte(workspaceWriterSchema + "\n" + identity + "\n")
 }
 
 func leaseMarker(identity, token string) []byte {
@@ -598,7 +689,16 @@ func (w *Workspaces) open(
 	key TrackKey,
 	view WorkspaceView,
 	access WorkspaceAccess,
-) (*WorkspaceLease, error) {
+	writerLock *os.File,
+) (lease *WorkspaceLease, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(
+				resultErr,
+				releasePrivateLock(writerLock, "workspace writer"),
+			)
+		}
+	}()
 	if w == nil || w.repository == nil {
 		return nil, fail("INVALID_WORKSPACE_OWNER", "open workspace", nil)
 	}
@@ -614,6 +714,17 @@ func (w *Workspaces) open(
 	}
 	if access == WorkspaceReadOnly && view == ImplementationView {
 		return nil, fail("INVALID_WORKSPACE_REQUEST", "open implementation workspace", nil)
+	}
+	if access == WorkspaceReadWrite {
+		if err := validateWorkspaceWriterLock(
+			writerLock,
+			w.repository.commonDir,
+			key,
+		); err != nil {
+			return nil, err
+		}
+	} else if writerLock != nil {
+		return nil, fail("INVALID_WORKSPACE_REQUEST", "open read-only workspace", nil)
 	}
 	switch view {
 	case PlannerView:
@@ -659,8 +770,9 @@ func (w *Workspaces) open(
 		_ = os.Remove(marker)
 		return nil, fail("WORKSPACE_CREATE_FAILED", "materialize workspace", err)
 	}
-	lease := &WorkspaceLease{
+	lease = &WorkspaceLease{
 		owner: w, path: path, token: name, key: key, view: view, access: access, head: head,
+		writerLock: writerLock,
 	}
 	if access == WorkspaceReadOnly {
 		if err := setWorkspaceReadOnly(path); err != nil {
@@ -672,12 +784,13 @@ func (w *Workspaces) open(
 		lease.readOnly = true
 	}
 	w.leases[path] = lease
+	writerLock = nil
 	return lease, nil
 }
 
 // OpenSnapshot admits a detached Planner view at one already admitted commit.
 func (w *Workspaces) OpenSnapshot(head OID) (*WorkspaceLease, error) {
-	return w.open(head, TrackKey{}, PlannerView, WorkspaceReadOnly)
+	return w.open(head, TrackKey{}, PlannerView, WorkspaceReadOnly, nil)
 }
 
 // OpenReleaseAssembly binds one opaque, read-only engine lease to the exact
@@ -723,6 +836,7 @@ func (w *Workspaces) OpenReleaseAssembly(
 		TrackKey{Release: release},
 		ReleaseAssemblyView,
 		WorkspaceReadOnly,
+		nil,
 	)
 	if err != nil {
 		return nil, err
@@ -742,11 +856,37 @@ func (w *Workspaces) OpenTrack(
 	if err := validateTrackKey(key); err != nil {
 		return nil, err
 	}
+	if w == nil || w.repository == nil {
+		return nil, fail("INVALID_WORKSPACE_OWNER", "open track workspace", nil)
+	}
+	w.mu.Lock()
+	closed := w.closed
+	w.mu.Unlock()
+	if closed {
+		return nil, fail("WORKSPACE_OWNER_CLOSED", "open track workspace", nil)
+	}
 	access := WorkspaceReadOnly
 	if view == ImplementationView {
 		access = WorkspaceReadWrite
 	} else if view != DesignView && view != CaptainView {
 		return nil, fail("INVALID_WORKSPACE_REQUEST", "open track workspace", nil)
+	}
+	var writerLock *os.File
+	if access == WorkspaceReadWrite {
+		var err error
+		// Admit the one writer before reading the track head. Capturing first
+		// would allow a predecessor to publish and release between these steps,
+		// materializing this workspace from stale authority.
+		writerLock, err = acquireWorkspaceWriterLock(w.repository.commonDir, key)
+		if err != nil {
+			return nil, err
+		}
+	}
+	releaseWriter := func(cause error) error {
+		return errors.Join(
+			cause,
+			releasePrivateLock(writerLock, "workspace writer"),
+		)
 	}
 	trackRef := trackHeadRef(key)
 	refs := []string{trackRef}
@@ -755,7 +895,7 @@ func (w *Workspaces) OpenTrack(
 	}
 	captured, err := w.repository.CaptureHeadRefs(refs)
 	if err != nil {
-		return nil, err
+		return nil, releaseWriter(err)
 	}
 	byRef := make(map[string]RefHead, len(captured))
 	for _, value := range captured {
@@ -766,9 +906,11 @@ func (w *Workspaces) OpenTrack(
 		head = byRef["refs/heads/release-wt/"+key.Release]
 	}
 	if head.State != RefDirect || head.Head.IsZero() {
-		return nil, fail("TRACK_NOT_MATERIALIZED", "open track workspace", nil)
+		return nil, releaseWriter(
+			fail("TRACK_NOT_MATERIALIZED", "open track workspace", nil),
+		)
 	}
-	return w.open(head.Head, key, view, access)
+	return w.open(head.Head, key, view, access, writerLock)
 }
 
 // OpenCandidate creates a fresh, detached, physically read-only verifier
@@ -781,7 +923,7 @@ func (w *Workspaces) OpenCandidate(
 	if view != WorkVerifierView && view != AssemblyVerifierView {
 		return nil, fail("INVALID_WORKSPACE_REQUEST", "open verifier workspace", nil)
 	}
-	return w.open(candidate, key, view, WorkspaceReadOnly)
+	return w.open(candidate, key, view, WorkspaceReadOnly, nil)
 }
 
 func setWorkspaceReadOnly(root string) error {
@@ -1064,13 +1206,10 @@ func (l *WorkspaceLease) Close() error {
 
 func (w *Workspaces) remove(lease *WorkspaceLease) error {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	if lease.closed {
-		w.mu.Unlock()
 		return nil
 	}
-	lease.closed = true
-	delete(w.leases, lease.path)
-	w.mu.Unlock()
 	if !workspaceTokenPattern.MatchString(lease.token) ||
 		lease.path != filepath.Join(w.treesRoot, lease.token) {
 		return fail("WORKSPACE_OWNERSHIP_MISMATCH", "validate workspace lease path", nil)
@@ -1112,7 +1251,11 @@ func (w *Workspaces) remove(lease *WorkspaceLease) error {
 	if err := os.Remove(marker); err != nil {
 		return fail("WORKSPACE_CLEANUP_FAILED", "remove workspace lease", err)
 	}
-	return nil
+	lease.closed = true
+	delete(w.leases, lease.path)
+	writerLock := lease.writerLock
+	lease.writerLock = nil
+	return releasePrivateLock(writerLock, "workspace writer")
 }
 
 func (w *Workspaces) Close() (result error) {
@@ -1120,14 +1263,11 @@ func (w *Workspaces) Close() (result error) {
 		return nil
 	}
 	w.mu.Lock()
-	if w.closed {
+	if w.closed && w.lock == nil {
 		w.mu.Unlock()
 		return nil
 	}
 	w.closed = true
-	defer func() {
-		result = errors.Join(result, w.releaseLock())
-	}()
 	leases := make([]*WorkspaceLease, 0, len(w.leases))
 	for _, lease := range w.leases {
 		leases = append(leases, lease)
@@ -1140,6 +1280,9 @@ func (w *Workspaces) Close() (result error) {
 	if joined != nil {
 		return joined
 	}
+	defer func() {
+		result = errors.Join(result, w.releaseLock())
+	}()
 	if err := validateMarker(
 		filepath.Join(w.root, "owner"),
 		rootMarker(w.identity),

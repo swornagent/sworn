@@ -208,6 +208,21 @@ func TestRunWorkspacesRecoverAfterHardProcessExit(t *testing.T) {
 		t.Fatal("hard-exit workspace registration was not left behind")
 	}
 
+	differentRun, err := NewRunWorkspaces(repository, "hard-exit-next-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextWriter, err := differentRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatalf("hard-exit writer lock remained held for another run: %v", err)
+	}
+	if err := nextWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := differentRun.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	replacement, err := NewRunWorkspaces(repository, "hard-exit-run")
 	if err != nil {
 		t.Fatal(err)
@@ -222,6 +237,13 @@ func TestRunWorkspacesRecoverAfterHardProcessExit(t *testing.T) {
 	}
 	if containsWorkspacePath(registered, abandonedPath) {
 		t.Fatal("replacement did not remove hard-exit Git registration")
+	}
+	fresh, err := replacement.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatalf("hard-exit writer lock was not recoverable: %v", err)
+	}
+	if err := fresh.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -355,6 +377,293 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 	}
 	if _, err := os.Lstat(otherRepositoryPath); err != nil {
 		t.Fatalf("other repository workspace changed after close: %v", err)
+	}
+}
+
+func TestImplementationWritersSerializeByRepositoryReleaseTrack(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-writer", Track: "T1"}
+	otherKey := TrackKey{Release: key.Release, Track: "T2"}
+	otherReleaseKey := TrackKey{Release: "release-writer-other", Track: key.Track}
+	createTrack(t, repository, key, base)
+	createTrack(t, repository, otherKey, base)
+	createTrack(t, repository, otherReleaseKey, base)
+
+	firstRun, err := NewRunWorkspaces(repository, "writer-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstRun.Close()
+	secondRepository, err := Open(repository.Root(), repository.GitExecutable())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRun, err := NewRunWorkspaces(secondRepository, "writer-second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondRun.Close()
+
+	first, err := firstRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(first.Path(), "product.txt"),
+		[]byte("first serial writer\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	registeredBefore, err := registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := secondRun.OpenTrack(key, ImplementationView); err == nil {
+		t.Fatal("second run admitted a competing writer for the same track")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+	if _, err := firstRun.OpenTrack(key, ImplementationView); err == nil {
+		t.Fatal("same run admitted a competing writer for the same track")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+	if len(secondRun.leases) != 0 {
+		t.Fatalf("rejected writer leaked leases: %d", len(secondRun.leases))
+	}
+	registeredAfter, err := registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(registeredAfter, registeredBefore) {
+		t.Fatalf(
+			"rejected writer changed registered worktrees:\nbefore=%v\nafter=%v",
+			registeredBefore,
+			registeredAfter,
+		)
+	}
+
+	design, err := secondRun.OpenTrack(key, DesignView)
+	if err != nil {
+		t.Fatalf("same-track read-only view was blocked: %v", err)
+	}
+	if err := design.Close(); err != nil {
+		t.Fatal(err)
+	}
+	otherTrack, err := secondRun.OpenTrack(otherKey, ImplementationView)
+	if err != nil {
+		t.Fatalf("different-track writer was blocked: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(otherTrack.Path(), "other-track.txt"),
+		[]byte("parallel track\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := otherTrack.Close(); err != nil {
+		t.Fatal(err)
+	}
+	otherRelease, err := secondRun.OpenTrack(otherReleaseKey, ImplementationView)
+	if err != nil {
+		t.Fatalf("different-release writer was blocked: %v", err)
+	}
+	if err := otherRelease.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	linkedPath := filepath.Join(t.TempDir(), "linked")
+	runTestGit(
+		t,
+		repository.Root(),
+		nil,
+		"worktree",
+		"add",
+		"--quiet",
+		"--detach",
+		"--",
+		linkedPath,
+		base.String(),
+	)
+	linkedRepository, err := Open(linkedPath, repository.GitExecutable())
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedRun, err := NewRunWorkspaces(linkedRepository, "writer-linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer linkedRun.Close()
+	if _, err := linkedRun.OpenTrack(key, ImplementationView); err == nil {
+		t.Fatal("linked worktree admitted a competing writer for the same track")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+
+	otherRepository, otherBase := newRepository(t, SHA1)
+	createTrack(t, otherRepository, key, otherBase)
+	otherRepositoryRun, err := NewRunWorkspaces(
+		otherRepository,
+		"writer-other-repository",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer otherRepositoryRun.Close()
+	otherRepositoryWriter, err := otherRepositoryRun.OpenTrack(
+		key,
+		ImplementationView,
+	)
+	if err != nil {
+		t.Fatalf("same-key writer in another repository was blocked: %v", err)
+	}
+	if err := otherRepositoryWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sealed, err := firstRun.SealTrack(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writerIdentity := workspaceWriterIdentity(repository.commonDir, key)
+	writerPath := filepath.Join(
+		repository.commonDir,
+		workspaceWriterBase,
+		writerIdentity+".lock",
+	)
+	writerInfo, err := os.Stat(writerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMarker(
+		writerPath,
+		writerMarker(writerIdentity),
+	); err != nil {
+		t.Fatalf("stable writer lock file was not retained: %v", err)
+	}
+	replacement, err := secondRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatalf("released track writer was not reusable: %v", err)
+	}
+	if replacement.Head() != sealed.Candidate {
+		t.Fatalf(
+			"replacement captured stale track head %s, want %s",
+			replacement.Head(),
+			sealed.Candidate,
+		)
+	}
+	replacementWriterInfo, err := os.Stat(writerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(writerInfo, replacementWriterInfo) {
+		t.Fatal("writer lock path changed inode between serial owners")
+	}
+	if err := os.WriteFile(
+		filepath.Join(replacement.Path(), "replacement.txt"),
+		[]byte("next serial writer\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := replacement.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImplementationWriterLockReleasesWhenAdmissionFails(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-writer-admission", Track: "T1"}
+	createTrack(t, repository, key, base)
+	failedRun, err := NewRunWorkspaces(repository, "writer-admission-failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer failedRun.Close()
+	nextRun, err := NewRunWorkspaces(repository, "writer-admission-next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nextRun.Close()
+
+	if err := os.Remove(failedRun.leasesRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := failedRun.OpenTrack(key, ImplementationView); err == nil {
+		t.Fatal("writer admission unexpectedly survived a missing lease registry")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_CREATE_FAILED")
+	}
+	if len(failedRun.leases) != 0 {
+		t.Fatalf("failed admission leaked leases: %d", len(failedRun.leases))
+	}
+	if err := os.Mkdir(failedRun.leasesRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	next, err := nextRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatalf("failed admission retained the writer lock: %v", err)
+	}
+	if err := next.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceCloseRetriesFailedWriterCleanup(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-writer-cleanup", Track: "T1"}
+	createTrack(t, repository, key, base)
+	firstRun, err := NewRunWorkspaces(repository, "writer-cleanup-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstRun.Close()
+	secondRun, err := NewRunWorkspaces(repository, "writer-cleanup-second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondRun.Close()
+	first, err := firstRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(firstRun.leasesRoot, first.token)
+	expected := leaseMarker(firstRun.identity, first.token)
+	if err := os.WriteFile(marker, []byte("foreign ownership\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstRun.Close(); err == nil {
+		t.Fatal("tampered writer cleanup unexpectedly succeeded")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNERSHIP_MISMATCH")
+	}
+	if _, err := secondRun.OpenTrack(key, ImplementationView); err == nil {
+		t.Fatal("failed cleanup released writer authority")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+	if err := os.WriteFile(marker, expected, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstRun.Close(); err != nil {
+		t.Fatalf("workspace close did not retry retained cleanup: %v", err)
+	}
+	next, err := secondRun.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatalf("successful cleanup did not release writer authority: %v", err)
+	}
+	if err := next.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
