@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
@@ -14,30 +15,29 @@ import (
 type fakeScript struct {
 	SchemaVersion string `json:"schema_version"`
 	Behavior      string `json:"behavior"`
-	Submission    string `json:"submission"`
+	Submission    string `json:"submission,omitempty"`
 }
 
-func (s *Service) runDriverEffect(
-	ctx context.Context,
-	engine *engine,
-	workspace *gitx.WorkspaceLease,
-	role driver.Role,
-	responsibility driver.Responsibility,
-	before string,
-) (driver.Submission, error) {
+func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
+	workspace *gitx.WorkspaceLease, role driver.Role, script ScriptedAttempt,
+	attemptIdentity journal.EffectAttempt, before string,
+	owner journal.OwnerLease) (driver.Submission, error) {
 	if workspace == nil || workspace.Path() == "" {
 		return driver.Submission{}, runtimeFail("INVALID_WORKSPACE", nil)
 	}
 	manifest := engine.manifest
-	submissionEncoding := manifest.value.Submissions.forResponsibility(responsibility)
-	submissionBody, err := base64.StdEncoding.Strict().DecodeString(submissionEncoding)
-	if err != nil {
-		return driver.Submission{}, runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+	var submissionBody []byte
+	if script.Submission != "" {
+		var err error
+		submissionBody, err = base64.StdEncoding.Strict().DecodeString(script.Submission)
+		if err != nil {
+			return driver.Submission{}, runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+		}
 	}
 	scriptBody := mustJSON(fakeScript{
 		SchemaVersion: "sworn.fake-script/v1",
-		Behavior:      "submit",
-		Submission:    submissionEncoding,
+		Behavior:      script.Behavior,
+		Submission:    script.Submission,
 	})
 	input := driver.Input{
 		Name: "fake-script", Path: "runtime/fake-script.json",
@@ -54,7 +54,7 @@ func (s *Service) runDriverEffect(
 		containment = driver.ContainmentReadWrite
 	}
 	request, err := driver.NewRequest(
-		invocationID(manifest.value.RunID, responsibility),
+		invocationID(manifest.value.RunID, script),
 		role,
 		selected.Profile.Key,
 		selected.Model,
@@ -70,21 +70,24 @@ func (s *Service) runDriverEffect(
 		request,
 		selected,
 		containment,
-		responsibility,
+		script.Responsibility,
 	)
 	if err != nil {
 		return driver.Submission{}, runtimeFail("DRIVER_REQUEST_FAILED", err)
 	}
-	replayKey := "dispatch." + string(responsibility)
-	if err := s.ensureEffect(
-		ctx,
-		manifest,
-		replayKey,
-		"driver.dispatch",
-		scriptBody,
-		sha256Digest([]byte(before)),
-		sha256Digest(submissionBody),
-	); err != nil {
+	replayKey := journal.AttemptEffectID(
+		attemptIdentity.WorkID,
+		attemptIdentity.Epoch,
+		attemptIdentity.Try,
+	)
+	now := s.now().UTC()
+	command := journal.Command{RunID: manifest.value.RunID, ReplayKey: replayKey,
+		Kind: "driver.dispatch", Payload: scriptBody, CreatedAt: now}
+	effectInput := journal.Effect{RunID: manifest.value.RunID, ID: replayKey,
+		ReplayKey: replayKey, Kind: "driver.dispatch",
+		BeforeDigest:   sha256Digest([]byte(before)),
+		ExpectedDigest: sha256Digest(submissionBody), UpdatedAt: now}
+	if err := s.journal.EnsureAttempt(ctx, command, effectInput, attemptIdentity); err != nil {
 		return driver.Submission{}, err
 	}
 	effect, err := s.journal.Effect(ctx, manifest.value.RunID, replayKey)
@@ -93,26 +96,25 @@ func (s *Service) runDriverEffect(
 	}
 	if effect.State == journal.Succeeded {
 		cached, err := driver.DecodeSubmission(effect.Result)
-		if err != nil || cached.Responsibility != responsibility ||
+		if err != nil || cached.Responsibility != script.Responsibility ||
 			!bytes.Equal(effect.Result, submissionBody) {
 			return driver.Submission{}, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return cached, nil
 	}
 	if effect.State == journal.Claimed {
-		_ = s.journal.Reconcile(ctx, journal.Completion{
+		_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey,
 			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
-			EventBody: []byte(responsibility), At: s.now().UTC(),
+			EventBody: []byte(script.Responsibility), At: s.now().UTC(),
 		}, journal.RecoveryAmbiguous)
 		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
 	}
 	if effect.State != journal.Pending {
 		return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 	}
-	claim, err := s.journal.Claim(
-		ctx,
-		manifest.value.RunID,
+	claim, err := s.journal.ClaimOwned(
+		ctx, owner,
 		replayKey,
 		s.now().UTC(),
 		effectLease,
@@ -130,13 +132,17 @@ func (s *Service) runDriverEffect(
 		}},
 		FakeProfile: driver.FakeCompleted,
 	})
+	if testCrashAfterEffect == "driver.dispatch" {
+		os.Exit(86)
+	}
+	completionCtx := context.WithoutCancel(ctx)
 	usageBody, usageErr := driver.EncodeUsageReceipt(observation.Usage)
 	if usageErr != nil {
 		usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
 	}
 	observationBody, _ := json.Marshal(observation)
 	attempt := &journal.Attempt{
-		Number: 1, Responsibility: string(responsibility),
+		Number: script.Try, Responsibility: string(script.Responsibility),
 		TransportStatus:   string(observation.TransportStatus),
 		ObservationDigest: sha256Digest(observationBody),
 		Usage:             usageBody,
@@ -146,30 +152,30 @@ func (s *Service) runDriverEffect(
 	}
 	if invokeErr != nil || observation.Handoff == nil {
 		code := stableErrorCode(invokeErr)
-		if err := s.journal.Complete(ctx, journal.Completion{
+		if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
 			EventKind: "dispatch_operational_failure",
-			EventBody: []byte(responsibility), At: s.now().UTC(),
+			EventBody: []byte(script.Responsibility), At: s.now().UTC(),
 		}); err != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
 		return driver.Submission{}, runtimeFail("DRIVER_OPERATIONAL_FAILURE", invokeErr)
 	}
 	submission, err := driver.DecodeSubmission(observation.Handoff.SubmissionBytes)
-	if err != nil || submission.Responsibility != responsibility ||
+	if err != nil || submission.Responsibility != script.Responsibility ||
 		!bytes.Equal(observation.Handoff.SubmissionBytes, submissionBody) {
-		if completeErr := s.journal.Complete(ctx, journal.Completion{
+		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
 			Attempt: attempt, EventKind: "dispatch_operational_failure",
-			EventBody: []byte(responsibility), At: s.now().UTC(),
+			EventBody: []byte(script.Responsibility), At: s.now().UTC(),
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
 		return driver.Submission{}, runtimeFail("INVALID_DRIVER_HANDOFF", err)
 	}
-	if err := s.journal.Complete(ctx, journal.Completion{
+	if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 		RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 		State: journal.Succeeded, Result: observation.Handoff.SubmissionBytes,
 		Attempt: attempt,
@@ -177,7 +183,7 @@ func (s *Service) runDriverEffect(
 			Kind: "sealed_driver_handoff", Body: observation.Handoff.SubmissionBytes,
 		}},
 		EventKind: "dispatch_completed",
-		EventBody: []byte(responsibility), At: s.now().UTC(),
+		EventBody: []byte(script.Responsibility), At: s.now().UTC(),
 	}); err != nil {
 		return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}

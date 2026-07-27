@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -18,11 +20,10 @@ const usage = `Sworn runs autonomous delivery with the Baton protocol.
 Available in the v0.3 walking skeleton:
   sworn version [--json]
   sworn run --manifest PATH --journal PATH
-  sworn resume --run ID --journal PATH
+  sworn pause|resume|cancel|takeover --run ID --journal PATH --command ID --generation N
+  sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
   sworn status --run ID --journal PATH --json
   sworn help
-
-Pause, retry, takeover, multi-track scheduling and the board arrive later.
 `
 
 const (
@@ -51,7 +52,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runStart(args[1:], stdout, stderr)
 	case "resume":
-		return runResume(args[1:], stdout, stderr)
+		return runControl(journal.Resume, args[1:], stdout, stderr)
+	case "pause":
+		return runControl(journal.Pause, args[1:], stdout, stderr)
+	case "cancel":
+		return runControl(journal.Cancel, args[1:], stdout, stderr)
+	case "retry":
+		return runControl(journal.Retry, args[1:], stdout, stderr)
+	case "takeover":
+		return runControl(journal.Takeover, args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	default:
@@ -119,26 +128,50 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runResume(args []string, stdout, stderr io.Writer) int {
-	options, ok := parseOptions(args, []string{"--run", "--journal"}, nil)
+func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Writer) int {
+	values := []string{"--run", "--journal", "--command", "--generation"}
+	if kind == journal.Retry {
+		values = append(values, "--work", "--epoch")
+	}
+	options, ok := parseOptions(args, values, nil)
 	if !ok {
-		fmt.Fprintln(stderr, "usage: sworn resume --run ID --journal PATH")
+		fmt.Fprintf(stderr, "usage: sworn %s --run ID --journal PATH --command ID --generation N", kind)
+		if kind == journal.Retry {
+			fmt.Fprint(stderr, " --work SHA256 --epoch N")
+		}
+		fmt.Fprintln(stderr)
 		return 2
+	}
+	generation, err := strconv.ParseInt(options["--generation"], 10, 64)
+	if err != nil || generation < 0 {
+		fmt.Fprintf(stderr, "sworn %s: invalid generation\n", kind)
+		return 2
+	}
+	epoch := int64(0)
+	if kind == journal.Retry {
+		epoch, err = strconv.ParseInt(options["--epoch"], 10, 64)
+		if err != nil || epoch < 1 {
+			fmt.Fprintln(stderr, "sworn retry: invalid epoch")
+			return 2
+		}
 	}
 	ctx := context.Background()
 	service, err := runtimepkg.OpenService(ctx, options["--journal"])
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn resume: %v\n", err)
+		fmt.Fprintf(stderr, "sworn %s: %v\n", kind, err)
 		return 1
 	}
 	defer service.Close()
-	status, err := service.Resume(ctx, options["--run"])
+	status, err := service.Control(ctx, runtimepkg.ControlCommand{
+		RunID: options["--run"], ID: options["--command"], Kind: kind,
+		ExpectedGeneration: generation, WorkID: options["--work"], ExpectedEpoch: epoch,
+	})
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn resume: %v\n", err)
+		fmt.Fprintf(stderr, "sworn %s: %v\n", kind, err)
 		return 1
 	}
 	if err := writeStatusText(stdout, status); err != nil {
-		fmt.Fprintln(stderr, "sworn resume: output failed")
+		fmt.Fprintf(stderr, "sworn %s: output failed\n", kind)
 		return 1
 	}
 	return 0

@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,6 +152,126 @@ func TestPrivateOneWriterReplayClaimAndCASCompletion(t *testing.T) {
 	}
 }
 
+func TestReconcileManyIsAtomicAcrossRelatedClaims(t *testing.T) {
+	t.Parallel()
+
+	store, run, command, firstEffect := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	firstClaim, err := store.Claim(
+		ctx, run.ID, firstEffect.ID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCommand := command
+	secondCommand.ReplayKey = "effect-2"
+	if err := store.RecordCommand(ctx, secondCommand); err != nil {
+		t.Fatal(err)
+	}
+	secondEffect := firstEffect
+	secondEffect.ID = "effect-2"
+	secondEffect.ReplayKey = secondCommand.ReplayKey
+	if err := store.EnsureEffect(ctx, secondEffect); err != nil {
+		t.Fatal(err)
+	}
+	secondClaim, err := store.Claim(
+		ctx, run.ID, secondEffect.ID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completions := []Completion{
+		{
+			RunID: run.ID, EffectID: firstEffect.ID,
+			Token: firstClaim.Token, EventKind: "group_uncertain", At: now,
+		},
+		{
+			RunID: run.ID, EffectID: secondEffect.ID,
+			Token: secondClaim.Token, EventKind: "group_uncertain", At: now,
+		},
+	}
+	substituted := append([]Completion(nil), completions...)
+	substituted[1].Token = strings.Repeat("0", 64)
+	if err := store.ReconcileManyOwned(
+		ctx,
+		OwnerLease{},
+		substituted,
+		RecoveryAmbiguous,
+	); !IsCode(err, "STALE_COMPLETION") {
+		t.Fatalf("substituted group reconcile = %v", err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		byID[effect.ID] = effect
+	}
+	if byID[firstEffect.ID].State != Claimed ||
+		byID[secondEffect.ID].State != Claimed {
+		t.Fatalf(
+			"partial reconcile escaped transaction: first=%#v second=%#v",
+			byID[firstEffect.ID],
+			byID[secondEffect.ID],
+		)
+	}
+	if err := store.ReconcileManyOwned(
+		ctx,
+		OwnerLease{},
+		completions,
+		RecoveryAmbiguous,
+	); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range snapshot.Effects {
+		if (effect.ID == firstEffect.ID || effect.ID == secondEffect.ID) &&
+			effect.State != Uncertain {
+			t.Fatalf("group reconcile left %#v", effect)
+		}
+	}
+}
+
+func TestSnapshotRejectsCorruptCommandPayloadBinding(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		query string
+		value any
+	}{
+		{
+			name:  "payload",
+			query: `UPDATE commands SET payload = ? WHERE run_id = ? AND replay_key = ?`,
+			value: []byte("mutated"),
+		},
+		{
+			name:  "digest",
+			query: `UPDATE commands SET payload_digest = ? WHERE run_id = ? AND replay_key = ?`,
+			value: digest([]byte("not-the-payload")),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, run, command, _ := journalFixture(t)
+			if _, err := store.conn.ExecContext(
+				context.Background(),
+				test.query,
+				test.value,
+				run.ID,
+				command.ReplayKey,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Snapshot(
+				context.Background(), run.ID,
+			); !IsCode(err, "CORRUPT_JOURNAL") {
+				t.Fatalf("Snapshot() error = %v, want CORRUPT_JOURNAL", err)
+			}
+		})
+	}
+}
+
 func TestCrashRecoveryAllOldAllNewAndAmbiguousAreExplicit(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +351,70 @@ func TestCrashRecoveryAllOldAllNewAndAmbiguousAreExplicit(t *testing.T) {
 	}
 }
 
+func TestIdenticalReceiptBodiesRemainBoundToDistinctEffects(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, firstEffect := journalFixture(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_150, 0).UTC()
+	body := []byte("identical sealed handoff")
+
+	firstClaim, err := store.Claim(ctx, run.ID, firstEffect.ID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{
+		RunID: run.ID, EffectID: firstEffect.ID, Token: firstClaim.Token,
+		State: Succeeded, Result: body,
+		Receipts:  []Receipt{{Kind: "sealed_handoff", Body: body}},
+		EventKind: "first_completed", At: now.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	secondCommand := Command{
+		RunID: run.ID, ReplayKey: "dispatch-2", Kind: "dispatch",
+		Payload: []byte("input-2"), CreatedAt: run.CreatedAt,
+	}
+	secondEffect := Effect{
+		RunID: run.ID, ID: "effect-2", ReplayKey: secondCommand.ReplayKey,
+		Kind: "driver", BeforeDigest: digest([]byte("before-2")),
+		ExpectedDigest: digest(body), UpdatedAt: run.CreatedAt,
+	}
+	if err := store.RecordCommand(ctx, secondCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureEffect(ctx, secondEffect); err != nil {
+		t.Fatal(err)
+	}
+	secondClaim, err := store.Claim(
+		ctx, run.ID, secondEffect.ID, now.Add(2*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{
+		RunID: run.ID, EffectID: secondEffect.ID, Token: secondClaim.Token,
+		State: Succeeded, Result: body,
+		Receipts:  []Receipt{{Kind: "sealed_handoff", Body: body}},
+		EventKind: "second_completed", At: now.Add(3 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := store.conn.QueryRowContext(
+		ctx,
+		`SELECT count(*) FROM receipts
+		  WHERE run_id = ? AND kind = ? AND body = ?`,
+		run.ID, "sealed_handoff", body,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("bound identical receipt count = %d, want 2", count)
+	}
+}
+
 func TestConcurrentClaimHasExactlyOneWinner(t *testing.T) {
 	t.Parallel()
 
@@ -284,6 +470,11 @@ func TestReadOnlyOpenDoesNotChangeJournalBytes(t *testing.T) {
 	if _, err := readOnly.Snapshot(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
+	var busyTimeout int
+	if err := readOnly.conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil ||
+		busyTimeout != 5000 {
+		t.Fatalf("read-only busy timeout = %d, err = %v", busyTimeout, err)
+	}
 	if err := readOnly.AppendEvent(ctx, run.ID, "forbidden", nil, time.Now()); !IsCode(err, "READ_ONLY") {
 		t.Fatalf("read-only write = %v", err)
 	}
@@ -296,6 +487,80 @@ func TestReadOnlyOpenDoesNotChangeJournalBytes(t *testing.T) {
 	}
 	if beforeHash != sha256.Sum256(after) {
 		t.Fatal("read-only status changed journal bytes")
+	}
+}
+
+func TestReadOnlyOpenRecoversHotRollbackJournal(t *testing.T) {
+	const (
+		helperEnv = "SWORN_TEST_HOT_ROLLBACK_HELPER"
+		pathEnv   = "SWORN_TEST_HOT_ROLLBACK_PATH"
+		runEnv    = "SWORN_TEST_HOT_ROLLBACK_RUN"
+	)
+	if os.Getenv(helperEnv) == "1" {
+		ctx := context.Background()
+		store, err := Open(ctx, os.Getenv(pathEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.conn.ExecContext(
+			ctx,
+			"UPDATE runs SET target_ref = ? WHERE run_id = ?",
+			"refs/heads/uncommitted",
+			os.Getenv(runEnv),
+		); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(86)
+	}
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(
+		os.Args[0],
+		"-test.run=^TestReadOnlyOpenRecoversHotRollbackJournal$",
+	)
+	command.Env = append(
+		os.Environ(),
+		helperEnv+"=1",
+		pathEnv+"="+path,
+		runEnv+"="+run.ID,
+	)
+	output, err := command.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 86 {
+		t.Fatalf("crash helper exit = %v, output = %s", err, output)
+	}
+	journalInfo, err := os.Stat(path + "-journal")
+	if err != nil {
+		t.Fatalf("crash helper did not leave a rollback journal: %v", err)
+	}
+	if journalInfo.Size() == 0 {
+		t.Fatal("crash helper left an empty rollback journal")
+	}
+
+	readOnly, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readOnly.Close()
+	snapshot, err := readOnly.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Run.TargetRef != run.TargetRef {
+		t.Fatalf(
+			"target ref after rollback = %q, want %q",
+			snapshot.Run.TargetRef,
+			run.TargetRef,
+		)
 	}
 }
 
@@ -412,5 +677,161 @@ func TestOperationalFailureCannotCarryVerdictReceiptOrAutoRetry(t *testing.T) {
 		ctx, run.ID, effect.ID, now.Add(2*time.Second), time.Minute,
 	); !IsCode(err, "EFFECT_NOT_CLAIMABLE") {
 		t.Fatalf("W3 automatically retried failed effect: %v", err)
+	}
+}
+
+func TestTypedControlsAreGenerationCASIdempotentAndTerminal(t *testing.T) {
+	t.Parallel()
+	store, run, _, effect := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pause := ControlCommand{RunID: run.ID, ID: "pause-1", Kind: Pause}
+	first, err := store.ApplyControl(ctx, pause, now)
+	if err != nil || first.Generation != 1 {
+		t.Fatalf("pause = %#v, %v", first, err)
+	}
+	if _, err := store.ClaimOwned(ctx, owner, effect.ID, now, time.Minute); !IsCode(err, "CONTROL_STOPPED") {
+		t.Fatalf("claim after accepted pause = %v", err)
+	}
+	replay, err := store.ApplyControl(ctx, pause, now.Add(time.Hour))
+	if err != nil || replay != first {
+		t.Fatalf("replay = %#v, %v", replay, err)
+	}
+	conflict := pause
+	conflict.Kind = Resume
+	if _, err := store.ApplyControl(ctx, conflict, now); !IsCode(err, "REPLAY_CONFLICT") {
+		t.Fatalf("conflict = %v", err)
+	}
+	resume := ControlCommand{RunID: run.ID, ID: "resume-1", Kind: Resume, ExpectedGeneration: 1}
+	if _, err := store.ApplyControl(ctx, resume, now); err != nil {
+		t.Fatal(err)
+	}
+	cancel := ControlCommand{RunID: run.ID, ID: "cancel-1", Kind: Cancel, ExpectedGeneration: 2}
+	if _, err := store.ApplyControl(ctx, cancel, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "resume-2", Kind: Resume, ExpectedGeneration: 3,
+	}, now); !IsCode(err, "STALE_CONTROL_GENERATION") {
+		t.Fatalf("resume after cancel = %v", err)
+	}
+	projection, err := store.ControlProjection(ctx, run.ID)
+	if err != nil || projection.Generation != 3 || projection.Desired != "cancelled" {
+		t.Fatalf("projection = %#v, %v", projection, err)
+	}
+}
+
+func TestOwnerLeaseRenewalTakeoverAndCompletionFencing(t *testing.T) {
+	t.Parallel()
+	store, run, _, effect := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	first, err := store.AcquireOwner(ctx, run.ID, now, time.Second, false)
+	if err != nil || first.Generation != 1 {
+		t.Fatalf("first owner = %#v, %v", first, err)
+	}
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != first {
+		t.Fatalf("current first owner = %#v, %t, %v", observed, present, err)
+	}
+	first, err = store.RenewOwner(ctx, first, now.Add(200*time.Millisecond), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, present, err = store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != first {
+		t.Fatalf("renewed current owner = %#v, %t, %v", observed, present, err)
+	}
+	claim, err := store.ClaimOwned(ctx, first, effect.ID, now.Add(300*time.Millisecond), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "takeover-early", Kind: Takeover,
+	}, now.Add(500*time.Millisecond)); !IsCode(err, "OWNER_ACTIVE") {
+		t.Fatalf("early takeover = %v", err)
+	}
+	takeoverAt := first.ExpiresAt.Add(time.Nanosecond)
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "takeover-1", Kind: Takeover,
+	}, takeoverAt); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireOwner(ctx, run.ID, takeoverAt, time.Second, true)
+	if err != nil || second.Generation != 2 {
+		t.Fatalf("second owner = %#v, %v", second, err)
+	}
+	observed, present, err = store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != second {
+		t.Fatalf("current second owner = %#v, %t, %v", observed, present, err)
+	}
+	completion := Completion{RunID: run.ID, EffectID: effect.ID, Token: claim.Token,
+		State: Succeeded, Result: []byte("late"), EventKind: "late", At: takeoverAt}
+	if err := store.CompleteOwned(ctx, first, completion); !IsCode(err, "OWNER_FENCED") {
+		t.Fatalf("old completion = %v", err)
+	}
+	if err := store.ReconcileOwned(ctx, second, Completion{
+		RunID: run.ID, EffectID: effect.ID, Token: claim.Token,
+		EventKind: "uncertain", At: takeoverAt,
+	}, RecoveryAmbiguous); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetryEpochRequiresExactThreeTryExhaustion(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	work := digest([]byte("bounded-work"))
+	for try := int64(1); try <= 3; try++ {
+		id := AttemptEffectID(work, 1, try)
+		command := Command{RunID: run.ID, ReplayKey: id, Kind: "driver.dispatch",
+			Payload: []byte("attempt"), CreatedAt: now}
+		effect := Effect{RunID: run.ID, ID: id, ReplayKey: id, Kind: command.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now}
+		if err := store.EnsureAttempt(ctx, command, effect,
+			EffectAttempt{WorkID: work, Epoch: 1, Try: try}); err != nil {
+			t.Fatal(err)
+		}
+		claim, err := store.Claim(ctx, run.ID, id, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: id,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.EnsureAttempt(ctx, Command{}, Effect{},
+		EffectAttempt{WorkID: work, Epoch: 1, Try: 4}); !IsCode(err, "INVALID_EFFECT_ATTEMPT") {
+		t.Fatalf("try four = %v", err)
+	}
+	receipt, err := store.ApplyControl(ctx, ControlCommand{RunID: run.ID,
+		ID: "retry-1", Kind: Retry, WorkID: work, ExpectedEpoch: 1}, now)
+	if err != nil || receipt.Epoch != 2 {
+		t.Fatalf("retry = %#v, %v", receipt, err)
+	}
+	oldID := AttemptEffectID(work, 1, 1)
+	if err := store.EnsureAttempt(ctx, Command{RunID: run.ID, ReplayKey: oldID,
+		Kind: "driver.dispatch", Payload: []byte("attempt"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: oldID, ReplayKey: oldID, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now}, EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); !IsCode(err, "STALE_RETRY_EPOCH") {
+		t.Fatalf("stale epoch replay = %v", err)
+	}
+	id := AttemptEffectID(work, 2, 1)
+	if err := store.EnsureAttempt(ctx, Command{RunID: run.ID, ReplayKey: id,
+		Kind: "driver.dispatch", Payload: []byte("retry"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: id, ReplayKey: id, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now}, EffectAttempt{WorkID: work, Epoch: 2, Try: 1}); err != nil {
+		t.Fatal(err)
 	}
 }

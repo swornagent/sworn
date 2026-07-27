@@ -71,112 +71,143 @@ func (s *Store) RegisterRun(ctx context.Context, run Run) error {
 	})
 }
 
-func (s *Store) RecordCommand(ctx context.Context, command Command) error {
+type preparedCommand struct {
+	body      []byte
+	digest    string
+	createdAt string
+}
+
+func prepareCommand(command Command) (preparedCommand, error) {
 	if err := validateIdentity(command.RunID, "run"); err != nil {
-		return err
+		return preparedCommand{}, err
 	}
 	if err := validateIdentity(command.ReplayKey, "replay_key"); err != nil {
-		return err
+		return preparedCommand{}, err
 	}
 	if err := validateIdentity(command.Kind, "command_kind"); err != nil {
-		return err
+		return preparedCommand{}, err
 	}
 	if len(command.Payload) == 0 || len(command.Payload) > MaxPayloadBytes {
-		return fail("RESOURCE_LIMIT", nil)
+		return preparedCommand{}, fail("RESOURCE_LIMIT", nil)
 	}
 	createdAt, err := canonicalTime(command.CreatedAt)
 	if err != nil {
-		return err
+		return preparedCommand{}, err
 	}
 	body := append([]byte(nil), command.Payload...)
-	bodyDigest := digest(body)
-	return s.immediate(ctx, func(conn *sql.Conn) error {
-		_, err := conn.ExecContext(
-			ctx,
-			`INSERT OR IGNORE INTO commands(
+	return preparedCommand{body: body, digest: digest(body), createdAt: createdAt}, nil
+}
+
+func recordCommandOnConnection(ctx context.Context, conn *sql.Conn, command Command,
+	prepared preparedCommand) error {
+	_, err := conn.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO commands(
 				run_id, replay_key, kind, payload_digest, payload, created_at
 			) VALUES(?, ?, ?, ?, ?, ?)`,
-			command.RunID,
-			command.ReplayKey,
-			command.Kind,
-			bodyDigest,
-			body,
-			createdAt,
-		)
-		if err != nil {
-			return dbError(err)
-		}
-		var kind, observedDigest, observedAt string
-		var observedBody []byte
-		if err := conn.QueryRowContext(
-			ctx,
-			`SELECT kind, payload_digest, payload, created_at
+		command.RunID,
+		command.ReplayKey,
+		command.Kind,
+		prepared.digest,
+		prepared.body,
+		prepared.createdAt,
+	)
+	if err != nil {
+		return dbError(err)
+	}
+	var kind, observedDigest, observedAt string
+	var observedBody []byte
+	if err := conn.QueryRowContext(
+		ctx,
+		`SELECT kind, payload_digest, payload, created_at
 			 FROM commands WHERE run_id = ? AND replay_key = ?`,
-			command.RunID,
-			command.ReplayKey,
-		).Scan(&kind, &observedDigest, &observedBody, &observedAt); err != nil {
-			return dbError(err)
-		}
-		if kind != command.Kind || observedDigest != bodyDigest ||
-			!bytes.Equal(observedBody, body) {
-			return fail("REPLAY_CONFLICT", nil)
-		}
-		return nil
+		command.RunID,
+		command.ReplayKey,
+	).Scan(&kind, &observedDigest, &observedBody, &observedAt); err != nil {
+		return dbError(err)
+	}
+	if kind != command.Kind || observedDigest != prepared.digest ||
+		!bytes.Equal(observedBody, prepared.body) {
+		return fail("REPLAY_CONFLICT", nil)
+	}
+	return nil
+}
+
+func (s *Store) RecordCommand(ctx context.Context, command Command) error {
+	prepared, err := prepareCommand(command)
+	if err != nil {
+		return err
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		return recordCommandOnConnection(ctx, conn, command, prepared)
 	})
 }
 
-func (s *Store) EnsureEffect(ctx context.Context, effect Effect) error {
+func prepareEffect(effect Effect) (string, error) {
 	for label, value := range map[string]string{
 		"run": effect.RunID, "effect": effect.ID, "replay_key": effect.ReplayKey,
 		"effect_kind": effect.Kind,
 	} {
 		if err := validateIdentity(value, label); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := validateDigest(effect.BeforeDigest); err != nil {
-		return err
+		return "", err
 	}
 	if err := validateDigest(effect.ExpectedDigest); err != nil {
-		return err
+		return "", err
 	}
 	updatedAt, err := canonicalTime(effect.UpdatedAt)
+	if err != nil {
+		return "", err
+	}
+	return updatedAt, nil
+}
+
+func ensureEffectOnConnection(ctx context.Context, conn *sql.Conn, effect Effect,
+	updatedAt string) error {
+	_, err := conn.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO effects(
+				run_id, effect_id, replay_key, kind, state,
+				before_digest, expected_digest, updated_at
+			) VALUES(?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		effect.RunID,
+		effect.ID,
+		effect.ReplayKey,
+		effect.Kind,
+		effect.BeforeDigest,
+		effect.ExpectedDigest,
+		updatedAt,
+	)
+	if err != nil {
+		return dbError(err)
+	}
+	var replayKey, kind, state, before, expected, observedAt string
+	if err := conn.QueryRowContext(
+		ctx,
+		`SELECT replay_key, kind, state, before_digest, expected_digest, updated_at
+			 FROM effects WHERE run_id = ? AND effect_id = ?`,
+		effect.RunID,
+		effect.ID,
+	).Scan(&replayKey, &kind, &state, &before, &expected, &observedAt); err != nil {
+		return dbError(err)
+	}
+	if replayKey != effect.ReplayKey || kind != effect.Kind ||
+		before != effect.BeforeDigest || expected != effect.ExpectedDigest {
+		return fail("EFFECT_CONFLICT", nil)
+	}
+	return nil
+}
+
+func (s *Store) EnsureEffect(ctx context.Context, effect Effect) error {
+	updatedAt, err := prepareEffect(effect)
 	if err != nil {
 		return err
 	}
 	return s.immediate(ctx, func(conn *sql.Conn) error {
-		_, err := conn.ExecContext(
-			ctx,
-			`INSERT OR IGNORE INTO effects(
-				run_id, effect_id, replay_key, kind, state,
-				before_digest, expected_digest, updated_at
-			) VALUES(?, ?, ?, ?, 'pending', ?, ?, ?)`,
-			effect.RunID,
-			effect.ID,
-			effect.ReplayKey,
-			effect.Kind,
-			effect.BeforeDigest,
-			effect.ExpectedDigest,
-			updatedAt,
-		)
-		if err != nil {
-			return dbError(err)
-		}
-		var replayKey, kind, state, before, expected, observedAt string
-		if err := conn.QueryRowContext(
-			ctx,
-			`SELECT replay_key, kind, state, before_digest, expected_digest, updated_at
-			 FROM effects WHERE run_id = ? AND effect_id = ?`,
-			effect.RunID,
-			effect.ID,
-		).Scan(&replayKey, &kind, &state, &before, &expected, &observedAt); err != nil {
-			return dbError(err)
-		}
-		if replayKey != effect.ReplayKey || kind != effect.Kind ||
-			before != effect.BeforeDigest || expected != effect.ExpectedDigest {
-			return fail("EFFECT_CONFLICT", nil)
-		}
-		return nil
+		return ensureEffectOnConnection(ctx, conn, effect, updatedAt)
 	})
 }
 
@@ -190,6 +221,29 @@ func (s *Store) Claim(ctx context.Context, runID, effectID string, now time.Time
 	if lease <= 0 || lease > MaxLease {
 		return Claim{}, fail("INVALID_LEASE", nil)
 	}
+	expiresAt := now.Add(lease)
+	token, err := randomToken()
+	if err != nil {
+		return Claim{}, err
+	}
+	err = s.immediate(ctx, func(conn *sql.Conn) error {
+		value, claimErr := claimOnConnection(ctx, conn, runID, effectID, now, lease, token)
+		if claimErr == nil {
+			token = value.Token
+		}
+		return claimErr
+	})
+	if err != nil {
+		return Claim{}, err
+	}
+	return Claim{
+		RunID: runID, EffectID: effectID, Token: token,
+		AcquiredAt: now.UTC(), ExpiresAt: expiresAt.UTC(),
+	}, nil
+}
+
+func claimOnConnection(ctx context.Context, conn *sql.Conn, runID, effectID string,
+	now time.Time, lease time.Duration, token string) (Claim, error) {
 	acquired, err := canonicalTime(now)
 	if err != nil {
 		return Claim{}, err
@@ -199,64 +253,79 @@ func (s *Store) Claim(ctx context.Context, runID, effectID string, now time.Time
 	if err != nil {
 		return Claim{}, err
 	}
-	token, err := randomToken()
-	if err != nil {
-		return Claim{}, err
-	}
-	err = s.immediate(ctx, func(conn *sql.Conn) error {
-		var state string
-		var current sql.NullString
-		if err := conn.QueryRowContext(
-			ctx,
-			`SELECT state, current_claim FROM effects
+	var state string
+	var current sql.NullString
+	if err := conn.QueryRowContext(
+		ctx,
+		`SELECT state, current_claim FROM effects
 			 WHERE run_id = ? AND effect_id = ?`,
-			runID,
-			effectID,
-		).Scan(&state, &current); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fail("EFFECT_NOT_FOUND", nil)
-			}
-			return dbError(err)
+		runID,
+		effectID,
+	).Scan(&state, &current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Claim{}, fail("EFFECT_NOT_FOUND", nil)
 		}
-		if state != string(Pending) || current.Valid {
-			return fail("EFFECT_NOT_CLAIMABLE", nil)
-		}
-		if _, err := conn.ExecContext(
-			ctx,
-			`INSERT INTO claims(
+		return Claim{}, dbError(err)
+	}
+	if state != string(Pending) || current.Valid {
+		return Claim{}, fail("EFFECT_NOT_CLAIMABLE", nil)
+	}
+	if _, err := conn.ExecContext(
+		ctx,
+		`INSERT INTO claims(
 				run_id, effect_id, token, acquired_at, expires_at
 			) VALUES(?, ?, ?, ?, ?)`,
-			runID,
-			effectID,
-			token,
-			acquired,
-			expires,
-		); err != nil {
-			return dbError(err)
-		}
-		result, err := conn.ExecContext(
-			ctx,
-			`UPDATE effects
+		runID,
+		effectID,
+		token,
+		acquired,
+		expires,
+	); err != nil {
+		return Claim{}, dbError(err)
+	}
+	result, err := conn.ExecContext(
+		ctx,
+		`UPDATE effects
 			 SET state = 'claimed', current_claim = ?, updated_at = ?
 			 WHERE run_id = ? AND effect_id = ?
 			   AND state = 'pending' AND current_claim IS NULL`,
-			token,
-			acquired,
-			runID,
-			effectID,
-		)
-		if err != nil {
-			return dbError(err)
-		}
-		return requireRows(result, "STALE_CLAIM")
-	})
+		token,
+		acquired,
+		runID,
+		effectID,
+	)
 	if err != nil {
+		return Claim{}, dbError(err)
+	}
+	if err := requireRows(result, "STALE_CLAIM"); err != nil {
 		return Claim{}, err
 	}
 	return Claim{
 		RunID: runID, EffectID: effectID, Token: token,
 		AcquiredAt: now.UTC(), ExpiresAt: expiresAt.UTC(),
 	}, nil
+}
+
+func (s *Store) ClaimOwned(ctx context.Context, owner OwnerLease, effectID string,
+	now time.Time, lease time.Duration) (Claim, error) {
+	token, err := randomToken()
+	if err != nil {
+		return Claim{}, err
+	}
+	var claim Claim
+	err = s.immediate(ctx, func(conn *sql.Conn) error {
+		projection, err := projectionOnConnection(ctx, conn, owner.RunID)
+		if err != nil || projection.Desired != "running" {
+			return fail("CONTROL_STOPPED", err)
+		}
+		if err := checkOwner(ctx, conn, owner, now); err != nil {
+			return err
+		}
+		var claimErr error
+		claim, claimErr = claimOnConnection(ctx, conn, owner.RunID, effectID, now, lease, token)
+		return claimErr
+	})
+	return claim, err
 }
 
 func validateCompletion(completion Completion) error {
@@ -336,6 +405,18 @@ func (s *Store) Complete(ctx context.Context, completion Completion) error {
 	})
 }
 
+func (s *Store) CompleteOwned(ctx context.Context, owner OwnerLease, completion Completion) error {
+	if err := validateCompletion(completion); err != nil {
+		return err
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := checkOwner(ctx, conn, owner, completion.At); err != nil {
+			return err
+		}
+		return completeOnConnection(ctx, conn, completion)
+	})
+}
+
 func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Completion) error {
 	at, _ := canonicalTime(completion.At)
 	resultDigest := digest(completion.Result)
@@ -402,7 +483,11 @@ func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Comple
 	}
 	for _, receipt := range completion.Receipts {
 		body := append([]byte(nil), receipt.Body...)
-		receiptDigest := digest(body)
+		binding := []byte(
+			completion.RunID + "\x00" + completion.EffectID + "\x00" +
+				receipt.Kind + "\x00",
+		)
+		receiptDigest := digest(append(binding, body...))
 		if _, err := conn.ExecContext(
 			ctx,
 			`INSERT INTO receipts(
@@ -428,34 +513,28 @@ func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Comple
 	)
 }
 
-func (s *Store) Reconcile(
+func (s *Store) Reconcile(ctx context.Context, completion Completion,
+	disposition RecoveryDisposition) error {
+	return s.reconcile(ctx, OwnerLease{}, completion, disposition)
+}
+
+func (s *Store) ReconcileOwned(ctx context.Context, owner OwnerLease, completion Completion,
+	disposition RecoveryDisposition) error {
+	return s.reconcile(ctx, owner, completion, disposition)
+}
+
+// ReconcileManyOwned applies one recovery disposition to a related set of
+// claimed effects in a single transaction. It is used when partially
+// reconciling a parent/child effect group would itself create a false recovery
+// state.
+func (s *Store) ReconcileManyOwned(
 	ctx context.Context,
-	completion Completion,
+	owner OwnerLease,
+	completions []Completion,
 	disposition RecoveryDisposition,
 ) error {
-	if disposition == RecoveryAllNew {
-		if completion.State != Succeeded {
-			return fail("INVALID_RECOVERY", nil)
-		}
-		if err := validateCompletion(completion); err != nil {
-			return err
-		}
-		return s.immediate(ctx, func(conn *sql.Conn) error {
-			return completeOnConnection(ctx, conn, completion)
-		})
-	}
-	if err := validateIdentity(completion.RunID, "run"); err != nil {
-		return err
-	}
-	if err := validateIdentity(completion.EffectID, "effect"); err != nil {
-		return err
-	}
-	if len(completion.Token) != 64 {
-		return fail("INVALID_CLAIM_TOKEN", nil)
-	}
-	at, err := canonicalTime(completion.At)
-	if err != nil {
-		return err
+	if len(completions) == 0 {
+		return fail("INVALID_RECOVERY", nil)
 	}
 	var state EffectState
 	var claimOutcome string
@@ -467,45 +546,36 @@ func (s *Store) Reconcile(
 	default:
 		return fail("INVALID_RECOVERY", nil)
 	}
-	return s.immediate(ctx, func(conn *sql.Conn) error {
-		result, err := conn.ExecContext(
-			ctx,
-			`UPDATE effects SET
-				state = ?, current_claim = NULL, updated_at = ?
-			 WHERE run_id = ? AND effect_id = ?
-			   AND state = 'claimed' AND current_claim = ?`,
-			string(state),
-			at,
-			completion.RunID,
-			completion.EffectID,
-			completion.Token,
-		)
-		if err != nil {
-			return dbError(err)
-		}
-		if err := requireRows(result, "STALE_COMPLETION"); err != nil {
+	type preparedRecovery struct {
+		completion Completion
+		at         string
+		eventKind  string
+	}
+	prepared := make([]preparedRecovery, len(completions))
+	seen := make(map[string]bool, len(completions))
+	for index, completion := range completions {
+		if err := validateIdentity(completion.RunID, "run"); err != nil {
 			return err
 		}
-		result, err = conn.ExecContext(
-			ctx,
-			`UPDATE claims SET completed_at = ?, outcome = ?
-			 WHERE run_id = ? AND effect_id = ? AND token = ?
-			   AND completed_at IS NULL`,
-			at,
-			claimOutcome,
-			completion.RunID,
-			completion.EffectID,
-			completion.Token,
-		)
-		if err != nil {
-			return dbError(err)
+		if owner.Token != "" && completion.RunID != owner.RunID {
+			return fail("OWNER_FENCED", nil)
 		}
-		if err := requireRows(result, "STALE_COMPLETION"); err != nil {
+		if err := validateIdentity(completion.EffectID, "effect"); err != nil {
 			return err
 		}
-		body := completion.EventBody
-		if len(body) > MaxEventBytes {
+		if seen[completion.EffectID] {
+			return fail("INVALID_RECOVERY", nil)
+		}
+		seen[completion.EffectID] = true
+		if len(completion.Token) != 64 {
+			return fail("INVALID_CLAIM_TOKEN", nil)
+		}
+		if len(completion.EventBody) > MaxEventBytes {
 			return fail("RESOURCE_LIMIT", nil)
+		}
+		at, err := canonicalTime(completion.At)
+		if err != nil {
+			return err
 		}
 		eventKind := completion.EventKind
 		if eventKind == "" {
@@ -514,17 +584,98 @@ func (s *Store) Reconcile(
 		if err := validateIdentity(eventKind, "event_kind"); err != nil {
 			return err
 		}
-		return appendEvent(ctx, conn, completion.RunID, eventKind, body, at)
+		prepared[index] = preparedRecovery{
+			completion: completion,
+			at:         at,
+			eventKind:  eventKind,
+		}
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		for _, item := range prepared {
+			completion := item.completion
+			if owner.Token != "" {
+				if err := checkOwner(
+					ctx, conn, owner, completion.At); err != nil {
+					return err
+				}
+			}
+			result, err := conn.ExecContext(
+				ctx,
+				`UPDATE effects SET
+					state = ?, current_claim = NULL, updated_at = ?
+				 WHERE run_id = ? AND effect_id = ?
+				   AND state = 'claimed' AND current_claim = ?`,
+				string(state),
+				item.at,
+				completion.RunID,
+				completion.EffectID,
+				completion.Token,
+			)
+			if err != nil {
+				return dbError(err)
+			}
+			if err := requireRows(result, "STALE_COMPLETION"); err != nil {
+				return err
+			}
+			result, err = conn.ExecContext(
+				ctx,
+				`UPDATE claims SET completed_at = ?, outcome = ?
+				 WHERE run_id = ? AND effect_id = ? AND token = ?
+				   AND completed_at IS NULL`,
+				item.at,
+				claimOutcome,
+				completion.RunID,
+				completion.EffectID,
+				completion.Token,
+			)
+			if err != nil {
+				return dbError(err)
+			}
+			if err := requireRows(result, "STALE_COMPLETION"); err != nil {
+				return err
+			}
+			if err := appendEvent(
+				ctx,
+				conn,
+				completion.RunID,
+				item.eventKind,
+				completion.EventBody,
+				item.at,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
-func appendEvent(
-	ctx context.Context,
-	conn *sql.Conn,
-	runID, kind string,
-	body []byte,
-	at string,
-) error {
+func (s *Store) reconcile(ctx context.Context, owner OwnerLease, completion Completion,
+	disposition RecoveryDisposition) error {
+	if disposition == RecoveryAllNew {
+		if completion.State != Succeeded {
+			return fail("INVALID_RECOVERY", nil)
+		}
+		if err := validateCompletion(completion); err != nil {
+			return err
+		}
+		return s.immediate(ctx, func(conn *sql.Conn) error {
+			if owner.Token != "" {
+				if completion.RunID != owner.RunID {
+					return fail("OWNER_FENCED", nil)
+				}
+				if err := checkOwner(ctx, conn, owner, completion.At); err != nil {
+					return err
+				}
+			}
+			return completeOnConnection(ctx, conn, completion)
+		})
+	}
+	return s.ReconcileManyOwned(
+		ctx, owner, []Completion{completion}, disposition)
+}
+
+func appendEvent(ctx context.Context, conn *sql.Conn, runID, kind string,
+	body []byte, at string) error {
 	if len(body) > MaxEventBytes {
 		return fail("RESOURCE_LIMIT", nil)
 	}
@@ -544,12 +695,8 @@ func appendEvent(
 	return nil
 }
 
-func (s *Store) AppendEvent(
-	ctx context.Context,
-	runID, kind string,
-	body []byte,
-	at time.Time,
-) error {
+func (s *Store) AppendEvent(ctx context.Context, runID, kind string,
+	body []byte, at time.Time) error {
 	if err := validateIdentity(runID, "run"); err != nil {
 		return err
 	}

@@ -376,6 +376,29 @@ func inertActionResolver(request InertnessRequest) (InertnessDecision, error) {
 	}, nil
 }
 
+func createActionHarness(t *testing.T) (string, *gitx.Repository, *Actions) {
+	t.Helper()
+	repoPath := createActionRepository(t, "sha1")
+	repository, err := gitx.Open(repoPath, actionTestGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := NewActions(UseGitRepository(repository), inertActionResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repoPath, repository, actions
+}
+
+func readActionState(t *testing.T, repository *gitx.Repository, release string) State {
+	t.Helper()
+	state, err := ReadState(UseGitRepository(repository), release, inertActionResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
 func TestActionsMatchExactReferenceForSHA1AndSHA256(t *testing.T) {
 	golden := loadActionGolden(t)
 	stateGolden := loadStateGolden(t)
@@ -899,4 +922,583 @@ func TestPlanRevisionRetentionSelectiveInvalidationAndRetirement(t *testing.T) {
 	if _, ok := state.Slice("S2"); ok || len(state.Slices) != 1 || len(state.Plan.History) != 4 {
 		t.Fatalf("post-retirement state = %#v", state)
 	}
+	historicalInstall := state.Plan.History[3]
+	if historicalInstall.InstallHead != retired.Head ||
+		len(historicalInstall.Retirements) != 1 ||
+		historicalInstall.Retirements[0].Slice != "S2" ||
+		historicalInstall.Retirements[0].ReceiptCommit !=
+			retired.Retirements[0].ReceiptCommit ||
+		historicalInstall.Retirements[0].Receipt.Role != "planner" ||
+		historicalInstall.Retirements[0].Receipt.Result != "retired" {
+		t.Fatalf("historical install result = %#v", historicalInstall)
+	}
+
+	previous = retired.Plan
+	later, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 5, &previous, []Track{tracksThree[0]}),
+		Summary:   "Keep S2 retired.", Detail: []byte("approval five"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(later.Retirements) != 0 {
+		t.Fatalf("later retirement was duplicated: %#v", later.Retirements)
+	}
+	before := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+	previous = later.Plan
+	_, err = actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 6, &previous, tracksThree),
+		Summary:   "Attempt to resurrect S2.", Detail: []byte("approval six"),
+	})
+	if ErrorCode(err) != "INVALID_RETIREMENT" {
+		t.Fatalf("resurrection error = %v", err)
+	}
+	after := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+	if after != before {
+		t.Fatalf("resurrection moved release ref from %s to %s", before, after)
+	}
+}
+
+func TestUnavailableConsumedPassWaitsWithoutClaimingChange(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "unavailable-consumed-pass"
+	s1 := actionSlice("S1", "one.txt")
+	s2 := actionSlice("S2", "two.txt")
+	s2.Consumes = []string{"S1"}
+	tracks := []Track{
+		{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+		{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+	}
+	recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+		Summary:   "Approve available inputs.", Detail: []byte("approval one"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000000700, "pass")
+	advanceActionSlice(t, actions, repoPath, release, "T2", "S2", "two.txt", 1000000800, "pass")
+	previous := recorded.Plan
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 2, &previous, tracks),
+		Summary:   "Retain exact contracts.", Detail: []byte("approval two"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	actionGit(t, repoPath, nil, nil, "update-ref", "-d", trackRef(release, "T1"))
+	state := readActionState(t, repository, release)
+	slice, _ := state.Slice("S2")
+	if slice.Candidate == nil || slice.Pass != nil || slice.Retained ||
+		slice.Stage != "verify" || slice.Status != "waiting" ||
+		slice.NextRole != "none" || slice.Outcome != "none" ||
+		slice.StaleReason != "" {
+		t.Fatalf("unavailable consumed PASS claimed a change: %#v", slice)
+	}
+}
+
+func TestPinlessCrossPlanStagesResetOnlyWhenTheyConsume(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		consumes bool
+		decision string
+	}{
+		{name: "design_with_consumes", consumes: true},
+		{name: "proceed_with_consumes", consumes: true, decision: "proceed"},
+		{name: "revise_with_consumes", consumes: true, decision: "revise"},
+		{name: "design_without_consumes"},
+		{name: "proceed_without_consumes", decision: "proceed"},
+		{name: "revise_without_consumes", decision: "revise"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			repoPath, repository, actions := createActionHarness(t)
+			release := "pinless-" + strings.ReplaceAll(test.name, "_", "-")
+			s1 := actionSlice("S1", "one.txt")
+			s2 := actionSlice("S2", "two.txt")
+			if test.consumes {
+				s2.Consumes = []string{"S1"}
+			}
+			tracks := []Track{
+				{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+				{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+			}
+			recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+				PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+				Summary:   "Approve pinless stage.", Detail: []byte("approval one"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000000900, "pass")
+			appendActionReceipt(t, actions, AppendReceiptInput{
+				Release: release, Slice: "S2", Role: "implementer", Result: "designed",
+				Summary: "Design S2.", Detail: []byte("design S2"),
+			})
+			if test.decision != "" {
+				appendActionReceipt(t, actions, AppendReceiptInput{
+					Release: release, Slice: "S2", Role: "captain", Result: test.decision,
+					Summary: "Review S2.", Detail: []byte("review S2"),
+				})
+			}
+			previous := recorded.Plan
+			revision, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+				PlanBytes: actionPlanRevisionBytes(release, 2, &previous, tracks),
+				Summary:   "Approve unchanged revision.", Detail: []byte("approval two"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := readActionState(t, repository, release)
+			slice, _ := state.Slice("S2")
+			if test.consumes {
+				if slice.Retained || slice.Stage != "design" ||
+					slice.NextRole != "implementer" || slice.Outcome != "none" ||
+					slice.Attempt != 2 || slice.CurrentReceipt == nil ||
+					slice.CurrentReceipt.OID != revision.ReceiptCommit {
+					t.Fatalf("consuming pinless stage was retained: %#v", slice)
+				}
+				return
+			}
+			wantRole, wantStage, wantOutcome, wantAttempt := "captain", "design", "none", int64(1)
+			if test.decision == "proceed" {
+				wantRole, wantStage, wantOutcome = "implementer", "implement", "proceed"
+			}
+			if test.decision == "revise" {
+				wantRole, wantStage, wantOutcome, wantAttempt = "implementer", "design", "revise", 2
+			}
+			if !slice.Retained || slice.NextRole != wantRole ||
+				slice.Stage != wantStage || slice.Outcome != wantOutcome ||
+				slice.Attempt != wantAttempt {
+				t.Fatalf("non-consuming stage was not retained: %#v", slice)
+			}
+		})
+	}
+}
+
+func TestPlannerBlockedOutcomesResetAcrossRevision(t *testing.T) {
+	for _, result := range []string{"escalate", "blocked"} {
+		result := result
+		t.Run(result, func(t *testing.T) {
+			repoPath, repository, actions := createActionHarness(t)
+			release := "blocked-reset-" + result
+			s1 := actionSlice("S1", "one.txt")
+			s2 := actionSlice("S2", "two.txt")
+			tracks := []Track{
+				{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+				{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+			}
+			recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+				PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+				Summary:   "Approve blocked stage.", Detail: []byte("approval one"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendActionReceipt(t, actions, AppendReceiptInput{
+				Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+				Summary: "Design S1.", Detail: []byte("design S1"),
+			})
+			appendActionReceipt(t, actions, AppendReceiptInput{
+				Release: release, Slice: "S1", Role: "captain",
+				Result: func() string {
+					if result == "escalate" {
+						return result
+					}
+					return "proceed"
+				}(),
+				Summary: "Review S1.", Detail: []byte("review S1"),
+			})
+			if result == "blocked" {
+				ref := trackRef(release, "T1")
+				parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", ref)
+				candidate := commitActionProduct(t, repoPath, parent, ref, "one.txt", "blocked\n", 1000001000)
+				appendActionReceipt(t, actions, AppendReceiptInput{
+					Release: release, Slice: "S1", Role: "implementer", Result: "candidate",
+					Summary: "Candidate S1.", Detail: []byte("candidate S1"),
+					Candidate: candidate, CheckResults: []byte("checks S1\n"),
+				})
+				appendActionReceipt(t, actions, AppendReceiptInput{
+					Release: release, Slice: "S1", Role: "verifier", Result: "blocked",
+					Summary: "Block S1.", Detail: []byte("blocked S1"),
+					Candidate: candidate, CheckResults: []byte("fresh S1\n"),
+				})
+			}
+			advanceActionSlice(t, actions, repoPath, release, "T2", "S2", "two.txt", 1000001100, "pass")
+			previous := recorded.Plan
+			revision, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+				PlanBytes: actionPlanRevisionBytes(release, 2, &previous, tracks),
+				Summary:   "Approve recovery revision.", Detail: []byte("approval two"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := readActionState(t, repository, release)
+			blocked, _ := state.Slice("S1")
+			unrelated, _ := state.Slice("S2")
+			if blocked.Retained || blocked.Stage != "design" ||
+				blocked.NextRole != "implementer" || blocked.Outcome != "none" ||
+				blocked.Attempt != 2 || blocked.CurrentReceipt == nil ||
+				blocked.CurrentReceipt.OID != revision.ReceiptCommit ||
+				unrelated.Pass == nil || !unrelated.Retained {
+				t.Fatalf("blocked reset=%#v unrelated=%#v", blocked, unrelated)
+			}
+		})
+	}
+}
+
+func TestVerifierFailCarriesAcrossPlanAndAcceptsExactRepair(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "retained-fail-repair"
+	s1 := actionSlice("S1", "one.txt")
+	s2 := actionSlice("S2", "two.txt")
+	s2.Consumes = []string{"S1"}
+	tracks := []Track{
+		{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+		{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+	}
+	recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+		Summary:   "Approve repair flow.", Detail: []byte("approval one"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000001200, "pass")
+	advanceActionSlice(t, actions, repoPath, release, "T2", "S2", "two.txt", 1000001300, "fail")
+	previous := recorded.Plan
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 2, &previous, tracks),
+		Summary:   "Retain exact failed candidate.", Detail: []byte("approval two"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := readActionState(t, repository, release)
+	failed, _ := state.Slice("S2")
+	if !failed.Retained || failed.Stage != "implement" ||
+		failed.NextRole != "implementer" || failed.Outcome != "fail" ||
+		failed.Attempt != 2 || len(failed.InputPins) != 1 {
+		t.Fatalf("FAIL did not carry across the unchanged plan: %#v", failed)
+	}
+	ref := trackRef(release, "T2")
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", ref)
+	candidate := commitActionProduct(t, repoPath, parent, ref, "two.txt", "S2 repaired\n", 1000001400)
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S2", Role: "implementer", Result: "candidate",
+		Summary: "Repair S2.", Detail: []byte("repair S2"),
+		Candidate: candidate, CheckResults: []byte("repair checks\n"),
+	})
+	state = readActionState(t, repository, release)
+	repaired, _ := state.Slice("S2")
+	if repaired.Attempt != 2 || repaired.NextRole != "verifier" ||
+		repaired.Candidate == nil || repaired.Candidate.Receipt.Plan != state.Plan.OID ||
+		!inputsEqual(repaired.Candidate.Receipt.Inputs, repaired.InputPins) {
+		t.Fatalf("cross-plan repair candidate = %#v", repaired)
+	}
+}
+
+func TestSliceLineageRejectsPredecessorGapsReversionAndTrackMoves(t *testing.T) {
+	t.Run("predecessor_insertion", func(t *testing.T) {
+		repoPath, repository, actions := createActionHarness(t)
+		release := "predecessor-insertion"
+		s0 := actionSlice("S0", "zero.txt")
+		s1 := actionSlice("S1", "one.txt")
+		s2 := actionSlice("S2", "two.txt")
+		tracks := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1, s2}}}
+		recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+			Summary:   "Approve serial work.", Detail: []byte("approval one"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000001500, "pass")
+		advanceActionSlice(t, actions, repoPath, release, "T1", "S2", "two.txt", 1000001600, "pass")
+		revised := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1, s0, s2}}}
+		previous := recorded.Plan
+		if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 2, &previous, revised),
+			Summary:   "Insert serial predecessor.", Detail: []byte("approval two"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		state := readActionState(t, repository, release)
+		retained, _ := state.Slice("S1")
+		reset, _ := state.Slice("S2")
+		if retained.Pass == nil || !retained.Retained ||
+			reset.Pass != nil || reset.Candidate != nil ||
+			reset.Attempt != 2 || reset.Stage != "design" ||
+			reset.Status != "waiting" {
+			t.Fatalf("retained=%#v reset=%#v", retained, reset)
+		}
+	})
+
+	t.Run("contract_a_b_a", func(t *testing.T) {
+		repoPath, repository, actions := createActionHarness(t)
+		release := "contract-a-b-a"
+		original := actionSlice("S1", "one.txt")
+		tracks := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{original}}}
+		recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+			Summary:   "Approve contract A.", Detail: []byte("approval one"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000001700, "pass")
+		changed := original
+		changed.Outcome = "Deliver contract B."
+		previous := recorded.Plan
+		revisionTwo, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(
+				release, 2, &previous,
+				[]Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{changed}}},
+			),
+			Summary: "Approve contract B.", Detail: []byte("approval two"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous = revisionTwo.Plan
+		if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 3, &previous, tracks),
+			Summary:   "Return to contract A.", Detail: []byte("approval three"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		state := readActionState(t, repository, release)
+		slice, _ := state.Slice("S1")
+		if slice.Pass != nil || slice.Retained || slice.Attempt != 2 ||
+			slice.Stage != "design" || slice.NextRole != "implementer" {
+			t.Fatalf("contract A facts resurrected: %#v", slice)
+		}
+	})
+
+	t.Run("track_move_is_rejected_before_publication", func(t *testing.T) {
+		repoPath, repository, actions := createActionHarness(t)
+		release := "track-move"
+		s1 := actionSlice("S1", "one.txt")
+		initial := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}}}
+		recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, initial),
+			Summary:   "Approve original owner.", Detail: []byte("approval one"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000001800, "pass")
+		moved := []Track{{ID: "T2", DependsOn: []string{}, Slices: []Slice{s1}}}
+		previous := recorded.Plan
+		releaseBefore := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+		_, err = actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 2, &previous, moved),
+			Summary:   "Move exact slice owner.", Detail: []byte("approval two"),
+		})
+		if ErrorCode(err) != "REPLACED_SLICE_AUTHORITY" {
+			t.Fatalf("track move error = %v", err)
+		}
+		if actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release)) != releaseBefore {
+			t.Fatal("rejected track move changed the release ref")
+		}
+		state := readActionState(t, repository, release)
+		slice, _ := state.Slice("S1")
+		if slice.Pass == nil || slice.Location.Track.ID != "T1" ||
+			state.Plan.Metadata.Revision != 1 {
+			t.Fatalf("rejected track move changed authority: %#v", slice)
+		}
+	})
+}
+
+func TestPlanRevisionRejectsUnrecordedImplementationHead(t *testing.T) {
+	repoPath, _, actions := createActionHarness(t)
+	release := "plan-during-implementation"
+	s1 := actionSlice("S1", "one.txt")
+	tracks := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}}}
+	recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+		Summary:   "Approve implementation.", Detail: []byte("approval one"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design S1.", Detail: []byte("design"),
+	})
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "captain", Result: "proceed",
+		Summary: "Proceed S1.", Detail: []byte("review"),
+	})
+	track := trackRef(release, "T1")
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", track)
+	commitActionProduct(
+		t, repoPath, parent, track,
+		"one.txt", "unrecorded implementation\n", 1000001850,
+	)
+	releaseBefore := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+	targetBefore := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+	trackBefore := actionGit(t, repoPath, nil, nil, "rev-parse", track)
+	previous := recorded.Plan
+	_, err = actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 2, &previous, tracks),
+		Summary:   "Do not hide implementation.", Detail: []byte("approval two"),
+	})
+	if ErrorCode(err) != "CHANGED_OWNER_HEAD" {
+		t.Fatalf("in-flight plan revision error = %v", err)
+	}
+	if actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release)) != releaseBefore ||
+		actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main") != targetBefore ||
+		actionGit(t, repoPath, nil, nil, "rev-parse", track) != trackBefore {
+		t.Fatal("rejected in-flight plan revision changed an authority ref")
+	}
+}
+
+func TestPlanRevisionRejectsPreexistingProposedTrack(t *testing.T) {
+	repoPath, _, actions := createActionHarness(t)
+	release := "plan-existing-new-track"
+	s1 := actionSlice("S1", "one.txt")
+	initial := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}}}
+	recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, initial),
+		Summary:   "Approve first track.", Detail: []byte("approval one"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignRef := trackRef(release, "T2")
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+	actionGit(t, repoPath, nil, nil, "update-ref", foreignRef, parent)
+	commitActionProduct(
+		t, repoPath, parent, foreignRef,
+		"foreign.txt", "foreign authority\n", 1000001875,
+	)
+	releaseBefore := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+	targetBefore := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+	foreignBefore := actionGit(t, repoPath, nil, nil, "rev-parse", foreignRef)
+	previous := recorded.Plan
+	revised := []Track{
+		{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+		{ID: "T2", DependsOn: []string{}, Slices: []Slice{actionSlice("S2", "two.txt")}},
+	}
+	_, err = actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 2, &previous, revised),
+		Summary:   "Do not adopt foreign authority.", Detail: []byte("approval two"),
+	})
+	if ErrorCode(err) != "AMBIGUOUS_AUTHORITY" {
+		t.Fatalf("pre-existing proposed track error = %v", err)
+	}
+	if actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release)) != releaseBefore ||
+		actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main") != targetBefore ||
+		actionGit(t, repoPath, nil, nil, "rev-parse", foreignRef) != foreignBefore {
+		t.Fatal("rejected proposed track changed an authority ref")
+	}
+}
+
+func TestAssemblyDirectReuseRequiresExactComposition(t *testing.T) {
+	t.Run("one_track_two_slices", func(t *testing.T) {
+		repoPath, repository, actions := createActionHarness(t)
+		release := "serial-assembly"
+		s1 := actionSlice("S1", "one.txt")
+		s2 := actionSlice("S2", "two.txt")
+		tracks := []Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1, s2}}}
+		if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, tracks),
+			Summary:   "Approve serial assembly.", Detail: []byte("approval one"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		advanceActionSlice(t, actions, repoPath, release, "T1", "S1", "one.txt", 1000001900, "pass")
+		finalCandidate := advanceActionSlice(
+			t, actions, repoPath, release, "T1", "S2",
+			"two.txt", 1000002000, "pass",
+		)
+		prepared, err := actions.PrepareAssembly(PrepareAssemblyInput{
+			Release: release, Summary: "Prepare serial assembly.", Detail: []byte("assembly"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.Changed || !prepared.Direct ||
+			prepared.Candidate != finalCandidate ||
+			prepared.ReceiptCommit == "" {
+			t.Fatalf("serial final PASS was not reused directly: %#v", prepared)
+		}
+		track := trackRef(release, "T1")
+		trackBefore := actionGit(t, repoPath, nil, nil, "rev-parse", track)
+		rogue := commitActionProduct(
+			t, repoPath, trackBefore, track,
+			"rogue.txt", "unrecorded topology drift\n", 1000002050,
+		)
+		targetBefore := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+		releaseBefore := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
+		if _, err := actions.MergePassedCandidate(MergePassedCandidateInput{
+			Release: release, Summary: "Reject topology drift.", Detail: []byte("merge"),
+		}); ErrorCode(err) != "CHANGED_OWNER_HEAD" {
+			t.Fatalf("topology drift error = %v", err)
+		}
+		if actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main") != targetBefore ||
+			actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release)) != releaseBefore {
+			t.Fatal("topology drift moved release or target refs")
+		}
+		actionGit(t, repoPath, nil, nil, "update-ref", track, trackBefore, rogue)
+		if _, err := actions.MergePassedCandidate(MergePassedCandidateInput{
+			Release: release, Summary: "Merge serial assembly.", Detail: []byte("merge"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		state := readActionState(t, repository, release)
+		if state.Assembly.Status != "complete" || state.Assembly.Outcome != "merged" {
+			t.Fatalf("serial assembly did not complete: %#v", state.Assembly)
+		}
+	})
+
+	t.Run("release_history_divergence_requires_assembly_verification", func(t *testing.T) {
+		repoPath, _, actions := createActionHarness(t)
+		release := "retired-assembly"
+		s1 := actionSlice("S1", "one.txt")
+		s2 := actionSlice("S2", "two.txt")
+		initial := []Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+			{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+		}
+		recorded, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, initial),
+			Summary:   "Approve two slice identities.", Detail: []byte("approval one"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalCandidate := advanceActionSlice(
+			t, actions, repoPath, release, "T1", "S1",
+			"one.txt", 1000002100, "pass",
+		)
+		advanceActionSlice(t, actions, repoPath, release, "T2", "S2", "two.txt", 1000002200, "pass")
+		previous := recorded.Plan
+		if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(
+				release, 2, &previous,
+				[]Track{{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}}},
+			),
+			Summary: "Retire S2.", Detail: []byte("approval two"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := actions.PrepareAssembly(PrepareAssemblyInput{
+			Release: release, Summary: "Prepare retained release.", Detail: []byte("assembly"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !prepared.Changed || prepared.Direct ||
+			prepared.Candidate == finalCandidate ||
+			prepared.ReceiptCommit == "" {
+			t.Fatalf("divergent release history reused the work PASS: %#v", prepared)
+		}
+		_, err = actions.MergePassedCandidate(MergePassedCandidateInput{
+			Release: release, Summary: "Do not merge without assembly PASS.",
+			Detail: []byte("merge"),
+		})
+		if ErrorCode(err) != "ASSEMBLY_PASS_REQUIRED" {
+			t.Fatalf("merge-before-assembly-pass error = %v", err)
+		}
+	})
 }

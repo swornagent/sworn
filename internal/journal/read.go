@@ -170,7 +170,7 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 
 	commandRows, err := s.conn.QueryContext(
 		ctx,
-		`SELECT replay_key, kind, payload, created_at
+		`SELECT replay_key, kind, payload_digest, payload, created_at
 		 FROM commands WHERE run_id = ? ORDER BY replay_key`,
 		runID,
 	)
@@ -179,11 +179,12 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 	}
 	for commandRows.Next() {
 		var command Command
-		var createdAt string
+		var createdAt, payloadDigest string
 		command.RunID = runID
 		if err := commandRows.Scan(
 			&command.ReplayKey,
 			&command.Kind,
+			&payloadDigest,
 			&command.Payload,
 			&createdAt,
 		); err != nil {
@@ -191,9 +192,9 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 			return Snapshot{}, dbError(err)
 		}
 		command.CreatedAt, err = parseTime(createdAt)
-		if err != nil {
+		if err != nil || digest(command.Payload) != payloadDigest {
 			_ = commandRows.Close()
-			return Snapshot{}, err
+			return Snapshot{}, fail("CORRUPT_JOURNAL", nil)
 		}
 		command.Payload = append([]byte(nil), command.Payload...)
 		result.Commands = append(result.Commands, command)

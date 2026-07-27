@@ -60,10 +60,7 @@ func newProductionApprovalResolver(token tokenSource) approvalResolver {
 	}
 }
 
-func newFixtureApprovalResolver(
-	baseURL string,
-	client *http.Client,
-) approvalResolver {
+func newFixtureApprovalResolver(baseURL string, client *http.Client) approvalResolver {
 	if client == nil {
 		return &githubIssueApprovalResolver{baseURL: baseURL}
 	}
@@ -113,21 +110,22 @@ type approvalEvidence struct {
 	ETag              string `json:"etag"`
 }
 
-func (r *githubIssueApprovalResolver) resolve(
-	ctx context.Context,
-	manifest admittedManifest,
-	plan baton.Plan,
-) (approvalAdmission, error) {
+func (r *githubIssueApprovalResolver) resolve(ctx context.Context, manifest admittedManifest,
+	plan baton.Plan) (approvalAdmission, error) {
 	if r == nil || r.client == nil || ctx == nil {
 		return approvalAdmission{}, runtimeFail("APPROVAL_UNAVAILABLE", nil)
 	}
 	metadata := plan.Metadata()
 	policy := manifest.value.Approval
+	marker, err := approvalMarker(policy, metadata.ApprovalRef)
+	if err != nil {
+		return approvalAdmission{}, err
+	}
 	expectedRef := fmt.Sprintf(
 		"github://%s/issues/%d#%s",
 		policy.Repository,
 		policy.Issue,
-		policy.Marker,
+		marker,
 	)
 	if metadata.ApprovalRef != expectedRef ||
 		metadata.Repository != policy.Repository ||
@@ -203,11 +201,11 @@ func (r *githubIssueApprovalResolver) resolve(
 			return approvalAdmission{}, runtimeFail("APPROVAL_UNAVAILABLE", nil)
 		}
 		for _, comment := range comments {
-			if !strings.Contains(comment.Body, policy.Marker) {
+			if !strings.Contains(comment.Body, marker) {
 				continue
 			}
 			markerMatches++
-			if validApprovalComment(comment, policy, plan.Digest()) {
+			if validApprovalComment(comment, policy, marker, plan.Digest()) {
 				valid = append(valid, matchedApprovalComment{
 					comment: comment,
 					etag:    pageETag,
@@ -244,7 +242,7 @@ func (r *githubIssueApprovalResolver) resolve(
 		CreatedAt:         comment.CreatedAt,
 		UpdatedAt:         comment.UpdatedAt,
 		RawBodyDigest:     sha256Digest([]byte(comment.Body)),
-		Marker:            policy.Marker,
+		Marker:            marker,
 		Decision:          "approved",
 		ETag:              valid[0].etag,
 	}
@@ -261,11 +259,8 @@ func (r *githubIssueApprovalResolver) resolve(
 	}, nil
 }
 
-func validApprovalComment(
-	comment githubComment,
-	policy ApprovalPolicy,
-	planDigest string,
-) bool {
+func validApprovalComment(comment githubComment, policy ApprovalPolicy,
+	marker, planDigest string) bool {
 	if comment.ID < 1 ||
 		comment.User.ID < 1 ||
 		!containsInt64(policy.AllowedAuthorIDs, comment.User.ID) ||
@@ -281,7 +276,7 @@ func validApprovalComment(
 	}
 	wantBody := fmt.Sprintf(
 		"baton-plan-approval/v1\nmarker: %s\ndecision: approved\nrepository: %s\nissue: %d\nplan_digest: %s\n",
-		policy.Marker,
+		marker,
 		policy.Repository,
 		policy.Issue,
 		planDigest,
@@ -300,6 +295,82 @@ func validApprovalComment(
 	return true
 }
 
+// validatePersistedApprovalEvidence re-admits the durable approval envelope
+// against the run's manifest policy. The journal is recovery input, not an
+// authority source: every fact that the live resolver checked must still be
+// derivable from the canonical evidence before an install effect can be
+// replayed or recognized as complete.
+func validatePersistedApprovalEvidence(
+	manifest admittedManifest,
+	plan baton.Plan,
+	input installActionInput,
+	evidence approvalEvidence,
+) error {
+	metadata := plan.Metadata()
+	policy := manifest.value.Approval
+	marker, err := approvalMarker(policy, metadata.ApprovalRef)
+	if err != nil {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	expectedRef := fmt.Sprintf(
+		"github://%s/issues/%d#%s",
+		policy.Repository,
+		policy.Issue,
+		marker,
+	)
+	expectedBody := fmt.Sprintf(
+		"baton-plan-approval/v1\nmarker: %s\ndecision: approved\nrepository: %s\nissue: %d\nplan_digest: %s\n",
+		marker,
+		policy.Repository,
+		policy.Issue,
+		plan.Digest(),
+	)
+	comment := githubComment{
+		ID:                evidence.CommentID,
+		HTMLURL:           evidence.URL,
+		Body:              expectedBody,
+		AuthorAssociation: evidence.AuthorAssociation,
+		CreatedAt:         evidence.CreatedAt,
+		UpdatedAt:         evidence.UpdatedAt,
+	}
+	comment.User.ID = evidence.AuthorID
+	comment.User.Login = evidence.AuthorLogin
+	if evidence.SchemaVersion != "sworn.approval-evidence/v1" ||
+		evidence.ResolverVersion != approvalResolverVersion ||
+		evidence.ApprovalRef != expectedRef ||
+		evidence.ApprovalRef != input.Reference ||
+		evidence.PlanDigest != input.PlanDigest ||
+		evidence.MatchCount != 1 ||
+		evidence.Repository != policy.Repository ||
+		evidence.Issue != policy.Issue ||
+		evidence.CommentID != input.CommentID ||
+		evidence.Marker != marker ||
+		evidence.Decision != "approved" ||
+		evidence.RawBodyDigest != sha256Digest([]byte(expectedBody)) ||
+		strings.ContainsAny(evidence.ETag, "\x00\r\n") ||
+		metadata.Repository != policy.Repository ||
+		metadata.Release != manifest.value.Release ||
+		metadata.TargetRef != manifest.value.TargetRef ||
+		!validApprovalComment(
+			comment,
+			policy,
+			marker,
+			plan.Digest(),
+		) {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return nil
+}
+
+func approvalMarker(policy ApprovalPolicy, reference string) (string, error) {
+	prefix := fmt.Sprintf("github://%s/issues/%d#", policy.Repository, policy.Issue)
+	marker := strings.TrimPrefix(reference, prefix)
+	if marker == reference || !markerPattern.MatchString(marker) {
+		return "", runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
+	}
+	return marker, nil
+}
+
 type authorityInstaller struct {
 	actions *baton.Actions
 }
@@ -309,9 +380,7 @@ func newAuthorityInstaller(actions *baton.Actions) *authorityInstaller {
 }
 
 // install is the only runtime path authorized to call RecordPlanRevision.
-func (i *authorityInstaller) install(
-	admission approvalAdmission,
-) (baton.ActionResult, error) {
+func (i *authorityInstaller) install(admission approvalAdmission) (baton.ActionResult, error) {
 	if i == nil || i.actions == nil ||
 		admission.planDigest == "" ||
 		sha256Digest(admission.planBytes) != admission.planDigest ||

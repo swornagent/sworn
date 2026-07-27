@@ -35,9 +35,19 @@ func main() {
 		}
 	}
 	if strings.Contains(request.InvocationID, "/implementer_implementation/") {
+		name, content := "one.txt", "active track\n"
+		if strings.Contains(request.InvocationID, "/implementer_implementation/2/") {
+			content = "active track revised\n"
+		}
+		if strings.Contains(request.InvocationID, "/S2/") {
+			name, content = "two.txt", "second track\n"
+		}
+		if strings.Contains(request.Model, "scope-escape") {
+			name, content = "outside.txt", "outside approved scope\n"
+		}
 		if err := os.WriteFile(
-			filepath.Join(request.Workspace.Path, "one.txt"),
-			[]byte("active track\n"),
+			filepath.Join(request.Workspace.Path, name),
+			[]byte(content),
 			0o644,
 		); err != nil {
 			os.Exit(67)

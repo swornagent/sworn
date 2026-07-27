@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -300,35 +301,60 @@ func e2eManifest(
 ) ([]byte, []byte, baton.Plan) {
 	t.Helper()
 	planBytes, plan := e2ePlan(t, release, repository, issue, marker)
-	submission := func(responsibility driver.Responsibility) driver.Submission {
-		return driver.Submission{
-			SchemaVersion:  driver.SubmissionSchemaVersion,
-			InvocationID:   runID + "/" + string(responsibility) + "/1",
-			Responsibility: responsibility,
-			Summary:        "Exact " + string(responsibility) + ".",
-			Detail:         "Fresh bounded E2E evidence.",
+	var scripts []swornruntime.ScriptedAttempt
+	add := func(slice string, responsibility driver.Responsibility, batonAttempt int64) {
+		for try := int64(1); try <= 3; try++ {
+			work := slice
+			if work == "" {
+				work = "release"
+			}
+			submission := driver.Submission{
+				SchemaVersion: driver.SubmissionSchemaVersion,
+				InvocationID: fmt.Sprintf("%s/%s/%s/%d/1/%d", runID, work,
+					responsibility, batonAttempt, try),
+				Responsibility: responsibility,
+				Summary:        "Exact " + string(responsibility) + ".",
+				Detail:         "Fresh bounded E2E evidence.",
+			}
+			switch responsibility {
+			case driver.PlannerProposal:
+				submission.Plan, _ = driver.NewPlanBytes(planBytes)
+			case driver.CaptainReview:
+				submission.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+			case driver.ImplementerImplementation:
+				submission.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
+			case driver.WorkVerification:
+				submission.Checks, _ = driver.NewCheckBytes([]byte("fresh work checks\n"))
+				submission.Decision, _ = driver.NewDecision(driver.DecisionPass)
+			case driver.AssemblyVerification:
+				submission.Checks, _ = driver.NewCheckBytes([]byte("fresh assembly checks\n"))
+				submission.Decision, _ = driver.NewDecision(driver.DecisionPass)
+			}
+			scripts = append(scripts, swornruntime.ScriptedAttempt{Slice: slice,
+				Responsibility: responsibility, BatonAttempt: batonAttempt, Epoch: 1,
+				Try: try, Behavior: "submit", Submission: encodedSubmission(t, submission)})
 		}
 	}
-	planner := submission(driver.PlannerProposal)
-	planner.Plan, _ = driver.NewPlanBytes(planBytes)
-	design := submission(driver.ImplementerDesign)
-	captain := submission(driver.CaptainReview)
-	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
-	implementation := submission(driver.ImplementerImplementation)
-	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
-	work := submission(driver.WorkVerification)
-	work.Checks, _ = driver.NewCheckBytes([]byte("fresh work checks\n"))
-	work.Decision, _ = driver.NewDecision(driver.DecisionPass)
-	assembly := submission(driver.AssemblyVerification)
-	assembly.Checks, _ = driver.NewCheckBytes([]byte("fresh assembly checks\n"))
-	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	add("", driver.PlannerProposal, 1)
+	add("S1", driver.ImplementerDesign, 1)
+	add("S1", driver.CaptainReview, 1)
+	add("S1", driver.ImplementerImplementation, 1)
+	add("S1", driver.WorkVerification, 1)
+	add("", driver.AssemblyVerification, 1)
+	sort.Slice(scripts, func(i, j int) bool {
+		left := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[i].Responsibility,
+			scripts[i].Slice, scripts[i].BatonAttempt, scripts[i].Epoch, scripts[i].Try)
+		right := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[j].Responsibility,
+			scripts[j].Slice, scripts[j].BatonAttempt, scripts[j].Epoch, scripts[j].Try)
+		return left < right
+	})
 	manifest := swornruntime.Manifest{
 		SchemaVersion: swornruntime.ManifestVersion,
 		RunID:         runID, Repository: repository, Release: release,
 		TargetRef: "refs/heads/main", Intent: "Drive the exact approved E2E track.",
-		ActiveTrack: "T1", ActiveSlice: "S1",
+		MaxParallelTracks: 2,
 		Approval: swornruntime.ApprovalPolicy{
-			Repository: "acme/repo", Issue: issue, Marker: marker,
+			Repository: "acme/repo", Issue: issue,
 			AllowedAuthorIDs:    []int64{42},
 			AllowedAssociations: []string{"MEMBER"},
 		},
@@ -342,15 +368,8 @@ func e2eManifest(
 			Captain:     driver.RoleSelection{Profile: "e2e-fake", Model: "captain-model"},
 			Verifier:    driver.RoleSelection{Profile: "e2e-fake", Model: verifierModel},
 		},
-		Limits: driver.Limits{TimeoutMillis: 30_000, OutputBytes: 65_536},
-		Submissions: swornruntime.ScriptedSubmissions{
-			PlannerProposal:           encodedSubmission(t, planner),
-			ImplementerDesign:         encodedSubmission(t, design),
-			CaptainReview:             encodedSubmission(t, captain),
-			ImplementerImplementation: encodedSubmission(t, implementation),
-			WorkVerification:          encodedSubmission(t, work),
-			AssemblyVerification:      encodedSubmission(t, assembly),
-		},
+		Limits:  driver.Limits{TimeoutMillis: 30_000, OutputBytes: 65_536},
+		Scripts: scripts,
 	}
 	body, err := json.Marshal(manifest)
 	if err != nil {
@@ -555,6 +574,98 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 	swornBinary := filepath.Join(buildRoot, "sworn")
 	buildBinary(t, swornBinary, "./cmd/sworn", baseLDFlags)
 
+	t.Run("rerun_replaces_stale_initial_proposal_at_same_revision", func(t *testing.T) {
+		repository := newProductRepository(t)
+		runRoot := t.TempDir()
+		journalPath := filepath.Join(runRoot, "run.sqlite")
+		const (
+			runID   = "e2e-proposal-drift"
+			release = "e2e-proposal-drift-release"
+			issue   = int64(6)
+			marker  = "approval-e2e-proposal-drift-v1"
+		)
+		manifestBody, _, _ := e2eManifest(
+			t,
+			runID,
+			repository,
+			release,
+			issue,
+			marker,
+			fakeBinary,
+			fakeDigest,
+			"verifier-model",
+		)
+		manifestPath := writeManifest(t, runRoot, manifestBody)
+		runBinary(
+			t,
+			swornBinary,
+			0,
+			"run",
+			"--manifest",
+			manifestPath,
+			"--journal",
+			journalPath,
+		)
+		if err := os.WriteFile(
+			filepath.Join(repository, "proposal-drift.txt"),
+			[]byte("new target authority\n"),
+			0o644,
+		); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, repository, "add", "--", "proposal-drift.txt")
+		runGit(t, repository, "commit", "--quiet", "-m", "move proposal target")
+		stdout, _ := runBinary(
+			t,
+			swornBinary,
+			0,
+			"run",
+			"--manifest",
+			manifestPath,
+			"--journal",
+			journalPath,
+		)
+		if !strings.Contains(stdout, "state awaiting_approval") {
+			t.Fatalf("replacement proposal status = %q", stdout)
+		}
+		store, err := journal.OpenReadOnly(context.Background(), journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := store.Snapshot(context.Background(), runID)
+		_ = store.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		proposals := 0
+		plannerEffects := make(map[string]struct{})
+		installEffects := 0
+		for _, command := range snapshot.Commands {
+			if command.Kind == "planner_proposal" {
+				proposals++
+			}
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "baton.install" {
+				installEffects++
+			}
+			if effect.Kind != "driver.dispatch" ||
+				effect.State != journal.Succeeded {
+				continue
+			}
+			submission, decodeErr := driver.DecodeSubmission(effect.Result)
+			if decodeErr == nil &&
+				submission.Responsibility == driver.PlannerProposal {
+				plannerEffects[effect.ID] = struct{}{}
+			}
+		}
+		if proposals != 2 || len(plannerEffects) != 2 || installEffects != 0 {
+			t.Fatalf(
+				"replacement evidence: proposals=%d planners=%d installs=%d",
+				proposals, len(plannerEffects), installEffects)
+		}
+	})
+
 	t.Run("complete_non_direct_flow", func(t *testing.T) {
 		repository := newProductRepository(t)
 		runRoot := t.TempDir()
@@ -620,6 +731,10 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			runID,
 			"--journal",
 			journalPath,
+			"--command",
+			"resume-1",
+			"--generation",
+			"0",
 		)
 		if stderr != "" || !strings.Contains(stdout, "state complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
@@ -658,7 +773,8 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			t,
 			crashBinary,
 			"./cmd/sworn",
-			baseLDFlags+" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge",
+			baseLDFlags+" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge"+
+				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
 		)
 		repository := newProductRepository(t)
 		runRoot := t.TempDir()
@@ -681,6 +797,7 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		installAndPassComponent(t, repository, release, planBytes)
 		runBinary(
 			t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0",
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||
@@ -691,13 +808,21 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		mergeEffect, err := store.Effect(context.Background(), runID, "baton.merge")
-		_ = store.Close()
-		if err != nil || mergeEffect.State != journal.Claimed {
-			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, err)
+		snapshot, snapshotErr := store.Snapshot(context.Background(), runID)
+		var mergeEffect journal.Effect
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "baton.merge" {
+				mergeEffect = effect
+			}
 		}
+		_ = store.Close()
+		if snapshotErr != nil || mergeEffect.State != journal.Claimed {
+			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
+		}
+		time.Sleep(1800 * time.Millisecond)
 		stdout, _ := runBinary(
-			t, crashBinary, 0, "resume", "--run", runID, "--journal", journalPath,
+			t, crashBinary, 0, "takeover", "--run", runID, "--journal", journalPath,
+			"--command", "takeover-1", "--generation", "1",
 		)
 		if !strings.Contains(stdout, "state complete") {
 			t.Fatalf("recovered resume = %q", stdout)
@@ -725,9 +850,10 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		approvals.publish(issue, approvalFor(issue, marker, plan))
 		installAndPassComponent(t, repository, release, planBytes)
 		_, stderr := runBinary(
-			t, swornBinary, 1, "resume", "--run", runID, "--journal", journalPath,
+			t, swornBinary, 0, "resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0",
 		)
-		if !strings.Contains(stderr, "DRIVER_OPERATIONAL_FAILURE") {
+		if stderr != "" {
 			t.Fatalf("transport failure stderr = %q", stderr)
 		}
 		status, _ := runBinary(
@@ -741,7 +867,7 @@ func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			journalPath,
 			"--json",
 		)
-		if !strings.Contains(status, `"state": "operational_failed"`) {
+		if !strings.Contains(status, `"state": "parked"`) {
 			t.Fatalf("transport status = %s", status)
 		}
 		state := readBatonState(t, repository, release)

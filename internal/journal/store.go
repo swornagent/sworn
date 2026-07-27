@@ -134,7 +134,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 // OpenReadOnly admits an existing journal without creating files, migrating
-// schema, acquiring a write transaction, or changing application data.
+// schema, acquiring an application write transaction, or changing application
+// data. The SQLite VFS retains write access so it can mechanically recover a
+// hot rollback journal left by a crashed writer; Store.readOnly and query_only
+// continue to reject application writes.
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 	if ctx == nil {
 		return nil, fail("INVALID_CONTEXT", nil)
@@ -144,7 +147,8 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	query := url.Values{}
-	query.Set("mode", "ro")
+	query.Set("mode", "rw")
+	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "query_only(1)")
 	query.Add("_pragma", "trusted_schema(0)")
 	query.Add("_pragma", "foreign_keys(1)")

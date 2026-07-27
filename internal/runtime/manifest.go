@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -19,8 +20,9 @@ import (
 )
 
 const (
-	ManifestVersion  = "sworn.runtime-manifest/v1"
-	MaxManifestBytes = 2 * 1024 * 1024
+	ManifestVersion   = "sworn.runtime-manifest/v2"
+	MaxManifestBytes  = 2 * 1024 * 1024
+	MaxParallelTracks = 8
 )
 
 var (
@@ -54,7 +56,6 @@ func IsCode(err error, code string) bool {
 type ApprovalPolicy struct {
 	Repository          string   `json:"repository"`
 	Issue               int64    `json:"issue"`
-	Marker              string   `json:"marker"`
 	AllowedAuthorIDs    []int64  `json:"allowed_author_ids"`
 	AllowedAssociations []string `json:"allowed_associations"`
 }
@@ -66,50 +67,39 @@ type FakeDriverConfig struct {
 	Profile    string `json:"profile"`
 }
 
-type ScriptedSubmissions struct {
-	PlannerProposal           string `json:"planner_proposal"`
-	ImplementerDesign         string `json:"implementer_design"`
-	CaptainReview             string `json:"captain_review"`
-	ImplementerImplementation string `json:"implementer_implementation"`
-	WorkVerification          string `json:"work_verification"`
-	AssemblyVerification      string `json:"assembly_verification"`
+type ScriptedAttempt struct {
+	Slice          string                `json:"slice"`
+	Responsibility driver.Responsibility `json:"responsibility"`
+	BatonAttempt   int64                 `json:"baton_attempt"`
+	Epoch          int64                 `json:"epoch"`
+	Try            int64                 `json:"try"`
+	Behavior       string                `json:"behavior"`
+	Submission     string                `json:"submission,omitempty"`
 }
 
-func (s ScriptedSubmissions) forResponsibility(
-	responsibility driver.Responsibility,
-) string {
-	switch responsibility {
-	case driver.PlannerProposal:
-		return s.PlannerProposal
-	case driver.ImplementerDesign:
-		return s.ImplementerDesign
-	case driver.CaptainReview:
-		return s.CaptainReview
-	case driver.ImplementerImplementation:
-		return s.ImplementerImplementation
-	case driver.WorkVerification:
-		return s.WorkVerification
-	case driver.AssemblyVerification:
-		return s.AssemblyVerification
-	default:
-		return ""
+func (m Manifest) script(slice string, responsibility driver.Responsibility, batonAttempt, epoch, try int64) (ScriptedAttempt, bool) {
+	for _, script := range m.Scripts {
+		if script.Slice == slice && script.Responsibility == responsibility &&
+			script.BatonAttempt == batonAttempt && script.Epoch == epoch && script.Try == try {
+			return script, true
+		}
 	}
+	return ScriptedAttempt{}, false
 }
 
 type Manifest struct {
-	SchemaVersion string                `json:"schema_version"`
-	RunID         string                `json:"run_id"`
-	Repository    string                `json:"repository"`
-	Release       string                `json:"release"`
-	TargetRef     string                `json:"target_ref"`
-	Intent        string                `json:"intent"`
-	ActiveTrack   string                `json:"active_track"`
-	ActiveSlice   string                `json:"active_slice"`
-	Approval      ApprovalPolicy        `json:"approval"`
-	Driver        FakeDriverConfig      `json:"driver"`
-	Roles         driver.RoleSelections `json:"roles"`
-	Limits        driver.Limits         `json:"limits"`
-	Submissions   ScriptedSubmissions   `json:"scripted_submissions"`
+	SchemaVersion     string                `json:"schema_version"`
+	RunID             string                `json:"run_id"`
+	Repository        string                `json:"repository"`
+	Release           string                `json:"release"`
+	TargetRef         string                `json:"target_ref"`
+	Intent            string                `json:"intent"`
+	MaxParallelTracks int                   `json:"max_parallel_tracks"`
+	Approval          ApprovalPolicy        `json:"approval"`
+	Driver            FakeDriverConfig      `json:"driver"`
+	Roles             driver.RoleSelections `json:"roles"`
+	Limits            driver.Limits         `json:"limits"`
+	Scripts           []ScriptedAttempt     `json:"scripted_attempts"`
 }
 
 type admittedManifest struct {
@@ -163,7 +153,6 @@ func validateManifest(manifest Manifest) error {
 	}
 	for label, value := range map[string]string{
 		"run": manifest.RunID, "release": manifest.Release,
-		"track": manifest.ActiveTrack, "slice": manifest.ActiveSlice,
 	} {
 		if !runtimeIdentityPattern.MatchString(value) {
 			return runtimeFail("INVALID_"+strings.ToUpper(label), nil)
@@ -182,6 +171,9 @@ func validateManifest(manifest Manifest) error {
 		!utf8.ValidString(manifest.Intent) ||
 		strings.ContainsAny(manifest.Intent, "\x00\r") {
 		return runtimeFail("INVALID_INTENT", nil)
+	}
+	if manifest.MaxParallelTracks < 1 || manifest.MaxParallelTracks > MaxParallelTracks {
+		return runtimeFail("INVALID_PARALLELISM", nil)
 	}
 	if err := validateApprovalPolicy(manifest.Approval); err != nil {
 		return err
@@ -211,27 +203,48 @@ func validateManifest(manifest Manifest) error {
 		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
-	for _, responsibility := range []driver.Responsibility{
-		driver.PlannerProposal,
-		driver.ImplementerDesign,
-		driver.CaptainReview,
-		driver.ImplementerImplementation,
-		driver.WorkVerification,
-		driver.AssemblyVerification,
-	} {
-		encoded := manifest.Submissions.forResponsibility(responsibility)
-		if encoded == "" || len(encoded) > 3*driver.MaxSubmissionBytes {
+	if len(manifest.Scripts) == 0 || len(manifest.Scripts) > 4096 {
+		return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+	}
+	previous := ""
+	hasInitialPlan := false
+	for _, script := range manifest.Scripts {
+		if script.Slice != "" && !runtimeIdentityPattern.MatchString(script.Slice) ||
+			script.BatonAttempt < 1 || script.Epoch < 1 || script.Try < 1 || script.Try > 3 {
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
-		body, err := base64.StdEncoding.Strict().DecodeString(encoded)
-		if err != nil || base64.StdEncoding.EncodeToString(body) != encoded {
+		key := fmt.Sprintf("%s/%s/%020d/%020d/%d", script.Responsibility,
+			script.Slice, script.BatonAttempt, script.Epoch, script.Try)
+		if key <= previous {
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
-		submission, err := driver.DecodeSubmission(body)
-		if err != nil || submission.Responsibility != responsibility ||
-			submission.InvocationID != invocationID(manifest.RunID, responsibility) {
+		previous = key
+		switch script.Behavior {
+		case "submit":
+			if script.Submission == "" || len(script.Submission) > 3*driver.MaxSubmissionBytes {
+				return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+			}
+			body, err := base64.StdEncoding.Strict().DecodeString(script.Submission)
+			if err != nil || base64.StdEncoding.EncodeToString(body) != script.Submission {
+				return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+			}
+			submission, err := driver.DecodeSubmission(body)
+			if err != nil || submission.Responsibility != script.Responsibility ||
+				submission.InvocationID != invocationID(manifest.RunID, script) {
+				return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+			}
+		case "none", "usage_unavailable", "block", "attempt_workspace_write", "malformed_submission_frame":
+			if script.Submission != "" {
+				return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
+			}
+		default:
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
+		hasInitialPlan = hasInitialPlan || script.Responsibility == driver.PlannerProposal &&
+			script.BatonAttempt == 1 && script.Epoch == 1 && script.Try == 1
+	}
+	if !hasInitialPlan {
+		return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 	}
 	return nil
 }
@@ -239,7 +252,6 @@ func validateManifest(manifest Manifest) error {
 func validateApprovalPolicy(policy ApprovalPolicy) error {
 	if !repositoryPattern.MatchString(policy.Repository) ||
 		policy.Issue < 1 || policy.Issue > driver.MaxSafeInteger ||
-		!markerPattern.MatchString(policy.Marker) ||
 		len(policy.AllowedAuthorIDs) == 0 ||
 		len(policy.AllowedAuthorIDs) > 64 ||
 		len(policy.AllowedAssociations) == 0 ||
@@ -266,8 +278,13 @@ func validateApprovalPolicy(policy ApprovalPolicy) error {
 	return nil
 }
 
-func invocationID(runID string, responsibility driver.Responsibility) string {
-	return runID + "/" + string(responsibility) + "/1"
+func invocationID(runID string, script ScriptedAttempt) string {
+	work := script.Slice
+	if work == "" {
+		work = "release"
+	}
+	return fmt.Sprintf("%s/%s/%s/%d/%d/%d", runID, work, script.Responsibility,
+		script.BatonAttempt, script.Epoch, script.Try)
 }
 
 func sha256Digest(body []byte) string {
