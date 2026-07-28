@@ -1,6 +1,7 @@
 "use strict";
 
 const SCHEMA = "sworn.cockpit/v1";
+const SNAPSHOT_POLL_MILLIS = 5_000;
 const state = {
   runID: runFromPath(),
   snapshot: null,
@@ -83,7 +84,7 @@ function validSnapshot(value) {
     value.through_offset >= 0;
 }
 
-async function refresh(reason) {
+async function refresh(reason, reconnectEvents = true) {
   if (!state.runID || state.refreshing) {
     return;
   }
@@ -108,7 +109,9 @@ async function refresh(reason) {
     if (reason) {
       elements.announcer.textContent = reason;
     }
-    connectEvents(snapshot.through_offset);
+    if (reconnectEvents) {
+      connectEvents(snapshot.through_offset);
+    }
   } catch {
     setConnection(state.snapshot ? "stale" : "offline", state.snapshot ? "Stale" : "Unavailable");
     renderFailure();
@@ -680,6 +683,10 @@ window.addEventListener("resize", () => {
 
 if (state.runID) {
   void refresh("");
+  window.setInterval(
+    () => void refresh("", false),
+    SNAPSHOT_POLL_MILLIS,
+  );
 } else {
   setConnection("offline", "No run selected");
   renderFailure();

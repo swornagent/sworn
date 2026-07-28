@@ -506,6 +506,8 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 	}
 	for _, required := range []string{
 		`window.matchMedia("(max-width: 72rem)")`,
+		"const SNAPSHOT_POLL_MILLIS = 5_000;",
+		`() => void refresh("", false)`,
 		`"Not reported"`,
 		"No admitted delivery graph is recorded yet.",
 		"No durable evidence has been recorded for this snapshot.",
