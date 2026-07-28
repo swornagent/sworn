@@ -42,11 +42,6 @@ type serveOptions struct {
 	operatorConfig string
 }
 
-type operatorManifestAdmission struct {
-	command cockpit.AdmittedManifest
-	run     journal.Run
-}
-
 type operatorListeners struct {
 	local  net.Listener
 	public net.Listener
@@ -163,19 +158,28 @@ func serveOperator(
 	if err != nil {
 		return err
 	}
+	expectedDigest := ""
+	allowAbsent := manifest != nil
+	if manifest != nil {
+		expectedDigest = manifest.Digest()
+	}
 	if manifest == nil {
-		statusReader, err := runtimepkg.OpenStatusService(
+		bindingReader, err := journal.OpenReadOnly(
 			parent,
 			options.journalPath,
 		)
 		if err != nil {
 			return errors.New("operator unavailable")
 		}
-		_, statusErr := statusReader.Status(parent, options.runID)
-		closeErr := statusReader.Close()
-		if statusErr != nil || closeErr != nil {
+		binding, bindingErr := bindingReader.RunBinding(
+			parent,
+			options.runID,
+		)
+		closeErr := bindingReader.Close()
+		if bindingErr != nil || closeErr != nil {
 			return errors.New("operator unavailable")
 		}
+		expectedDigest = binding.ManifestDigest
 	}
 
 	runtimeService, err := runtimepkg.OpenService(
@@ -191,17 +195,19 @@ func serveOperator(
 		return errors.New("operator unavailable")
 	}
 	defer operatorStore.Close()
-	if err := reserveOperatorBinding(
-		parent,
-		operatorStore,
-		options.runID,
-		manifest,
-	); err != nil {
-		return err
+	authority := &operatorRunAuthority{
+		journal:        operatorStore,
+		runID:          options.runID,
+		manifestDigest: expectedDigest,
+		allowAbsent:    allowAbsent,
+	}
+	matched, err := authority.matches(parent)
+	if err != nil || (!matched && !allowAbsent) {
+		return errors.New("operator unavailable")
 	}
 	manifests := make([]cockpit.AdmittedManifest, 0, 1)
 	if manifest != nil {
-		manifests = append(manifests, manifest.command)
+		manifests = append(manifests, *manifest)
 	}
 
 	gitExecutable, err := resolveGitExecutable()
@@ -212,7 +218,7 @@ func serveOperator(
 	if err != nil {
 		return errors.New("operator unavailable")
 	}
-	projector, err := cockpit.NewProjector(
+	baseProjector, err := cockpit.NewProjector(
 		operatorStore,
 		runtimeService,
 		stateReader,
@@ -220,13 +226,21 @@ func serveOperator(
 	if err != nil {
 		return errors.New("operator unavailable")
 	}
-	commands, err := cockpit.NewCommandFacade(
+	projector := &operatorProjector{
+		authority: authority,
+		delegate:  baseProjector,
+	}
+	baseCommands, err := cockpit.NewCommandFacade(
 		runtimeService,
 		operatorStore,
 		manifests,
 	)
 	if err != nil {
 		return errors.New("operator unavailable")
+	}
+	commands := &operatorCommands{
+		authority: authority,
+		delegate:  baseCommands,
 	}
 	evaluator, err := observe.NewEvaluator(
 		operatorStore,
@@ -344,12 +358,25 @@ func serveOperator(
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
-		runEvaluationLoop(ctx, evaluator, telemetry, options.runID)
+		runEvaluationLoop(
+			ctx,
+			authority,
+			evaluator,
+			telemetry,
+			options.runID,
+		)
 	}()
 	if webhookService != nil {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
+			if !waitForRunAuthority(
+				ctx,
+				authority,
+				operatorPollInterval,
+			) {
+				return
+			}
 			_ = webhookService.Run(
 				ctx,
 				options.runID,
@@ -413,7 +440,7 @@ func serveOperator(
 
 func admitOperatorManifest(
 	options serveOptions,
-) (*operatorManifestAdmission, error) {
+) (*cockpit.AdmittedManifest, error) {
 	if options.manifestPath == "" {
 		return nil, nil
 	}
@@ -422,42 +449,10 @@ func admitOperatorManifest(
 		return nil, errors.New("operator unavailable")
 	}
 	manifest, err := cockpit.AdmitManifest(body)
-	parsed, parseErr := runtimepkg.ParseManifest(body)
-	if err != nil || parseErr != nil ||
-		manifest.RunID() != options.runID ||
-		parsed.RunID != options.runID {
+	if err != nil || manifest.RunID() != options.runID {
 		return nil, errors.New("operator unavailable")
 	}
-	return &operatorManifestAdmission{
-		command: manifest,
-		run: journal.Run{
-			ID:             parsed.RunID,
-			ManifestDigest: manifest.Digest(),
-			Repository:     parsed.Repository,
-			Release:        parsed.Release,
-			TargetRef:      parsed.TargetRef,
-		},
-	}, nil
-}
-
-func reserveOperatorBinding(
-	ctx context.Context,
-	store *journal.Store,
-	runID string,
-	manifest *operatorManifestAdmission,
-) error {
-	if manifest == nil {
-		if _, err := store.RunBinding(ctx, runID); err != nil {
-			return errors.New("operator unavailable")
-		}
-		return nil
-	}
-	binding := manifest.run
-	binding.CreatedAt = time.Now().UTC()
-	if err := store.RegisterRun(ctx, binding); err != nil {
-		return errors.New("operator unavailable")
-	}
-	return nil
+	return &manifest, nil
 }
 
 func shutdownTelemetry(
@@ -473,10 +468,14 @@ func shutdownTelemetry(
 
 func runEvaluationLoop(
 	ctx context.Context,
+	authority *operatorRunAuthority,
 	evaluator *observe.Evaluator,
 	telemetry *observe.Telemetry,
 	runID string,
 ) {
+	if !waitForRunAuthority(ctx, authority, operatorPollInterval) {
+		return
+	}
 	ticker := time.NewTicker(operatorPollInterval)
 	defer ticker.Stop()
 	for {

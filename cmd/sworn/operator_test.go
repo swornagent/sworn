@@ -365,7 +365,7 @@ func TestOperatorConfigValidatesPublicWebhookAndOTelBoundaries(t *testing.T) {
 	}
 }
 
-func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
+func TestOperatorManifestAdmissionDoesNotCreateRun(t *testing.T) {
 	t.Parallel()
 
 	body := operatorManifestBody(t, "run-1", "one")
@@ -377,8 +377,7 @@ func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
 		runID: "run-1", manifestPath: path,
 	})
 	if err != nil || manifest == nil ||
-		manifest.command.RunID() != "run-1" ||
-		manifest.run.ManifestDigest != manifest.command.Digest() {
+		manifest.RunID() != "run-1" {
 		t.Fatalf("manifest = %#v, %v", manifest, err)
 	}
 	if _, err := admitOperatorManifest(serveOptions{
@@ -393,108 +392,284 @@ func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := reserveOperatorBinding(
+	authority := &operatorRunAuthority{
+		journal:        store,
+		runID:          "run-1",
+		manifestDigest: manifest.Digest(),
+		allowAbsent:    true,
+	}
+	matched, err := authority.matches(context.Background())
+	if err != nil || matched {
+		t.Fatalf("absent authority = %t, %v", matched, err)
+	}
+	if _, err := store.RunBinding(
 		context.Background(),
-		store,
 		"run-1",
-		manifest,
-	); err != nil {
-		t.Fatalf("reserve admitted run: %v", err)
+	); !journal.IsCode(err, "RUN_NOT_FOUND") {
+		t.Fatalf("admission created a run: %v", err)
 	}
-	binding, err := store.RunBinding(context.Background(), "run-1")
-	if err != nil || binding.ManifestDigest != manifest.command.Digest() {
-		t.Fatalf("reserved binding = %#v, %v", binding, err)
-	}
-	if err := reserveOperatorBinding(
-		context.Background(),
-		store,
-		"run-1",
-		manifest,
-	); err != nil {
-		t.Fatalf("idempotent reservation: %v", err)
-	}
-	if err := reserveOperatorBinding(
-		context.Background(),
-		store,
-		"run-1",
-		nil,
-	); err != nil {
-		t.Fatalf("existing run without manifest: %v", err)
-	}
-	if err := reserveOperatorBinding(
-		context.Background(),
-		store,
-		"missing",
-		nil,
-	); err == nil {
-		t.Fatal("missing run admitted without manifest")
-	}
+}
 
-	service, err := runtimepkg.OpenService(context.Background(), journalPath)
+type fakeOperatorProjector struct {
+	snapshotCalls int
+	eventCalls    int
+}
+
+func (f *fakeOperatorProjector) Snapshot(
+	context.Context,
+	string,
+) (cockpit.Snapshot, error) {
+	f.snapshotCalls++
+	return cockpit.Snapshot{SchemaVersion: cockpit.SnapshotSchemaVersion}, nil
+}
+
+func (f *fakeOperatorProjector) Events(
+	context.Context,
+	string,
+	int64,
+	int,
+) (cockpit.EventPage, error) {
+	f.eventCalls++
+	return cockpit.EventPage{SchemaVersion: cockpit.SnapshotSchemaVersion}, nil
+}
+
+type fakeOperatorCommands struct {
+	startCalls     int
+	controlCalls   int
+	redeliverCalls int
+	onStart        func() error
+}
+
+func (f *fakeOperatorCommands) Start(
+	context.Context,
+	cockpit.StartCommand,
+) (runtimepkg.RunStatus, error) {
+	f.startCalls++
+	if f.onStart != nil {
+		if err := f.onStart(); err != nil {
+			return runtimepkg.RunStatus{}, err
+		}
+	}
+	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
+func (f *fakeOperatorCommands) Control(
+	context.Context,
+	cockpit.ControlCommand,
+) (runtimepkg.RunStatus, error) {
+	f.controlCalls++
+	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
+func (f *fakeOperatorCommands) Redeliver(
+	context.Context,
+	cockpit.RedeliveryCommand,
+) error {
+	f.redeliverCalls++
+	return nil
+}
+
+func TestOperatorAuthorityGuardsEveryConsumerAndActivatesOnStart(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ctx := context.Background()
+	body := operatorManifestBody(t, "run-1", "expected")
+	command, err := cockpit.AdmitManifest(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Status(
-		context.Background(),
-		"run-1",
-	); err == nil {
-		t.Fatal("reserved run projected as started before manifest command")
+	parsed, err := runtimepkg.ParseManifest(body)
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, startErr := service.Start(context.Background(), body)
-	status, statusErr := service.Status(context.Background(), "run-1")
-	if closeErr := service.Close(); closeErr != nil {
-		t.Fatal(closeErr)
+	store, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "run.sqlite"),
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if runtimepkg.IsCode(startErr, "JOURNAL_WRITE_FAILED") ||
-		statusErr != nil ||
-		status.ManifestDigest != manifest.command.Digest() {
+	defer store.Close()
+	authority := &operatorRunAuthority{
+		journal:        store,
+		runID:          "run-1",
+		manifestDigest: command.Digest(),
+		allowAbsent:    true,
+	}
+	baseProjector := &fakeOperatorProjector{}
+	projector := &operatorProjector{
+		authority: authority,
+		delegate:  baseProjector,
+	}
+	baseCommands := &fakeOperatorCommands{onStart: func() error {
+		return store.RegisterRun(ctx, journal.Run{
+			ID:             parsed.RunID,
+			ManifestDigest: command.Digest(),
+			Repository:     parsed.Repository,
+			Release:        parsed.Release,
+			TargetRef:      parsed.TargetRef,
+			CreatedAt:      time.Now().UTC(),
+		})
+	}}
+	commands := &operatorCommands{
+		authority: authority,
+		delegate:  baseCommands,
+	}
+
+	if _, err := projector.Snapshot(ctx, "run-1"); err == nil {
+		t.Fatal("snapshot consumed an absent run")
+	}
+	if _, err := projector.Events(ctx, "run-1", 0, 1); err == nil {
+		t.Fatal("events consumed an absent run")
+	}
+	if _, err := commands.Control(ctx, cockpit.ControlCommand{
+		RunID: "run-1",
+	}); err == nil {
+		t.Fatal("control consumed an absent run")
+	}
+	if err := commands.Redeliver(ctx, cockpit.RedeliveryCommand{
+		RunID: "run-1",
+	}); err == nil {
+		t.Fatal("redelivery consumed an absent run")
+	}
+	if _, err := commands.Start(ctx, cockpit.StartCommand{
+		ManifestDigest: "sha256:" + strings.Repeat("f", 64),
+	}); err == nil || baseCommands.startCalls != 0 {
 		t.Fatalf(
-			"start after reservation err=%v status=%#v statusErr=%v",
-			startErr,
-			status,
-			statusErr,
+			"wrong start err=%v calls=%d",
+			err,
+			baseCommands.startCalls,
 		)
 	}
 
-	conflictPath := filepath.Join(t.TempDir(), "conflict.sqlite")
-	conflictStore, err := journal.Open(context.Background(), conflictPath)
+	waitCtx, cancelWait := context.WithTimeout(ctx, time.Second)
+	defer cancelWait()
+	activated := make(chan bool, 1)
+	go func() {
+		activated <- waitForRunAuthority(
+			waitCtx,
+			authority,
+			5*time.Millisecond,
+		)
+	}()
+	beforeStart := time.Now().UTC()
+	status, err := commands.Start(ctx, cockpit.StartCommand{
+		ManifestDigest: command.Digest(),
+	})
+	if err != nil || status.RunID != "run-1" ||
+		baseCommands.startCalls != 1 {
+		t.Fatalf("matching start = %#v, %v", status, err)
+	}
+	select {
+	case matched := <-activated:
+		if !matched {
+			t.Fatal("matching Start did not activate background authority")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background authority did not activate")
+	}
+	binding, err := store.RunBinding(ctx, "run-1")
+	if err != nil || binding.CreatedAt.Before(beforeStart) {
+		t.Fatalf("start binding = %#v, %v", binding, err)
+	}
+	if _, err := projector.Snapshot(ctx, "run-1"); err != nil {
+		t.Fatalf("matching snapshot: %v", err)
+	}
+	if _, err := projector.Events(ctx, "run-1", 0, 1); err != nil {
+		t.Fatalf("matching events: %v", err)
+	}
+	if _, err := commands.Control(ctx, cockpit.ControlCommand{
+		RunID: "run-1",
+	}); err != nil {
+		t.Fatalf("matching control: %v", err)
+	}
+	if err := commands.Redeliver(ctx, cockpit.RedeliveryCommand{
+		RunID: "run-1",
+	}); err != nil {
+		t.Fatalf("matching redelivery: %v", err)
+	}
+	if baseProjector.snapshotCalls != 1 ||
+		baseProjector.eventCalls != 1 ||
+		baseCommands.controlCalls != 1 ||
+		baseCommands.redeliverCalls != 1 {
+		t.Fatalf(
+			"delegate calls projector=%#v commands=%#v",
+			baseProjector,
+			baseCommands,
+		)
+	}
+
+	conflictStore, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "conflict.sqlite"),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conflictStore.Close()
-	otherBody := operatorManifestBody(t, "run-1", "two")
-	otherCommand, err := cockpit.AdmitManifest(otherBody)
+	otherBody := operatorManifestBody(t, "run-1", "conflict")
+	other, err := cockpit.AdmitManifest(otherBody)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherParsed, err := runtimepkg.ParseManifest(otherBody)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := conflictStore.RegisterRun(context.Background(), journal.Run{
-		ID:             otherParsed.RunID,
-		ManifestDigest: otherCommand.Digest(),
-		Repository:     otherParsed.Repository,
-		Release:        otherParsed.Release,
-		TargetRef:      otherParsed.TargetRef,
+	if err := conflictStore.RegisterRun(ctx, journal.Run{
+		ID:             parsed.RunID,
+		ManifestDigest: other.Digest(),
+		Repository:     parsed.Repository,
+		Release:        parsed.Release,
+		TargetRef:      parsed.TargetRef,
 		CreatedAt:      time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reserveOperatorBinding(
-		context.Background(),
-		conflictStore,
-		"run-1",
-		manifest,
-	); err == nil {
-		t.Fatal("competing manifest registration was not rejected")
+	conflictAuthority := &operatorRunAuthority{
+		journal:        conflictStore,
+		runID:          "run-1",
+		manifestDigest: command.Digest(),
+		allowAbsent:    true,
 	}
-	conflict, err := conflictStore.RunBinding(
-		context.Background(),
-		"run-1",
-	)
-	if err != nil || conflict.ManifestDigest != otherCommand.Digest() {
-		t.Fatalf("conflicting binding changed = %#v, %v", conflict, err)
+	conflictProjectorDelegate := &fakeOperatorProjector{}
+	conflictProjector := &operatorProjector{
+		authority: conflictAuthority,
+		delegate:  conflictProjectorDelegate,
+	}
+	conflictCommandDelegate := &fakeOperatorCommands{}
+	conflictCommands := &operatorCommands{
+		authority: conflictAuthority,
+		delegate:  conflictCommandDelegate,
+	}
+	if waitForRunAuthority(ctx, conflictAuthority, time.Millisecond) {
+		t.Fatal("conflicting run activated evaluator or webhook work")
+	}
+	if _, err := conflictProjector.Snapshot(ctx, "run-1"); err == nil {
+		t.Fatal("conflicting snapshot was projected")
+	}
+	if _, err := conflictProjector.Events(ctx, "run-1", 0, 1); err == nil {
+		t.Fatal("conflicting events were projected")
+	}
+	if _, err := conflictCommands.Start(ctx, cockpit.StartCommand{
+		ManifestDigest: command.Digest(),
+	}); err == nil {
+		t.Fatal("conflicting run accepted Start")
+	}
+	if _, err := conflictCommands.Control(ctx, cockpit.ControlCommand{
+		RunID: "run-1",
+	}); err == nil {
+		t.Fatal("conflicting run accepted control")
+	}
+	if err := conflictCommands.Redeliver(ctx, cockpit.RedeliveryCommand{
+		RunID: "run-1",
+	}); err == nil {
+		t.Fatal("conflicting run accepted redelivery")
+	}
+	if conflictProjectorDelegate.snapshotCalls != 0 ||
+		conflictProjectorDelegate.eventCalls != 0 ||
+		conflictCommandDelegate.startCalls != 0 ||
+		conflictCommandDelegate.controlCalls != 0 ||
+		conflictCommandDelegate.redeliverCalls != 0 {
+		t.Fatal("a conflicting consumer reached its delegate")
 	}
 }
 
@@ -665,6 +840,185 @@ func TestServeWiresExistingRunAndStopsOnContext(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve did not stop after cancellation")
+	}
+}
+
+func TestServeManifestCreatesRunOnlyAtStart(t *testing.T) {
+	body := operatorManifestBody(t, "run-start", "start-time authority")
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(manifestPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := cockpit.AdmitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	configBody, err := json.Marshal(operatorConfig{
+		SchemaVersion: operatorConfigSchemaVersion,
+		Local:         operatorLocalConfig{Listen: address},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "operator.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stdout synchronizedBuffer
+	result := make(chan error, 1)
+	go func() {
+		result <- serveOperator(ctx, serveOptions{
+			runID:          "run-start",
+			journalPath:    journalPath,
+			manifestPath:   manifestPath,
+			operatorConfig: configPath,
+		}, &stdout)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(stdout.String(), "sworn serve: ready\n") &&
+		time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(stdout.String(), "sworn serve: ready\n") {
+		cancel()
+		t.Fatalf("serve did not become ready; output %q", stdout.String())
+	}
+	reader, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if _, err := reader.RunBinding(
+		context.Background(),
+		"run-start",
+	); !journal.IsCode(err, "RUN_NOT_FOUND") {
+		_ = reader.Close()
+		cancel()
+		t.Fatalf("serve created a run before Start: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	beforeStart := time.Now().UTC()
+	requestBody, err := json.Marshal(cockpit.StartCommand{
+		ManifestDigest: manifest.Digest(),
+	})
+	if err != nil {
+		_ = reader.Close()
+		cancel()
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(
+		http.MethodPost,
+		"http://"+address+"/api/v1/start",
+		bytes.NewReader(requestBody),
+	)
+	if err != nil {
+		_ = reader.Close()
+		cancel()
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: nil},
+		Timeout:   5 * time.Second,
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		_ = reader.Close()
+		cancel()
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	binding, err := reader.RunBinding(
+		context.Background(),
+		"run-start",
+	)
+	if closeErr := reader.Close(); closeErr != nil {
+		cancel()
+		t.Fatal(closeErr)
+	}
+	if err != nil || binding.ManifestDigest != manifest.Digest() ||
+		binding.CreatedAt.Before(beforeStart) {
+		cancel()
+		t.Fatalf(
+			"Start binding=%#v err=%v response=%d",
+			binding,
+			err,
+			response.StatusCode,
+		)
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("serve shutdown: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not stop after Start")
+	}
+}
+
+func TestServeLaterListenerFailureLeavesNoPhantomRun(t *testing.T) {
+	body := operatorManifestBody(t, "run-later-fail", "no phantom")
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(manifestPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	configBody, err := json.Marshal(operatorConfig{
+		SchemaVersion: operatorConfigSchemaVersion,
+		Local: operatorLocalConfig{
+			Listen: occupied.Addr().String(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "operator.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+	var stdout bytes.Buffer
+	if err := serveOperator(
+		context.Background(),
+		serveOptions{
+			runID:          "run-later-fail",
+			journalPath:    journalPath,
+			manifestPath:   manifestPath,
+			operatorConfig: configPath,
+		},
+		&stdout,
+	); err == nil {
+		t.Fatal("occupied listener unexpectedly started")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("failed startup output = %q", stdout.String())
+	}
+	reader, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, err := reader.RunBinding(
+		context.Background(),
+		"run-later-fail",
+	); !journal.IsCode(err, "RUN_NOT_FOUND") {
+		t.Fatalf("failed startup left a phantom run: %v", err)
 	}
 }
 
