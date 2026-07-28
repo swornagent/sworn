@@ -1968,15 +1968,18 @@ func TestPlanRevisionRejectsUnrecordedImplementationHead(t *testing.T) {
 	}
 }
 
-func TestPlanRevisionReconcilesOnlyExactTargetStalePreparedBase(t *testing.T) {
+func TestPlanRevisionReconcilesOnlyExactPreparedBase(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		moveTrack func(*testing.T, string, string, string, string) string
-		wantCode  string
+		name       string
+		moveTarget bool
+		moveTrack  func(*testing.T, string, string, string, string) string
+		wantCode   string
 	}{
-		{name: "exact_prepared_base"},
+		{name: "exact_prepared_base_unchanged_target"},
+		{name: "exact_prepared_base_moved_target", moveTarget: true},
 		{
-			name: "prepared_base_with_unrecorded_descendant",
+			name:       "prepared_base_with_unrecorded_descendant",
+			moveTarget: true,
 			moveTrack: func(
 				t *testing.T,
 				repoPath, track, prepared, _ string,
@@ -1994,7 +1997,8 @@ func TestPlanRevisionReconcilesOnlyExactTargetStalePreparedBase(t *testing.T) {
 			wantCode: "CHANGED_OWNER_HEAD",
 		},
 		{
-			name: "unrelated_unrecorded_head",
+			name:       "unrelated_unrecorded_head",
+			moveTarget: true,
 			moveTrack: func(
 				t *testing.T,
 				repoPath, track, prepared, authority string,
@@ -2123,15 +2127,18 @@ func TestPlanRevisionReconcilesOnlyExactTargetStalePreparedBase(t *testing.T) {
 				"rev-parse",
 				"refs/heads/main",
 			)
-			targetMoved := commitActionProduct(
-				t,
-				repoPath,
-				targetParent,
-				"refs/heads/main",
-				"target-moved.txt",
-				"external target movement\n",
-				1000001863,
-			)
+			targetMoved := targetParent
+			if test.moveTarget {
+				targetMoved = commitActionProduct(
+					t,
+					repoPath,
+					targetParent,
+					"refs/heads/main",
+					"target-moved.txt",
+					"external target movement\n",
+					1000001863,
+				)
+			}
 			releaseBefore := actionGit(
 				t,
 				repoPath,
@@ -2149,7 +2156,7 @@ func TestPlanRevisionReconcilesOnlyExactTargetStalePreparedBase(t *testing.T) {
 						&previous,
 						tracks,
 					),
-					Summary: "Approve the moved target.",
+					Summary: "Approve the revised plan.",
 					Detail:  []byte("approval two"),
 				},
 			)

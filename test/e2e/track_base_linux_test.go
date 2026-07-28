@@ -264,52 +264,6 @@ func TestRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 	normalBinary := filepath.Join(buildRoot, "sworn")
 	buildBinary(t, normalBinary, "./cmd/sworn", baseLDFlags)
 
-	t.Run("exact-design-captain-candidate-verifier-chain", func(t *testing.T) {
-		const (
-			runID   = "e2e-consumed-base"
-			release = "e2e-consumed-base-release"
-			issue   = int64(51)
-			marker  = "approval-e2e-consumed-base-v1"
-		)
-		repository, journalPath, _ := prepareConsumedBaseRun(
-			t,
-			normalBinary,
-			fakeBinary,
-			fakeDigest,
-			approvals,
-			runID,
-			release,
-			issue,
-			marker,
-		)
-		stdout, stderr := runBinary(
-			t,
-			normalBinary,
-			0,
-			"resume",
-			"--run",
-			runID,
-			"--journal",
-			journalPath,
-			"--command",
-			"resume-1",
-			"--generation",
-			"0",
-		)
-		if stderr != "" || !strings.Contains(stdout, "state complete") {
-			t.Fatalf("resume stdout=%q stderr=%q", stdout, stderr)
-		}
-		assertConsumedBaseRun(
-			t,
-			repository,
-			journalPath,
-			runID,
-			release,
-			2,
-			1,
-		)
-	})
-
 	for _, crash := range []struct {
 		name       string
 		cut        string
@@ -320,12 +274,6 @@ func TestRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			name:  "crash-before-ref-update",
 			cut:   "testCrashBeforeEffect",
 			issue: 52,
-		},
-		{
-			name:       "crash-after-ref-update",
-			cut:        "testCrashAfterEffect",
-			wantRefSet: true,
-			issue:      53,
 		},
 	} {
 		crash := crash

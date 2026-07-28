@@ -199,31 +199,29 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 				continue
 			}
 			resettable := false
-			if state.Plan.TargetStale {
-				for _, slice := range track.Slices {
-					if slice.Pass != nil {
-						continue
-					}
-					if len(slice.Location.Slice.Consumes) == 0 ||
-						slice.Stage != "design" ||
-						slice.Status != "ready" ||
-						slice.NextRole != "implementer" ||
-						slice.Candidate != nil ||
-						slice.PreparationSeed != track.AuthorityHead ||
-						slice.PreparedBase != track.Head {
-						break
-					}
-					exactBase, exactErr := preparedStateTrackBase(
-						a.repository,
-						state,
-						slice,
-					)
-					if exactErr != nil {
-						return ActionResult{}, exactErr
-					}
-					resettable = exactBase == track.Head
+			for _, slice := range track.Slices {
+				if slice.Pass != nil {
+					continue
+				}
+				if len(slice.Location.Slice.Consumes) == 0 ||
+					slice.Stage != "design" ||
+					slice.Status != "ready" ||
+					slice.NextRole != "implementer" ||
+					slice.Candidate != nil ||
+					slice.PreparationSeed != track.AuthorityHead ||
+					slice.PreparedBase != track.Head {
 					break
 				}
+				exactBase, exactErr := preparedStateTrackBase(
+					a.repository,
+					state,
+					slice,
+				)
+				if exactErr != nil {
+					return ActionResult{}, exactErr
+				}
+				resettable = exactBase == track.Head
+				break
 			}
 			if !resettable {
 				return ActionResult{}, recordFail(
