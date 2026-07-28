@@ -59,10 +59,10 @@ type corpusManifest struct {
 }
 
 var pinnedReferences = []manifestEntry{
-	{File: "actions.mjs", SHA256: "7d3a6f917f7a42507fc31fba5683d43580bdf487327bcba99d48cd2369c85356", Bytes: 31503},
+	{File: "actions.mjs", SHA256: "5e5517cd1823ff3c5a1511571b76f32a86386831839be42efedf6bf9079fe455", Bytes: 41385},
 	{File: "git.mjs", SHA256: "bd58fe76111a8d4bf31588730c9d3132e78ee4fee6a8b9ab329949f49390cf47", Bytes: 73161},
-	{File: "receipts.mjs", SHA256: "4a3d75c490c9077168349a9875a3a58fd96eda3d9fab6b984c9412932abf16bd", Bytes: 30104},
-	{File: "state.mjs", SHA256: "daadede9dbd5026a7555411e07af5366451237590a665af1af643704c351cae3", Bytes: 32327},
+	{File: "receipts.mjs", SHA256: "205489602318f100ddd8bb536c8d25640bdff1df81c2e4c54d31ca1ca0bc2943", Bytes: 30352},
+	{File: "state.mjs", SHA256: "e0d1bf1b4a6e5d1e6dc4f299544b1030e348f84c2c648d321b62b7b5950ce1a8", Bytes: 51799},
 }
 
 func main() {

@@ -9,8 +9,9 @@ machine-written receipt commits.
 - `git.mjs` provides the fixed Git execution, direct-ref capture, object reads,
   product-tree identity, deterministic composition, and compare-and-set
   boundary.
-- `actions.mjs` exposes only plan revision, receipt append, assembly
-  preparation, and exact passed-candidate merge actions.
+- `actions.mjs` exposes only plan revision, exact consumed-track-base
+  preparation, receipt append, assembly preparation, and exact
+  passed-candidate merge actions.
 
 An engine passes role decisions and evidence to the action layer; it does not
 ask a model to construct protocol JSON. Each action captures the applicable
@@ -33,4 +34,18 @@ rescanning; it cannot create approval, `proceed`, `pass`, or `merged`.
 Plan revisions retain stable release and slice identities. Unchanged contracts
 and unchanged consumed product-tree pins retain their PASS. Only a changed
 slice and the actual dependency closure whose input pins changed require a new
-attempt.
+attempt. `prepareTrackBase({ release, slice })` composes the plan-ordered
+current producer PASS receipts into only the consumer track ref. It is
+idempotent and compare-and-set verifies the release, target, producer, and
+consumer refs before any move.
+
+Every newly appended consuming design records `base` as the exact
+pre-composition track or release authority and `inputs` as the reviewed
+product-tree pins; its receipt parent is the deterministic composition of that
+seed and the plan-ordered producer PASS authorities. A consuming candidate
+records its implementation-start `base`, which activates exact preparation,
+authority-ancestry, and linear-work checks.
+
+Legacy designs without the `base` plus `inputs` marker and legacy candidates
+without `base` remain readable. Their immutable ancestry may still project
+reviewed pins, but it does not claim the new exact-preparation guarantee.

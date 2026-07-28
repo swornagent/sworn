@@ -644,7 +644,19 @@ function assertRoleFields(receipt) {
   if (receipt.role === 'implementer') {
     if (receipt.result === 'designed') {
       requireFields('slice');
-      forbidFields('target', 'base', ...candidateEvidence, 'result_commit');
+      if (present('base') !== present('inputs')) {
+        fail(
+          'MISSING_FIELD',
+          'implementer/designed receipt base and inputs must appear together',
+        );
+      }
+      forbidFields(
+        'target',
+        'candidate',
+        'product_tree',
+        'checks',
+        'result_commit',
+      );
     } else {
       requireFields(...candidateEvidence);
       forbidFields('result_commit');

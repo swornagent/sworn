@@ -46,6 +46,37 @@ func TestLoadAdmitsExactRC5(t *testing.T) {
 	}
 }
 
+func TestReleaseTagAndSnapshotSourceAreDistinctAndIndependentlyBound(t *testing.T) {
+	t.Parallel()
+
+	if ReleaseCommit == Commit || ReleaseTree == Tree {
+		t.Fatal("historical RC5 tag identity was conflated with the post-tag snapshot source")
+	}
+
+	release := readReleaseFile(t)
+	if release.Tag.PeeledCommit != ReleaseCommit ||
+		release.Tag.PeeledTree != ReleaseTree ||
+		release.Archive.EmbeddedCommit != ReleaseCommit {
+		t.Fatal("release metadata does not preserve the historical RC5 tag and archive identity")
+	}
+	if release.Snapshot.SourceCommit != Commit || release.Snapshot.SourceTree != Tree {
+		t.Fatal("release metadata does not bind the post-tag snapshot source")
+	}
+
+	release.Tag.PeeledCommit = Commit
+	release.Tag.PeeledTree = Tree
+	release.Archive.EmbeddedCommit = Commit
+	if err := validateReleaseIdentity(release); err == nil {
+		t.Fatal("release identity accepted the snapshot source as the historical RC5 tag")
+	}
+
+	manifest := readAssetManifest(t)
+	manifest.Commit = ReleaseCommit
+	if err := validateManifestIdentity(manifest); err == nil {
+		t.Fatal("manifest identity accepted the historical RC5 tag as the snapshot source")
+	}
+}
+
 func TestReadAssetReturnsIndependentBytes(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +154,7 @@ func TestValidatePackageRejectsMutations(t *testing.T) {
 	}
 }
 
-func TestSupportPackageDigestRecomputedFromExactRC5Catalog(t *testing.T) {
+func TestSupportPackageDigestRecomputedFromExactSnapshotCatalog(t *testing.T) {
 	t.Parallel()
 
 	manifest := readAssetManifest(t)
@@ -141,7 +172,7 @@ func TestSupportPackageDigestRecomputedFromExactRC5Catalog(t *testing.T) {
 
 	delete(digests, "reference/records/actions.mjs")
 	if _, err := calculateSupportPackageDigest(digests); err == nil {
-		t.Fatal("support package digest accepted a missing RC5 support asset")
+		t.Fatal("support package digest accepted a missing snapshot support asset")
 	}
 }
 
@@ -226,6 +257,8 @@ func TestReleaseIdentityComparisonsAreIndependentlyEnforced(t *testing.T) {
 			value.GeneratedSupport.PackageDigest = "other"
 		},
 		"snapshot schema": func(value *releaseFile) { value.Snapshot.ManifestSchema = "other" },
+		"snapshot commit": func(value *releaseFile) { value.Snapshot.SourceCommit = "other" },
+		"snapshot tree":   func(value *releaseFile) { value.Snapshot.SourceTree = "other" },
 		"manifest digest": func(value *releaseFile) { value.Snapshot.ManifestSHA256 = "other" },
 		"asset count":     func(value *releaseFile) { value.Snapshot.AssetCount++ },
 		"asset bytes":     func(value *releaseFile) { value.Snapshot.TotalBytes++ },

@@ -50,11 +50,11 @@ func TestCanonicalOperationsBindExactRC5PackageAndExcludeMerge(t *testing.T) {
 		Version:              "1.0.0-rc.5",
 		TagName:              "v1.0.0-rc.5",
 		TagObject:            "306ed09c3152e8a7413e6b9d09d63d00ee12ff4a",
-		Commit:               "b0133b9e53755484f7aa9140fc3c1b349e2f50dd",
-		Tree:                 "c079d41d3955d9690a9be39d1711ef45fa3625f3",
+		Commit:               "afad775121d7d37244f4d3798b7b4c6a9fbfe9b2",
+		Tree:                 "81d089c28639eb3aaeea8f6ced2eb2fad0f596a3",
 		ArchiveSHA256:        "sha256:8fea81036dc678e9a0aa4c2d1fb0c8ed016c23b9e7d77c183f3f168467002dd5",
-		SupportPackageSHA256: "sha256:cd3f1285318820ca5ee3a96785ab40915f7b2970ec14d9e3f578898de4a953c1",
-		ManifestSHA256:       "sha256:5af96cf4fae812a49b63328e3bae94d87a2332ea6bb7d022bcc35e00fe07da53",
+		SupportPackageSHA256: "sha256:cd7db90c183ca4dc443673c370d64a3287d4e31323ea3f7972c5fec83d193bbf",
+		ManifestSHA256:       "sha256:4501d7c16c01298565411e7ef263db0da8f14294494fcb18dce0b73ce845b175",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -68,11 +68,11 @@ func TestCanonicalOperationsBindExactRC5PackageAndExcludeMerge(t *testing.T) {
 		},
 		RoleImplementer: {
 			"baton-implement",
-			"sha256:8e3a056fe6b0a0db5f30679b4f6cc2a2ba44d53c33538a0ec3d2db04cba7f5f1",
+			"sha256:f8558c042acc653c3093fc2efb9bac7599a4e479139174e93df9c33e64743a6d",
 		},
 		RoleCaptain: {
 			"baton-design-review",
-			"sha256:cef3db42acdeca0696e939e5cc58b2628469992dbefaa3b0e2429987903b9381",
+			"sha256:c12847c8b91f71e96a5996cb064588ff1612df37878065577d3f00ee1073a541",
 		},
 		RoleVerifier: {
 			"baton-verify",

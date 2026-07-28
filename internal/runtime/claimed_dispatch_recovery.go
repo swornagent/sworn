@@ -336,6 +336,14 @@ func validateImplementationCycleObjects(
 			return runtimeFail("CORRUPT_JOURNAL", err)
 		}
 	}
+	if cycle.Base != "" {
+		if _, err := gitx.ParseOID(
+			repository.ObjectFormat(),
+			cycle.Base,
+		); err != nil {
+			return runtimeFail("CORRUPT_JOURNAL", err)
+		}
+	}
 	return nil
 }
 

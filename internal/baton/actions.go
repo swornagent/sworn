@@ -35,6 +35,7 @@ type AppendReceiptInput struct {
 	Result       string
 	Summary      string
 	Detail       []byte
+	Base         string
 	Candidate    string
 	CheckResults []byte
 }
@@ -452,6 +453,10 @@ func (a *Actions) appendReceipt(
 		validateObjectForFormat(a.repository.objectFormat(), input.Candidate, "candidate") != nil {
 		return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "candidate must be one full repository-format object identity")
 	}
+	if input.Base != "" &&
+		validateObjectForFormat(a.repository.objectFormat(), input.Base, "base") != nil {
+		return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "base must be one full repository-format object identity")
+	}
 	state, err := a.stateFor(release)
 	if err != nil {
 		return ActionResult{}, err
@@ -461,6 +466,7 @@ func (a *Actions) appendReceipt(
 	var receipt Receipt
 	var current *ReceiptEntry
 	var snapshot []CapturedRef
+	var consumedSources []CapturedRef
 	if sliceID != "" {
 		slice, ok := state.Slice(sliceID)
 		if !ok {
@@ -468,7 +474,40 @@ func (a *Actions) appendReceipt(
 		}
 		track, _ := state.Track(slice.Location.Track.ID)
 		ownerRef, ownerHead, current = track.Ref, track.Head, slice.CurrentReceipt
-		if exactRetry(current, role, resultName, summary, detail, input.Candidate, checks) {
+		if input.Base != "" &&
+			!(role == "implementer" && resultName == "candidate") {
+			return ActionResult{}, recordFail(
+				"INVALID_ACTION_INPUT",
+				role+"/"+resultName+" does not accept base",
+			)
+		}
+		actionEligible :=
+			(role == "implementer" && resultName == "designed" &&
+				slice.NextRole == "implementer" && slice.Stage == "design") ||
+				(role == "captain" &&
+					(resultName == "proceed" ||
+						resultName == "revise" ||
+						resultName == "escalate") &&
+					slice.NextRole == "captain") ||
+				(role == "implementer" && resultName == "candidate" &&
+					slice.NextRole == "implementer" &&
+					slice.Stage == "implement") ||
+				(role == "verifier" &&
+					(resultName == "pass" ||
+						resultName == "fail" ||
+						resultName == "blocked") &&
+					slice.NextRole == "verifier")
+		if !actionEligible &&
+			exactRetry(
+				current,
+				role,
+				resultName,
+				summary,
+				detail,
+				input.Base,
+				input.Candidate,
+				checks,
+			) {
 			return appendReceiptResult(false, ownerRef, *current), nil
 		}
 		if err := requireSlicePrerequisites(state, slice); err != nil {
@@ -492,7 +531,29 @@ func (a *Actions) appendReceipt(
 			if parent == "" {
 				parent = state.Refs.Release.Head
 			}
-			if ownerHead != "" && ownerHead != current.OID && current.Receipt.Role != "planner" {
+			consuming := len(slice.Location.Slice.Consumes) > 0
+			preparedBase := consuming && slice.PreparedBase != "" &&
+				ownerHead == slice.PreparedBase
+			if consuming && !preparedBase {
+				return ActionResult{}, recordFail(
+					"TRACK_BASE_NOT_PREPARED",
+					"consuming design requires the exact prepared authority",
+				)
+			}
+			if consuming {
+				if slice.PreparationSeed == "" {
+					return ActionResult{}, recordFail(
+						"CHANGED_OWNER_HEAD",
+						"consuming design has no preparation seed",
+					)
+				}
+				base := slice.PreparationSeed
+				common.Base = &base
+				common.Inputs = cloneInputs(slice.InputPins)
+				receipt = common
+			}
+			if ownerHead != "" && ownerHead != current.OID &&
+				current.Receipt.Role != "planner" && !preparedBase {
 				return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its authoritative receipt")
 			}
 		case role == "captain" && (resultName == "proceed" || resultName == "revise" || resultName == "escalate"):
@@ -516,10 +577,63 @@ func (a *Actions) appendReceipt(
 			if err != nil {
 				return ActionResult{}, err
 			}
+			if len(slice.Location.Slice.Consumes) > 0 {
+				if input.Base == "" || slice.PreparedBase == "" ||
+					input.Base != slice.PreparedBase {
+					return ActionResult{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"consuming candidate must bind the exact prepared base",
+					)
+				}
+				linear, err := linearOneParentAncestry(
+					a.repository,
+					input.Base,
+					input.Candidate,
+				)
+				if err != nil {
+					return ActionResult{}, err
+				}
+				if !linear {
+					return ActionResult{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"consuming candidate must be linear one-parent work from its prepared base",
+					)
+				}
+				for _, consumed := range slice.ConsumedInputs {
+					for _, ancestor := range []string{
+						consumed.Candidate,
+						consumed.CandidateReceipt,
+						consumed.PassReceipt,
+					} {
+						contained, err := a.repository.isAncestor(
+							ancestor,
+							input.Candidate,
+						)
+						if err != nil {
+							return ActionResult{}, err
+						}
+						if !contained {
+							return ActionResult{}, recordFail(
+								"CHANGED_CANDIDATE",
+								"candidate omits consumed authority "+ancestor,
+							)
+						}
+					}
+				}
+			} else if input.Base != "" {
+				return ActionResult{}, recordFail(
+					"INVALID_ACTION_INPUT",
+					"non-consuming candidate cannot record a prepared base",
+				)
+			}
 			attempt, binds, candidate, checksDigest := slice.Attempt, current.OID, input.Candidate, checks
 			common.Role, common.Result, common.Attempt, common.Binds = role, resultName, &attempt, binds
 			common.Candidate, common.ProductTree, common.Inputs, common.Checks =
 				&candidate, &productTree, cloneInputs(slice.InputPins), &checksDigest
+			if input.Base != "" {
+				base := input.Base
+				common.Base = &base
+			}
 			receipt, parent = common, input.Candidate
 		case role == "verifier" && (resultName == "pass" || resultName == "fail" || resultName == "blocked"):
 			if slice.NextRole != "verifier" {
@@ -542,12 +656,39 @@ func (a *Actions) appendReceipt(
 			return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "unsupported slice receipt "+role+"/"+resultName)
 		}
 		trackRefCapture := capturedTrackRef(state, track.ID)
-		snapshot = sortedCaptured([]CapturedRef{
+		snapshotValues := []CapturedRef{
 			state.Refs.Release, state.Refs.Target, trackRefCapture,
-		})
+		}
+		if role == "implementer" &&
+			(resultName == "designed" || resultName == "candidate") {
+			seen := make(map[string]bool)
+			for _, consumed := range slice.ConsumedInputs {
+				if consumed.SourceRef == ownerRef ||
+					seen[consumed.SourceRef] {
+					continue
+				}
+				seen[consumed.SourceRef] = true
+				var source CapturedRef
+				for _, candidate := range state.Refs.Tracks {
+					if candidate.Ref == consumed.SourceRef {
+						source = candidate.CapturedRef
+						break
+					}
+				}
+				if source.Ref == "" || source.Head != consumed.SourceHead {
+					return ActionResult{}, recordFail(
+						"AUTHORITY_MOVED",
+						"consumed source "+consumed.SourceRef+" changed",
+					)
+				}
+				consumedSources = append(consumedSources, source)
+				snapshotValues = append(snapshotValues, source)
+			}
+		}
+		snapshot = sortedCaptured(snapshotValues)
 	} else {
 		ownerRef, ownerHead, current = state.Refs.Release.Ref, state.Refs.Release.Head, state.Assembly.CurrentReceipt
-		if exactRetry(current, role, resultName, summary, detail, input.Candidate, checks) {
+		if exactRetry(current, role, resultName, summary, detail, input.Base, input.Candidate, checks) {
 			return appendReceiptResult(false, ownerRef, *current), nil
 		}
 		if role != "verifier" || (resultName != "pass" && resultName != "fail" && resultName != "blocked") ||
@@ -597,6 +738,13 @@ func (a *Actions) appendReceipt(
 		Kind: "verify", Ref: state.Refs.Target.Ref,
 		ExpectedHead: state.Refs.Target.Head,
 	})
+	for _, source := range consumedSources {
+		operations = append(operations, refOperation{
+			Kind:         "verify",
+			Ref:          source.Ref,
+			ExpectedHead: source.Head,
+		})
+	}
 	if ownerHead == "" {
 		operations = append(operations, refOperation{Kind: "create", Ref: ownerRef, NewHead: prepared.Commit})
 	} else {
@@ -625,7 +773,7 @@ func exactRetry(
 	entry *ReceiptEntry,
 	role, result, summary string,
 	detail []byte,
-	candidate, checks string,
+	base, candidate, checks string,
 ) bool {
 	if entry == nil {
 		return false
@@ -635,10 +783,22 @@ func exactRetry(
 		!bytes.Equal(entry.Detail, detail) {
 		return false
 	}
-	if candidate != "" && (receipt.Candidate == nil || *receipt.Candidate != candidate) {
+	evidenceRequired := (role == "implementer" && result == "candidate") ||
+		role == "verifier"
+	if evidenceRequired && (candidate == "" || checks == "") {
 		return false
 	}
-	if checks != "" && (receipt.Checks == nil || *receipt.Checks != checks) {
+	if role == "implementer" && result == "candidate" &&
+		(base != "" || receipt.Base != nil) &&
+		(base == "" || receipt.Base == nil || *receipt.Base != base) {
+		return false
+	}
+	if candidate != "" &&
+		(receipt.Candidate == nil || *receipt.Candidate != candidate) {
+		return false
+	}
+	if checks != "" &&
+		(receipt.Checks == nil || *receipt.Checks != checks) {
 		return false
 	}
 	return true

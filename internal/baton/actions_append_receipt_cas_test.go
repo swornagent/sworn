@@ -45,6 +45,97 @@ func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing
 		}
 	})
 
+	t.Run("consumed_source", func(t *testing.T) {
+		repoPath, _, actions := createActionHarness(t)
+		release := "append-receipt-consumed-source-cas"
+		s1 := actionSlice("S1", "one.txt")
+		s2 := actionSlice("S2", "two.txt")
+		s2.Consumes = []string{"S1"}
+		if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+			PlanBytes: actionPlanRevisionBytes(release, 1, nil, []Track{
+				{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+				{ID: "T2", DependsOn: []string{}, Slices: []Slice{s2}},
+			}),
+			Summary: "Approve consumed source CAS.",
+			Detail:  []byte("approval"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		advanceActionSlice(
+			t,
+			actions,
+			repoPath,
+			release,
+			"T1",
+			"S1",
+			"one.txt",
+			1000003200,
+			"pass",
+		)
+		prepareActionSliceBase(t, actions, release, "S2")
+
+		ownerRef := trackRef(release, "T2")
+		ownerBefore := actionGit(
+			t, repoPath, nil, nil, "rev-parse", ownerRef,
+		)
+		producerRef := trackRef(release, "T1")
+		producerBefore := actionGit(
+			t, repoPath, nil, nil, "rev-parse", producerRef,
+		)
+		var producerAfter string
+		_, err := actions.appendReceipt(AppendReceiptInput{
+			Release: release, Slice: "S2", Role: "implementer",
+			Result: "designed", Summary: "Design S2.",
+			Detail: []byte("design"),
+		}, func() {
+			tree := actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"rev-parse",
+				producerBefore+"^{tree}",
+			)
+			producerAfter = actionGit(
+				t,
+				repoPath,
+				[]byte("move consumed source\n"),
+				nil,
+				"commit-tree",
+				tree,
+				"-p",
+				producerBefore,
+			)
+			actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"update-ref",
+				producerRef,
+				producerAfter,
+				producerBefore,
+			)
+		})
+		if ErrorCode(err) != "REF_TRANSACTION_RECOVERY_REQUIRED" {
+			t.Fatalf("consumed-source interleaving error = %v", err)
+		}
+		if producerAfter == "" ||
+			actionGit(t, repoPath, nil, nil, "rev-parse", producerRef) !=
+				producerAfter {
+			t.Fatal("consumed-source interleaving did not move producer")
+		}
+		if ownerAfter := actionGit(
+			t, repoPath, nil, nil, "rev-parse", ownerRef,
+		); ownerAfter != ownerBefore {
+			t.Fatalf(
+				"consumed-source interleaving moved owner from %s to %s",
+				ownerBefore,
+				ownerAfter,
+			)
+		}
+	})
+
 	t.Run("assembly_receipt", func(t *testing.T) {
 		repoPath, _, actions := createActionHarness(t)
 		release := "append-receipt-assembly-target-cas"

@@ -24,10 +24,12 @@ attempt. Neither replaces the slice.
 
 ## Actions
 
-1. If Captain review is needed, inspect the work and return a concise design
+1. Before design, require the engine-prepared exact current consumed `PASS`
+   base. Then inspect the work and return a concise design
    TL;DR covering approach, touched surfaces, consequential decisions, risks,
    and evidence. Stop.
-2. After applicable `PROCEED`, build only the approved product scope.
+2. After applicable `PROCEED`, require the exact current consumed `PASS` base
+   again, then build only the approved product scope.
 3. Run required checks and inspect the real diff and candidate.
 4. Return acceptance-linked evidence over the exact candidate and stop.
 

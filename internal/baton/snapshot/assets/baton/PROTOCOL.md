@@ -25,7 +25,8 @@ own design or issue a delivery verdict.
 ### Captain
 
 A distinct Captain reviews the exact applicable plan revision and design
-attempt. It returns:
+attempt against the exact consumed product base prepared for that design. It
+returns:
 
 - `PROCEED` — implementation may begin;
 - `REVISE` — the same slice needs another design attempt; or
@@ -97,8 +98,12 @@ engine data, not Baton receipts.
 - Approval binds the exact plan revision and is protected from delivery actors.
 - Captain differs from the design producer and binds the plan revision, slice,
   and design attempt.
+- A consuming design binds its pre-composition track or release authority,
+  reviewed product-tree pins, and the deterministic prepared parent reviewed
+  by Captain.
 - Candidate evidence binds the plan revision, slice, attempt, repository,
-  candidate, product tree, checks, and relevant Captain decision.
+  exact prepared base, candidate, product tree, consumed product pins, checks,
+  and relevant Captain decision.
 - Verifier differs from the Implementer and Captain, is fresh and read-only,
   and binds the exact candidate and evidence.
 - Work `PASS` covers one slice candidate. Assembly `PASS` separately covers the
@@ -114,6 +119,14 @@ protected approval, clean verification, Git identity, or effect success.
 Independent tracks may advance concurrently. Ordered slices remain serial
 inside a track, and only one writer may mutate a track at a time. Dependencies
 and consumed inputs come from the approved plan.
+
+A consuming track is prepared from the exact current producer `PASS`
+authorities before its design is recorded and again before implementation.
+The consuming design records the pre-composition authority seed and reviewed
+product pins; its receipt parent is the deterministic prepared review base.
+Changing a consumed product after review requires a fresh design. A new
+producer candidate with the same product-tree digest keeps the review, but its
+current `PASS` authority is still prepared before implementation.
 
 A passed track candidate may be composed only through the approved topology.
 Composition preserves exact candidate identity and ancestry. After every

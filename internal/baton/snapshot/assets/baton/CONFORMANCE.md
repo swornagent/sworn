@@ -28,6 +28,20 @@ Every implementation MUST:
     effects without manufacturing trust facts; and
 12. compose and integrate only exact candidates covered by current `PASS`.
 
+A consuming design MUST be reviewed against an exact base containing the
+applicable producer `PASS` authorities. Before design and again before
+implementation, the engine MUST prepare those current authorities in plan
+order without moving any unrelated ref. Product-tree identity is the review
+pin: a different or absent product requires a fresh design, while a new
+candidate with the same product retains the review.
+
+The portable receipt uses existing fields to make that guarantee explicit:
+the consuming design `base` is the immediately prior valid track receipt or
+current plan-install authority, `inputs` are its reviewed product pins, and the
+design commit parent is the deterministic composition of that seed and those
+producer `PASS` authorities. The consuming candidate `base` is its exact
+implementation start.
+
 Receipt serialization, branch names, record paths, worktree layout, locks, and
 retry algorithms are reference-kit or engine choices. A conforming portable
 representation remains strict, bounded, deterministic, and safe for untrusted
@@ -72,7 +86,8 @@ conformance requirements.
 
 Positive cases cover plan approval and revision, stable slices, design
 `PROCEED` and `REVISE`, implementation retry after `FAIL`, fresh work and
-assembly `PASS`, exact composition, and final Merge.
+assembly `PASS`, exact consumed-input preparation, exact composition, and final
+Merge.
 
 Recovery cases cover missing derived status, stale board output, duplicate
 dispatch, runner interruption, skipped procedural cursor, and reconcilable Git
@@ -80,8 +95,9 @@ effects without a new model role or human approval.
 
 Negative cases cover missing or substituted approval; self-review; changed
 plan, design, candidate, proof, product tree, or target; ambiguous authority;
-runtime events presented as role outcomes; unsafe dependency reuse; composition
-conflict; and forged Merge results.
+runtime events presented as role outcomes; missing, stale, or ambiguous
+consumed authority; unsafe dependency reuse; composition conflict; and forged
+Merge results.
 
 ## Board and engine handoff
 

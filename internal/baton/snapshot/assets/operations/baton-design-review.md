@@ -12,6 +12,7 @@ design attempt before implementation.
 
 - The applicable approved plan revision and stable slice contract.
 - The exact design TL;DR and immutable object it binds.
+- The exact consumed product base and its product-tree pins.
 - Relevant repository facts and the Captain invocation identity.
 
 ## Authority
@@ -23,7 +24,8 @@ a delivery verdict.
 ## Actions
 
 1. Confirm the plan, slice, design attempt, and immutable binding agree.
-2. Check acceptance coverage, scope, dependencies, consumed inputs,
+2. Check acceptance coverage, scope, dependencies, the exact consumed product
+   base,
    consequential decisions, risks, and proposed evidence.
 3. Return exactly one decision:
    - `PROCEED` when implementation may begin;

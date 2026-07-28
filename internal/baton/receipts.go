@@ -319,7 +319,13 @@ func (r Receipt) assertRoleFields() error {
 			if err := require("slice"); err != nil {
 				return err
 			}
-			return forbid("target", "base", "candidate", "product_tree", "inputs", "checks", "result_commit")
+			if (r.Base == nil) != (r.Inputs == nil) {
+				return recordFail(
+					"INVALID_FIELD",
+					"implementer/designed receipt requires base and inputs together",
+				)
+			}
+			return forbid("target", "candidate", "product_tree", "checks", "result_commit")
 		}
 		if err := require(candidateEvidence...); err != nil {
 			return err
