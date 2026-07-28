@@ -142,7 +142,7 @@ func newHTTPFixture(
 	}
 	commands := &httpFakeCommands{}
 	handler, err := NewHTTPHandler(projector, commands, HTTPConfig{
-		Host: host, Origin: origin,
+		RunID: "run-1", Host: host, Origin: origin,
 		BearerToken: []byte(testHTTPToken),
 		MaxSSE:      2,
 	})
@@ -165,6 +165,25 @@ func serve(handler http.Handler, request *http.Request) *httptest.ResponseRecord
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func TestHTTPConfigRequiresOneRunScope(t *testing.T) {
+	t.Parallel()
+
+	for _, runID := range []string{"", "bad/run", strings.Repeat("a", 129)} {
+		handler, err := NewHTTPHandler(
+			&httpFakeProjector{},
+			&httpFakeCommands{},
+			HTTPConfig{
+				RunID:  runID,
+				Host:   testLocalHost,
+				Origin: testLocalOrigin,
+			},
+		)
+		if !IsCode(err, "INVALID_HTTP_CONFIG") || handler != nil {
+			t.Errorf("run scope %q = %#v, %v", runID, handler, err)
+		}
+	}
 }
 
 func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
@@ -274,6 +293,12 @@ func TestHTTPRejectsNonCanonicalAndCrossOriginRequests(t *testing.T) {
 		status int
 	}{
 		{name: "run page", target: "/runs/run-1", status: http.StatusOK},
+		{name: "other run page", target: "/runs/run-2", status: http.StatusNotFound},
+		{
+			name:   "other run snapshot",
+			target: "/api/v1/runs/run-2/snapshot",
+			status: http.StatusNotFound,
+		},
 		{name: "double slash", target: "//runs/run-1", status: http.StatusNotFound},
 		{name: "trailing slash", target: "/runs/run-1/", status: http.StatusNotFound},
 		{

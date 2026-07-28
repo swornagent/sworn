@@ -47,6 +47,7 @@ type CommandAPI interface {
 }
 
 type HTTPConfig struct {
+	RunID       string
 	Host        string
 	Origin      string
 	BearerToken []byte
@@ -56,6 +57,7 @@ type HTTPConfig struct {
 type HTTPHandler struct {
 	projector SnapshotAPI
 	commands  CommandAPI
+	runID     string
 	host      string
 	origin    string
 	token     []byte
@@ -77,6 +79,7 @@ func NewHTTPHandler(
 	config HTTPConfig,
 ) (*HTTPHandler, error) {
 	if projector == nil || commands == nil ||
+		!httpIdentityPattern.MatchString(config.RunID) ||
 		!validHostOrigin(config.Host, config.Origin) {
 		return nil, fail("INVALID_HTTP_CONFIG")
 	}
@@ -93,6 +96,7 @@ func NewHTTPHandler(
 	return &HTTPHandler{
 		projector: projector,
 		commands:  commands,
+		runID:     config.RunID,
 		host:      config.Host,
 		origin:    config.Origin,
 		token:     append([]byte(nil), config.BearerToken...),
@@ -266,12 +270,12 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) == 2 && parts[0] == "runs" &&
-		httpIdentityPattern.MatchString(parts[1]) {
+		parts[1] == h.runID {
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return
 	}
 	if len(parts) < 5 || parts[0] != "api" || parts[1] != "v1" ||
-		parts[2] != "runs" || !httpIdentityPattern.MatchString(parts[3]) {
+		parts[2] != "runs" || parts[3] != h.runID {
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
