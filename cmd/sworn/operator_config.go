@@ -146,7 +146,8 @@ func validOperatorFileInfo(info os.FileInfo) bool {
 
 func parseOperatorConfig(body []byte) (operatorSettings, error) {
 	if len(body) < 2 || len(body) > maxOperatorConfigBytes ||
-		rejectAmbiguousOperatorJSON(body) != nil {
+		rejectAmbiguousOperatorJSON(body) != nil ||
+		validateExactOperatorFields(body) != nil {
 		return operatorSettings{}, errors.New("operator config unavailable")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -206,6 +207,85 @@ func parseOperatorConfig(body []byte) (operatorSettings, error) {
 		result.otel = &otelConfig
 	}
 	return result, nil
+}
+
+func validateExactOperatorFields(body []byte) error {
+	root, err := exactJSONObject(body, []string{
+		"schema_version", "local", "public", "webhooks", "otel",
+	})
+	if err != nil {
+		return err
+	}
+	if local, found := root["local"]; found {
+		if _, err := exactJSONObject(local, []string{"listen"}); err != nil {
+			return err
+		}
+	}
+	if public, found := root["public"]; found && !jsonNull(public) {
+		if _, err := exactJSONObject(public, []string{
+			"listen",
+			"origin",
+			"certificate_pem",
+			"private_key_pem",
+			"token",
+		}); err != nil {
+			return err
+		}
+	}
+	if webhooks, found := root["webhooks"]; found && !jsonNull(webhooks) {
+		var items []json.RawMessage
+		if err := json.Unmarshal(webhooks, &items); err != nil {
+			return err
+		}
+		for _, item := range items {
+			if _, err := exactJSONObject(
+				item,
+				[]string{"id", "url", "secret"},
+			); err != nil {
+				return err
+			}
+		}
+	}
+	if otel, found := root["otel"]; found && !jsonNull(otel) {
+		fields, err := exactJSONObject(otel, []string{
+			"schema_version", "endpoint", "headers",
+		})
+		if err != nil {
+			return err
+		}
+		if headers, found := fields["headers"]; found &&
+			!jsonNull(headers) {
+			var values map[string]json.RawMessage
+			if err := json.Unmarshal(headers, &values); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func exactJSONObject(
+	body []byte,
+	allowed []string,
+) (map[string]json.RawMessage, error) {
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(body, &result); err != nil || result == nil {
+		return nil, errors.New("invalid JSON object")
+	}
+	fields := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		fields[name] = struct{}{}
+	}
+	for name := range result {
+		if _, found := fields[name]; !found {
+			return nil, errors.New("non-exact JSON field")
+		}
+	}
+	return result, nil
+}
+
+func jsonNull(body []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(body), []byte("null"))
 }
 
 func parsePublicSettings(
@@ -309,6 +389,7 @@ func scanOperatorJSONValue(
 	switch delim {
 	case '{':
 		keys := make(map[string]struct{})
+		foldedKeys := make([]string, 0)
 		for decoder.More() {
 			keyToken, err := decoder.Token()
 			if err != nil {
@@ -322,7 +403,13 @@ func scanOperatorJSONValue(
 			if _, duplicate := keys[key]; duplicate {
 				return errors.New("ambiguous JSON")
 			}
+			for _, prior := range foldedKeys {
+				if strings.EqualFold(prior, key) {
+					return errors.New("ambiguous JSON")
+				}
+			}
 			keys[key] = struct{}{}
+			foldedKeys = append(foldedKeys, key)
 			if err := scanOperatorJSONValue(
 				decoder,
 				depth+1,

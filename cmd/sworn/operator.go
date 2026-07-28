@@ -26,6 +26,7 @@ const (
 	operatorPollInterval      = time.Second
 	operatorShutdownTimeout   = 5 * time.Second
 	operatorReadHeaderTimeout = 5 * time.Second
+	operatorReadTimeout       = 15 * time.Second
 	operatorIdleTimeout       = 60 * time.Second
 	operatorMaxHeaderBytes    = 16 * 1024
 )
@@ -39,6 +40,11 @@ type serveOptions struct {
 	journalPath    string
 	manifestPath   string
 	operatorConfig string
+}
+
+type operatorManifestAdmission struct {
+	command cockpit.AdmittedManifest
+	run     journal.Run
 }
 
 type operatorListeners struct {
@@ -153,11 +159,11 @@ func serveOperator(
 	if err != nil {
 		return err
 	}
-	manifests, err := admitOperatorManifest(options)
+	manifest, err := admitOperatorManifest(options)
 	if err != nil {
 		return err
 	}
-	if len(manifests) == 0 {
+	if manifest == nil {
 		statusReader, err := runtimepkg.OpenStatusService(
 			parent,
 			options.journalPath,
@@ -185,13 +191,17 @@ func serveOperator(
 		return errors.New("operator unavailable")
 	}
 	defer operatorStore.Close()
-	if err := checkOperatorBinding(
+	if err := reserveOperatorBinding(
 		parent,
 		operatorStore,
 		options.runID,
-		manifests,
+		manifest,
 	); err != nil {
 		return err
+	}
+	manifests := make([]cockpit.AdmittedManifest, 0, 1)
+	if manifest != nil {
+		manifests = append(manifests, manifest.command)
 	}
 
 	gitExecutable, err := resolveGitExecutable()
@@ -257,12 +267,10 @@ func serveOperator(
 	telemetryOpen := true
 	defer func() {
 		if telemetryOpen {
-			ctx, cancel := context.WithTimeout(
-				context.Background(),
+			shutdownTelemetry(
+				telemetry.Shutdown,
 				operatorShutdownTimeout,
 			)
-			defer cancel()
-			_ = telemetry.Shutdown(ctx)
 		}
 	}()
 
@@ -395,9 +403,9 @@ func serveOperator(
 		}
 	}
 	workers.Wait()
-	telemetryErr := telemetry.Shutdown(shutdownCtx)
+	shutdownTelemetry(telemetry.Shutdown, operatorShutdownTimeout)
 	telemetryOpen = false
-	if serveErr != nil || shutdownErr != nil || telemetryErr != nil {
+	if serveErr != nil || shutdownErr != nil {
 		return errors.New("operator unavailable")
 	}
 	return nil
@@ -405,7 +413,7 @@ func serveOperator(
 
 func admitOperatorManifest(
 	options serveOptions,
-) ([]cockpit.AdmittedManifest, error) {
+) (*operatorManifestAdmission, error) {
 	if options.manifestPath == "" {
 		return nil, nil
 	}
@@ -414,33 +422,53 @@ func admitOperatorManifest(
 		return nil, errors.New("operator unavailable")
 	}
 	manifest, err := cockpit.AdmitManifest(body)
-	if err != nil || manifest.RunID() != options.runID {
+	parsed, parseErr := runtimepkg.ParseManifest(body)
+	if err != nil || parseErr != nil ||
+		manifest.RunID() != options.runID ||
+		parsed.RunID != options.runID {
 		return nil, errors.New("operator unavailable")
 	}
-	return []cockpit.AdmittedManifest{manifest}, nil
+	return &operatorManifestAdmission{
+		command: manifest,
+		run: journal.Run{
+			ID:             parsed.RunID,
+			ManifestDigest: manifest.Digest(),
+			Repository:     parsed.Repository,
+			Release:        parsed.Release,
+			TargetRef:      parsed.TargetRef,
+		},
+	}, nil
 }
 
-func checkOperatorBinding(
+func reserveOperatorBinding(
 	ctx context.Context,
 	store *journal.Store,
 	runID string,
-	manifests []cockpit.AdmittedManifest,
+	manifest *operatorManifestAdmission,
 ) error {
-	if len(manifests) == 0 {
+	if manifest == nil {
 		if _, err := store.RunBinding(ctx, runID); err != nil {
 			return errors.New("operator unavailable")
 		}
 		return nil
 	}
-	binding, err := store.RunBinding(ctx, runID)
-	if journal.IsCode(err, "RUN_NOT_FOUND") {
-		return nil
-	}
-	if err != nil ||
-		binding.ManifestDigest != manifests[0].Digest() {
+	binding := manifest.run
+	binding.CreatedAt = time.Now().UTC()
+	if err := store.RegisterRun(ctx, binding); err != nil {
 		return errors.New("operator unavailable")
 	}
 	return nil
+}
+
+func shutdownTelemetry(
+	shutdown func(context.Context) error,
+	timeout time.Duration,
+) {
+	// Telemetry is a lossy projection. Its shutdown outcome must never become
+	// delivery or process authority.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_ = shutdown(ctx)
 }
 
 func runEvaluationLoop(
@@ -468,6 +496,7 @@ func newOperatorHTTPServer(handler http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: operatorReadHeaderTimeout,
+		ReadTimeout:       operatorReadTimeout,
 		IdleTimeout:       operatorIdleTimeout,
 		MaxHeaderBytes:    operatorMaxHeaderBytes,
 	}

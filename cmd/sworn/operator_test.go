@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -10,7 +11,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -239,6 +242,27 @@ func TestOperatorConfigRejectsAmbiguousAndOpenShapes(t *testing.T) {
 			`"local":{"listen":"127.0.0.1:7444","extra":true}}`,
 		`{"schema_version":"sworn.operator-config/v1",` +
 			`"local":{"listen":"127.0.0.1:7444"},"extra":true}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"LOCAL":{"listen":"127.0.0.1:7444"}}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"listen":"127.0.0.1:7444"},` +
+			`"LOCAL":{"listen":"127.0.0.1:7445"}}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"LISTEN":"127.0.0.1:7444"}}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"listen":"127.0.0.1:7444"},` +
+			`"public":{"TOKEN":"` + strings.Repeat("t", 32) + `"}}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"listen":"127.0.0.1:7444"},` +
+			`"webhooks":[{"SECRET":"` + strings.Repeat("s", 32) + `"}]}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"listen":"127.0.0.1:7444"},` +
+			`"otel":{"ENDPOINT":"https://otel.example"}}`,
+		`{"schema_version":"sworn.operator-config/v1",` +
+			`"local":{"listen":"127.0.0.1:7444"},` +
+			`"otel":{"schema_version":"sworn.otel-config/v1",` +
+			`"endpoint":"https://otel.example",` +
+			`"headers":{"X-Token":"one","x-token":"two"}}}`,
 	}
 	for _, body := range tests {
 		if _, err := parseOperatorConfig([]byte(body)); err == nil {
@@ -349,12 +373,13 @@ func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifests, err := admitOperatorManifest(serveOptions{
+	manifest, err := admitOperatorManifest(serveOptions{
 		runID: "run-1", manifestPath: path,
 	})
-	if err != nil || len(manifests) != 1 ||
-		manifests[0].RunID() != "run-1" {
-		t.Fatalf("manifest = %#v, %v", manifests, err)
+	if err != nil || manifest == nil ||
+		manifest.command.RunID() != "run-1" ||
+		manifest.run.ManifestDigest != manifest.command.Digest() {
+		t.Fatalf("manifest = %#v, %v", manifest, err)
 	}
 	if _, err := admitOperatorManifest(serveOptions{
 		runID: "run-2", manifestPath: path,
@@ -368,33 +393,35 @@ func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.RegisterRun(context.Background(), journal.Run{
-		ID:             "run-1",
-		ManifestDigest: manifests[0].Digest(),
-		Repository:     "/tmp/repository",
-		Release:        "release-1",
-		TargetRef:      "refs/heads/main",
-		CreatedAt:      time.Unix(1_700_000_000, 0).UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkOperatorBinding(
+	if err := reserveOperatorBinding(
 		context.Background(),
 		store,
 		"run-1",
-		manifests,
+		manifest,
 	); err != nil {
-		t.Fatalf("matching binding: %v", err)
+		t.Fatalf("reserve admitted run: %v", err)
 	}
-	if err := checkOperatorBinding(
+	binding, err := store.RunBinding(context.Background(), "run-1")
+	if err != nil || binding.ManifestDigest != manifest.command.Digest() {
+		t.Fatalf("reserved binding = %#v, %v", binding, err)
+	}
+	if err := reserveOperatorBinding(
+		context.Background(),
+		store,
+		"run-1",
+		manifest,
+	); err != nil {
+		t.Fatalf("idempotent reservation: %v", err)
+	}
+	if err := reserveOperatorBinding(
 		context.Background(),
 		store,
 		"run-1",
 		nil,
 	); err != nil {
-		t.Fatalf("existing binding: %v", err)
+		t.Fatalf("existing run without manifest: %v", err)
 	}
-	if err := checkOperatorBinding(
+	if err := reserveOperatorBinding(
 		context.Background(),
 		store,
 		"missing",
@@ -402,19 +429,72 @@ func TestOperatorManifestAndExistingRunBinding(t *testing.T) {
 	); err == nil {
 		t.Fatal("missing run admitted without manifest")
 	}
-	other, err := cockpit.AdmitManifest(
-		operatorManifestBody(t, "run-1", "two"),
-	)
+
+	service, err := runtimepkg.OpenService(context.Background(), journalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkOperatorBinding(
+	if _, err := service.Status(
 		context.Background(),
-		store,
 		"run-1",
-		[]cockpit.AdmittedManifest{other},
 	); err == nil {
-		t.Fatal("mismatched manifest digest admitted")
+		t.Fatal("reserved run projected as started before manifest command")
+	}
+	_, startErr := service.Start(context.Background(), body)
+	status, statusErr := service.Status(context.Background(), "run-1")
+	if closeErr := service.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if runtimepkg.IsCode(startErr, "JOURNAL_WRITE_FAILED") ||
+		statusErr != nil ||
+		status.ManifestDigest != manifest.command.Digest() {
+		t.Fatalf(
+			"start after reservation err=%v status=%#v statusErr=%v",
+			startErr,
+			status,
+			statusErr,
+		)
+	}
+
+	conflictPath := filepath.Join(t.TempDir(), "conflict.sqlite")
+	conflictStore, err := journal.Open(context.Background(), conflictPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conflictStore.Close()
+	otherBody := operatorManifestBody(t, "run-1", "two")
+	otherCommand, err := cockpit.AdmitManifest(otherBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherParsed, err := runtimepkg.ParseManifest(otherBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conflictStore.RegisterRun(context.Background(), journal.Run{
+		ID:             otherParsed.RunID,
+		ManifestDigest: otherCommand.Digest(),
+		Repository:     otherParsed.Repository,
+		Release:        otherParsed.Release,
+		TargetRef:      otherParsed.TargetRef,
+		CreatedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reserveOperatorBinding(
+		context.Background(),
+		conflictStore,
+		"run-1",
+		manifest,
+	); err == nil {
+		t.Fatal("competing manifest registration was not rejected")
+	}
+	conflict, err := conflictStore.RunBinding(
+		context.Background(),
+		"run-1",
+	)
+	if err != nil || conflict.ManifestDigest != otherCommand.Digest() {
+		t.Fatalf("conflicting binding changed = %#v, %v", conflict, err)
 	}
 }
 
@@ -484,6 +564,28 @@ func TestTelemetryHealthAdapterMapsOnlySafeStatus(t *testing.T) {
 	if disabled.Enabled || disabled.SchemaVersion !=
 		cockpit.TelemetryHealthSchemaVersion {
 		t.Fatalf("disabled health = %#v", disabled)
+	}
+}
+
+func TestTelemetryShutdownFailureAndTimeoutAreNonControlling(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	shutdownTelemetry(func(context.Context) error {
+		called = true
+		return fmt.Errorf("exporter failed")
+	}, time.Second)
+	if !called {
+		t.Fatal("telemetry shutdown was not attempted")
+	}
+
+	started := time.Now()
+	shutdownTelemetry(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}, 20*time.Millisecond)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("telemetry shutdown was not bounded: %s", elapsed)
 	}
 }
 
@@ -740,10 +842,83 @@ func TestOperatorHTTPServerKeepsSSEAndHeadersBounded(t *testing.T) {
 
 	server := newOperatorHTTPServer(http.NotFoundHandler())
 	if server.ReadHeaderTimeout != operatorReadHeaderTimeout ||
+		server.ReadTimeout != operatorReadTimeout ||
 		server.IdleTimeout != operatorIdleTimeout ||
 		server.MaxHeaderBytes != operatorMaxHeaderBytes ||
 		server.WriteTimeout != 0 {
 		t.Fatalf("HTTP server policy = %#v", server)
+	}
+}
+
+func TestOperatorHTTPServerTimesOutSlowMutationBody(t *testing.T) {
+	t.Parallel()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, "request timeout", http.StatusRequestTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := newOperatorHTTPServer(handler)
+	server.ReadTimeout = 50 * time.Millisecond
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() {
+		served <- server.Serve(listener)
+	}()
+	connection, err := net.DialTimeout(
+		"tcp",
+		listener.Addr().String(),
+		time.Second,
+	)
+	if err != nil {
+		_ = server.Close()
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err := fmt.Fprintf(
+		connection,
+		"POST / HTTP/1.1\r\nHost: %s\r\n"+
+			"Content-Type: application/json\r\n"+
+			"Content-Length: 32\r\n\r\n{",
+		listener.Addr().String(),
+	); err != nil {
+		_ = server.Close()
+		t.Fatal(err)
+	}
+	if err := connection.SetReadDeadline(
+		time.Now().Add(time.Second),
+	); err != nil {
+		_ = server.Close()
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(
+		bufio.NewReader(connection),
+		&http.Request{Method: http.MethodPost},
+	)
+	if err != nil {
+		_ = server.Close()
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusRequestTimeout {
+		_ = server.Close()
+		t.Fatalf("slow mutation status = %d", response.StatusCode)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-served:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("serve result: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not stop")
 	}
 }
 
