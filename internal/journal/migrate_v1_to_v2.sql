@@ -57,4 +57,22 @@ ON notification_outbox(destination_id, state, sequence);
 CREATE INDEX IF NOT EXISTS outbox_by_run
 ON notification_outbox(run_id, destination_id, sequence);
 
+-- v1 wrote valid UTC RFC3339Nano values with a variable-width fractional
+-- component. The cockpit selects a bounded recent-attempt window lexically,
+-- so normalize those existing values to the fixed-width representation used
+-- by v2 before admitting the migrated journal.
+UPDATE attempts
+SET created_at = CASE
+    WHEN length(created_at) = 20
+         AND substr(created_at, 20, 1) = 'Z'
+    THEN substr(created_at, 1, 19) || '.000000000Z'
+    WHEN length(created_at) BETWEEN 22 AND 30
+         AND substr(created_at, 20, 1) = '.'
+         AND substr(created_at, -1, 1) = 'Z'
+    THEN substr(created_at, 1, length(created_at) - 1)
+         || substr('000000000', 1, 30 - length(created_at))
+         || 'Z'
+    ELSE created_at
+END;
+
 PRAGMA user_version = 2;

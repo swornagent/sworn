@@ -712,6 +712,131 @@ func TestOpenMigratesOnlyExactV1AndPreservesExistingFacts(t *testing.T) {
 	}
 }
 
+func TestV1MigrationNormalizesTheBoundedAttemptWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run, _, effect := journalFixture(t)
+	path := store.Path()
+	usage := []byte(`{"token_status":"unavailable"}`)
+	base := run.CreatedAt.Truncate(time.Second).Add(time.Second)
+	olderBoundary := base.Add(100 * time.Millisecond)
+	newerBoundary := base.Add(110 * time.Millisecond)
+	later := base.Add(time.Second)
+	if err := store.immediate(ctx, func(conn *sql.Conn) error {
+		for attempt := 1; attempt <= MaxObservationAttempts+1; attempt++ {
+			at := later
+			switch attempt {
+			case 1:
+				at = olderBoundary
+			case 2:
+				at = newerBoundary
+			}
+			if _, err := conn.ExecContext(
+				ctx,
+				`INSERT INTO attempts(
+				     run_id, effect_id, attempt, responsibility,
+				     transport_status, observation_digest, usage_digest,
+				     usage, created_at
+				 ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				run.ID,
+				effect.ID,
+				attempt,
+				"implementer_implementation",
+				"completed",
+				digest([]byte("observation")),
+				digest(usage),
+				usage,
+				at.UTC().Format(time.RFC3339Nano),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, false)
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	observation, err := migrated.ReadObservation(
+		ctx,
+		run.ID,
+		MaxObservationAttempts,
+		1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Attempts) != MaxObservationAttempts {
+		t.Fatalf(
+			"attempt window = %d, want %d",
+			len(observation.Attempts),
+			MaxObservationAttempts,
+		)
+	}
+	var olderPresent, newerPresent bool
+	for index, attempt := range observation.Attempts {
+		if index > 0 &&
+			attempt.CreatedAt.Before(observation.Attempts[index-1].CreatedAt) {
+			t.Fatalf(
+				"attempt window is not chronological at %d: %s before %s",
+				index,
+				attempt.CreatedAt,
+				observation.Attempts[index-1].CreatedAt,
+			)
+		}
+		switch attempt.Number {
+		case 1:
+			olderPresent = true
+		case 2:
+			newerPresent = true
+		}
+	}
+	if olderPresent || !newerPresent {
+		t.Fatalf(
+			"migration selected boundary attempts: older=%t newer=%t",
+			olderPresent,
+			newerPresent,
+		)
+	}
+	rows, err := migrated.conn.QueryContext(
+		ctx,
+		`SELECT created_at FROM attempts
+		 WHERE run_id=? ORDER BY attempt`,
+		run.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var encoded string
+		if err := rows.Scan(&encoded); err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := parseTime(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := parsed.UTC().Format(
+			"2006-01-02T15:04:05.000000000Z",
+		); encoded != want {
+			t.Fatalf("migrated timestamp = %q, want %q", encoded, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenRejectsModifiedV1WithoutPartialMigration(t *testing.T) {
 	t.Parallel()
 
