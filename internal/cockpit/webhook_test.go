@@ -13,7 +13,9 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,6 +55,55 @@ func (f roundTripFunc) RoundTrip(
 	request *http.Request,
 ) (*http.Response, error) {
 	return f(request)
+}
+
+type faultWebhookJournal struct {
+	webhookJournal
+	mu                    sync.Mutex
+	failObserver          string
+	observerFailures      int
+	failFinishDestination string
+	finishFailures        int
+}
+
+func (f *faultWebhookJournal) ObserverCursor(
+	ctx context.Context,
+	runID, observer string,
+) (int64, error) {
+	f.mu.Lock()
+	if observer == f.failObserver && f.observerFailures > 0 {
+		f.observerFailures--
+		f.mu.Unlock()
+		return 0, errors.New("observer unavailable")
+	}
+	f.mu.Unlock()
+	return f.webhookJournal.ObserverCursor(ctx, runID, observer)
+}
+
+func (f *faultWebhookJournal) FinishNotification(
+	ctx context.Context,
+	claim journal.NotificationClaim,
+	disposition journal.NotificationDisposition,
+	retryAt time.Time,
+	errorCode string,
+	at time.Time,
+) error {
+	f.mu.Lock()
+	if claim.Notification.DestinationID == f.failFinishDestination &&
+		f.finishFailures > 0 {
+		f.finishFailures--
+		f.mu.Unlock()
+		return errors.New("finish unavailable")
+	}
+	f.mu.Unlock()
+	return f.webhookJournal.FinishNotification(
+		ctx,
+		claim,
+		disposition,
+		retryAt,
+		errorCode,
+		at,
+	)
 }
 
 type trackingBody struct {
@@ -180,7 +231,7 @@ func TestWebhookProjectsCanonicalContentFreeEventsPerDestination(t *testing.T) {
 				err,
 			)
 		}
-		for index, item := range notifications {
+		for _, item := range notifications {
 			for _, private := range []string{
 				"private prompt",
 				"proof body",
@@ -206,8 +257,7 @@ func TestWebhookProjectsCanonicalContentFreeEventsPerDestination(t *testing.T) {
 				body.MessageID != item.MessageID ||
 				body.RunID != run.ID ||
 				body.EventOffset != item.SourceEventOffset ||
-				body.EventKind !=
-					[]string{"effect_started", "effect_completed"}[index] {
+				body.EventKind != webhookRunUpdated {
 				t.Fatalf("%s body = %#v", destination.ID, body)
 			}
 			canonical, err := json.Marshal(body)
@@ -469,7 +519,7 @@ func TestWebhookNeverReroutesQueuedRowsAfterConfigChange(t *testing.T) {
 	}
 }
 
-func TestWebhookTickProjectsAndDrainsDestinationsInOrder(t *testing.T) {
+func TestWebhookTickProjectsAndVisitsEachDestination(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -488,11 +538,14 @@ func TestWebhookTickProjectsAndDrainsDestinationsInOrder(t *testing.T) {
 	service := testWebhookService(t, store, destinations)
 	service.now = func() time.Time { return now.Add(time.Second) }
 	var delivered []string
+	var deliveredMu sync.Mutex
 	for _, destination := range destinations {
 		destinationID := destination.ID
 		service.destinations[destinationID].client.Transport = roundTripFunc(
 			func(*http.Request) (*http.Response, error) {
+				deliveredMu.Lock()
 				delivered = append(delivered, destinationID)
+				deliveredMu.Unlock()
 				return &http.Response{
 					StatusCode: http.StatusNoContent,
 					Header:     make(http.Header),
@@ -503,11 +556,12 @@ func TestWebhookTickProjectsAndDrainsDestinationsInOrder(t *testing.T) {
 	}
 	result, err := service.Tick(ctx, run.ID)
 	if err != nil || result.Projected != 2 ||
-		result.Deliveries != 2 || result.HasMore {
+		result.Deliveries != 2 || !result.HasMore {
 		t.Fatalf("tick = %#v, %v", result, err)
 	}
+	sort.Strings(delivered)
 	if strings.Join(delivered, ",") != "audit,primary" {
-		t.Fatalf("delivery order = %#v", delivered)
+		t.Fatalf("destinations = %#v", delivered)
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -517,6 +571,402 @@ func TestWebhookTickProjectsAndDrainsDestinationsInOrder(t *testing.T) {
 		minWebhookInterval,
 	); err != nil {
 		t.Fatalf("cancelled worker = %v", err)
+	}
+}
+
+func TestWebhookProjectionMapsHostileKindsToClosedVocabulary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	hostile := "credential-/private/path-AKIA_ERROR_secret"
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		hostile,
+		nil,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	destination := testWebhookDestinations()[0]
+	service := testWebhookService(t, store, []WebhookDestination{destination})
+	service.now = func() time.Time { return now.Add(time.Second) }
+	if _, err := service.Project(ctx, run.ID, destination.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(
+		ctx,
+		run.ID,
+		destination.ID,
+		1,
+	)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("notifications = %#v, %v", items, err)
+	}
+	if bytes.Contains(items[0].Body, []byte(hostile)) ||
+		!bytes.Contains(
+			items[0].Body,
+			[]byte(`"event_kind":"run_updated"`),
+		) {
+		t.Fatalf("unsafe projected body = %s", items[0].Body)
+	}
+	var value webhookEventBody
+	if err := json.Unmarshal(items[0].Body, &value); err != nil {
+		t.Fatal(err)
+	}
+	value.EventKind = hostile
+	tampered, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := items[0]
+	item.Body = tampered
+	if code := validateWebhookEvent(
+		service.destinations[destination.ID],
+		item,
+	); code != "WEBHOOK_PAYLOAD_INVALID" {
+		t.Fatalf("hostile payload validation = %q", code)
+	}
+}
+
+func TestWebhookTickDoesNotLetSlowDestinationDelayHealthyPeer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		"effect_completed",
+		nil,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	service := testWebhookService(t, store, testWebhookDestinations())
+	service.now = func() time.Time { return now.Add(time.Second) }
+	auditStarted := make(chan struct{})
+	releaseAudit := make(chan struct{})
+	primarySent := make(chan struct{})
+	service.destinations["audit"].client.Transport = roundTripFunc(
+		func(*http.Request) (*http.Response, error) {
+			close(auditStarted)
+			<-releaseAudit
+			return nil, errors.New("audit transport unavailable")
+		},
+	)
+	service.destinations["primary"].client.Transport = roundTripFunc(
+		func(*http.Request) (*http.Response, error) {
+			close(primarySent)
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Header:     make(http.Header),
+				Body:       http.NoBody,
+			}, nil
+		},
+	)
+	type tickResult struct {
+		value WebhookTick
+		err   error
+	}
+	done := make(chan tickResult, 1)
+	go func() {
+		value, err := service.Tick(ctx, run.ID)
+		done <- tickResult{value: value, err: err}
+	}()
+	select {
+	case <-auditStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow destination did not start")
+	}
+	select {
+	case <-primarySent:
+	case <-time.After(time.Second):
+		t.Fatal("healthy destination was delayed by slow peer")
+	}
+	close(releaseAudit)
+	select {
+	case result := <-done:
+		if result.err != nil || result.value.Deliveries != 2 {
+			t.Fatalf("tick = %#v, %v", result.value, result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tick did not isolate failed destination")
+	}
+	audit, err := store.Notifications(ctx, run.ID, "audit", 1)
+	if err != nil || len(audit) != 1 ||
+		audit[0].State != journal.NotificationPending {
+		t.Fatalf("audit state = %#v, %v", audit, err)
+	}
+	primary, err := store.Notifications(ctx, run.ID, "primary", 1)
+	if err != nil || len(primary) != 1 ||
+		primary[0].State != journal.NotificationDelivered {
+		t.Fatalf("primary state = %#v, %v", primary, err)
+	}
+}
+
+func TestWebhookTickIsolatesDestinationJournalFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                  string
+		failObserver          string
+		observerFailures      int
+		failFinishDestination string
+		finishFailures        int
+		wantProjected         int
+		wantDeliveries        int
+		wantAuditState        journal.NotificationState
+	}{
+		{
+			name:             "projection",
+			failObserver:     "webhook.audit",
+			observerFailures: 1,
+			wantProjected:    1,
+			wantDeliveries:   1,
+		},
+		{
+			name:                  "finish",
+			failFinishDestination: "audit",
+			finishFailures:        1,
+			wantProjected:         2,
+			wantDeliveries:        1,
+			wantAuditState:        journal.NotificationClaimed,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			store, run := cockpitJournalFixture(t)
+			now := run.CreatedAt.Add(time.Second)
+			if err := store.AppendEvent(
+				ctx,
+				run.ID,
+				"effect_completed",
+				nil,
+				now,
+			); err != nil {
+				t.Fatal(err)
+			}
+			faults := &faultWebhookJournal{
+				webhookJournal:        store,
+				failObserver:          test.failObserver,
+				observerFailures:      test.observerFailures,
+				failFinishDestination: test.failFinishDestination,
+				finishFailures:        test.finishFailures,
+			}
+			service := testWebhookService(
+				t,
+				faults,
+				testWebhookDestinations(),
+			)
+			service.now = func() time.Time { return now.Add(time.Second) }
+			for _, endpoint := range service.destinations {
+				endpoint.client.Transport = roundTripFunc(
+					func(*http.Request) (*http.Response, error) {
+						return &http.Response{
+							StatusCode: http.StatusNoContent,
+							Header:     make(http.Header),
+							Body:       http.NoBody,
+						}, nil
+					},
+				)
+			}
+			result, err := service.Tick(ctx, run.ID)
+			if !IsCode(err, "JOURNAL_UNAVAILABLE") ||
+				result.Projected != test.wantProjected ||
+				result.Deliveries != test.wantDeliveries {
+				t.Fatalf("tick = %#v, %v", result, err)
+			}
+			primary, err := store.Notifications(
+				ctx,
+				run.ID,
+				"primary",
+				1,
+			)
+			if err != nil || len(primary) != 1 ||
+				primary[0].State != journal.NotificationDelivered {
+				t.Fatalf("primary = %#v, %v", primary, err)
+			}
+			if test.wantAuditState != "" {
+				audit, err := store.Notifications(
+					ctx,
+					run.ID,
+					"audit",
+					1,
+				)
+				if err != nil || len(audit) != 1 ||
+					audit[0].State != test.wantAuditState {
+					t.Fatalf("audit = %#v, %v", audit, err)
+				}
+			}
+		})
+	}
+}
+
+func TestWebhookRunRetriesOperationalTickFailure(t *testing.T) {
+	t.Parallel()
+
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	if err := store.AppendEvent(
+		context.Background(),
+		run.ID,
+		"effect_completed",
+		nil,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	faults := &faultWebhookJournal{
+		webhookJournal:   store,
+		failObserver:     "webhook.audit",
+		observerFailures: 1,
+	}
+	service := testWebhookService(t, faults, testWebhookDestinations())
+	service.now = func() time.Time { return now.Add(time.Second) }
+	auditSent := make(chan struct{})
+	for destinationID, endpoint := range service.destinations {
+		destinationID := destinationID
+		endpoint.client.Transport = roundTripFunc(
+			func(*http.Request) (*http.Response, error) {
+				if destinationID == "audit" {
+					select {
+					case <-auditSent:
+					default:
+						close(auditSent)
+					}
+				}
+				return &http.Response{
+					StatusCode: http.StatusNoContent,
+					Header:     make(http.Header),
+					Body:       http.NoBody,
+				}, nil
+			},
+		)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx, run.ID, minWebhookInterval)
+	}()
+	select {
+	case <-auditSent:
+		cancel()
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("worker stopped after transient projection failure")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("worker = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after cancellation")
+	}
+}
+
+func TestWebhookRunLetsHealthyFIFOAdvancePastPersistentlySlowPeer(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	for index := 0; index < 2; index++ {
+		if err := store.AppendEvent(
+			context.Background(),
+			run.ID,
+			"effect_completed",
+			nil,
+			now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := testWebhookService(t, store, testWebhookDestinations())
+	service.now = func() time.Time { return now.Add(3 * time.Second) }
+	auditStarted := make(chan struct{})
+	releaseAudit := make(chan struct{})
+	service.destinations["audit"].client.Transport = roundTripFunc(
+		func(request *http.Request) (*http.Response, error) {
+			select {
+			case <-auditStarted:
+			default:
+				close(auditStarted)
+			}
+			select {
+			case <-releaseAudit:
+				return nil, errors.New("audit transport unavailable")
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		},
+	)
+	primarySent := make(chan struct{}, 2)
+	service.destinations["primary"].client.Transport = roundTripFunc(
+		func(*http.Request) (*http.Response, error) {
+			primarySent <- struct{}{}
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Header:     make(http.Header),
+				Body:       http.NoBody,
+			}, nil
+		},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx, run.ID, minWebhookInterval)
+	}()
+	select {
+	case <-auditStarted:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("slow destination did not start")
+	}
+	for delivery := 1; delivery <= 2; delivery++ {
+		select {
+		case <-primarySent:
+		case <-time.After(time.Second):
+			close(releaseAudit)
+			cancel()
+			t.Fatalf(
+				"healthy destination did not make delivery %d",
+				delivery,
+			)
+		}
+	}
+	close(releaseAudit)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("worker = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after cancellation")
+	}
+	primary, err := store.Notifications(
+		context.Background(),
+		run.ID,
+		"primary",
+		2,
+	)
+	if err != nil || len(primary) != 2 {
+		t.Fatalf("primary notifications = %#v, %v", primary, err)
+	}
+	for _, item := range primary {
+		if item.State != journal.NotificationDelivered {
+			t.Fatalf("primary state = %#v", primary)
+		}
 	}
 }
 

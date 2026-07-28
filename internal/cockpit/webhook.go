@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/swornagent/sworn/internal/journal"
@@ -32,9 +33,15 @@ const (
 	webhookFinishTimeout      = 5 * time.Second
 	webhookRetryBase          = 5 * time.Second
 	maxWebhookAddresses       = 16
-	maxWebhookDeliveriesTick  = 32
 	minWebhookInterval        = 250 * time.Millisecond
 	maxWebhookInterval        = time.Minute
+)
+
+const (
+	webhookRunUpdated      = "run_updated"
+	webhookControlUpdated  = "control_updated"
+	webhookAttemptUpdated  = "attempt_updated"
+	webhookRecoveryUpdated = "recovery_updated"
 )
 
 var (
@@ -404,7 +411,7 @@ func (s *WebhookService) Project(
 			MessageID:          messageID,
 			RunID:              runID,
 			EventOffset:        event.Offset,
-			EventKind:          event.Kind,
+			EventKind:          safeWebhookEventKind(event.Kind),
 			RecordedAt:         event.CreatedAt,
 		})
 		if err != nil {
@@ -454,32 +461,58 @@ func (s *WebhookService) Tick(
 		destinations = append(destinations, destinationID)
 	}
 	sort.Strings(destinations)
-	var result WebhookTick
+	type destinationResult struct {
+		destination string
+		projection  WebhookProjection
+		delivery    WebhookDelivery
+		err         error
+	}
+	results := make(chan destinationResult, len(destinations))
+	var workers sync.WaitGroup
 	for _, destinationID := range destinations {
-		projection, err := s.Project(ctx, runID, destinationID)
-		if err != nil {
-			return WebhookTick{}, err
-		}
-		result.Projected += projection.Projected
-		result.HasMore = result.HasMore || projection.HasMore
-		for attempt := 0; attempt < maxWebhookDeliveriesTick; attempt++ {
-			delivery, err := s.DeliverOne(ctx, destinationID)
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			projection, err := s.Project(ctx, runID, destinationID)
 			if err != nil {
-				return WebhookTick{}, err
+				results <- destinationResult{
+					destination: destinationID,
+					err:         err,
+				}
+				return
 			}
-			if !delivery.Found {
-				break
+			delivery, err := s.DeliverOne(ctx, destinationID)
+			results <- destinationResult{
+				destination: destinationID,
+				projection:  projection,
+				delivery:    delivery,
+				err:         err,
 			}
+		}()
+	}
+	workers.Wait()
+	close(results)
+	items := make([]destinationResult, 0, len(destinations))
+	for item := range results {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(left, right int) bool {
+		return items[left].destination < items[right].destination
+	})
+	var result WebhookTick
+	var tickErr error
+	for _, item := range items {
+		result.Projected += item.projection.Projected
+		result.HasMore = result.HasMore || item.projection.HasMore
+		if item.delivery.Found {
 			result.Deliveries++
-			if delivery.State == journal.NotificationPending {
-				break
-			}
-			if attempt == maxWebhookDeliveriesTick-1 {
-				result.HasMore = true
-			}
+			result.HasMore = true
+		}
+		if tickErr == nil && item.err != nil {
+			tickErr = item.err
 		}
 	}
-	return result, nil
+	return result, tickErr
 }
 
 // Run performs bounded at-least-once delivery. Receivers must deduplicate
@@ -493,23 +526,45 @@ func (s *WebhookService) Run(
 		interval < minWebhookInterval || interval > maxWebhookInterval {
 		return fail("INVALID_WEBHOOK_RUN")
 	}
+	destinations := make([]string, 0, len(s.destinations))
+	for destinationID := range s.destinations {
+		destinations = append(destinations, destinationID)
+	}
+	sort.Strings(destinations)
+	var workers sync.WaitGroup
+	for _, destinationID := range destinations {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			s.runDestination(ctx, runID, destinationID, interval)
+		}()
+	}
+	<-ctx.Done()
+	workers.Wait()
+	return nil
+}
+
+func (s *WebhookService) runDestination(
+	ctx context.Context,
+	runID, destinationID string,
+	interval time.Duration,
+) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		default:
 		}
-		if _, err := s.Tick(ctx, runID); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
+		if _, err := s.Project(ctx, runID, destinationID); err == nil {
+			// Each destination owns its projection and FIFO progress. A slow
+			// or unavailable peer cannot consume this worker's interval.
+			_, _ = s.DeliverOne(ctx, destinationID)
 		}
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
 		}
 	}
@@ -680,7 +735,7 @@ func validateWebhookEvent(
 		value.MessageID != item.MessageID ||
 		value.RunID != item.RunID ||
 		value.EventOffset != item.SourceEventOffset ||
-		value.EventOffset < 1 || value.EventKind == "" ||
+		value.EventOffset < 1 || !validSafeWebhookEventKind(value.EventKind) ||
 		value.RecordedAt.IsZero() ||
 		webhookMessageID(
 			value.RunID,
@@ -690,6 +745,34 @@ func validateWebhookEvent(
 		return "WEBHOOK_PAYLOAD_INVALID"
 	}
 	return ""
+}
+
+func safeWebhookEventKind(kind string) string {
+	switch {
+	case kind == "control_accepted" ||
+		kind == "owner_acquired" ||
+		kind == "owner_released":
+		return webhookControlUpdated
+	case strings.Contains(kind, "uncertain") ||
+		strings.Contains(kind, "reconciled") ||
+		strings.Contains(kind, "recovered") ||
+		strings.Contains(kind, "rolled_back"):
+		return webhookRecoveryUpdated
+	case strings.HasPrefix(kind, "dispatch_"):
+		return webhookAttemptUpdated
+	default:
+		return webhookRunUpdated
+	}
+}
+
+func validSafeWebhookEventKind(kind string) bool {
+	switch kind {
+	case webhookRunUpdated, webhookControlUpdated, webhookAttemptUpdated,
+		webhookRecoveryUpdated:
+		return true
+	default:
+		return false
+	}
 }
 
 func webhookSignatureBytes(
