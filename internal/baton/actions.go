@@ -156,6 +156,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 
 	parent := target.Head
 	var previous *State
+	preparedTrackResets := make(map[string]string)
 	if absentRef(prior) {
 		if metadata.Revision != 1 || metadata.PreviousPlan != nil {
 			return ActionResult{}, recordFail("INVALID_PLAN_REVISION", "a new release must begin at plan revision 1")
@@ -194,12 +195,43 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 			return result, nil
 		}
 		for _, track := range state.Tracks {
-			if track.Head != "" && track.Head != track.AuthorityHead {
+			if track.Head == "" || track.Head == track.AuthorityHead {
+				continue
+			}
+			resettable := false
+			if state.Plan.TargetStale {
+				for _, slice := range track.Slices {
+					if slice.Pass != nil {
+						continue
+					}
+					if len(slice.Location.Slice.Consumes) == 0 ||
+						slice.Stage != "design" ||
+						slice.Status != "ready" ||
+						slice.NextRole != "implementer" ||
+						slice.Candidate != nil ||
+						slice.PreparationSeed != track.AuthorityHead ||
+						slice.PreparedBase != track.Head {
+						break
+					}
+					exactBase, exactErr := preparedStateTrackBase(
+						a.repository,
+						state,
+						slice,
+					)
+					if exactErr != nil {
+						return ActionResult{}, exactErr
+					}
+					resettable = exactBase == track.Head
+					break
+				}
+			}
+			if !resettable {
 				return ActionResult{}, recordFail(
 					"CHANGED_OWNER_HEAD",
 					"track "+track.ID+" has unrecorded implementation work",
 				)
 			}
+			preparedTrackResets[track.Ref] = track.AuthorityHead
 		}
 		if err := assertPlanRevision(current, parsed, state.Plan.OID); err != nil {
 			return ActionResult{}, err
@@ -345,6 +377,17 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	operations := []refOperation{{Kind: "verify", Ref: targetRef, ExpectedHead: target.Head}}
 	for _, capturedRef := range captured {
 		if capturedRef.Ref != targetRef && capturedRef.Ref != ownerRef {
+			if authority, reset := preparedTrackResets[capturedRef.Ref]; reset {
+				resetHead := authority
+				if resetHead == prior.Head {
+					resetHead = nextHead
+				}
+				operations = append(operations, refOperation{
+					Kind: "update", Ref: capturedRef.Ref,
+					NewHead: resetHead, ExpectedHead: capturedRef.Head,
+				})
+				continue
+			}
 			operations = append(operations, refOperation{
 				Kind: "verify", Ref: capturedRef.Ref, ExpectedHead: capturedRef.Head,
 			})

@@ -2865,12 +2865,16 @@ func prepareClassifiedAssembly(
 	if len(resolvers) > 0 {
 		resolveTrackProductBase = resolvers[0]
 	}
-	candidate := target
-	components := []assemblyTrackCandidate{{
-		Authority: releaseHead,
-	}}
-	components = append(components, classification.TrackCandidates...)
-	for _, component := range components {
+	approved, err := repository.prepareApprovedTargetBase(
+		targetRef,
+		releaseHead,
+		target,
+	)
+	if err != nil {
+		return "", err
+	}
+	candidate := approved.Result
+	for _, component := range classification.TrackCandidates {
 		authority := component.Authority
 		if authority == "" {
 			authority = component.Candidate
@@ -2886,7 +2890,7 @@ func prepareClassifiedAssembly(
 			continue
 		}
 		var prepared preparedComposition
-		if component.ID == "" || resolveTrackProductBase == nil {
+		if resolveTrackProductBase == nil {
 			prepared, err = repository.prepareComposition(
 				targetRef,
 				candidate,

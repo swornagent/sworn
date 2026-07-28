@@ -1968,6 +1968,358 @@ func TestPlanRevisionRejectsUnrecordedImplementationHead(t *testing.T) {
 	}
 }
 
+func TestPlanRevisionReconcilesOnlyExactTargetStalePreparedBase(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		moveTrack func(*testing.T, string, string, string, string) string
+		wantCode  string
+	}{
+		{name: "exact_prepared_base"},
+		{
+			name: "prepared_base_with_unrecorded_descendant",
+			moveTrack: func(
+				t *testing.T,
+				repoPath, track, prepared, _ string,
+			) string {
+				return commitActionProduct(
+					t,
+					repoPath,
+					prepared,
+					track,
+					"unrecorded.txt",
+					"unrecorded implementation\n",
+					1000001861,
+				)
+			},
+			wantCode: "CHANGED_OWNER_HEAD",
+		},
+		{
+			name: "unrelated_unrecorded_head",
+			moveTrack: func(
+				t *testing.T,
+				repoPath, track, prepared, authority string,
+			) string {
+				tree := actionGit(
+					t,
+					repoPath,
+					nil,
+					nil,
+					"rev-parse",
+					prepared+"^{tree}",
+				)
+				unrelated := actionGit(
+					t,
+					repoPath,
+					[]byte("unrelated implementation\n"),
+					[]string{
+						"GIT_AUTHOR_DATE=1000001862 +0000",
+						"GIT_COMMITTER_DATE=1000001862 +0000",
+					},
+					"commit-tree",
+					tree,
+					"-p",
+					authority,
+				)
+				actionGit(
+					t,
+					repoPath,
+					nil,
+					nil,
+					"update-ref",
+					track,
+					unrelated,
+					prepared,
+				)
+				return unrelated
+			},
+			wantCode: "CHANGED_OWNER_HEAD",
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			repoPath, repository, actions := createActionHarness(t)
+			release := "target-stale-prepared-" +
+				strings.ReplaceAll(test.name, "_", "-")
+			producer := actionSlice("S1", "one.txt")
+			consumer := actionSlice("S2", "two.txt")
+			consumer.Consumes = []string{"S1"}
+			tracks := []Track{
+				{
+					ID: "T1", DependsOn: []string{},
+					Slices: []Slice{producer},
+				},
+				{
+					ID: "T2", DependsOn: []string{},
+					Slices: []Slice{consumer},
+				},
+			}
+			recorded, err := actions.RecordPlanRevision(
+				RecordPlanRevisionInput{
+					PlanBytes: actionPlanRevisionBytes(
+						release,
+						1,
+						nil,
+						tracks,
+					),
+					Summary: "Approve prepared-base recovery.",
+					Detail:  []byte("approval one"),
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			advanceActionSlice(
+				t,
+				actions,
+				repoPath,
+				release,
+				"T1",
+				"S1",
+				"one.txt",
+				1000001860,
+				"pass",
+			)
+			trackRef := trackRef(release, "T2")
+			prepared := prepareActionSliceBase(
+				t,
+				actions,
+				release,
+				"S2",
+			)
+			beforeMove := readActionState(t, repository, release)
+			beforeTrack, ok := beforeMove.Track("T2")
+			if !ok {
+				t.Fatal("consumer track is absent")
+			}
+			beforeSlice, ok := beforeMove.Slice("S2")
+			if !ok ||
+				beforeSlice.Stage != "design" ||
+				beforeSlice.Status != "ready" ||
+				beforeSlice.NextRole != "implementer" ||
+				beforeSlice.PreparedBase != prepared ||
+				beforeTrack.Head != prepared ||
+				beforeTrack.AuthorityHead == prepared {
+				t.Fatalf(
+					"prepared consumer state: track=%#v slice=%#v",
+					beforeTrack,
+					beforeSlice,
+				)
+			}
+			trackBefore := prepared
+			if test.moveTrack != nil {
+				trackBefore = test.moveTrack(
+					t,
+					repoPath,
+					trackRef,
+					prepared,
+					beforeTrack.AuthorityHead,
+				)
+			}
+			targetParent := actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"rev-parse",
+				"refs/heads/main",
+			)
+			targetMoved := commitActionProduct(
+				t,
+				repoPath,
+				targetParent,
+				"refs/heads/main",
+				"target-moved.txt",
+				"external target movement\n",
+				1000001863,
+			)
+			releaseBefore := actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"rev-parse",
+				releaseRef(release),
+			)
+			previous := recorded.Plan
+			revised, err := actions.RecordPlanRevision(
+				RecordPlanRevisionInput{
+					PlanBytes: actionPlanRevisionBytes(
+						release,
+						2,
+						&previous,
+						tracks,
+					),
+					Summary: "Approve the moved target.",
+					Detail:  []byte("approval two"),
+				},
+			)
+			if test.wantCode != "" {
+				if ErrorCode(err) != test.wantCode {
+					t.Fatalf("plan revision error = %v", err)
+				}
+				if actionGit(
+					t,
+					repoPath,
+					nil,
+					nil,
+					"rev-parse",
+					releaseRef(release),
+				) != releaseBefore ||
+					actionGit(
+						t,
+						repoPath,
+						nil,
+						nil,
+						"rev-parse",
+						trackRef,
+					) != trackBefore ||
+					actionGit(
+						t,
+						repoPath,
+						nil,
+						nil,
+						"rev-parse",
+						"refs/heads/main",
+					) != targetMoved {
+					t.Fatal(
+						"rejected plan revision changed an authority ref",
+					)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := readActionState(t, repository, release)
+			afterTrack, ok := after.Track("T2")
+			afterSlice, sliceOK := after.Slice("S2")
+			if !ok || !sliceOK ||
+				after.Plan.Metadata.Revision != 2 ||
+				after.Plan.TargetStale ||
+				after.Refs.Target.Head != targetMoved ||
+				afterTrack.Head != afterTrack.AuthorityHead ||
+				afterTrack.Head != revised.Head ||
+				afterTrack.Head == prepared ||
+				afterSlice.Stage != "design" ||
+				afterSlice.Status != "ready" ||
+				afterSlice.NextRole != "implementer" {
+				t.Fatalf(
+					"reconciled plan: plan=%#v track=%#v slice=%#v result=%#v",
+					after.Plan,
+					afterTrack,
+					afterSlice,
+					revised,
+				)
+			}
+			nextBase, err := preparedStateTrackBase(
+				actions.repository,
+				after,
+				afterSlice,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if nextBase == prepared {
+				t.Fatal("revised target reused the stale prepared base")
+			}
+			actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"update-ref",
+				trackRef,
+				nextBase,
+				afterTrack.Head,
+			)
+			reprepared := readActionState(t, repository, release)
+			repreparedSlice, _ := reprepared.Slice("S2")
+			if repreparedSlice.PreparedBase != nextBase {
+				t.Fatalf(
+					"reprepared base = %q, want %q",
+					repreparedSlice.PreparedBase,
+					nextBase,
+				)
+			}
+			advanceActionSlice(
+				t,
+				actions,
+				repoPath,
+				release,
+				"T2",
+				"S2",
+				"two.txt",
+				1000001864,
+				"pass",
+			)
+			assembly, err := actions.PrepareAssembly(
+				PrepareAssemblyInput{
+					Release: release,
+					Summary: "Prepare revised-target assembly.",
+					Detail:  []byte("assembly"),
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstParent := strings.Fields(actionGit(
+				t,
+				repoPath,
+				nil,
+				nil,
+				"rev-list",
+				"--first-parent",
+				assembly.Candidate,
+			))
+			foundRevisionAuthority := false
+			for _, commit := range firstParent {
+				foundRevisionAuthority =
+					foundRevisionAuthority || commit == revised.Head
+			}
+			if assembly.Direct || !assembly.Changed ||
+				!foundRevisionAuthority {
+				t.Fatalf(
+					"revised assembly omitted release authority: %#v history=%v",
+					assembly,
+					firstParent,
+				)
+			}
+			appendActionReceipt(
+				t,
+				actions,
+				AppendReceiptInput{
+					Release:   release,
+					Role:      "verifier",
+					Result:    "pass",
+					Summary:   "Pass revised-target assembly.",
+					Detail:    []byte("fresh assembly verification"),
+					Candidate: assembly.Candidate,
+					CheckResults: []byte(
+						"assembly checks\n",
+					),
+				},
+			)
+			if _, err := actions.MergePassedCandidate(
+				MergePassedCandidateInput{
+					Release: release,
+					Summary: "Merge revised-target assembly.",
+					Detail:  []byte("merge"),
+				},
+			); err != nil {
+				t.Fatal(err)
+			}
+			complete := readActionState(t, repository, release)
+			if complete.Assembly.Status != "complete" ||
+				complete.Assembly.Outcome != "merged" {
+				t.Fatalf(
+					"revised-target assembly did not complete: %#v",
+					complete.Assembly,
+				)
+			}
+		})
+	}
+}
+
 func TestPlanRevisionRejectsPreexistingProposedTrack(t *testing.T) {
 	repoPath, _, actions := createActionHarness(t)
 	release := "plan-existing-new-track"

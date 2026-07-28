@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -415,4 +416,260 @@ func TestRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			)
 		})
 	}
+
+	t.Run(
+		"crash_after_preparation_target_move_revision_reprepares",
+		func(t *testing.T) {
+			const (
+				runID   = "e2e-consumed-stale-prepared"
+				release = runID + "-release"
+				issue   = int64(54)
+				marker1 = "approval-e2e-consumed-stale-prepared-v1"
+				marker2 = "approval-e2e-consumed-stale-prepared-v2"
+			)
+			crashBinary := filepath.Join(
+				buildRoot,
+				"sworn-crash-after-stale-prepared-base",
+			)
+			buildBinary(
+				t,
+				crashBinary,
+				"./cmd/sworn",
+				baseLDFlags+
+					" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=git.prepare_track_base"+
+					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
+			)
+			repository := newProductRepository(t)
+			runRoot := t.TempDir()
+			journalPath := filepath.Join(runRoot, "run.sqlite")
+			manifestBody, initialBytes, initialPlan := consumingE2EManifest(
+				t,
+				runID,
+				repository,
+				release,
+				issue,
+				marker1,
+				fakeBinary,
+				fakeDigest,
+			)
+			revisionBytes, revisionPlan := revisedPlan(
+				t,
+				repository,
+				initialBytes,
+				initialPlan,
+				issue,
+				marker2,
+			)
+			var manifest swornruntime.Manifest
+			if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			addRevisionTwoScripts(t, &manifest, runID, revisionBytes)
+			manifestBody, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestPath := writeManifest(
+				t,
+				runRoot,
+				append(manifestBody, '\n'),
+			)
+			stdout, _ := runBinary(
+				t,
+				crashBinary,
+				0,
+				"run",
+				"--manifest",
+				manifestPath,
+				"--journal",
+				journalPath,
+			)
+			if !strings.Contains(stdout, "state awaiting_approval") {
+				t.Fatalf("planner output = %q", stdout)
+			}
+			approvals.publish(
+				issue,
+				approvalFor(issue, marker1, initialPlan),
+			)
+			installAndPassComponent(
+				t,
+				repository,
+				release,
+				initialBytes,
+			)
+			runBinary(
+				t,
+				crashBinary,
+				86,
+				"resume",
+				"--run",
+				runID,
+				"--journal",
+				journalPath,
+				"--command",
+				"resume-1",
+				"--generation",
+				"0",
+			)
+			consumerRef := "refs/heads/track/" + release + "/T1"
+			stalePrepared := runGit(
+				t,
+				repository,
+				"rev-parse",
+				consumerRef,
+			)
+			beforeMove := readBatonState(t, repository, release)
+			consumer, ok := beforeMove.Slice("S1")
+			if !ok ||
+				consumer.Stage != "design" ||
+				consumer.Status != "ready" ||
+				consumer.NextRole != "implementer" ||
+				consumer.Candidate != nil ||
+				consumer.PreparedBase != stalePrepared {
+				t.Fatalf(
+					"crashed prepared-base state = %#v",
+					consumer,
+				)
+			}
+
+			if err := os.WriteFile(
+				filepath.Join(repository, "target-moved.txt"),
+				[]byte("external target movement\n"),
+				0o644,
+			); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, repository, "add", "--", "target-moved.txt")
+			runGit(
+				t,
+				repository,
+				"commit",
+				"--quiet",
+				"-m",
+				"external target movement",
+			)
+			time.Sleep(1800 * time.Millisecond)
+			stdout, _ = runBinary(
+				t,
+				normalBinary,
+				0,
+				"takeover",
+				"--run",
+				runID,
+				"--journal",
+				journalPath,
+				"--command",
+				"takeover-1",
+				"--generation",
+				"1",
+			)
+			if !strings.Contains(stdout, "state awaiting_approval") {
+				t.Fatalf("target-stale takeover = %q", stdout)
+			}
+			staleState := readBatonState(t, repository, release)
+			if !staleState.Plan.TargetStale ||
+				staleState.Plan.Metadata.Revision != 1 ||
+				runGit(
+					t,
+					repository,
+					"rev-parse",
+					consumerRef,
+				) != stalePrepared {
+				t.Fatalf(
+					"stale prepared base was not preserved: plan=%#v",
+					staleState.Plan,
+				)
+			}
+
+			approvals.publish(
+				issue,
+				approvalFor(issue, marker2, revisionPlan),
+			)
+			stdout, _ = runBinary(
+				t,
+				normalBinary,
+				0,
+				"resume",
+				"--run",
+				runID,
+				"--journal",
+				journalPath,
+				"--command",
+				"resume-2",
+				"--generation",
+				"2",
+			)
+			if !strings.Contains(stdout, "state complete") {
+				t.Fatalf("revised prepared-base completion = %q", stdout)
+			}
+			after := readBatonState(t, repository, release)
+			consumer, ok = after.Slice("S1")
+			if !ok ||
+				after.Plan.Metadata.Revision != 2 ||
+				len(after.Plan.History) != 2 ||
+				after.Plan.TargetStale ||
+				consumer.Pass == nil ||
+				consumer.Outcome != "pass" ||
+				runGit(
+					t,
+					repository,
+					"rev-parse",
+					consumerRef,
+				) == stalePrepared {
+				t.Fatalf(
+					"revised prepared-base state: plan=%#v consumer=%#v",
+					after.Plan,
+					consumer,
+				)
+			}
+
+			store, err := journal.OpenReadOnly(
+				context.Background(),
+				journalPath,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := store.Snapshot(
+				context.Background(),
+				runID,
+			)
+			_ = store.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			staleEffects, succeededEffects := 0, 0
+			for _, effect := range snapshot.Effects {
+				if effect.ErrorCode == "CHANGED_OWNER_HEAD" {
+					t.Fatalf(
+						"exact prepared base reached changed-owner failure: %#v",
+						effect,
+					)
+				}
+				if effect.Kind != "git.prepare_track_base" {
+					continue
+				}
+				switch {
+				case effect.State == journal.OperationalFailed &&
+					effect.ErrorCode == "stale_authority":
+					staleEffects++
+				case effect.State == journal.Succeeded:
+					succeededEffects++
+				case effect.State == journal.Claimed ||
+					effect.State == journal.Uncertain:
+					t.Fatalf(
+						"track-base effect remained nonterminal: %#v",
+						effect,
+					)
+				}
+			}
+			if staleEffects != 1 || succeededEffects < 1 {
+				t.Fatalf(
+					"track-base recovery effects stale=%d succeeded=%d",
+					staleEffects,
+					succeededEffects,
+				)
+			}
+		},
+	)
 }
