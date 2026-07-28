@@ -48,6 +48,20 @@ func TestObservationAndEventReplayAreBoundedContentFreeSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := store.AdvanceObserver(ctx, ObserverAdvance{
+		RunID: run.ID, Observer: "webhook.primary",
+		ExpectedOffset: 0,
+		ThroughOffset:  4,
+		Notifications: []NotificationDraft{{
+			DestinationID:     "primary",
+			SourceEventOffset: 4,
+			MessageID:         "message-1",
+			Body:              []byte(`{"private":"must stay internal"}`),
+		}},
+		At: now.Add(6 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	binding, err := store.RunBinding(ctx, run.ID)
 	if err != nil || binding != run {
@@ -67,6 +81,13 @@ func TestObservationAndEventReplayAreBoundedContentFreeSnapshots(t *testing.T) {
 		observation.Attempts[0].EffectID != effect.ID ||
 		string(observation.Attempts[0].Usage) != string(usage) {
 		t.Fatalf("attempt facts = %#v", observation.Attempts)
+	}
+	if len(observation.Notifications) != 1 ||
+		observation.Notifications[0].DestinationID != "primary" ||
+		observation.Notifications[0].MessageID != "message-1" ||
+		observation.Notifications[0].State != NotificationPending ||
+		observation.NotificationsTruncated {
+		t.Fatalf("notification facts = %#v", observation.Notifications)
 	}
 
 	first, err := store.EventsAfter(ctx, run.ID, 0, 2)

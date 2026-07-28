@@ -299,7 +299,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	claimAt := now.Add(4 * time.Second)
 	first, found, err := store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		claimAt,
 		time.Second,
@@ -311,7 +310,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	}
 	if _, found, err := store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		claimAt.Add(500*time.Millisecond),
 		time.Second,
@@ -331,7 +329,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	}
 	if _, found, err := store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		retryAt.Add(-time.Nanosecond),
 		time.Second,
@@ -340,7 +337,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	}
 	first, found, err = store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		retryAt,
 		time.Second,
@@ -361,7 +357,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 
 	second, found, err := store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		retryAt.Add(2*time.Second),
 		time.Second,
@@ -374,7 +369,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	for attempt := int64(2); attempt <= MaxNotificationAttempts; attempt++ {
 		second, found, err = store.ClaimNotification(
 			ctx,
-			run.ID,
 			"webhook-primary",
 			second.ExpiresAt,
 			time.Second,
@@ -391,7 +385,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	}
 	if _, found, err := store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		second.ExpiresAt,
 		time.Second,
@@ -425,7 +418,6 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	}
 	second, found, err = store.ClaimNotification(
 		ctx,
-		run.ID,
 		"webhook-primary",
 		redeliverAt,
 		time.Second,
@@ -452,6 +444,111 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	if err != nil || notifications[1].State != NotificationDelivered ||
 		notifications[1].Attempts != 1 {
 		t.Fatalf("redelivered notifications = %#v, %v", notifications, err)
+	}
+}
+
+func TestNotificationClaimSerializesOneDestinationAcrossRuns(t *testing.T) {
+	t.Parallel()
+
+	store, firstRun, _, _ := journalFixture(t)
+	ctx := context.Background()
+	secondRun := firstRun
+	secondRun.ID = "run-2"
+	secondRun.ManifestDigest = digest([]byte("manifest-2"))
+	secondRun.Release = "release-2"
+	secondRun.CreatedAt = firstRun.CreatedAt.Add(time.Second)
+	if err := store.RegisterRun(ctx, secondRun); err != nil {
+		t.Fatal(err)
+	}
+	for index, run := range []Run{firstRun, secondRun} {
+		at := secondRun.CreatedAt.Add(time.Duration(index+1) * time.Second)
+		if err := store.AppendEvent(
+			ctx,
+			run.ID,
+			"runtime_progress",
+			[]byte(run.ID),
+			at,
+		); err != nil {
+			t.Fatal(err)
+		}
+		window, err := store.EventsAfter(ctx, run.ID, 0, 1)
+		if err != nil || len(window.Events) != 1 {
+			t.Fatalf("%s events = %#v, %v", run.ID, window, err)
+		}
+		if err := store.AdvanceObserver(ctx, ObserverAdvance{
+			RunID: run.ID, Observer: "webhook.shared",
+			ExpectedOffset: 0,
+			ThroughOffset:  window.Through,
+			Notifications: []NotificationDraft{{
+				DestinationID:     "shared",
+				SourceEventOffset: window.Through,
+				MessageID:         "message-" + run.ID,
+				Body:              []byte(`{"safe":true}`),
+			}},
+			At: at.Add(time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstItems, err := store.Notifications(
+		ctx,
+		firstRun.ID,
+		"shared",
+		1,
+	)
+	if err != nil || len(firstItems) != 1 || firstItems[0].Sequence != 1 {
+		t.Fatalf("first run outbox = %#v, %v", firstItems, err)
+	}
+	secondItems, err := store.Notifications(
+		ctx,
+		secondRun.ID,
+		"shared",
+		1,
+	)
+	if err != nil || len(secondItems) != 1 || secondItems[0].Sequence != 2 {
+		t.Fatalf("second run outbox = %#v, %v", secondItems, err)
+	}
+
+	now := secondRun.CreatedAt.Add(10 * time.Second)
+	first, found, err := store.ClaimNotification(
+		ctx,
+		"shared",
+		now,
+		time.Minute,
+	)
+	if err != nil || !found ||
+		first.Notification.RunID != firstRun.ID ||
+		first.Notification.Sequence != 1 {
+		t.Fatalf("first global claim = %#v, found=%t, %v", first, found, err)
+	}
+	if _, found, err := store.ClaimNotification(
+		ctx,
+		"shared",
+		now.Add(time.Second),
+		time.Minute,
+	); err != nil || found {
+		t.Fatalf("concurrent later-run claim = found=%t, %v", found, err)
+	}
+	if err := store.FinishNotification(
+		ctx,
+		first,
+		NotificationSucceeded,
+		time.Time{},
+		"",
+		now.Add(2*time.Second),
+	); err != nil {
+		t.Fatal(err)
+	}
+	second, found, err := store.ClaimNotification(
+		ctx,
+		"shared",
+		now.Add(3*time.Second),
+		time.Minute,
+	)
+	if err != nil || !found ||
+		second.Notification.RunID != secondRun.ID ||
+		second.Notification.Sequence != 2 {
+		t.Fatalf("second global claim = %#v, found=%t, %v", second, found, err)
 	}
 }
 
@@ -562,19 +659,17 @@ func TestObserverAndOutboxReadsRejectMissingRun(t *testing.T) {
 			)
 			return err
 		},
-		"claim": func() error {
-			_, _, err := store.ClaimNotification(
-				ctx,
-				"missing-run",
-				"webhook-primary",
-				time.Unix(1_700_000_000, 0).UTC(),
-				time.Second,
-			)
-			return err
-		},
 	} {
 		if err := operation(); !IsCode(err, "RUN_NOT_FOUND") {
 			t.Errorf("%s missing run = %v", name, err)
 		}
+	}
+	if _, found, err := store.ClaimNotification(
+		ctx,
+		"webhook-primary",
+		time.Unix(1_700_000_000, 0).UTC(),
+		time.Second,
+	); err != nil || found {
+		t.Fatalf("empty destination claim = found=%t, %v", found, err)
 	}
 }

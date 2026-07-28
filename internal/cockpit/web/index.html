@@ -85,6 +85,18 @@
       </div>
       <ol id="evidence-list"></ol>
     </section>
+
+    <section class="outbox" aria-labelledby="outbox-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Signed delivery</p>
+          <h2 id="outbox-title">Notification outbox</h2>
+        </div>
+        <p class="quiet" id="outbox-window"></p>
+      </div>
+      <p class="quiet outbox-note">Delivery is at least once. Receivers must deduplicate by message ID.</p>
+      <ol id="outbox-list"></ol>
+    </section>
   </main>
 
   <dialog class="detail-sheet" id="detail-sheet" aria-labelledby="sheet-title">

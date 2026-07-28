@@ -62,9 +62,11 @@ type Handoff struct {
 }
 
 type RuntimeView struct {
-	Owner    OwnerView     `json:"owner"`
-	Effects  []EffectView  `json:"effects"`
-	Attempts []AttemptView `json:"attempts"`
+	Owner                  OwnerView          `json:"owner"`
+	Effects                []EffectView       `json:"effects"`
+	Attempts               []AttemptView      `json:"attempts"`
+	Notifications          []NotificationView `json:"notifications"`
+	NotificationsTruncated bool               `json:"notifications_truncated"`
 }
 
 type OwnerView struct {
@@ -93,6 +95,21 @@ type AttemptView struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type NotificationView struct {
+	DestinationID     string     `json:"destination_id"`
+	SourceEventOffset int64      `json:"source_event_offset"`
+	Sequence          int64      `json:"sequence"`
+	MessageID         string     `json:"message_id"`
+	State             string     `json:"state"`
+	Attempts          int64      `json:"attempts"`
+	AvailableAt       time.Time  `json:"available_at"`
+	ClaimedUntil      *time.Time `json:"claimed_until"`
+	DeliveredAt       *time.Time `json:"delivered_at"`
+	LastErrorCode     string     `json:"last_error_code,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
 type Evidence struct {
 	Offset    int64     `json:"offset"`
 	Kind      string    `json:"kind"`
@@ -104,6 +121,8 @@ type Action struct {
 	ExpectedGeneration int64  `json:"expected_generation"`
 	WorkID             string `json:"work_id,omitempty"`
 	ExpectedEpoch      int64  `json:"expected_epoch,omitempty"`
+	DestinationID      string `json:"destination_id,omitempty"`
+	MessageID          string `json:"message_id,omitempty"`
 }
 
 type Diagnostic struct {

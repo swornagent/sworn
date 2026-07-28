@@ -360,8 +360,7 @@ func (s *Store) AdvanceObserver(ctx context.Context, value ObserverAdvance) erro
 					ctx,
 					`SELECT COALESCE(max(sequence), 0)
 					 FROM notification_outbox
-					 WHERE run_id = ? AND destination_id = ?`,
-					value.RunID,
+					 WHERE destination_id = ?`,
 					notification.DestinationID,
 				).Scan(&sequence); err != nil {
 					return dbError(err)

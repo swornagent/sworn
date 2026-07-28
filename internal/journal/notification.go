@@ -82,6 +82,22 @@ func scanNotification(
 	if err != nil {
 		return Notification{}, err
 	}
+	return validateScannedNotification(
+		result,
+		availableAt,
+		claimedUntil,
+		deliveredAt,
+		createdAt,
+		updatedAt,
+	)
+}
+
+func validateScannedNotification(
+	result Notification,
+	availableAt, claimedUntil, deliveredAt sql.NullString,
+	createdAt, updatedAt sql.NullString,
+) (Notification, error) {
+	var err error
 	result.AvailableAt, err = parseTime(availableAt.String)
 	if err == nil && claimedUntil.Valid {
 		result.ClaimedUntil, err = parseTime(claimedUntil.String)
@@ -98,6 +114,11 @@ func scanNotification(
 	if err != nil || result.SchemaVersion != NotificationSchemaVersion ||
 		result.BodyDigest != digest(result.Body) {
 		return Notification{}, fail("CORRUPT_JOURNAL", nil)
+	}
+	if result.LastErrorCode != "" {
+		if err := validateIdentity(result.LastErrorCode, "error_code"); err != nil {
+			return Notification{}, fail("CORRUPT_JOURNAL", nil)
+		}
 	}
 	switch result.State {
 	case NotificationPending:
@@ -133,13 +154,10 @@ func scanNotification(
 
 func (s *Store) ClaimNotification(
 	ctx context.Context,
-	runID, destinationID string,
+	destinationID string,
 	now time.Time,
 	lease time.Duration,
 ) (NotificationClaim, bool, error) {
-	if err := validateIdentity(runID, "run"); err != nil {
-		return NotificationClaim{}, false, err
-	}
 	if err := validateIdentity(destinationID, "destination"); err != nil {
 		return NotificationClaim{}, false, err
 	}
@@ -158,8 +176,19 @@ func (s *Store) ClaimNotification(
 	var result NotificationClaim
 	found := false
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
-		if _, err := runOnConnection(ctx, conn, runID); err != nil {
-			return err
+		var runID string
+		if err := conn.QueryRowContext(
+			ctx,
+			`SELECT run_id FROM notification_outbox
+			 WHERE destination_id = ?
+			   AND state IN ('pending','claimed')
+			 ORDER BY sequence
+			 LIMIT 1`,
+			destinationID,
+		).Scan(&runID); errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return dbError(err)
 		}
 		row := conn.QueryRowContext(
 			ctx,
@@ -168,11 +197,10 @@ func (s *Store) ClaimNotification(
 			        COALESCE(claim_token,''), claimed_until, delivered_at,
 			        COALESCE(last_error_code,''), created_at, updated_at
 			 FROM notification_outbox
-			 WHERE run_id = ? AND destination_id = ?
+			 WHERE destination_id = ?
 			   AND state IN ('pending','claimed')
 			 ORDER BY sequence
 			 LIMIT 1`,
-			runID,
 			destinationID,
 		)
 		item, scanErr := scanNotification(row, runID, destinationID)
@@ -197,7 +225,7 @@ func (s *Store) ClaimNotification(
 				 WHERE run_id=? AND destination_id=? AND sequence=?
 				   AND state IN ('pending','claimed')`,
 				at,
-				runID,
+				item.RunID,
 				destinationID,
 				item.Sequence,
 			); err != nil {
@@ -215,7 +243,7 @@ func (s *Store) ClaimNotification(
 			token,
 			expires,
 			at,
-			runID,
+			item.RunID,
 			destinationID,
 			item.Sequence,
 			item.State,

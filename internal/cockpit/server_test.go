@@ -112,7 +112,9 @@ func httpSnapshot() Snapshot {
 			Nodes: []string{}, Responsibilities: []string{},
 		},
 		Runtime: RuntimeView{
-			Effects: []EffectView{}, Attempts: []AttemptView{},
+			Effects:       []EffectView{},
+			Attempts:      []AttemptView{},
+			Notifications: []NotificationView{},
 		},
 		Evidence: []Evidence{},
 		Actions: []Action{{

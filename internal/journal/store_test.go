@@ -688,6 +688,28 @@ func TestOpenMigratesOnlyExactV1AndPreservesExistingFacts(t *testing.T) {
 	if err := verifySchemaIdentity(ctx, migrated.conn); err != nil {
 		t.Fatal(err)
 	}
+	migratedFingerprint, err := schemaFingerprint(ctx, migrated.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := Open(ctx, filepath.Join(t.TempDir(), "fresh-v2.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	freshFingerprint, err := schemaFingerprint(ctx, fresh.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedFingerprint != freshFingerprint ||
+		freshFingerprint != schemaIdentityDigest {
+		t.Fatalf(
+			"fresh/migrated parity = fresh %s migrated %s want %s",
+			freshFingerprint,
+			migratedFingerprint,
+			schemaIdentityDigest,
+		)
+	}
 }
 
 func TestOpenRejectsModifiedV1WithoutPartialMigration(t *testing.T) {

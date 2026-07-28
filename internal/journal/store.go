@@ -30,7 +30,7 @@ const (
 
 	legacySchemaVersion        = 1
 	legacySchemaIdentityDigest = "sha256:bb78cc011e12981e7a7d82ac3198936b0a04c9ce8516f062d4d2017957f3cd3e"
-	schemaIdentityDigest       = "sha256:660de7b68d0f768d62ab97874bdb1acda75a382e0a0dc998ede46c43f4338dd7"
+	schemaIdentityDigest       = "sha256:dfb1f66f6b0186165409b98bd684deaabbb5e626c64b8649df7c1c7ab5a229f7"
 )
 
 //go:embed schema.sql

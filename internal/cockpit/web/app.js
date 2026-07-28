@@ -33,6 +33,8 @@ const elements = {
   detail: document.querySelector("#detail-content"),
   actions: document.querySelector("#actions"),
   evidence: document.querySelector("#evidence-list"),
+  outbox: document.querySelector("#outbox-list"),
+  outboxWindow: document.querySelector("#outbox-window"),
   sheet: document.querySelector("#detail-sheet"),
   sheetTitle: document.querySelector("#sheet-title"),
   sheetContent: document.querySelector("#sheet-content"),
@@ -73,6 +75,7 @@ function validSnapshot(value) {
     value.handoff && Array.isArray(value.handoff.nodes) &&
     value.runtime && Array.isArray(value.runtime.effects) &&
     Array.isArray(value.runtime.attempts) &&
+    Array.isArray(value.runtime.notifications) &&
     Array.isArray(value.evidence) &&
     Array.isArray(value.actions) &&
     Array.isArray(value.diagnostics) &&
@@ -177,6 +180,10 @@ function render() {
   renderHandoff(snapshot.handoff);
   renderDiagnosticStatus();
   renderEvidence(snapshot.evidence);
+  renderOutbox(
+    snapshot.runtime.notifications,
+    snapshot.runtime.notifications_truncated,
+  );
   renderActions(elements.actions, snapshot.actions);
 
   if (snapshot.graph.nodes.length === 0) {
@@ -242,6 +249,8 @@ function renderFailure() {
   elements.releaseFacts.replaceChildren();
   elements.handoff.hidden = true;
   elements.evidence.replaceChildren();
+  elements.outbox.replaceChildren();
+  elements.outboxWindow.textContent = "";
   elements.actions.replaceChildren();
   if (state.runID) {
     showEmpty(
@@ -434,18 +443,26 @@ async function submitAction(action, button) {
     return;
   }
   button.disabled = true;
-  const body = {
+  const redelivery = action.kind === "redeliver";
+  const body = redelivery ? {
+    run_id: state.runID,
+    destination_id: action.destination_id,
+    message_id: action.message_id,
+  } : {
     run_id: state.runID,
     command_id: commandID(),
     kind: action.kind,
     expected_generation: action.expected_generation,
   };
-  if (action.kind === "retry") {
+  if (!redelivery && action.kind === "retry") {
     body.work_id = action.work_id;
     body.expected_epoch = action.expected_epoch;
   }
   try {
-    const response = await fetch(`/api/v1/runs/${state.runID}/commands`, {
+    const path = redelivery
+      ? `/api/v1/runs/${state.runID}/notifications/redeliver`
+      : `/api/v1/runs/${state.runID}/commands`;
+    const response = await fetch(path, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -491,6 +508,43 @@ function renderEvidence(events) {
     return item;
   });
   elements.evidence.replaceChildren(...items);
+}
+
+function renderOutbox(notifications, truncated) {
+  elements.outboxWindow.textContent = truncated
+    ? "Showing the latest bounded window."
+    : `${notifications.length} recorded`;
+  if (notifications.length === 0) {
+    const item = document.createElement("li");
+    const kind = document.createElement("strong");
+    kind.textContent = "No notification deliveries recorded.";
+    const copy = document.createElement("span");
+    copy.className = "quiet";
+    copy.textContent = "Signed webhook state will appear here.";
+    item.append(kind, copy);
+    elements.outbox.replaceChildren(item);
+    return;
+  }
+  const items = notifications.map((notification) => {
+    const item = document.createElement("li");
+    item.className = `notification-${notification.state}`;
+    const destination = document.createElement("span");
+    destination.className = "eyebrow";
+    destination.textContent =
+      `${notification.destination_id} · Sequence ${notification.sequence}`;
+    const stateCopy = document.createElement("strong");
+    stateCopy.textContent =
+      `${humanize(notification.state)} · Attempt ${notification.attempts}`;
+    const message = document.createElement("span");
+    message.className = "node-meta";
+    message.textContent = notification.message_id;
+    const error = document.createElement("span");
+    error.className = "quiet";
+    error.textContent = reported(notification.last_error_code);
+    item.append(destination, stateCopy, message, error);
+    return item;
+  });
+  elements.outbox.replaceChildren(...items);
 }
 
 function drawEdges(edges) {
@@ -566,6 +620,9 @@ function humanize(value) {
 }
 
 function actionLabel(action) {
+  if (action.kind === "redeliver") {
+    return `Redeliver ${short(action.message_id)}`;
+  }
   if (action.kind === "retry") {
     return `Retry epoch ${action.expected_epoch}`;
   }

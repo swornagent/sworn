@@ -145,6 +145,13 @@ func projectionFixture() (
 			Offset: 7, Kind: "dispatch_completed",
 			CreatedAt: now.Add(3 * time.Second),
 		}},
+		Notifications: []journal.NotificationFact{{
+			DestinationID: "primary", SourceEventOffset: 7,
+			Sequence: 1, MessageID: "message-1",
+			State: journal.NotificationDead, Attempts: 3,
+			AvailableAt: now, LastErrorCode: "WEBHOOK_HTTP_REJECTED",
+			CreatedAt: now, UpdatedAt: now.Add(4 * time.Second),
+		}},
 		EventOffset: 7,
 	}
 	status := runtimepkg.RunStatus{
@@ -308,7 +315,10 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 	}
 	if !hasAction(snapshot.Actions, "retry") ||
 		!hasAction(snapshot.Actions, "pause") ||
-		!hasAction(snapshot.Actions, "cancel") {
+		!hasAction(snapshot.Actions, "cancel") ||
+		!hasAction(snapshot.Actions, "redeliver") ||
+		len(snapshot.Runtime.Notifications) != 1 ||
+		snapshot.Runtime.Notifications[0].MessageID != "message-1" {
 		t.Fatalf("safe actions = %#v", snapshot.Actions)
 	}
 }

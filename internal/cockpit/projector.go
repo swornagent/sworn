@@ -233,12 +233,19 @@ func buildSnapshot(
 			},
 			Effects:  make([]EffectView, 0, len(status.Effects)),
 			Attempts: make([]AttemptView, 0, len(observation.Attempts)),
+			Notifications: make(
+				[]NotificationView,
+				0,
+				len(observation.Notifications),
+			),
+			NotificationsTruncated: observation.NotificationsTruncated,
 		},
 		Evidence:      make([]Evidence, 0, len(observation.Events)),
 		Actions:       []Action{},
 		Diagnostics:   []Diagnostic{},
 		ThroughOffset: observation.EventOffset,
 	}
+	redeliveryActions := make([]Action, 0)
 	if observation.OwnerPresent {
 		result.Runtime.Owner.Active = observation.Owner.ExpiresAt.After(now)
 		result.Runtime.Owner.Generation = observation.Owner.Generation
@@ -258,6 +265,47 @@ func buildSnapshot(
 			return Snapshot{}, err
 		}
 		result.Runtime.Attempts = append(result.Runtime.Attempts, view)
+	}
+	for _, notification := range observation.Notifications {
+		view := NotificationView{
+			DestinationID:     notification.DestinationID,
+			SourceEventOffset: notification.SourceEventOffset,
+			Sequence:          notification.Sequence,
+			MessageID:         notification.MessageID,
+			State:             string(notification.State),
+			Attempts:          notification.Attempts,
+			AvailableAt:       notification.AvailableAt,
+			LastErrorCode: safeNotificationError(
+				notification.LastErrorCode,
+			),
+			CreatedAt: notification.CreatedAt,
+			UpdatedAt: notification.UpdatedAt,
+		}
+		if !notification.ClaimedUntil.IsZero() {
+			claimedUntil := notification.ClaimedUntil
+			view.ClaimedUntil = &claimedUntil
+		}
+		if !notification.DeliveredAt.IsZero() {
+			deliveredAt := notification.DeliveredAt
+			view.DeliveredAt = &deliveredAt
+		}
+		result.Runtime.Notifications = append(
+			result.Runtime.Notifications,
+			view,
+		)
+		if notification.State == journal.NotificationDead {
+			redeliveryActions = append(redeliveryActions, Action{
+				Kind:          "redeliver",
+				DestinationID: notification.DestinationID,
+				MessageID:     notification.MessageID,
+			})
+		}
+	}
+	if observation.NotificationsTruncated {
+		result.Diagnostics = append(
+			result.Diagnostics,
+			Diagnostic{Code: "OUTBOX_TRUNCATED"},
+		)
 	}
 	for _, event := range observation.Events {
 		result.Evidence = append(result.Evidence, Evidence{
@@ -294,9 +342,32 @@ func buildSnapshot(
 		})
 	}
 	if !state.Plan.TargetStale && len(state.Diagnostics) == 0 {
-		result.Actions = safeActions(status, observation.Control)
+		controls := safeActions(status, observation.Control)
+		result.Actions = append(controls, redeliveryActions...)
 	}
 	return result, nil
+}
+
+func safeNotificationError(value string) string {
+	switch value {
+	case "",
+		"DELIVERY_LEASE_EXPIRED",
+		"WEBHOOK_AUTHORITY_CHANGED",
+		"WEBHOOK_CANCELLED",
+		"WEBHOOK_CONFIG_CHANGED",
+		"WEBHOOK_DNS_REJECTED",
+		"WEBHOOK_DNS_UNAVAILABLE",
+		"WEBHOOK_HTTP_REJECTED",
+		"WEBHOOK_HTTP_RETRYABLE",
+		"WEBHOOK_PAYLOAD_INVALID",
+		"WEBHOOK_REDIRECT",
+		"WEBHOOK_REQUEST_INVALID",
+		"WEBHOOK_TIMEOUT",
+		"WEBHOOK_TRANSPORT":
+		return value
+	default:
+		return "DELIVERY_FAILED"
+	}
 }
 
 func projectHandoff(graph Graph) Handoff {

@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     last_error_code TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY (run_id, destination_id, sequence),
+    PRIMARY KEY (destination_id, sequence),
     UNIQUE (run_id, destination_id, source_event_offset),
     UNIQUE (run_id, message_id),
     FOREIGN KEY (run_id) REFERENCES runs(run_id)
@@ -52,6 +52,9 @@ CREATE INDEX IF NOT EXISTS eval_records_by_run_offset
 ON eval_records(run_id, source_event_offset);
 
 CREATE INDEX IF NOT EXISTS outbox_delivery_order
-ON notification_outbox(destination_id, run_id, state, sequence);
+ON notification_outbox(destination_id, state, sequence);
+
+CREATE INDEX IF NOT EXISTS outbox_by_run
+ON notification_outbox(run_id, destination_id, sequence);
 
 PRAGMA user_version = 2;

@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"time"
 )
 
 const (
-	MaxObservationAttempts = 256
-	MaxObservationEvents   = 256
+	MaxObservationAttempts      = 256
+	MaxObservationEvents        = 256
+	MaxObservationNotifications = 256
 )
 
 // AttemptFact is the content-free part of one durable driver attempt.
@@ -31,15 +33,33 @@ type EventFact struct {
 	CreatedAt time.Time
 }
 
+// NotificationFact exposes delivery state without exposing the signed body.
+type NotificationFact struct {
+	DestinationID     string
+	SourceEventOffset int64
+	Sequence          int64
+	MessageID         string
+	State             NotificationState
+	Attempts          int64
+	AvailableAt       time.Time
+	ClaimedUntil      time.Time
+	DeliveredAt       time.Time
+	LastErrorCode     string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type Observation struct {
-	Run          Run
-	Control      ControlProjection
-	Owner        OwnerLease
-	OwnerPresent bool
-	Attempts     []AttemptFact
-	Events       []EventFact
-	EventOffset  int64
-	HasPrior     bool
+	Run                    Run
+	Control                ControlProjection
+	Owner                  OwnerLease
+	OwnerPresent           bool
+	Attempts               []AttemptFact
+	Events                 []EventFact
+	Notifications          []NotificationFact
+	NotificationsTruncated bool
+	EventOffset            int64
+	HasPrior               bool
 }
 
 type EventWindow struct {
@@ -197,6 +217,96 @@ func recentEventFacts(
 	return result, nil
 }
 
+func observationNotifications(
+	ctx context.Context,
+	conn *sql.Conn,
+	runID string,
+) ([]NotificationFact, bool, error) {
+	rows, err := conn.QueryContext(
+		ctx,
+		`SELECT destination_id, source_event_offset, sequence, message_id,
+		        schema_version, body_digest, body, state, attempts,
+		        available_at, COALESCE(claim_token,''), claimed_until,
+		        delivered_at, COALESCE(last_error_code,''),
+		        created_at, updated_at
+		 FROM notification_outbox
+		 WHERE run_id=?
+		 ORDER BY updated_at DESC, destination_id, sequence DESC
+		 LIMIT ?`,
+		runID,
+		MaxObservationNotifications+1,
+	)
+	if err != nil {
+		return nil, false, dbError(err)
+	}
+	defer rows.Close()
+	items := make([]NotificationFact, 0, MaxObservationNotifications+1)
+	for rows.Next() {
+		item := Notification{RunID: runID}
+		var availableAt, claimedUntil, deliveredAt sql.NullString
+		var createdAt, updatedAt sql.NullString
+		if err := rows.Scan(
+			&item.DestinationID,
+			&item.SourceEventOffset,
+			&item.Sequence,
+			&item.MessageID,
+			&item.SchemaVersion,
+			&item.BodyDigest,
+			&item.Body,
+			&item.State,
+			&item.Attempts,
+			&availableAt,
+			&item.ClaimToken,
+			&claimedUntil,
+			&deliveredAt,
+			&item.LastErrorCode,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, false, dbError(err)
+		}
+		item, err = validateScannedNotification(
+			item,
+			availableAt,
+			claimedUntil,
+			deliveredAt,
+			createdAt,
+			updatedAt,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		items = append(items, NotificationFact{
+			DestinationID:     item.DestinationID,
+			SourceEventOffset: item.SourceEventOffset,
+			Sequence:          item.Sequence,
+			MessageID:         item.MessageID,
+			State:             item.State,
+			Attempts:          item.Attempts,
+			AvailableAt:       item.AvailableAt,
+			ClaimedUntil:      item.ClaimedUntil,
+			DeliveredAt:       item.DeliveredAt,
+			LastErrorCode:     item.LastErrorCode,
+			CreatedAt:         item.CreatedAt,
+			UpdatedAt:         item.UpdatedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, dbError(err)
+	}
+	truncated := len(items) > MaxObservationNotifications
+	if truncated {
+		items = items[:MaxObservationNotifications]
+	}
+	sort.Slice(items, func(left, right int) bool {
+		if items[left].DestinationID != items[right].DestinationID {
+			return items[left].DestinationID < items[right].DestinationID
+		}
+		return items[left].Sequence < items[right].Sequence
+	})
+	return items, truncated, nil
+}
+
 // ReadObservation returns the runtime facts needed by the cockpit from one
 // SQLite snapshot. Bodies, receipts, commands, and model output are excluded.
 func (s *Store) ReadObservation(
@@ -241,6 +351,12 @@ func (s *Store) ReadObservation(
 			return err
 		}
 		result.Events, err = recentEventFacts(ctx, conn, runID, eventLimit)
+		if err != nil {
+			return err
+		}
+		result.Notifications,
+			result.NotificationsTruncated,
+			err = observationNotifications(ctx, conn, runID)
 		if err != nil {
 			return err
 		}
