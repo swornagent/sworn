@@ -1,0 +1,50 @@
+{
+  "schema": "sworn.batongolden/v2",
+  "baton": "1.0.0-rc.8",
+  "generator": "exact embedded RC8 JavaScript reference",
+  "oracle_sha256": "f24e3e0b1ccea17ca8edc526fb208119045de6984c3fa65b540c18b9147e017b",
+  "references": [
+    {
+      "file": "actions.mjs",
+      "sha256": "25c40728241580b3300ffac8d341541cc05c58f11e1d173d9e84e03b9e773ce8",
+      "bytes": 41798
+    },
+    {
+      "file": "git.mjs",
+      "sha256": "441bb55f91b521f68edfb40f711d2ed115421f32bd9b048c069df45c55304908",
+      "bytes": 86433
+    },
+    {
+      "file": "receipts.mjs",
+      "sha256": "205489602318f100ddd8bb536c8d25640bdff1df81c2e4c54d31ca1ca0bc2943",
+      "bytes": 30352
+    },
+    {
+      "file": "state.mjs",
+      "sha256": "7493e146a090b800fb686a4496843a5aa2e2dcb38c0f9177bf82d6035e7e89bf",
+      "bytes": 70666
+    }
+  ],
+  "files": [
+    {
+      "file": "receipts.json",
+      "sha256": "c2f5fe9553866f6b86b92ee3e81bbe959649acaf0a742fff8ad56199330e590f",
+      "bytes": 5770
+    },
+    {
+      "file": "actions.json",
+      "sha256": "eb40d400fd2403f75c9acfe0aa81858d0b892f9b9467ab4384b3cc51c7d7e72a",
+      "bytes": 28370
+    },
+    {
+      "file": "state.json",
+      "sha256": "b944fd7604b51ae98cfd1dc55fa5900995d4aaeb3beccf0821b0b636982e1fcb",
+      "bytes": 44194
+    },
+    {
+      "file": "git.json",
+      "sha256": "348fb8620e3f60d6bff18f0c6bd8819f4665d21ad9fff7424db2f3c378c1c8f5",
+      "bytes": 7974
+    }
+  ]
+}
