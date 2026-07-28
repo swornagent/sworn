@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -101,6 +102,37 @@ func observerBatchDigest(value ObserverAdvance) string {
 	}
 	body, _ := json.Marshal(identity)
 	return digest(body)
+}
+
+func canonicalObserverAdvance(value ObserverAdvance) ObserverAdvance {
+	value.Eval = append([]EvalDraft(nil), value.Eval...)
+	sort.Slice(value.Eval, func(left, right int) bool {
+		if value.Eval[left].SourceEventOffset !=
+			value.Eval[right].SourceEventOffset {
+			return value.Eval[left].SourceEventOffset <
+				value.Eval[right].SourceEventOffset
+		}
+		return value.Eval[left].ID < value.Eval[right].ID
+	})
+	value.Notifications = append(
+		[]NotificationDraft(nil),
+		value.Notifications...,
+	)
+	sort.Slice(value.Notifications, func(left, right int) bool {
+		if value.Notifications[left].DestinationID !=
+			value.Notifications[right].DestinationID {
+			return value.Notifications[left].DestinationID <
+				value.Notifications[right].DestinationID
+		}
+		if value.Notifications[left].SourceEventOffset !=
+			value.Notifications[right].SourceEventOffset {
+			return value.Notifications[left].SourceEventOffset <
+				value.Notifications[right].SourceEventOffset
+		}
+		return value.Notifications[left].MessageID <
+			value.Notifications[right].MessageID
+	})
+	return value
 }
 
 func validateObserverAdvance(value ObserverAdvance) error {
@@ -265,6 +297,7 @@ func (s *Store) AdvanceObserver(ctx context.Context, value ObserverAdvance) erro
 	if err := validateObserverAdvance(value); err != nil {
 		return err
 	}
+	value = canonicalObserverAdvance(value)
 	at, _ := canonicalTime(value.At)
 	batchDigest := observerBatchDigest(value)
 	return s.immediate(ctx, func(conn *sql.Conn) error {
@@ -395,6 +428,9 @@ func (s *Store) ObserverCursor(
 	var result int64
 	err := s.readTransaction(ctx, func(conn *sql.Conn) error {
 		var err error
+		if _, err = runOnConnection(ctx, conn, runID); err != nil {
+			return err
+		}
 		result, _, err = observerCursorOnConnection(ctx, conn, observer, runID)
 		return err
 	})
@@ -403,11 +439,14 @@ func (s *Store) ObserverCursor(
 
 func (s *Store) EvalRecords(
 	ctx context.Context,
-	runID string,
+	runID, observer string,
 	afterOffset int64,
 	limit int,
 ) ([]EvalRecord, error) {
 	if err := validateIdentity(runID, "run"); err != nil {
+		return nil, err
+	}
+	if err := validateIdentity(observer, "observer"); err != nil {
 		return nil, err
 	}
 	if afterOffset < 0 || limit < 1 || limit > MaxObserverItems {
@@ -415,15 +454,20 @@ func (s *Store) EvalRecords(
 	}
 	var result []EvalRecord
 	err := s.readTransaction(ctx, func(conn *sql.Conn) error {
+		if _, err := runOnConnection(ctx, conn, runID); err != nil {
+			return err
+		}
 		rows, err := conn.QueryContext(
 			ctx,
 			`SELECT observer, source_event_offset, record_id, schema_version,
 			        body_digest, body, created_at
 			 FROM eval_records
-			 WHERE run_id = ? AND source_event_offset > ?
-			 ORDER BY source_event_offset, observer
+			 WHERE run_id = ? AND observer = ?
+			   AND source_event_offset > ?
+			 ORDER BY source_event_offset
 			 LIMIT ?`,
 			runID,
+			observer,
 			afterOffset,
 			limit,
 		)

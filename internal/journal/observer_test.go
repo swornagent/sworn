@@ -161,7 +161,13 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 	if err != nil || cursor != secondOffset {
 		t.Fatalf("cursor = %d, %v", cursor, err)
 	}
-	records, err := store.EvalRecords(ctx, run.ID, 0, MaxObserverItems)
+	records, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		first.Observer,
+		0,
+		MaxObserverItems,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +208,13 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 	if err != nil || cursor != secondOffset {
 		t.Fatalf("cursor after rollback = %d, %v", cursor, err)
 	}
-	records, err = store.EvalRecords(ctx, run.ID, 0, MaxObserverItems)
+	records, err = store.EvalRecords(
+		ctx,
+		run.ID,
+		first.Observer,
+		0,
+		MaxObserverItems,
+	)
 	if err != nil || len(records) != 1 {
 		t.Fatalf("records after rollback = %#v, %v", records, err)
 	}
@@ -268,15 +280,15 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 		Notifications: []NotificationDraft{
 			{
 				DestinationID:     "webhook-primary",
-				SourceEventOffset: snapshot.Events[0].Offset,
-				MessageID:         "message-1",
-				Body:              []byte(`{"event":"one"}`),
-			},
-			{
-				DestinationID:     "webhook-primary",
 				SourceEventOffset: snapshot.Events[1].Offset,
 				MessageID:         "message-2",
 				Body:              []byte(`{"event":"two"}`),
+			},
+			{
+				DestinationID:     "webhook-primary",
+				SourceEventOffset: snapshot.Events[0].Offset,
+				MessageID:         "message-1",
+				Body:              []byte(`{"event":"one"}`),
 			},
 		},
 		At: now.Add(3 * time.Second),
@@ -293,6 +305,7 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 		time.Second,
 	)
 	if err != nil || !found || first.Notification.Sequence != 1 ||
+		first.Notification.MessageID != "message-1" ||
 		first.Notification.Attempts != 1 {
 		t.Fatalf("first claim = %#v, found=%t, %v", first, found, err)
 	}
@@ -354,6 +367,7 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 		time.Second,
 	)
 	if err != nil || !found || second.Notification.Sequence != 2 ||
+		second.Notification.MessageID != "message-2" ||
 		second.Notification.Attempts != 1 {
 		t.Fatalf("second claim = %#v, found=%t, %v", second, found, err)
 	}
@@ -438,5 +452,129 @@ func TestNotificationDeliveryUsesLeasesAndBoundedRedelivery(t *testing.T) {
 	if err != nil || notifications[1].State != NotificationDelivered ||
 		notifications[1].Attempts != 1 {
 		t.Fatalf("redelivered notifications = %#v, %v", notifications, err)
+	}
+}
+
+func TestEvalPagingIsObserverScopedAtSharedSourceOffsets(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	for index := 0; index < 2; index++ {
+		if err := store.AppendEvent(
+			ctx,
+			run.ID,
+			"runtime_progress",
+			[]byte{byte('1' + index)},
+			now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, observer := range []string{"eval-primary", "eval-secondary"} {
+		if err := store.AdvanceObserver(ctx, ObserverAdvance{
+			RunID: run.ID, Observer: observer,
+			ExpectedOffset: 0,
+			ThroughOffset:  snapshot.Events[1].Offset,
+			Eval: []EvalDraft{
+				{
+					SourceEventOffset: snapshot.Events[1].Offset,
+					ID:                observer + "-2",
+					Body:              []byte(`{"kind":"outcome"}`),
+				},
+				{
+					SourceEventOffset: snapshot.Events[0].Offset,
+					ID:                observer + "-1",
+					Body:              []byte(`{"kind":"attempt"}`),
+				},
+			},
+			At: now.Add(3 * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		"eval-primary",
+		0,
+		1,
+	)
+	if err != nil || len(first) != 1 ||
+		first[0].SourceEventOffset != snapshot.Events[0].Offset {
+		t.Fatalf("first eval page = %#v, %v", first, err)
+	}
+	second, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		"eval-primary",
+		first[0].SourceEventOffset,
+		1,
+	)
+	if err != nil || len(second) != 1 ||
+		second[0].SourceEventOffset != snapshot.Events[1].Offset {
+		t.Fatalf("second eval page = %#v, %v", second, err)
+	}
+	other, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		"eval-secondary",
+		0,
+		MaxObserverItems,
+	)
+	if err != nil || len(other) != 2 ||
+		other[0].Observer != "eval-secondary" {
+		t.Fatalf("other observer page = %#v, %v", other, err)
+	}
+}
+
+func TestObserverAndOutboxReadsRejectMissingRun(t *testing.T) {
+	t.Parallel()
+
+	store, _, _, _ := journalFixture(t)
+	ctx := context.Background()
+	for name, operation := range map[string]func() error{
+		"cursor": func() error {
+			_, err := store.ObserverCursor(ctx, "missing-run", "eval-primary")
+			return err
+		},
+		"eval": func() error {
+			_, err := store.EvalRecords(
+				ctx,
+				"missing-run",
+				"eval-primary",
+				0,
+				1,
+			)
+			return err
+		},
+		"notifications": func() error {
+			_, err := store.Notifications(
+				ctx,
+				"missing-run",
+				"webhook-primary",
+				1,
+			)
+			return err
+		},
+		"claim": func() error {
+			_, _, err := store.ClaimNotification(
+				ctx,
+				"missing-run",
+				"webhook-primary",
+				time.Unix(1_700_000_000, 0).UTC(),
+				time.Second,
+			)
+			return err
+		},
+	} {
+		if err := operation(); !IsCode(err, "RUN_NOT_FOUND") {
+			t.Errorf("%s missing run = %v", name, err)
+		}
 	}
 }

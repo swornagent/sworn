@@ -158,6 +158,9 @@ func (s *Store) ClaimNotification(
 	var result NotificationClaim
 	found := false
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
+		if _, err := runOnConnection(ctx, conn, runID); err != nil {
+			return err
+		}
 		row := conn.QueryRowContext(
 			ctx,
 			`SELECT source_event_offset, sequence, message_id, schema_version,
@@ -380,6 +383,9 @@ func (s *Store) Notifications(
 	}
 	var result []Notification
 	err := s.readTransaction(ctx, func(conn *sql.Conn) error {
+		if _, err := runOnConnection(ctx, conn, runID); err != nil {
+			return err
+		}
 		rows, err := conn.QueryContext(
 			ctx,
 			`SELECT source_event_offset, sequence, message_id, schema_version,
