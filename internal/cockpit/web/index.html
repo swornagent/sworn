@@ -71,7 +71,7 @@
         <div id="detail-content">
           <p class="quiet">Choose a release, track, slice, or assembly node in topological order.</p>
         </div>
-        <div class="actions" id="actions" aria-label="Available local controls"></div>
+        <div class="actions" id="actions" role="group" aria-label="Available local controls"></div>
       </aside>
     </div>
 
@@ -83,7 +83,7 @@
         </div>
         <p class="quiet">No prompts, output, source, paths, or proof bodies.</p>
       </div>
-      <ol id="evidence-list"></ol>
+      <ol id="evidence-list" tabindex="0" aria-label="Durable evidence events"></ol>
     </section>
 
     <section class="outbox" aria-labelledby="outbox-title">
@@ -95,7 +95,7 @@
         <p class="quiet" id="outbox-window"></p>
       </div>
       <p class="quiet outbox-note">Delivery is at least once. Receivers must deduplicate by message ID.</p>
-      <ol id="outbox-list"></ol>
+      <ol id="outbox-list" tabindex="0" aria-label="Webhook delivery records"></ol>
     </section>
   </main>
 
@@ -108,7 +108,7 @@
       <button class="quiet-button" id="close-sheet" type="button">Close</button>
     </div>
     <div id="sheet-content"></div>
-    <div class="actions" id="sheet-actions" aria-label="Available local controls"></div>
+    <div class="actions" id="sheet-actions" role="group" aria-label="Available local controls"></div>
   </dialog>
 
   <p class="visually-hidden" id="announcer" aria-live="polite"></p>

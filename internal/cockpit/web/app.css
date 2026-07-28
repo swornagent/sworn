@@ -35,7 +35,7 @@
   --paper: #ffffff;
   --carbon: #17201e;
   --relay: #2f687a;
-  --baton: #df5038;
+  --baton: #cb432d;
   --sworn: #56508a;
   --fault: #a53d47;
   --rule: #c8d1cc;
@@ -363,7 +363,9 @@ main {
 
 .node:focus-visible,
 .control:focus-visible,
-.quiet-button:focus-visible {
+.quiet-button:focus-visible,
+.evidence ol:focus-visible,
+.outbox ol:focus-visible {
   outline: 0.2rem solid var(--focus);
   outline-offset: 0.2rem;
 }
