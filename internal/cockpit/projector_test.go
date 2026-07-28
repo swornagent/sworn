@@ -283,6 +283,14 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 		snapshot.Graph.Nodes[2].NextResponsibility != "implementer" {
 		t.Fatalf("exact handoff = %#v", snapshot.Graph.Nodes[2])
 	}
+	if !snapshot.Handoff.Ready ||
+		!reflect.DeepEqual(snapshot.Handoff.Nodes, []string{"slice:S1"}) ||
+		!reflect.DeepEqual(
+			snapshot.Handoff.Responsibilities,
+			[]string{"implementer"},
+		) {
+		t.Fatalf("handoff ribbon = %#v", snapshot.Handoff)
+	}
 	if snapshot.ThroughOffset != observation.EventOffset ||
 		len(snapshot.Evidence) != 1 ||
 		snapshot.Evidence[0].Kind != "dispatch_completed" {

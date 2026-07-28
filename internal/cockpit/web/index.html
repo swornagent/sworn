@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Sworn relay exchange</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#relay-board">Skip to the relay</a>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Sworn local cockpit</p>
+      <h1>Baton relay exchange</h1>
+    </div>
+    <p class="connection" id="connection" data-state="connecting">
+      <span aria-hidden="true"></span>
+      <span>Connecting</span>
+    </p>
+  </header>
+
+  <main>
+    <section class="release-strip" aria-labelledby="release-title">
+      <div>
+        <p class="eyebrow">Release</p>
+        <h2 id="release-title">Waiting for a run</h2>
+      </div>
+      <dl class="release-facts" id="release-facts"></dl>
+    </section>
+
+    <section class="handoff" id="handoff" aria-live="polite" hidden>
+      <span class="handoff-baton">Baton</span>
+      <p>
+        <strong id="handoff-count"></strong>
+        <span id="handoff-copy"></span>
+      </p>
+      <span class="handoff-sworn">Sworn</span>
+    </section>
+
+    <p class="status-notice" id="status-notice" role="status" hidden></p>
+
+    <div class="exchange">
+      <section class="board" id="relay-board" aria-labelledby="board-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Plan order</p>
+            <h2 id="board-title" tabindex="-1">The relay</h2>
+          </div>
+          <p class="offset" id="offset">Event —</p>
+        </div>
+        <div class="board-viewport" id="board-viewport">
+          <svg class="edges" id="edges" aria-hidden="true"></svg>
+          <ol class="topology" id="topology"></ol>
+        </div>
+        <div class="empty-state" id="empty-state" hidden>
+          <p class="eyebrow" id="empty-eyebrow">No run selected</p>
+          <h3 id="empty-title">Open a run to see its relay.</h3>
+          <p id="empty-copy">Use <code>/runs/&lt;run-id&gt;</code>. Nothing is inferred before the engine records it.</p>
+        </div>
+      </section>
+
+      <aside class="detail-rail" id="detail-rail" aria-labelledby="detail-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Exchange detail</p>
+            <h2 id="detail-title">Select a carrier</h2>
+          </div>
+        </div>
+        <div id="detail-content">
+          <p class="quiet">Choose a release, track, slice, or assembly node in topological order.</p>
+        </div>
+        <div class="actions" id="actions" aria-label="Available local controls"></div>
+      </aside>
+    </div>
+
+    <section class="evidence" aria-labelledby="evidence-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Durable only</p>
+          <h2 id="evidence-title">Evidence tape</h2>
+        </div>
+        <p class="quiet">No prompts, output, source, paths, or proof bodies.</p>
+      </div>
+      <ol id="evidence-list"></ol>
+    </section>
+  </main>
+
+  <dialog class="detail-sheet" id="detail-sheet" aria-labelledby="sheet-title">
+    <div class="sheet-heading">
+      <div>
+        <p class="eyebrow">Exchange detail</p>
+        <h2 id="sheet-title">Carrier</h2>
+      </div>
+      <button class="quiet-button" id="close-sheet" type="button">Close</button>
+    </div>
+    <div id="sheet-content"></div>
+    <div class="actions" id="sheet-actions" aria-label="Available local controls"></div>
+  </dialog>
+
+  <p class="visually-hidden" id="announcer" aria-live="polite"></p>
+</body>
+</html>

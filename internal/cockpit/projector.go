@@ -274,6 +274,10 @@ func buildSnapshot(
 			State: status.State,
 		}}
 		result.Graph.Edges = []Edge{}
+		result.Handoff = Handoff{
+			Nodes:            []string{},
+			Responsibilities: []string{},
+		}
 		result.Diagnostics = append(
 			result.Diagnostics,
 			Diagnostic{Code: "BATON_UNAVAILABLE"},
@@ -281,6 +285,7 @@ func buildSnapshot(
 		return result, nil
 	}
 	result.Graph = projectGraph(state, status.State)
+	result.Handoff = projectHandoff(result.Graph)
 	for _, diagnostic := range state.Diagnostics {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			Code:  diagnostic.Code,
@@ -292,6 +297,30 @@ func buildSnapshot(
 		result.Actions = safeActions(status, observation.Control)
 	}
 	return result, nil
+}
+
+func projectHandoff(graph Graph) Handoff {
+	result := Handoff{
+		Nodes:            []string{},
+		Responsibilities: []string{},
+	}
+	seen := make(map[string]struct{})
+	for _, node := range graph.Nodes {
+		if !node.HasBaton || node.NextResponsibility == "" ||
+			node.NextResponsibility == "none" {
+			continue
+		}
+		result.Ready = true
+		result.Nodes = append(result.Nodes, node.ID)
+		if _, found := seen[node.NextResponsibility]; !found {
+			result.Responsibilities = append(
+				result.Responsibilities,
+				node.NextResponsibility,
+			)
+			seen[node.NextResponsibility] = struct{}{}
+		}
+	}
+	return result
 }
 
 func projectAttempt(fact journal.AttemptFact) (AttemptView, error) {

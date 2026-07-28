@@ -8,6 +8,7 @@ type Snapshot struct {
 	SchemaVersion string       `json:"schema_version"`
 	Run           RunView      `json:"run"`
 	Graph         Graph        `json:"graph"`
+	Handoff       Handoff      `json:"handoff"`
 	Runtime       RuntimeView  `json:"runtime"`
 	Evidence      []Evidence   `json:"evidence"`
 	Actions       []Action     `json:"actions"`
@@ -52,6 +53,12 @@ type Edge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Kind string `json:"kind"`
+}
+
+type Handoff struct {
+	Ready            bool     `json:"ready"`
+	Nodes            []string `json:"nodes"`
+	Responsibilities []string `json:"responsibilities"`
 }
 
 type RuntimeView struct {
