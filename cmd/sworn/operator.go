@@ -164,22 +164,22 @@ func serveOperator(
 		expectedDigest = manifest.Digest()
 	}
 	if manifest == nil {
-		bindingReader, err := journal.OpenReadOnly(
+		statusReader, err := runtimepkg.OpenStatusService(
 			parent,
 			options.journalPath,
 		)
 		if err != nil {
 			return errors.New("operator unavailable")
 		}
-		binding, bindingErr := bindingReader.RunBinding(
+		status, statusErr := statusReader.Status(
 			parent,
 			options.runID,
 		)
-		closeErr := bindingReader.Close()
-		if bindingErr != nil || closeErr != nil {
+		closeErr := statusReader.Close()
+		if statusErr != nil || closeErr != nil {
 			return errors.New("operator unavailable")
 		}
-		expectedDigest = binding.ManifestDigest
+		expectedDigest = status.ManifestDigest
 	}
 
 	runtimeService, err := runtimepkg.OpenService(

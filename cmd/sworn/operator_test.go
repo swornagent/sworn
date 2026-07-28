@@ -764,6 +764,79 @@ func TestTelemetryShutdownFailureAndTimeoutAreNonControlling(t *testing.T) {
 	}
 }
 
+func TestServeRejectsIncompleteExistingRunBeforeReadiness(t *testing.T) {
+	ctx := context.Background()
+	journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("b", 64)
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID:             "run-incomplete",
+		ManifestDigest: digest,
+		Repository:     "/tmp/repository",
+		Release:        "release-1",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      time.Unix(1_700_000_000, 0).UTC(),
+	}); err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	configBody, err := json.Marshal(operatorConfig{
+		SchemaVersion: operatorConfigSchemaVersion,
+		Local:         operatorLocalConfig{Listen: address},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "operator.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	serveCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := serveOperator(serveCtx, serveOptions{
+		runID:          "run-incomplete",
+		journalPath:    journalPath,
+		operatorConfig: configPath,
+	}, &stdout); err == nil {
+		t.Fatal("incomplete existing run unexpectedly became available")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("incomplete run emitted readiness output %q", stdout.String())
+	}
+
+	reader, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, snapshotErr := reader.Snapshot(ctx, "run-incomplete")
+	closeErr := reader.Close()
+	if snapshotErr != nil || closeErr != nil {
+		t.Fatalf("read incomplete run: snapshot=%v close=%v", snapshotErr, closeErr)
+	}
+	if snapshot.Run.ManifestDigest != digest ||
+		len(snapshot.Commands) != 0 ||
+		len(snapshot.Effects) != 0 ||
+		len(snapshot.Events) != 0 {
+		t.Fatalf("incomplete run was consumed or changed: %#v", snapshot)
+	}
+}
+
 func TestServeWiresExistingRunAndStopsOnContext(t *testing.T) {
 	journalPath := boardJournalFixture(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
