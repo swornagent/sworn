@@ -105,7 +105,7 @@ func observationAttempts(
 	rows, err := conn.QueryContext(
 		ctx,
 		`SELECT effect_id, attempt, responsibility, transport_status,
-		        usage, created_at
+		        usage_digest, usage, created_at
 		 FROM attempts
 		 WHERE run_id=?
 		 ORDER BY created_at DESC, effect_id DESC, attempt DESC
@@ -120,16 +120,22 @@ func observationAttempts(
 	reversed := make([]AttemptFact, 0, limit)
 	for rows.Next() {
 		var fact AttemptFact
+		var usageDigest string
 		var createdAt string
 		if err := rows.Scan(
 			&fact.EffectID,
 			&fact.Number,
 			&fact.Responsibility,
 			&fact.Transport,
+			&usageDigest,
 			&fact.Usage,
 			&createdAt,
 		); err != nil {
 			return nil, dbError(err)
+		}
+		if !digestPattern.MatchString(usageDigest) ||
+			digest(fact.Usage) != usageDigest {
+			return nil, fail("CORRUPT_JOURNAL", nil)
 		}
 		fact.CreatedAt, err = parseTime(createdAt)
 		if err != nil {

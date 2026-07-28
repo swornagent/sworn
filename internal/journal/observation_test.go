@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 )
@@ -83,5 +84,109 @@ func TestObservationAndEventReplayAreBoundedContentFreeSnapshots(t *testing.T) {
 	if second.HasMore || second.Through != 4 || second.EventOffset != 4 ||
 		len(second.Events) != 2 || second.Events[0].Offset != 3 {
 		t.Fatalf("second replay = %#v", second)
+	}
+}
+
+func TestObservationRejectsTamperedUsageIntegrity(t *testing.T) {
+	t.Parallel()
+
+	const originalUsage = `{"token_status":"reported","input_tokens":0,` +
+		`"output_tokens":0,"cost_status":"unavailable",` +
+		`"cost_micro_units":null,"currency":null,"source":null}`
+	const alternateUsage = `{"token_status":"reported","input_tokens":1,` +
+		`"output_tokens":0,"cost_status":"unavailable",` +
+		`"cost_micro_units":null,"currency":null,"source":null}`
+	tests := []struct {
+		name   string
+		mutate func(context.Context, *sql.Conn, Run, Effect) error
+	}{
+		{
+			name: "canonical body does not match stored digest",
+			mutate: func(
+				ctx context.Context,
+				conn *sql.Conn,
+				run Run,
+				effect Effect,
+			) error {
+				_, err := conn.ExecContext(
+					ctx,
+					`UPDATE attempts SET usage=?
+					 WHERE run_id=? AND effect_id=? AND attempt=1`,
+					[]byte(alternateUsage),
+					run.ID,
+					effect.ID,
+				)
+				return err
+			},
+		},
+		{
+			name: "stored digest has invalid shape",
+			mutate: func(
+				ctx context.Context,
+				conn *sql.Conn,
+				run Run,
+				effect Effect,
+			) error {
+				_, err := conn.ExecContext(
+					ctx,
+					`UPDATE attempts SET usage_digest=?
+					 WHERE run_id=? AND effect_id=? AND attempt=1`,
+					"not-a-digest",
+					run.ID,
+					effect.ID,
+				)
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store, run, _, effect := journalFixture(t)
+			ctx := context.Background()
+			claim, err := store.Claim(
+				ctx,
+				run.ID,
+				effect.ID,
+				run.CreatedAt.Add(time.Second),
+				time.Minute,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Complete(ctx, Completion{
+				RunID: run.ID, EffectID: effect.ID, Token: claim.Token,
+				State: OperationalFailed, ErrorCode: "transport_error",
+				Attempt: &Attempt{
+					Number: 1, Responsibility: "work_verification",
+					TransportStatus:   "failed",
+					ObservationDigest: digest([]byte("observation")),
+					Usage:             []byte(originalUsage),
+				},
+				EventKind: "dispatch_operational_failure",
+				EventBody: []byte("private"),
+				At:        run.CreatedAt.Add(2 * time.Second),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.immediate(ctx, func(conn *sql.Conn) error {
+				return test.mutate(ctx, conn, run, effect)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ReadObservation(
+				ctx,
+				run.ID,
+				1,
+				1,
+			); !IsCode(err, "CORRUPT_JOURNAL") {
+				t.Fatalf(
+					"ReadObservation() error = %v, want CORRUPT_JOURNAL",
+					err,
+				)
+			}
+		})
 	}
 }
