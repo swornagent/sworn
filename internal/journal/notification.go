@@ -375,17 +375,47 @@ func (s *Store) RedeliverNotification(
 		return err
 	}
 	return s.immediate(ctx, func(conn *sql.Conn) error {
+		var sequence, tail int64
+		if err := conn.QueryRowContext(
+			ctx,
+			`SELECT sequence
+			 FROM notification_outbox
+			 WHERE run_id=? AND destination_id=? AND message_id=?
+			   AND state='dead'`,
+			runID,
+			destinationID,
+			messageID,
+		).Scan(&sequence); errors.Is(err, sql.ErrNoRows) {
+			return fail("NOTIFICATION_NOT_REDELIVERABLE", nil)
+		} else if err != nil {
+			return dbError(err)
+		}
+		if err := conn.QueryRowContext(
+			ctx,
+			`SELECT COALESCE(max(sequence), 0)
+			 FROM notification_outbox
+			 WHERE destination_id=?`,
+			destinationID,
+		).Scan(&tail); err != nil {
+			return dbError(err)
+		}
+		if tail == int64(^uint64(0)>>1) {
+			return fail("RESOURCE_LIMIT", nil)
+		}
 		result, err := conn.ExecContext(
 			ctx,
 			`UPDATE notification_outbox SET
-			     state='pending', attempts=0, available_at=?,
+			     sequence=?, state='pending', attempts=0, available_at=?,
 			     claim_token=NULL, claimed_until=NULL, delivered_at=NULL,
 			     last_error_code=NULL, updated_at=?
-			 WHERE run_id=? AND destination_id=? AND message_id=? AND state='dead'`,
+			 WHERE run_id=? AND destination_id=? AND sequence=?
+			   AND message_id=? AND state='dead'`,
+			tail+1,
 			timestamp,
 			timestamp,
 			runID,
 			destinationID,
+			sequence,
 			messageID,
 		)
 		if err != nil {

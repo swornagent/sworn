@@ -22,13 +22,6 @@ const (
 	maxStableReads    = 2
 )
 
-var qualityNames = map[string]struct{}{
-	"delivery":     {},
-	"integration":  {},
-	"requirements": {},
-	"verification": {},
-}
-
 type Error struct {
 	Code string
 }
@@ -88,10 +81,6 @@ type Quality struct {
 	Denominator *int64 `json:"denominator"`
 }
 
-func UnknownQuality(name string) Quality {
-	return Quality{Name: name}
-}
-
 type CostTotal struct {
 	Currency   string `json:"currency"`
 	MicroUnits int64  `json:"micro_units"`
@@ -106,6 +95,7 @@ type UsageSummary struct {
 }
 
 type AttemptGroup struct {
+	Role           string       `json:"role"`
 	Responsibility string       `json:"responsibility"`
 	Operation      string       `json:"operation"`
 	Transport      string       `json:"transport"`
@@ -142,7 +132,7 @@ type Record struct {
 	DurationNS    Ratio           `json:"duration_ns"`
 	Usage         UsageSummary    `json:"usage"`
 	Groups        []AttemptGroup  `json:"groups"`
-	Quality       Quality         `json:"quality"`
+	Quality       []Quality       `json:"quality"`
 }
 
 // Advance persists one cumulative, canonical evaluation record at a stable
@@ -151,9 +141,8 @@ type Record struct {
 func (e *Evaluator) Advance(
 	ctx context.Context,
 	runID string,
-	quality Quality,
 ) (Record, bool, error) {
-	if e == nil || ctx == nil || runID == "" || validateQuality(quality) != nil {
+	if e == nil || ctx == nil || runID == "" {
 		return Record{}, false, fail("INVALID_EVALUATION")
 	}
 	cursor, err := e.journal.ObserverCursor(ctx, runID, EvalObserver)
@@ -191,7 +180,6 @@ func (e *Evaluator) Advance(
 			e.version,
 			window,
 			snapshot,
-			quality,
 		)
 		if err != nil {
 			return Record{}, false, err
@@ -231,6 +219,7 @@ type aggregate struct {
 }
 
 type groupKey struct {
+	role           string
 	responsibility string
 	operation      string
 	transport      string
@@ -303,6 +292,7 @@ func (a *aggregate) addAttempt(fact journal.EvaluationFact) {
 		return
 	}
 	key := groupKey{
+		role:           roleForResponsibility(fact.Responsibility),
 		responsibility: boundedResponsibility(fact.Responsibility),
 		operation:      boundedOperation(fact.EffectKind),
 		transport:      boundedTransport(fact.Transport),
@@ -383,7 +373,6 @@ func (a *aggregate) record(
 	version string,
 	window journal.EvaluationWindow,
 	snapshot cockpit.Snapshot,
-	quality Quality,
 ) (Record, error) {
 	elapsed := window.ObservedAt.Sub(window.Run.CreatedAt).Nanoseconds()
 	if elapsed < 0 {
@@ -392,6 +381,7 @@ func (a *aggregate) record(
 	groups := make([]AttemptGroup, 0, len(a.groups))
 	for key, group := range a.groups {
 		groups = append(groups, AttemptGroup{
+			Role:           key.role,
 			Responsibility: key.responsibility,
 			Operation:      key.operation,
 			Transport:      key.transport,
@@ -404,6 +394,9 @@ func (a *aggregate) record(
 	}
 	sort.Slice(groups, func(left, right int) bool {
 		l, r := groups[left], groups[right]
+		if l.Role != r.Role {
+			return l.Role < r.Role
+		}
 		if l.Responsibility != r.Responsibility {
 			return l.Responsibility < r.Responsibility
 		}
@@ -415,6 +408,10 @@ func (a *aggregate) record(
 		}
 		return l.Outcome < r.Outcome
 	})
+	if snapshot.Run.ID != window.Run.ID ||
+		snapshot.Run.Release != window.Run.Release {
+		return Record{}, fail("SNAPSHOT_MISMATCH")
+	}
 	return Record{
 		SchemaVersion: EvalSchemaVersion,
 		ID:            recordID(window.Run.ID, window.ThroughOffset),
@@ -434,7 +431,7 @@ func (a *aggregate) record(
 		DurationNS:    knownRatio(a.duration, a.attempts),
 		Usage:         a.usage.summary(a.attempts),
 		Groups:        groups,
-		Quality:       cloneQuality(quality),
+		Quality:       graphQuality(snapshot.Graph),
 	}, nil
 }
 
@@ -479,28 +476,6 @@ func decodeUsage(body []byte) (driver.UsageReceipt, error) {
 	return result, nil
 }
 
-func validateQuality(value Quality) error {
-	if _, ok := qualityNames[value.Name]; !ok ||
-		(value.Numerator == nil) != (value.Denominator == nil) {
-		return fail("INVALID_QUALITY")
-	}
-	if value.Numerator != nil &&
-		(*value.Numerator < 0 || *value.Denominator < 0 ||
-			*value.Numerator > *value.Denominator) {
-		return fail("INVALID_QUALITY")
-	}
-	return nil
-}
-
-func cloneQuality(value Quality) Quality {
-	result := Quality{Name: value.Name}
-	if value.Numerator != nil {
-		result.Numerator = int64Pointer(*value.Numerator)
-		result.Denominator = int64Pointer(*value.Denominator)
-	}
-	return result
-}
-
 func knownRatio(numerator, denominator int64) Ratio {
 	return Ratio{
 		Numerator:   int64Pointer(numerator),
@@ -543,9 +518,26 @@ func validVersion(value string) bool {
 }
 
 func boundedResponsibility(value string) string {
-	switch value {
-	case "planner", "implementer", "captain", "verifier":
+	switch driver.Responsibility(value) {
+	case driver.PlannerProposal, driver.ImplementerDesign,
+		driver.ImplementerImplementation, driver.CaptainReview,
+		driver.WorkVerification, driver.AssemblyVerification:
 		return value
+	default:
+		return "other"
+	}
+}
+
+func roleForResponsibility(value string) string {
+	switch driver.Responsibility(value) {
+	case driver.PlannerProposal:
+		return string(driver.RolePlanner)
+	case driver.ImplementerDesign, driver.ImplementerImplementation:
+		return string(driver.RoleImplementer)
+	case driver.CaptainReview:
+		return string(driver.RoleCaptain)
+	case driver.WorkVerification, driver.AssemblyVerification:
+		return string(driver.RoleVerifier)
 	default:
 		return "other"
 	}
@@ -598,5 +590,52 @@ func boundedRunOutcome(value string) string {
 		return value
 	default:
 		return "unknown"
+	}
+}
+
+func graphQuality(graph cockpit.Graph) []Quality {
+	var slices, passedSlices, terminalSlices int64
+	var assemblyNumerator, assemblyDenominator int64
+	for _, node := range graph.Nodes {
+		switch node.Kind {
+		case "slice":
+			slices++
+			switch node.Outcome {
+			case "pass":
+				passedSlices++
+				terminalSlices++
+			case "fail", "blocked":
+				terminalSlices++
+			}
+		case "assembly":
+			switch node.Outcome {
+			case "pass", "merged":
+				assemblyNumerator = 1
+				assemblyDenominator = 1
+			case "fail", "blocked":
+				assemblyDenominator = 1
+			}
+		}
+	}
+	return []Quality{
+		{
+			Name:        "delivery",
+			Numerator:   int64Pointer(passedSlices),
+			Denominator: int64Pointer(slices),
+		},
+		{
+			Name:        "integration",
+			Numerator:   int64Pointer(assemblyNumerator),
+			Denominator: int64Pointer(assemblyDenominator),
+		},
+		{
+			// No exact requirements oracle is present in the runtime journal.
+			Name: "requirements",
+		},
+		{
+			Name:        "verification",
+			Numerator:   int64Pointer(passedSlices),
+			Denominator: int64Pointer(terminalSlices),
+		},
 	}
 }

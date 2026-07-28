@@ -59,7 +59,7 @@ func TestVisitEvaluationStreamsExactFactsBeyondCockpitWindow(t *testing.T) {
 				     run_id, effect_id, attempt, responsibility,
 				     transport_status, observation_digest, usage_digest,
 				     usage, created_at
-				 ) VALUES(?, ?, ?, 'implementer', 'completed', ?, ?, ?, ?)`,
+				 ) VALUES(?, ?, ?, 'implementer_implementation', 'completed', ?, ?, ?, ?)`,
 				run.ID,
 				id,
 				index%3+1,
@@ -123,7 +123,7 @@ func TestVisitEvaluationStreamsExactFactsBeyondCockpitWindow(t *testing.T) {
 	}
 	if firstAttempt.EffectKind != "driver.dispatch" ||
 		firstAttempt.EffectState != Succeeded ||
-		firstAttempt.Responsibility != "implementer" ||
+		firstAttempt.Responsibility != "implementer_implementation" ||
 		firstAttempt.Transport != "completed" ||
 		firstAttempt.Attempt != 1 ||
 		!firstAttempt.StartedAt.Equal(run.CreatedAt.Add(time.Second)) ||

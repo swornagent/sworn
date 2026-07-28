@@ -481,7 +481,10 @@ func canonicalTime(value time.Time) (string, error) {
 	if value.IsZero() {
 		return "", fail("INVALID_TIME", nil)
 	}
-	return value.UTC().Format(time.RFC3339Nano), nil
+	// SQLite orders notification windows lexically. A fixed-width fractional
+	// component preserves exact chronological order within the same second;
+	// RFC3339Nano's elided zeroes do not.
+	return value.UTC().Format("2006-01-02T15:04:05.000000000Z"), nil
 }
 
 func randomToken() (string, error) {

@@ -77,7 +77,6 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 
 	started := time.Unix(1_700_000_000, 123).UTC()
 	finished := started.Add(2 * time.Second)
-	zero := int64(0)
 	store := &fakeEvaluationJournal{
 		window: journal.EvaluationWindow{
 			Run: journal.Run{
@@ -102,7 +101,7 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 				EffectKind:     "driver.dispatch",
 				EffectState:    journal.Succeeded,
 				Attempt:        1,
-				Responsibility: "implementer",
+				Responsibility: "implementer_implementation",
 				Transport:      "completed",
 				Usage: []byte(
 					`{"token_status":"reported","input_tokens":0,` +
@@ -118,7 +117,7 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 				EffectKind:     "driver.dispatch",
 				EffectState:    journal.OperationalFailed,
 				Attempt:        2,
-				Responsibility: "verifier",
+				Responsibility: "work_verification",
 				Transport:      "timeout",
 				Usage: []byte(
 					`{"token_status":"unavailable","input_tokens":null,` +
@@ -138,6 +137,11 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 			State:   "running",
 			Outcome: "pending",
 		},
+		Graph: cockpit.Graph{Nodes: []cockpit.Node{
+			{ID: "slice:1", Kind: "slice", Outcome: "pass"},
+			{ID: "slice:2", Kind: "slice", Outcome: "pending"},
+			{ID: "assembly", Kind: "assembly", Outcome: "pass"},
+		}},
 		ThroughOffset: 4,
 	}}}
 	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
@@ -147,11 +151,6 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 	record, changed, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		Quality{
-			Name:        "verification",
-			Numerator:   &zero,
-			Denominator: &zero,
-		},
 	)
 	if err != nil || !changed {
 		t.Fatalf("advance = %#v, %v, %v", record, changed, err)
@@ -167,14 +166,26 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Usage.Costs[0] != (CostTotal{Currency: "USD", MicroUnits: 0}) ||
 		*record.Usage.TokenCoverage.Numerator != 1 ||
 		*record.Usage.TokenCoverage.Denominator != 2 ||
-		*record.Quality.Numerator != 0 ||
-		*record.Quality.Denominator != 0 {
+		len(record.Quality) != 4 ||
+		record.Quality[3].Name != "verification" {
 		t.Fatalf("record = %#v", record)
 	}
 	if len(record.Groups) != 2 ||
-		record.Groups[0].Responsibility != "implementer" ||
-		record.Groups[1].Responsibility != "verifier" {
+		record.Groups[0].Role != "implementer" ||
+		record.Groups[0].Responsibility != "implementer_implementation" ||
+		record.Groups[1].Role != "verifier" ||
+		record.Groups[1].Responsibility != "work_verification" {
 		t.Fatalf("groups = %#v", record.Groups)
+	}
+	if *record.Quality[0].Numerator != 1 ||
+		*record.Quality[0].Denominator != 2 ||
+		*record.Quality[1].Numerator != 1 ||
+		*record.Quality[1].Denominator != 1 ||
+		record.Quality[2].Numerator != nil ||
+		record.Quality[2].Denominator != nil ||
+		*record.Quality[3].Numerator != 1 ||
+		*record.Quality[3].Denominator != 1 {
+		t.Fatalf("quality = %#v", record.Quality)
 	}
 	if store.advance == nil ||
 		store.advance.Observer != EvalObserver ||
@@ -195,7 +206,6 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 	again, changed, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		UnknownQuality("verification"),
 	)
 	if err != nil || changed || !reflect.DeepEqual(again, Record{}) {
 		t.Fatalf("idempotent replay = %#v, %v, %v", again, changed, err)
@@ -220,7 +230,9 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 		},
 	}
 	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
-		Run:           cockpit.RunView{ID: "run-1", State: "new"},
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "new",
+		},
 		ThroughOffset: 1,
 	}}}
 	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
@@ -230,7 +242,6 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 	record, changed, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		UnknownQuality("delivery"),
 	)
 	if err != nil || !changed {
 		t.Fatalf("advance = %v, %v", changed, err)
@@ -238,8 +249,8 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 	if record.Usage.InputTokens != nil ||
 		record.Usage.OutputTokens != nil ||
 		record.Usage.Costs != nil ||
-		record.Quality.Numerator != nil ||
-		record.Quality.Denominator != nil ||
+		record.Quality[2].Numerator != nil ||
+		record.Quality[2].Denominator != nil ||
 		*record.Usage.TokenCoverage.Numerator != 0 ||
 		*record.Usage.TokenCoverage.Denominator != 0 {
 		t.Fatalf("null preservation = %#v", record)
@@ -249,11 +260,47 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 		`"input_tokens":null`,
 		`"output_tokens":null`,
 		`"costs":null`,
-		`"quality":{"name":"delivery","numerator":null,"denominator":null}`,
+		`"quality":[{"name":"delivery","numerator":0,"denominator":0}`,
+		`{"name":"requirements","numerator":null,"denominator":null}`,
 	} {
 		if !contains(body, expected) {
 			t.Fatalf("body missing %s: %s", expected, body)
 		}
+	}
+}
+
+func TestGraphQualityUsesCurrentTruthAndKeepsUnknownRequirementsNull(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	inProgress := graphQuality(cockpit.Graph{Nodes: []cockpit.Node{
+		{Kind: "slice", Outcome: "pending"},
+		{Kind: "slice", Outcome: "pending"},
+		{Kind: "assembly", Outcome: "pending"},
+	}})
+	if *inProgress[0].Numerator != 0 ||
+		*inProgress[0].Denominator != 2 ||
+		*inProgress[1].Numerator != 0 ||
+		*inProgress[1].Denominator != 0 ||
+		inProgress[2].Numerator != nil ||
+		inProgress[2].Denominator != nil ||
+		*inProgress[3].Numerator != 0 ||
+		*inProgress[3].Denominator != 0 {
+		t.Fatalf("in-progress quality = %#v", inProgress)
+	}
+	repaired := graphQuality(cockpit.Graph{Nodes: []cockpit.Node{
+		{Kind: "slice", Outcome: "pass"},
+		{Kind: "slice", Outcome: "pass"},
+		{Kind: "assembly", Outcome: "merged"},
+	}})
+	if *repaired[0].Numerator != 2 ||
+		*repaired[0].Denominator != 2 ||
+		*repaired[1].Numerator != 1 ||
+		*repaired[1].Denominator != 1 ||
+		*repaired[3].Numerator != 2 ||
+		*repaired[3].Denominator != 2 {
+		t.Fatalf("repaired quality = %#v", repaired)
 	}
 }
 
@@ -275,8 +322,8 @@ func TestEvaluatorRetriesOnlyToAStableHighWater(t *testing.T) {
 		},
 	}
 	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{
-		{Run: cockpit.RunView{ID: "run-1"}, ThroughOffset: 1},
-		{Run: cockpit.RunView{ID: "run-1"}, ThroughOffset: 2},
+		{Run: cockpit.RunView{ID: "run-1", Release: "release-1"}, ThroughOffset: 1},
+		{Run: cockpit.RunView{ID: "run-1", Release: "release-1"}, ThroughOffset: 2},
 	}}
 	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
 	if err != nil {
@@ -285,7 +332,6 @@ func TestEvaluatorRetriesOnlyToAStableHighWater(t *testing.T) {
 	if _, changed, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		UnknownQuality("delivery"),
 	); err != nil || !changed {
 		t.Fatalf("stable retry = %v, %v", changed, err)
 	}
@@ -309,14 +355,17 @@ func TestEvaluatorFailsClosedWithoutAdvancing(t *testing.T) {
 					EffectKind:     "driver.dispatch",
 					EffectState:    journal.Succeeded,
 					Attempt:        1,
-					Responsibility: "planner",
+					Responsibility: "planner_proposal",
 					Transport:      "completed",
 					Usage:          []byte(`{"not":"usage"}`),
 					StartedAt:      now,
 					FinishedAt:     now,
 				}},
 			}, &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
-				Run: cockpit.RunView{ID: "run-1"}, ThroughOffset: 1,
+				Run: cockpit.RunView{
+					ID: "run-1", Release: "release-1",
+				},
+				ThroughOffset: 1,
 			}}}
 	}
 	store, projector := base()
@@ -327,7 +376,6 @@ func TestEvaluatorFailsClosedWithoutAdvancing(t *testing.T) {
 	if _, _, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		UnknownQuality("delivery"),
 	); !IsCode(err, "INVALID_USAGE") || store.advance != nil {
 		t.Fatalf("invalid usage = %v, advance=%#v", err, store.advance)
 	}
@@ -342,30 +390,42 @@ func TestEvaluatorFailsClosedWithoutAdvancing(t *testing.T) {
 	if _, _, err := evaluator.Advance(
 		context.Background(),
 		"run-1",
-		UnknownQuality("delivery"),
 	); !IsCode(err, "JOURNAL_UNAVAILABLE") || store.cursor != 0 {
 		t.Fatalf("atomic failure = %v, cursor=%d", err, store.cursor)
 	}
 }
 
-func TestQualityRequiresBoundedPairedDenominators(t *testing.T) {
+func TestEvaluatorRejectsMismatchedCockpitBinding(t *testing.T) {
 	t.Parallel()
 
-	zero, one := int64(0), int64(1)
-	for _, quality := range []Quality{
-		{Name: "arbitrary"},
-		{Name: "delivery", Numerator: &zero},
-		{Name: "delivery", Denominator: &zero},
-		{Name: "delivery", Numerator: &one, Denominator: &zero},
-	} {
-		if validateQuality(quality) == nil {
-			t.Fatalf("accepted quality %#v", quality)
-		}
+	now := time.Unix(1_700_000_000, 0).UTC()
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: now,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    now,
+		},
+		facts: []journal.EvaluationFact{{
+			Kind: journal.EvaluationEvent, EventOffset: 1,
+		}},
 	}
-	if err := validateQuality(Quality{
-		Name: "delivery", Numerator: &zero, Denominator: &zero,
-	}); err != nil {
-		t.Fatalf("0/0 quality = %v", err)
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "substituted-release",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := evaluator.Advance(
+		context.Background(),
+		"run-1",
+	); !IsCode(err, "SNAPSHOT_MISMATCH") || store.advance != nil {
+		t.Fatalf("binding mismatch = %v, advance=%#v", err, store.advance)
 	}
 }
 
