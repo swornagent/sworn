@@ -412,6 +412,33 @@ main {
   line-height: 1.45;
 }
 
+.track-node {
+  border-top-width: 3px;
+  border-top-color: var(--relay);
+}
+
+.node-handoff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0.8rem;
+  color: var(--paper);
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.node-handoff > span {
+  padding: 0.2rem 0.3rem;
+  background: var(--baton);
+}
+
+.node-handoff > span + span {
+  background: var(--sworn);
+}
+
 .endpoint {
   display: flex;
   flex-direction: column;
@@ -436,6 +463,11 @@ main {
   fill: none;
   stroke: var(--rule);
   stroke-width: 1.5;
+}
+
+.edge-line[data-kind="contains"] {
+  stroke: var(--rule);
+  stroke-width: 1;
 }
 
 .edge-line[data-kind="consumes"],

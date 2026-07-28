@@ -74,6 +74,8 @@ function validSnapshot(value) {
     value.graph && Array.isArray(value.graph.nodes) &&
     Array.isArray(value.graph.edges) &&
     value.handoff && Array.isArray(value.handoff.nodes) &&
+    Array.isArray(value.handoff.responsibilities) &&
+    validGraphHandoff(value.graph, value.handoff) &&
     value.runtime && Array.isArray(value.runtime.effects) &&
     Array.isArray(value.runtime.attempts) &&
     Array.isArray(value.runtime.notifications) &&
@@ -82,6 +84,32 @@ function validSnapshot(value) {
     Array.isArray(value.diagnostics) &&
     Number.isSafeInteger(value.through_offset) &&
     value.through_offset >= 0;
+}
+
+function validGraphHandoff(graph, handoff) {
+  if (typeof handoff.ready !== "boolean" ||
+    handoff.nodes.length !== handoff.responsibilities.length) {
+    return false;
+  }
+  const nodeIDs = new Set();
+  const batonNodes = [];
+  for (const node of graph.nodes) {
+    if (!node || typeof node.id !== "string" || nodeIDs.has(node.id) ||
+      typeof node.has_baton !== "boolean") {
+      return false;
+    }
+    nodeIDs.add(node.id);
+    if (node.has_baton) {
+      batonNodes.push(node.id);
+    }
+  }
+  if (handoff.nodes.some((nodeID) => !nodeIDs.has(nodeID)) ||
+    new Set(handoff.nodes).size !== handoff.nodes.length ||
+    batonNodes.length !== handoff.nodes.length ||
+    batonNodes.some((nodeID, index) => nodeID !== handoff.nodes[index])) {
+    return false;
+  }
+  return handoff.ready === (handoff.nodes.length > 0);
 }
 
 async function refresh(reason, reconnectEvents = true) {
@@ -222,7 +250,7 @@ function render() {
   elements.viewport.hidden = false;
   const selectedWasFocused =
     document.activeElement?.dataset.nodeId === state.selectedID;
-  renderGraph(snapshot.graph);
+  renderGraph(snapshot.graph, snapshot.handoff);
   renderDetail();
   if (selectionDisappeared) {
     requestAnimationFrame(() => {
@@ -304,11 +332,12 @@ function renderHandoff(handoff) {
   const count = handoff.nodes.length;
   elements.handoffCount.textContent = count === 1 ? "1 exact exchange" : `${count} exact exchanges`;
   const roles = handoff.responsibilities.map(humanize).join(" + ");
-  elements.handoffCopy.textContent = `ready for ${roles}.`;
+  elements.handoffCopy.textContent =
+    `ready for ${roles} at ${handoff.nodes.join(" + ")}.`;
 }
 
-function renderGraph(graph) {
-  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+function renderGraph(graph, handoff) {
+  const handoffNodes = new Set(handoff.nodes);
   const tracks = graph.nodes.filter((node) => node.kind === "track");
   const children = new Map(tracks.map((track) => [track.label, []]));
   graph.nodes.filter((node) => node.kind === "slice").forEach((node) => {
@@ -319,7 +348,7 @@ function renderGraph(graph) {
   const items = [];
   const release = graph.nodes.find((node) => node.kind === "release");
   if (release) {
-    items.push(endpointItem(release));
+    items.push(endpointItem(release, handoffNodes));
   }
   tracks.forEach((track) => {
     const item = document.createElement("li");
@@ -330,36 +359,38 @@ function renderGraph(graph) {
     const rail = document.createElement("div");
     rail.className = "slice-rail";
     const slices = children.get(track.label) ?? [];
-    if (slices.length === 0) {
-      rail.append(nodeButton(track));
-    } else {
-      slices.forEach((node) => rail.append(nodeButton(node)));
-    }
+    const trackNode = nodeButton(track, handoffNodes);
+    trackNode.classList.add("track-node");
+    rail.append(trackNode);
+    slices.forEach((node) => rail.append(nodeButton(node, handoffNodes)));
     item.append(label, rail);
     items.push(item);
   });
   const assembly = graph.nodes.find((node) => node.kind === "assembly");
   if (assembly) {
-    items.push(endpointItem(assembly));
+    items.push(endpointItem(assembly, handoffNodes));
   }
   elements.topology.replaceChildren(...items);
-  requestAnimationFrame(() => drawEdges(graph.edges, nodes));
+  requestAnimationFrame(() => drawEdges(graph.edges));
 }
 
-function endpointItem(node) {
+function endpointItem(node, handoffNodes) {
   const item = document.createElement("li");
   item.className = "endpoint";
-  item.append(nodeButton(node));
+  item.append(nodeButton(node, handoffNodes));
   return item;
 }
 
-function nodeButton(node) {
+function nodeButton(node, handoffNodes) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "node";
   button.dataset.nodeId = node.id;
+  button.dataset.kind = node.kind;
   button.dataset.state = node.state || "unknown";
   button.dataset.outcome = node.outcome || "none";
+  button.dataset.hasBaton = String(node.has_baton);
+  button.dataset.handoff = String(handoffNodes.has(node.id));
   button.setAttribute("aria-pressed", String(node.id === state.selectedID));
   const label = document.createElement("span");
   label.className = "node-label";
@@ -372,6 +403,16 @@ function nodeButton(node) {
   }
   meta.textContent = parts.join(" · ");
   button.append(label, meta);
+  if (handoffNodes.has(node.id)) {
+    const joint = document.createElement("span");
+    joint.className = "node-handoff";
+    const baton = document.createElement("span");
+    baton.textContent = "Baton";
+    const sworn = document.createElement("span");
+    sworn.textContent = "Sworn";
+    joint.append(baton, sworn);
+    button.append(joint);
+  }
   button.addEventListener("click", () => selectNode(node.id, button));
   if (node.id === state.selectedID) {
     state.selectedButton = button;
@@ -419,6 +460,11 @@ function renderDetail() {
     ["Stage", reported(node.stage)],
     ["Outcome", reported(node.outcome)],
     ["Next responsibility", reported(humanize(node.next_responsibility))],
+    ["Baton", node.has_baton ? "Present" : "Not present"],
+    [
+      "Exact handoff",
+      snapshot.handoff.nodes.includes(node.id) ? "Ready" : "Not ready",
+    ],
     ["Attempt", node.attempt ? String(node.attempt) : "Not reported"],
     ["Node ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
@@ -559,9 +605,6 @@ function drawEdges(edges) {
   elements.edges.setAttribute("height", String(height));
   const paths = [];
   edges.forEach((edge) => {
-    if (edge.kind === "contains") {
-      return;
-    }
     const from = elements.topology.querySelector(`[data-node-id="${CSS.escape(edge.from)}"]`);
     const to = elements.topology.querySelector(`[data-node-id="${CSS.escape(edge.to)}"]`);
     if (!from || !to) {
@@ -576,6 +619,9 @@ function drawEdges(edges) {
     const bend = Math.max(24, Math.abs(x2 - x1) / 2);
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.classList.add("edge-line");
+    path.dataset.edgeId = edge.id;
+    path.dataset.from = edge.from;
+    path.dataset.to = edge.to;
     path.dataset.kind = edge.kind;
     path.setAttribute("d", `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
     paths.push(path);

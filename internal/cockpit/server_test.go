@@ -619,6 +619,13 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		`window.matchMedia("(max-width: 72rem)")`,
 		"const SNAPSHOT_POLL_MILLIS = 5_000;",
 		`() => void refresh("", false)`,
+		"validGraphHandoff(value.graph, value.handoff)",
+		"rail.append(trackNode)",
+		"button.dataset.hasBaton = String(node.has_baton)",
+		"button.dataset.handoff = String(handoffNodes.has(node.id))",
+		"path.dataset.edgeId = edge.id",
+		"path.dataset.from = edge.from",
+		"path.dataset.to = edge.to",
 		`"Not reported"`,
 		"No admitted delivery graph is recorded yet.",
 		"No durable evidence has been recorded for this snapshot.",
@@ -627,6 +634,9 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		if !strings.Contains(javascript, required) {
 			t.Errorf("JavaScript missing %q", required)
 		}
+	}
+	if strings.Contains(javascript, `edge.kind === "contains"`) {
+		t.Errorf("UI drops a DTO edge kind instead of rendering the complete graph")
 	}
 	if strings.Contains(javascript, "const valid =") ||
 		strings.Contains(index, "<style") ||
