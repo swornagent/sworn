@@ -9,11 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"go.opentelemetry.io/otel/attribute"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 type capturedSpan struct {
@@ -39,7 +34,7 @@ type captureTraceExporter struct {
 
 func (e *captureTraceExporter) ExportSpans(
 	ctx context.Context,
-	spans []sdktrace.ReadOnlySpan,
+	spans []telemetrySpan,
 ) error {
 	if e.started != nil {
 		e.startOnce.Do(func() { close(e.started) })
@@ -56,14 +51,14 @@ func (e *captureTraceExporter) ExportSpans(
 	e.exports++
 	for _, span := range spans {
 		e.spans = append(e.spans, capturedSpan{
-			name:       span.Name(),
-			attributes: attributeMap(span.Attributes()),
-			resource:   attributeMap(span.Resource().Attributes()),
-			startedAt:  span.StartTime(),
-			endedAt:    span.EndTime(),
-			parent:     span.Parent().IsValid(),
-			events:     len(span.Events()),
-			links:      len(span.Links()),
+			name:       span.name,
+			attributes: attributeMap(span.attributes),
+			resource: resourceMap(
+				span.resource,
+			),
+			startedAt: span.startedAt,
+			endedAt:   span.endedAt,
+			parent:    span.hasParent,
 		})
 	}
 	return e.exportErr
@@ -93,47 +88,25 @@ type captureMetricExporter struct {
 	exportErr error
 }
 
-func (*captureMetricExporter) Temporality(
-	kind sdkmetric.InstrumentKind,
-) metricdata.Temporality {
-	return sdkmetric.DefaultTemporalitySelector(kind)
-}
-
-func (*captureMetricExporter) Aggregation(
-	kind sdkmetric.InstrumentKind,
-) sdkmetric.Aggregation {
-	return sdkmetric.DefaultAggregationSelector(kind)
-}
-
 func (e *captureMetricExporter) Export(
 	_ context.Context,
-	value *metricdata.ResourceMetrics,
+	value *telemetryMetricPayload,
 ) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.exports++
-	resourceAttributes := attributeMap(value.Resource.Attributes())
-	for _, scope := range value.ScopeMetrics {
-		for _, instrument := range scope.Metrics {
-			gauge, ok := instrument.Data.(metricdata.Gauge[int64])
-			if !ok {
-				continue
-			}
-			for _, point := range gauge.DataPoints {
-				e.metrics = append(e.metrics, capturedMetric{
-					name:       instrument.Name,
-					attributes: attributeMap(point.Attributes.ToSlice()),
-					value:      point.Value,
-					resource:   resourceAttributes,
-				})
-			}
+	resourceAttributes := resourceMap(value.resource)
+	for _, metric := range value.metrics {
+		for _, point := range metric.points {
+			e.metrics = append(e.metrics, capturedMetric{
+				name:       metric.name,
+				attributes: attributeMap(point.attributes),
+				value:      point.value,
+				resource:   resourceAttributes,
+			})
 		}
 	}
 	return e.exportErr
-}
-
-func (*captureMetricExporter) ForceFlush(context.Context) error {
-	return nil
 }
 
 func (*captureMetricExporter) Shutdown(context.Context) error {
@@ -146,12 +119,26 @@ func (e *captureMetricExporter) snapshot() ([]capturedMetric, int) {
 	return append([]capturedMetric(nil), e.metrics...), e.exports
 }
 
-func attributeMap(values []attribute.KeyValue) map[string]any {
+func attributeMap(values []telemetryAttribute) map[string]any {
 	result := make(map[string]any, len(values))
 	for _, value := range values {
-		result[string(value.Key)] = value.Value.AsInterface()
+		switch value.kind {
+		case telemetryStringAttribute:
+			result[value.key] = value.stringValue
+		case telemetryInt64Attribute:
+			result[value.key] = value.int64Value
+		case telemetryBoolAttribute:
+			result[value.key] = value.boolValue
+		}
 	}
 	return result
+}
+
+func resourceMap(value telemetryResource) map[string]any {
+	return map[string]any{
+		"service.name":    value.serviceName,
+		"service.version": value.serviceVersion,
+	}
 }
 
 func testTelemetryRecord(sentinel string) Record {

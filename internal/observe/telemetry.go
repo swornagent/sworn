@@ -5,15 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/exemplar"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -66,63 +57,21 @@ type Telemetry struct {
 
 type telemetryRuntime struct {
 	owner          *Telemetry
-	traceProvider  *sdktrace.TracerProvider
-	spanProcessor  *recordSpanProcessor
-	traceExporter  sdktrace.SpanExporter
-	meterProvider  *sdkmetric.MeterProvider
-	metricReader   *sdkmetric.ManualReader
-	metricExporter sdkmetric.Exporter
-	metrics        metricSet
-	resource       *resource.Resource
+	traceExporter  telemetryTraceExporter
+	metricExporter telemetryMetricExporter
+	metrics        metricAccumulator
+	resource       telemetryResource
 	interval       time.Duration
 }
 
-type recordSpanProcessor struct {
-	mu       sync.Mutex
-	shutdown bool
-	spans    []sdktrace.ReadOnlySpan
+type telemetryTraceExporter interface {
+	ExportSpans(context.Context, []telemetrySpan) error
+	Shutdown(context.Context) error
 }
 
-func (p *recordSpanProcessor) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
-
-func (p *recordSpanProcessor) OnEnd(span sdktrace.ReadOnlySpan) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.shutdown {
-		p.spans = append(p.spans, span)
-	}
-}
-
-func (p *recordSpanProcessor) ForceFlush(context.Context) error { return nil }
-
-func (p *recordSpanProcessor) Shutdown(context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.shutdown = true
-	return nil
-}
-
-func (p *recordSpanProcessor) drain() []sdktrace.ReadOnlySpan {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	result := append([]sdktrace.ReadOnlySpan(nil), p.spans...)
-	p.spans = p.spans[:0]
-	return result
-}
-
-type metricSet struct {
-	events              metric.Int64Gauge
-	attempts            metric.Int64Gauge
-	retries             metric.Int64Gauge
-	recoveries          metric.Int64Gauge
-	durationNumerator   metric.Int64Gauge
-	durationDenominator metric.Int64Gauge
-	inputTokens         metric.Int64Gauge
-	outputTokens        metric.Int64Gauge
-	usageNumerator      metric.Int64Gauge
-	usageDenominator    metric.Int64Gauge
-	qualityNumerator    metric.Int64Gauge
-	qualityDenominator  metric.Int64Gauge
+type telemetryMetricExporter interface {
+	Export(context.Context, *telemetryMetricPayload) error
+	Shutdown(context.Context) error
 }
 
 func Noop() *Telemetry {
@@ -130,8 +79,8 @@ func Noop() *Telemetry {
 }
 
 func newTelemetry(
-	traceExporter sdktrace.SpanExporter,
-	metricExporter sdkmetric.Exporter,
+	traceExporter telemetryTraceExporter,
+	metricExporter telemetryMetricExporter,
 	version string,
 	queueCapacity int,
 	interval time.Duration,
@@ -146,95 +95,19 @@ func newTelemetry(
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
-	service := resource.NewSchemaless(
-		attribute.String("service.name", "sworn"),
-		attribute.String("service.version", version),
-	)
-	spanProcessor := &recordSpanProcessor{}
-	traceProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(service),
-		sdktrace.WithSpanProcessor(spanProcessor),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{
-			AttributeValueLengthLimit:   128,
-			AttributeCountLimit:         16,
-			EventCountLimit:             0,
-			LinkCountLimit:              0,
-			AttributePerEventCountLimit: 0,
-			AttributePerLinkCountLimit:  0,
-		}),
-	)
-	reader := sdkmetric.NewManualReader(
-		sdkmetric.WithTemporalitySelector(metricExporter.Temporality),
-		sdkmetric.WithAggregationSelector(metricExporter.Aggregation),
-	)
-	meterProvider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(service),
-		sdkmetric.WithReader(reader),
-		sdkmetric.WithCardinalityLimit(telemetryMetricCardinality),
-		sdkmetric.WithExemplarFilter(exemplar.AlwaysOffFilter),
-	)
-	metrics, err := newMetricSet(meterProvider.Meter("sworn.observe"))
-	if err != nil {
-		_ = traceProvider.Shutdown(context.Background())
-		_ = traceExporter.Shutdown(context.Background())
-		_ = meterProvider.Shutdown(context.Background())
-		_ = metricExporter.Shutdown(context.Background())
-		return nil, err
-	}
 	runtime := &telemetryRuntime{
 		owner:          owner,
-		traceProvider:  traceProvider,
-		spanProcessor:  spanProcessor,
 		traceExporter:  traceExporter,
-		meterProvider:  meterProvider,
-		metricReader:   reader,
 		metricExporter: metricExporter,
-		metrics:        metrics,
-		resource:       service,
-		interval:       interval,
+		metrics:        newMetricAccumulator(),
+		resource: telemetryResource{
+			serviceName:    "sworn",
+			serviceVersion: version,
+		},
+		interval: interval,
 	}
 	go runtime.run()
 	return owner, nil
-}
-
-func newMetricSet(meter metric.Meter) (metricSet, error) {
-	names := []string{
-		"sworn.eval.events",
-		"sworn.eval.attempts",
-		"sworn.eval.retries",
-		"sworn.eval.recoveries",
-		"sworn.eval.duration_ns.numerator",
-		"sworn.eval.duration_ns.denominator",
-		"sworn.eval.input_tokens",
-		"sworn.eval.output_tokens",
-		"sworn.eval.usage_coverage.numerator",
-		"sworn.eval.usage_coverage.denominator",
-		"sworn.eval.quality.numerator",
-		"sworn.eval.quality.denominator",
-	}
-	instruments := make([]metric.Int64Gauge, 0, len(names))
-	for _, name := range names {
-		instrument, err := meter.Int64Gauge(name)
-		if err != nil {
-			return metricSet{}, fail("OTEL_INSTRUMENT_FAILED")
-		}
-		instruments = append(instruments, instrument)
-	}
-	return metricSet{
-		events:              instruments[0],
-		attempts:            instruments[1],
-		retries:             instruments[2],
-		recoveries:          instruments[3],
-		durationNumerator:   instruments[4],
-		durationDenominator: instruments[5],
-		inputTokens:         instruments[6],
-		outputTokens:        instruments[7],
-		usageNumerator:      instruments[8],
-		usageDenominator:    instruments[9],
-		qualityNumerator:    instruments[10],
-		qualityDenominator:  instruments[11],
-	}, nil
 }
 
 // TryEnqueue copies one already-sanitized local record without waiting. A full
@@ -360,33 +233,16 @@ func (r *telemetryRuntime) dropQueued() {
 }
 
 func (r *telemetryRuntime) emitTrace(record Record) {
-	tracer := r.traceProvider.Tracer("sworn.observe")
-	ctx, segment := tracer.Start(
-		context.Background(),
-		"sworn.process.segment",
-		trace.WithNewRoot(),
-		trace.WithTimestamp(record.StartedAt),
-		trace.WithAttributes(segmentAttributes(record)...),
-	)
-	if hasRecovery(record.Recovery) {
-		_, span := tracer.Start(
-			ctx,
-			"sworn.recovery",
-			trace.WithTimestamp(record.ObservedAt),
-			trace.WithAttributes(recoveryAttributes(record.Recovery)...),
-		)
-		span.End(trace.WithTimestamp(record.ObservedAt))
+	spans, err := telemetrySpans(record, r.resource)
+	if err != nil {
+		r.owner.failure("trace_build")
+		return
 	}
-	segment.End(trace.WithTimestamp(record.ObservedAt))
-	spans := r.spanProcessor.drain()
 	exportCtx, cancel := context.WithTimeout(
 		context.Background(),
 		telemetryExportTimeout,
 	)
-	err := r.traceExporter.ExportSpans(
-		exportCtx,
-		withTelemetryResource(spans, r.resource),
-	)
+	err = r.traceExporter.ExportSpans(exportCtx, spans)
 	cancel()
 	if err != nil {
 		r.owner.failure("trace_export")
@@ -397,24 +253,36 @@ func (r *telemetryRuntime) emitTrace(record Record) {
 }
 
 func (r *telemetryRuntime) recordMetrics(record Record) {
-	ctx := context.Background()
-	outcome := metric.WithAttributes(
-		attribute.String("sworn.outcome", record.Outcome),
+	observedAt := record.ObservedAt
+	outcome := []telemetryAttribute{
+		stringTelemetryAttribute("sworn.outcome", record.Outcome),
+	}
+	r.metrics.record(
+		"sworn.eval.events",
+		record.Events,
+		observedAt,
+		outcome,
 	)
-	r.metrics.events.Record(ctx, record.Events, outcome)
-	for category, value := range map[string]int64{
-		"uncertain":   record.Recovery.Uncertain,
-		"reconciled":  record.Recovery.Reconciled,
-		"recovered":   record.Recovery.Recovered,
-		"rolled_back": record.Recovery.RolledBack,
+	for _, recovery := range []struct {
+		category string
+		value    int64
+	}{
+		{category: "uncertain", value: record.Recovery.Uncertain},
+		{category: "reconciled", value: record.Recovery.Reconciled},
+		{category: "recovered", value: record.Recovery.Recovered},
+		{category: "rolled_back", value: record.Recovery.RolledBack},
 	} {
-		r.metrics.recoveries.Record(
-			ctx,
-			value,
-			metric.WithAttributes(
-				attribute.String("sworn.recovery", category),
-				attribute.String("sworn.outcome", record.Outcome),
-			),
+		r.metrics.record(
+			"sworn.eval.recoveries",
+			recovery.value,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.recovery",
+					recovery.category,
+				),
+				stringTelemetryAttribute("sworn.outcome", record.Outcome),
+			},
 		)
 	}
 	for _, group := range record.Groups {
@@ -422,50 +290,87 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 		if group.Usage.InputTokens != nil {
 			usageKnown = "reported"
 		}
-		labels := metric.WithAttributes(
-			attribute.String("sworn.role", group.Role),
-			attribute.String("sworn.responsibility", group.Responsibility),
-			attribute.String("sworn.operation", group.Operation),
-			attribute.String("sworn.transport", group.Transport),
-			attribute.String("sworn.outcome", group.Outcome),
-			attribute.String("sworn.usage_known", usageKnown),
+		labels := []telemetryAttribute{
+			stringTelemetryAttribute("sworn.role", group.Role),
+			stringTelemetryAttribute(
+				"sworn.responsibility",
+				group.Responsibility,
+			),
+			stringTelemetryAttribute("sworn.operation", group.Operation),
+			stringTelemetryAttribute("sworn.transport", group.Transport),
+			stringTelemetryAttribute("sworn.outcome", group.Outcome),
+			stringTelemetryAttribute("sworn.usage_known", usageKnown),
+		}
+		r.metrics.record(
+			"sworn.eval.attempts",
+			group.Attempts,
+			observedAt,
+			labels,
 		)
-		r.metrics.attempts.Record(ctx, group.Attempts, labels)
-		r.metrics.retries.Record(ctx, group.Retries, labels)
-		r.metrics.durationNumerator.Record(
-			ctx,
+		r.metrics.record(
+			"sworn.eval.retries",
+			group.Retries,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.duration_ns.numerator",
 			*group.DurationNS.Numerator,
+			observedAt,
 			labels,
 		)
-		r.metrics.durationDenominator.Record(
-			ctx,
+		r.metrics.record(
+			"sworn.eval.duration_ns.denominator",
 			*group.DurationNS.Denominator,
+			observedAt,
 			labels,
 		)
-		r.metrics.usageNumerator.Record(
-			ctx,
+		r.metrics.record(
+			"sworn.eval.usage_coverage.numerator",
 			*group.Usage.TokenCoverage.Numerator,
+			observedAt,
 			labels,
 		)
-		r.metrics.usageDenominator.Record(
-			ctx,
+		r.metrics.record(
+			"sworn.eval.usage_coverage.denominator",
 			*group.Usage.TokenCoverage.Denominator,
+			observedAt,
 			labels,
 		)
 		if group.Usage.InputTokens != nil {
-			r.metrics.inputTokens.Record(ctx, *group.Usage.InputTokens, labels)
-			r.metrics.outputTokens.Record(ctx, *group.Usage.OutputTokens, labels)
+			r.metrics.record(
+				"sworn.eval.input_tokens",
+				*group.Usage.InputTokens,
+				observedAt,
+				labels,
+			)
+			r.metrics.record(
+				"sworn.eval.output_tokens",
+				*group.Usage.OutputTokens,
+				observedAt,
+				labels,
+			)
 		}
 	}
 	for _, quality := range record.Quality {
 		if quality.Numerator == nil {
 			continue
 		}
-		label := metric.WithAttributes(
-			attribute.String("sworn.quality", quality.Name),
+		labels := []telemetryAttribute{
+			stringTelemetryAttribute("sworn.quality", quality.Name),
+		}
+		r.metrics.record(
+			"sworn.eval.quality.numerator",
+			*quality.Numerator,
+			observedAt,
+			labels,
 		)
-		r.metrics.qualityNumerator.Record(ctx, *quality.Numerator, label)
-		r.metrics.qualityDenominator.Record(ctx, *quality.Denominator, label)
+		r.metrics.record(
+			"sworn.eval.quality.denominator",
+			*quality.Denominator,
+			observedAt,
+			labels,
+		)
 	}
 }
 
@@ -475,14 +380,7 @@ func (r *telemetryRuntime) exportMetrics() {
 		telemetryExportTimeout,
 	)
 	defer cancel()
-	var data metricdata.ResourceMetrics
-	if err := r.metricReader.Collect(exportCtx, &data); err != nil {
-		r.owner.failure("metric_collect")
-		return
-	}
-	// OTel Go merges resource.Environment into SDK providers by design.
-	// Replace the final export resource so ambient values cannot escape.
-	data.Resource = r.resource
+	data := r.metrics.payload(r.resource)
 	if err := r.metricExporter.Export(exportCtx, &data); err != nil {
 		r.owner.failure("metric_export")
 		return
@@ -491,45 +389,14 @@ func (r *telemetryRuntime) exportMetrics() {
 	r.owner.success()
 }
 
-type telemetryResourceSpan struct {
-	sdktrace.ReadOnlySpan
-	value *resource.Resource
-}
-
-func (s telemetryResourceSpan) Resource() *resource.Resource {
-	return s.value
-}
-
-func withTelemetryResource(
-	spans []sdktrace.ReadOnlySpan,
-	value *resource.Resource,
-) []sdktrace.ReadOnlySpan {
-	// See exportMetrics: the wrapper preserves the SDK span while replacing
-	// the environment-merged resource at the final exporter boundary.
-	result := make([]sdktrace.ReadOnlySpan, len(spans))
-	for index, span := range spans {
-		result[index] = telemetryResourceSpan{
-			ReadOnlySpan: span,
-			value:        value,
-		}
-	}
-	return result
-}
-
 func (r *telemetryRuntime) shutdown() {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
 		telemetryExportTimeout,
 	)
 	defer cancel()
-	if err := r.traceProvider.Shutdown(ctx); err != nil {
-		r.owner.failure("trace_shutdown")
-	}
 	if err := r.traceExporter.Shutdown(ctx); err != nil {
 		r.owner.failure("trace_shutdown")
-	}
-	if err := r.meterProvider.Shutdown(ctx); err != nil {
-		r.owner.failure("metric_shutdown")
 	}
 	if err := r.metricExporter.Shutdown(ctx); err != nil {
 		r.owner.failure("metric_shutdown")
@@ -550,35 +417,50 @@ func (t *Telemetry) failure(code string) {
 	t.statusMu.Unlock()
 }
 
-func segmentAttributes(record Record) []attribute.KeyValue {
-	result := []attribute.KeyValue{
-		attribute.String("sworn.schema", record.SchemaVersion),
-		attribute.String("sworn.measurement", "cumulative"),
-		attribute.String("sworn.run.state", record.RunState),
-		attribute.String("sworn.outcome", record.Outcome),
-		attribute.Int64("sworn.events", record.Events),
-		attribute.Int64("sworn.attempts", record.Attempts),
-		attribute.Int64("sworn.retries", record.Retries),
-		attribute.Int64("sworn.elapsed_ns", record.ElapsedNS),
-		attribute.Bool("sworn.usage_known", record.Usage.InputTokens != nil),
+func segmentAttributes(record Record) []telemetryAttribute {
+	result := []telemetryAttribute{
+		stringTelemetryAttribute("sworn.schema", record.SchemaVersion),
+		stringTelemetryAttribute("sworn.measurement", "cumulative"),
+		stringTelemetryAttribute("sworn.run.state", record.RunState),
+		stringTelemetryAttribute("sworn.outcome", record.Outcome),
+		int64TelemetryAttribute("sworn.events", record.Events),
+		int64TelemetryAttribute("sworn.attempts", record.Attempts),
+		int64TelemetryAttribute("sworn.retries", record.Retries),
+		int64TelemetryAttribute("sworn.elapsed_ns", record.ElapsedNS),
+		boolTelemetryAttribute(
+			"sworn.usage_known",
+			record.Usage.InputTokens != nil,
+		),
 	}
 	if record.Usage.InputTokens != nil {
 		result = append(
 			result,
-			attribute.Int64("sworn.input_tokens", *record.Usage.InputTokens),
-			attribute.Int64("sworn.output_tokens", *record.Usage.OutputTokens),
+			int64TelemetryAttribute(
+				"sworn.input_tokens",
+				*record.Usage.InputTokens,
+			),
+			int64TelemetryAttribute(
+				"sworn.output_tokens",
+				*record.Usage.OutputTokens,
+			),
 		)
 	}
 	return result
 }
 
-func recoveryAttributes(value RecoverySummary) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String("sworn.measurement", "cumulative"),
-		attribute.Int64("sworn.recovery.uncertain", value.Uncertain),
-		attribute.Int64("sworn.recovery.reconciled", value.Reconciled),
-		attribute.Int64("sworn.recovery.recovered", value.Recovered),
-		attribute.Int64("sworn.recovery.rolled_back", value.RolledBack),
+func recoveryAttributes(value RecoverySummary) []telemetryAttribute {
+	return []telemetryAttribute{
+		stringTelemetryAttribute("sworn.measurement", "cumulative"),
+		int64TelemetryAttribute("sworn.recovery.uncertain", value.Uncertain),
+		int64TelemetryAttribute(
+			"sworn.recovery.reconciled",
+			value.Reconciled,
+		),
+		int64TelemetryAttribute("sworn.recovery.recovered", value.Recovered),
+		int64TelemetryAttribute(
+			"sworn.recovery.rolled_back",
+			value.RolledBack,
+		),
 	}
 }
 

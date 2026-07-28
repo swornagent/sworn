@@ -1,21 +1,30 @@
 package observe
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"time"
 
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"google.golang.org/protobuf/proto"
 )
 
-const otelMaxRequestBytes = 1024 * 1024
+const (
+	otelMaxRequestBytes  = 1024 * 1024
+	otelMaxResponseBytes = 4 * 1024 * 1024
+)
 
-var errOTelRedirect = errors.New("OTLP redirect rejected")
+var (
+	errOTelRedirect     = errors.New("OTLP redirect rejected")
+	errOTLPRequest      = errors.New("OTLP request failed")
+	errOTLPRequestSize  = errors.New("OTLP request too large")
+	errOTLPResponse     = errors.New("OTLP response failed")
+	errOTLPResponseSize = errors.New("OTLP response too large")
+)
 
 // NewOTLP creates an explicitly configured, package-local OTLP/HTTP
 // projection. It does not install global OpenTelemetry providers and does not
@@ -51,43 +60,16 @@ func newOTLP(
 	if err != nil {
 		return nil, err
 	}
-	traceExporter, err := otlptracehttp.New(
-		ctx,
-		otlptracehttp.WithEndpointURL(traceURL),
-		otlptracehttp.WithHeaders(canonical.Headers),
-		otlptracehttp.WithCompression(otlptracehttp.NoCompression),
-		otlptracehttp.WithRetry(
-			otlptracehttp.RetryConfig{Enabled: false},
-		),
-		otlptracehttp.WithTimeout(telemetryExportTimeout),
-		otlptracehttp.WithHTTPClient(traceClient),
-		otlptracehttp.WithMaxRequestSize(otelMaxRequestBytes),
+	traceExporter := newOTLPTraceExporter(
+		traceURL,
+		canonical.Headers,
+		traceClient,
 	)
-	if err != nil {
-		return nil, fail("OTEL_EXPORTER_FAILED")
-	}
-	metricExporter, err := otlpmetrichttp.New(
-		ctx,
-		otlpmetrichttp.WithEndpointURL(metricURL),
-		otlpmetrichttp.WithHeaders(canonical.Headers),
-		otlpmetrichttp.WithCompression(otlpmetrichttp.NoCompression),
-		otlpmetrichttp.WithRetry(
-			otlpmetrichttp.RetryConfig{Enabled: false},
-		),
-		otlpmetrichttp.WithTimeout(telemetryExportTimeout),
-		otlpmetrichttp.WithHTTPClient(metricClient),
-		otlpmetrichttp.WithMaxRequestSize(otelMaxRequestBytes),
-		otlpmetrichttp.WithTemporalitySelector(
-			sdkmetric.DefaultTemporalitySelector,
-		),
-		otlpmetrichttp.WithAggregationSelector(
-			sdkmetric.DefaultAggregationSelector,
-		),
+	metricExporter := newOTLPMetricExporter(
+		metricURL,
+		canonical.Headers,
+		metricClient,
 	)
-	if err != nil {
-		_ = traceExporter.Shutdown(context.Background())
-		return nil, fail("OTEL_EXPORTER_FAILED")
-	}
 	telemetry, err := newTelemetry(
 		traceExporter,
 		metricExporter,
@@ -101,6 +83,84 @@ func newOTLP(
 		return nil, err
 	}
 	return telemetry, nil
+}
+
+type otlpHTTPSender struct {
+	endpoint string
+	headers  map[string]string
+	client   *http.Client
+}
+
+func newOTLPHTTPSender(
+	endpoint string,
+	headers map[string]string,
+	client *http.Client,
+) *otlpHTTPSender {
+	copiedHeaders := make(map[string]string, len(headers))
+	for name, value := range headers {
+		copiedHeaders[name] = value
+	}
+	return &otlpHTTPSender{
+		endpoint: endpoint,
+		headers:  copiedHeaders,
+		client:   client,
+	}
+}
+
+func (s *otlpHTTPSender) post(
+	ctx context.Context,
+	requestMessage proto.Message,
+) ([]byte, error) {
+	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(
+		requestMessage,
+	)
+	if err != nil {
+		return nil, errOTLPRequest
+	}
+	if len(body) > otelMaxRequestBytes {
+		return nil, errOTLPRequestSize
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		s.endpoint,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, errOTLPRequest
+	}
+	request.Header.Set("Content-Type", "application/x-protobuf")
+	request.Header.Set("Accept", "application/x-protobuf")
+	for name, value := range s.headers {
+		request.Header.Set(name, value)
+	}
+	response, err := s.client.Do(request)
+	if err != nil {
+		return nil, errOTLPRequest
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(io.LimitReader(
+		response.Body,
+		otelMaxResponseBytes+1,
+	))
+	if err != nil {
+		return nil, errOTLPResponse
+	}
+	if len(responseBody) > otelMaxResponseBytes {
+		return nil, errOTLPResponseSize
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, errOTLPResponse
+	}
+	return responseBody, nil
+}
+
+func (s *otlpHTTPSender) shutdown() error {
+	if s == nil || s.client == nil {
+		return nil
+	}
+	s.client.CloseIdleConnections()
+	return nil
 }
 
 func newOTelHTTPClient() *http.Client {
