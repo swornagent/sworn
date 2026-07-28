@@ -51,7 +51,8 @@ bytes at this same repository path.
 
 # Scope
 
-Summarise included and excluded product surfaces without repeating metadata.
+Summarise the committed behavioral and product surfaces plus hard exclusions.
+Do not try to predict every ancillary test, oracle, support, or evidence path.
 
 # Acceptance
 
@@ -67,12 +68,17 @@ Call out dependency edges, consumed slice outputs, shared boundaries, and
 ownership assumptions. A revision invalidates only changed contracts and the
 actual consumers of changed passed product trees.
 
+Use `depends_on` and `consumes` only for real delivery ordering or product
+inputs, not test co-touch, scheduling convenience, or likely support work.
+
 # Checks
 
 Describe the required checks. Their normalized result digest belongs in the
 candidate and Verifier receipts; raw output may stay in the engine evidence
-store.
+store. These are the required minimum; additional focused checks are evidence
+and do not revise an unchanged commitment.
 
 # Constraints
 
-Record non-negotiable safety, compatibility, and delivery limits.
+Record non-negotiable semantic, safety, compatibility, and delivery limits,
+not implementation predictions or runtime bookkeeping.

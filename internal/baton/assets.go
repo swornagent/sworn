@@ -24,18 +24,20 @@ import (
 )
 
 const (
-	PackageVersion       = "1.0.0-rc.5"
-	TagName              = "v1.0.0-rc.5"
-	TagObject            = "306ed09c3152e8a7413e6b9d09d63d00ee12ff4a"
-	Commit               = "b0133b9e53755484f7aa9140fc3c1b349e2f50dd"
-	Tree                 = "c079d41d3955d9690a9be39d1711ef45fa3625f3"
-	ArchiveSHA256        = "sha256:8fea81036dc678e9a0aa4c2d1fb0c8ed016c23b9e7d77c183f3f168467002dd5"
-	SupportPackageSHA256 = "sha256:cd3f1285318820ca5ee3a96785ab40915f7b2970ec14d9e3f578898de4a953c1"
-	ManifestSHA256       = "sha256:5af96cf4fae812a49b63328e3bae94d87a2332ea6bb7d022bcc35e00fe07da53"
+	PackageVersion       = "1.0.0-rc.8"
+	TagName              = "v1.0.0-rc.8"
+	TagObject            = "749714b60ac6356fbeb43d91ee3ad478820f2ad8"
+	ReleaseCommit        = "a8fdb397e0839bdc58ad4b865e163dd37654752c"
+	ReleaseTree          = "b39fe4c538a06ce7f28b70edd551395f99a8373c"
+	Commit               = "a8fdb397e0839bdc58ad4b865e163dd37654752c"
+	Tree                 = "b39fe4c538a06ce7f28b70edd551395f99a8373c"
+	ArchiveSHA256        = "sha256:bcbc310c2c5c98f82c721968ced7929ec58b0cdc2ab531a615fec706fe863582"
+	SupportPackageSHA256 = "sha256:339799b218d4f8846cec1114a9756dda96a51744a72eb975bb9b632c4e349726"
+	ManifestSHA256       = "sha256:f0f39ee622a7154773da4400f9bc1470cb0178121173152a234aee4d182b12c1"
 	AssetCount           = 24
-	AssetBytes           = int64(290743)
+	AssetBytes           = int64(362962)
 
-	releaseDocumentSHA256 = "sha256:31e3c1eb1722bb0da0822891fb013be232ab67cbde7a0b9ba3a5a739822fa799"
+	releaseDocumentSHA256 = "sha256:541f53157be8578ca75753e34246831cb70bce3ef052c882d0b62763f64f0bd3"
 	releaseSchema         = "sworn.baton-release/v1"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
@@ -71,9 +73,10 @@ var expectedAssetPaths = []string{
 	"templates/plan.md",
 }
 
-// supportAssetPaths is Baton's exact RC5 SUPPORT_FILES catalog. The two
-// conformance documents are admitted by the snapshot but are not installed as
-// generated support, so they do not participate in the support package digest.
+// supportAssetPaths is the exact SUPPORT_FILES catalog at the admitted snapshot
+// source. The two conformance documents are admitted by the snapshot but are
+// not installed as generated support, so they do not participate in the
+// support package digest.
 var supportAssetPaths = []string{
 	"VERSION",
 	"baton/ASSURANCE.md",
@@ -191,6 +194,8 @@ type releaseFile struct {
 	} `json:"generated_support"`
 	Snapshot struct {
 		ManifestSchema string `json:"manifest_schema"`
+		SourceCommit   string `json:"source_commit"`
+		SourceTree     string `json:"source_tree"`
 		ManifestSHA256 string `json:"manifest_sha256"`
 		AssetCount     int    `json:"asset_count"`
 		TotalBytes     int64  `json:"total_bytes"`
@@ -331,7 +336,7 @@ func validatePackage(source fs.FS) (Identity, map[string]struct{}, error) {
 	}
 	versionBody, err := fs.ReadFile(source, "snapshot/assets/VERSION")
 	if err != nil || string(versionBody) != PackageVersion+"\n" {
-		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC5")
+		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC8")
 	}
 
 	return Identity{
@@ -353,19 +358,19 @@ func validateReleaseIdentity(release releaseFile) error {
 		release.PackageVersion != PackageVersion ||
 		release.SourceRepository != "https://github.com/sawy3r/baton" ||
 		release.ReleaseURL != "https://github.com/sawy3r/baton/releases/tag/"+TagName ||
-		release.PublishedAt != "2026-07-25T23:14:50Z" {
+		release.PublishedAt != "2026-07-28T13:51:48Z" {
 		return errors.New("release metadata has an unexpected publication identity")
 	}
 	if release.Tag.Name != TagName ||
 		release.Tag.Object != TagObject ||
 		release.Tag.ObjectType != "tag" ||
-		release.Tag.PeeledCommit != Commit ||
-		release.Tag.PeeledTree != Tree {
+		release.Tag.PeeledCommit != ReleaseCommit ||
+		release.Tag.PeeledTree != ReleaseTree {
 		return errors.New("release metadata has an unexpected annotated tag identity")
 	}
-	if release.Archive.Name != "baton-1.0.0-rc.5.tar.gz" ||
+	if release.Archive.Name != "baton-1.0.0-rc.8.tar.gz" ||
 		release.Archive.SHA256 != ArchiveSHA256 ||
-		release.Archive.EmbeddedCommit != Commit {
+		release.Archive.EmbeddedCommit != ReleaseCommit {
 		return errors.New("release metadata has an unexpected archive identity")
 	}
 	if release.GeneratedSupport.ManifestSchema != "baton.generated-adapters/v1" ||
@@ -375,6 +380,8 @@ func validateReleaseIdentity(release releaseFile) error {
 		return errors.New("release metadata has an unexpected generated-support identity")
 	}
 	if release.Snapshot.ManifestSchema != manifestSchema ||
+		release.Snapshot.SourceCommit != Commit ||
+		release.Snapshot.SourceTree != Tree ||
 		release.Snapshot.ManifestSHA256 != ManifestSHA256 ||
 		release.Snapshot.AssetCount != AssetCount ||
 		release.Snapshot.TotalBytes != AssetBytes {
@@ -399,18 +406,18 @@ func validateManifestIdentity(manifest assetManifest) error {
 
 func validateReleaseBindings(source fs.FS, release releaseFile, digests map[string]string) error {
 	expectedOperations := []releaseOperation{
-		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:91197ccfdda4475b09f70d50e6dd1fe248f7135625172618051b81dc98016088"},
-		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:8e3a056fe6b0a0db5f30679b4f6cc2a2ba44d53c33538a0ec3d2db04cba7f5f1"},
-		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:cef3db42acdeca0696e939e5cc58b2628469992dbefaa3b0e2429987903b9381"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:080034f552086a7e73fc27fb9f155320ac7638749481b477d16af4afdc59afaf"},
-		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:ccc995fd1b38814858f5fcf1122c61409acbbd281596cb259c6de4ba18a6df1b"},
+		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:3385b9bd62eee8cbe8b7e23e04abe872e133aa113d2c9ca0b7da3454a17bd413"},
+		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:30061e6ea64004237f17c1bf51a279a76bd7efff5d1cd39b12016bab942d5efc"},
+		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:71cf67af0b9f3089a58bd6dc9d4c4054a41643135b89bf5bc332a2861d68ea84"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:2a6b14e214b6aea9c7d2c27072289735085626d3f4fc81f3a0fe76af3d2353d4"},
+		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:d2c1b324ff251c3abe8e1e32a7651b9896b69271a6d7b37107efcd09e2da141d"},
 	}
 	expectedTemplates := []releaseTemplate{
-		{"plan", "templates/plan.md", "sha256:9228d93d050071faa6269db913a2b8373f24b7b27813f08a97478e42c2090913"},
+		{"plan", "templates/plan.md", "sha256:ec9571a105445875c3b94f6303035c2dfc9985f39972790ea6473d39e96c9ba5"},
 	}
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:8946bcb51b0ce8349617c5d7a65cb3835445c9fadb14d15e62e901c6a8b83629"},
-		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:5ab96576337d1617dbcd50b1405b1d174f5595e44d364fe04a71f1c9d0275833"},
+		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:a53ae10a76dcca1f1e426f16385cb1487c9a1f690e2ab5ebb21463ec74cbea73"},
 		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {

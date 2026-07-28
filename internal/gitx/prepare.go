@@ -317,10 +317,12 @@ func (context *compositionContext) environment() []string {
 func (r *Repository) contextRun(context *compositionContext, stdin []byte, attributesFile string, args ...string) ([]byte, error) {
 	return r.runWithAttributes(stdin, context.environment(), attributesFile, args...)
 }
-func unionTreePaths(left, right []TreeEntry) []string {
-	values := make(map[string]struct{}, len(left)+len(right))
-	for _, entry := range append(append([]TreeEntry(nil), left...), right...) {
-		values[entry.Path] = struct{}{}
+func unionTreePaths(groups ...[]TreeEntry) []string {
+	values := make(map[string]struct{})
+	for _, group := range groups {
+		for _, entry := range group {
+			values[entry.Path] = struct{}{}
+		}
 	}
 	result := make([]string, 0, len(values))
 	for value := range values {
@@ -389,7 +391,7 @@ func renderMergeAttributes(attributes map[string]string) []byte {
 	}
 	return []byte(result.String())
 }
-func (r *Repository) deterministicMergeTree(expected, candidate OID) (OID, error) {
+func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase *OID) (OID, error) {
 	context, err := r.newCompositionContext()
 	if err != nil {
 		return OID{}, err
@@ -403,7 +405,14 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID) (OID, error
 	if err != nil {
 		return OID{}, err
 	}
-	paths := unionTreePaths(left, right)
+	var base []TreeEntry
+	if productBase != nil {
+		base, err = r.ListTree(*productBase)
+		if err != nil {
+			return OID{}, err
+		}
+	}
+	paths := unionTreePaths(left, right, base)
 	expectedAttributes, err := r.mergeAttributesAtSource(context, expected, paths)
 	if err != nil {
 		return OID{}, err
@@ -411,13 +420,23 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID) (OID, error
 	if _, err := r.mergeAttributesAtSource(context, candidate, paths); err != nil {
 		return OID{}, err
 	}
+	if productBase != nil {
+		if _, err := r.mergeAttributesAtSource(context, *productBase, paths); err != nil {
+			return OID{}, err
+		}
+	}
 	if err := os.WriteFile(context.attributesFile, renderMergeAttributes(expectedAttributes), 0o600); err != nil {
 		return OID{}, fail("GIT_EXECUTION_FAILED", "install merge attributes", err)
 	}
 	if _, err := r.contextRun(context, nil, context.attributesFile, "read-tree", expected.String()); err != nil {
 		return OID{}, err
 	}
-	rawTree, err := r.contextRun(context, nil, context.attributesFile, "merge-tree", "--write-tree", "--no-messages", expected.String(), candidate.String())
+	args := []string{"merge-tree", "--write-tree", "--no-messages"}
+	if productBase != nil {
+		args = append(args, "--merge-base="+productBase.String())
+	}
+	args = append(args, expected.String(), candidate.String())
+	rawTree, err := r.contextRun(context, nil, context.attributesFile, args...)
 	if err != nil {
 		return OID{}, fail("MERGE_CONFLICT", "prepare composition", err)
 	}
@@ -427,20 +446,28 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID) (OID, error
 	}
 	return r.parseOID(treeText)
 }
-func (r *Repository) PrepareComposition(request CompositionRequest) (PreparedComposition, error) {
+
+func (r *Repository) validateCompositionRequest(request CompositionRequest) error {
 	if err := r.validateOID(request.Expected); err != nil {
-		return PreparedComposition{}, err
+		return err
 	}
 	if err := r.validateOID(request.Candidate); err != nil {
-		return PreparedComposition{}, err
+		return err
 	}
 	if err := ValidateHeadRef(request.TargetRef); err != nil {
-		return PreparedComposition{}, err
+		return err
 	}
 	if _, err := r.ProductTreeIdentity(request.Expected, request.ProductAdmission); err != nil {
-		return PreparedComposition{}, err
+		return err
 	}
 	if _, err := r.ProductTreeIdentity(request.Candidate, request.ProductAdmission); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) PrepareComposition(request CompositionRequest) (PreparedComposition, error) {
+	if err := r.validateCompositionRequest(request); err != nil {
 		return PreparedComposition{}, err
 	}
 	forward, err := r.IsAncestor(request.Expected, request.Candidate)
@@ -472,7 +499,14 @@ func (r *Repository) PrepareComposition(request CompositionRequest) (PreparedCom
 	if contained {
 		return PreparedComposition{}, fail("CANDIDATE_ALREADY_CONTAINED", "prepare composition", errors.New("candidate is already contained by expected"))
 	}
-	tree, err := r.deterministicMergeTree(request.Expected, request.Candidate)
+	return r.prepareTwoParentComposition(request, nil)
+}
+
+func (r *Repository) prepareTwoParentComposition(
+	request CompositionRequest,
+	productBase *OID,
+) (PreparedComposition, error) {
+	tree, err := r.deterministicMergeTree(request.Expected, request.Candidate, productBase)
 	if err != nil {
 		return PreparedComposition{}, err
 	}
@@ -510,13 +544,17 @@ func (r *Repository) PrepareComposition(request CompositionRequest) (PreparedCom
 	if _, err := r.ProductTreeIdentity(prepared.Commit, request.ProductAdmission); err != nil {
 		return PreparedComposition{}, err
 	}
-	if err := r.VerifyExactComposition(request.Expected, request.Candidate, prepared.Commit); err != nil {
+	if err := r.verifyExactComposition(request.Expected, request.Candidate, prepared.Commit, productBase); err != nil {
 		return PreparedComposition{}, err
 	}
 	return prepared, nil
 }
 
 func (r *Repository) VerifyExactComposition(expected, candidate, result OID) error {
+	return r.verifyExactComposition(expected, candidate, result, nil)
+}
+
+func (r *Repository) verifyExactComposition(expected, candidate, result OID, productBase *OID) error {
 	if err := r.validateOID(expected); err != nil {
 		return err
 	}
@@ -543,7 +581,7 @@ func (r *Repository) VerifyExactComposition(expected, candidate, result OID) err
 	if len(parents) != 2 || parents[0] != expected || parents[1] != candidate {
 		return fail("INVALID_COMPOSITION", "verify composition", errors.New("two-parent result has wrong parents"))
 	}
-	expectedTree, err := r.deterministicMergeTree(expected, candidate)
+	expectedTree, err := r.deterministicMergeTree(expected, candidate, productBase)
 	if err != nil {
 		return err
 	}
@@ -555,4 +593,99 @@ func (r *Repository) VerifyExactComposition(expected, candidate, result OID) err
 		return fail("INVALID_COMPOSITION", "verify composition", errors.New("result tree is not the deterministic merge tree"))
 	}
 	return nil
+}
+
+// PrepareProductComposition first attempts an ordinary exact composition. The
+// resolver is called only when that attempt reports MERGE_CONFLICT; callers
+// cannot supply or override a raw merge base on the ordinary path.
+func (r *Repository) PrepareProductComposition(
+	request CompositionRequest,
+	resolveProductBase func() (OID, error),
+) (PreparedComposition, error) {
+	prepared, err := r.PrepareComposition(request)
+	if err == nil {
+		return prepared, nil
+	}
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != "MERGE_CONFLICT" {
+		return PreparedComposition{}, err
+	}
+	if resolveProductBase == nil {
+		return PreparedComposition{}, fail(
+			"PRODUCT_BASE_RESOLVER_REQUIRED",
+			"prepare product composition",
+			errors.New("conflicting product composition requires an engine-derived base"),
+		)
+	}
+	productBase, err := resolveProductBase()
+	if err != nil {
+		return PreparedComposition{}, err
+	}
+	if err := r.validateOID(productBase); err != nil {
+		return PreparedComposition{}, err
+	}
+	if _, err := r.ProductTreeIdentity(productBase, request.ProductAdmission); err != nil {
+		return PreparedComposition{}, err
+	}
+	return r.prepareTwoParentComposition(request, &productBase)
+}
+
+// PrepareApprovedTargetBase incorporates the approved target while preserving
+// Expected as first-parent authority when Candidate contains it only off the
+// first-parent chain.
+func (r *Repository) PrepareApprovedTargetBase(
+	request CompositionRequest,
+) (PreparedComposition, error) {
+	if err := r.validateCompositionRequest(request); err != nil {
+		return PreparedComposition{}, err
+	}
+	if request.Expected == request.Candidate {
+		tree, err := r.TreeOID(request.Expected)
+		if err != nil {
+			return PreparedComposition{}, err
+		}
+		parents, err := r.Parents(request.Expected)
+		if err != nil {
+			return PreparedComposition{}, err
+		}
+		return PreparedComposition{
+			Mode: FastForward, Commit: request.Expected,
+			Tree: tree, Parents: parents,
+		}, nil
+	}
+	targetContained, err := r.IsAncestor(request.Candidate, request.Expected)
+	if err != nil {
+		return PreparedComposition{}, err
+	}
+	if targetContained {
+		tree, err := r.TreeOID(request.Expected)
+		if err != nil {
+			return PreparedComposition{}, err
+		}
+		parents, err := r.Parents(request.Expected)
+		if err != nil {
+			return PreparedComposition{}, err
+		}
+		return PreparedComposition{
+			Mode: FastForward, Commit: request.Expected,
+			Tree: tree, Parents: parents,
+		}, nil
+	}
+	expectedContained, err := r.IsAncestor(request.Expected, request.Candidate)
+	if err != nil {
+		return PreparedComposition{}, err
+	}
+	if !expectedContained {
+		return r.PrepareComposition(request)
+	}
+	history, err := r.ReadFirstParentHistory(request.Candidate, MaxHistory)
+	if err != nil {
+		return PreparedComposition{}, err
+	}
+	for _, entry := range history {
+		if entry.OID == request.Expected {
+			return r.PrepareComposition(request)
+		}
+	}
+	return r.prepareTwoParentComposition(request, nil)
 }

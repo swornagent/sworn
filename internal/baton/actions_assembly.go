@@ -64,6 +64,7 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	candidate, err := prepareClassifiedAssembly(
 		a.repository, state.Refs.Target.Ref, target,
 		state.Refs.Release.Head, classification,
+		state.productBases.track,
 	)
 	if err != nil {
 		return ActionResult{}, err
@@ -283,6 +284,7 @@ func classifyStateAssembly(
 	return withDirectAssemblyReuse(
 		repository, current, topology, evidence,
 		target, releaseHead, classification,
+		state.productBases.track,
 	)
 }
 

@@ -1,6 +1,280 @@
 package baton
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestReleaseEpochIgnoresPriorReceiptsWhenIdentitiesAreReused(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	oneTrack := []Track{{
+		ID:        "T1",
+		DependsOn: []string{},
+		Slices:    []Slice{actionSlice("S1", "one.txt")},
+	}}
+
+	first, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes("epoch-a", 1, nil, oneTrack),
+		Summary:   "Approve epoch A.",
+		Detail:    []byte("approval A"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := advanceActionSlice(
+		t,
+		actions,
+		repoPath,
+		"epoch-a",
+		"T1",
+		"S1",
+		"one.txt",
+		1000002300,
+		"pass",
+	)
+	merged, err := actions.MergePassedCandidate(MergePassedCandidateInput{
+		Release: "epoch-a",
+		Summary: "Merge the exact epoch A PASS.",
+		Detail:  []byte("merge A"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.ResultCommit != candidate {
+		t.Fatalf("epoch A result = %s, want %s", merged.ResultCommit, candidate)
+	}
+
+	second, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes("epoch-b", 1, nil, oneTrack),
+		Summary:   "Approve epoch B.",
+		Detail:    []byte("approval B"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Target != candidate {
+		t.Fatalf("epoch B target = %s, want %s", second.Target, candidate)
+	}
+	state := readActionState(t, repository, "epoch-b")
+	slice, ok := state.Slice("S1")
+	if !ok || slice.History.MaximumAttempt != 0 ||
+		len(slice.History.Entries) != 0 {
+		t.Fatalf("epoch B inherited epoch A authority: %#v", slice)
+	}
+
+	movedTarget := commitActionProduct(
+		t,
+		repoPath,
+		candidate,
+		"refs/heads/main",
+		"target.txt",
+		"moved for epoch B revision 2\n",
+		1000002350,
+	)
+	previous := second.Plan
+	revised, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(
+			"epoch-b",
+			2,
+			&previous,
+			oneTrack,
+		),
+		Summary: "Approve epoch B revision 2.",
+		Detail:  []byte("approval B2"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Target != movedTarget {
+		t.Fatalf("epoch B revision target = %s, want %s", revised.Target, movedTarget)
+	}
+	history, err := readReleaseReceiptHistory(
+		actions.repository,
+		"epoch-b",
+		revised.Head,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Boundary != candidate {
+		t.Fatalf("epoch B boundary = %s, want %s", history.Boundary, candidate)
+	}
+	if first.Plan == second.Plan {
+		t.Fatal("separate releases reused one plan object unexpectedly")
+	}
+}
+
+func TestReleaseEpochFloorIgnoresMalformedReceiptBelowItButNotAboveIt(
+	t *testing.T,
+) {
+	repoPath, repository, actions := createActionHarness(t)
+	base := actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"rev-parse",
+		"refs/heads/main",
+	)
+	inherited, err := actions.repository.prepareMetadata(
+		base,
+		[]byte("inherited malformed receipt\n\nBaton-Receipt: not-json\n"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"update-ref",
+		"refs/heads/main",
+		inherited.Commit,
+		base,
+	)
+	approved, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanBytes("epoch-safe"),
+		Summary:   "Approve the bounded epoch.",
+		Detail:    []byte("approval"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Target != inherited.Commit {
+		t.Fatalf(
+			"release floor = %s, want inherited commit %s",
+			approved.Target,
+			inherited.Commit,
+		)
+	}
+	_ = readActionState(t, repository, "epoch-safe")
+
+	malformed, err := actions.repository.prepareMetadata(
+		approved.Head,
+		[]byte("malformed receipt inside epoch\n\nBaton-Receipt: not-json\n"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := releaseRef("epoch-safe")
+	actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"update-ref",
+		ref,
+		malformed.Commit,
+		approved.Head,
+	)
+	_, err = ReadState(
+		UseGitRepository(repository),
+		"epoch-safe",
+		inertActionResolver,
+	)
+	if err == nil || !strings.Contains(err.Error(), "invalid receipt") {
+		t.Fatalf("malformed in-epoch receipt error = %v", err)
+	}
+}
+
+func TestReleaseEpochCannotBeMovedByReinstallingRevisionOne(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "epoch-replay"
+	base := actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"rev-parse",
+		"refs/heads/main",
+	)
+	anchor, err := actions.repository.prepareRecord(
+		base,
+		"test: add unrelated release record",
+		map[string][]byte{
+			planPath("anchor"): []byte("unrelated release record\n"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"update-ref",
+		"refs/heads/main",
+		anchor.Commit,
+		base,
+	)
+	planBytes := actionPlanBytes(release)
+	original, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: planBytes,
+		Summary:   "Approve the original revision-1 plan.",
+		Detail:    []byte("approval"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := planPath(release)
+	deleted, err := actions.repository.prepareRecord(
+		original.Head,
+		"test: delete the installed plan path",
+		map[string][]byte{path: nil},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reinstalled, err := actions.repository.prepareRecord(
+		deleted.Commit,
+		"test: reinstall the identical revision-1 plan",
+		map[string][]byte{path: planBytes},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed := original.Receipt.Clone()
+	replayed.Binds = reinstalled.Commit
+	replayed.Target = &deleted.Commit
+	replayed.Summary = "Attempt to replace the original release epoch."
+	message, err := RenderReceiptCommit(
+		"approve the replayed revision-1 plan",
+		nil,
+		replayed,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayApproval, err := actions.repository.prepareMetadata(
+		reinstalled.Commit,
+		message,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := releaseRef(release)
+	actionGit(
+		t,
+		repoPath,
+		nil,
+		nil,
+		"update-ref",
+		ref,
+		replayApproval.Commit,
+		original.Head,
+	)
+	_, err = ReadState(
+		UseGitRepository(repository),
+		release,
+		inertActionResolver,
+	)
+	if ErrorCode(err) != "INVALID_PLAN_HISTORY" ||
+		!strings.Contains(err.Error(), "already introduced") {
+		t.Fatalf("replayed release epoch error = %v", err)
+	}
+}
 
 func TestStatePreservesRetiredSliceHistories(t *testing.T) {
 	for _, test := range []struct {

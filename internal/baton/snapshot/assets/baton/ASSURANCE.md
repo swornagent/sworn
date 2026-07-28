@@ -20,6 +20,12 @@ The evidence may live in tests, the diff, code, commits, raw outputs, or an
 optional document. Its receipt MUST bind the exact immutable source. Naming a
 check is not proof that it ran.
 
+Required plan checks are a minimum, not a ceiling. An Implementer or Verifier
+MAY run additional focused checks and bind their results as evidence without a
+plan revision. A newly discovered check requires revision only when it exposes
+a material change to the approved behavior, contract, product dependencies, or
+authority.
+
 ## Heightened assurance
 
 A plan or repository policy MAY require additional checks, evidence boundaries,

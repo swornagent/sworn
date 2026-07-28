@@ -65,7 +65,7 @@ func loadReceiptGolden(t *testing.T) receiptGoldenCorpus {
 	return corpus
 }
 
-func TestPlanAdmissionMatchesExactRC5Golden(t *testing.T) {
+func TestPlanAdmissionMatchesExactRC8Golden(t *testing.T) {
 	t.Parallel()
 	golden := loadReceiptGolden(t)
 	raw, err := base64.StdEncoding.DecodeString(golden.Plan.BytesBase64)
@@ -112,7 +112,7 @@ func TestPlanAdmissionMatchesExactRC5Golden(t *testing.T) {
 	}
 }
 
-func TestStrictJSONMatchesExactRC5Golden(t *testing.T) {
+func TestStrictJSONMatchesExactRC8Golden(t *testing.T) {
 	t.Parallel()
 	golden := loadReceiptGolden(t)
 	inputs := map[string][]byte{

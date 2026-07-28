@@ -39,6 +39,21 @@ Operational defects produce no Baton verdict. An engine reconstructs or retries
 them when the applicable trust facts are present. It stops only when those facts
 are missing, conflicting, or unsafe to infer.
 
+## Commitment, not inventory
+
+A plan protects the approved outcome; it does not need to predict the complete
+route to it. Behavioral and product scope, acceptance, minimum checks, semantic
+limits, authority, and real consumed products belong in the commitment.
+Discovered support files, ancillary tests and oracles, additional check output,
+evidence corrections, worktrees, retries, and bookkeeping belong in the exact
+candidate or engine history.
+
+Turning those operational facts into plan fields creates a false choice:
+delivery either hides useful work or restarts approval for harmless discovery.
+Repairing forward keeps the stable release and slice while exact Git evidence
+and a fresh adversarial Verifier still expose any attempt to smuggle in a
+material behavior, dependency, contract, or authority change.
+
 ## Growth rule
 
 New incident knowledge should normally become a deterministic check, negative

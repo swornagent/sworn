@@ -20,6 +20,8 @@ candidate covered by current `PASS`.
 Merge never invents a verdict or resolves a product conflict. Derive candidates,
 topology, and expected targets from approved facts. Refuse unsafe mutation, then
 allow the surrounding system to rescan and reconcile operational outcomes.
+Merge acts on the exact passed candidate, including its verified support work;
+it does not compare that candidate with a predicted path inventory.
 
 ## Actions
 

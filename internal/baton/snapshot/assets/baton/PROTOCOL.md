@@ -11,9 +11,11 @@ Roles are authority boundaries, not personas.
 ### Planner
 
 The Planner proposes a bounded plan or forward-only revision. It defines the
-goal, target, authority, tracks, stable slices, scope, acceptance, checks,
-dependencies, consumed inputs, constraints, and exclusions. It cannot approve,
-implement, or certify its own plan.
+goal, target, authority, tracks, stable slices, behavioral and product scope,
+acceptance, minimum checks, real dependencies and consumed inputs, semantic
+constraints, and exclusions. It cannot approve, implement, or certify its own
+plan. Predicted support paths, exhaustive commands, evidence notes, scheduling,
+retries, worktrees, and bookkeeping are not plan commitments.
 
 ### Implementer
 
@@ -25,7 +27,8 @@ own design or issue a delivery verdict.
 ### Captain
 
 A distinct Captain reviews the exact applicable plan revision and design
-attempt. It returns:
+attempt against the exact consumed product base prepared for that design. It
+returns:
 
 - `PROCEED` — implementation may begin;
 - `REVISE` — the same slice needs another design attempt; or
@@ -73,6 +76,27 @@ Slice identities remain stable:
 Attempts never erase prior candidates or decisions. The applicable attempt is
 the latest one whose bindings agree with the current approved plan and inputs.
 
+### Commitment boundary
+
+Plan fields describe what must remain true, not every implementation step
+expected in advance:
+
+- `scope.include` identifies owned behavioral or product surfaces;
+  `scope.exclude` remains a hard boundary;
+- `checks` names the minimum required proof; additional focused checks and
+  their exact results are candidate evidence;
+- `constraints` records non-negotiable semantic and safety limits; and
+- `depends_on` and `consumes` record actual delivery or product relationships,
+  not test co-touch, scheduling convenience, or likely support work.
+
+An Implementer may discover ancillary tests, oracles, support files, extra
+checks, or evidence corrections and repair them under the current approved
+plan. A Captain may carry bounded corrections with `PROCEED` when they do not
+alter the contract. A Verifier `FAIL` returns the same stable slice directly to
+implementation. Material behavior, consumed product, contract, authority, or
+external-decision changes require the applicable Captain, Planner, or
+authorizer boundary.
+
 ## 3. Compact receipts
 
 Each responsibility boundary produces one small machine-written receipt. Every
@@ -92,13 +116,20 @@ their exact immutable identity. They do not become universal handoffs.
 Runtime facts such as workers, leases, retries, tokens, cost, and logs are
 engine data, not Baton receipts.
 
+Candidate evidence records the actual diff and checks. Their exact bindings
+make discovered support work observable without copying it into a revised plan.
+
 ## 4. Binding rules
 
 - Approval binds the exact plan revision and is protected from delivery actors.
 - Captain differs from the design producer and binds the plan revision, slice,
   and design attempt.
+- A consuming design binds its pre-composition track or release authority,
+  reviewed product-tree pins, and the deterministic prepared parent reviewed
+  by Captain.
 - Candidate evidence binds the plan revision, slice, attempt, repository,
-  candidate, product tree, checks, and relevant Captain decision.
+  exact prepared base, candidate, product tree, consumed product pins, checks,
+  and relevant Captain decision.
 - Verifier differs from the Implementer and Captain, is fresh and read-only,
   and binds the exact candidate and evidence.
 - Work `PASS` covers one slice candidate. Assembly `PASS` separately covers the
@@ -114,6 +145,14 @@ protected approval, clean verification, Git identity, or effect success.
 Independent tracks may advance concurrently. Ordered slices remain serial
 inside a track, and only one writer may mutate a track at a time. Dependencies
 and consumed inputs come from the approved plan.
+
+A consuming track is prepared from the exact current producer `PASS`
+authorities before its design is recorded and again before implementation.
+The consuming design records the pre-composition authority seed and reviewed
+product pins; its receipt parent is the deterministic prepared review base.
+Changing a consumed product after review requires a fresh design. A new
+producer candidate with the same product-tree digest keeps the review, but its
+current `PASS` authority is still prepared before implementation.
 
 A passed track candidate may be composed only through the approved topology.
 Composition preserves exact candidate identity and ancestry. After every
@@ -136,6 +175,12 @@ Missing derived status, stale board output, duplicate dispatch, interrupted
 execution, a skipped procedural cursor, or a reconcilable Git effect is
 operational. An engine reconstructs, retries, or reports it without creating a
 plan revision or Baton verdict.
+
+Clerical omissions and evidence corrections are repaired at the role that owns
+them. A bounded Captain correction may proceed inline. Candidate or evidence
+defects produce `FAIL` and another implementation attempt on the same slice.
+Only a material design issue crosses back to Captain; only a material contract,
+authority, or external decision crosses to Planner or the authorizer.
 
 When competing evidence or an external effect cannot be reconciled safely, the
 honest result is an operational stop until the trust fact becomes unambiguous.

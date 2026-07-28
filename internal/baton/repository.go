@@ -201,6 +201,21 @@ func (r *repository) history(head string) ([]historyRow, error) {
 	return result, nil
 }
 
+func (r *repository) firstParentPathChange(head, path string) (string, error) {
+	oid, err := r.oid(head)
+	if err != nil {
+		return "", err
+	}
+	change, present, err := r.git.FirstParentPathChange(oid, path)
+	if err != nil {
+		return "", translateGitError("read first-parent path history", err)
+	}
+	if !present {
+		return "", nil
+	}
+	return change.String(), nil
+}
+
 func (r *repository) productTree(commit string) (string, error) {
 	oid, err := r.oid(commit)
 	if err != nil {
@@ -341,6 +356,78 @@ func (r *repository) prepareComposition(targetRef, expected, candidate string) (
 	if err != nil {
 		return preparedComposition{}, translateGitError("prepare exact composition", err)
 	}
+	return convertComposition(prepared), nil
+}
+
+func (r *repository) prepareProductComposition(
+	targetRef, expected, candidate string,
+	resolveProductBase func() (string, error),
+) (preparedComposition, error) {
+	expectedOID, err := r.oid(expected)
+	if err != nil {
+		return preparedComposition{}, err
+	}
+	candidateOID, err := r.oid(candidate)
+	if err != nil {
+		return preparedComposition{}, err
+	}
+	prepared, err := r.git.PrepareProductComposition(
+		gitx.CompositionRequest{
+			Expected: expectedOID, Candidate: candidateOID,
+			TargetRef: targetRef, ProductAdmission: r.product,
+		},
+		func() (gitx.OID, error) {
+			if resolveProductBase == nil {
+				return gitx.OID{}, recordFail(
+					"PRODUCT_BASE_RESOLVER_REQUIRED",
+					"product composition requires engine-derived evidence",
+				)
+			}
+			value, err := resolveProductBase()
+			if err != nil {
+				return gitx.OID{}, err
+			}
+			return r.oid(value)
+		},
+	)
+	if err != nil {
+		return preparedComposition{}, translateGitError(
+			"prepare product composition",
+			err,
+		)
+	}
+	return convertComposition(prepared), nil
+}
+
+func (r *repository) prepareApprovedTargetBase(
+	targetRef, expected, approvedTarget string,
+) (preparedComposition, error) {
+	expectedOID, err := r.oid(expected)
+	if err != nil {
+		return preparedComposition{}, err
+	}
+	targetOID, err := r.oid(approvedTarget)
+	if err != nil {
+		return preparedComposition{}, err
+	}
+	prepared, err := r.git.PrepareApprovedTargetBase(
+		gitx.CompositionRequest{
+			Expected: expectedOID, Candidate: targetOID,
+			TargetRef: targetRef, ProductAdmission: r.product,
+		},
+	)
+	if err != nil {
+		return preparedComposition{}, translateGitError(
+			"prepare approved target base",
+			err,
+		)
+	}
+	return convertComposition(prepared), nil
+}
+
+func convertComposition(
+	prepared gitx.PreparedComposition,
+) preparedComposition {
 	result := preparedComposition{
 		Mode: string(prepared.Mode), Result: prepared.Commit.String(),
 		Tree: prepared.Tree.String(), Parents: make([]string, len(prepared.Parents)),
@@ -348,7 +435,7 @@ func (r *repository) prepareComposition(targetRef, expected, candidate string) (
 	for index, parent := range prepared.Parents {
 		result.Parents[index] = parent.String()
 	}
-	return result, nil
+	return result
 }
 
 func (r *repository) verifyComposition(expected, candidate, result string) error {

@@ -2,33 +2,38 @@ import { types as utilTypes } from 'node:util';
 
 import {
   captureHeadRefs,
+  commitParents,
   isAncestor,
   productTreeIdentity,
   readFilesAtOID,
-  readFirstParentHistory,
   repositoryRoot,
   resolveProductExclusionAdmission,
   resolveRecordPathAdmission,
   unsafeAtomicUpdateRefs,
+  unsafePrepareApprovedTargetBase,
   unsafePrepareExactComposition,
+  unsafePrepareProductComposition,
   unsafePrepareMetadataCommit,
   unsafePrepareRecordTransition,
 } from './git.mjs';
 import {
-  RECEIPT_TRAILER,
   canonicalJSON,
   digestBytes,
   parsePlanBytes,
   parseReceiptCommitMessage,
-  parseReceiptHistoryEntry,
   renderReceiptCommit,
 } from './receipts.mjs';
-import { readBatonState } from './state.mjs';
+import {
+  readBatonState,
+  readReleaseReceiptHistory,
+  unsafeProductBaseEvidence,
+} from './state.mjs';
 
 const RECORD_ROOT = '.baton/releases';
 const MAX_SUMMARY = 280;
 const MAX_DETAIL = 8_192;
 const MAX_CHECK_RESULTS = 1_048_576;
+const MAX_CANDIDATE_LINEAGE = 4096;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -159,28 +164,8 @@ function captureMap(repo, refs) {
   return new Map(captureHeadRefs(repo, refs).map(({ ref, head }) => [ref, head]));
 }
 
-function receiptHistory(repo, head) {
-  const rows = readFirstParentHistory(repo, head);
-  const entries = [];
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (!row.message.includes(Buffer.from(RECEIPT_TRAILER))) continue;
-    const parent = rows[index + 1];
-    if (!parent || row.parents[0] !== parent.oid) {
-      fail(
-        'HISTORY_LIMIT',
-        `cannot establish the parent tree for receipt ${row.oid}`,
-      );
-    }
-    entries.push(parseReceiptHistoryEntry({
-      oid: row.oid,
-      parents: row.parents,
-      tree: row.tree,
-      parent_tree: parent.tree,
-      message: row.message,
-    }));
-  }
-  return Object.freeze(entries);
+function receiptHistory(repo, release, head) {
+  return readReleaseReceiptHistory(repo, release, head).receipts;
 }
 
 function fileAt(repo, commit, relativePath) {
@@ -199,8 +184,8 @@ function currentPlan(repo, release, releaseHead) {
   });
 }
 
-function findApproval(repo, releaseHead, planObject) {
-  const approval = receiptHistory(repo, releaseHead).find(({ receipt }) => (
+function findApproval(repo, release, releaseHead, planObject) {
+  const approval = receiptHistory(repo, release, releaseHead).find(({ receipt }) => (
     receipt.role === 'planner'
     && receipt.result === 'approved'
     && receipt.plan === planObject
@@ -330,12 +315,100 @@ function requireSlicePrerequisites(state, slice) {
   }
 }
 
+function currentConsumedInputs(state, slice) {
+  if (slice.location.slice.consumes.length === 0) return [];
+  if (
+    !slice.input_pins
+    || slice.consumed_inputs.length !== slice.location.slice.consumes.length
+  ) {
+    fail(
+      'DEPENDENCIES_NOT_READY',
+      `${slice.location.slice.id} has no complete consumed PASS authority`,
+    );
+  }
+  const evidence = unsafeProductBaseEvidence(state);
+  return slice.consumed_inputs.map((input) => Object.freeze({
+    ...input,
+    product_base: () => evidence.pass(input.slice, input.pass_receipt),
+  }));
+}
+
+function prepareConsumedTrackBase(repo, consumerRef, seed, inputs, admission) {
+  let candidate = seed;
+  for (const input of inputs) {
+    if (
+      input.pass_receipt === candidate
+      || isAncestor(repo, input.pass_receipt, candidate)
+    ) continue;
+    const prepared = unsafePrepareProductComposition(repo, {
+      targetRef: consumerRef,
+      expectedHead: candidate,
+      candidate: input.pass_receipt,
+      productBase: input.product_base,
+      productExclusionAdmission: admission,
+    });
+    candidate = prepared.result;
+  }
+  return candidate;
+}
+
+function preparedTrackBase(repo, state, slice, admission) {
+  const track = currentTrack(state, slice.location.track.id);
+  const inputs = currentConsumedInputs(state, slice);
+  const seed = track.authority_head;
+  const targetBase = unsafePrepareApprovedTargetBase(repo, {
+    targetRef: track.ref,
+    expectedHead: seed,
+    approvedTarget: state.plan.approval.receipt.target,
+    productExclusionAdmission: admission,
+  });
+  return Object.freeze({
+    track,
+    inputs,
+    seed,
+    base: prepareConsumedTrackBase(
+      repo,
+      track.ref,
+      targetBase,
+      inputs,
+      admission,
+    ),
+  });
+}
+
+function linearOneParentAncestry(repo, base, candidate) {
+  let cursor = candidate;
+  for (let steps = 0; steps < MAX_CANDIDATE_LINEAGE; steps += 1) {
+    if (cursor === base) return true;
+    const parents = commitParents(repo, cursor);
+    if (parents.length !== 1) return false;
+    [cursor] = parents;
+  }
+  fail('RESOURCE_LIMIT', 'candidate lineage exceeds the bounded history limit');
+}
+
+function consumedRefVerifications(slice, ownerRef) {
+  const seen = new Set();
+  const operations = [];
+  for (const input of slice.consumed_inputs) {
+    if (input.source_ref === ownerRef || seen.has(input.source_ref)) continue;
+    seen.add(input.source_ref);
+    operations.push({
+      kind: 'verify',
+      ref: input.source_ref,
+      expectedHead: input.source_head,
+    });
+  }
+  return operations;
+}
+
 function exactRetry(entry, {
   role,
   result,
   summary,
   detail,
   candidate,
+  base,
   checks,
 }) {
   if (!entry) return false;
@@ -344,7 +417,19 @@ function exactRetry(entry, {
     receipt.role === role
     && receipt.result === result
     && receipt.summary === summary
-    && (candidate === null || receipt.candidate === candidate)
+    && (
+      candidate === null
+        ? !Object.hasOwn(receipt, 'candidate')
+        : receipt.candidate === candidate
+    )
+    && (
+      (role === 'implementer' && result === 'designed')
+      || (
+        base === null
+        ? !Object.hasOwn(receipt, 'base')
+        : receipt.base === base
+      )
+    )
     && (checks === null || receipt.checks === checks)
     && entry.detail.equals(detail)
   );
@@ -435,7 +520,7 @@ export function createBatonActions(options) {
       previousState = stateFor(release);
       const previous = currentPlan(repo, release, priorHead);
       if (previous.parsed.bytes.equals(parsed.bytes)) {
-        const approval = findApproval(repo, priorHead, previous.object);
+        const approval = findApproval(repo, release, priorHead, previous.object);
         if (approval.receipt.target !== target) {
           fail(
             'TARGET_MOVED',
@@ -456,6 +541,18 @@ export function createBatonActions(options) {
         });
       }
       assertRevision(previous.parsed, parsed, previous.object);
+      const retiredIDs = new Set(
+        receiptHistory(repo, release, priorHead)
+          .filter(({ receipt }) => (
+            receipt.role === 'planner' && receipt.result === 'retired'
+          ))
+          .map(({ receipt }) => receipt.slice),
+      );
+      for (const slice of parsed.metadata.tracks.flatMap((track) => track.slices)) {
+        if (retiredIDs.has(slice.id)) {
+          fail('INVALID_RETIREMENT', `retired slice ${slice.id} cannot be re-added`);
+        }
+      }
       parent = priorHead;
     }
 
@@ -551,7 +648,7 @@ export function createBatonActions(options) {
     const input = exactOptions(
       rawOptions,
       ['release', 'role', 'result', 'summary'],
-      ['slice', 'detail', 'candidate', 'checkResults'],
+      ['slice', 'detail', 'candidate', 'base', 'checkResults'],
       'appendReceipt',
     );
     const release = identity(input.release, 'release');
@@ -564,6 +661,9 @@ export function createBatonActions(options) {
       : null;
     const candidate = Object.hasOwn(input, 'candidate')
       ? objectID(input.candidate, 'candidate')
+      : null;
+    const base = Object.hasOwn(input, 'base')
+      ? objectID(input.base, 'base')
       : null;
     const evidenceRequired = (
       (role === 'implementer' && result === 'candidate')
@@ -594,12 +694,41 @@ export function createBatonActions(options) {
       ownerRef = track.ref;
       ownerHead = track.head;
       current = slice.current_receipt;
-      if (exactRetry(current, {
+      if (
+        base !== null
+        && !(role === 'implementer' && result === 'candidate')
+      ) fail('INVALID_ACTION_INPUT', `${role}/${result} does not accept base`);
+      const actionIsEligible = (
+        (
+          role === 'implementer'
+          && result === 'designed'
+          && slice.next_role === 'implementer'
+          && slice.stage === 'design'
+        )
+        || (
+          role === 'captain'
+          && ['proceed', 'revise', 'escalate'].includes(result)
+          && slice.next_role === 'captain'
+        )
+        || (
+          role === 'implementer'
+          && result === 'candidate'
+          && slice.next_role === 'implementer'
+          && slice.stage === 'implement'
+        )
+        || (
+          role === 'verifier'
+          && ['pass', 'fail', 'blocked'].includes(result)
+          && slice.next_role === 'verifier'
+        )
+      );
+      if (!actionIsEligible && exactRetry(current, {
         role,
         result,
         summary,
         detail,
         candidate,
+        base,
         checks,
       })) {
         return appendResult(false, ownerRef, current);
@@ -623,15 +752,34 @@ export function createBatonActions(options) {
         }
         attempt = slice.attempt;
         binds = current.oid;
-        receipt = { ...common, role, result, attempt, binds };
         parent = ownerHead ?? state.refs.release.head;
-        if (
-          ownerHead !== null
-          && ownerHead !== current.oid
-          && current.receipt.role !== 'planner'
-        ) {
-          fail('CHANGED_OWNER_HEAD', `${ownerRef} changed after its authoritative receipt`);
+        const prepared = preparedTrackBase(
+          repo,
+          state,
+          slice,
+          admissions.productExclusionAdmission,
+        );
+        if (parent !== prepared.base) {
+          fail(
+            'TRACK_BASE_NOT_PREPARED',
+            `${ownerRef} does not equal the exact current approved-target and consumed-input base`,
+          );
         }
+        let reviewedEvidence = {};
+        if (location.slice.consumes.length > 0) {
+          reviewedEvidence = {
+            base: prepared.seed,
+            inputs: slice.input_pins,
+          };
+        }
+        receipt = {
+          ...common,
+          role,
+          result,
+          attempt,
+          binds,
+          ...reviewedEvidence,
+        };
       } else if (role === 'captain' && ['proceed', 'revise', 'escalate'].includes(result)) {
         if (slice.next_role !== 'captain') {
           fail('ROLE_NOT_ELIGIBLE', `${sliceID} does not currently need Captain review`);
@@ -657,6 +805,53 @@ export function createBatonActions(options) {
         );
         attempt = slice.attempt;
         binds = current.oid;
+        const prepared = preparedTrackBase(
+          repo,
+          state,
+          slice,
+          admissions.productExclusionAdmission,
+        );
+        if (location.slice.consumes.length > 0 && base !== prepared.base) {
+          fail(
+            'CHANGED_CANDIDATE',
+            'consuming candidate must bind the exact prepared base',
+          );
+        }
+        if (location.slice.consumes.length === 0 && base !== null) {
+          fail('INVALID_ACTION_INPUT', 'non-consuming candidate does not accept base');
+        }
+        if (
+          location.slice.consumes.length === 0
+          && !isAncestor(repo, prepared.base, candidate)
+        ) {
+          fail(
+            'CHANGED_CANDIDATE',
+            'non-consuming candidate omits the exact prepared base',
+          );
+        }
+        if (
+          base !== null
+          && !linearOneParentAncestry(repo, base, candidate)
+        ) {
+          fail(
+            'CHANGED_CANDIDATE',
+            'consuming candidate must be linear one-parent work from its exact base',
+          );
+        }
+        for (const input of prepared.inputs) {
+          for (const ancestor of [
+            input.candidate,
+            input.candidate_receipt,
+            input.pass_receipt,
+          ]) {
+            if (!isAncestor(repo, ancestor, candidate)) {
+              fail(
+                'CHANGED_CANDIDATE',
+                `candidate omits consumed authority ${ancestor}`,
+              );
+            }
+          }
+        }
         receipt = {
           ...common,
           role,
@@ -664,6 +859,7 @@ export function createBatonActions(options) {
           attempt,
           binds,
           candidate,
+          ...(base !== null ? { base } : {}),
           product_tree: identity.productTree,
           inputs: slice.input_pins ?? {},
           checks,
@@ -707,6 +903,7 @@ export function createBatonActions(options) {
         summary,
         detail,
         candidate,
+        base,
         checks,
       })) {
         return appendResult(false, ownerRef, current);
@@ -758,6 +955,11 @@ export function createBatonActions(options) {
         ref: state.refs.release.ref,
         expectedHead: state.refs.release.head,
       });
+      if (
+        sliceID !== null
+        && role === 'implementer'
+        && ['designed', 'candidate'].includes(result)
+      ) operations.push(...consumedRefVerifications(currentSlice(state, sliceID), ownerRef));
     }
     operations.push(
       ownerHead === null
@@ -775,6 +977,139 @@ export function createBatonActions(options) {
       ownerRef,
       actionEntry(prepared.commit, parent, message),
     );
+  }
+
+  function prepareTrackBase(rawOptions) {
+    const input = exactOptions(
+      rawOptions,
+      ['release', 'slice'],
+      [],
+      'prepareTrackBase',
+    );
+    const release = identity(input.release, 'release');
+    const sliceID = identity(input.slice, 'slice');
+    const state = stateFor(release);
+    if (state.plan.target_stale) {
+      fail(
+        'TARGET_MOVED',
+        `the target moved from ${state.plan.approval.receipt.target} `
+          + `to ${state.refs.target.head}; revise and reapprove the plan`,
+      );
+    }
+    const slice = currentSlice(state, sliceID);
+    requireSlicePrerequisites(state, slice);
+    if (
+      slice.next_role !== 'implementer'
+      || !['design', 'implement'].includes(slice.stage)
+    ) {
+      fail(
+        'ROLE_NOT_ELIGIBLE',
+        `${sliceID} does not currently need an Implementer base`,
+      );
+    }
+    const prepared = preparedTrackBase(
+      repo,
+      state,
+      slice,
+      admissions.productExclusionAdmission,
+    );
+    const pins = Object.fromEntries(
+      prepared.inputs.map((item) => [item.slice, item.product_tree]),
+    );
+    const authorities = prepared.inputs.map((item) => ({
+      slice: item.slice,
+      pass_receipt: item.pass_receipt,
+      candidate_receipt: item.candidate_receipt,
+      candidate: item.candidate,
+      product_tree: item.product_tree,
+    }));
+    const snapshotOperations = [
+      {
+        kind: 'verify',
+        ref: state.refs.release.ref,
+        expectedHead: state.refs.release.head,
+      },
+      {
+        kind: 'verify',
+        ref: state.refs.target.ref,
+        expectedHead: state.refs.target.head,
+      },
+      ...consumedRefVerifications(slice, prepared.track.ref),
+    ];
+    if (
+      prepared.inputs.length === 0
+      && prepared.track.head === null
+      && prepared.base === prepared.seed
+    ) {
+      unsafeAtomicUpdateRefs(repo, [
+        ...snapshotOperations,
+        {
+          kind: 'verify',
+          ref: prepared.track.ref,
+          expectedHead: prepared.track.head,
+        },
+      ]);
+      return receiptResult('prepareTrackBase', false, {
+        release,
+        slice: sliceID,
+        ref: prepared.track.ref,
+        base: prepared.track.head ?? prepared.base,
+        pins,
+        authorities,
+      });
+    }
+    if (
+      prepared.track.head !== null
+      && prepared.track.head !== prepared.track.authority_head
+      && prepared.track.head !== prepared.base
+    ) {
+      fail(
+        'CHANGED_OWNER_HEAD',
+        `${prepared.track.ref} moved beyond its authoritative receipt`,
+      );
+    }
+    if (prepared.track.head === prepared.base) {
+      unsafeAtomicUpdateRefs(repo, [
+        ...snapshotOperations,
+        {
+          kind: 'verify',
+          ref: prepared.track.ref,
+          expectedHead: prepared.track.head,
+        },
+      ]);
+      return receiptResult('prepareTrackBase', false, {
+        release,
+        slice: sliceID,
+        ref: prepared.track.ref,
+        base: prepared.base,
+        pins,
+        authorities,
+      });
+    }
+    const operations = [
+      ...snapshotOperations,
+      prepared.track.head === null
+        ? {
+          kind: 'create',
+          ref: prepared.track.ref,
+          newHead: prepared.base,
+        }
+        : {
+          kind: 'update',
+          ref: prepared.track.ref,
+          newHead: prepared.base,
+          expectedHead: prepared.track.head,
+        },
+    ];
+    unsafeAtomicUpdateRefs(repo, operations);
+    return receiptResult('prepareTrackBase', true, {
+      release,
+      slice: sliceID,
+      ref: prepared.track.ref,
+      base: prepared.base,
+      pins,
+      authorities,
+    });
   }
 
   function prepareAssembly(rawOptions) {
@@ -802,6 +1137,7 @@ export function createBatonActions(options) {
     }
 
     const trackCandidates = [];
+    const productBases = unsafeProductBaseEvidence(state);
     for (const track of state.tracks) {
       const finalPass = track.slices.at(-1)?.pass;
       if (!finalPass) fail('SLICE_PASS_REQUIRED', `track ${track.id} has no final PASS`);
@@ -813,6 +1149,8 @@ export function createBatonActions(options) {
       trackCandidates.push({
         id: track.id,
         candidate: finalPass.receipt.candidate,
+        authority: finalPass.oid,
+        product_base: () => productBases.track(track.id),
         product_tree: finalPass.receipt.product_tree,
       });
     }
@@ -822,6 +1160,7 @@ export function createBatonActions(options) {
     const target = state.refs.target.head;
     if (
       trackCandidates.length === 1
+      && state.tracks[0].slices.length === 1
       && isAncestor(repo, target, trackCandidates[0].candidate)
     ) {
       return receiptResult('prepareAssembly', false, {
@@ -848,12 +1187,24 @@ export function createBatonActions(options) {
     }
 
     let candidate = target;
-    for (const component of [state.refs.release.head, ...trackCandidates.map((item) => item.candidate)]) {
-      if (component === candidate || isAncestor(repo, component, candidate)) continue;
-      const prepared = unsafePrepareExactComposition(repo, {
+    for (const component of [
+      { authority: state.refs.release.head, product_base: null },
+      ...trackCandidates,
+    ]) {
+      if (
+        component.authority === candidate
+        || isAncestor(repo, component.authority, candidate)
+      ) continue;
+      const prepare = component.product_base === null
+        ? unsafePrepareExactComposition
+        : unsafePrepareProductComposition;
+      const prepared = prepare(repo, {
         targetRef: state.refs.target.ref,
         expectedHead: candidate,
-        candidate: component,
+        candidate: component.authority,
+        ...(component.product_base === null
+          ? {}
+          : { productBase: component.product_base }),
         productExclusionAdmission: admissions.productExclusionAdmission,
       });
       candidate = prepared.result;
@@ -948,8 +1299,8 @@ export function createBatonActions(options) {
     let passed;
     if (state.assembly.pass) {
       passed = state.assembly.pass;
-    } else if (state.tracks.length === 1) {
-      const finalPass = state.tracks[0].slices.at(-1)?.pass;
+    } else if (state.tracks.length === 1 && state.tracks[0].slices.length === 1) {
+      const finalPass = state.tracks[0].slices[0].pass;
       if (
         finalPass
         && isAncestor(repo, state.refs.target.head, finalPass.receipt.candidate)
@@ -1021,6 +1372,7 @@ export function createBatonActions(options) {
 
   return Object.freeze({
     recordPlanRevision,
+    prepareTrackBase,
     appendReceipt,
     prepareAssembly,
     mergePassedCandidate,

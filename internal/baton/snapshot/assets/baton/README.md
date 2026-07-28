@@ -30,6 +30,11 @@ bind the decisions and outcomes to exact immutable objects. A board derives the
 most advanced trustworthy state from the plan, receipts, and Git; it is not
 another state store.
 
+The plan is a commitment to behavior, product scope, minimum proof, semantic
+limits, authority, and real dependencies—not an exhaustive inventory of paths
+or commands. Ancillary support discovery and extra evidence repair forward
+under the same approved plan while material contract changes still stop.
+
 The portable kit includes five canonical operations, generated Claude Code and
 Codex Skills, one plan template, deterministic reference tools, a read-only
 terminal and browser board. Longer design and evidence documents are optional

@@ -1840,6 +1840,18 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 	if !ok || slice.Status != "ready" {
 		return runtimeFail("WORK_NOT_READY", nil)
 	}
+	if slice.NextRole == "implementer" && slice.Stage == "design" {
+		state, slice, err = s.prepareTrackBaseForSlice(
+			ctx,
+			engine,
+			owner,
+			state,
+			slice,
+		)
+		if err != nil {
+			return err
+		}
+	}
 	key := gitx.TrackKey{Release: state.Release, Track: slice.Location.Track.ID}
 	before := sliceFingerprint(state, sliceID)
 	switch {
@@ -1917,11 +1929,22 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 func (s *Service) implementSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	state baton.State, slice *baton.SliceState) error {
 	sliceID := slice.Location.Slice.ID
-	key := gitx.TrackKey{Release: state.Release, Track: slice.Location.Track.ID}
 	if recovered, err := s.recoverPendingImplementationForSlice(
 		ctx, engine, owner, state, slice); recovered {
 		return err
 	}
+	var err error
+	state, slice, err = s.prepareTrackBaseForSlice(
+		ctx,
+		engine,
+		owner,
+		state,
+		slice,
+	)
+	if err != nil {
+		return err
+	}
+	key := gitx.TrackKey{Release: state.Release, Track: slice.Location.Track.ID}
 	before := sliceFingerprint(state, sliceID)
 	workID := workIdentity(before, "git.seal")
 	projection, err := s.journal.ControlProjection(ctx, engine.manifest.value.RunID)
@@ -1952,6 +1975,12 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			DispatchEffect: journal.AttemptEffectID(dispatchWork, 1, 1),
 			PreparedWork:   preparedWork,
 			PreparedEffect: journal.AttemptEffectID(preparedWork, 1, 1),
+		}
+		if len(slice.Location.Slice.Consumes) > 0 {
+			if slice.PreparedBase == "" || slice.PreparedBase != track.Head {
+				return runtimeFail("STALE_DISPATCH", nil)
+			}
+			cycle.Base = slice.PreparedBase
 		}
 		now := s.now().UTC()
 		payload := mustJSON(cycle)
@@ -2120,8 +2149,34 @@ func sealedRecordMatchesCycle(record sealedRecord, cycle implementationCycle) bo
 		record.Before == cycle.TrackHead && record.Receipt.Release == cycle.Release &&
 		record.Receipt.Slice == cycle.Slice && record.Receipt.Role == "implementer" &&
 		record.Receipt.Result == "candidate" &&
+		record.Receipt.Base == cycle.Base &&
 		record.Receipt.Candidate == record.Candidate &&
 		record.ProductTree != ""
+}
+
+func linearCandidateAncestry(
+	repository *gitx.Repository,
+	base gitx.OID,
+	candidate gitx.OID,
+) (bool, error) {
+	if repository == nil {
+		return false, nil
+	}
+	cursor := candidate
+	for steps := 0; steps < gitx.MaxHistory; steps++ {
+		if cursor == base {
+			return true, nil
+		}
+		parents, err := repository.Parents(cursor)
+		if err != nil {
+			return false, err
+		}
+		if len(parents) != 1 {
+			return false, nil
+		}
+		cursor = parents[0]
+	}
+	return false, runtimeFail("CORRUPT_JOURNAL", nil)
 }
 
 func validateSealedRecordCandidate(
@@ -2146,17 +2201,20 @@ func validateSealedRecordCandidate(
 			errors.Join(beforeErr, candidateErr, treeErr),
 		)
 	}
-	parents, parentsErr := engine.repository.Parents(candidate)
+	linear, lineageErr := linearCandidateAncestry(
+		engine.repository,
+		before,
+		candidate,
+	)
 	observedTree, observedTreeErr := engine.repository.TreeOID(candidate)
 	paths, pathsErr := engine.repository.ChangedPaths(before, candidate)
-	if parentsErr != nil || observedTreeErr != nil || pathsErr != nil {
+	if lineageErr != nil || observedTreeErr != nil || pathsErr != nil {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.Join(parentsErr, observedTreeErr, pathsErr),
+			errors.Join(lineageErr, observedTreeErr, pathsErr),
 		)
 	}
-	if len(parents) != 1 || parents[0] != before ||
-		observedTree != tree ||
+	if !linear || observedTree != tree ||
 		!slices.Equal(paths, record.ChangedPaths) {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
@@ -2310,7 +2368,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 				Release: state.Release, Slice: cycle.Slice, Role: "implementer",
 				Result: "candidate", Summary: submission.Summary,
 				Detail: []byte(submission.Detail), Candidate: record.Candidate,
-				CheckResults: checks,
+				Base: cycle.Base, CheckResults: checks,
 			}
 			if err := s.validateImplementationDispatchProof(
 				ctx,
@@ -2684,7 +2742,9 @@ func implementationReceiptApplied(
 			*receipt.ProductTree == record.ProductTree &&
 			receipt.Inputs != nil &&
 			receipt.Target == nil &&
-			receipt.Base == nil &&
+			((receipt.Base == nil && record.Receipt.Base == "") ||
+				(receipt.Base != nil &&
+					*receipt.Base == record.Receipt.Base)) &&
 			receipt.ResultCommit == nil &&
 			receipt.Summary == record.Receipt.Summary &&
 			bytes.Equal(entry.Detail, record.Receipt.Detail) &&
@@ -3666,7 +3726,18 @@ func (s *Service) recoverClaimedEffects(
 	owner journal.OwnerLease,
 ) error {
 	for {
-		recovered, err := s.recoverImplementationClaims(ctx, engine, owner)
+		recovered, err := s.recoverClaimedTrackBase(
+			ctx,
+			engine,
+			owner,
+		)
+		if err != nil {
+			return err
+		}
+		if recovered {
+			continue
+		}
+		recovered, err = s.recoverImplementationClaims(ctx, engine, owner)
 		if err != nil {
 			return err
 		}

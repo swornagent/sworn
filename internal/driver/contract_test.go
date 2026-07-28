@@ -40,21 +40,21 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC5PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindExactRC8PackageAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.5",
-		TagName:              "v1.0.0-rc.5",
-		TagObject:            "306ed09c3152e8a7413e6b9d09d63d00ee12ff4a",
-		Commit:               "b0133b9e53755484f7aa9140fc3c1b349e2f50dd",
-		Tree:                 "c079d41d3955d9690a9be39d1711ef45fa3625f3",
-		ArchiveSHA256:        "sha256:8fea81036dc678e9a0aa4c2d1fb0c8ed016c23b9e7d77c183f3f168467002dd5",
-		SupportPackageSHA256: "sha256:cd3f1285318820ca5ee3a96785ab40915f7b2970ec14d9e3f578898de4a953c1",
-		ManifestSHA256:       "sha256:5af96cf4fae812a49b63328e3bae94d87a2332ea6bb7d022bcc35e00fe07da53",
+		Version:              "1.0.0-rc.8",
+		TagName:              "v1.0.0-rc.8",
+		TagObject:            "749714b60ac6356fbeb43d91ee3ad478820f2ad8",
+		Commit:               "a8fdb397e0839bdc58ad4b865e163dd37654752c",
+		Tree:                 "b39fe4c538a06ce7f28b70edd551395f99a8373c",
+		ArchiveSHA256:        "sha256:bcbc310c2c5c98f82c721968ced7929ec58b0cdc2ab531a615fec706fe863582",
+		SupportPackageSHA256: "sha256:339799b218d4f8846cec1114a9756dda96a51744a72eb975bb9b632c4e349726",
+		ManifestSHA256:       "sha256:f0f39ee622a7154773da4400f9bc1470cb0178121173152a234aee4d182b12c1",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -64,19 +64,19 @@ func TestCanonicalOperationsBindExactRC5PackageAndExcludeMerge(t *testing.T) {
 	}{
 		RolePlanner: {
 			"baton-plan",
-			"sha256:91197ccfdda4475b09f70d50e6dd1fe248f7135625172618051b81dc98016088",
+			"sha256:3385b9bd62eee8cbe8b7e23e04abe872e133aa113d2c9ca0b7da3454a17bd413",
 		},
 		RoleImplementer: {
 			"baton-implement",
-			"sha256:8e3a056fe6b0a0db5f30679b4f6cc2a2ba44d53c33538a0ec3d2db04cba7f5f1",
+			"sha256:30061e6ea64004237f17c1bf51a279a76bd7efff5d1cd39b12016bab942d5efc",
 		},
 		RoleCaptain: {
 			"baton-design-review",
-			"sha256:cef3db42acdeca0696e939e5cc58b2628469992dbefaa3b0e2429987903b9381",
+			"sha256:71cf67af0b9f3089a58bd6dc9d4c4054a41643135b89bf5bc332a2861d68ea84",
 		},
 		RoleVerifier: {
 			"baton-verify",
-			"sha256:080034f552086a7e73fc27fb9f155320ac7638749481b477d16af4afdc59afaf",
+			"sha256:2a6b14e214b6aea9c7d2c27072289735085626d3f4fc81f3a0fe76af3d2353d4",
 		},
 	}
 	for role, want := range expected {

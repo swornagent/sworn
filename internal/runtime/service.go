@@ -95,6 +95,7 @@ type implementationCycle struct {
 	Track          string `json:"track"`
 	TrackRef       string `json:"track_ref"`
 	TrackHead      string `json:"track_head"`
+	Base           string `json:"base,omitempty"`
 	DispatchWork   string `json:"dispatch_work"`
 	DispatchEffect string `json:"dispatch_effect"`
 	PreparedWork   string `json:"prepared_work"`
@@ -609,6 +610,11 @@ func stableErrorCode(err error) string {
 	var runtimeErr *Error
 	if errors.As(err, &runtimeErr) && runtimeIdentityPattern.MatchString(runtimeErr.Code) {
 		return runtimeErr.Code
+	}
+	var gitErr *gitx.Error
+	if errors.As(err, &gitErr) &&
+		runtimeIdentityPattern.MatchString(gitErr.Code) {
+		return gitErr.Code
 	}
 	return "operational_failure"
 }

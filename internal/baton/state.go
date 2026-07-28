@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const maxPlanRevisions = 256
+const maxCandidateLineage = 4096
 
 type PlanHistory struct {
 	OID         string
@@ -50,21 +53,40 @@ type AttemptNumbers struct {
 	Candidate int64
 }
 
+// ConsumedInput is the exact current producer authority that a consuming
+// slice must materialize before model work can proceed. The slice order in the
+// plan is preserved by SliceState.ConsumedInputs.
+type ConsumedInput struct {
+	Slice            string
+	PassReceipt      string
+	CandidateReceipt string
+	Candidate        string
+	ProductTree      string
+	SourceRef        string
+	SourceHead       string
+}
+
 type SliceState struct {
-	Location       SliceLocation
-	History        SliceHistory
-	InputPins      map[string]string
-	NextAttempts   AttemptNumbers
-	StaleReason    string
-	Stage          string
-	Status         string
-	NextRole       string
-	Outcome        string
-	Attempt        int64
-	CurrentReceipt *ReceiptEntry
-	Candidate      *ReceiptEntry
-	Pass           *ReceiptEntry
-	Retained       bool
+	Location              SliceLocation
+	History               SliceHistory
+	InputPins             map[string]string
+	ReviewedPins          map[string]string
+	ReviewedBase          string
+	PreparationSeed       string
+	PreparedBase          string
+	ConsumedInputs        []ConsumedInput
+	NextAttempts          AttemptNumbers
+	StaleReason           string
+	Stage                 string
+	Status                string
+	NextRole              string
+	Outcome               string
+	Attempt               int64
+	CurrentReceipt        *ReceiptEntry
+	Candidate             *ReceiptEntry
+	Pass                  *ReceiptEntry
+	Retained              bool
+	preparedAuthorityBase string
 }
 
 type TrackState struct {
@@ -72,7 +94,7 @@ type TrackState struct {
 	DependsOn     []string
 	Ref           string
 	Head          string
-	authorityHead string
+	AuthorityHead string
 	Slices        []*SliceState
 }
 
@@ -121,6 +143,46 @@ type State struct {
 	SliceHistories []SliceHistoryState
 	Assembly       AssemblyState
 	Diagnostics    []Diagnostic
+	productBases   *productBaseEvidence
+}
+
+// productBaseEvidence is engine-only state reconstructed from exact protected
+// PASS chains. It is intentionally absent from the public State projection:
+// callers may identify a consumed PASS, but cannot choose a Git merge base.
+type productBaseEvidence struct {
+	pass  func(sliceID, passOID string) (string, error)
+	track func(trackID string) (string, error)
+}
+
+// BindTrackBaseProductResolver returns an opaque resolver bound to this exact
+// state snapshot. Runtime may hand the closure to gitx, but neither a journal
+// record nor an external caller can provide a raw merge base.
+func (s State) BindTrackBaseProductResolver(
+	format gitx.ObjectFormat,
+) (func(gitx.TrackBaseInput) (gitx.OID, error), error) {
+	if s.productBases == nil || s.productBases.pass == nil {
+		return nil, recordFail(
+			"PRODUCT_BASE_RESOLVER_REQUIRED",
+			"exact Baton state has no product-base evidence",
+		)
+	}
+	return func(input gitx.TrackBaseInput) (gitx.OID, error) {
+		value, err := s.productBases.pass(
+			input.Slice,
+			input.PassReceipt.String(),
+		)
+		if err != nil {
+			return gitx.OID{}, err
+		}
+		oid, err := gitx.ParseOID(format, value)
+		if err != nil {
+			return gitx.OID{}, translateGitError(
+				"parse product-base evidence",
+				err,
+			)
+		}
+		return oid, nil
+	}, nil
 }
 
 type planEntry struct {
@@ -129,9 +191,15 @@ type planEntry struct {
 }
 
 type receiptHistory struct {
+	Boundary string
 	Rows     []historyRow
 	Receipts []ReceiptEntry
 	ByOID    map[string]ReceiptEntry
+}
+
+type trackHistory struct {
+	ref   CapturedRef
+	owned []ReceiptEntry
 }
 
 func ReadState(gitRepository GitRepository, release string, resolver InertnessResolver) (State, error) {
@@ -166,7 +234,11 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		return State{}, err
 	}
 	metadata := current.Parsed.Metadata()
-	releaseHistory, err := historyAt(repository, initial.Head)
+	releaseHistory, err := readReleaseReceiptHistory(
+		repository,
+		release,
+		initial.Head,
+	)
 	if err != nil {
 		return State{}, err
 	}
@@ -254,16 +326,16 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			priorOwners[id] = location.Track.ID
 		}
 	}
-	type trackHistory struct {
-		ref   CapturedRef
-		owned []ReceiptEntry
-	}
 	trackHistories := make(map[string]trackHistory)
 	claimed := make(map[string]string)
 	for _, trackID := range historicalTrackOrder {
 		track := historicalTracks[trackID]
 		ref := byRef[trackRef(release, trackID)]
-		history, err := historyAt(repository, ref.Head)
+		history, err := historyAt(
+			repository,
+			ref.Head,
+			releaseHistory.Boundary,
+		)
 		if err != nil {
 			return State{}, err
 		}
@@ -318,7 +390,35 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			History: history,
 		})
 	}
-	states, err := deriveSlices(current, histories, approvals, planByOID)
+	productBaseResolver := newPassProductBaseResolver(
+		repository,
+		release,
+		histories,
+		planByOID,
+		approvals,
+		productCache,
+	)
+	if err := validateConsumedHistories(
+		repository,
+		release,
+		histories,
+		trackHistories,
+		planByOID,
+		approvals,
+		releaseHistory.Receipts,
+		productBaseResolver.baselineFor,
+		productCache,
+	); err != nil {
+		return State{}, err
+	}
+	states, err := deriveSlices(
+		repository,
+		current,
+		histories,
+		approvals,
+		planByOID,
+		productCache,
+	)
 	if err != nil {
 		return State{}, err
 	}
@@ -333,15 +433,62 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		}
 		trackState := TrackState{
 			ID: track.ID, DependsOn: append([]string(nil), track.DependsOn...),
-			Ref: ref.Ref, Head: ref.Head, authorityHead: authorityHead,
+			Ref: ref.Ref, Head: ref.Head, AuthorityHead: authorityHead,
 		}
 		trackRefs = append(trackRefs, TrackRefState{ID: track.ID, CapturedRef: ref})
 		for _, plannedSlice := range track.Slices {
 			state := states[plannedSlice.ID]
+			for index := range state.ConsumedInputs {
+				input := &state.ConsumedInputs[index]
+				producer := states[input.Slice]
+				source := byRef[trackRef(release, producer.Location.Track.ID)]
+				input.SourceRef, input.SourceHead = source.Ref, source.Head
+				if !directCommit(source) {
+					return State{}, recordFail(
+						"AMBIGUOUS_AUTHORITY",
+						"consumed slice "+input.Slice+" has no direct producer authority",
+					)
+				}
+				contained, err := repository.isAncestor(input.PassReceipt, source.Head)
+				if err != nil {
+					return State{}, err
+				}
+				if !contained {
+					return State{}, recordFail(
+						"AMBIGUOUS_AUTHORITY",
+						"consumed PASS "+input.PassReceipt+" is absent from producer authority",
+					)
+				}
+			}
 			trackState.Slices = append(trackState.Slices, state)
 			flatSlices = append(flatSlices, state)
 		}
 		tracks = append(tracks, trackState)
+	}
+	trackProductBaseFor := func(trackID string) (string, error) {
+		for _, track := range metadata.Tracks {
+			if track.ID != trackID {
+				continue
+			}
+			if len(track.Slices) == 0 {
+				break
+			}
+			first := states[track.Slices[0].ID]
+			if first == nil || first.Pass == nil {
+				return "", recordFail(
+					"AMBIGUOUS_AUTHORITY",
+					"track "+trackID+" has no first-slice PASS",
+				)
+			}
+			return productBaseResolver.baselineFor(
+				track.Slices[0].ID,
+				first.Pass.OID,
+			)
+		}
+		return "", recordFail(
+			"AMBIGUOUS_AUTHORITY",
+			"track "+trackID+" is absent",
+		)
 	}
 	for _, track := range tracks {
 		var incomplete *SliceState
@@ -351,18 +498,60 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 				break
 			}
 		}
-		writerActive := incomplete != nil &&
-			incomplete.Stage == "implement" &&
-			incomplete.Status == "ready" &&
-			incomplete.NextRole == "implementer"
-		if track.Head == "" || writerActive {
-			continue
-		}
-		if track.Head != track.authorityHead {
-			return State{}, recordFail(
-				"CHANGED_OWNER_HEAD",
-				"track "+track.ID+" moved outside its eligible implementation stage",
+		if incomplete != nil {
+			currentApproval := approvals[current.OID]
+			if currentApproval.Receipt.Target == nil {
+				return State{}, recordFail(
+					"APPROVAL_MISSING",
+					"current plan approval has no target",
+				)
+			}
+			preparedBase, err := projectedConsumedTrackBase(
+				repository,
+				track.Ref,
+				track.Head,
+				track.AuthorityHead,
+				*currentApproval.Receipt.Target,
+				incomplete.ConsumedInputs,
+				productBaseResolver.baselineFor,
 			)
+			if err != nil {
+				return State{}, err
+			}
+			incomplete.preparedAuthorityBase = preparedBase
+			if len(incomplete.ConsumedInputs) > 0 {
+				incomplete.PreparationSeed = track.AuthorityHead
+				incomplete.PreparedBase = preparedBase
+			}
+		}
+		var active *SliceState
+		if incomplete != nil {
+			if incomplete.NextRole == "verifier" ||
+				incomplete.NextRole == "merge" {
+				active = incomplete
+			}
+		} else if len(track.Slices) > 0 {
+			active = track.Slices[len(track.Slices)-1]
+		}
+		if track.Head != "" &&
+			track.Head != track.AuthorityHead &&
+			active != nil &&
+			active.Candidate != nil {
+			product, err := productTreeFor(
+				repository,
+				track.Head,
+				productCache,
+			)
+			if err != nil {
+				return State{}, err
+			}
+			expected := active.Candidate.Receipt.ProductTree
+			if expected == nil || product != *expected {
+				return State{}, recordFail(
+					"CHANGED_CANDIDATE",
+					"track "+track.ID+" moved after its current candidate",
+				)
+			}
 		}
 	}
 
@@ -387,6 +576,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		repository, assemblyEntries, planByOID, approvals,
 		topologies, allSliceEntries, productCache,
 		current, tracks, releaseHistory.Receipts,
+		trackProductBaseFor,
 	)
 	if err != nil {
 		return State{}, err
@@ -395,6 +585,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 	assembly, err := deriveAssembly(
 		repository, current, assemblyHistory, approval, tracks,
 		topologies[current.OID], targetCapture.Head, releaseCapture.Head,
+		trackProductBaseFor,
 	)
 	if err != nil {
 		return State{}, err
@@ -468,6 +659,10 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		Tracks: tracks, Slices: flatSlices, SliceHistories: sliceHistories,
 		Assembly:    assembly,
 		Diagnostics: diagnostics,
+		productBases: &productBaseEvidence{
+			pass:  productBaseResolver.baselineFor,
+			track: trackProductBaseFor,
+		},
 	}, nil
 }
 
@@ -521,38 +716,354 @@ func planAt(repository *repository, release, commit string) (planEntry, error) {
 	return planEntry{OID: file.Object, Parsed: parsed}, nil
 }
 
-func historyAt(repository *repository, head string) (receiptHistory, error) {
+func historyBoundaryFailure(rows []historyRow, label string) error {
+	if len(rows) == maxCandidateLineage {
+		return recordFail(
+			"RESOURCE_LIMIT",
+			label+" exceeds the bounded first-parent history limit",
+		)
+	}
+	return recordFail(
+		"HISTORY_BOUNDARY_MISSING",
+		label+" is absent from the exact first-parent history",
+	)
+}
+
+func historyEntryAt(rows []historyRow, index int) (ReceiptEntry, error) {
+	row := rows[index]
+	if index+1 >= len(rows) ||
+		len(row.Parents) != 1 ||
+		row.Parents[0] != rows[index+1].OID {
+		return ReceiptEntry{}, recordFail(
+			"HISTORY_LIMIT",
+			"cannot establish the parent tree for receipt "+row.OID,
+		)
+	}
+	entry, err := ParseReceiptHistoryEntry(HistoryEnvelope{
+		OID: row.OID, Parents: row.Parents, Tree: row.Tree,
+		ParentTree: rows[index+1].Tree, Message: row.Message,
+	})
+	if err != nil {
+		return ReceiptEntry{}, recordWrap(
+			ErrorCode(err),
+			"invalid receipt "+row.OID,
+			err,
+		)
+	}
+	return entry, nil
+}
+
+func historyAt(
+	repository *repository,
+	head string,
+	exclusiveBoundary string,
+) (receiptHistory, error) {
 	if head == "" {
-		return receiptHistory{ByOID: make(map[string]ReceiptEntry)}, nil
+		return receiptHistory{
+			Boundary: exclusiveBoundary,
+			ByOID:    make(map[string]ReceiptEntry),
+		}, nil
 	}
 	rows, err := repository.history(head)
 	if err != nil {
 		return receiptHistory{}, err
 	}
 	var receipts []ReceiptEntry
+	boundaryIndex := len(rows)
 	for index, row := range rows {
+		if row.OID == exclusiveBoundary && exclusiveBoundary != "" {
+			boundaryIndex = index
+			break
+		}
+		parentEstablished := index+1 < len(rows) &&
+			len(row.Parents) > 0 &&
+			row.Parents[0] == rows[index+1].OID
+		if !parentEstablished && exclusiveBoundary != "" {
+			return receiptHistory{}, historyBoundaryFailure(
+				rows,
+				"history boundary "+exclusiveBoundary,
+			)
+		}
 		if !bytes.Contains(row.Message, []byte("\n"+ReceiptTrailer)) {
 			continue
 		}
-		if index+1 >= len(rows) || len(row.Parents) != 1 || row.Parents[0] != rows[index+1].OID {
-			return receiptHistory{}, recordFail("HISTORY_LIMIT", "cannot establish the parent tree for receipt "+row.OID)
-		}
-		entry, err := ParseReceiptHistoryEntry(HistoryEnvelope{
-			OID: row.OID, Parents: row.Parents, Tree: row.Tree,
-			ParentTree: rows[index+1].Tree, Message: row.Message,
-		})
+		entry, err := historyEntryAt(rows, index)
 		if err != nil {
-			return receiptHistory{}, recordWrap(ErrorCode(err), "invalid receipt "+row.OID, err)
+			return receiptHistory{}, err
 		}
 		receipts = append(receipts, entry)
 	}
+	if exclusiveBoundary != "" && boundaryIndex == len(rows) {
+		return receiptHistory{}, historyBoundaryFailure(
+			rows,
+			"history boundary "+exclusiveBoundary,
+		)
+	}
+	rows = append([]historyRow(nil), rows[:boundaryIndex]...)
 	reverseRows(rows)
 	reverseReceipts(receipts)
 	byOID := make(map[string]ReceiptEntry, len(receipts))
 	for _, entry := range receipts {
 		byOID[entry.OID] = entry
 	}
-	return receiptHistory{Rows: rows, Receipts: receipts, ByOID: byOID}, nil
+	return receiptHistory{
+		Boundary: exclusiveBoundary,
+		Rows:     rows,
+		Receipts: receipts,
+		ByOID:    byOID,
+	}, nil
+}
+
+func assertPlanPredecessor(current, prior planEntry) error {
+	nextMetadata := current.Parsed.Metadata()
+	priorMetadata := prior.Parsed.Metadata()
+	if priorMetadata.Revision != nextMetadata.Revision-1 ||
+		priorMetadata.Release != nextMetadata.Release ||
+		priorMetadata.Repository != nextMetadata.Repository ||
+		priorMetadata.TargetRef != nextMetadata.TargetRef ||
+		priorMetadata.ApprovalRef == nextMetadata.ApprovalRef {
+		return recordFail(
+			"INVALID_PLAN_HISTORY",
+			fmt.Sprintf(
+				"plan revision %d has a broken predecessor",
+				nextMetadata.Revision,
+			),
+		)
+	}
+	return nil
+}
+
+// readReleaseReceiptHistory scopes authority to the current release epoch.
+// The revision-1 approved target is the exclusive floor: inherited receipts
+// below it are archaeology, while every receipt above it is parsed before
+// ownership filtering.
+func readReleaseReceiptHistory(
+	repository *repository,
+	release string,
+	head string,
+) (receiptHistory, error) {
+	if head == "" {
+		return receiptHistory{ByOID: make(map[string]ReceiptEntry)}, nil
+	}
+	current, err := planAt(repository, release, head)
+	if err != nil {
+		return receiptHistory{}, err
+	}
+	rows, err := repository.history(head)
+	if err != nil {
+		return receiptHistory{}, err
+	}
+	var receipts []ReceiptEntry
+	var lineage []planEntry
+	expectedOID := current.OID
+	expectedRevision := current.Parsed.Metadata().Revision
+	boundary := ""
+	boundaryIndex := len(rows)
+	for index, row := range rows {
+		if boundary != "" && row.OID == boundary {
+			boundaryIndex = index
+			break
+		}
+		parentEstablished := index+1 < len(rows) &&
+			len(row.Parents) > 0 &&
+			row.Parents[0] == rows[index+1].OID
+		if !parentEstablished {
+			label := "revision-1 approval for " + release
+			if boundary != "" {
+				label = "release epoch boundary " + boundary
+			}
+			return receiptHistory{}, historyBoundaryFailure(rows, label)
+		}
+		if !bytes.Contains(row.Message, []byte("\n"+ReceiptTrailer)) {
+			continue
+		}
+		entry, err := historyEntryAt(rows, index)
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		receipts = append(receipts, entry)
+		receipt := entry.Receipt
+		if boundary != "" ||
+			receipt.Role != "planner" ||
+			receipt.Result != "approved" ||
+			receipt.Slice != nil ||
+			receipt.Plan != expectedOID ||
+			receipt.Release != release {
+			continue
+		}
+		file, err := repository.file(entry.OID, planPath(release))
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if receipt.Binds != entry.Parent ||
+			!file.Present ||
+			file.Object != expectedOID {
+			return receiptHistory{}, recordFail(
+				"STALE_BINDING",
+				"approval "+entry.OID+" does not bind its plan commit",
+			)
+		}
+		parsed, err := ParsePlan(file.Bytes)
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		metadata := parsed.Metadata()
+		if metadata.Release != release ||
+			metadata.Revision != expectedRevision {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"approval "+entry.OID+" has stale plan topology",
+			)
+		}
+		approved := planEntry{OID: file.Object, Parsed: parsed}
+		lineage = append(lineage, approved)
+		if metadata.PreviousPlan != nil {
+			for _, prior := range receipts {
+				candidate := prior.Receipt
+				if candidate.Role == "planner" &&
+					candidate.Result == "approved" &&
+					candidate.Slice == nil &&
+					candidate.Plan == *metadata.PreviousPlan &&
+					candidate.Release == release {
+					return receiptHistory{}, recordFail(
+						"INVALID_PLAN_HISTORY",
+						"approval for previous plan "+
+							*metadata.PreviousPlan+
+							" is out of order",
+					)
+				}
+			}
+			expectedOID = *metadata.PreviousPlan
+			expectedRevision = metadata.Revision - 1
+			continue
+		}
+		if metadata.Revision != 1 {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"plan history does not terminate at revision 1",
+			)
+		}
+		if receipt.Target == nil {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"revision-1 approval "+entry.OID+
+					" does not install directly above its target",
+			)
+		}
+		planParents, err := repository.parents(entry.Parent)
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if len(planParents) != 1 || planParents[0] != *receipt.Target {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"revision-1 approval "+entry.OID+
+					" does not install directly above its target",
+			)
+		}
+		atFloor, err := repository.file(*receipt.Target, planPath(release))
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if atFloor.Present {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"revision-1 target "+*receipt.Target+
+					" already contains release "+release,
+			)
+		}
+		priorChange, err := repository.firstParentPathChange(
+			*receipt.Target,
+			planPath(release),
+		)
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if priorChange != "" {
+			return receiptHistory{}, recordFail(
+				"INVALID_PLAN_HISTORY",
+				"revision-1 plan path was already introduced at "+
+					priorChange,
+			)
+		}
+		boundary = *receipt.Target
+	}
+	if boundary == "" || boundaryIndex == len(rows) {
+		label := "revision-1 approval for " + release
+		if boundary != "" {
+			label = "release epoch boundary " + boundary
+		}
+		return receiptHistory{}, historyBoundaryFailure(rows, label)
+	}
+	for index := 0; index+1 < len(lineage); index++ {
+		if err := assertPlanPredecessor(
+			lineage[index],
+			lineage[index+1],
+		); err != nil {
+			return receiptHistory{}, err
+		}
+	}
+	lineageOIDs := make(map[string]bool, len(lineage))
+	for _, plan := range lineage {
+		lineageOIDs[plan.OID] = true
+	}
+	for planOID := range lineageOIDs {
+		matches := 0
+		for _, entry := range receipts {
+			receipt := entry.Receipt
+			if receipt.Role == "planner" &&
+				receipt.Result == "approved" &&
+				receipt.Slice == nil &&
+				receipt.Plan == planOID {
+				matches++
+			}
+		}
+		if matches != 1 {
+			code := "APPROVAL_MISSING"
+			if matches > 1 {
+				code = "AMBIGUOUS_APPROVAL"
+			}
+			return receiptHistory{}, recordFail(
+				code,
+				fmt.Sprintf(
+					"plan %s has %d approvals inside its release epoch",
+					planOID,
+					matches,
+				),
+			)
+		}
+	}
+	for _, entry := range receipts {
+		receipt := entry.Receipt
+		if receipt.Release != release {
+			return receiptHistory{}, recordFail(
+				"RELEASE_RECEIPT_MISMATCH",
+				"receipt "+entry.OID+" names another release",
+			)
+		}
+		if receipt.Role == "planner" &&
+			receipt.Result == "approved" &&
+			!lineageOIDs[receipt.Plan] {
+			return receiptHistory{}, recordFail(
+				"AMBIGUOUS_APPROVAL",
+				"approval "+entry.OID+
+					" is outside the current plan lineage",
+			)
+		}
+	}
+	rows = append([]historyRow(nil), rows[:boundaryIndex]...)
+	reverseRows(rows)
+	reverseReceipts(receipts)
+	byOID := make(map[string]ReceiptEntry, len(receipts))
+	for _, entry := range receipts {
+		byOID[entry.OID] = entry
+	}
+	return receiptHistory{
+		Boundary: boundary,
+		Rows:     rows,
+		Receipts: receipts,
+		ByOID:    byOID,
+	}, nil
 }
 
 func reverseRows(values []historyRow) {
@@ -651,11 +1162,11 @@ type assemblyTopology struct {
 
 func topologyForPlan(plan Plan) assemblyTopology {
 	tracks := plan.Metadata().Tracks
-	if len(tracks) != 1 || len(tracks[0].Slices) == 0 {
+	if len(tracks) != 1 || len(tracks[0].Slices) != 1 {
 		return assemblyTopology{}
 	}
 	return assemblyTopology{
-		DirectSlice: tracks[0].Slices[len(tracks[0].Slices)-1].ID,
+		DirectSlice: tracks[0].Slices[0].ID,
 	}
 }
 
@@ -975,25 +1486,48 @@ func validateSliceHistory(
 		samePlan := boundOK && bound.Receipt.Plan == receipt.Plan
 		sameLineage := sameSlice &&
 			slicePlanLineage(planByOID, plan, receipt.SliceID())[bound.Receipt.Plan]
-		pinlessCrossPlan := samePlan || len(planned.Slice.Consumes) == 0
 		switch {
 		case receipt.Role == "implementer" && receipt.Result == "designed":
 			approved := boundOK && bound.Receipt.Role == "planner" &&
 				bound.Receipt.Result == "approved" && samePlan
-			retry := sameLineage && pinlessCrossPlan && bound.Receipt.Attempt != nil &&
+			retry := sameLineage && bound.Receipt.Attempt != nil &&
 				*bound.Receipt.Attempt == attempt-1 &&
 				((bound.Receipt.Role == "captain" && bound.Receipt.Result == "revise") ||
 					(bound.Receipt.Role == "verifier" && bound.Receipt.Result == "fail"))
-			if !approved && !retry {
+			staleReviewRetry := sameLineage && bound.Receipt.Attempt != nil &&
+				*bound.Receipt.Attempt == attempt-1 &&
+				((bound.Receipt.Role == "implementer" &&
+					(bound.Receipt.Result == "designed" ||
+						bound.Receipt.Result == "candidate")) ||
+					(bound.Receipt.Role == "captain" &&
+						bound.Receipt.Result == "proceed") ||
+					(bound.Receipt.Role == "verifier" &&
+						bound.Receipt.Result == "pass"))
+			if !approved && !retry && !staleReviewRetry {
 				return SliceHistory{}, recordFail("STALE_BINDING", "design "+entry.OID+" has no predecessor")
 			}
+			if receipt.Inputs != nil {
+				if len(planned.Slice.Consumes) == 0 {
+					return SliceHistory{}, recordFail(
+						"STALE_BINDING",
+						"design "+entry.OID+" records inputs for a non-consuming slice",
+					)
+				}
+				if err := exactInputs(
+					receipt,
+					planned.Slice.Consumes,
+					"design "+entry.OID,
+				); err != nil {
+					return SliceHistory{}, err
+				}
+			}
 		case receipt.Role == "captain":
-			if !sameLineage || !pinlessCrossPlan || bound.Receipt.Role != "implementer" ||
+			if !sameLineage || bound.Receipt.Role != "implementer" ||
 				bound.Receipt.Result != "designed" || *bound.Receipt.Attempt != attempt {
 				return SliceHistory{}, recordFail("STALE_BINDING", "Captain "+entry.OID+" does not bind its design")
 			}
 		case receipt.Role == "implementer" && receipt.Result == "candidate":
-			proceeded := sameLineage && pinlessCrossPlan && bound.Receipt.Role == "captain" &&
+			proceeded := sameLineage && bound.Receipt.Role == "captain" &&
 				bound.Receipt.Result == "proceed" && *bound.Receipt.Attempt == attempt
 			retry := sameLineage && bound.Receipt.Role == "verifier" &&
 				bound.Receipt.Result == "fail" && *bound.Receipt.Attempt == attempt-1
@@ -1008,6 +1542,12 @@ func validateSliceHistory(
 			}
 			if err := exactInputs(receipt, planned.Slice.Consumes, "candidate "+entry.OID); err != nil {
 				return SliceHistory{}, err
+			}
+			if len(planned.Slice.Consumes) == 0 && receipt.Base != nil {
+				return SliceHistory{}, recordFail(
+					"STALE_BINDING",
+					"candidate "+entry.OID+" records a base for a non-consuming slice",
+				)
 			}
 			if receipt.Candidate == nil || receipt.ProductTree == nil ||
 				entry.Parent != *receipt.Candidate || *receipt.Candidate == receipt.Binds {
@@ -1034,7 +1574,7 @@ func validateSliceHistory(
 		case receipt.Role == "verifier":
 			if !sameLineage || bound.Receipt.Role != "implementer" ||
 				bound.Receipt.Result != "candidate" || *bound.Receipt.Attempt != attempt ||
-				!sameCandidate(receipt, bound.Receipt) {
+				entry.Parent != bound.OID || !sameCandidate(receipt, bound.Receipt) {
 				return SliceHistory{}, recordFail("STALE_BINDING", "Verifier "+entry.OID+" does not bind its candidate")
 			}
 		default:
@@ -1043,6 +1583,907 @@ func validateSliceHistory(
 		byOID[entry.OID] = entry
 	}
 	return SliceHistory{Entries: entries, MaximumAttempt: maximum}, nil
+}
+
+func governingDesign(history SliceHistory, current *ReceiptEntry) *ReceiptEntry {
+	if current == nil {
+		return nil
+	}
+	byOID := make(map[string]ReceiptEntry, len(history.Entries))
+	for _, entry := range history.Entries {
+		byOID[entry.OID] = entry
+	}
+	cursor := current
+	for steps := 0; cursor != nil && steps <= len(history.Entries); steps++ {
+		if cursor.Receipt.Role == "implementer" &&
+			cursor.Receipt.Result == "designed" {
+			value := cursor.Clone()
+			return &value
+		}
+		next, present := byOID[cursor.Receipt.Binds]
+		if !present {
+			return nil
+		}
+		value := next
+		cursor = &value
+	}
+	return nil
+}
+
+func consumedInputForPass(
+	repository *repository,
+	sliceID string,
+	history SliceHistory,
+	pass ReceiptEntry,
+	productCache map[string]string,
+) (ConsumedInput, error) {
+	if pass.Receipt.Role != "verifier" || pass.Receipt.Result != "pass" ||
+		pass.Receipt.SliceID() != sliceID || pass.Receipt.Candidate == nil ||
+		pass.Receipt.ProductTree == nil {
+		return ConsumedInput{}, recordFail(
+			"STALE_BINDING",
+			"consumed slice "+sliceID+" has invalid PASS authority",
+		)
+	}
+	candidate := findEntry(history.Entries, pass.Receipt.Binds)
+	if candidate == nil || candidate.Receipt.Role != "implementer" ||
+		candidate.Receipt.Result != "candidate" ||
+		candidate.Receipt.Candidate == nil ||
+		candidate.Receipt.ProductTree == nil ||
+		pass.Parent != candidate.OID ||
+		candidate.Parent != *candidate.Receipt.Candidate ||
+		!sameCandidate(pass.Receipt, candidate.Receipt) {
+		return ConsumedInput{}, recordFail(
+			"STALE_BINDING",
+			"consumed PASS "+pass.OID+" has no exact candidate chain",
+		)
+	}
+	for _, commit := range []string{
+		*candidate.Receipt.Candidate,
+		candidate.OID,
+		pass.OID,
+	} {
+		product, err := productTreeFor(repository, commit, productCache)
+		if err != nil {
+			return ConsumedInput{}, err
+		}
+		if product != *pass.Receipt.ProductTree {
+			return ConsumedInput{}, recordFail(
+				"CHANGED_CANDIDATE",
+				"consumed PASS "+pass.OID+" changed product identity",
+			)
+		}
+	}
+	return ConsumedInput{
+		Slice:            sliceID,
+		PassReceipt:      pass.OID,
+		CandidateReceipt: candidate.OID,
+		Candidate:        *candidate.Receipt.Candidate,
+		ProductTree:      *pass.Receipt.ProductTree,
+	}, nil
+}
+
+func consumedInputsAtBase(
+	repository *repository,
+	plan planEntry,
+	base string,
+	consumes []string,
+	histories map[string]SliceHistory,
+	planByOID map[string]planEntry,
+	productCache map[string]string,
+) ([]ConsumedInput, bool, error) {
+	result := make([]ConsumedInput, 0, len(consumes))
+	for _, dependency := range consumes {
+		lineage := slicePlanLineage(planByOID, plan, dependency)
+		contract := plan.Parsed.Metadata().Contracts[dependency]
+		var selected *ReceiptEntry
+		for _, entry := range histories[dependency].Entries {
+			receipt := entry.Receipt
+			if receipt.Role != "verifier" || receipt.Result != "pass" ||
+				receipt.Contract == nil || *receipt.Contract != contract ||
+				!lineage[receipt.Plan] {
+				continue
+			}
+			ancestor, err := repository.isAncestor(entry.OID, base)
+			if err != nil {
+				return nil, false, err
+			}
+			if !ancestor {
+				continue
+			}
+			if selected != nil {
+				ordered, err := repository.isAncestor(selected.OID, entry.OID)
+				if err != nil {
+					return nil, false, err
+				}
+				if !ordered {
+					return nil, false, recordFail(
+						"AMBIGUOUS_AUTHORITY",
+						"consumed slice "+dependency+" has incomparable PASS authority",
+					)
+				}
+			}
+			value := entry
+			selected = &value
+		}
+		if selected == nil {
+			return nil, false, nil
+		}
+		input, err := consumedInputForPass(
+			repository, dependency, histories[dependency], *selected, productCache,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		result = append(result, input)
+	}
+	return result, true, nil
+}
+
+func legacyConsumedInputs(
+	repository *repository,
+	plan planEntry,
+	candidate ReceiptEntry,
+	consumes []string,
+	histories map[string]SliceHistory,
+	planByOID map[string]planEntry,
+	productCache map[string]string,
+) ([]ConsumedInput, error) {
+	result := make([]ConsumedInput, 0, len(consumes))
+	for _, dependency := range consumes {
+		lineage := slicePlanLineage(planByOID, plan, dependency)
+		contract := plan.Parsed.Metadata().Contracts[dependency]
+		product := candidate.Receipt.Inputs[dependency]
+		var matches []ReceiptEntry
+		for _, entry := range histories[dependency].Entries {
+			receipt := entry.Receipt
+			if receipt.Role == "verifier" &&
+				receipt.Result == "pass" &&
+				receipt.Contract != nil &&
+				*receipt.Contract == contract &&
+				lineage[receipt.Plan] &&
+				receipt.ProductTree != nil &&
+				*receipt.ProductTree == product {
+				matches = append(matches, entry)
+			}
+		}
+		if len(matches) == 0 {
+			return nil, recordFail(
+				"AMBIGUOUS_AUTHORITY",
+				"legacy candidate "+candidate.OID+
+					" has no exact "+dependency+" PASS authority",
+			)
+		}
+		var selected *ReceiptEntry
+		for index := range matches {
+			protected, err := repository.isAncestor(
+				matches[index].OID,
+				*candidate.Receipt.Candidate,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !protected {
+				continue
+			}
+			if selected == nil {
+				value := matches[index]
+				selected = &value
+				continue
+			}
+			after, err := repository.isAncestor(
+				selected.OID,
+				matches[index].OID,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if after {
+				value := matches[index]
+				selected = &value
+				continue
+			}
+			before, err := repository.isAncestor(
+				matches[index].OID,
+				selected.OID,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !before {
+				selected = nil
+				break
+			}
+		}
+		if selected == nil && len(matches) == 1 {
+			value := matches[0]
+			selected = &value
+		}
+		if selected == nil {
+			return nil, recordFail(
+				"AMBIGUOUS_AUTHORITY",
+				"legacy candidate "+candidate.OID+
+					" has ambiguous "+dependency+" PASS authorities",
+			)
+		}
+		input, err := consumedInputForPass(
+			repository,
+			dependency,
+			histories[dependency],
+			*selected,
+			productCache,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, input)
+	}
+	return result, nil
+}
+
+type passProductBaseResolver struct {
+	repository   *repository
+	release      string
+	histories    map[string]SliceHistory
+	planByOID    map[string]planEntry
+	approvals    map[string]ReceiptEntry
+	productCache map[string]string
+	memo         map[string]string
+	pending      map[string]bool
+}
+
+func newPassProductBaseResolver(
+	repository *repository,
+	release string,
+	histories map[string]SliceHistory,
+	planByOID map[string]planEntry,
+	approvals map[string]ReceiptEntry,
+	productCache map[string]string,
+) *passProductBaseResolver {
+	return &passProductBaseResolver{
+		repository: repository, release: release,
+		histories: histories, planByOID: planByOID,
+		approvals: approvals, productCache: productCache,
+		memo: make(map[string]string), pending: make(map[string]bool),
+	}
+}
+
+func (r *passProductBaseResolver) passEntry(
+	sliceID string,
+	passOID string,
+) (ReceiptEntry, error) {
+	for _, entry := range r.histories[sliceID].Entries {
+		if entry.OID == passOID {
+			return entry, nil
+		}
+	}
+	return ReceiptEntry{}, recordFail(
+		"AMBIGUOUS_AUTHORITY",
+		sliceID+" PASS "+passOID+" is absent",
+	)
+}
+
+func (r *passProductBaseResolver) baselineFor(
+	sliceID string,
+	passOID string,
+) (string, error) {
+	key := sliceID + ":" + passOID
+	if value, present := r.memo[key]; present {
+		return value, nil
+	}
+	if r.pending[key] {
+		return "", recordFail(
+			"DEPENDENCY_CYCLE",
+			"product-base dependency cycle reaches "+sliceID,
+		)
+	}
+	r.pending[key] = true
+	defer delete(r.pending, key)
+
+	pass, err := r.passEntry(sliceID, passOID)
+	if err != nil {
+		return "", err
+	}
+	plan, planPresent := r.planByOID[pass.Receipt.Plan]
+	location, locationPresent := locations(plan.Parsed)[sliceID]
+	approval, approvalPresent := r.approvals[plan.OID]
+	if !planPresent || !locationPresent || !approvalPresent ||
+		approval.Receipt.Target == nil {
+		return "", recordFail(
+			"AMBIGUOUS_AUTHORITY",
+			sliceID+" PASS "+pass.OID+" has no approved plan",
+		)
+	}
+	candidate := findEntry(
+		r.histories[sliceID].Entries,
+		pass.Receipt.Binds,
+	)
+	if candidate == nil ||
+		candidate.Receipt.Role != "implementer" ||
+		candidate.Receipt.Result != "candidate" ||
+		candidate.Receipt.Candidate == nil {
+		return "", recordFail(
+			"AMBIGUOUS_AUTHORITY",
+			sliceID+" PASS "+pass.OID+" has no exact candidate",
+		)
+	}
+	priorInputs, priorComplete, err := consumedInputsAtBase(
+		r.repository,
+		plan,
+		pass.OID,
+		predecessorIDs(location),
+		r.histories,
+		r.planByOID,
+		r.productCache,
+	)
+	if err != nil {
+		return "", err
+	}
+	if !priorComplete {
+		return "", recordFail(
+			"AMBIGUOUS_AUTHORITY",
+			sliceID+" PASS "+pass.OID+" omits prior slice authority",
+		)
+	}
+	var consumedInputs []ConsumedInput
+	if len(location.Slice.Consumes) > 0 {
+		if candidate.Receipt.Base != nil {
+			var complete bool
+			consumedInputs, complete, err = consumedInputsAtBase(
+				r.repository,
+				plan,
+				*candidate.Receipt.Base,
+				location.Slice.Consumes,
+				r.histories,
+				r.planByOID,
+				r.productCache,
+			)
+			if err != nil {
+				return "", err
+			}
+			if !complete {
+				consumedInputs = nil
+			}
+		} else {
+			consumedInputs, err = legacyConsumedInputs(
+				r.repository,
+				plan,
+				*candidate,
+				location.Slice.Consumes,
+				r.histories,
+				r.planByOID,
+				r.productCache,
+			)
+			if err != nil {
+				return "", err
+			}
+		}
+		if consumedInputs == nil ||
+			!inputsEqual(
+				candidate.Receipt.Inputs,
+				pinsForConsumedInputs(consumedInputs),
+			) {
+			return "", recordFail(
+				"AMBIGUOUS_AUTHORITY",
+				sliceID+" candidate "+candidate.OID+
+					" has no exact consumed PASS bindings",
+			)
+		}
+	}
+	baseline := *approval.Receipt.Target
+	inputs := append(
+		append([]ConsumedInput(nil), priorInputs...),
+		consumedInputs...,
+	)
+	for _, input := range inputs {
+		dependencyPass, err := r.passEntry(
+			input.Slice,
+			input.PassReceipt,
+		)
+		if err != nil {
+			return "", err
+		}
+		contained, err := r.repository.isAncestor(
+			input.Candidate,
+			baseline,
+		)
+		if err != nil {
+			return "", err
+		}
+		if input.Candidate == baseline || contained {
+			continue
+		}
+		prepared, err := r.repository.prepareProductComposition(
+			trackRef(r.release, location.Track.ID),
+			baseline,
+			input.Candidate,
+			func() (string, error) {
+				return r.baselineFor(
+					input.Slice,
+					dependencyPass.OID,
+				)
+			},
+		)
+		if err != nil {
+			return "", err
+		}
+		baseline = prepared.Result
+	}
+	r.memo[key] = baseline
+	return baseline, nil
+}
+
+func reviewedConsumedInputs(
+	repository *repository,
+	design ReceiptEntry,
+	consumes []string,
+	histories map[string]SliceHistory,
+	planByOID map[string]planEntry,
+	productCache map[string]string,
+) ([]ConsumedInput, bool, error) {
+	plan, present := planByOID[design.Receipt.Plan]
+	if !present || design.Parent == "" {
+		return nil, false, recordFail(
+			"STALE_BINDING",
+			"design "+design.OID+" has no reviewed base",
+		)
+	}
+	return consumedInputsAtBase(
+		repository,
+		plan,
+		design.Parent,
+		consumes,
+		histories,
+		planByOID,
+		productCache,
+	)
+}
+
+func pinsForConsumedInputs(inputs []ConsumedInput) map[string]string {
+	result := make(map[string]string, len(inputs))
+	for _, input := range inputs {
+		result[input.Slice] = input.ProductTree
+	}
+	return result
+}
+
+func linearOneParentAncestry(
+	repository *repository,
+	base string,
+	candidate string,
+) (bool, error) {
+	cursor := candidate
+	for steps := 0; steps < maxCandidateLineage; steps++ {
+		if cursor == base {
+			return true, nil
+		}
+		parents, err := repository.parents(cursor)
+		if err != nil {
+			return false, err
+		}
+		if len(parents) != 1 {
+			return false, nil
+		}
+		cursor = parents[0]
+	}
+	return false, recordFail(
+		"RESOURCE_LIMIT",
+		"candidate lineage exceeds the bounded history limit",
+	)
+}
+
+type preparedDesignInputsCache struct {
+	values  map[string][]ConsumedInput
+	present map[string]bool
+}
+
+func newPreparedDesignInputsCache() *preparedDesignInputsCache {
+	return &preparedDesignInputsCache{
+		values:  make(map[string][]ConsumedInput),
+		present: make(map[string]bool),
+	}
+}
+
+func exactPreparedDesignInputs(
+	repository *repository,
+	release string,
+	design ReceiptEntry,
+	histories map[string]SliceHistory,
+	trackHistories map[string]trackHistory,
+	planByOID map[string]planEntry,
+	approvals map[string]ReceiptEntry,
+	releaseReceipts []ReceiptEntry,
+	resolveProductBase func(sliceID, passOID string) (string, error),
+	productCache map[string]string,
+	cache *preparedDesignInputsCache,
+) ([]ConsumedInput, error) {
+	cacheKey := design.OID + ":" + design.Parent
+	if cache.present[cacheKey] {
+		return append([]ConsumedInput(nil), cache.values[cacheKey]...), nil
+	}
+	remember := func(value []ConsumedInput) []ConsumedInput {
+		cache.present[cacheKey] = true
+		if value == nil {
+			cache.values[cacheKey] = nil
+			return nil
+		}
+		cache.values[cacheKey] = append([]ConsumedInput{}, value...)
+		return append([]ConsumedInput{}, value...)
+	}
+	plan, planPresent := planByOID[design.Receipt.Plan]
+	location, locationPresent := locations(plan.Parsed)[design.Receipt.SliceID()]
+	if !planPresent || !locationPresent {
+		return nil, recordFail(
+			"STALE_BINDING",
+			"design "+design.OID+" has invalid reviewed-input evidence",
+		)
+	}
+	owned := trackHistories[location.Track.ID].owned
+	designIndex := -1
+	for index := range owned {
+		if owned[index].OID == design.OID {
+			designIndex = index
+			break
+		}
+	}
+	if designIndex < 0 {
+		return nil, recordFail(
+			"AMBIGUOUS_AUTHORITY",
+			"design "+design.OID+" has no owning track authority",
+		)
+	}
+	approval, approvalPresent := approvals[plan.OID]
+	if !approvalPresent || approval.Receipt.Target == nil {
+		return nil, recordFail(
+			"APPROVAL_MISSING",
+			"design "+design.OID+" has no plan approval",
+		)
+	}
+	seed := ""
+	var err error
+	if designIndex == 0 {
+		seed, _, err = planInstallResult(
+			plan.OID,
+			approval,
+			releaseReceipts,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		seed = owned[designIndex-1].OID
+	}
+	targetBase, err := preparePlanBoundBase(
+		repository,
+		release,
+		plan,
+		location,
+		seed,
+		nil,
+		approvals,
+		resolveProductBase,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(location.Slice.Consumes) == 0 {
+		if targetBase != design.Parent {
+			return nil, recordFail(
+				"STALE_BINDING",
+				"design "+design.OID+
+					" has an inexact approved-target base",
+			)
+		}
+		return remember([]ConsumedInput{}), nil
+	}
+	if design.Receipt.Base == nil {
+		targetPresent, err := repository.isAncestor(
+			*approval.Receipt.Target,
+			design.Parent,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !targetPresent {
+			return nil, recordFail(
+				"STALE_BINDING",
+				"design "+design.OID+" omits its approved target",
+			)
+		}
+		return remember(nil), nil
+	}
+	if *design.Receipt.Base != seed {
+		return nil, recordFail(
+			"STALE_BINDING",
+			"design "+design.OID+" has the wrong prior track authority",
+		)
+	}
+	inputs, complete, err := consumedInputsAtBase(
+		repository,
+		plan,
+		design.Parent,
+		location.Slice.Consumes,
+		histories,
+		planByOID,
+		productCache,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !complete ||
+		!inputsEqual(
+			design.Receipt.Inputs,
+			pinsForConsumedInputs(inputs),
+		) {
+		return nil, recordFail(
+			"STALE_BINDING",
+			"design "+design.OID+" has stale reviewed-input pins",
+		)
+	}
+	expected, err := preparePlanBoundBase(
+		repository,
+		release,
+		plan,
+		location,
+		seed,
+		inputs,
+		approvals,
+		resolveProductBase,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if expected != design.Parent {
+		return nil, recordFail(
+			"STALE_BINDING",
+			"design "+design.OID+" has an inexact reviewed base",
+		)
+	}
+	return remember(inputs), nil
+}
+
+func validateConsumedHistories(
+	repository *repository,
+	release string,
+	histories map[string]SliceHistory,
+	trackHistories map[string]trackHistory,
+	planByOID map[string]planEntry,
+	approvals map[string]ReceiptEntry,
+	releaseReceipts []ReceiptEntry,
+	resolveProductBase func(sliceID, passOID string) (string, error),
+	productCache map[string]string,
+) error {
+	preparedDesignCache := newPreparedDesignInputsCache()
+	for sliceID, history := range histories {
+		byOID := make(map[string]ReceiptEntry, len(history.Entries)+len(approvals))
+		for _, approval := range approvals {
+			byOID[approval.OID] = approval
+		}
+		for _, entry := range history.Entries {
+			byOID[entry.OID] = entry
+		}
+		for _, entry := range history.Entries {
+			receipt := entry.Receipt
+			plan, present := planByOID[receipt.Plan]
+			if !present {
+				continue
+			}
+			location, planned := locations(plan.Parsed)[sliceID]
+			if !planned {
+				continue
+			}
+			if receipt.Role == "implementer" && receipt.Result == "designed" {
+				bound, boundPresent := byOID[receipt.Binds]
+				if !boundPresent {
+					continue
+				}
+				currentInputs, err := exactPreparedDesignInputs(
+					repository,
+					release,
+					entry,
+					histories,
+					trackHistories,
+					planByOID,
+					approvals,
+					releaseReceipts,
+					resolveProductBase,
+					productCache,
+					preparedDesignCache,
+				)
+				if err != nil {
+					return err
+				}
+				if len(location.Slice.Consumes) == 0 ||
+					currentInputs == nil {
+					continue
+				}
+				staleRetry := (bound.Receipt.Role == "implementer" &&
+					(bound.Receipt.Result == "designed" ||
+						bound.Receipt.Result == "candidate")) ||
+					(bound.Receipt.Role == "captain" &&
+						bound.Receipt.Result == "proceed") ||
+					(bound.Receipt.Role == "verifier" &&
+						bound.Receipt.Result == "pass")
+				if staleRetry {
+					priorDesign := governingDesign(history, &bound)
+					if priorDesign == nil {
+						return recordFail(
+							"STALE_BINDING",
+							"design "+entry.OID+" has no stale review chain",
+						)
+					}
+					priorInputs, priorComplete, err := reviewedConsumedInputs(
+						repository,
+						*priorDesign,
+						location.Slice.Consumes,
+						histories,
+						planByOID,
+						productCache,
+					)
+					if err != nil {
+						return err
+					}
+					if priorComplete &&
+						inputsEqual(
+							pinsForConsumedInputs(priorInputs),
+							pinsForConsumedInputs(currentInputs),
+						) {
+						return recordFail(
+							"STALE_BINDING",
+							"design "+entry.OID+" retries an unchanged review",
+						)
+					}
+				}
+			}
+			if len(location.Slice.Consumes) == 0 {
+				continue
+			}
+			if receipt.Role != "implementer" ||
+				receipt.Result != "candidate" {
+				continue
+			}
+			design := governingDesign(history, &entry)
+			strictDesign := design != nil && design.Receipt.Base != nil
+			var reviewed []ConsumedInput
+			if strictDesign {
+				var err error
+				reviewed, err = exactPreparedDesignInputs(
+					repository,
+					release,
+					*design,
+					histories,
+					trackHistories,
+					planByOID,
+					approvals,
+					releaseReceipts,
+					resolveProductBase,
+					productCache,
+					preparedDesignCache,
+				)
+				if err != nil {
+					return err
+				}
+			} else if design != nil {
+				var complete bool
+				var err error
+				reviewed, complete, err = reviewedConsumedInputs(
+					repository,
+					*design,
+					location.Slice.Consumes,
+					histories,
+					planByOID,
+					productCache,
+				)
+				if err != nil {
+					return err
+				}
+				if !complete {
+					reviewed = nil
+				}
+			}
+			if receipt.Base == nil {
+				if strictDesign {
+					return recordFail(
+						"STALE_BINDING",
+						"candidate "+entry.OID+" has no consumed-input base",
+					)
+				}
+				// Marker-free designs and candidates remain readable legacy
+				// history. Every newly appended consuming candidate has Base.
+				continue
+			}
+			if reviewed != nil &&
+				!inputsEqual(
+					receipt.Inputs,
+					pinsForConsumedInputs(reviewed),
+				) {
+				return recordFail(
+					"STALE_BINDING",
+					"candidate "+entry.OID+" differs from its reviewed inputs",
+				)
+			}
+			if receipt.Base == nil || receipt.Candidate == nil {
+				return recordFail(
+					"CHANGED_CANDIDATE",
+					"candidate "+entry.OID+" omits its prepared base",
+				)
+			}
+			linear, err := linearOneParentAncestry(
+				repository,
+				*receipt.Base,
+				*receipt.Candidate,
+			)
+			if err != nil {
+				return err
+			}
+			if !linear {
+				return recordFail(
+					"CHANGED_CANDIDATE",
+					"candidate "+entry.OID+" is not linear one-parent work from its base",
+				)
+			}
+			inputs, complete, err := consumedInputsAtBase(
+				repository,
+				plan,
+				*receipt.Base,
+				location.Slice.Consumes,
+				histories,
+				planByOID,
+				productCache,
+			)
+			if err != nil {
+				return err
+			}
+			if !complete ||
+				!inputsEqual(receipt.Inputs, pinsForConsumedInputs(inputs)) {
+				return recordFail(
+					"STALE_BINDING",
+					"candidate "+entry.OID+" has stale consumed pins",
+				)
+			}
+			expected, err := preparePlanBoundBase(
+				repository,
+				release,
+				plan,
+				location,
+				receipt.Binds,
+				inputs,
+				approvals,
+				resolveProductBase,
+			)
+			if err != nil {
+				return err
+			}
+			if expected != *receipt.Base {
+				return recordFail(
+					"CHANGED_CANDIDATE",
+					"candidate "+entry.OID+" has an inexact prepared base",
+				)
+			}
+			for _, input := range inputs {
+				for _, ancestor := range []string{
+					input.Candidate,
+					input.CandidateReceipt,
+					input.PassReceipt,
+				} {
+					contained, err := repository.isAncestor(
+						ancestor,
+						*receipt.Candidate,
+					)
+					if err != nil {
+						return err
+					}
+					if !contained {
+						return recordFail(
+							"CHANGED_CANDIDATE",
+							"candidate "+entry.OID+" omits consumed authority",
+						)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func deriveSlice(
@@ -1075,13 +2516,10 @@ func deriveSlice(
 	currentReceipt := latest(matching, func(ReceiptEntry) bool { return true })
 	if currentReceipt != nil && currentReceipt.Receipt.Plan != current.OID {
 		receipt := currentReceipt.Receipt
-		pinlessConsumes := len(location.Slice.Consumes) > 0 &&
-			(receipt.Role == "implementer" && receipt.Result == "designed" ||
-				receipt.Role == "captain")
 		nonRetainableBlocker :=
 			(receipt.Role == "captain" && receipt.Result == "escalate") ||
 				(receipt.Role == "verifier" && receipt.Result == "blocked")
-		if pinlessConsumes || nonRetainableBlocker {
+		if nonRetainableBlocker {
 			currentReceipt = nil
 			passCurrent = false
 		}
@@ -1141,10 +2579,12 @@ func deriveSlice(
 }
 
 func deriveSlices(
+	repository *repository,
 	current planEntry,
 	histories map[string]SliceHistory,
 	approvals map[string]ReceiptEntry,
 	planByOID map[string]planEntry,
+	productCache map[string]string,
 ) (map[string]*SliceState, error) {
 	states := make(map[string]*SliceState)
 	for id, location := range locations(current.Parsed) {
@@ -1171,35 +2611,82 @@ func deriveSlices(
 			}
 		}
 		consumesReady := true
-		lineageChanged := false
 		pins := make(map[string]string, len(slice.Consumes))
+		inputs := make([]ConsumedInput, 0, len(slice.Consumes))
 		for _, dependency := range slice.Consumes {
-			if state.Candidate != nil &&
-				!slicePlanLineage(planByOID, current, dependency)[state.Candidate.Receipt.Plan] {
-				lineageChanged = true
-			}
 			if states[dependency].Pass != nil && states[dependency].Pass.Receipt.ProductTree != nil {
 				pins[dependency] = *states[dependency].Pass.Receipt.ProductTree
+				input, err := consumedInputForPass(
+					repository,
+					dependency,
+					histories[dependency],
+					*states[dependency].Pass,
+					productCache,
+				)
+				if err != nil {
+					return err
+				}
+				inputs = append(inputs, input)
 			} else {
 				consumesReady = false
 			}
 		}
 		if consumesReady {
 			state.InputPins = pins
+			state.ConsumedInputs = inputs
 		}
-		if state.Candidate != nil &&
-			(lineageChanged ||
-				(consumesReady && !inputsEqual(state.Candidate.Receipt.Inputs, pins))) {
+		design := governingDesign(state.History, state.CurrentReceipt)
+		reviewRerouted := false
+		externallyBlocked := state.Status == "blocked" &&
+			state.NextRole == "planner"
+		if design != nil && len(slice.Consumes) > 0 {
+			state.ReviewedBase = design.Parent
+			reviewed, reviewedCurrent, err := reviewedConsumedInputs(
+				repository,
+				*design,
+				slice.Consumes,
+				histories,
+				planByOID,
+				productCache,
+			)
+			if err != nil {
+				return err
+			}
+			if reviewedCurrent {
+				state.ReviewedPins = pinsForConsumedInputs(reviewed)
+			}
+			reviewChanged := !reviewedCurrent ||
+				!consumesReady ||
+				!inputsEqual(state.ReviewedPins, pins)
+			current := state.CurrentReceipt
+			beforeCandidate := current != nil &&
+				((current.Receipt.Role == "implementer" &&
+					current.Receipt.Result == "designed") ||
+					current.Receipt.Role == "captain")
+			if !externallyBlocked && reviewChanged &&
+				(beforeCandidate || reviewedCurrent) {
+				state.Stage, state.Status, state.NextRole, state.Outcome =
+					"design", "ready", "implementer", "stale"
+				state.Attempt = state.History.MaximumAttempt + 1
+				state.Pass, state.Candidate, state.Retained = nil, nil, false
+				state.StaleReason = "reviewed consumed input product changed or is absent"
+				reviewRerouted = true
+			}
+		}
+		if !externallyBlocked && !reviewRerouted &&
+			state.Candidate != nil && consumesReady &&
+			!inputsEqual(state.Candidate.Receipt.Inputs, pins) {
 			state.Stage, state.Status, state.NextRole, state.Outcome = "implement", "ready", "implementer", "stale"
 			state.Attempt = state.History.MaximumAttempt + 1
 			state.Pass, state.Retained = nil, false
 			state.StaleReason = "consumed input lineage or product changed"
-		} else if state.Candidate != nil && !consumesReady {
-			hadPass := state.Pass != nil
+		} else if !externallyBlocked && !reviewRerouted &&
+			state.Candidate != nil && !consumesReady {
+			state.Stage, state.Status, state.NextRole, state.Outcome =
+				"implement", "ready", "implementer", "stale"
+			state.Attempt = state.History.MaximumAttempt + 1
 			state.Pass, state.Retained = nil, false
-			if hadPass {
-				state.Stage, state.Outcome = "verify", "none"
-			}
+			state.StaleReason = "consumed input product is absent"
 		}
 		delete(pending, id)
 		done[id] = true
@@ -1272,6 +2759,7 @@ type sliceAssemblyEvidence struct {
 type assemblyTrackCandidate struct {
 	ID          string
 	Candidate   string
+	Authority   string
 	ProductTree string
 }
 
@@ -1347,6 +2835,7 @@ func classifyAssembly(
 			assemblyTrackCandidate{
 				ID:          track.ID,
 				Candidate:   *final.Candidate.Receipt.Candidate,
+				Authority:   final.Pass.OID,
 				ProductTree: *final.Candidate.Receipt.ProductTree,
 			},
 		)
@@ -1370,24 +2859,50 @@ func prepareClassifiedAssembly(
 	repository *repository,
 	targetRef, target, releaseHead string,
 	classification assemblyClassification,
+	resolvers ...func(trackID string) (string, error),
 ) (string, error) {
-	candidate := target
-	components := []string{releaseHead}
-	for _, track := range classification.TrackCandidates {
-		components = append(components, track.Candidate)
+	var resolveTrackProductBase func(trackID string) (string, error)
+	if len(resolvers) > 0 {
+		resolveTrackProductBase = resolvers[0]
 	}
+	candidate := target
+	components := []assemblyTrackCandidate{{
+		Authority: releaseHead,
+	}}
+	components = append(components, classification.TrackCandidates...)
 	for _, component := range components {
-		if component == candidate {
+		authority := component.Authority
+		if authority == "" {
+			authority = component.Candidate
+		}
+		if authority == candidate {
 			continue
 		}
-		contained, err := repository.isAncestor(component, candidate)
+		contained, err := repository.isAncestor(authority, candidate)
 		if err != nil {
 			return "", err
 		}
 		if contained {
 			continue
 		}
-		prepared, err := repository.prepareComposition(targetRef, candidate, component)
+		var prepared preparedComposition
+		if component.ID == "" || resolveTrackProductBase == nil {
+			prepared, err = repository.prepareComposition(
+				targetRef,
+				candidate,
+				authority,
+			)
+		} else {
+			current := component
+			prepared, err = repository.prepareProductComposition(
+				targetRef,
+				candidate,
+				authority,
+				func() (string, error) {
+					return resolveTrackProductBase(current.ID)
+				},
+			)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -1396,13 +2911,199 @@ func prepareClassifiedAssembly(
 	return candidate, nil
 }
 
+func prepareConsumedTrackBase(
+	repository *repository,
+	consumerRef string,
+	seed string,
+	inputs []ConsumedInput,
+	resolvers ...func(sliceID, passOID string) (string, error),
+) (string, error) {
+	var resolveProductBase func(sliceID, passOID string) (string, error)
+	if len(resolvers) > 0 {
+		resolveProductBase = resolvers[0]
+	}
+	candidate := seed
+	for _, input := range inputs {
+		if input.PassReceipt == candidate {
+			continue
+		}
+		contained, err := repository.isAncestor(input.PassReceipt, candidate)
+		if err != nil {
+			return "", err
+		}
+		if contained {
+			continue
+		}
+		var prepared preparedComposition
+		if resolveProductBase == nil {
+			prepared, err = repository.prepareComposition(
+				consumerRef,
+				candidate,
+				input.PassReceipt,
+			)
+		} else {
+			current := input
+			prepared, err = repository.prepareProductComposition(
+				consumerRef,
+				candidate,
+				input.PassReceipt,
+				func() (string, error) {
+					return resolveProductBase(
+						current.Slice,
+						current.PassReceipt,
+					)
+				},
+			)
+		}
+		if err != nil {
+			return "", err
+		}
+		candidate = prepared.Result
+	}
+	return candidate, nil
+}
+
+func preparePlanBoundBase(
+	repository *repository,
+	release string,
+	plan planEntry,
+	location SliceLocation,
+	authority string,
+	inputs []ConsumedInput,
+	approvals map[string]ReceiptEntry,
+	resolveProductBase func(sliceID, passOID string) (string, error),
+) (string, error) {
+	approval, present := approvals[plan.OID]
+	if !present || approval.Receipt.Target == nil {
+		return "", recordFail(
+			"APPROVAL_MISSING",
+			"plan "+plan.OID+" has no approval",
+		)
+	}
+	ref := trackRef(release, location.Track.ID)
+	targetBase, err := repository.prepareApprovedTargetBase(
+		ref,
+		authority,
+		*approval.Receipt.Target,
+	)
+	if err != nil {
+		return "", err
+	}
+	return prepareConsumedTrackBase(
+		repository,
+		ref,
+		targetBase.Result,
+		inputs,
+		resolveProductBase,
+	)
+}
+
+func preparedStateTrackBase(
+	repository *repository,
+	state State,
+	slice *SliceState,
+) (string, error) {
+	if slice == nil || state.productBases == nil ||
+		state.productBases.pass == nil {
+		return "", recordFail(
+			"PRODUCT_BASE_RESOLVER_REQUIRED",
+			"track preparation requires exact state evidence",
+		)
+	}
+	track, present := state.Track(slice.Location.Track.ID)
+	if !present {
+		return "", recordFail(
+			"INVALID_TRACK_TOPOLOGY",
+			"track "+slice.Location.Track.ID+" is absent",
+		)
+	}
+	approval := state.Plan.Approval
+	if approval.Receipt.Target == nil {
+		return "", recordFail(
+			"APPROVAL_MISSING",
+			"current plan approval has no target",
+		)
+	}
+	targetBase, err := repository.prepareApprovedTargetBase(
+		track.Ref,
+		track.AuthorityHead,
+		*approval.Receipt.Target,
+	)
+	if err != nil {
+		return "", err
+	}
+	return prepareConsumedTrackBase(
+		repository,
+		track.Ref,
+		targetBase.Result,
+		slice.ConsumedInputs,
+		state.productBases.pass,
+	)
+}
+
+// projectedConsumedTrackBase keeps record projection read-only with respect to
+// future composition. An absent consumer, or one still at its authority seed
+// with an uncontained input, is merely unprepared: the action boundary owns
+// merge preparation and any local product conflict. Once the consumer has
+// advanced, recomputing the deterministic base remains an integrity check over
+// the authority that was actually prepared.
+func projectedConsumedTrackBase(
+	repository *repository,
+	consumerRef string,
+	consumerHead string,
+	authority string,
+	approvedTarget string,
+	inputs []ConsumedInput,
+	resolveProductBase func(sliceID, passOID string) (string, error),
+) (string, error) {
+	if consumerHead == "" {
+		return "", nil
+	}
+	targetBase, err := repository.prepareApprovedTargetBase(
+		consumerRef,
+		authority,
+		approvedTarget,
+	)
+	if err != nil {
+		return "", err
+	}
+	seed := targetBase.Result
+	if consumerHead == authority && seed != authority {
+		return "", nil
+	}
+	if consumerHead == seed {
+		for _, input := range inputs {
+			contained, err := repository.isAncestor(
+				input.PassReceipt,
+				seed,
+			)
+			if err != nil {
+				return "", err
+			}
+			if !contained {
+				return "", nil
+			}
+		}
+		return seed, nil
+	}
+	return prepareConsumedTrackBase(
+		repository,
+		consumerRef,
+		seed,
+		inputs,
+		resolveProductBase,
+	)
+}
+
 func exactAssemblyComposition(
 	repository *repository,
 	targetRef, target, releaseHead, candidate, productTree string,
 	classification assemblyClassification,
+	resolvers ...func(trackID string) (string, error),
 ) (bool, error) {
 	expected, err := prepareClassifiedAssembly(
 		repository, targetRef, target, releaseHead, classification,
+		resolvers...,
 	)
 	if err != nil {
 		return false, err
@@ -1419,11 +3120,12 @@ func exactAssemblyComposition(
 
 func withDirectAssemblyReuse(
 	repository *repository,
-	plan Plan,
+	_ Plan,
 	topology assemblyTopology,
 	evidence map[string]sliceAssemblyEvidence,
-	target, releaseHead string,
+	target, _ string,
 	classification assemblyClassification,
+	_ ...func(trackID string) (string, error),
 ) (assemblyClassification, error) {
 	if topology.DirectSlice == "" {
 		return classification, nil
@@ -1437,11 +3139,9 @@ func withDirectAssemblyReuse(
 			topology.DirectSlice+" has no exact applicable PASS",
 		)
 	}
-	direct, err := exactAssemblyComposition(
-		repository, plan.Metadata().TargetRef, target, releaseHead,
+	direct, err := repository.isAncestor(
+		target,
 		*item.Candidate.Receipt.Candidate,
-		*item.Candidate.Receipt.ProductTree,
-		classification,
 	)
 	if err != nil {
 		return assemblyClassification{}, err
@@ -1455,10 +3155,11 @@ func withDirectAssemblyReuse(
 
 func directPassMatchesComposition(
 	repository *repository,
-	plan Plan,
+	_ Plan,
 	topology assemblyTopology,
 	pass ReceiptEntry,
-	target, releaseHead string,
+	target, _ string,
+	_ ...func(trackID string) (string, error),
 ) (bool, error) {
 	if topology.DirectSlice == "" ||
 		pass.Receipt.SliceID() != topology.DirectSlice ||
@@ -1466,22 +3167,7 @@ func directPassMatchesComposition(
 		pass.Receipt.ProductTree == nil {
 		return false, nil
 	}
-	track := plan.Metadata().Tracks[0]
-	classification := assemblyClassification{
-		Inputs: map[string]string{
-			track.ID: *pass.Receipt.ProductTree,
-		},
-		TrackCandidates: []assemblyTrackCandidate{{
-			ID:          track.ID,
-			Candidate:   *pass.Receipt.Candidate,
-			ProductTree: *pass.Receipt.ProductTree,
-		}},
-	}
-	return exactAssemblyComposition(
-		repository, plan.Metadata().TargetRef, target, releaseHead,
-		*pass.Receipt.Candidate, *pass.Receipt.ProductTree,
-		classification,
-	)
+	return repository.isAncestor(target, *pass.Receipt.Candidate)
 }
 
 func validateAssemblyHistory(
@@ -1495,6 +3181,7 @@ func validateAssemblyHistory(
 	current planEntry,
 	tracks []TrackState,
 	releaseEntries []ReceiptEntry,
+	resolveTrackProductBase func(trackID string) (string, error),
 ) (receiptHistory, error) {
 	byOID := make(map[string]ReceiptEntry)
 	for _, entry := range approvals {
@@ -1581,6 +3268,7 @@ func validateAssemblyHistory(
 					repository, plan.Parsed.Metadata().TargetRef,
 					*receipt.Target, releasePredecessor[entry.OID],
 					*currentClassification,
+					resolveTrackProductBase,
 				)
 				if err != nil {
 					return receiptHistory{}, err
@@ -1615,6 +3303,7 @@ func validateAssemblyHistory(
 				exact, err := directPassMatchesComposition(
 					repository, plan.Parsed, topology, bound,
 					*receipt.Target, entry.Parent,
+					resolveTrackProductBase,
 				)
 				if err != nil {
 					return receiptHistory{}, err
@@ -1667,6 +3356,7 @@ func validateAssemblyHistory(
 						*receipt.Target,
 						releasePredecessor[candidateEntry.OID],
 						*currentClassification,
+						resolveTrackProductBase,
 					)
 					if err != nil {
 						return receiptHistory{}, err
@@ -1703,6 +3393,7 @@ func deriveAssembly(
 	tracks []TrackState,
 	topology assemblyTopology,
 	target, releaseHead string,
+	resolveTrackProductBase func(trackID string) (string, error),
 ) (AssemblyState, error) {
 	var entries []ReceiptEntry
 	for _, entry := range history.Receipts {
@@ -1756,6 +3447,7 @@ func deriveAssembly(
 		repository, current.Parsed, topology,
 		assemblyEvidenceFromTracks(tracks),
 		approvedTarget, directReleaseHead, classification,
+		resolveTrackProductBase,
 	)
 	if err != nil {
 		return AssemblyState{}, err
