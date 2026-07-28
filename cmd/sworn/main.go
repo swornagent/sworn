@@ -27,6 +27,7 @@ Available in the v0.3 walking skeleton:
   sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
   sworn status --run ID --journal PATH --json
   sworn board --run ID --journal PATH [--json]
+  sworn serve --run ID --journal ABS [--manifest ABS] [--operator-config ABS]
   sworn help
 `
 
@@ -69,6 +70,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "board":
 		return runBoard(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "sworn: command %q is not implemented in the v0.3 walking skeleton\n", args[0])
 		return 2

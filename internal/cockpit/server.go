@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	maxRequestBytes = 8 * 1024
-	defaultSSELimit = 32
+	maxRequestBytes     = 8 * 1024
+	defaultSSELimit     = 32
+	telemetryHealthPath = "/api/v1/operator/telemetry"
 )
 
 var (
@@ -46,12 +47,37 @@ type CommandAPI interface {
 	Redeliver(context.Context, RedeliveryCommand) error
 }
 
+const TelemetryHealthSchemaVersion = "sworn.telemetry-health/v1"
+
+// TelemetryHealth is deliberately smaller than the telemetry implementation's
+// internal status. It is safe to expose only on the loopback operator surface.
+type TelemetryHealth struct {
+	SchemaVersion   string     `json:"schema_version"`
+	Enabled         bool       `json:"enabled"`
+	QueueCapacity   int        `json:"queue_capacity"`
+	QueueDepth      int        `json:"queue_depth"`
+	Accepted        uint64     `json:"accepted"`
+	Processed       uint64     `json:"processed"`
+	Dropped         uint64     `json:"dropped"`
+	TraceExports    uint64     `json:"trace_exports"`
+	MetricExports   uint64     `json:"metric_exports"`
+	Failures        uint64     `json:"failures"`
+	LastSuccessAt   *time.Time `json:"last_success_at"`
+	LastFailureAt   *time.Time `json:"last_failure_at"`
+	LastFailureCode string     `json:"last_failure_code,omitempty"`
+}
+
+type TelemetryHealthAPI interface {
+	TelemetryHealth() TelemetryHealth
+}
+
 type HTTPConfig struct {
 	RunID       string
 	Host        string
 	Origin      string
 	BearerToken []byte
 	MaxSSE      int
+	Telemetry   TelemetryHealthAPI
 }
 
 type HTTPHandler struct {
@@ -63,6 +89,7 @@ type HTTPHandler struct {
 	token     []byte
 	localHost bool
 	sse       chan struct{}
+	telemetry TelemetryHealthAPI
 }
 
 type headResponseWriter struct {
@@ -87,6 +114,10 @@ func NewHTTPHandler(
 		!tokenPattern.Match(config.BearerToken) {
 		return nil, fail("INVALID_HTTP_CONFIG")
 	}
+	localHost := loopbackAuthority(config.Host)
+	if config.Telemetry != nil && !localHost {
+		return nil, fail("INVALID_HTTP_CONFIG")
+	}
 	if config.MaxSSE == 0 {
 		config.MaxSSE = defaultSSELimit
 	}
@@ -100,8 +131,9 @@ func NewHTTPHandler(
 		host:      config.Host,
 		origin:    config.Origin,
 		token:     append([]byte(nil), config.BearerToken...),
-		localHost: loopbackAuthority(config.Host),
+		localHost: localHost,
 		sse:       make(chan struct{}, config.MaxSSE),
+		telemetry: config.Telemetry,
 	}, nil
 }
 
@@ -140,6 +172,10 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	local := h.localRequest(r)
+	if !local && r.URL.Path == telemetryHealthPath {
+		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
 	mutating := r.Method != http.MethodGet && r.Method != http.MethodHead
 	if mutating && !local {
 		writeHTTPError(w, http.StatusForbidden, "REMOTE_MUTATION_FORBIDDEN")
@@ -264,6 +300,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 			"text/plain; charset=utf-8",
 		)
 		return
+	case telemetryHealthPath:
+		h.serveTelemetryHealth(w, r)
+		return
 	case "/api/v1/start":
 		h.serveStart(w, r)
 		return
@@ -293,6 +332,22 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 	}
+}
+
+func (h *HTTPHandler) serveTelemetryHealth(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if h.telemetry == nil {
+		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
+		r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	writeJSON(w, r, http.StatusOK, h.telemetry.TelemetryHealth())
 }
 
 func (h *HTTPHandler) serveAsset(

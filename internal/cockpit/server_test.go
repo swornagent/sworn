@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,6 +64,14 @@ type httpFakeCommands struct {
 	startCalls   int
 	controlCalls int
 	redeliveries int
+}
+
+type httpFakeTelemetry struct {
+	status TelemetryHealth
+}
+
+func (f httpFakeTelemetry) TelemetryHealth() TelemetryHealth {
+	return f.status
 }
 
 func (f *httpFakeCommands) Start(
@@ -280,6 +289,108 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 		if strings.Contains(response.Body.String(), `"kind":"pause"`) {
 			t.Fatalf("%s remote read exposed local controls: %s", name, response.Body)
 		}
+	}
+}
+
+func TestTelemetryHealthIsLoopbackOnlyAndReadOnly(t *testing.T) {
+	t.Parallel()
+
+	health := TelemetryHealth{
+		SchemaVersion:   TelemetryHealthSchemaVersion,
+		Enabled:         true,
+		QueueCapacity:   256,
+		QueueDepth:      3,
+		Accepted:        9,
+		Processed:       5,
+		Dropped:         1,
+		TraceExports:    4,
+		MetricExports:   2,
+		Failures:        1,
+		LastFailureCode: "metric_export",
+	}
+	projector := &httpFakeProjector{}
+	commands := &httpFakeCommands{}
+	local, err := NewHTTPHandler(projector, commands, HTTPConfig{
+		RunID: "run-1", Host: testLocalHost, Origin: testLocalOrigin,
+		Telemetry: httpFakeTelemetry{status: health},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httpRequest(
+		http.MethodGet,
+		testLocalOrigin+telemetryHealthPath,
+		"127.0.0.1:41100",
+		nil,
+	)
+	response := serve(local, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("local health = %d: %s", response.Code, response.Body)
+	}
+	var got TelemetryHealth
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != health {
+		t.Fatalf("health = %#v, want %#v", got, health)
+	}
+	for _, target := range []string{
+		testLocalOrigin + telemetryHealthPath + "?detail=private",
+	} {
+		request := httpRequest(
+			http.MethodGet,
+			target,
+			"127.0.0.1:41101",
+			nil,
+		)
+		if response := serve(local, request); response.Code !=
+			http.StatusMethodNotAllowed {
+			t.Fatalf("health query = %d", response.Code)
+		}
+	}
+	post := httpRequest(
+		http.MethodPost,
+		testLocalOrigin+telemetryHealthPath,
+		"127.0.0.1:41102",
+		nil,
+	)
+	if response := serve(local, post); response.Code !=
+		http.StatusMethodNotAllowed {
+		t.Fatalf("health mutation = %d", response.Code)
+	}
+
+	public, _, _ := newHTTPFixture(t, testPublicHost, testPublicURL)
+	for _, authorization := range []string{
+		"",
+		"Bearer " + testHTTPToken,
+	} {
+		request := httpRequest(
+			http.MethodGet,
+			testPublicURL+telemetryHealthPath,
+			"203.0.113.10:41103",
+			nil,
+		)
+		request.Header.Set("Authorization", authorization)
+		if response := serve(public, request); response.Code !=
+			http.StatusNotFound {
+			t.Fatalf(
+				"public health with auth %q = %d",
+				authorization,
+				response.Code,
+			)
+		}
+	}
+
+	if handler, err := NewHTTPHandler(
+		projector,
+		commands,
+		HTTPConfig{
+			RunID: "run-1", Host: testPublicHost, Origin: testPublicURL,
+			BearerToken: []byte(testHTTPToken),
+			Telemetry:   httpFakeTelemetry{status: health},
+		},
+	); !IsCode(err, "INVALID_HTTP_CONFIG") || handler != nil {
+		t.Fatalf("public telemetry config = %#v, %v", handler, err)
 	}
 }
 
