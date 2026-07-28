@@ -473,20 +473,15 @@ func (s *WebhookService) Tick(
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			projection, err := s.Project(ctx, runID, destinationID)
-			if err != nil {
-				results <- destinationResult{
-					destination: destinationID,
-					err:         err,
-				}
-				return
-			}
-			delivery, err := s.DeliverOne(ctx, destinationID)
+			projection, projectionErr :=
+				s.Project(ctx, runID, destinationID)
+			delivery, deliveryErr :=
+				s.DeliverOne(ctx, destinationID)
 			results <- destinationResult{
 				destination: destinationID,
 				projection:  projection,
 				delivery:    delivery,
-				err:         err,
+				err:         errors.Join(projectionErr, deliveryErr),
 			}
 		}()
 	}
@@ -557,11 +552,10 @@ func (s *WebhookService) runDestination(
 			return
 		default:
 		}
-		if _, err := s.Project(ctx, runID, destinationID); err == nil {
-			// Each destination owns its projection and FIFO progress. A slow
-			// or unavailable peer cannot consume this worker's interval.
-			_, _ = s.DeliverOne(ctx, destinationID)
-		}
+		// Projection and delivery are independent durable steps. A damaged
+		// observer cursor must not starve rows already committed to the outbox.
+		_, _ = s.Project(ctx, runID, destinationID)
+		_, _ = s.DeliverOne(ctx, destinationID)
 		select {
 		case <-ctx.Done():
 			return

@@ -726,7 +726,8 @@ func TestWebhookTickIsolatesDestinationJournalFailures(t *testing.T) {
 			failObserver:     "webhook.audit",
 			observerFailures: 1,
 			wantProjected:    1,
-			wantDeliveries:   1,
+			wantDeliveries:   2,
+			wantAuditState:   journal.NotificationDelivered,
 		},
 		{
 			name:                  "finish",
@@ -753,6 +754,22 @@ func TestWebhookTickIsolatesDestinationJournalFailures(t *testing.T) {
 				now,
 			); err != nil {
 				t.Fatal(err)
+			}
+			if test.failObserver != "" {
+				audit := testWebhookDestinations()[1]
+				seed := testWebhookService(
+					t,
+					store,
+					[]WebhookDestination{audit},
+				)
+				seed.now = func() time.Time { return now.Add(time.Second) }
+				if _, err := seed.Project(
+					ctx,
+					run.ID,
+					audit.ID,
+				); err != nil {
+					t.Fatal(err)
+				}
 			}
 			faults := &faultWebhookJournal{
 				webhookJournal:        store,
@@ -810,7 +827,7 @@ func TestWebhookTickIsolatesDestinationJournalFailures(t *testing.T) {
 	}
 }
 
-func TestWebhookRunRetriesOperationalTickFailure(t *testing.T) {
+func TestWebhookRunDeliversDurableRowsThroughProjectionFailure(t *testing.T) {
 	t.Parallel()
 
 	store, run := cockpitJournalFixture(t)
@@ -824,10 +841,24 @@ func TestWebhookRunRetriesOperationalTickFailure(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	audit := testWebhookDestinations()[1]
+	seed := testWebhookService(
+		t,
+		store,
+		[]WebhookDestination{audit},
+	)
+	seed.now = func() time.Time { return now.Add(time.Second) }
+	if _, err := seed.Project(
+		context.Background(),
+		run.ID,
+		audit.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
 	faults := &faultWebhookJournal{
 		webhookJournal:   store,
 		failObserver:     "webhook.audit",
-		observerFailures: 1,
+		observerFailures: 1000,
 	}
 	service := testWebhookService(t, faults, testWebhookDestinations())
 	service.now = func() time.Time { return now.Add(time.Second) }
@@ -861,7 +892,7 @@ func TestWebhookRunRetriesOperationalTickFailure(t *testing.T) {
 		cancel()
 	case <-time.After(2 * time.Second):
 		cancel()
-		t.Fatal("worker stopped after transient projection failure")
+		t.Fatal("durable row was starved by projection failure")
 	}
 	select {
 	case err := <-done:
