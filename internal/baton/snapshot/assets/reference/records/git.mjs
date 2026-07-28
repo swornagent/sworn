@@ -1568,6 +1568,41 @@ export function changedPathsBetween(repo, base, candidate) {
   ));
 }
 
+/**
+ * Return the newest first-parent commit at or below `head` that changed one
+ * exact repository path. The query is output-bounded and never reads commit
+ * messages, so callers can prove path-introduction history without
+ * interpreting inherited receipt text.
+ */
+export function firstParentPathChange(repo, head, relativePath) {
+  const exactHead = resolveRef(repo, head);
+  const exactPath = assertRepositoryPath(relativePath);
+  const result = runGit(
+    repo,
+    [
+      'rev-list',
+      '--first-parent',
+      '--full-history',
+      '--max-count=1',
+      exactHead,
+      '--',
+      exactPath,
+    ],
+    {
+      maxBuffer: 1024,
+      label: `read first-parent path history for ${exactPath}`,
+    },
+  ).trim();
+  if (result === '') return null;
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(result)) {
+    throw new GitRecordError(
+      'MALFORMED_GIT_OUTPUT',
+      `first-parent path history for ${exactPath} is malformed`,
+    );
+  }
+  return result;
+}
+
 function repositoryObjectDirectory(repo) {
   const common = runGit(
     repo,
@@ -1620,6 +1655,47 @@ function runEngineGit(context, args, options = {}) {
   return executeGit(context.cwd, args, options, context.environment);
 }
 
+function runEngineMergeTree(context, args, label) {
+  const executable = gitExecutablePath();
+  const hooksDirectory = mkdtempSync(path.join(tmpdir(), 'baton-git-hooks-'));
+  try {
+    const result = spawnSync(executable, [
+      '-c',
+      `core.hooksPath=${hooksDirectory}`,
+      '-c',
+      'core.fsmonitor=false',
+      ...args,
+    ], {
+      cwd: context.cwd,
+      encoding: 'utf8',
+      env: gitEnvironmentForExecutable(executable, {}, context.environment),
+      maxBuffer: 128 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.error || result.signal || !Number.isInteger(result.status)) {
+      throw new GitRecordError(
+        'GIT_COMMAND_FAILED',
+        `${label} failed without a trustworthy exit status`,
+        result.error,
+      );
+    }
+    if (result.status === 0) return result.stdout;
+    const stderr = result.stderr?.trim();
+    if (result.status === 1) {
+      throw new GitRecordError(
+        'COMPOSITION_CONFLICT',
+        `${label} conflicted${stderr ? `: ${stderr}` : ''}`,
+      );
+    }
+    throw new GitRecordError(
+      'GIT_COMMAND_FAILED',
+      `${label} failed with status ${result.status}${stderr ? `: ${stderr}` : ''}`,
+    );
+  } finally {
+    rmSync(hooksDirectory, { recursive: true, force: true });
+  }
+}
+
 function treePaths(context, commit) {
   const raw = runEngineGit(
     context,
@@ -1659,15 +1735,16 @@ function mergeAttributesAtSource(context, source, paths) {
   return attributes;
 }
 
-function installBuiltInMergeAttributes(context, expected, candidate) {
+function installBuiltInMergeAttributes(context, expected, candidate, productBase = null) {
   const unique = new Map();
-  for (const entry of [...treePaths(context, expected), ...treePaths(context, candidate)]) {
+  const sources = [expected, candidate, ...(productBase === null ? [] : [productBase])];
+  for (const entry of sources.flatMap((source) => treePaths(context, source))) {
     unique.set(entry.toString('hex'), entry);
   }
   const paths = [...unique.values()];
   const builtIn = new Set(['unspecified', 'set', 'unset', 'text', 'binary', 'union']);
   let expectedAttributes = [];
-  for (const source of [expected, candidate]) {
+  for (const source of sources) {
     const attributes = mergeAttributesAtSource(context, source, paths);
     if (source === expected) expectedAttributes = attributes;
     for (const { path: filePathBytes, value } of attributes) {
@@ -1714,31 +1791,226 @@ function installBuiltInMergeAttributes(context, expected, candidate) {
   );
 }
 
-function deterministicMergeTreeInContext(context, expected, candidate, label) {
+function restoreFirstParentRecordRoot(context, expected, recordRoot, label) {
+  const indexedRaw = runEngineGit(
+    context,
+    ['ls-files', '-z', '--', recordRoot],
+    {
+      encoding: null,
+      label: `enumerate merged ${recordRoot}`,
+    },
+  );
+  if (indexedRaw.length > MAX_RECORD_TREE_BYTES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `merged record-tree inventory exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
+    );
+  }
+  const indexed = splitNul(indexedRaw).filter((entry) => entry.length > 0);
+  if (indexed.length > MAX_RECORD_TREE_ENTRIES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `merged record-tree inventory exceeds ${MAX_RECORD_TREE_ENTRIES} entries`,
+    );
+  }
+
+  const raw = runEngineGit(
+    context,
+    ['ls-tree', '-r', '-z', expected, '--', recordRoot],
+    {
+      encoding: null,
+      label: `read exact first-parent ${recordRoot}`,
+    },
+  );
+  if (raw.length > MAX_RECORD_TREE_BYTES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `first-parent record-tree inventory exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
+    );
+  }
+  const entries = splitNul(raw)
+    .filter((entry) => entry.length > 0)
+    .map((entry) => parseTreeEntry(entry));
+  if (entries.length > MAX_RECORD_TREE_ENTRIES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `first-parent record-tree inventory exceeds ${MAX_RECORD_TREE_ENTRIES} entries`,
+    );
+  }
+  if (indexed.length > 0 || entries.length > 0) {
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let removals;
+    try {
+      removals = indexed.map((entry) => (
+        `0 ${'0'.repeat(expected.length)}\t${assertRepositoryPath(decoder.decode(entry))}\0`
+      ));
+    } catch (error) {
+      if (error instanceof GitRecordError) throw error;
+      throw new GitRecordError(
+        'INVALID_REPOSITORY_PATH',
+        `merged ${recordRoot} contains a non-canonical path`,
+        error,
+      );
+    }
+    const replacements = entries.map((entry) => (
+      `${entry.mode} ${entry.type} ${entry.object}\t${assertRepositoryPath(entry.path)}\0`
+    ));
+    const input = Buffer.from([...removals, ...replacements].join(''));
+    runEngineGit(
+      context,
+      ['update-index', '-z', '--index-info'],
+      {
+        encoding: null,
+        input,
+        label: `restore exact first-parent ${recordRoot}`,
+      },
+    );
+  }
+  return runEngineGit(
+    context,
+    ['write-tree'],
+    { label: `write ${label} tree with first-parent records` },
+  ).trim();
+}
+
+function normalizedCandidateForRecordRoot(
+  context,
+  expected,
+  candidate,
+  recordRoot,
+  label,
+) {
+  runEngineGit(
+    context,
+    ['read-tree', candidate],
+    { label: `seed ${label} candidate record-root normalization` },
+  );
+  const tree = restoreFirstParentRecordRoot(
+    context,
+    expected,
+    recordRoot,
+    `${label} candidate`,
+  );
+  const timestamp = commitTimestamp(context.cwd, candidate);
+  const date = `@${timestamp} +0000`;
+  const parents = commitParents(context.cwd, candidate)
+    .flatMap((parent) => ['-p', parent]);
+  return runEngineGit(
+    context,
+    ['commit-tree', tree, ...parents],
+    {
+      input: `Baton engine-owned record normalization for ${candidate}\n`,
+      env: {
+        GIT_AUTHOR_NAME: 'Baton Merge',
+        GIT_AUTHOR_EMAIL: 'merge@baton.invalid',
+        GIT_AUTHOR_DATE: date,
+        GIT_COMMITTER_NAME: 'Baton Merge',
+        GIT_COMMITTER_EMAIL: 'merge@baton.invalid',
+        GIT_COMMITTER_DATE: date,
+      },
+      label: `create ${label} candidate with first-parent records`,
+    },
+  ).trim();
+}
+
+function sameRecordRootEntry(context, expected, candidate, recordRoot) {
+  const raw = runEngineGit(
+    context,
+    [
+      'diff-tree',
+      '--no-commit-id',
+      '--raw',
+      '-z',
+      expected,
+      candidate,
+      '--',
+      recordRoot,
+    ],
+    {
+      encoding: null,
+      label: `compare exact ${recordRoot} tree entries`,
+    },
+  );
+  if (raw.length > MAX_RECORD_TREE_BYTES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `record-root comparison exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
+    );
+  }
+  return raw.length === 0;
+}
+
+function deterministicMergeTreeInContext(
+  context,
+  expected,
+  candidate,
+  label,
+  productBase = null,
+  recordRoot = null,
+) {
   runEngineGit(
     context,
     ['read-tree', expected],
     { label: `seed engine-owned merge index at ${expected}` },
   );
-  installBuiltInMergeAttributes(context, expected, candidate);
-  return runEngineGit(
+  installBuiltInMergeAttributes(context, expected, candidate, productBase);
+  const baseArguments = productBase === null
+    ? []
+    : ['--merge-base', productBase];
+  const recordRootsMatch = recordRoot !== null
+    && sameRecordRootEntry(context, expected, candidate, recordRoot);
+  const mergeCandidate = recordRoot === null || recordRootsMatch
+    ? candidate
+    : normalizedCandidateForRecordRoot(
+      context,
+      expected,
+      candidate,
+      recordRoot,
+      label,
+    );
+  const mergedTree = runEngineMergeTree(
     context,
-    ['merge-tree', '--write-tree', '--no-messages', expected, candidate],
-    {
-      code: 'COMPOSITION_CONFLICT',
-      label: `compute deterministic ${label} tree`,
-    },
+    [
+      'merge-tree',
+      '--write-tree',
+      '--no-messages',
+      ...baseArguments,
+      expected,
+      mergeCandidate,
+    ],
+    `compute deterministic ${label} tree`,
   ).trim();
+  if (recordRoot === null || recordRootsMatch) return mergedTree;
+  runEngineGit(
+    context,
+    ['read-tree', mergedTree],
+    { label: `seed ${label} record-root restoration` },
+  );
+  return restoreFirstParentRecordRoot(context, expected, recordRoot, label);
 }
 
-function deterministicMergeTree(repo, expected, candidate, label) {
+function deterministicMergeTree(repo, expected, candidate, label, recordRoot = null) {
   return withEngineGitContext(
     repo,
-    (context) => deterministicMergeTreeInContext(context, expected, candidate, label),
+    (context) => deterministicMergeTreeInContext(
+      context,
+      expected,
+      candidate,
+      label,
+      null,
+      recordRoot,
+    ),
   );
 }
 
-function verifyExactComposition(repo, expectedTarget, candidate, observedResult, label) {
+function verifyExactComposition(
+  repo,
+  expectedTarget,
+  candidate,
+  observedResult,
+  label,
+  recordRoot = null,
+) {
   const expected = resolveRef(repo, expectedTarget);
   const passed = resolveRef(repo, candidate);
   const observed = resolveRef(repo, observedResult);
@@ -1753,7 +2025,13 @@ function verifyExactComposition(repo, expectedTarget, candidate, observedResult,
     && isAncestor(repo, expected, observed)
     && isAncestor(repo, passed, observed)
   ) {
-    const deterministicTree = deterministicMergeTree(repo, expected, passed, label);
+    const deterministicTree = deterministicMergeTree(
+      repo,
+      expected,
+      passed,
+      label,
+      recordRoot,
+    );
     const observedTree = runGit(repo, ['rev-parse', `${observed}^{tree}`], {
       label: `resolve ${label} result tree`,
     }).trim();
@@ -1778,6 +2056,7 @@ export function verifyTrackComposition(repo, expectedReleaseHead, frozenTrackHea
     frozenTrackHead,
     observedResult,
     'track composition',
+    RECORD_ROOT_V1,
   );
 }
 
@@ -1788,6 +2067,7 @@ export function verifyReleaseIntegration(repo, expectedTarget, assemblyCandidate
     assemblyCandidate,
     observedResult,
     'release integration',
+    RECORD_ROOT_V1,
   );
 }
 
@@ -1970,23 +2250,116 @@ function deterministicCompositionCommit(context, repo, targetRef, expected, cand
   ).trim();
 }
 
+function validateCompositionTargetRef(repo, targetRef) {
+  runGit(repo, ['check-ref-format', targetRef], {
+    code: 'INVALID_TARGET_REF',
+    label: `validate target ref ${targetRef}`,
+  });
+  if (!targetRef.startsWith('refs/heads/')) {
+    throw new GitRecordError(
+      'INVALID_TARGET_REF',
+      'composition target must be a full refs/heads ref',
+    );
+  }
+}
+
+function prepareTwoParentComposition(
+  repo,
+  targetRef,
+  expected,
+  candidate,
+  productBase,
+  recordRoot,
+) {
+  return withEngineGitContext(repo, (context) => {
+    const tree = deterministicMergeTreeInContext(
+      context,
+      expected,
+      candidate,
+      'composition',
+      productBase,
+      recordRoot,
+    );
+    const result = deterministicCompositionCommit(
+      context,
+      repo,
+      targetRef,
+      expected,
+      candidate,
+      tree,
+    );
+    return Object.freeze({ result, tree });
+  });
+}
+
+function verifyPreparedComposition(repo, expected, candidate, prepared, label) {
+  const parents = commitParents(repo, prepared.result);
+  if (
+    parents.length !== 2
+    || parents[0] !== expected
+    || parents[1] !== candidate
+  ) {
+    throw new GitRecordError(
+      'UNEXPECTED_COMPOSITION_TOPOLOGY',
+      `${label} result ${prepared.result} does not preserve the exact ordered parents`,
+    );
+  }
+  const observedTree = runGit(repo, ['rev-parse', `${prepared.result}^{tree}`], {
+    label: `resolve ${label} result tree`,
+  }).trim();
+  if (observedTree !== prepared.tree) {
+    throw new GitRecordError(
+      'FORGED_COMPOSITION_TREE',
+      `${label} result ${prepared.result} does not preserve its deterministic tree`,
+    );
+  }
+}
+
+function boundedFirstParentContains(repo, head, expected) {
+  const rendered = runGit(
+    repo,
+    ['rev-list', '--first-parent', '--max-count=4096', head],
+    {
+      maxBuffer: 512 * 1024,
+      label: 'read bounded first-parent identities',
+    },
+  );
+  if (!rendered.endsWith('\n')) {
+    throw new GitRecordError(
+      'MALFORMED_GIT_OUTPUT',
+      'bounded first-parent identities were not terminated',
+    );
+  }
+  const identities = rendered.slice(0, -1).split('\n');
+  if (
+    identities.length < 1
+    || identities.length > 4096
+    || !identities.every((oid) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid))
+  ) {
+    throw new GitRecordError(
+      'MALFORMED_GIT_OUTPUT',
+      'bounded first-parent identities were malformed',
+    );
+  }
+  return identities.includes(expected);
+}
+
 export function unsafePrepareExactComposition(repo, {
   targetRef,
   expectedHead,
   candidate,
   productExclusionAdmission,
 }) {
-  runGit(repo, ['check-ref-format', targetRef], {
-    code: 'INVALID_TARGET_REF',
-    label: `validate target ref ${targetRef}`,
-  });
-  if (!targetRef.startsWith('refs/heads/')) {
-    throw new GitRecordError('INVALID_TARGET_REF', 'composition target must be a full refs/heads ref');
-  }
+  validateCompositionTargetRef(repo, targetRef);
   const expected = resolveRef(repo, expectedHead);
   const passed = resolveRef(repo, candidate);
   productTreeIdentity(repo, expected, productExclusionAdmission);
   productTreeIdentity(repo, passed, productExclusionAdmission);
+  const recordRoot = requireProductExclusionAdmission(
+    repo,
+    productExclusionAdmission,
+    expected,
+  );
   let mode;
   let result;
   if (isAncestor(repo, expected, passed)) {
@@ -1999,31 +2372,144 @@ export function unsafePrepareExactComposition(repo, {
     );
   } else {
     mode = 'two-parent';
-    result = withEngineGitContext(repo, (context) => {
-      const tree = deterministicMergeTreeInContext(
-        context,
-        expected,
-        passed,
-        'composition',
-      );
-      return deterministicCompositionCommit(
-        context,
-        repo,
-        targetRef,
-        expected,
-        passed,
-        tree,
-      );
-    });
+    const prepared = prepareTwoParentComposition(
+      repo,
+      targetRef,
+      expected,
+      passed,
+      null,
+      recordRoot,
+    );
+    verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
+    result = prepared.result;
   }
   productTreeIdentity(repo, result, productExclusionAdmission);
-  verifyExactComposition(repo, expected, passed, result, 'composition');
   return Object.freeze({
     mode,
     expected,
     candidate: passed,
     result,
   });
+}
+
+/**
+ * Retry a conflicting exact composition from one engine-derived product base.
+ *
+ * This is an internal reference-engine primitive. Public actions never accept
+ * a merge base: state reconstruction derives and validates the exact base
+ * before calling this function.
+ */
+export function unsafePrepareProductComposition(repo, {
+  targetRef,
+  expectedHead,
+  candidate,
+  productBase,
+  productExclusionAdmission,
+}) {
+  if (typeof productBase !== 'function') {
+    throw new GitRecordError(
+      'PRODUCT_BASE_RESOLVER_REQUIRED',
+      'product composition requires an engine-owned lazy product-base resolver',
+    );
+  }
+  try {
+    const prepared = unsafePrepareExactComposition(repo, {
+      targetRef,
+      expectedHead,
+      candidate,
+      productExclusionAdmission,
+    });
+    return prepared;
+  } catch (error) {
+    if (!(error instanceof GitRecordError) || error.code !== 'COMPOSITION_CONFLICT') {
+      throw error;
+    }
+  }
+
+  validateCompositionTargetRef(repo, targetRef);
+  const expected = resolveRef(repo, expectedHead);
+  const passed = resolveRef(repo, candidate);
+  productTreeIdentity(repo, expected, productExclusionAdmission);
+  productTreeIdentity(repo, passed, productExclusionAdmission);
+  const suppliedBase = assertObjectIdForFormat(
+    productBase(),
+    'product base',
+    expected.length === 64 ? 'sha256' : 'sha1',
+  );
+  const base = resolveRef(repo, suppliedBase);
+  productTreeIdentity(repo, base, productExclusionAdmission);
+  const recordRoot = requireProductExclusionAdmission(
+    repo,
+    productExclusionAdmission,
+    expected,
+  );
+  const prepared = prepareTwoParentComposition(
+    repo,
+    targetRef,
+    expected,
+    passed,
+    base,
+    recordRoot,
+  );
+  verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
+  const { result } = prepared;
+  productTreeIdentity(repo, result, productExclusionAdmission);
+  return Object.freeze({
+    mode: 'two-parent',
+    expected,
+    candidate: passed,
+    productBase: base,
+    result,
+  });
+}
+
+// Keep current authority as the first parent. Add the approved target only
+// when that authority does not already contain it.
+export function unsafePrepareApprovedTargetBase(repo, {
+  targetRef,
+  expectedHead,
+  approvedTarget,
+  productExclusionAdmission,
+}) {
+  const expected = resolveRef(repo, expectedHead);
+  const target = resolveRef(repo, approvedTarget);
+  if (target === expected || isAncestor(repo, target, expected)) return expected;
+  if (isAncestor(repo, expected, target)) {
+    if (boundedFirstParentContains(repo, target, expected)) {
+      return unsafePrepareExactComposition(repo, {
+        targetRef,
+        expectedHead: expected,
+        candidate: target,
+        productExclusionAdmission,
+      }).result;
+    }
+    validateCompositionTargetRef(repo, targetRef);
+    productTreeIdentity(repo, expected, productExclusionAdmission);
+    productTreeIdentity(repo, target, productExclusionAdmission);
+    const recordRoot = requireProductExclusionAdmission(
+      repo,
+      productExclusionAdmission,
+      expected,
+    );
+    const prepared = prepareTwoParentComposition(
+      repo,
+      targetRef,
+      expected,
+      target,
+      null,
+      recordRoot,
+    );
+    verifyPreparedComposition(repo, expected, target, prepared, 'composition');
+    const { result } = prepared;
+    productTreeIdentity(repo, result, productExclusionAdmission);
+    return result;
+  }
+  return unsafePrepareExactComposition(repo, {
+    targetRef,
+    expectedHead: expected,
+    candidate: target,
+    productExclusionAdmission,
+  }).result;
 }
 
 export function unsafeApplyExactComposition(repo, options) {

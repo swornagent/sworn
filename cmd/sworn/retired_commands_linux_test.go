@@ -27,7 +27,6 @@ func TestBuiltBinaryRetiredCommandsDoNotConsumePaths(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"run", []string{"run", "run-1", "--config", fifo, "--json"}},
 		{"board", []string{"board", "--store", fifo, "--json"}},
 		{"shim", []string{"__executor-shim", "--sworn-start-marker", marker}},
 	}
@@ -46,7 +45,7 @@ func TestBuiltBinaryRetiredCommandsDoNotConsumePaths(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q", stdout.String())
 			}
-			if !strings.Contains(stderr.String(), "is not implemented at the v0.3 admission checkpoint") {
+			if !strings.Contains(stderr.String(), "is not implemented in the v0.3 walking skeleton") {
 				t.Fatalf("stderr = %q", stderr.String())
 			}
 			if strings.Contains(stderr.String(), fifo) || strings.Contains(stderr.String(), marker) {

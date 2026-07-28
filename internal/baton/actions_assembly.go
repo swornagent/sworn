@@ -37,57 +37,20 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 			),
 		)
 	}
-	for _, slice := range state.Slices {
-		if slice.Pass == nil {
-			return ActionResult{}, recordFail("SLICE_PASS_REQUIRED", slice.Location.Slice.ID+" has no current PASS")
-		}
+	classification, err := classifyStateAssembly(a.repository, state)
+	if err != nil {
+		return ActionResult{}, err
 	}
 
-	type trackCandidate struct {
-		ID          string
-		Candidate   string
-		ProductTree string
-	}
-	trackCandidates := make([]trackCandidate, 0, len(state.Tracks))
-	for _, track := range state.Tracks {
-		final := track.Slices[len(track.Slices)-1]
-		if final.Pass == nil || final.Pass.Receipt.Candidate == nil ||
-			final.Pass.Receipt.ProductTree == nil {
-			return ActionResult{}, recordFail("SLICE_PASS_REQUIRED", "track "+track.ID+" has no final PASS")
-		}
-		for _, slice := range track.Slices {
-			contained, err := a.repository.isAncestor(
-				*slice.Pass.Receipt.Candidate, *final.Pass.Receipt.Candidate,
-			)
-			if err != nil {
-				return ActionResult{}, err
-			}
-			if !contained {
-				return ActionResult{}, recordFail("INVALID_TRACK_TOPOLOGY", "track "+track.ID+" candidates are not one serial lineage")
-			}
-		}
-		trackCandidates = append(trackCandidates, trackCandidate{
-			ID: track.ID, Candidate: *final.Pass.Receipt.Candidate,
-			ProductTree: *final.Pass.Receipt.ProductTree,
-		})
-	}
-	inputs := make(map[string]string, len(trackCandidates))
-	for _, track := range trackCandidates {
-		inputs[track.ID] = track.ProductTree
-	}
 	target := state.Refs.Target.Head
-	if len(trackCandidates) == 1 {
-		direct, err := a.repository.isAncestor(target, trackCandidates[0].Candidate)
-		if err != nil {
-			return ActionResult{}, err
-		}
-		if direct {
-			result := actionResult("prepareAssembly", false)
-			result.Release, result.Direct, result.Candidate = release, true, trackCandidates[0].Candidate
-			result.Inputs = cloneInputs(inputs)
-			result.ReceiptCommit = state.Tracks[0].Slices[len(state.Tracks[0].Slices)-1].Pass.OID
-			return result, nil
-		}
+	inputs := classification.Inputs
+	if classification.Direct {
+		candidate := *classification.DirectPass.Receipt.Candidate
+		result := actionResult("prepareAssembly", false)
+		result.Release, result.Direct, result.Candidate = release, true, candidate
+		result.Inputs, result.ReceiptCommit =
+			cloneInputs(inputs), classification.DirectPass.OID
+		return result, nil
 	}
 	existing := state.Assembly.Candidate
 	if existing != nil && existing.Receipt.Target != nil &&
@@ -98,27 +61,13 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 		return result, nil
 	}
 
-	candidate := target
-	components := []string{state.Refs.Release.Head}
-	for _, track := range trackCandidates {
-		components = append(components, track.Candidate)
-	}
-	for _, component := range components {
-		if component == candidate {
-			continue
-		}
-		contained, err := a.repository.isAncestor(component, candidate)
-		if err != nil {
-			return ActionResult{}, err
-		}
-		if contained {
-			continue
-		}
-		prepared, err := a.repository.prepareComposition(state.Refs.Target.Ref, candidate, component)
-		if err != nil {
-			return ActionResult{}, err
-		}
-		candidate = prepared.Result
+	candidate, err := prepareClassifiedAssembly(
+		a.repository, state.Refs.Target.Ref, target,
+		state.Refs.Release.Head, classification,
+		state.productBases.track,
+	)
+	if err != nil {
+		return ActionResult{}, err
 	}
 	productTree, err := a.repository.productTree(candidate)
 	if err != nil {
@@ -153,14 +102,17 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	if err != nil {
 		return ActionResult{}, err
 	}
-	snapshot := sortedCaptured([]CapturedRef{state.Refs.Release, state.Refs.Target})
-	if err := a.repository.updateRefs(snapshot, []refOperation{
+	snapshot, operations, err := assemblyRefCAS(state, classification, []refOperation{
 		{Kind: "verify", Ref: state.Refs.Target.Ref, ExpectedHead: target},
 		{
 			Kind: "update", Ref: state.Refs.Release.Ref,
 			NewHead: prepared.Commit, ExpectedHead: state.Refs.Release.Head,
 		},
-	}); err != nil {
+	})
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := a.repository.updateRefs(snapshot, operations); err != nil {
 		return ActionResult{}, err
 	}
 	parsed, err := ParseReceiptCommitMessage(message)
@@ -192,6 +144,19 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 	if err != nil {
 		return ActionResult{}, err
 	}
+	if state.Plan.TargetStale {
+		return ActionResult{}, recordFail(
+			"TARGET_MOVED",
+			fmt.Sprintf(
+				"the target moved from %s to %s; revise and reapprove the plan",
+				valueOrEmpty(state.Plan.Approval.Receipt.Target), state.Refs.Target.Head,
+			),
+		)
+	}
+	classification, err := classifyStateAssembly(a.repository, state)
+	if err != nil {
+		return ActionResult{}, err
+	}
 	if state.Assembly.Outcome == "merged" {
 		receipt := state.Assembly.CurrentReceipt.Receipt.Clone()
 		result := actionResult("mergePassedCandidate", false)
@@ -202,28 +167,7 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 		result.ReceiptCommit, result.Receipt = state.Assembly.CurrentReceipt.OID, &receipt
 		return result, nil
 	}
-	if state.Plan.TargetStale {
-		return ActionResult{}, recordFail(
-			"TARGET_MOVED",
-			fmt.Sprintf(
-				"the target moved from %s to %s; revise and reapprove the plan",
-				valueOrEmpty(state.Plan.Approval.Receipt.Target), state.Refs.Target.Head,
-			),
-		)
-	}
-	passed := state.Assembly.Pass
-	if passed == nil && len(state.Tracks) == 1 {
-		final := state.Tracks[0].Slices[len(state.Tracks[0].Slices)-1].Pass
-		if final != nil && final.Receipt.Candidate != nil {
-			direct, err := a.repository.isAncestor(state.Refs.Target.Head, *final.Receipt.Candidate)
-			if err != nil {
-				return ActionResult{}, err
-			}
-			if direct {
-				passed = final
-			}
-		}
-	}
+	passed := applicableAssemblyPass(state, classification)
 	if passed == nil || passed.Receipt.Candidate == nil {
 		return ActionResult{}, recordFail("ASSEMBLY_PASS_REQUIRED", "the current exact candidate has no applicable PASS")
 	}
@@ -253,8 +197,7 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 	if err != nil {
 		return ActionResult{}, err
 	}
-	snapshot := sortedCaptured([]CapturedRef{state.Refs.Release, state.Refs.Target})
-	if err := a.repository.updateRefs(snapshot, []refOperation{
+	snapshot, operations, err := assemblyRefCAS(state, classification, []refOperation{
 		{
 			Kind: "update", Ref: state.Refs.Target.Ref,
 			NewHead: prepared.Result, ExpectedHead: state.Refs.Target.Head,
@@ -263,7 +206,11 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 			Kind: "update", Ref: state.Refs.Release.Ref,
 			NewHead: preparedReceipt.Commit, ExpectedHead: state.Refs.Release.Head,
 		},
-	}); err != nil {
+	})
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := a.repository.updateRefs(snapshot, operations); err != nil {
 		return ActionResult{}, err
 	}
 	parsed, err := ParseReceiptCommitMessage(message)
@@ -276,6 +223,96 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 	result.ResultCommit, result.ReceiptCommit, result.Receipt =
 		prepared.Result, preparedReceipt.Commit, &parsedReceipt
 	return result, nil
+}
+
+func assemblyRefCAS(
+	state State,
+	classification assemblyClassification,
+	operations []refOperation,
+) ([]CapturedRef, []refOperation, error) {
+	snapshot := []CapturedRef{state.Refs.Release, state.Refs.Target}
+	resultOperations := append([]refOperation(nil), operations...)
+	for _, classified := range classification.TrackCandidates {
+		captured := capturedTrackRef(state, classified.ID)
+		if !directCommit(captured) {
+			return nil, nil, recordFail(
+				"INVALID_TRACK_TOPOLOGY",
+				"track "+classified.ID+" has no exact captured head",
+			)
+		}
+		snapshot = append(snapshot, captured)
+		resultOperations = append(resultOperations, refOperation{
+			Kind: "verify", Ref: captured.Ref, ExpectedHead: captured.Head,
+		})
+	}
+	return sortedCaptured(snapshot), resultOperations, nil
+}
+
+func classifyStateAssembly(
+	repository *repository,
+	state State,
+) (assemblyClassification, error) {
+	if len(state.Plan.History) == 0 {
+		return assemblyClassification{}, recordFail(
+			"INVALID_TRACK_TOPOLOGY",
+			"release has no approved plan history",
+		)
+	}
+	current := state.Plan.History[len(state.Plan.History)-1].Plan
+	topology := topologyFromPlanHistory(state.Plan.History)
+	evidence := assemblyEvidenceFromTracks(state.Tracks)
+	classification, err := classifyAssembly(
+		repository,
+		current,
+		topology,
+		evidence,
+	)
+	if err != nil {
+		return assemblyClassification{}, err
+	}
+	target := state.Refs.Target.Head
+	if state.Plan.Approval.Receipt.Target != nil {
+		target = *state.Plan.Approval.Receipt.Target
+	}
+	releaseHead := state.Refs.Release.Head
+	if state.Assembly.Outcome == "merged" &&
+		state.Assembly.CurrentReceipt != nil &&
+		state.Assembly.Pass != nil &&
+		state.Assembly.Pass.Receipt.Slice != nil {
+		releaseHead = state.Assembly.CurrentReceipt.Parent
+	}
+	return withDirectAssemblyReuse(
+		repository, current, topology, evidence,
+		target, releaseHead, classification,
+		state.productBases.track,
+	)
+}
+
+func applicableAssemblyPass(
+	state State,
+	classification assemblyClassification,
+) *ReceiptEntry {
+	if classification.Direct {
+		return classification.DirectPass
+	}
+	pass, candidate := state.Assembly.Pass, state.Assembly.Candidate
+	if pass == nil || candidate == nil ||
+		pass.Receipt.Role != "verifier" ||
+		pass.Receipt.Result != "pass" ||
+		pass.Receipt.Slice != nil ||
+		pass.Receipt.Plan != state.Plan.OID ||
+		pass.Receipt.Binds != candidate.OID ||
+		candidate.Receipt.Role != "implementer" ||
+		candidate.Receipt.Result != "candidate" ||
+		candidate.Receipt.Slice != nil ||
+		candidate.Receipt.Plan != state.Plan.OID ||
+		candidate.Receipt.Target == nil ||
+		*candidate.Receipt.Target != state.Refs.Target.Head ||
+		!sameCandidate(pass.Receipt, candidate.Receipt) ||
+		!inputsEqual(candidate.Receipt.Inputs, classification.Inputs) {
+		return nil
+	}
+	return pass
 }
 
 func valueOrEmpty(value *string) string {

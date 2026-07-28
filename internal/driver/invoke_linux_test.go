@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -70,6 +71,12 @@ func processExecutable(t *testing.T, behavior string) string {
 func setProcessExecutable(t *testing.T, invocation *Invocation, behavior string) string {
 	t.Helper()
 	executable := processExecutable(t, behavior)
+	setProcessExecutablePath(t, invocation, executable)
+	return executable
+}
+
+func setProcessExecutablePath(t *testing.T, invocation *Invocation, executable string) {
+	t.Helper()
 	digest, err := executableDigest(executable)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +106,6 @@ func setProcessExecutable(t *testing.T, invocation *Invocation, behavior string)
 		t.Fatal(err)
 	}
 	invocation.Permission = permission
-	return executable
 }
 
 type buildFailure struct {
@@ -370,6 +376,74 @@ func TestAcceptedSubmissionIntentionallyStopsAndQuiescesDescendants(t *testing.T
 		t.Fatal("intentional submit stop left a descendant running")
 	}
 	t.Logf("intentional_stop descendant_quiescent=true events=%v", observation.Events)
+}
+
+func TestLinuxParentDeathQuiescesSandbox(t *testing.T) {
+	const helperEnvironment = "SWORN_PARENT_DEATH_HELPER"
+	const executableEnvironment = "SWORN_PARENT_DEATH_EXECUTABLE"
+	if os.Getenv(helperEnvironment) == "1" {
+		executable := os.Getenv(executableEnvironment)
+		invocation, _, _ := fakeInvocation(
+			t,
+			"invoke-parent-death",
+			RoleVerifier,
+			WorkVerification,
+			ReadOnly,
+			"block-descendant",
+			nil,
+		)
+		setProcessExecutablePath(t, &invocation, executable)
+		_, _ = (Invoker{}).Invoke(context.Background(), invocation)
+		t.Fatal("parent-death helper invocation unexpectedly returned")
+	}
+
+	executable := processExecutable(t, "parent-death")
+	command := exec.Command(
+		os.Args[0],
+		"-test.run=^TestLinuxParentDeathQuiescesSandbox$",
+	)
+	command.Env = append(
+		os.Environ(),
+		helperEnvironment+"=1",
+		executableEnvironment+"="+executable,
+	)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	}()
+	startDeadline := time.Now().Add(5 * time.Second)
+	for !processUsesExecutable(executable) && time.Now().Before(startDeadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !processUsesExecutable(executable) {
+		t.Fatal("parent-death helper did not start the sandboxed provider")
+	}
+	if err := command.Process.Signal(syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err == nil {
+		t.Fatal("parent-death helper unexpectedly exited successfully")
+	}
+	quiescenceDeadline := time.Now().Add(2 * time.Second)
+	for processUsesExecutable(executable) && time.Now().Before(quiescenceDeadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if processUsesExecutable(executable) {
+		t.Fatal("sandboxed provider survived abrupt parent death")
+	}
+}
+
+func TestLinuxSandboxProcessAttributesRequireParentDeath(t *testing.T) {
+	attributes := linuxSandboxProcessAttributes()
+	if attributes == nil || !attributes.Setpgid ||
+		attributes.Pdeathsig != syscall.SIGKILL {
+		t.Fatalf("sandbox process attributes = %#v", attributes)
+	}
 }
 
 func TestSpontaneousNonzeroExitCannotMasqueradeAsEngineStop(t *testing.T) {

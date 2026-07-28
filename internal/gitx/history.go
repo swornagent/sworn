@@ -84,3 +84,43 @@ func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEn
 	}
 	return result, nil
 }
+
+// FirstParentPathChange returns the newest first-parent commit at or below
+// head that changed one exact repository path. The bounded output proves
+// whether a release record path existed in earlier history without parsing
+// inherited commit messages as current Baton authority.
+func (r *Repository) FirstParentPathChange(head OID, path string) (OID, bool, error) {
+	if err := r.validateOID(head); err != nil {
+		return OID{}, false, err
+	}
+	if err := ValidatePath(path, false); err != nil {
+		return OID{}, false, err
+	}
+	raw, err := r.run(
+		nil,
+		nil,
+		"rev-list",
+		"--first-parent",
+		"--full-history",
+		"--max-count=1",
+		head.String(),
+		"--",
+		path,
+	)
+	if err != nil {
+		return OID{}, false, err
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return OID{}, false, nil
+	}
+	oid, err := r.parseOID(value)
+	if err != nil {
+		return OID{}, false, fail(
+			"MALFORMED_GIT_OUTPUT",
+			"read first-parent path history",
+			err,
+		)
+	}
+	return oid, true, nil
+}

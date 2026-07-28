@@ -13,6 +13,13 @@ Autonomy begins with an exact externally approved plan. It states the goal,
 scope, acceptance, checks, dependencies, constraints, target, and integration
 authority.
 
+Those fields are commitments, not an exhaustive implementation inventory.
+Scope names the approved behavioral and product surfaces, checks are the
+required minimum, constraints are semantic limits, and dependencies name real
+product inputs. Ancillary support paths, additional checks, evidence detail,
+and delivery bookkeeping MAY be discovered while implementing without
+revising the plan when the approved commitment is unchanged.
+
 The Planner may propose a forward-only revision but cannot approve it. A
 material change requires approval of the revised plan. Unchanged slices retain
 their identities and prior trusted facts unless their contract or consumed

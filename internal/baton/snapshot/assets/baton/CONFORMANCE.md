@@ -26,7 +26,25 @@ Every implementation MUST:
     lifecycle cursor;
 11. reconcile duplicate dispatch, stale projection, interruption, and known Git
     effects without manufacturing trust facts; and
-12. compose and integrate only exact candidates covered by current `PASS`.
+12. compose and integrate only exact candidates covered by current `PASS`; and
+13. treat approved behavior, product surfaces, minimum checks, semantic limits,
+    authority, and real product dependencies as commitments while keeping
+    ancillary path discovery, additional checks, evidence correction, and
+    procedural recovery as candidate or engine facts.
+
+A consuming design MUST be reviewed against an exact base containing the
+applicable producer `PASS` authorities. Before design and again before
+implementation, the engine MUST prepare those current authorities in plan
+order without moving any unrelated ref. Product-tree identity is the review
+pin: a different or absent product requires a fresh design, while a new
+candidate with the same product retains the review.
+
+The portable receipt uses existing fields to make that guarantee explicit:
+the consuming design `base` is the immediately prior valid track receipt or
+current plan-install authority, `inputs` are its reviewed product pins, and the
+design commit parent is the deterministic composition of that seed and those
+producer `PASS` authorities. The consuming candidate `base` is its exact
+implementation start.
 
 Receipt serialization, branch names, record paths, worktree layout, locks, and
 retry algorithms are reference-kit or engine choices. A conforming portable
@@ -72,16 +90,21 @@ conformance requirements.
 
 Positive cases cover plan approval and revision, stable slices, design
 `PROCEED` and `REVISE`, implementation retry after `FAIL`, fresh work and
-assembly `PASS`, exact composition, and final Merge.
+assembly `PASS`, exact consumed-input preparation, exact composition, and final
+Merge.
 
 Recovery cases cover missing derived status, stale board output, duplicate
 dispatch, runner interruption, skipped procedural cursor, and reconcilable Git
-effects without a new model role or human approval.
+effects without a new model role or human approval. They also cover discovering
+ancillary test or oracle paths, running additional focused checks, and
+correcting evidence under the same approved plan and stable slice identity.
 
 Negative cases cover missing or substituted approval; self-review; changed
 plan, design, candidate, proof, product tree, or target; ambiguous authority;
-runtime events presented as role outcomes; unsafe dependency reuse; composition
-conflict; and forged Merge results.
+runtime events presented as role outcomes; missing, stale, or ambiguous
+consumed authority; unsafe dependency reuse; composition conflict; and forged
+Merge results. A material behavioral, consumed-product, contract, authority, or
+external-decision change still crosses the applicable decision boundary.
 
 ## Board and engine handoff
 

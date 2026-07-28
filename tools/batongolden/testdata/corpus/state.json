@@ -311,7 +311,7 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha1",
-                "head": "ef222186a8034dd0c68db6b7e40b5b385e5d4f09"
+                "head": "06aed282fd9a04cf7a62fa87996974a00ed42097"
               },
               "target": {
                 "ref": "refs/heads/main",
@@ -373,8 +373,8 @@
                 "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
                 "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
               },
-              "current_receipt": "ef222186a8034dd0c68db6b7e40b5b385e5d4f09",
-              "candidate": "bcd3d747994f34956cea7d53a669ea6559f6da75",
+              "current_receipt": "06aed282fd9a04cf7a62fa87996974a00ed42097",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
               "pass": null,
               "stale_reason": null,
               "result_commit": null
@@ -400,7 +400,7 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha1",
-                "head": "308d283a70cc93dab588d61deb2a175d2df6d2c4"
+                "head": "eba1de6e66af458852f64c1cb52cbbfa1d99b099"
               },
               "target": {
                 "ref": "refs/heads/main",
@@ -462,9 +462,9 @@
                 "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
                 "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
               },
-              "current_receipt": "308d283a70cc93dab588d61deb2a175d2df6d2c4",
-              "candidate": "bcd3d747994f34956cea7d53a669ea6559f6da75",
-              "pass": "308d283a70cc93dab588d61deb2a175d2df6d2c4",
+              "current_receipt": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
+              "pass": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
               "stale_reason": null,
               "result_commit": null
             },
@@ -489,11 +489,11 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha1",
-                "head": "6378d6ba283ce95a1c59ad97e1bee6413bb8a566"
+                "head": "789a71211566661db63703f6d00271ff603d187b"
               },
               "target": {
                 "ref": "refs/heads/main",
-                "head": "bcd3d747994f34956cea7d53a669ea6559f6da75"
+                "head": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac"
               },
               "tracks": [
                 {
@@ -551,11 +551,11 @@
                 "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
                 "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
               },
-              "current_receipt": "6378d6ba283ce95a1c59ad97e1bee6413bb8a566",
-              "candidate": "bcd3d747994f34956cea7d53a669ea6559f6da75",
-              "pass": "308d283a70cc93dab588d61deb2a175d2df6d2c4",
+              "current_receipt": "789a71211566661db63703f6d00271ff603d187b",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
+              "pass": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
               "stale_reason": null,
-              "result_commit": "bcd3d747994f34956cea7d53a669ea6559f6da75"
+              "result_commit": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac"
             },
             "diagnostics": []
           }
@@ -873,7 +873,7 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha256",
-                "head": "0f7477c0da7e730bf85f220fb8697de5fab030735532bc6cd685e0e69a9d5ae7"
+                "head": "66972fc75be35b5f961b7d02dcfddfdeae3bafc96200a6d3aed2094f1d9278a7"
               },
               "target": {
                 "ref": "refs/heads/main",
@@ -935,8 +935,8 @@
                 "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
                 "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
               },
-              "current_receipt": "0f7477c0da7e730bf85f220fb8697de5fab030735532bc6cd685e0e69a9d5ae7",
-              "candidate": "182b79e1368008b55fbd0f529f65092e97b830fe2130c657d1bcec0c77f15b85",
+              "current_receipt": "66972fc75be35b5f961b7d02dcfddfdeae3bafc96200a6d3aed2094f1d9278a7",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
               "pass": null,
               "stale_reason": null,
               "result_commit": null
@@ -962,7 +962,7 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha256",
-                "head": "a10d9916c53940023c1f075b95daea2c6502eb0d3dcf49ec20d4fad6e8daa7ba"
+                "head": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa"
               },
               "target": {
                 "ref": "refs/heads/main",
@@ -1024,9 +1024,9 @@
                 "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
                 "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
               },
-              "current_receipt": "a10d9916c53940023c1f075b95daea2c6502eb0d3dcf49ec20d4fad6e8daa7ba",
-              "candidate": "182b79e1368008b55fbd0f529f65092e97b830fe2130c657d1bcec0c77f15b85",
-              "pass": "a10d9916c53940023c1f075b95daea2c6502eb0d3dcf49ec20d4fad6e8daa7ba",
+              "current_receipt": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
+              "pass": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
               "stale_reason": null,
               "result_commit": null
             },
@@ -1051,11 +1051,11 @@
             "refs": {
               "release": {
                 "ref": "refs/heads/release-wt/golden-sha256",
-                "head": "ccd598d8267ff36e322087334017e977cceadcb9230dcb80a74d08aa089f417a"
+                "head": "b938b161541eb2cacb5ace208204764da1885ed20e21e20cdcbddf0cefdd2688"
               },
               "target": {
                 "ref": "refs/heads/main",
-                "head": "182b79e1368008b55fbd0f529f65092e97b830fe2130c657d1bcec0c77f15b85"
+                "head": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830"
               },
               "tracks": [
                 {
@@ -1113,11 +1113,11 @@
                 "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
                 "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
               },
-              "current_receipt": "ccd598d8267ff36e322087334017e977cceadcb9230dcb80a74d08aa089f417a",
-              "candidate": "182b79e1368008b55fbd0f529f65092e97b830fe2130c657d1bcec0c77f15b85",
-              "pass": "a10d9916c53940023c1f075b95daea2c6502eb0d3dcf49ec20d4fad6e8daa7ba",
+              "current_receipt": "b938b161541eb2cacb5ace208204764da1885ed20e21e20cdcbddf0cefdd2688",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
+              "pass": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
               "stale_reason": null,
-              "result_commit": "182b79e1368008b55fbd0f529f65092e97b830fe2130c657d1bcec0c77f15b85"
+              "result_commit": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830"
             },
             "diagnostics": []
           }

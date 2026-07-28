@@ -267,11 +267,7 @@ func buildOfficialSworn(t *testing.T, moduleRoot, output, source string) {
 	command.Env = cleanEnvironment(map[string]string{
 		"CGO_ENABLED": "0",
 		"GOCACHE":     t.TempDir(),
-		"GOMODCACHE":  t.TempDir(),
-		"GOPATH":      t.TempDir(),
 		"GOFLAGS":     "-buildvcs=false",
-		"GOPROXY":     "off",
-		"GOSUMDB":     "off",
 		"GOTOOLCHAIN": "local",
 		"GOWORK":      "off",
 	})

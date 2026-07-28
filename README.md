@@ -27,7 +27,7 @@ Implementer --> Captain
 
 The old v0.2 engine has been removed from the active source tree. Sworn now
 contains one small greenfield foundation and an exact embedded copy of Baton
-`v1.0.0-rc.5`.
+`v1.0.0-rc.8`.
 
 The supported product commands at this checkpoint are:
 

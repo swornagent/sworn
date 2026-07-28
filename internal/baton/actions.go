@@ -35,6 +35,7 @@ type AppendReceiptInput struct {
 	Result       string
 	Summary      string
 	Detail       []byte
+	Base         string
 	Candidate    string
 	CheckResults []byte
 }
@@ -155,6 +156,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 
 	parent := target.Head
 	var previous *State
+	preparedTrackResets := make(map[string]string)
 	if absentRef(prior) {
 		if metadata.Revision != 1 || metadata.PreviousPlan != nil {
 			return ActionResult{}, recordFail("INVALID_PLAN_REVISION", "a new release must begin at plan revision 1")
@@ -172,6 +174,13 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 			return ActionResult{}, err
 		}
 		previous = &state
+		if state.Refs.Release.Head != prior.Head ||
+			state.Refs.Target.Head != target.Head {
+			return ActionResult{}, recordFail(
+				"REF_SNAPSHOT_UNSTABLE",
+				"release or target ref moved while validating the plan revision",
+			)
+		}
 		current := state.Plan.History[len(state.Plan.History)-1].Plan
 		if bytes.Equal(current.Bytes(), parsed.Bytes()) {
 			approval := state.Plan.Approval
@@ -185,10 +194,101 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 			result.ReceiptCommit, result.Receipt = approval.OID, &receipt
 			return result, nil
 		}
+		for _, track := range state.Tracks {
+			if track.Head == "" || track.Head == track.AuthorityHead {
+				continue
+			}
+			resettable := false
+			for _, slice := range track.Slices {
+				if slice.Pass != nil {
+					continue
+				}
+				if len(slice.Location.Slice.Consumes) == 0 ||
+					slice.Stage != "design" ||
+					slice.Status != "ready" ||
+					slice.NextRole != "implementer" ||
+					slice.Candidate != nil ||
+					slice.PreparationSeed != track.AuthorityHead ||
+					slice.PreparedBase != track.Head {
+					break
+				}
+				exactBase, exactErr := preparedStateTrackBase(
+					a.repository,
+					state,
+					slice,
+				)
+				if exactErr != nil {
+					return ActionResult{}, exactErr
+				}
+				resettable = exactBase == track.Head
+				break
+			}
+			if !resettable {
+				return ActionResult{}, recordFail(
+					"CHANGED_OWNER_HEAD",
+					"track "+track.ID+" has unrecorded implementation work",
+				)
+			}
+			preparedTrackResets[track.Ref] = track.AuthorityHead
+		}
 		if err := assertPlanRevision(current, parsed, state.Plan.OID); err != nil {
 			return ActionResult{}, err
 		}
+		everPlanned := make(map[string]bool)
+		for _, historical := range state.Plan.History {
+			for id := range locations(historical.Plan) {
+				everPlanned[id] = true
+			}
+		}
+		active := locations(current)
+		for id := range locations(parsed) {
+			if everPlanned[id] {
+				if _, retained := active[id]; !retained {
+					return ActionResult{}, recordFail("INVALID_RETIREMENT", "retired slice "+id+" cannot be re-added")
+				}
+			}
+		}
 		parent = prior.Head
+	}
+
+	currentTracks := make(map[string]CapturedRef)
+	names := []string{targetRef, ownerRef}
+	if previous != nil {
+		for _, track := range previous.Refs.Tracks {
+			currentTracks[track.Ref] = track.CapturedRef
+			names = append(names, track.Ref)
+		}
+	}
+	for _, track := range metadata.Tracks {
+		names = append(names, trackRef(release, track.ID))
+	}
+	captured, err = a.repository.capture(unique(names))
+	if err != nil {
+		return ActionResult{}, err
+	}
+	byRef = captureByRef(captured)
+	if byRef[targetRef] != target || byRef[ownerRef] != prior {
+		return ActionResult{}, recordFail(
+			"REF_SNAPSHOT_UNSTABLE",
+			"release or target ref moved before plan preparation",
+		)
+	}
+	for ref, expected := range currentTracks {
+		if byRef[ref] != expected {
+			return ActionResult{}, recordFail(
+				"REF_SNAPSHOT_UNSTABLE",
+				"track authority moved before plan preparation",
+			)
+		}
+	}
+	for _, track := range metadata.Tracks {
+		ref := trackRef(release, track.ID)
+		if _, current := currentTracks[ref]; !current && !absentRef(byRef[ref]) {
+			return ActionResult{}, recordFail(
+				"AMBIGUOUS_AUTHORITY",
+				"new track "+track.ID+" already has authority history",
+			)
+		}
 	}
 
 	preparedPlan, err := a.repository.prepareRecord(
@@ -273,6 +373,24 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		}
 	}
 	operations := []refOperation{{Kind: "verify", Ref: targetRef, ExpectedHead: target.Head}}
+	for _, capturedRef := range captured {
+		if capturedRef.Ref != targetRef && capturedRef.Ref != ownerRef {
+			if authority, reset := preparedTrackResets[capturedRef.Ref]; reset {
+				resetHead := authority
+				if resetHead == prior.Head {
+					resetHead = nextHead
+				}
+				operations = append(operations, refOperation{
+					Kind: "update", Ref: capturedRef.Ref,
+					NewHead: resetHead, ExpectedHead: capturedRef.Head,
+				})
+				continue
+			}
+			operations = append(operations, refOperation{
+				Kind: "verify", Ref: capturedRef.Ref, ExpectedHead: capturedRef.Head,
+			})
+		}
+	}
 	if absentRef(prior) {
 		operations = append(operations, refOperation{Kind: "create", Ref: ownerRef, NewHead: nextHead})
 	} else {
@@ -315,10 +433,27 @@ func assertPlanRevision(previous, next Plan, previousObject string) error {
 	if after.ApprovalRef == before.ApprovalRef {
 		return recordFail("STALE_APPROVAL", "plan revision requires a new protected approval reference")
 	}
+	beforeLocations, afterLocations := locations(previous), locations(next)
+	for id, beforeLocation := range beforeLocations {
+		if afterLocation, retained := afterLocations[id]; retained &&
+			beforeLocation.Track.ID != afterLocation.Track.ID {
+			return recordFail(
+				"REPLACED_SLICE_AUTHORITY",
+				"plan revision cannot move retained slice "+id+" between tracks",
+			)
+		}
+	}
 	return nil
 }
 
 func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) {
+	return a.appendReceipt(input, nil)
+}
+
+func (a *Actions) appendReceipt(
+	input AppendReceiptInput,
+	beforeUpdateRefs func(),
+) (ActionResult, error) {
 	release, err := identity(input.Release, "release")
 	if err != nil {
 		return ActionResult{}, recordWrap("INVALID_ACTION_INPUT", "invalid release", err)
@@ -359,6 +494,10 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 		validateObjectForFormat(a.repository.objectFormat(), input.Candidate, "candidate") != nil {
 		return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "candidate must be one full repository-format object identity")
 	}
+	if input.Base != "" &&
+		validateObjectForFormat(a.repository.objectFormat(), input.Base, "base") != nil {
+		return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "base must be one full repository-format object identity")
+	}
 	state, err := a.stateFor(release)
 	if err != nil {
 		return ActionResult{}, err
@@ -368,6 +507,7 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 	var receipt Receipt
 	var current *ReceiptEntry
 	var snapshot []CapturedRef
+	var consumedSources []CapturedRef
 	if sliceID != "" {
 		slice, ok := state.Slice(sliceID)
 		if !ok {
@@ -375,7 +515,40 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 		}
 		track, _ := state.Track(slice.Location.Track.ID)
 		ownerRef, ownerHead, current = track.Ref, track.Head, slice.CurrentReceipt
-		if exactRetry(current, role, resultName, summary, detail, input.Candidate, checks) {
+		if input.Base != "" &&
+			!(role == "implementer" && resultName == "candidate") {
+			return ActionResult{}, recordFail(
+				"INVALID_ACTION_INPUT",
+				role+"/"+resultName+" does not accept base",
+			)
+		}
+		actionEligible :=
+			(role == "implementer" && resultName == "designed" &&
+				slice.NextRole == "implementer" && slice.Stage == "design") ||
+				(role == "captain" &&
+					(resultName == "proceed" ||
+						resultName == "revise" ||
+						resultName == "escalate") &&
+					slice.NextRole == "captain") ||
+				(role == "implementer" && resultName == "candidate" &&
+					slice.NextRole == "implementer" &&
+					slice.Stage == "implement") ||
+				(role == "verifier" &&
+					(resultName == "pass" ||
+						resultName == "fail" ||
+						resultName == "blocked") &&
+					slice.NextRole == "verifier")
+		if !actionEligible &&
+			exactRetry(
+				current,
+				role,
+				resultName,
+				summary,
+				detail,
+				input.Base,
+				input.Candidate,
+				checks,
+			) {
 			return appendReceiptResult(false, ownerRef, *current), nil
 		}
 		if err := requireSlicePrerequisites(state, slice); err != nil {
@@ -399,7 +572,37 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 			if parent == "" {
 				parent = state.Refs.Release.Head
 			}
-			if ownerHead != "" && ownerHead != current.OID && current.Receipt.Role != "planner" {
+			exactBase, err := preparedStateTrackBase(
+				a.repository,
+				state,
+				slice,
+			)
+			if err != nil {
+				return ActionResult{}, err
+			}
+			if parent != exactBase {
+				return ActionResult{}, recordFail(
+					"TRACK_BASE_NOT_PREPARED",
+					ownerRef+
+						" does not equal the exact current approved-target and consumed-input base",
+				)
+			}
+			consuming := len(slice.Location.Slice.Consumes) > 0
+			if consuming {
+				if slice.PreparationSeed == "" {
+					return ActionResult{}, recordFail(
+						"CHANGED_OWNER_HEAD",
+						"consuming design has no preparation seed",
+					)
+				}
+				base := slice.PreparationSeed
+				common.Base = &base
+				common.Inputs = cloneInputs(slice.InputPins)
+				receipt = common
+			}
+			if ownerHead != "" && ownerHead != current.OID &&
+				current.Receipt.Role != "planner" &&
+				ownerHead != exactBase {
 				return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its authoritative receipt")
 			}
 		case role == "captain" && (resultName == "proceed" || resultName == "revise" || resultName == "escalate"):
@@ -423,10 +626,85 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 			if err != nil {
 				return ActionResult{}, err
 			}
+			exactBase, err := preparedStateTrackBase(
+				a.repository,
+				state,
+				slice,
+			)
+			if err != nil {
+				return ActionResult{}, err
+			}
+			if len(slice.Location.Slice.Consumes) > 0 {
+				if input.Base == "" || input.Base != exactBase {
+					return ActionResult{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"consuming candidate must bind the exact prepared base",
+					)
+				}
+				linear, err := linearOneParentAncestry(
+					a.repository,
+					input.Base,
+					input.Candidate,
+				)
+				if err != nil {
+					return ActionResult{}, err
+				}
+				if !linear {
+					return ActionResult{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"consuming candidate must be linear one-parent work from its prepared base",
+					)
+				}
+				for _, consumed := range slice.ConsumedInputs {
+					for _, ancestor := range []string{
+						consumed.Candidate,
+						consumed.CandidateReceipt,
+						consumed.PassReceipt,
+					} {
+						contained, err := a.repository.isAncestor(
+							ancestor,
+							input.Candidate,
+						)
+						if err != nil {
+							return ActionResult{}, err
+						}
+						if !contained {
+							return ActionResult{}, recordFail(
+								"CHANGED_CANDIDATE",
+								"candidate omits consumed authority "+ancestor,
+							)
+						}
+					}
+				}
+			} else {
+				if input.Base != "" {
+					return ActionResult{}, recordFail(
+						"INVALID_ACTION_INPUT",
+						"non-consuming candidate cannot record a prepared base",
+					)
+				}
+				containsBase, err := a.repository.isAncestor(
+					exactBase,
+					input.Candidate,
+				)
+				if err != nil {
+					return ActionResult{}, err
+				}
+				if !containsBase {
+					return ActionResult{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"non-consuming candidate omits the exact prepared base",
+					)
+				}
+			}
 			attempt, binds, candidate, checksDigest := slice.Attempt, current.OID, input.Candidate, checks
 			common.Role, common.Result, common.Attempt, common.Binds = role, resultName, &attempt, binds
 			common.Candidate, common.ProductTree, common.Inputs, common.Checks =
 				&candidate, &productTree, cloneInputs(slice.InputPins), &checksDigest
+			if input.Base != "" {
+				base := input.Base
+				common.Base = &base
+			}
 			receipt, parent = common, input.Candidate
 		case role == "verifier" && (resultName == "pass" || resultName == "fail" || resultName == "blocked"):
 			if slice.NextRole != "verifier" {
@@ -449,10 +727,39 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 			return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "unsupported slice receipt "+role+"/"+resultName)
 		}
 		trackRefCapture := capturedTrackRef(state, track.ID)
-		snapshot = sortedCaptured([]CapturedRef{state.Refs.Release, trackRefCapture})
+		snapshotValues := []CapturedRef{
+			state.Refs.Release, state.Refs.Target, trackRefCapture,
+		}
+		if role == "implementer" &&
+			(resultName == "designed" || resultName == "candidate") {
+			seen := make(map[string]bool)
+			for _, consumed := range slice.ConsumedInputs {
+				if consumed.SourceRef == ownerRef ||
+					seen[consumed.SourceRef] {
+					continue
+				}
+				seen[consumed.SourceRef] = true
+				var source CapturedRef
+				for _, candidate := range state.Refs.Tracks {
+					if candidate.Ref == consumed.SourceRef {
+						source = candidate.CapturedRef
+						break
+					}
+				}
+				if source.Ref == "" || source.Head != consumed.SourceHead {
+					return ActionResult{}, recordFail(
+						"AUTHORITY_MOVED",
+						"consumed source "+consumed.SourceRef+" changed",
+					)
+				}
+				consumedSources = append(consumedSources, source)
+				snapshotValues = append(snapshotValues, source)
+			}
+		}
+		snapshot = sortedCaptured(snapshotValues)
 	} else {
 		ownerRef, ownerHead, current = state.Refs.Release.Ref, state.Refs.Release.Head, state.Assembly.CurrentReceipt
-		if exactRetry(current, role, resultName, summary, detail, input.Candidate, checks) {
+		if exactRetry(current, role, resultName, summary, detail, input.Base, input.Candidate, checks) {
 			return appendReceiptResult(false, ownerRef, *current), nil
 		}
 		if role != "verifier" || (resultName != "pass" && resultName != "fail" && resultName != "blocked") ||
@@ -475,7 +782,7 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 		if current == nil || ownerHead != current.OID {
 			return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its assembly candidate receipt")
 		}
-		snapshot = []CapturedRef{state.Refs.Release}
+		snapshot = sortedCaptured([]CapturedRef{state.Refs.Release, state.Refs.Target})
 	}
 
 	subject := fmt.Sprintf("baton(%s", release)
@@ -491,11 +798,22 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 	if err != nil {
 		return ActionResult{}, err
 	}
-	operations := make([]refOperation, 0, 2)
+	operations := make([]refOperation, 0, 3)
 	if ownerRef != state.Refs.Release.Ref {
 		operations = append(operations, refOperation{
 			Kind: "verify", Ref: state.Refs.Release.Ref,
 			ExpectedHead: state.Refs.Release.Head,
+		})
+	}
+	operations = append(operations, refOperation{
+		Kind: "verify", Ref: state.Refs.Target.Ref,
+		ExpectedHead: state.Refs.Target.Head,
+	})
+	for _, source := range consumedSources {
+		operations = append(operations, refOperation{
+			Kind:         "verify",
+			Ref:          source.Ref,
+			ExpectedHead: source.Head,
 		})
 	}
 	if ownerHead == "" {
@@ -504,6 +822,9 @@ func (a *Actions) AppendReceipt(input AppendReceiptInput) (ActionResult, error) 
 		operations = append(operations, refOperation{
 			Kind: "update", Ref: ownerRef, NewHead: prepared.Commit, ExpectedHead: ownerHead,
 		})
+	}
+	if beforeUpdateRefs != nil {
+		beforeUpdateRefs()
 	}
 	if err := a.repository.updateRefs(snapshot, operations); err != nil {
 		return ActionResult{}, err
@@ -523,7 +844,7 @@ func exactRetry(
 	entry *ReceiptEntry,
 	role, result, summary string,
 	detail []byte,
-	candidate, checks string,
+	base, candidate, checks string,
 ) bool {
 	if entry == nil {
 		return false
@@ -533,10 +854,22 @@ func exactRetry(
 		!bytes.Equal(entry.Detail, detail) {
 		return false
 	}
-	if candidate != "" && (receipt.Candidate == nil || *receipt.Candidate != candidate) {
+	evidenceRequired := (role == "implementer" && result == "candidate") ||
+		role == "verifier"
+	if evidenceRequired && (candidate == "" || checks == "") {
 		return false
 	}
-	if checks != "" && (receipt.Checks == nil || *receipt.Checks != checks) {
+	if role == "implementer" && result == "candidate" &&
+		(base != "" || receipt.Base != nil) &&
+		(base == "" || receipt.Base == nil || *receipt.Base != base) {
+		return false
+	}
+	if candidate != "" &&
+		(receipt.Candidate == nil || *receipt.Candidate != candidate) {
+		return false
+	}
+	if checks != "" &&
+		(receipt.Checks == nil || *receipt.Checks != checks) {
 		return false
 	}
 	return true

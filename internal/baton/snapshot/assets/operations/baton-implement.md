@@ -17,34 +17,40 @@ Verifier boundary.
 
 ## Authority
 
-Work only inside the approved slice and current attempt. Implementation
-requires an applicable `PROCEED` bound to this plan revision, slice, and design
-attempt. A `REVISE` adds a design attempt; a `FAIL` adds an implementation
-attempt. Neither replaces the slice.
+Work inside the approved slice and attempt. Implementation requires `PROCEED`
+bound to this plan, slice, and design. `REVISE` adds a design attempt; `FAIL`
+adds an implementation attempt. Neither replaces the slice.
+
+Scope commits behavior and product, not exhaustive paths. Ancillary support
+paths and extra checks are evidence unless they change behavior, consumed
+product, contract, authority, or an external decision.
 
 ## Actions
 
-1. If Captain review is needed, inspect the work and return a concise design
-   TL;DR covering approach, touched surfaces, consequential decisions, risks,
-   and evidence. Stop.
-2. After applicable `PROCEED`, build only the approved product scope.
-3. Run required checks and inspect the real diff and candidate.
-4. Return acceptance-linked evidence over the exact candidate and stop.
+1. Before design, require the exact engine-prepared current consumed `PASS`
+   base. Inspect the work; return a concise design TL;DR covering approach,
+   surfaces, decisions, risks, and evidence. Stop.
+2. After `PROCEED`, require that base again. Build the approved outcome, apply
+   bounded corrections, and repair prior `FAIL` on the same stable slice.
+3. Run required and useful extra checks. Inspect the actual diff, candidate,
+   product identity, and evidence.
+4. Return acceptance-linked evidence over the exact candidate, including
+   discovered support paths and extra results. Stop.
 
 ## Required output
 
-For design, return the plan revision, slice, design attempt, TL;DR, exact
-binding, and Captain handoff. For implementation, return the implementation
-attempt, candidate and product identities, check results, evidence references,
-deviations, and Verifier handoff. Do not write protocol receipts or claim
-`PASS`.
+Design output: plan revision, slice, attempt, TL;DR, exact binding, and Captain
+handoff. Implementation output: attempt, candidate and product identities,
+checks, evidence, deviations, and Verifier handoff. Never write receipts or
+claim `PASS`.
 
 ## Stop conditions
 
 Stop on missing approval, ambiguous eligibility, unmet dependencies, changed
-consumed inputs, missing `PROCEED`, scope escape, failed required checks, or an
-ambiguous candidate. Report operational failure without inventing a Baton
-outcome.
+consumed inputs, missing `PROCEED`, failed required checks, an ambiguous
+candidate, a hard exclusion or approved product-boundary violation, or a
+material behavior, contract, authority, or external-decision change. Report
+operational failure without inventing a Baton outcome.
 
 ## Next handoff
 

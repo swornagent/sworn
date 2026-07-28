@@ -1,4 +1,4 @@
-// Command batongolden verifies or explicitly regenerates the checked-in RC5
+// Command batongolden verifies or explicitly regenerates the checked-in RC8
 // reference corpus. Ordinary verification executes no subprocess.
 package main
 
@@ -59,10 +59,10 @@ type corpusManifest struct {
 }
 
 var pinnedReferences = []manifestEntry{
-	{File: "actions.mjs", SHA256: "7d3a6f917f7a42507fc31fba5683d43580bdf487327bcba99d48cd2369c85356", Bytes: 31503},
-	{File: "git.mjs", SHA256: "bd58fe76111a8d4bf31588730c9d3132e78ee4fee6a8b9ab329949f49390cf47", Bytes: 73161},
-	{File: "receipts.mjs", SHA256: "4a3d75c490c9077168349a9875a3a58fd96eda3d9fab6b984c9412932abf16bd", Bytes: 30104},
-	{File: "state.mjs", SHA256: "daadede9dbd5026a7555411e07af5366451237590a665af1af643704c351cae3", Bytes: 32327},
+	{File: "actions.mjs", SHA256: "25c40728241580b3300ffac8d341541cc05c58f11e1d173d9e84e03b9e773ce8", Bytes: 41798},
+	{File: "git.mjs", SHA256: "441bb55f91b521f68edfb40f711d2ed115421f32bd9b048c069df45c55304908", Bytes: 86433},
+	{File: "receipts.mjs", SHA256: "205489602318f100ddd8bb536c8d25640bdff1df81c2e4c54d31ca1ca0bc2943", Bytes: 30352},
+	{File: "state.mjs", SHA256: "7493e146a090b800fb686a4496843a5aa2e2dcb38c0f9177bf82d6035e7e89bf", Bytes: 70666},
 }
 
 func main() {
@@ -103,7 +103,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "batongolden: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "batongolden: generated exact RC5 reference corpus")
+		fmt.Fprintln(stdout, "batongolden: generated exact RC8 reference corpus")
 		return 0
 	default:
 		fmt.Fprintln(stderr, "usage: batongolden verify")
@@ -122,7 +122,7 @@ func verifyCorpus(source fs.FS, root string, pkg baton.Package) (string, int, in
 		return "", 0, 0, fmt.Errorf("decode corpus manifest: %w", err)
 	}
 	if manifest.Schema != corpusSchema || manifest.Baton != baton.PackageVersion ||
-		manifest.Generator != "exact embedded RC5 JavaScript reference" ||
+		manifest.Generator != "exact embedded RC8 JavaScript reference" ||
 		manifest.OracleSHA256 != rawSHA256(oracleScript) {
 		return "", 0, 0, errors.New("corpus manifest has a foreign generator or Baton identity")
 	}
