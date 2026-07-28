@@ -609,7 +609,7 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("PRAGMA user_version = 2"); err != nil {
+	if _, err := db.Exec("PRAGMA user_version = 3"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -617,6 +617,111 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	}
 	if _, err := Open(ctx, path); !IsCode(err, "IDENTITY_MISMATCH") {
 		t.Fatalf("foreign schema identity = %v", err)
+	}
+}
+
+func downgradeExactV2ToV1(t *testing.T, path string, mutate bool) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	statements := []string{
+		"DROP INDEX outbox_delivery_order",
+		"DROP INDEX eval_records_by_run_offset",
+		"DROP TABLE notification_outbox",
+		"DROP TABLE eval_records",
+		"DROP TABLE observer_cursors",
+		"PRAGMA user_version = 1",
+	}
+	if mutate {
+		statements = append(statements, "CREATE TABLE foreign_v1(value TEXT) STRICT")
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	got, err := schemaFingerprint(context.Background(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mutate && got != legacySchemaIdentityDigest {
+		t.Fatalf("legacy fingerprint = %s, want %s", got, legacySchemaIdentityDigest)
+	}
+}
+
+func TestOpenMigratesOnlyExactV1AndPreservesExistingFacts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run, _, _ := journalFixture(t)
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, false)
+
+	readOnly, err := OpenReadOnly(ctx, path)
+	if !IsCode(err, "IDENTITY_MISMATCH") || readOnly != nil {
+		t.Fatalf("v1 read-only admission = %#v, %v", readOnly, err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	snapshot, err := migrated.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Run.ID != run.ID || len(snapshot.Commands) != 1 || len(snapshot.Effects) != 1 {
+		t.Fatalf("migrated facts = %#v", snapshot)
+	}
+	if err := verifySchemaIdentity(ctx, migrated.conn); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenRejectsModifiedV1WithoutPartialMigration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, _, _ := journalFixture(t)
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, true)
+
+	if _, err := Open(ctx, path); !IsCode(err, "IDENTITY_MISMATCH") {
+		t.Fatalf("modified v1 admission = %v", err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version, migratedTables int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_schema
+		 WHERE type='table' AND name IN
+		       ('observer_cursors','eval_records','notification_outbox')`,
+	).Scan(&migratedTables); err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 || migratedTables != 0 {
+		t.Fatalf("modified v1 changed: version=%d tables=%d", version, migratedTables)
 	}
 }
 
