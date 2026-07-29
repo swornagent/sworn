@@ -197,7 +197,8 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		if request.URL.Path != "/v1/chat/completions" ||
 			request.Header.Get("X-Amz-Date") == "" ||
 			!strings.Contains(authorization, "Credential=AKIAMANTLE12345/") ||
-			!strings.Contains(authorization, "/bedrock/aws4_request") ||
+			!strings.Contains(authorization, "/bedrock-mantle/aws4_request") ||
+			strings.Contains(authorization, "/bedrock/aws4_request") ||
 			request.Header.Get("X-Amz-Content-Sha256") == "" ||
 			request.Header.Get("Api-Key") != "" ||
 			!bytes.Contains(body, []byte(`"messages"`)) ||
@@ -306,9 +307,10 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	if _, err := NewBedrockMantleAdapter(
 		BedrockMantleProfileConfig{
 			Key: "invalid-api", ID: "sworn.invalid.api", Version: "1.0.0",
-			Endpoint: server.URL, CredentialRefs: []string{"credential-ref"},
-			ResponseBytes: MaxProviderResponseBytes,
-			AuthMode:      BedrockMantleAPIKey,
+			Endpoint:       server.URL + "/v1/chat/completions",
+			CredentialRefs: []string{"credential-ref"},
+			ResponseBytes:  MaxProviderResponseBytes,
+			AuthMode:       BedrockMantleAPIKey,
 		},
 		func(context.Context, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string) ([][]byte, error) { return nil, nil },
@@ -320,10 +322,11 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	if _, err := NewBedrockMantleAdapter(
 		BedrockMantleProfileConfig{
 			Key: "invalid-aws", ID: "sworn.invalid.aws", Version: "1.0.0",
-			Endpoint: server.URL, CredentialRefs: []string{"credential-ref"},
-			ResponseBytes: MaxProviderResponseBytes,
-			AuthMode:      BedrockMantleAWS,
-			Chain:         &chain,
+			Endpoint:       server.URL + "/v1/chat/completions",
+			CredentialRefs: []string{"credential-ref"},
+			ResponseBytes:  MaxProviderResponseBytes,
+			AuthMode:       BedrockMantleAWS,
+			Chain:          &chain,
 		},
 		func(context.Context, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string) ([][]byte, error) { return nil, nil },
@@ -331,6 +334,20 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		nil,
 	); !IsCode(err, "INVALID_ADAPTER") {
 		t.Fatalf("AWS auth accepted API-key fallback: %v", err)
+	}
+	if _, err := NewBedrockMantleAdapter(
+		BedrockMantleProfileConfig{
+			Key: "invalid-endpoint", ID: "sworn.invalid.endpoint", Version: "1.0.0",
+			Endpoint: server.URL, CredentialRefs: []string{"credential-ref"},
+			ResponseBytes: MaxProviderResponseBytes,
+			AuthMode:      BedrockMantleAPIKey,
+		},
+		func(context.Context, string) ([]byte, error) { return nil, nil },
+		nil,
+		nil,
+		nil,
+	); !IsCode(err, "INVALID_ADAPTER") {
+		t.Fatalf("Mantle base URL was accepted as the POST endpoint: %v", err)
 	}
 }
 
