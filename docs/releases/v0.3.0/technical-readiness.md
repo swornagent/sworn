@@ -107,17 +107,30 @@ Sworn does not invent a score or turn delivery success into a quality verdict.
 The deterministic, parity, telemetry, full, race, vet, format, tidy, and
 reproducible-build gates pass. The canonical secret-free seven-profile
 configuration now has digest
-`sha256:12ab8326666c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`.
+`sha256:12ab8326666c5c942db23d125c21e29c2165dcbd59d4d849356cf2443c0a35af`.
 Final-binary `driver inspect --all` returns seven PASS reports; its evidence is
 `/tmp/sworn-responses-final.Kz6aNX/driver-inspect-all.json`, SHA-256
 `06c7947457ad25253f9649e9b53e0ee0a1f107c381472861eb93372dc5eeba4e`.
 
 The existing frozen live bundle remains visible: its aggregate run passes
 Bedrock Mantle, Bedrock Runtime, Claude Code, Codex CLI, and Gemini, and the
-targeted DeepSeek recheck passes. Those exact profile/model/configuration
-surfaces and their wire behavior are unchanged; the final shared corpus also
-passes them. Native OpenAI alone changed to Responses and was rerun. The final
-targeted result passes `gpt-5.6-sol` with family
+targeted DeepSeek recheck passes. Their retained PASS bindings match the final
+configuration:
+
+| Profile | Model | Adapter configuration digest |
+| --- | --- | --- |
+| `bedrock-mantle` | `openai.gpt-oss-120b` | `sha256:47022869b0a241e929b641705386cfbad861dffd763149f3c81d1f907d10d594` |
+| `bedrock-runtime` | `amazon.nova-pro-v1:0` | `sha256:c6321453e9e77e40da2aca602ed5147b9617fed249781d1c2767602f2f32311a` |
+| `claude` | `claude-sonnet-4-6` | `sha256:d2b61a48df8e2cae86614baa11703bc307c3d0e5ad33ee5423a44208635b95a9` |
+| `codex` | `gpt-5.6-sol` | `sha256:a32c4a0215d40b28e9e1596a1950a9e2bec12f1d58d7b9bd08479084a414c5aa` |
+| `deepseek` | `deepseek-v4-flash` | `sha256:b9d658e8a418aa9ce63198cb71144dff6d572972b4c69022ee2e9f40d4471834` |
+| `gemini` | `gemini-3.5-flash` | `sha256:1dc33732b1ec5c8fc020cc46e1bb82998121f96c9aa615bbca40feb9ee4a0eab` |
+
+The shared Chat source was structurally touched to accept optional native
+effort, but with empty effort its DeepSeek and Mantle wire output is
+byte-equivalent; the final shared corpus re-proves those paths. Native OpenAI
+alone changed surface to Responses and was rerun. The final targeted result
+passes `gpt-5.6-sol` with family
 `openai_compatible_http`, surface `openai_responses`, adapter
 `sworn.openai` `1.0.0`, and adapter configuration digest
 `sha256:299d4f4d7981fdacad0fdeb11a3b5d458afc513d911630cbe07707d5f78e132a`.
@@ -127,7 +140,14 @@ SHA-256
 `c471080180ff9047ed2f7ecfccdd0bf89aedd9f4fef623b966e2158bf38172b6`.
 
 Together, the identity-bound bundle covers every required profile and both
-Bedrock surfaces without substituting one provider for another. Revision 10
-proposes this lean evidence rule while preserving W0 through W6 and the
-existing W8 identity. The technical facts are ready; Baton authority remains
-fail-closed only until the repository owner approves and installs revision 10.
+Bedrock surfaces without substituting one provider for another. Replaying the
+eight preserved product commits after the attempt-3 Captain receipt produced
+tree `41c79c4198da60da20c61aa38bad075f3c5b6349`, exactly matching archived
+head `d4ea0f536fe8c30703946ef0a11320800b0c447c`; the only deliberate delta is
+the current readiness wording in this file and the certification-gap capture.
+
+Revision 10 installs the lean evidence rule while preserving W0 through W6 and
+the existing W8 identity. The repository owner approved and installed its
+exact plan bytes. Technical facts and Baton authority are ready for fresh
+verification; this still grants no tagging, `main` merge, deployment, or
+publication authority.

@@ -82,8 +82,11 @@ All named evidence files are mode `0600`.
 | `/tmp/sworn-openai-frozen.pfmY3P.json` | `786b2fb53b1a4b92e5cd3ebba4758fa3afaeb695ddc2bff7d73e7bc2566a710d` | named OpenAI recheck remains provider-limited |
 | `/tmp/openai-quota-check.dzWQtm.json` | `7d89b876eb0352487c10e4a9364e450ab3ca59a67a99d6381865aace71ba362a` | direct provider response identifies HTTP 429 `insufficient_quota` |
 
-The aggregate evidence binds configuration digest
+The historical aggregate evidence binds its then-current configuration digest
 `sha256:cbce7163485c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`.
+The final secret-free configuration used by current inspect and targeted
+OpenAI certification binds
+`sha256:12ab8326666c5c942db23d125c21e29c2165dcbd59d4d849356cf2443c0a35af`.
 Fresh final-binary `driver inspect --all` and `driver doctor --all` evidence is
 `/tmp/sworn-v0.3.0-inspect-frozen.iVPbAJ.json`
 (`6a30bdc7ebb9d68a3ff0ad53f6b71079d4e6e86e5da2fa2524c081c10721007c`)
@@ -158,7 +161,7 @@ unrelated successful providers again.
 ## Release consequence
 
 All offline release gates pass, and the identity-bound live bundle covers every
-required profile and surface. Revision 10 proposes this lean evidence rule
-without changing a slice identity or resetting prior PASS work. Baton authority
-remains fail-closed only until the repository owner approves and installs that
-plan revision.
+required profile and surface. Revision 10 now installs this lean evidence rule
+without changing a slice identity or resetting prior PASS work. The repository
+owner approved and installed the exact revision; fresh W8 Captain, candidate,
+and Verifier decisions bind it before composition.
