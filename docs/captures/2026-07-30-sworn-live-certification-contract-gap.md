@@ -34,7 +34,7 @@ discard prior evidence.
 - driver configuration:
   `/home/brad/.config/sworn/v1-rc-driver-config.json`;
 - configuration SHA-256:
-  `12ab8326666c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`;
+  `12ab8326666c5c942db23d125c21e29c2165dcbd59d4d849356cf2443c0a35af`;
 - stable native resolver source:
   `/home/brad/.config/sworn/resolv.conf`;
 - resolver SHA-256:
