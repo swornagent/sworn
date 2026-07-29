@@ -1,12 +1,12 @@
 {
   "schema_version": "baton.conformance-manifest/v2",
-  "baton_version": "1.0.0-rc.8",
+  "baton_version": "1.0.0-rc.9",
   "profiles": {
     "portable_kit": {
       "status": "EXECUTABLE",
       "commands": [
         "python3 conformance/check.py",
-        "node --test test/records/*.test.mjs test/operations/*.test.mjs test/adapters/*.test.mjs test/install/*.test.mjs test/board/*.test.mjs test/release/*.test.mjs"
+        "node --test test/records/*.test.mjs test/operations/*.test.mjs test/skills/*.test.mjs test/board/*.test.mjs test/release/*.test.mjs"
       ],
       "record_contract": {
         "plan": {
@@ -118,11 +118,11 @@
           ]
         },
         {
-          "id": "operations-generated-adapters-and-install",
+          "id": "operations-standalone-skills-and-agent-led-install-contract",
           "suites": [
             "test/operations/operations.test.mjs",
-            "test/adapters/generated.test.mjs",
-            "test/install/install.test.mjs"
+            "test/skills/generated.test.mjs",
+            "test/skills/docs.test.mjs"
           ]
         },
         {

@@ -24,7 +24,7 @@ authority. A successful process or model response is never a Baton verdict.
 ## Release candidate
 
 The public binary identifies as Sworn `1.0.0-rc.1`. It embeds and validates
-Baton `1.0.0-rc.8`; `sworn version --json` reports both identities.
+Baton `1.0.0-rc.9`; `sworn version --json` reports both identities.
 
 This candidate provides:
 
@@ -36,7 +36,7 @@ This candidate provides:
   surfaces, with no provider or model fallback;
 - secret-free driver inspect, doctor, and live-certification reports; and
 - an executable gate derived from all 12 autonomous-engine cases in the
-  embedded Baton RC8 conformance manifest.
+  embedded Baton RC9 conformance manifest.
 
 Technical readiness does not grant authority to tag, merge to `main`, deploy,
 or publish the binary.

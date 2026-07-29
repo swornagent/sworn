@@ -70,16 +70,16 @@ the existing `cmd/sworn`, `internal/driver`, and `internal/runtime` packages.
 
 | Scenario | Exact result | Elapsed |
 | --- | --- | ---: |
-| RC8 autonomous-engine conformance | 12 of 12 manifest-derived cases PASS; zero missing, duplicate, extra, skipped, or `NOT RUN` results | 582.70s |
+| RC9 autonomous-engine conformance | 12 of 12 manifest-derived cases PASS; zero missing, duplicate, extra, skipped, or `NOT RUN` results | 582.70s |
 | Real configured production journey | Three tracks, one dependency, two serial T1 slices, two families, four explicit role models, 18 unique dispatches, 22 provider turns, exact assembly and target | 60.26s |
 | Verifier FAIL and repair | Attempt 1 FAIL; distinct attempt 2 candidate; fresh read-only PASS; 20 unique dispatches, 25 provider turns; failed product excluded from assembly | 71.99s |
 | Composition conflict | Three exact `MERGE_CONFLICT` attempts; S1/S2 remain PASS; S3 untouched; target unchanged; run truthfully parked | 15.09s |
 | Telemetry non-interference | Disabled, HTTP 503, and sustained exporter backpressure produce byte-identical candidate, PASS, assembly, merge, target, command-state, and exit evidence | 44.26s |
 | Shared production driver corpus | Seven targets times P01-P10 equals exactly 70 PASS records; mutation gate rejects missing, extra, duplicate, and non-PASS records | 9.09s |
 
-The conformance gate reads the case identities from the embedded Baton RC8
+The conformance gate reads the case identities from the embedded Baton RC9
 manifest with SHA-256
-`a53ae10a76dcca1f1e426f16385cb1487c9a1f690e2ab5ebb21463ec74cbea73`.
+`cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c`.
 It executes the real-binary walking-skeleton, consumed-base, and
 topology/recovery journeys before deriving the 12 Sworn PASS records.
 
