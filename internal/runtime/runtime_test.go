@@ -119,7 +119,7 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 			AllowedAuthorIDs:    []int64{42},
 			AllowedAssociations: []string{"MEMBER", "OWNER"},
 		},
-		Driver: FakeDriverConfig{
+		Driver: &FakeDriverConfig{
 			Executable: "/bin/true",
 			Digest:     "sha256:" + strings.Repeat("a", 64),
 			AdapterKey: "fixture", Profile: "fixture",
@@ -196,6 +196,90 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	}
 	if _, err := admitManifest(append(mutatedBody, '\n')); !IsCode(err, "INVALID_SCRIPTED_SUBMISSION") {
 		t.Fatalf("responsibility substitution = %v", err)
+	}
+}
+
+func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.T) {
+	t.Parallel()
+
+	fake, fakeBody, _ := fixtureManifest(t)
+	if !bytes.Contains(fakeBody, []byte(`"driver":{`)) ||
+		!bytes.Contains(fakeBody, []byte(`"scripted_attempts":[`)) ||
+		bytes.Contains(fakeBody, []byte(`"driver_config_digest"`)) {
+		t.Fatalf("fake v2 shape changed: %s", fakeBody)
+	}
+
+	production := fake
+	production.Driver = nil
+	production.DriverConfigDigest = "sha256:" + strings.Repeat("b", 64)
+	production.Scripts = nil
+	production.Roles = driver.RoleSelections{
+		Planner: driver.RoleSelection{
+			Profile: "planner-profile", Model: "planner-model",
+		},
+		Implementer: driver.RoleSelection{
+			Profile: "implementer-profile", Model: "implementer-model",
+		},
+		Captain: driver.RoleSelection{
+			Profile: "captain-profile", Model: "captain-model",
+		},
+		Verifier: driver.RoleSelection{
+			Profile: "verifier-profile", Model: "verifier-model",
+		},
+	}
+	body, err := canonicalManifest(production)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !admitted.value.production() ||
+		admitted.value.DriverConfigDigest != production.DriverConfigDigest ||
+		bytes.Contains(body, []byte(`"driver":`)) ||
+		bytes.Contains(body, []byte(`"scripted_attempts":`)) {
+		t.Fatalf("production admission = %#v\n%s", admitted.value, body)
+	}
+
+	for name, mutate := range map[string]func(*Manifest){
+		"neither driver source": func(value *Manifest) {
+			value.DriverConfigDigest = ""
+		},
+		"fake and production source": func(value *Manifest) {
+			value.Driver = fake.Driver
+		},
+		"production scripts": func(value *Manifest) {
+			value.Scripts = []ScriptedAttempt{{
+				Responsibility: driver.PlannerProposal,
+				BatonAttempt:   1,
+				Epoch:          1,
+				Try:            1,
+				Behavior:       "none",
+			}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := production
+			mutate(&value)
+			raw, marshalErr := json.Marshal(value)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if _, admissionErr := admitManifest(append(raw, '\n')); !IsCode(admissionErr, "INVALID_MANIFEST_VARIANT") {
+				t.Fatalf("admission = %v", admissionErr)
+			}
+		})
+	}
+
+	invalidDigest := production
+	invalidDigest.DriverConfigDigest = "sha256:not-a-digest"
+	raw, err := json.Marshal(invalidDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitManifest(append(raw, '\n')); !IsCode(err, "INVALID_DRIVER_CONFIG_DIGEST") {
+		t.Fatalf("invalid config digest = %v", err)
 	}
 }
 
@@ -929,6 +1013,20 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 	if !exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
 		map[string]struct{}{currentWork: {}}) {
 		t.Fatal("exact current exhaustion did not park")
+	}
+	currentTrackBaseWork := workIdentity(
+		trackBaseBefore(state, currentSlice),
+		"git.prepare_track_base",
+	)
+	if !exhaustedWorkApplies(
+		manifest,
+		nil,
+		true,
+		state,
+		journal.Snapshot{},
+		map[string]struct{}{currentTrackBaseWork: {}},
+	) {
+		t.Fatal("exact current track-base exhaustion did not park")
 	}
 	state.Slices = nil
 	state.Tracks[0].Slices = nil

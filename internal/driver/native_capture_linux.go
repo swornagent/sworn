@@ -264,17 +264,12 @@ func exactClaudeProviderTools(
 	rawTools []any,
 	definitions []providerToolDefinition,
 ) bool {
-	if len(rawTools) != len(definitions)+1 {
+	if len(rawTools) != len(definitions) {
 		return false
 	}
-	expected := make(map[string]providerToolDefinition, len(definitions)+1)
+	expected := make(map[string]providerToolDefinition, len(definitions))
 	for _, definition := range definitions {
 		expected["mcp__sworn__"+definition.Name] = definition
-	}
-	expected["StructuredOutput"] = providerToolDefinition{
-		Name:        "StructuredOutput",
-		Description: "Use this tool to return your final response in the requested structured format. You MUST call this tool exactly once at the end of your response to provide the structured output.",
-		InputSchema: json.RawMessage(nativeOutputSchemaJSON),
 	}
 	for _, raw := range rawTools {
 		tool, ok := raw.(map[string]any)

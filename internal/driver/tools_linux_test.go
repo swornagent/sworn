@@ -11,6 +11,138 @@ import (
 	"testing"
 )
 
+func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
+	definitions := toolDefinitions(ReadOnly)
+	submit := definitions[len(definitions)-1]
+	var root map[string]any
+	if submit.Name != "sworn_submit" ||
+		json.Unmarshal(submit.InputSchema, &root) != nil {
+		t.Fatalf("invalid submission tool: %#v", submit)
+	}
+	object := func(value any) map[string]any {
+		result, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("schema value is not an object: %#v", value)
+		}
+		return result
+	}
+	submission := object(object(root["properties"])["submission"])
+	properties := object(submission["properties"])
+	if root["additionalProperties"] != false ||
+		submission["additionalProperties"] != false ||
+		len(properties) != 8 {
+		t.Fatalf("submission schema is incomplete or open: %s", submit.InputSchema)
+	}
+	for _, name := range []string{"plan", "checks", "decision"} {
+		if object(properties[name])["additionalProperties"] != false {
+			t.Fatalf("%s schema is open", name)
+		}
+	}
+	for _, keyword := range []string{"oneOf", "anyOf", "$ref", "const"} {
+		if strings.Contains(string(submit.InputSchema), `"`+keyword+`"`) {
+			t.Fatalf("non-portable schema keyword %s", keyword)
+		}
+	}
+}
+
+func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
+	sparse := map[string]any{
+		"schema_version": SubmissionSchemaVersion,
+		"invocation_id":  "sparse-design",
+		"responsibility": ImplementerDesign,
+		"summary":        "Design complete.",
+		"detail":         "",
+	}
+	submission, err := decodeToolSubmission(sparse)
+	if err != nil || submission.Plan != nil ||
+		submission.Checks != nil || submission.Decision != nil {
+		t.Fatalf("sparse submission = %#v, error=%v", submission, err)
+	}
+	sparse["decision"] = map[string]any{"outcome": string(DecisionProceed)}
+	withoutAuthority, err := decodeToolSubmission(sparse)
+	if err != nil || withoutAuthority.Decision != nil {
+		t.Fatalf("role-irrelevant field = %#v, error=%v", withoutAuthority, err)
+	}
+	delete(sparse, "decision")
+	sparse["responsibility"] = CaptainReview
+	if _, err := decodeToolSubmission(sparse); !IsCode(err, "SUBMISSION_SHAPE_MISMATCH") {
+		t.Fatalf("missing required Captain decision error = %v", err)
+	}
+	sparse["responsibility"] = ImplementerDesign
+	delete(sparse, "detail")
+	if _, err := decodeToolSubmission(sparse); !IsCode(err, "MISSING_FIELD") {
+		t.Fatalf("missing common field error = %v", err)
+	}
+}
+
+func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	request, err := NewRequest(
+		invocation.Request.InvocationID,
+		RoleImplementer,
+		invocation.Selected.Profile.Key,
+		invocation.Selected.Model,
+		invocation.Request.Workspace,
+		[]Input{{
+			Name:   "certification",
+			Path:   "certification/request.json",
+			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+		true,
+		invocation.Request.Limits,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := NewSubmissionPermission(
+		request,
+		invocation.Selected,
+		ContainmentReadWrite,
+		ImplementerDesign,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation.Request, invocation.Permission = request, permission
+	body, err := modelPrompt(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt struct {
+		InvocationID   string         `json:"invocation_id"`
+		Responsibility Responsibility `json:"responsibility"`
+		ResultFields   []string       `json:"result_fields"`
+		Instruction    string         `json:"instruction"`
+	}
+	if json.Unmarshal(body, &prompt) != nil ||
+		prompt.InvocationID != request.InvocationID ||
+		prompt.Responsibility != ImplementerDesign ||
+		len(prompt.ResultFields) != 2 ||
+		prompt.ResultFields[0] != "summary" ||
+		prompt.ResultFields[1] != "detail" ||
+		!strings.Contains(prompt.Instruction, "/sworn/inputs/") ||
+		!strings.Contains(prompt.Instruction, "input's path") ||
+		!strings.Contains(prompt.Instruction, "exact invocation_id and responsibility") ||
+		!strings.Contains(prompt.Instruction, "exactly once") {
+		t.Fatalf("model prompt = %s", body)
+	}
+}
+
+func TestSubmissionResultFieldsMatchResponsibility(t *testing.T) {
+	for responsibility, want := range map[Responsibility]string{
+		PlannerProposal:           "summary,detail,plan",
+		ImplementerDesign:         "summary,detail",
+		ImplementerImplementation: "summary,detail,checks",
+		CaptainReview:             "summary,detail,decision",
+		WorkVerification:          "summary,detail,checks,decision",
+		AssemblyVerification:      "summary,detail,checks,decision",
+	} {
+		if got := strings.Join(submissionResultFields(responsibility), ","); got != want {
+			t.Fatalf("%s result fields = %s, want %s", responsibility, got, want)
+		}
+	}
+}
+
 func TestCommonToolsAreDescriptorRootedAccessBoundedAndClosed(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	if err := os.MkdirAll(filepath.Join(invocation.HostWorkspace, "dir"), 0o700); err != nil {

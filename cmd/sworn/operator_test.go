@@ -39,11 +39,13 @@ func TestServeArgumentsAreClosedAndContentFree(t *testing.T) {
 		"--operator-config", "/private/config.json",
 		"--journal", "/private/run.sqlite",
 		"--manifest", "/private/manifest.json",
+		"--config", "/private/drivers.json",
 		"--run", "run-1",
 	})
 	if !ok || valid.runID != "run-1" ||
 		valid.journalPath != "/private/run.sqlite" ||
 		valid.manifestPath != "/private/manifest.json" ||
+		valid.driverConfig != "/private/drivers.json" ||
 		valid.operatorConfig != "/private/config.json" {
 		t.Fatalf("valid options = %#v, %t", valid, ok)
 	}
@@ -76,7 +78,7 @@ func TestServeArgumentsAreClosedAndContentFree(t *testing.T) {
 		if stdout.Len() != 0 ||
 			stderr.String() !=
 				"usage: sworn serve --run ID --journal ABS "+
-					"[--manifest ABS] [--operator-config ABS]\n" {
+					"[--manifest ABS] [--config ABS] [--operator-config ABS]\n" {
 			t.Fatalf(
 				"run(%v) stdout=%q stderr=%q",
 				args,
@@ -1158,7 +1160,7 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 			AllowedAuthorIDs:    []int64{1},
 			AllowedAssociations: []string{"OWNER"},
 		},
-		Driver: runtimepkg.FakeDriverConfig{
+		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",
 			Digest:     "sha256:" + strings.Repeat("a", 64),
 			AdapterKey: "fixture",

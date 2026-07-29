@@ -36,10 +36,18 @@ func main() {
 	}
 	if strings.Contains(request.InvocationID, "/implementer_implementation/") {
 		name, content := "one.txt", "active track\n"
-		if strings.Contains(request.InvocationID, "/implementer_implementation/2/") {
+		if strings.Contains(request.Model, "composition-conflict") {
+			switch {
+			case strings.Contains(request.InvocationID, "/S1/"):
+				name, content = "shared.txt", "producer product\n"
+			case strings.Contains(request.InvocationID, "/S2/"):
+				name, content = "shared.txt", "consumer-track product\n"
+			case strings.Contains(request.InvocationID, "/S3/"):
+				name, content = "consumer.txt", "consumer product\n"
+			}
+		} else if strings.Contains(request.InvocationID, "/implementer_implementation/2/") {
 			content = "active track revised\n"
-		}
-		if strings.Contains(request.InvocationID, "/S2/") {
+		} else if strings.Contains(request.InvocationID, "/S2/") {
 			name, content = "two.txt", "second track\n"
 		}
 		if strings.Contains(request.Model, "scope-escape") {

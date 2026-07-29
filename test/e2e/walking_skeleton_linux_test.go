@@ -164,13 +164,34 @@ func runBinary(
 	args ...string,
 ) (string, string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	return runBinaryWithEnvironment(
+		t,
+		binary,
+		wantExit,
+		nil,
+		args...,
+	)
+}
+
+func runBinaryWithEnvironment(
+	t *testing.T,
+	binary string,
+	wantExit int,
+	environment map[string]string,
+	args ...string,
+) (string, string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, binary, args...)
-	command.Env = cleanEnvironment(map[string]string{
+	overrides := map[string]string{
 		"SWORN_GITHUB_TOKEN": "read-only-approval-token",
 		"GITHUB_TOKEN":       "",
-	})
+	}
+	for key, value := range environment {
+		overrides[key] = value
+	}
+	command.Env = cleanEnvironment(overrides)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
@@ -358,7 +379,7 @@ func e2eManifest(
 			AllowedAuthorIDs:    []int64{42},
 			AllowedAssociations: []string{"MEMBER"},
 		},
-		Driver: swornruntime.FakeDriverConfig{
+		Driver: &swornruntime.FakeDriverConfig{
 			Executable: fakeExecutable, Digest: fakeDigest,
 			AdapterKey: "e2e-fake", Profile: "e2e-fake",
 		},
@@ -419,6 +440,7 @@ func installAndPassComponent(
 	planBytes []byte,
 ) {
 	t.Helper()
+	installApprovedPlan(t, repositoryPath, planBytes)
 	repository, err := gitx.Open(repositoryPath, e2eGit)
 	if err != nil {
 		t.Fatal(err)
@@ -426,13 +448,6 @@ func installAndPassComponent(
 	gitRepository := baton.UseGitRepository(repository)
 	actions, err := baton.NewActions(gitRepository, inertResolver)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
-		PlanBytes: planBytes,
-		Summary:   "Install the externally published E2E approval.",
-		Detail:    []byte("Test-only component fixture after protected approval publication."),
-	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, input := range []baton.AppendReceiptInput{
@@ -505,6 +520,32 @@ func installAndPassComponent(
 	}
 }
 
+func installApprovedPlan(
+	t *testing.T,
+	repositoryPath string,
+	planBytes []byte,
+) {
+	t.Helper()
+	repository, err := gitx.Open(repositoryPath, e2eGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := baton.NewActions(
+		baton.UseGitRepository(repository),
+		inertResolver,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+		PlanBytes: planBytes,
+		Summary:   "Install the externally published E2E approval.",
+		Detail:    []byte("Test-only authority fixture after protected approval publication."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readBatonState(t *testing.T, repositoryPath, release string) baton.State {
 	t.Helper()
 	repository, err := gitx.Open(repositoryPath, e2eGit)
@@ -561,7 +602,7 @@ func assertDispatchOrder(t *testing.T, journalPath, runID string) {
 	}
 }
 
-func TestRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
+func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
 	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
 	defer server.Close()

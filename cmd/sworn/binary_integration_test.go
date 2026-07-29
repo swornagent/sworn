@@ -143,6 +143,43 @@ func TestTwinProductBuildsIgnoreRecordOnlyHistory(t *testing.T) {
 	}
 }
 
+func TestTwinStrippedProductBuildsAreByteIdentical(t *testing.T) {
+	root := moduleRoot(t)
+	firstRoot := copyProductTree(t, root)
+	secondRoot := copyProductTree(t, root)
+	for _, productRoot := range []string{firstRoot, secondRoot} {
+		initProductRepository(t, productRoot)
+	}
+
+	first := filepath.Join(t.TempDir(), "sworn-first")
+	second := filepath.Join(t.TempDir(), "sworn-second")
+	buildReleaseSworn(t, firstRoot, first)
+	buildReleaseSworn(t, secondRoot, second)
+	firstBody, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBody, err := os.ReadFile(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstBody, secondBody) {
+		t.Fatalf(
+			"stripped twin binaries differ: first=%x second=%x",
+			sha256.Sum256(firstBody),
+			sha256.Sum256(secondBody),
+		)
+	}
+	if len(firstBody) == 0 {
+		t.Fatal("stripped twin build is empty")
+	}
+	t.Logf(
+		"stripped twin binary bytes=%d sha256=%x",
+		len(firstBody),
+		sha256.Sum256(firstBody),
+	)
+}
+
 func TestProductCopyAndArchiveExcludeBatonRecords(t *testing.T) {
 	root := moduleRoot(t)
 	repository := copyProductTree(t, root)
@@ -276,6 +313,32 @@ func buildOfficialSworn(t *testing.T, moduleRoot, output, source string) {
 	outputBytes, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build official Sworn binary: %v: %s", err, outputBytes)
+	}
+}
+
+func buildReleaseSworn(t *testing.T, moduleRoot, output string) {
+	t.Helper()
+	command := exec.Command(
+		"go",
+		"build",
+		"-mod=readonly",
+		"-buildvcs=false",
+		"-trimpath",
+		"-ldflags=-s -w",
+		"-o", output,
+		"./cmd/sworn",
+	)
+	command.Dir = moduleRoot
+	command.Env = cleanEnvironment(map[string]string{
+		"CGO_ENABLED": "0",
+		"GOCACHE":     t.TempDir(),
+		"GOFLAGS":     "-buildvcs=false",
+		"GOTOOLCHAIN": "local",
+		"GOWORK":      "off",
+	})
+	outputBytes, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build stripped Sworn binary: %v: %s", err, outputBytes)
 	}
 }
 

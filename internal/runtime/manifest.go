@@ -88,18 +88,23 @@ func (m Manifest) script(slice string, responsibility driver.Responsibility, bat
 }
 
 type Manifest struct {
-	SchemaVersion     string                `json:"schema_version"`
-	RunID             string                `json:"run_id"`
-	Repository        string                `json:"repository"`
-	Release           string                `json:"release"`
-	TargetRef         string                `json:"target_ref"`
-	Intent            string                `json:"intent"`
-	MaxParallelTracks int                   `json:"max_parallel_tracks"`
-	Approval          ApprovalPolicy        `json:"approval"`
-	Driver            FakeDriverConfig      `json:"driver"`
-	Roles             driver.RoleSelections `json:"roles"`
-	Limits            driver.Limits         `json:"limits"`
-	Scripts           []ScriptedAttempt     `json:"scripted_attempts"`
+	SchemaVersion      string                `json:"schema_version"`
+	RunID              string                `json:"run_id"`
+	Repository         string                `json:"repository"`
+	Release            string                `json:"release"`
+	TargetRef          string                `json:"target_ref"`
+	Intent             string                `json:"intent"`
+	MaxParallelTracks  int                   `json:"max_parallel_tracks"`
+	Approval           ApprovalPolicy        `json:"approval"`
+	Driver             *FakeDriverConfig     `json:"driver,omitempty"`
+	DriverConfigDigest string                `json:"driver_config_digest,omitempty"`
+	Roles              driver.RoleSelections `json:"roles"`
+	Limits             driver.Limits         `json:"limits"`
+	Scripts            []ScriptedAttempt     `json:"scripted_attempts,omitempty"`
+}
+
+func (m Manifest) production() bool {
+	return m.Driver == nil && m.DriverConfigDigest != ""
 }
 
 type admittedManifest struct {
@@ -178,24 +183,8 @@ func validateManifest(manifest Manifest) error {
 	if err := validateApprovalPolicy(manifest.Approval); err != nil {
 		return err
 	}
-	if !filepath.IsAbs(manifest.Driver.Executable) ||
-		!runtimeDigestPattern.MatchString(manifest.Driver.Digest) ||
-		!runtimeIdentityPattern.MatchString(manifest.Driver.AdapterKey) ||
-		!runtimeIdentityPattern.MatchString(manifest.Driver.Profile) {
-		return runtimeFail("INVALID_DRIVER", nil)
-	}
 	if err := driver.ValidateRoleSelections(manifest.Roles); err != nil {
 		return runtimeFail("INVALID_ROLES", nil)
-	}
-	for _, role := range []driver.RoleSelection{
-		manifest.Roles.Planner,
-		manifest.Roles.Implementer,
-		manifest.Roles.Captain,
-		manifest.Roles.Verifier,
-	} {
-		if role.Profile != manifest.Driver.Profile {
-			return runtimeFail("INVALID_ROLES", nil)
-		}
 	}
 	if manifest.Limits.TimeoutMillis < 1 ||
 		manifest.Limits.TimeoutMillis > driver.MaxTimeoutMillis ||
@@ -203,6 +192,39 @@ func validateManifest(manifest Manifest) error {
 		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
+	switch {
+	case manifest.Driver != nil && manifest.DriverConfigDigest == "":
+		if !filepath.IsAbs(manifest.Driver.Executable) ||
+			!runtimeDigestPattern.MatchString(manifest.Driver.Digest) ||
+			!runtimeIdentityPattern.MatchString(manifest.Driver.AdapterKey) ||
+			!runtimeIdentityPattern.MatchString(manifest.Driver.Profile) {
+			return runtimeFail("INVALID_DRIVER", nil)
+		}
+		for _, role := range []driver.RoleSelection{
+			manifest.Roles.Planner,
+			manifest.Roles.Implementer,
+			manifest.Roles.Captain,
+			manifest.Roles.Verifier,
+		} {
+			if role.Profile != manifest.Driver.Profile {
+				return runtimeFail("INVALID_ROLES", nil)
+			}
+		}
+		return validateScriptedAttempts(manifest)
+	case manifest.Driver == nil && manifest.DriverConfigDigest != "":
+		if !runtimeDigestPattern.MatchString(manifest.DriverConfigDigest) {
+			return runtimeFail("INVALID_DRIVER_CONFIG_DIGEST", nil)
+		}
+		if manifest.Scripts != nil {
+			return runtimeFail("INVALID_MANIFEST_VARIANT", nil)
+		}
+		return nil
+	default:
+		return runtimeFail("INVALID_MANIFEST_VARIANT", nil)
+	}
+}
+
+func validateScriptedAttempts(manifest Manifest) error {
 	if len(manifest.Scripts) == 0 || len(manifest.Scripts) > 4096 {
 		return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 	}
@@ -279,12 +301,13 @@ func validateApprovalPolicy(policy ApprovalPolicy) error {
 }
 
 func invocationID(runID string, script ScriptedAttempt) string {
-	work := script.Slice
-	if work == "" {
-		work = "release"
-	}
-	return fmt.Sprintf("%s/%s/%s/%d/%d/%d", runID, work, script.Responsibility,
-		script.BatonAttempt, script.Epoch, script.Try)
+	return dispatchInvocationID(runID, dispatchCoordinates{
+		Slice:          script.Slice,
+		Responsibility: script.Responsibility,
+		BatonAttempt:   script.BatonAttempt,
+		Epoch:          script.Epoch,
+		Try:            script.Try,
+	})
 }
 
 func sha256Digest(body []byte) string {

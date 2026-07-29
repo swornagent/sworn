@@ -24,20 +24,22 @@ import (
 )
 
 const (
-	PackageVersion       = "1.0.0-rc.8"
-	TagName              = "v1.0.0-rc.8"
-	TagObject            = "749714b60ac6356fbeb43d91ee3ad478820f2ad8"
-	ReleaseCommit        = "a8fdb397e0839bdc58ad4b865e163dd37654752c"
-	ReleaseTree          = "b39fe4c538a06ce7f28b70edd551395f99a8373c"
-	Commit               = "a8fdb397e0839bdc58ad4b865e163dd37654752c"
-	Tree                 = "b39fe4c538a06ce7f28b70edd551395f99a8373c"
-	ArchiveSHA256        = "sha256:bcbc310c2c5c98f82c721968ced7929ec58b0cdc2ab531a615fec706fe863582"
-	SupportPackageSHA256 = "sha256:339799b218d4f8846cec1114a9756dda96a51744a72eb975bb9b632c4e349726"
-	ManifestSHA256       = "sha256:f0f39ee622a7154773da4400f9bc1470cb0178121173152a234aee4d182b12c1"
+	PackageVersion = "1.0.0-rc.9"
+	TagName        = "v1.0.0-rc.9"
+	TagObject      = "3fa8fcdcddc1f88479a29f103a373acf60818beb"
+	ReleaseCommit  = "04e828d946f710b46bc7ed9fb7a08d593987272a"
+	ReleaseTree    = "83a7a0fdfdc427aaad8feceb82a70197007c7758"
+	Commit         = "04e828d946f710b46bc7ed9fb7a08d593987272a"
+	Tree           = "83a7a0fdfdc427aaad8feceb82a70197007c7758"
+	ArchiveSHA256  = "sha256:5d52b5334dae60642f6557f5a051bcd9eba4f3730f46aea9dd153bbc7f5b5ad6"
+	// SupportPackageSHA256 retains the v1 wire name while binding RC9's
+	// published skills payload. Sworn neither embeds nor recomputes that payload.
+	SupportPackageSHA256 = "sha256:792a1a558c8b228801f4c7fcb55b89a1272d00651baa2e24e240b46ba0a5519c"
+	ManifestSHA256       = "sha256:703fe60ddc7a1b50b53d95be22d5fe2a07160b65ad4a673646ee3b6911828276"
 	AssetCount           = 24
-	AssetBytes           = int64(362962)
+	AssetBytes           = int64(363023)
 
-	releaseDocumentSHA256 = "sha256:541f53157be8578ca75753e34246831cb70bce3ef052c882d0b62763f64f0bd3"
+	releaseDocumentSHA256 = "sha256:e13c7c5f143a04e10719715e2d478a88f2fecc0760bee60842ffc663b8524e56"
 	releaseSchema         = "sworn.baton-release/v1"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
@@ -56,35 +58,6 @@ var expectedAssetPaths = []string{
 	"baton/README.md",
 	"conformance/engine-adapter.md",
 	"conformance/manifest.json",
-	"operations/baton-design-review.md",
-	"operations/baton-implement.md",
-	"operations/baton-merge.md",
-	"operations/baton-plan.md",
-	"operations/baton-verify.md",
-	"reference/board/oracle.mjs",
-	"reference/board/terminal.mjs",
-	"reference/board/web.mjs",
-	"reference/records/README.md",
-	"reference/records/actions.mjs",
-	"reference/records/git.mjs",
-	"reference/records/receipts.mjs",
-	"reference/records/state.mjs",
-	"schemas/receipt-v1.json",
-	"templates/plan.md",
-}
-
-// supportAssetPaths is the exact SUPPORT_FILES catalog at the admitted snapshot
-// source. The two conformance documents are admitted by the snapshot but are
-// not installed as generated support, so they do not participate in the
-// support package digest.
-var supportAssetPaths = []string{
-	"VERSION",
-	"baton/ASSURANCE.md",
-	"baton/CONFORMANCE.md",
-	"baton/CORE.md",
-	"baton/PROTOCOL.md",
-	"baton/RATIONALE.md",
-	"baton/README.md",
 	"operations/baton-design-review.md",
 	"operations/baton-implement.md",
 	"operations/baton-merge.md",
@@ -237,12 +210,6 @@ type assetEntry struct {
 	SHA256 string `json:"sha256"`
 }
 
-type supportDigestEntry struct {
-	Path   string `json:"path"`
-	Mode   string `json:"mode"`
-	Digest string `json:"digest"`
-}
-
 func validatePackage(source fs.FS) (Identity, map[string]struct{}, error) {
 	releaseBody, err := fs.ReadFile(source, "release.json")
 	if err != nil {
@@ -324,19 +291,12 @@ func validatePackage(source fs.FS) (Identity, map[string]struct{}, error) {
 	if !slices.Equal(inventory, expectedAssetPaths) {
 		return Identity{}, nil, fmt.Errorf("compiled asset inventory is %q", inventory)
 	}
-	supportDigest, err := calculateSupportPackageDigest(digests)
-	if err != nil {
-		return Identity{}, nil, err
-	}
-	if supportDigest != SupportPackageSHA256 {
-		return Identity{}, nil, fmt.Errorf("generated support package digest is %s", supportDigest)
-	}
 	if err := validateReleaseBindings(source, release, digests); err != nil {
 		return Identity{}, nil, err
 	}
 	versionBody, err := fs.ReadFile(source, "snapshot/assets/VERSION")
 	if err != nil || string(versionBody) != PackageVersion+"\n" {
-		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC8")
+		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC9")
 	}
 
 	return Identity{
@@ -358,7 +318,7 @@ func validateReleaseIdentity(release releaseFile) error {
 		release.PackageVersion != PackageVersion ||
 		release.SourceRepository != "https://github.com/sawy3r/baton" ||
 		release.ReleaseURL != "https://github.com/sawy3r/baton/releases/tag/"+TagName ||
-		release.PublishedAt != "2026-07-28T13:51:48Z" {
+		release.PublishedAt != "2026-07-29T09:55:25Z" {
 		return errors.New("release metadata has an unexpected publication identity")
 	}
 	if release.Tag.Name != TagName ||
@@ -368,13 +328,13 @@ func validateReleaseIdentity(release releaseFile) error {
 		release.Tag.PeeledTree != ReleaseTree {
 		return errors.New("release metadata has an unexpected annotated tag identity")
 	}
-	if release.Archive.Name != "baton-1.0.0-rc.8.tar.gz" ||
+	if release.Archive.Name != "baton-1.0.0-rc.9.tar.gz" ||
 		release.Archive.SHA256 != ArchiveSHA256 ||
 		release.Archive.EmbeddedCommit != ReleaseCommit {
 		return errors.New("release metadata has an unexpected archive identity")
 	}
-	if release.GeneratedSupport.ManifestSchema != "baton.generated-adapters/v1" ||
-		release.GeneratedSupport.GeneratorVersion != "baton.adapter-generator/v1" ||
+	if release.GeneratedSupport.ManifestSchema != "baton.skills-payload/v1" ||
+		release.GeneratedSupport.GeneratorVersion != "baton.skill-generator/v1" ||
 		release.GeneratedSupport.OperationVersion != operationVersion ||
 		release.GeneratedSupport.PackageDigest != SupportPackageSHA256 {
 		return errors.New("release metadata has an unexpected generated-support identity")
@@ -417,7 +377,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 	}
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:8946bcb51b0ce8349617c5d7a65cb3835445c9fadb14d15e62e901c6a8b83629"},
-		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:a53ae10a76dcca1f1e426f16385cb1487c9a1f690e2ab5ebb21463ec74cbea73"},
+		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c"},
 		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {
@@ -453,29 +413,6 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 		}
 	}
 	return nil
-}
-
-func calculateSupportPackageDigest(digests map[string]string) (string, error) {
-	entries := make([]supportDigestEntry, 0, len(supportAssetPaths))
-	for _, name := range supportAssetPaths {
-		assetDigest, ok := digests[name]
-		if !ok {
-			return "", fmt.Errorf("generated support asset %q is not admitted", name)
-		}
-		entries = append(entries, supportDigestEntry{
-			Path:   name,
-			Mode:   "0644",
-			Digest: assetDigest,
-		})
-	}
-	sort.Slice(entries, func(left, right int) bool {
-		return entries[left].Path < entries[right].Path
-	})
-	canonical, err := json.Marshal(entries)
-	if err != nil {
-		return "", fmt.Errorf("encode generated support package identity: %w", err)
-	}
-	return digest(append(canonical, '\n')), nil
 }
 
 func validateAssetPath(name string) error {

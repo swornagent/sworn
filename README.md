@@ -1,10 +1,9 @@
 # Sworn
 
-Sworn runs autonomous software delivery with the Baton protocol.
-
-It gives coding agents clear responsibilities, isolated worktrees, durable
-evidence and exact gates. The model or vendor can change without changing the
-delivery rules.
+Sworn is a local autonomous-delivery engine for the Baton protocol. It runs
+Planner, Implementer, Captain, and fresh Verifier turns through one bounded
+driver contract, while Sworn—not a model—owns scheduling, recovery, exact Git
+composition, and target integration.
 
 ```text
 Planner
@@ -14,62 +13,101 @@ Implementer --> Captain
    ^              |
    +---- revise --+
    |
-   +---- proceed --> Implementer --> Verifier --> Merge
+   +---- proceed --> Implementer --> fresh Verifier --> deterministic Merge
 ```
 
-- The Planner proposes the work.
-- The Implementer designs and builds it.
-- The Captain checks the design before code changes.
-- The Verifier reviews the finished candidate with clean context.
-- Merge is a deterministic engine action, not a model decision.
+Sworn supports parallel dependency-ready tracks with one serial writer per
+track. Commands and external effects are journaled before execution, so pause,
+resume, takeover, bounded retry, and crash recovery converge on recorded
+authority. A successful process or model response is never a Baton verdict.
 
-## Current v0.3 checkpoint
+## Release candidate
 
-The old v0.2 engine has been removed from the active source tree. Sworn now
-contains one small greenfield foundation and an exact embedded copy of Baton
-`v1.0.0-rc.8`.
+The public binary identifies as Sworn `1.0.0-rc.1`. It embeds and validates
+Baton `1.0.0-rc.9`; `sworn version --json` reports both identities.
 
-The supported product commands at this checkpoint are:
+This candidate provides:
+
+- the real `sworn run`, control, status, board, and local operator surfaces;
+- deterministic scripted manifests for tests and recovery compatibility;
+- production Codex CLI, Claude Code CLI, native OpenAI Responses,
+  OpenAI-compatible Chat Completions, DeepSeek, Gemini, and Bedrock drivers
+  behind the same role-neutral contract;
+- both Bedrock Runtime Converse/SigV4 and Bedrock Mantle Chat Completions
+  surfaces, with no provider or model fallback;
+- secret-free driver inspect, doctor, and live-certification reports; and
+- an executable gate derived from all 12 autonomous-engine cases in the
+  embedded Baton RC9 conformance manifest.
+
+Technical readiness does not grant authority to tag, merge to `main`, deploy,
+or publish the binary.
+
+## Commands
+
+```text
+sworn version [--json]
+sworn run --manifest ABS --journal ABS [--config ABS]
+sworn pause|cancel --run ID --journal ABS --command ID --generation N
+sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
+sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
+sworn status --run ID --journal ABS --json
+sworn board --run ID --journal ABS [--json]
+sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
+sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+```
+
+Production manifests contain no scripted submissions. They bind one canonical,
+secret-free `sworn.driver-config/v1` digest and four explicit profile/model
+selections. The same canonical configuration must be supplied to `run` and to
+every driving restart command. Supplying it to a scripted manifest, omitting it
+from a production manifest, or changing its digest fails closed.
+
+Driver configuration names exact adapters, endpoints, credential references,
+and certification models. Credential values remain in the selected environment
+or owner-only files and never enter configuration, manifests, journals,
+diagnostics, evidence, or telemetry. `driver certify --all` exits nonzero for
+any missing, failed, or not-certified production family or Bedrock surface.
+
+Native OpenAI uses the Responses API with an explicit reasoning effort.
+Chat Completions remains an explicit compatibility surface; Sworn never
+guesses a dialect or falls back between them.
+
+## Build and verify
+
+Go 1.26.5 or newer is required. The release gates are:
 
 ```sh
-sworn version [--json]
-sworn help
+GOFLAGS=-buildvcs=false go test ./...
+GOFLAGS=-buildvcs=false go test -race ./...
+GOFLAGS=-buildvcs=false go vet ./...
+test -z "$(git ls-files -z -- '*.go' \
+  ':(exclude,top).baton/releases/**' | xargs -0 -r gofmt -l)"
+go mod tidy -diff
+CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build \
+  -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' \
+  -o /tmp/sworn-v0.3.0 ./cmd/sworn
+test -n "$SWORN_DRIVER_CONFIG"
+/tmp/sworn-v0.3.0 driver certify --all \
+  --config "$SWORN_DRIVER_CONFIG" --json
+git diff --check
 ```
 
-It validates the compiled Baton package before reporting its exact tag, commit,
-tree, release-archive digest and generated-support digest. `sworn run` and
-`sworn board` return in later v0.3 work after their authority and recovery
-paths are proven.
-
-The previous engine remains available from tag `v0.2.0`, branch `legacy/v0`
-and Git history.
+See [the v0.3 release evidence](docs/releases/v0.3.0/README.md) for the exact
+scope, conformance identity, measurements, and known readiness state.
 
 ## Source layout
 
 ```text
-cmd/sworn         command-line entry point
+cmd/sworn         command-line and local operator surfaces
 internal/baton    embedded protocol and deterministic Baton authority
-internal/runtime  command service, scheduling and recovery
-internal/journal  durable commands, effects, receipts and events
+internal/runtime  the single scheduler, reducer, and recovery owner
+internal/journal  durable commands, effects, receipts, and events
 internal/gitx     exact Git facts and mutations
-internal/driver   common invocation and sealed-submission boundary
+internal/driver   common selection, invocation, tools, and credentials
+internal/cockpit  truthful terminal and browser projections
+internal/observe  local evaluation and opt-in telemetry projection
 ```
 
-The four future seams intentionally contain no placeholder behavior yet.
-
-## Development
-
-Go 1.26.5 or newer is required.
-
-```sh
-GOFLAGS=-buildvcs=false \
-  go test ./tools/batonassets/... ./tools/batongolden/... ./cmd/sworn/...
-GOFLAGS=-buildvcs=false go test ./...
-GOFLAGS=-buildvcs=false go test -race ./...
-GOFLAGS=-buildvcs=false go vet ./...
-CGO_ENABLED=0 GOFLAGS=-buildvcs=false \
-  go build -buildvcs=false -trimpath ./cmd/sworn
-```
-
-`.baton/releases` holds delivery authority. It is deliberately excluded from
-product copies, archives and binary identity.
+`.baton/releases` is delivery authority, not product source. Product copies,
+archives, and binary identity deliberately exclude it. Earlier releases and
+abandoned protocol lines remain immutable Git archaeology.

@@ -7,14 +7,27 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
+
+func TestBedrockSigningServiceIsClosedBySurface(t *testing.T) {
+	t.Parallel()
+	for surface, expected := range map[ProfileSurface]string{
+		ProfileSurfaceBedrockRuntimeConverse: "bedrock",
+		ProfileSurfaceBedrockMantleChat:      "bedrock-mantle",
+		ProfileSurface("user-configured"):    "",
+	} {
+		if actual := bedrockSigningService(surface); actual != expected {
+			t.Fatalf("surface %q service = %q, want %q", surface, actual, expected)
+		}
+	}
+}
 
 func TestBedrockConverseReplaysCompleteAdmittedAssistantMessage(t *testing.T) {
 	t.Parallel()
@@ -124,6 +137,8 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 		authorization := request.Header.Get("Authorization")
 		if request.URL.Path != "/model/exact-model/converse" ||
 			!strings.Contains(authorization, "Credential=AKIAEXAMPLE1234/") ||
+			!strings.Contains(authorization, "/bedrock/aws4_request") ||
+			strings.Contains(authorization, "/bedrock-mantle/aws4_request") ||
 			strings.Contains(authorization, "secret-example-value") ||
 			bytes.Contains(body, []byte("secret-example-value")) {
 			t.Errorf("Bedrock request = %s, auth=%q, body=%s", request.URL, authorization, body)
@@ -142,6 +157,7 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 			"stopReason": "tool_use",
 			"usage": map[string]any{
 				"inputTokens": 23, "outputTokens": 29, "totalTokens": 52,
+				"serverToolUsage": map[string]any{},
 			},
 		})
 	}))
@@ -191,23 +207,15 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 	}
 	loop := adapter.(*loopAdapter)
 	transport := loop.transport.(*bedrockTransport)
-	expiration := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	var chainCalls atomic.Int64
 	transport.runAWS = func(
 		_ context.Context,
 		_ AWSChainSpec,
 		_ [][]byte,
-		arguments ...string,
+		_ ...string,
 	) ([]byte, error) {
 		chainCalls.Add(1)
-		if strings.Join(arguments, " ") ==
-			"configure export-credentials --format process" {
-			return []byte(
-				`{"Version":1,"AccessKeyId":"AKIAEXAMPLE1234","SecretAccessKey":"secret-example-value","Expiration":"` +
-					expiration + `"}`,
-			), nil
-		}
-		return []byte(awsEnvironmentTable), nil
+		return nil, errors.New("AWS CLI must not run for direct environment credentials")
 	}
 	invocation := productionInvocationFixture(
 		t,
@@ -220,7 +228,7 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 	)
 	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 	if err != nil || observation.Handoff == nil || requests.Load() != 1 ||
-		chainCalls.Load() != 3 ||
+		chainCalls.Load() != 0 ||
 		observation.Usage.InputTokens == nil ||
 		*observation.Usage.InputTokens != 23 ||
 		observation.Usage.OutputTokens == nil ||

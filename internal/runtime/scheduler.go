@@ -1354,11 +1354,18 @@ func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *g
 		epoch = 1
 	}
 	for try := int64(1); try <= 3; try++ {
-		script, ok := engine.manifest.value.script(slice, responsibility, batonAttempt, epoch, try)
-		if !ok {
-			return driver.Submission{}, runtimeFail("SCRIPT_NOT_FOUND", nil)
-		}
-		submission, err := s.runDriverEffect(ctx, engine, workspace, role, script,
+		submission, err := s.runDriverEffect(
+			ctx,
+			engine,
+			workspace,
+			role,
+			dispatchCoordinates{
+				Slice:          slice,
+				Responsibility: responsibility,
+				BatonAttempt:   batonAttempt,
+				Epoch:          epoch,
+				Try:            try,
+			},
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}, before, owner)
 		if err == nil {
 			return submission, nil
@@ -2026,29 +2033,37 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		if err != nil {
 			return runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
-		script, ok := engine.manifest.value.script(
-			sliceID, driver.ImplementerImplementation, slice.Attempt, epoch, try)
-		if !ok {
-			err = runtimeFail("SCRIPT_NOT_FOUND", nil)
-		} else {
-			var record sealedRecord
-			record, err = s.runImplementationCycle(
-				ctx, engine, owner, state, slice, key, cycle, script,
-				journal.Effect{
-					RunID: owner.RunID, ID: effectID,
-					State: journal.Claimed, CurrentClaim: claim.Token,
-				})
-			if err == nil {
-				body := mustJSON(record)
-				if err := s.journal.CompleteOwned(context.WithoutCancel(ctx), owner,
-					journal.Completion{RunID: owner.RunID, EffectID: effectID,
-						Token: claim.Token, State: journal.Succeeded, Result: body,
-						Receipts:  []journal.Receipt{{Kind: "git_candidate", Body: body}},
-						EventKind: "candidate_sealed", EventBody: body, At: s.now().UTC()}); err != nil {
-					return runtimeFail("JOURNAL_WRITE_FAILED", err)
-				}
-				return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
+		var record sealedRecord
+		record, err = s.runImplementationCycle(
+			ctx,
+			engine,
+			owner,
+			state,
+			slice,
+			key,
+			cycle,
+			dispatchCoordinates{
+				Slice:          sliceID,
+				Responsibility: driver.ImplementerImplementation,
+				BatonAttempt:   slice.Attempt,
+				Epoch:          epoch,
+				Try:            try,
+			},
+			journal.Effect{
+				RunID: owner.RunID, ID: effectID,
+				State: journal.Claimed, CurrentClaim: claim.Token,
+			},
+		)
+		if err == nil {
+			body := mustJSON(record)
+			if err := s.journal.CompleteOwned(context.WithoutCancel(ctx), owner,
+				journal.Completion{RunID: owner.RunID, EffectID: effectID,
+					Token: claim.Token, State: journal.Succeeded, Result: body,
+					Receipts:  []journal.Receipt{{Kind: "git_candidate", Body: body}},
+					EventKind: "candidate_sealed", EventBody: body, At: s.now().UTC()}); err != nil {
+				return runtimeFail("JOURNAL_WRITE_FAILED", err)
 			}
+			return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
 		}
 		if IsCode(err, "RECOVERY_UNCERTAIN") {
 			return err
@@ -2288,9 +2303,240 @@ func (s *Service) completeImplementationFailure(ctx context.Context, owner journ
 	return nil
 }
 
+func currentImplementationState(
+	engine *engine,
+	cycle implementationCycle,
+) (baton.State, error) {
+	fresh, err := baton.ReadState(
+		engine.git,
+		engine.manifest.value.Release,
+		engine.inertness,
+	)
+	if err != nil {
+		return baton.State{}, runtimeFail("BATON_UNAVAILABLE", err)
+	}
+	if !implementationAuthorityCurrent(fresh, cycle) {
+		return baton.State{}, runtimeFail("STALE_DISPATCH", nil)
+	}
+	return fresh, nil
+}
+
+func (s *Service) claimPreparedImplementation(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	state baton.State,
+	cycle implementationCycle,
+	submission driver.Submission,
+	prepared gitx.SealedCandidate,
+	requireDispatchProof bool,
+) (sealedRecord, journal.Claim, error) {
+	var plan baton.Plan
+	for _, history := range state.Plan.History {
+		if history.OID == cycle.Plan {
+			plan = history.Plan
+			break
+		}
+	}
+	if plan.Digest() == "" {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := baton.ValidateSliceCandidateScope(
+		engine.git,
+		engine.inertness,
+		plan,
+		cycle.Slice,
+		prepared.Before.String(),
+		prepared.Candidate.String(),
+	); err != nil {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CANDIDATE_SCOPE_FAILED", err)
+	}
+	checks, err := exactBytes(submission.Checks)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	record := sealedRecordFromCandidate(prepared)
+	record.Slice, record.Binds = cycle.Slice, cycle.Binds
+	productIdentity, err := engine.repository.ProductTreeIdentity(
+		prepared.Candidate,
+		engine.product,
+	)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CANDIDATE_SCOPE_FAILED", err)
+	}
+	record.ProductTree = productIdentity.ProductTree
+	record.Receipt = baton.AppendReceiptInput{
+		Release: state.Release, Slice: cycle.Slice, Role: "implementer",
+		Result: "candidate", Summary: submission.Summary,
+		Detail: []byte(submission.Detail), Candidate: record.Candidate,
+		Base: cycle.Base, CheckResults: checks,
+	}
+	if requireDispatchProof {
+		if err := s.validateImplementationDispatchProof(
+			ctx,
+			engine,
+			owner,
+			cycle,
+			record,
+		); err != nil {
+			return sealedRecord{}, journal.Claim{}, err
+		}
+	}
+	now := s.now().UTC()
+	payload := mustJSON(record)
+	if err := s.journal.EnsureAttempt(ctx,
+		journal.Command{RunID: owner.RunID, ReplayKey: cycle.PreparedEffect,
+			Kind: "git.seal.prepared", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: owner.RunID, ID: cycle.PreparedEffect,
+			ReplayKey: cycle.PreparedEffect, Kind: "git.seal.prepared",
+			BeforeDigest: cycle.Before, ExpectedDigest: sha256Digest(payload),
+			UpdatedAt: now},
+		journal.EffectAttempt{WorkID: cycle.PreparedWork, Epoch: 1, Try: 1}); err != nil {
+		if !requireDispatchProof {
+			err = uncertainHandoffPreparation(err)
+		}
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	claim, err := s.journal.ClaimOwned(
+		ctx,
+		owner,
+		cycle.PreparedEffect,
+		now,
+		effectLease,
+	)
+	if err == nil && testCrashAfterEffect == "git.seal.prepared" {
+		os.Exit(86)
+	}
+	if err != nil {
+		if !requireDispatchProof {
+			err = uncertainHandoffPreparation(err)
+		}
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	return record, claim, nil
+}
+
+var errProductionCandidatePrepared = errors.New(
+	"production implementation candidate prepared",
+)
+
+func (s *Service) prepareProductionImplementationCandidate(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	workspace *gitx.WorkspaceLease,
+	cycle implementationCycle,
+	submission driver.Submission,
+) (sealedRecord, journal.Claim, error) {
+	fresh, err := currentImplementationState(engine, cycle)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	releaseHead, releaseErr := gitx.ParseOID(
+		engine.repository.ObjectFormat(),
+		cycle.ReleaseHead,
+	)
+	targetHead, targetErr := gitx.ParseOID(
+		engine.repository.ObjectFormat(),
+		cycle.TargetHead,
+	)
+	if releaseErr != nil || targetErr != nil {
+		return sealedRecord{}, journal.Claim{}, runtimeFail(
+			"CORRUPT_JOURNAL",
+			errors.Join(releaseErr, targetErr),
+		)
+	}
+	var record sealedRecord
+	var preparedClaim journal.Claim
+	_, prepareErr := engine.workspaces.SealTrackGuardedWithClaim(
+		workspace,
+		gitx.SealAuthority{
+			ReleaseHead: releaseHead,
+			TargetRef:   engine.manifest.value.TargetRef,
+			TargetHead:  targetHead,
+		},
+		func(prepared gitx.SealedCandidate) error {
+			var claimErr error
+			record, preparedClaim, claimErr =
+				s.claimPreparedImplementation(
+					ctx,
+					engine,
+					owner,
+					fresh,
+					cycle,
+					submission,
+					prepared,
+					false,
+				)
+			if claimErr != nil {
+				return claimErr
+			}
+			return errProductionCandidatePrepared
+		},
+	)
+	if !errors.Is(prepareErr, errProductionCandidatePrepared) {
+		return sealedRecord{}, journal.Claim{}, prepareErr
+	}
+	if _, err := currentImplementationState(engine, cycle); err != nil {
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	return record, preparedClaim, nil
+}
+
+func (s *Service) runProductionImplementationDispatch(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	workspace *gitx.WorkspaceLease,
+	cycle implementationCycle,
+	coordinates dispatchCoordinates,
+) (sealedRecord, journal.Claim, error) {
+	var record sealedRecord
+	var preparedClaim journal.Claim
+	_, err := s.runDriverEffectWithPreparation(
+		ctx,
+		engine,
+		workspace,
+		driver.RoleImplementer,
+		coordinates,
+		journal.EffectAttempt{
+			WorkID: cycle.DispatchWork,
+			Epoch:  1,
+			Try:    1,
+		},
+		cycle.Before,
+		owner,
+		func(submission driver.Submission) error {
+			var prepareErr error
+			record, preparedClaim, prepareErr =
+				s.prepareProductionImplementationCandidate(
+					ctx,
+					engine,
+					owner,
+					workspace,
+					cycle,
+					submission,
+				)
+			return prepareErr
+		},
+	)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	if preparedClaim.Token == "" ||
+		!sealedRecordMatchesCycle(record, cycle) {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return record, preparedClaim, nil
+}
+
 func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	owner journal.OwnerLease, state baton.State, slice *baton.SliceState,
-	key gitx.TrackKey, cycle implementationCycle, script ScriptedAttempt,
+	key gitx.TrackKey, cycle implementationCycle, coordinates dispatchCoordinates,
 	outer journal.Effect) (sealedRecord, error) {
 	fresh, err := baton.ReadState(engine.git, state.Release, engine.inertness)
 	if err != nil {
@@ -2303,9 +2549,54 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	if err != nil {
 		return sealedRecord{}, runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
-	submission, err := s.runDriverEffect(ctx, engine, workspace, driver.RoleImplementer,
-		script, journal.EffectAttempt{WorkID: cycle.DispatchWork, Epoch: 1, Try: 1},
-		cycle.Before, owner)
+	if engine.manifest.value.production() {
+		record, preparedClaim, dispatchErr :=
+			s.runProductionImplementationDispatch(
+				ctx,
+				engine,
+				owner,
+				workspace,
+				cycle,
+				coordinates,
+			)
+		if dispatchErr != nil {
+			_ = workspace.Close()
+			return sealedRecord{}, dispatchErr
+		}
+		if testCrashAfterEffect == "implementation.handoff" {
+			os.Exit(86)
+		}
+		if err := workspace.Close(); err != nil {
+			return sealedRecord{}, runtimeFail("WORKSPACE_UNAVAILABLE", err)
+		}
+		return s.reconcilePreparedSeal(
+			ctx,
+			engine,
+			owner,
+			cycle,
+			record,
+			journal.Effect{
+				RunID: owner.RunID, ID: cycle.PreparedEffect,
+				State:        journal.Claimed,
+				CurrentClaim: preparedClaim.Token,
+			},
+			outer,
+		)
+	}
+	submission, err := s.runDriverEffect(
+		ctx,
+		engine,
+		workspace,
+		driver.RoleImplementer,
+		coordinates,
+		journal.EffectAttempt{
+			WorkID: cycle.DispatchWork,
+			Epoch:  1,
+			Try:    1,
+		},
+		cycle.Before,
+		owner,
+	)
 	if err != nil {
 		_ = workspace.Close()
 		return sealedRecord{}, err
@@ -2324,11 +2615,6 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		current.CurrentReceipt.OID != cycle.Binds {
 		_ = workspace.Close()
 		return sealedRecord{}, runtimeFail("STALE_DISPATCH", nil)
-	}
-	checks, err := exactBytes(submission.Checks)
-	if err != nil {
-		_ = workspace.Close()
-		return sealedRecord{}, err
 	}
 	var preparedClaim journal.Claim
 	var record sealedRecord
@@ -2349,54 +2635,18 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 			TargetHead:  targetHead,
 		},
 		func(prepared gitx.SealedCandidate) error {
-			if err := baton.ValidateSliceCandidateScope(engine.git, engine.inertness,
-				fresh.Plan.History[len(fresh.Plan.History)-1].Plan, cycle.Slice,
-				prepared.Before.String(), prepared.Candidate.String()); err != nil {
-				return runtimeFail("CANDIDATE_SCOPE_FAILED", err)
-			}
-			record = sealedRecordFromCandidate(prepared)
-			record.Slice, record.Binds = cycle.Slice, cycle.Binds
-			productIdentity, productErr := engine.repository.ProductTreeIdentity(
-				prepared.Candidate,
-				engine.product,
-			)
-			if productErr != nil {
-				return runtimeFail("CANDIDATE_SCOPE_FAILED", productErr)
-			}
-			record.ProductTree = productIdentity.ProductTree
-			record.Receipt = baton.AppendReceiptInput{
-				Release: state.Release, Slice: cycle.Slice, Role: "implementer",
-				Result: "candidate", Summary: submission.Summary,
-				Detail: []byte(submission.Detail), Candidate: record.Candidate,
-				Base: cycle.Base, CheckResults: checks,
-			}
-			if err := s.validateImplementationDispatchProof(
-				ctx,
-				engine,
-				owner,
-				cycle,
-				record,
-			); err != nil {
-				return err
-			}
-			now := s.now().UTC()
-			payload := mustJSON(record)
-			if err := s.journal.EnsureAttempt(ctx,
-				journal.Command{RunID: owner.RunID, ReplayKey: cycle.PreparedEffect,
-					Kind: "git.seal.prepared", Payload: payload, CreatedAt: now},
-				journal.Effect{RunID: owner.RunID, ID: cycle.PreparedEffect,
-					ReplayKey: cycle.PreparedEffect, Kind: "git.seal.prepared",
-					BeforeDigest: cycle.Before, ExpectedDigest: sha256Digest(payload),
-					UpdatedAt: now},
-				journal.EffectAttempt{WorkID: cycle.PreparedWork, Epoch: 1, Try: 1}); err != nil {
-				return err
-			}
 			var claimErr error
-			preparedClaim, claimErr = s.journal.ClaimOwned(
-				ctx, owner, cycle.PreparedEffect, now, effectLease)
-			if claimErr == nil && testCrashAfterEffect == "git.seal.prepared" {
-				os.Exit(86)
-			}
+			record, preparedClaim, claimErr =
+				s.claimPreparedImplementation(
+					ctx,
+					engine,
+					owner,
+					fresh,
+					cycle,
+					submission,
+					prepared,
+					true,
+				)
 			return claimErr
 		})
 	_ = workspace.Close()
@@ -2475,6 +2725,115 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 		}
 		if found != 1 {
 			return sealedRecord{}, false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if engine.manifest.value.production() {
+			dispatch, dispatchErr := s.journal.Effect(
+				ctx,
+				owner.RunID,
+				cycle.DispatchEffect,
+			)
+			if dispatchErr != nil {
+				return sealedRecord{}, false,
+					runtimeFail("JOURNAL_READ_FAILED", dispatchErr)
+			}
+			if dispatch.State == journal.OperationalFailed {
+				if err := s.rollbackCycleCandidate(
+					engine,
+					cycle,
+					nil,
+				); err != nil {
+					return sealedRecord{}, false,
+						runtimeFail("RECOVERY_UNCERTAIN", err)
+				}
+				switch prepared.State {
+				case journal.Pending, journal.Claimed:
+					if err := s.terminalizeEffect(
+						ctx,
+						owner,
+						prepared,
+						"orphaned_dispatch",
+					); err != nil {
+						return sealedRecord{}, false, err
+					}
+				case journal.Uncertain:
+					if err := s.journal.ResolveUncertainOwned(
+						context.WithoutCancel(ctx),
+						owner,
+						owner.RunID,
+						prepared.ID,
+						"orphaned_dispatch",
+						s.now().UTC(),
+					); err != nil {
+						return sealedRecord{}, false,
+							runtimeFail("JOURNAL_WRITE_FAILED", err)
+					}
+				default:
+					return sealedRecord{}, false,
+						runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				return s.interruptImplementationCycle(
+					ctx,
+					engine,
+					owner,
+					cycle,
+					effect,
+				)
+			}
+			if dispatch.State != journal.Succeeded {
+				if dispatch.State != journal.Claimed &&
+					dispatch.State != journal.Uncertain {
+					return sealedRecord{}, false,
+						runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				if prepared.State == journal.Pending {
+					claim, claimErr := s.journal.ClaimOwned(
+						ctx,
+						owner,
+						prepared.ID,
+						s.now().UTC(),
+						effectLease,
+					)
+					if claimErr != nil {
+						return sealedRecord{}, false,
+							runtimeFail("EFFECT_CLAIM_FAILED", claimErr)
+					}
+					prepared.State = journal.Claimed
+					prepared.CurrentClaim = claim.Token
+				}
+				completions := []journal.Completion{{
+					RunID: owner.RunID, EffectID: effect.ID,
+					Token:     effect.CurrentClaim,
+					EventKind: "implementation_uncertain",
+					EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+				}}
+				if prepared.State == journal.Claimed {
+					completions = append(completions, journal.Completion{
+						RunID: owner.RunID, EffectID: prepared.ID,
+						Token:     prepared.CurrentClaim,
+						EventKind: "implementation_preparation_uncertain",
+						EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+					})
+				}
+				if dispatch.State == journal.Claimed {
+					completions = append(completions, journal.Completion{
+						RunID: owner.RunID, EffectID: dispatch.ID,
+						Token:     dispatch.CurrentClaim,
+						EventKind: "implementation_dispatch_uncertain",
+						EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+					})
+				}
+				if err := s.journal.ReconcileManyOwned(
+					context.WithoutCancel(ctx),
+					owner,
+					completions,
+					journal.RecoveryAmbiguous,
+				); err != nil {
+					return sealedRecord{}, false,
+						runtimeFail("JOURNAL_WRITE_FAILED", err)
+				}
+				return sealedRecord{}, false,
+					runtimeFail("RECOVERY_UNCERTAIN", nil)
+			}
 		}
 		if err := validateImplementationDispatchProof(
 			engine,
@@ -2590,6 +2949,25 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 	}
 	if dispatchErr != nil && !journal.IsCode(dispatchErr, "EFFECT_NOT_FOUND") {
 		return sealedRecord{}, false, runtimeFail("JOURNAL_READ_FAILED", dispatchErr)
+	}
+	if dispatchErr == nil &&
+		dispatch.State == journal.Succeeded &&
+		engine.manifest.value.production() {
+		if err := s.journal.ReconcileOwned(
+			context.WithoutCancel(ctx),
+			owner,
+			journal.Completion{
+				RunID: owner.RunID, EffectID: effect.ID,
+				Token:     effect.CurrentClaim,
+				EventKind: "implementation_preparation_missing",
+				EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+			},
+			journal.RecoveryAmbiguous,
+		); err != nil {
+			return sealedRecord{}, false,
+				runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return sealedRecord{}, false, runtimeFail("RECOVERY_UNCERTAIN", nil)
 	}
 	return s.interruptImplementationCycle(ctx, engine, owner, cycle, effect)
 }
@@ -2707,15 +3085,27 @@ func implementationReceiptApplied(
 		if entries[index].OID != cycle.Binds {
 			continue
 		}
-		if entries[index].Receipt.Attempt == nil {
+		bound := entries[index].Receipt
+		if bound.Attempt == nil {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		attempt := *bound.Attempt
+		switch {
+		case bound.Role == "captain" && bound.Result == "proceed":
+		case bound.Role == "implementer" &&
+			bound.Result == "candidate":
+			attempt++
+		case bound.Role == "verifier" &&
+			(bound.Result == "pass" || bound.Result == "fail"):
+			attempt++
+		default:
 			return false, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		if expectedAttempt != nil &&
-			*expectedAttempt != *entries[index].Receipt.Attempt {
+			*expectedAttempt != attempt {
 			return false, runtimeFail("AMBIGUOUS_ACTION_HISTORY", nil)
 		}
-		value := *entries[index].Receipt.Attempt
-		expectedAttempt = &value
+		expectedAttempt = &attempt
 	}
 	if expectedAttempt == nil {
 		return false, runtimeFail("CORRUPT_JOURNAL", nil)
@@ -3376,6 +3766,21 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		if err != nil {
 			return true, err
 		}
+		incomplete, err := incompleteProductionImplementationDispatch(
+			engine.manifest,
+			commands,
+			effects,
+			cycle,
+		)
+		if err != nil {
+			return true, err
+		}
+		if incomplete {
+			// A production handoff that never became Succeeded has no
+			// publishable dispatch proof. Its coupled ambiguity is preserved
+			// and classified by recoverStaleClaimedDispatches.
+			continue
+		}
 		if err := validateImplementationDispatchProof(
 			engine,
 			snapshot,
@@ -3424,6 +3829,44 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		)
 		if err != nil {
 			return true, fmt.Errorf("recover claimed prepared envelope: %w", err)
+		}
+		incomplete, err := incompleteProductionImplementationDispatch(
+			engine.manifest,
+			commands,
+			effects,
+			cycle,
+		)
+		if err != nil {
+			return true, err
+		}
+		if incomplete {
+			switch outer.State {
+			case journal.Claimed:
+				// The exact parent cycle below owns coupled recovery.
+				continue
+			case journal.OperationalFailed:
+				if err := s.rollbackCycleCandidate(
+					engine,
+					cycle,
+					nil,
+				); err != nil {
+					return true, s.markPreparedSealUncertain(
+						ctx,
+						owner,
+						child,
+						cycle.Slice,
+						err,
+					)
+				}
+				return true, s.terminalizeEffect(
+					ctx,
+					owner,
+					child,
+					"orphaned_dispatch",
+				)
+			default:
+				return true, runtimeFail("RECOVERY_UNCERTAIN", nil)
+			}
 		}
 		if err := validateImplementationDispatchProof(
 			engine,
@@ -3578,7 +4021,19 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		if err != nil {
 			return true, err
 		}
+		incomplete := false
 		if hasRecord {
+			incomplete, err = incompleteProductionImplementationDispatch(
+				engine.manifest,
+				commands,
+				effects,
+				cycle,
+			)
+			if err != nil {
+				return true, err
+			}
+		}
+		if hasRecord && !incomplete {
 			if err := validateImplementationDispatchProof(
 				engine,
 				snapshot,
@@ -3686,7 +4141,7 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		}
 
 		var recordPointer *sealedRecord
-		if hasRecord {
+		if hasRecord && !incomplete {
 			recordPointer = &record
 		}
 		if err := s.rollbackCycleCandidate(engine, cycle, recordPointer); err != nil {

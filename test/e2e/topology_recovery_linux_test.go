@@ -779,7 +779,7 @@ func observeBatonState(repositoryPath, release string) (baton.State, error) {
 	return baton.ReadState(baton.UseGitRepository(repository), release, inertResolver)
 }
 
-func TestRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
 	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
 	defer server.Close()

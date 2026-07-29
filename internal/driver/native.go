@@ -18,24 +18,24 @@ const (
 )
 
 type PinnedRuntimeFile struct {
-	Path   string
-	Target string
-	Digest string
+	Path   string `json:"path"`
+	Target string `json:"target"`
+	Digest string `json:"digest"`
 }
 
 type NativeAdapterConfig struct {
-	Key                    string
-	ID                     string
-	Version                string
-	Family                 ProfileFamily
-	CLI                    ExecutableIdentity
-	CLIVersion             string
-	VersionOutput          string
-	RuntimeFiles           []PinnedRuntimeFile
-	RequiredRuntimeTargets []string
-	CredentialTarget       string
-	CredentialRefs         []string
-	MaxCredentialBytes     int64
+	Key                    string              `json:"key"`
+	ID                     string              `json:"id"`
+	Version                string              `json:"version"`
+	Family                 ProfileFamily       `json:"family"`
+	CLI                    ExecutableIdentity  `json:"cli"`
+	CLIVersion             string              `json:"cli_version"`
+	VersionOutput          string              `json:"version_output"`
+	RuntimeFiles           []PinnedRuntimeFile `json:"runtime_files"`
+	RequiredRuntimeTargets []string            `json:"required_runtime_targets"`
+	CredentialTarget       string              `json:"credential_target"`
+	CredentialRefs         []string            `json:"credential_refs"`
+	MaxCredentialBytes     int64               `json:"max_credential_bytes"`
 }
 
 // NativeSmokeBuilder supplies only the already-authorized invocation used by
@@ -288,7 +288,7 @@ func (adapter *nativeAdapter) checkProfile(
 			pathValue,
 			certificate,
 		); err != nil {
-			return ReadinessFail, "live_smoke_failed"
+			return ReadinessFail, certificationFailureCode(err)
 		}
 		adapter.certMu.Lock()
 		adapter.certified[nativeCertificationKey(profile, model)] = certificate

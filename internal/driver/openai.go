@@ -6,13 +6,14 @@ import (
 )
 
 type openAIConversation struct {
-	endpoint string
-	model    string
-	deepSeek bool
-	tools    []openAITool
-	messages []openAIMessage
-	pending  []providerToolCall
-	ledger   *continuationLedger
+	endpoint        string
+	model           string
+	deepSeek        bool
+	reasoningEffort string
+	tools           []openAITool
+	messages        []openAIMessage
+	pending         []providerToolCall
+	ledger          *continuationLedger
 }
 
 type openAIMessage struct {
@@ -43,13 +44,88 @@ type openAITool struct {
 	} `json:"function"`
 }
 
-func NewOpenAICompatibleAdapter(
-	config HTTPProfileConfig,
+type OpenAIAPI string
+
+const (
+	OpenAIResponsesAPI       OpenAIAPI = "responses"
+	OpenAIChatCompletionsAPI OpenAIAPI = "chat_completions"
+)
+
+type OpenAIProfileConfig struct {
+	HTTPProfileConfig
+	API             OpenAIAPI `json:"api"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+}
+
+func NewOpenAIAdapter(
+	config OpenAIProfileConfig,
 	resolver HeaderCredentialResolver,
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	return newOpenAIAdapter(config, resolver, probe, roundTripper, false)
+	if !config.valid() {
+		return nil, fail("INVALID_ADAPTER")
+	}
+	transport, err := newHTTPTransport(
+		config.HTTPProfileConfig,
+		resolver,
+		probe,
+		roundTripper,
+	)
+	if err != nil {
+		return nil, err
+	}
+	config.HTTPProfileConfig = transport.config
+	var factory providerConversationFactory
+	surface := ProfileSurfaceOpenAIChat
+	switch config.API {
+	case OpenAIResponsesAPI:
+		surface = ProfileSurfaceOpenAIResponses
+		factory = func(
+			prompt []byte,
+			model string,
+			tools []providerToolDefinition,
+		) (providerConversation, error) {
+			return newResponsesConversation(
+				config.Endpoint,
+				model,
+				tools,
+				prompt,
+				config.ReasoningEffort,
+			)
+		}
+	case OpenAIChatCompletionsAPI:
+		factory = func(
+			prompt []byte,
+			model string,
+			tools []providerToolDefinition,
+		) (providerConversation, error) {
+			return newOpenAIConversation(
+				config.Endpoint,
+				model,
+				tools,
+				prompt,
+				false,
+				config.ReasoningEffort,
+			)
+		}
+	default:
+		return nil, fail("INVALID_ADAPTER")
+	}
+	configuration := struct {
+		OpenAIProfileConfig
+		Family ProfileFamily
+	}{config, ProfileOpenAIHTTP}
+	return newLoopAdapter(
+		config.Key,
+		config.ID,
+		config.Version,
+		ProfileOpenAIHTTP,
+		surface,
+		configuration,
+		factory,
+		transport,
+	)
 }
 
 func NewDeepSeekAdapter(
@@ -58,44 +134,51 @@ func NewDeepSeekAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	return newOpenAIAdapter(config, resolver, probe, roundTripper, true)
-}
-
-func newOpenAIAdapter(
-	config HTTPProfileConfig,
-	resolver HeaderCredentialResolver,
-	probe ProfileLiveProbe,
-	roundTripper http.RoundTripper,
-	deepSeek bool,
-) (Adapter, error) {
 	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
 	if err != nil {
 		return nil, err
-	}
-	family := ProfileOpenAIHTTP
-	if deepSeek {
-		family = ProfileDeepSeek
 	}
 	factory := func(
 		prompt []byte,
 		model string,
 		tools []providerToolDefinition,
 	) (providerConversation, error) {
-		return newOpenAIConversation(config.Endpoint, model, tools, prompt, deepSeek)
+		return newOpenAIConversation(
+			config.Endpoint,
+			model,
+			tools,
+			prompt,
+			true,
+			"",
+		)
 	}
 	configuration := struct {
 		HTTPProfileConfig
 		Family ProfileFamily
-	}{transport.config, family}
+	}{transport.config, ProfileDeepSeek}
 	return newLoopAdapter(
 		config.Key,
 		config.ID,
 		config.Version,
-		family,
+		ProfileDeepSeek,
+		"",
 		configuration,
 		factory,
 		transport,
 	)
+}
+
+func (config OpenAIProfileConfig) valid() bool {
+	if validateEndpoint(config.Endpoint) != nil {
+		return false
+	}
+	if config.API == OpenAIChatCompletionsAPI {
+		return config.ReasoningEffort == "" ||
+			config.ReasoningEffort == "none"
+	}
+	return config.API == OpenAIResponsesAPI &&
+		config.ReasoningEffort != "" &&
+		validOpenAIReasoningEffort(config.ReasoningEffort)
 }
 
 func newOpenAIConversation(
@@ -103,8 +186,11 @@ func newOpenAIConversation(
 	definitions []providerToolDefinition,
 	prompt []byte,
 	deepSeek bool,
+	reasoningEffort string,
 ) (*openAIConversation, error) {
-	if validateEndpoint(endpoint) != nil || validateText(model, 500, false) != nil {
+	if validateEndpoint(endpoint) != nil ||
+		validateText(model, 500, false) != nil ||
+		(reasoningEffort != "" && reasoningEffort != "none") {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools := make([]openAITool, len(definitions))
@@ -116,12 +202,13 @@ func newOpenAIConversation(
 	}
 	content, _ := json.Marshal(string(prompt))
 	return &openAIConversation{
-		endpoint: endpoint,
-		model:    model,
-		deepSeek: deepSeek,
-		tools:    tools,
-		messages: []openAIMessage{{Role: "user", Content: content}},
-		ledger:   newContinuationLedger(),
+		endpoint:        endpoint,
+		model:           model,
+		deepSeek:        deepSeek,
+		reasoningEffort: reasoningEffort,
+		tools:           tools,
+		messages:        []openAIMessage{{Role: "user", Content: content}},
+		ledger:          newContinuationLedger(),
 	}, nil
 }
 
@@ -135,9 +222,11 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 		Tools      []openAITool    `json:"tools"`
 		ToolChoice string          `json:"tool_choice"`
 		Stream     bool            `json:"stream"`
+		Effort     string          `json:"reasoning_effort,omitempty"`
 	}{
 		Model: conversation.model, Messages: conversation.messages,
 		Tools: conversation.tools, ToolChoice: "auto", Stream: false,
+		Effort: conversation.reasoningEffort,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		return providerRequest{}, fail("RESOURCE_LIMIT")
@@ -146,6 +235,15 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 		Method: "POST", URL: conversation.endpoint,
 		ContentType: "application/json", Body: body,
 	}, nil
+}
+
+func validOpenAIReasoningEffort(value string) bool {
+	switch value {
+	case "", "none", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
 }
 
 func (conversation *openAIConversation) accept(body []byte) (providerTurn, error) {
@@ -182,7 +280,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	rawMessage, err := closedObject(
 		choice["message"],
 		[]string{"role", "content", "tool_calls"},
-		[]string{"reasoning_content", "refusal", "annotations"},
+		[]string{"reasoning", "reasoning_content", "refusal", "annotations"},
 	)
 	if err != nil || rawMessage["role"] != "assistant" {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
@@ -193,6 +291,14 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	if annotations, present := rawMessage["annotations"]; present {
 		array, ok := annotations.([]any)
 		if !ok || len(array) != 0 {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+	}
+	if reasoningValue, present := rawMessage["reasoning"]; present &&
+		reasoningValue != nil {
+		reasoning, ok := reasoningValue.(string)
+		if !ok || len(reasoning) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(reasoning)) {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 	}

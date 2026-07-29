@@ -47,6 +47,7 @@ type providerTransport interface {
 type loopAdapter struct {
 	identity  AdapterIdentity
 	family    ProfileFamily
+	surface   ProfileSurface
 	new       providerConversationFactory
 	transport providerTransport
 }
@@ -54,6 +55,7 @@ type loopAdapter struct {
 func newLoopAdapter(
 	key, id, version string,
 	family ProfileFamily,
+	surface ProfileSurface,
 	configuration any,
 	factory providerConversationFactory,
 	transport providerTransport,
@@ -62,6 +64,7 @@ func newLoopAdapter(
 		!driverIdentityPattern.MatchString(id) ||
 		!versionPattern.MatchString(version) ||
 		!family.valid() || family == ProfileFake ||
+		!surface.validFor(family) ||
 		factory == nil || transport == nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
@@ -77,6 +80,7 @@ func newLoopAdapter(
 			ConfigurationDigest: Digest(body),
 		},
 		family:    family,
+		surface:   surface,
 		new:       factory,
 		transport: transport,
 	}, nil
@@ -94,6 +98,13 @@ func (adapter *loopAdapter) profileFamily() ProfileFamily {
 		return ""
 	}
 	return adapter.family
+}
+
+func (adapter *loopAdapter) profileSurface() ProfileSurface {
+	if adapter == nil {
+		return ""
+	}
+	return adapter.surface
 }
 
 func (adapter *loopAdapter) checkProfile(
@@ -289,6 +300,7 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Workspace      Workspace      `json:"workspace"`
 		Inputs         []Input        `json:"inputs"`
 		Responsibility Responsibility `json:"responsibility"`
+		ResultFields   []string       `json:"result_fields"`
 		Instruction    string         `json:"instruction"`
 	}
 	body, err := json.Marshal(promptEnvelope{
@@ -299,12 +311,29 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Workspace:      invocation.Request.Workspace,
 		Inputs:         invocation.Request.Inputs,
 		Responsibility: descriptor.Responsibility,
-		Instruction:    "Use only the advertised tools. Finish by calling sworn_submit exactly once; that call terminates the invocation.",
+		ResultFields:   submissionResultFields(descriptor.Responsibility),
+		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Copy this envelope's exact invocation_id and responsibility into sworn_submit, call it exactly once, and then stop.",
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		return nil, fail("RESOURCE_LIMIT")
 	}
 	return body, nil
+}
+
+func submissionResultFields(responsibility Responsibility) []string {
+	fields := []string{"summary", "detail"}
+	switch responsibility {
+	case PlannerProposal:
+		return append(fields, "plan")
+	case ImplementerImplementation:
+		return append(fields, "checks")
+	case CaptainReview:
+		return append(fields, "decision")
+	case WorkVerification, AssemblyVerification:
+		return append(fields, "checks", "decision")
+	default:
+		return fields
+	}
 }
 
 func clearBytes(body []byte) {

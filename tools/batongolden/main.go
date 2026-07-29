@@ -1,4 +1,4 @@
-// Command batongolden verifies or explicitly regenerates the checked-in RC8
+// Command batongolden verifies or explicitly regenerates the checked-in Baton
 // reference corpus. Ordinary verification executes no subprocess.
 package main
 
@@ -103,7 +103,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "batongolden: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "batongolden: generated exact RC8 reference corpus")
+		fmt.Fprintln(stdout, "batongolden: generated exact Baton reference corpus")
 		return 0
 	default:
 		fmt.Fprintln(stderr, "usage: batongolden verify")
@@ -122,7 +122,7 @@ func verifyCorpus(source fs.FS, root string, pkg baton.Package) (string, int, in
 		return "", 0, 0, fmt.Errorf("decode corpus manifest: %w", err)
 	}
 	if manifest.Schema != corpusSchema || manifest.Baton != baton.PackageVersion ||
-		manifest.Generator != "exact embedded RC8 JavaScript reference" ||
+		manifest.Generator != "exact embedded Baton JavaScript reference" ||
 		manifest.OracleSHA256 != rawSHA256(oracleScript) {
 		return "", 0, 0, errors.New("corpus manifest has a foreign generator or Baton identity")
 	}

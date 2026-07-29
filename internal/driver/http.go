@@ -16,14 +16,14 @@ type HeaderCredentialResolver func(context.Context, string) ([]byte, error)
 type ProfileLiveProbe func(context.Context, string, string) error
 
 type HTTPProfileConfig struct {
-	Key              string
-	ID               string
-	Version          string
-	Endpoint         string
-	CredentialHeader string
-	CredentialPrefix string
-	CredentialRefs   []string
-	ResponseBytes    int
+	Key              string   `json:"key"`
+	ID               string   `json:"id"`
+	Version          string   `json:"version"`
+	Endpoint         string   `json:"endpoint"`
+	CredentialHeader string   `json:"credential_header"`
+	CredentialPrefix string   `json:"credential_prefix"`
+	CredentialRefs   []string `json:"credential_refs"`
+	ResponseBytes    int      `json:"response_bytes"`
 }
 
 type httpTransport struct {
@@ -143,9 +143,25 @@ func (transport *httpTransport) roundTrip(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		clearBytes(body)
-		return nil, fail("PROVIDER_ERROR")
+		return nil, providerHTTPStatusError(response.StatusCode)
 	}
 	return body, nil
+}
+
+func providerHTTPStatusError(statusCode int) error {
+	switch {
+	case statusCode == http.StatusUnauthorized ||
+		statusCode == http.StatusForbidden:
+		return fail("PROVIDER_AUTHORIZATION_FAILED")
+	case statusCode == http.StatusTooManyRequests:
+		return fail("PROVIDER_LIMITED")
+	case statusCode >= 400 && statusCode < 500:
+		return fail("PROVIDER_REQUEST_REJECTED")
+	case statusCode >= 500 && statusCode < 600:
+		return fail("PROVIDER_UNAVAILABLE")
+	default:
+		return fail("PROVIDER_ERROR")
+	}
 }
 
 func (transport *httpTransport) check(
@@ -170,7 +186,7 @@ func (transport *httpTransport) check(
 			return ReadinessNotCertified, "live_probe_not_configured"
 		}
 		if err := transport.liveProbe(ctx, *ref, model); err != nil {
-			return ReadinessFail, "live_probe_failed"
+			return ReadinessFail, certificationFailureCode(err)
 		}
 		return ReadinessPass, "live_probe_passed"
 	default:

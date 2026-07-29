@@ -18,7 +18,7 @@ func exportedMethodNames(value any) []string {
 	return result
 }
 
-func TestExternalActionSurfaceIsExactlyTheFourRC8Facades(t *testing.T) {
+func TestExternalActionSurfaceIsExactlyTheFourBatonFacades(t *testing.T) {
 	t.Parallel()
 	got := exportedMethodNames((*baton.Actions)(nil))
 	want := []string{

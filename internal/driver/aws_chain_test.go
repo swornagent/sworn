@@ -5,6 +5,7 @@ package driver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -98,7 +99,9 @@ func TestAWSExportParserIsBoundedMutableClosedAndCleared(t *testing.T) {
 	}
 }
 
-func TestAWSChainDoubleSnapshotRejectsDriftAndConflictingRegion(t *testing.T) {
+func TestDirectAWSEnvironmentChainAvoidsCLIAndRejectsConflictingRegion(
+	t *testing.T,
+) {
 	t.Parallel()
 	awsPath := "/usr/local/aws-cli/v2/2.35.9/dist/aws"
 	if _, err := os.Stat(awsPath); err != nil {
@@ -129,25 +132,24 @@ func TestAWSChainDoubleSnapshotRejectsDriftAndConflictingRegion(t *testing.T) {
 			[]byte("AWS_DEFAULT_REGION=" + defaultRegion),
 		}
 	}
-	expiration := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
-	export := []byte(`{"Version":1,"AccessKeyId":"AKIAEXAMPLE1234","SecretAccessKey":"secret-example-value","Expiration":"` + expiration + `"}`)
 	calls := 0
 	runner := func(
 		_ context.Context,
 		_ AWSChainSpec,
 		_ [][]byte,
-		arguments ...string,
+		_ ...string,
 	) ([]byte, error) {
 		calls++
-		if strings.Join(arguments, " ") == "configure export-credentials --format process" {
-			return append([]byte(nil), export...), nil
-		}
-		return []byte(awsEnvironmentTable), nil
+		return nil, errors.New("AWS CLI must not run for direct environment credentials")
 	}
 	snapshot, credentials, err := resolveAWSChain(
 		context.Background(), spec, environment("ap-southeast-2"), runner,
 	)
-	if err != nil || calls != 3 || snapshot.Region != spec.Region {
+	if err != nil || calls != 0 || snapshot.Region != spec.Region ||
+		snapshot.RegionSource != AWSSourceEnvironment ||
+		snapshot.CredentialSource != AWSSourceEnvironment ||
+		string(credentials.accessKeyID) != "AKIAEXAMPLE1234" ||
+		string(credentials.secretAccessKey) != "secret-example-value" {
 		t.Fatalf("resolve = %#v, calls=%d, err=%v", snapshot, calls, err)
 	}
 	credentials.Close()
@@ -157,32 +159,13 @@ func TestAWSChainDoubleSnapshotRejectsDriftAndConflictingRegion(t *testing.T) {
 	); !IsCode(err, "AWS_NOT_CERTIFIED") || calls != 0 {
 		t.Fatalf("conflicting region = calls %d, error %v", calls, err)
 	}
-	driftedTable := strings.Replace(
-		awsEnvironmentTable,
-		"['AWS_REGION', 'AWS_DEFAULT_REGION']",
-		"['AWS_DEFAULT_REGION', 'AWS_REGION']",
-		1,
+	invalidSpec := spec
+	invalidSpec.EnvironmentKeys = append(
+		invalidSpec.EnvironmentKeys,
+		"AWS_CONFIG_FILE",
 	)
-	calls = 0
-	driftRunner := func(
-		_ context.Context,
-		_ AWSChainSpec,
-		_ [][]byte,
-		arguments ...string,
-	) ([]byte, error) {
-		calls++
-		if strings.Contains(strings.Join(arguments, " "), "export-credentials") {
-			return append([]byte(nil), export...), nil
-		}
-		if calls == 3 {
-			return []byte(driftedTable), nil
-		}
-		return []byte(awsEnvironmentTable), nil
-	}
-	if _, _, err := resolveAWSChain(
-		context.Background(), spec, environment("ap-southeast-2"), driftRunner,
-	); !IsCode(err, "AWS_NOT_CERTIFIED") {
-		t.Fatalf("source-location drift error = %v", err)
+	if validateAWSChainSpec(invalidSpec) == nil {
+		t.Fatal("direct environment source admitted an external-chain key")
 	}
 }
 
@@ -243,6 +226,11 @@ func TestSigV4VectorIsDeterministicAndBindsBodyRegionAndToken(t *testing.T) {
 	}
 	if request2.Header.Get("Authorization") == first {
 		t.Fatal("body mutation did not change signature")
+	}
+	if canonical := awsCanonicalURI(
+		"/model/amazon.nova-pro-v1%3A0/converse",
+	); canonical != "/model/amazon.nova-pro-v1%253A0/converse" {
+		t.Fatalf("reserved model path canonicalized as %q", canonical)
 	}
 }
 

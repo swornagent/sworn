@@ -46,9 +46,9 @@ type geminiFunctionResponse struct {
 }
 
 type geminiDeclaration struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Parameters  json.RawMessage `json:"parameters"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	ParametersJSONSchema json.RawMessage `json:"parametersJsonSchema"`
 }
 
 type geminiPending struct {
@@ -79,7 +79,7 @@ func NewGeminiAdapter(
 	}{transport.config, ProfileGemini}
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
-		configuration, factory, transport,
+		"", configuration, factory, transport,
 	)
 }
 
@@ -95,7 +95,7 @@ func newGeminiConversation(
 	for index, definition := range definitions {
 		declarations[index] = geminiDeclaration{
 			Name: definition.Name, Description: definition.Description,
-			Parameters: append([]byte(nil), definition.InputSchema...),
+			ParametersJSONSchema: append([]byte(nil), definition.InputSchema...),
 		}
 	}
 	promptText := string(prompt)
@@ -163,7 +163,10 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 	candidate, err := closedObject(
 		candidates[0],
 		[]string{"content", "finishReason"},
-		[]string{"index", "safetyRatings", "citationMetadata", "tokenCount"},
+		[]string{
+			"index", "safetyRatings", "citationMetadata", "tokenCount",
+			"finishMessage",
+		},
 	)
 	if err != nil || candidate["finishReason"] != "STOP" {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
@@ -279,7 +282,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 				"promptTokenCount", "candidatesTokenCount", "totalTokenCount",
 				"cachedContentTokenCount", "thoughtsTokenCount", "toolUsePromptTokenCount",
 				"promptTokensDetails", "candidatesTokensDetails", "cacheTokensDetails",
-				"toolUsePromptTokensDetails",
+				"toolUsePromptTokensDetails", "serviceTier",
 			},
 		)
 		if metadataErr != nil {

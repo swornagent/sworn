@@ -16,19 +16,20 @@ import (
 )
 
 type BedrockProfileConfig struct {
-	Key               string
-	ID                string
-	Version           string
-	Endpoint          string
-	CredentialRefs    []string
-	ResponseBytes     int
-	Chain             AWSChainSpec
-	AllowCachePoint   bool
-	AllowGuardContent bool
+	Key               string       `json:"key"`
+	ID                string       `json:"id"`
+	Version           string       `json:"version"`
+	Endpoint          string       `json:"endpoint"`
+	CredentialRefs    []string     `json:"credential_refs"`
+	ResponseBytes     int          `json:"response_bytes"`
+	Chain             AWSChainSpec `json:"chain"`
+	AllowCachePoint   bool         `json:"allow_cache_point"`
+	AllowGuardContent bool         `json:"allow_guard_content"`
 }
 
 type bedrockTransport struct {
 	config    BedrockProfileConfig
+	surface   ProfileSurface
 	resolve   AWSRuntimeResolver
 	liveProbe ProfileLiveProbe
 	client    *http.Client
@@ -64,13 +65,46 @@ func NewBedrockAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
+	transport, err := newBedrockTransport(
+		config,
+		ProfileSurfaceBedrockRuntimeConverse,
+		resolver,
+		probe,
+		roundTripper,
+	)
+	if err != nil {
+		return nil, err
+	}
+	config = transport.config
+	factory := func(
+		prompt []byte,
+		model string,
+		tools []providerToolDefinition,
+	) (providerConversation, error) {
+		return newBedrockConversation(config, model, tools, prompt)
+	}
+	return newLoopAdapter(
+		config.Key, config.ID, config.Version, ProfileBedrock,
+		ProfileSurfaceBedrockRuntimeConverse,
+		config, factory, transport,
+	)
+}
+
+func newBedrockTransport(
+	config BedrockProfileConfig,
+	surface ProfileSurface,
+	resolver AWSRuntimeResolver,
+	probe ProfileLiveProbe,
+	roundTripper http.RoundTripper,
+) (*bedrockTransport, error) {
 	if !providerKeyPattern.MatchString(config.Key) ||
 		!driverIdentityPattern.MatchString(config.ID) ||
 		!versionPattern.MatchString(config.Version) ||
 		validateEndpoint(config.Endpoint) != nil ||
 		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes ||
 		len(config.CredentialRefs) == 0 || resolver == nil ||
-		validateAWSChainSpec(config.Chain) != nil {
+		validateAWSChainSpec(config.Chain) != nil ||
+		bedrockSigningService(surface) == "" {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
@@ -94,7 +128,8 @@ func NewBedrockAdapter(
 		roundTripper = http.DefaultTransport.(*http.Transport).Clone()
 	}
 	transport := &bedrockTransport{
-		config: config, resolve: resolver, liveProbe: probe, refs: refs,
+		config: config, surface: surface,
+		resolve: resolver, liveProbe: probe, refs: refs,
 		runAWS: execAWSCommand,
 		client: &http.Client{
 			Transport: roundTripper,
@@ -103,17 +138,7 @@ func NewBedrockAdapter(
 			},
 		},
 	}
-	factory := func(
-		prompt []byte,
-		model string,
-		tools []providerToolDefinition,
-	) (providerConversation, error) {
-		return newBedrockConversation(config, model, tools, prompt)
-	}
-	return newLoopAdapter(
-		config.Key, config.ID, config.Version, ProfileBedrock,
-		config, factory, transport,
-	)
+	return transport, nil
 }
 
 func newBedrockConversation(
@@ -200,8 +225,11 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 			"performanceConfig", "serviceTier",
 		},
 	)
-	if err != nil || root["stopReason"] != "tool_use" {
-		return providerTurn{}, fail("PROVIDER_ERROR")
+	if err != nil {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if root["stopReason"] != "tool_use" {
+		return providerTurn{}, fail("MISSING_SUBMISSION")
 	}
 	output, err := closedObject(root["output"], []string{"message"}, nil)
 	if err != nil {
@@ -342,7 +370,10 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 		usage, usageErr := closedObject(
 			usageValue,
 			[]string{"inputTokens", "outputTokens", "totalTokens"},
-			[]string{"cacheReadInputTokens", "cacheWriteInputTokens"},
+			[]string{
+				"cacheReadInputTokens", "cacheWriteInputTokens",
+				"serverToolUsage",
+			},
 		)
 		input, inputOK := safeJSONInt(usage["inputTokens"])
 		outputTokens, outputOK := safeJSONInt(usage["outputTokens"])
@@ -444,12 +475,16 @@ func (transport *bedrockTransport) roundTrip(
 		return nil, fail("INVALID_PROVIDER_REQUEST")
 	}
 	httpRequest.Header.Set("Content-Type", request.ContentType)
+	service := bedrockSigningService(transport.surface)
+	if service == "" {
+		return nil, fail("AWS_SIGNING_FAILED")
+	}
 	if err := signAWSRequest(
 		httpRequest,
 		request.Body,
 		credentials,
 		snapshot.Region,
-		"bedrock",
+		service,
 		time.Now().UTC(),
 	); err != nil {
 		return nil, err
@@ -472,9 +507,20 @@ func (transport *bedrockTransport) roundTrip(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		clearBytes(body)
-		return nil, fail("PROVIDER_ERROR")
+		return nil, providerHTTPStatusError(response.StatusCode)
 	}
 	return body, nil
+}
+
+func bedrockSigningService(surface ProfileSurface) string {
+	switch surface {
+	case ProfileSurfaceBedrockRuntimeConverse:
+		return "bedrock"
+	case ProfileSurfaceBedrockMantleChat:
+		return "bedrock-mantle"
+	default:
+		return ""
+	}
 }
 
 func (transport *bedrockTransport) check(
@@ -489,15 +535,21 @@ func (transport *bedrockTransport) check(
 	if _, admitted := transport.refs[*ref]; !admitted {
 		return ReadinessNotCertified, "credential_reference_unknown"
 	}
-	closure, err := openAWSClosure(transport.config.Chain)
-	if err != nil {
-		return ReadinessNotCertified, "aws_cli_closure_changed"
+	directEnvironment := directAWSEnvironmentSpec(transport.config.Chain)
+	if !directEnvironment {
+		closure, err := openAWSClosure(transport.config.Chain)
+		if err != nil {
+			return ReadinessNotCertified, "aws_cli_closure_changed"
+		}
+		closeNativeFiles(closure)
 	}
-	closeNativeFiles(closure)
 	switch kind {
 	case checkInspect:
 		return ReadinessPass, "aws_configuration_exact"
 	case checkDoctor:
+		if directEnvironment {
+			return ReadinessPass, "aws_environment_ready"
+		}
 		if transport.runAWS == nil {
 			return ReadinessNotCertified, "aws_cli_runner_missing"
 		}
@@ -518,7 +570,7 @@ func (transport *bedrockTransport) check(
 			return ReadinessNotCertified, "live_probe_not_configured"
 		}
 		if err := transport.liveProbe(ctx, *ref, model); err != nil {
-			return ReadinessFail, "live_probe_failed"
+			return ReadinessFail, certificationFailureCode(err)
 		}
 		return ReadinessPass, "live_probe_passed"
 	default:
@@ -572,9 +624,7 @@ func signAWSRequest(
 	}
 	signedHeaders := strings.Join(names, ";")
 	canonicalURI := request.URL.EscapedPath()
-	if canonicalURI == "" {
-		canonicalURI = "/"
-	}
+	canonicalURI = awsCanonicalURI(canonicalURI)
 	canonicalRequest := strings.Join([]string{
 		request.Method,
 		canonicalURI,
@@ -606,6 +656,31 @@ func signAWSRequest(
 	)
 	clearBytes(signature)
 	return nil
+}
+
+func awsCanonicalURI(value string) string {
+	if value == "" {
+		return "/"
+	}
+	const hexadecimal = "0123456789ABCDEF"
+	var encoded strings.Builder
+	encoded.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character == '/' ||
+			character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '-' || character == '.' ||
+			character == '_' || character == '~' {
+			encoded.WriteByte(character)
+			continue
+		}
+		encoded.WriteByte('%')
+		encoded.WriteByte(hexadecimal[character>>4])
+		encoded.WriteByte(hexadecimal[character&0x0f])
+	}
+	return encoded.String()
 }
 
 func hmacSHA256(key, body []byte) []byte {
