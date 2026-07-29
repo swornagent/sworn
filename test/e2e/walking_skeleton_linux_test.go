@@ -358,7 +358,7 @@ func e2eManifest(
 			AllowedAuthorIDs:    []int64{42},
 			AllowedAssociations: []string{"MEMBER"},
 		},
-		Driver: swornruntime.FakeDriverConfig{
+		Driver: &swornruntime.FakeDriverConfig{
 			Executable: fakeExecutable, Digest: fakeDigest,
 			AdapterKey: "e2e-fake", Profile: "e2e-fake",
 		},
