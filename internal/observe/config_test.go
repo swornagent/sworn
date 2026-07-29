@@ -85,6 +85,9 @@ func TestParseConfigRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 			`"headers":{"Content-Type":"text/plain"}}`,
 		`{"schema_version":"sworn.otel-config/v1",` +
 			`"endpoint":"https://collector.example.com",` +
+			`"headers":{"Accept-Encoding":"gzip"}}`,
+		`{"schema_version":"sworn.otel-config/v1",` +
+			`"endpoint":"https://collector.example.com",` +
 			`"headers":{"X-Test":"one\r\ntwo"}}`,
 		`{"schema_version":"sworn.otel-config/v1",` +
 			`"endpoint":"https://collector.example.com",` +

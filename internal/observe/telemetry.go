@@ -34,8 +34,9 @@ type Status struct {
 }
 
 type Telemetry struct {
-	enabled bool
-	queue   chan Record
+	enabled   bool
+	available bool
+	queue     chan Record
 
 	sendMu sync.Mutex
 	closed bool
@@ -90,10 +91,11 @@ func newTelemetry(
 		return nil, fail("INVALID_TELEMETRY")
 	}
 	owner := &Telemetry{
-		enabled: true,
-		queue:   make(chan Record, queueCapacity),
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
+		enabled:   true,
+		available: true,
+		queue:     make(chan Record, queueCapacity),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 	runtime := &telemetryRuntime{
 		owner:          owner,
@@ -114,6 +116,10 @@ func newTelemetry(
 // queue drops telemetry only; it never blocks or reports an error to delivery.
 func (t *Telemetry) TryEnqueue(record Record) bool {
 	if t == nil || !t.enabled || !validTelemetryRecord(record) {
+		return false
+	}
+	if !t.available {
+		t.dropped.Add(1)
 		return false
 	}
 	copy := cloneRecord(record)
@@ -163,7 +169,7 @@ func (t *Telemetry) Status() Status {
 }
 
 func (t *Telemetry) Shutdown(ctx context.Context) error {
-	if t == nil || !t.enabled {
+	if t == nil || !t.enabled || !t.available {
 		return nil
 	}
 	if ctx == nil {

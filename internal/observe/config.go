@@ -78,7 +78,8 @@ func canonicalConfig(
 func restrictedHeader(name string) bool {
 	switch name {
 	case "Host", "Content-Length", "Content-Type", "Content-Encoding",
-		"Transfer-Encoding", "Connection", "Trailer", "Upgrade":
+		"Accept-Encoding", "Transfer-Encoding", "Connection", "Trailer",
+		"Upgrade":
 		return true
 	default:
 		return false

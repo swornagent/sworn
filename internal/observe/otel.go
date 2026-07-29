@@ -1,16 +1,19 @@
 package observe
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
-	"io"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 const (
@@ -18,18 +21,15 @@ const (
 	otelMaxResponseBytes = 4 * 1024 * 1024
 )
 
-var (
-	errOTelRedirect     = errors.New("OTLP redirect rejected")
-	errOTLPRequest      = errors.New("OTLP request failed")
-	errOTLPRequestSize  = errors.New("OTLP request too large")
-	errOTLPResponse     = errors.New("OTLP response failed")
-	errOTLPResponseSize = errors.New("OTLP response too large")
-)
+var errOTelRedirect = errors.New("OTLP redirect rejected")
 
 // NewOTLP creates an explicitly configured, package-local OTLP/HTTP
-// projection. It does not install global OpenTelemetry providers and does not
-// read endpoint, header, retry, compression, or client policy from ambient
-// OTEL_* variables.
+// projection. It does not install global OpenTelemetry providers. Explicit
+// options and a closed HTTP client prevent ambient endpoint, header, retry,
+// compression, proxy, transport, or metric policy from changing outbound
+// behavior. Ambient settings that would make the official constructors read
+// files or use process-global OpenTelemetry state instead leave telemetry
+// locally unhealthy and unavailable without controlling operator startup.
 func NewOTLP(
 	ctx context.Context,
 	config Config,
@@ -60,107 +60,165 @@ func newOTLP(
 	if err != nil {
 		return nil, err
 	}
-	traceExporter := newOTLPTraceExporter(
+	if ambientOTelConstructorBlocked() {
+		return unavailableTelemetry("exporter_start"), nil
+	}
+	traceAdapter, metricAdapter, err := newOfficialOTLPAdapters(
+		ctx,
 		traceURL,
-		canonical.Headers,
-		traceClient,
-	)
-	metricExporter := newOTLPMetricExporter(
 		metricURL,
 		canonical.Headers,
+		version,
+		traceClient,
 		metricClient,
 	)
+	if err != nil {
+		return unavailableTelemetry("exporter_start"), nil
+	}
 	telemetry, err := newTelemetry(
-		traceExporter,
-		metricExporter,
+		traceAdapter,
+		metricAdapter,
 		version,
 		telemetryQueueCapacity,
 		telemetryExportInterval,
 	)
 	if err != nil {
-		_ = traceExporter.Shutdown(context.Background())
-		_ = metricExporter.Shutdown(context.Background())
-		return nil, err
+		shutdownOTLPAdapters(traceAdapter, metricAdapter)
+		return unavailableTelemetry("exporter_start"), nil
 	}
 	return telemetry, nil
 }
 
-type otlpHTTPSender struct {
-	endpoint string
-	headers  map[string]string
-	client   *http.Client
+func unavailableTelemetry(code string) *Telemetry {
+	telemetry := &Telemetry{enabled: true}
+	telemetry.failure(code)
+	return telemetry
 }
 
-func newOTLPHTTPSender(
-	endpoint string,
-	headers map[string]string,
-	client *http.Client,
-) *otlpHTTPSender {
-	copiedHeaders := make(map[string]string, len(headers))
-	for name, value := range headers {
-		copiedHeaders[name] = value
+// The official v1.44 constructors read ambient TLS files before applying
+// explicit options, and experimental self-observability interacts with the
+// process-global OpenTelemetry provider. The operator treats the process
+// environment as stable during startup and declines telemetry without opening
+// those paths or using that global behavior.
+func ambientOTelConstructorBlocked() bool {
+	for _, name := range []string{
+		"OTEL_EXPORTER_OTLP_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_CLIENT_KEY",
+		"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY",
+		"OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY",
+	} {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return true
+		}
 	}
-	return &otlpHTTPSender{
-		endpoint: endpoint,
-		headers:  copiedHeaders,
-		client:   client,
-	}
+	return strings.EqualFold(
+		strings.TrimSpace(os.Getenv("OTEL_GO_X_OBSERVABILITY")),
+		"true",
+	)
 }
 
-func (s *otlpHTTPSender) post(
+func newOfficialOTLPAdapters(
 	ctx context.Context,
-	requestMessage proto.Message,
-) ([]byte, error) {
-	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(
-		requestMessage,
-	)
-	if err != nil {
-		return nil, errOTLPRequest
-	}
-	if len(body) > otelMaxRequestBytes {
-		return nil, errOTLPRequestSize
-	}
-	request, err := http.NewRequestWithContext(
+	traceURL, metricURL string,
+	headers map[string]string,
+	version string,
+	traceClient, metricClient *http.Client,
+) (*otelTraceAdapter, *otelMetricAdapter, error) {
+	traceExporter, err := otlptracehttp.New(
 		ctx,
-		http.MethodPost,
-		s.endpoint,
-		bytes.NewReader(body),
+		otlptracehttp.WithEndpointURL(traceURL),
+		otlptracehttp.WithHeaders(headers),
+		otlptracehttp.WithCompression(
+			otlptracehttp.NoCompression,
+		),
+		otlptracehttp.WithTimeout(telemetryExportTimeout),
+		otlptracehttp.WithMaxRequestSize(otelMaxRequestBytes),
+		otlptracehttp.WithRetry(
+			otlptracehttp.RetryConfig{Enabled: false},
+		),
+		otlptracehttp.WithHTTPClient(traceClient),
 	)
 	if err != nil {
-		return nil, errOTLPRequest
+		return nil, nil, fail("OTEL_EXPORTER_START_FAILED")
 	}
-	request.Header.Set("Content-Type", "application/x-protobuf")
-	request.Header.Set("Accept", "application/x-protobuf")
-	for name, value := range s.headers {
-		request.Header.Set(name, value)
-	}
-	response, err := s.client.Do(request)
+	metricExporter, err := otlpmetrichttp.New(
+		ctx,
+		otlpmetrichttp.WithEndpointURL(metricURL),
+		otlpmetrichttp.WithHeaders(headers),
+		otlpmetrichttp.WithCompression(
+			otlpmetrichttp.NoCompression,
+		),
+		otlpmetrichttp.WithTimeout(telemetryExportTimeout),
+		otlpmetrichttp.WithMaxRequestSize(otelMaxRequestBytes),
+		otlpmetrichttp.WithRetry(
+			otlpmetrichttp.RetryConfig{Enabled: false},
+		),
+		otlpmetrichttp.WithTemporalitySelector(
+			sdkmetric.CumulativeTemporalitySelector,
+		),
+		otlpmetrichttp.WithAggregationSelector(
+			sdkmetric.DefaultAggregationSelector,
+		),
+		otlpmetrichttp.WithHTTPClient(metricClient),
+	)
 	if err != nil {
-		return nil, errOTLPRequest
+		shutdownOfficialOTLPExporters(traceExporter, nil)
+		return nil, nil, fail("OTEL_EXPORTER_START_FAILED")
 	}
-	defer response.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(
-		response.Body,
-		otelMaxResponseBytes+1,
-	))
+	resource, err := otelSDKResource(telemetryResource{
+		serviceName:    "sworn",
+		serviceVersion: version,
+	})
 	if err != nil {
-		return nil, errOTLPResponse
+		shutdownOfficialOTLPExporters(traceExporter, metricExporter)
+		return nil, nil, fail("OTEL_EXPORTER_START_FAILED")
 	}
-	if len(responseBody) > otelMaxResponseBytes {
-		return nil, errOTLPResponseSize
-	}
-	if response.StatusCode != http.StatusOK {
-		return nil, errOTLPResponse
-	}
-	return responseBody, nil
+	return &otelTraceAdapter{
+			exporter: traceExporter,
+			resource: resource,
+		}, &otelMetricAdapter{
+			exporter: metricExporter,
+			resource: resource,
+		}, nil
 }
 
-func (s *otlpHTTPSender) shutdown() error {
-	if s == nil || s.client == nil {
-		return nil
+func shutdownOTLPAdapters(
+	traceAdapter *otelTraceAdapter,
+	metricAdapter *otelMetricAdapter,
+) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		telemetryExportTimeout,
+	)
+	defer cancel()
+	if traceAdapter != nil {
+		_ = traceAdapter.Shutdown(ctx)
 	}
-	s.client.CloseIdleConnections()
-	return nil
+	if metricAdapter != nil {
+		_ = metricAdapter.Shutdown(ctx)
+	}
+}
+
+func shutdownOfficialOTLPExporters(
+	traceExporter *otlptrace.Exporter,
+	metricExporter *otlpmetrichttp.Exporter,
+) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		telemetryExportTimeout,
+	)
+	defer cancel()
+	if traceExporter != nil {
+		_ = traceExporter.Shutdown(ctx)
+	}
+	if metricExporter != nil {
+		_ = metricExporter.Shutdown(ctx)
+	}
 }
 
 func newOTelHTTPClient() *http.Client {
@@ -168,6 +226,8 @@ func newOTelHTTPClient() *http.Client {
 		Timeout:   telemetryExportTimeout,
 		KeepAlive: -1,
 	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 	transport := &http.Transport{
 		Proxy:                  nil,
 		DialContext:            dialer.DialContext,
@@ -175,11 +235,13 @@ func newOTelHTTPClient() *http.Client {
 		DisableKeepAlives:      true,
 		DisableCompression:     true,
 		MaxIdleConns:           0,
+		MaxConnsPerHost:        1,
 		IdleConnTimeout:        time.Second,
 		TLSHandshakeTimeout:    telemetryExportTimeout,
 		ResponseHeaderTimeout:  telemetryExportTimeout,
 		ExpectContinueTimeout:  time.Second,
 		MaxResponseHeaderBytes: 16 * 1024,
+		Protocols:              protocols,
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},

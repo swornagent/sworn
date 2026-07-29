@@ -17,6 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	collectormetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -37,6 +41,7 @@ type otlpRequest struct {
 func TestNewOTLPOverridesAmbientEnvironmentAndExcludesIdentities(
 	t *testing.T,
 ) {
+	clearBlockedOTelConstructorEnvironment(t)
 	const sentinel = "PRIVATE_OTEL_ENV_RUN_ID_CREDENTIAL"
 	var ambientRequests atomic.Int64
 	ambient := httptest.NewServer(http.HandlerFunc(func(
@@ -151,6 +156,345 @@ func TestNewOTLPOverridesAmbientEnvironmentAndExcludesIdentities(
 	}
 }
 
+func TestOTLPAdaptersUseOfficialHTTPExportersAndPinnedModules(
+	t *testing.T,
+) {
+	clearBlockedOTelConstructorEnvironment(t)
+	transport := &staticOTLPRoundTripper{
+		responses: map[string]staticOTLPResponse{
+			"/v1/traces":  {status: http.StatusOK},
+			"/v1/metrics": {status: http.StatusOK},
+		},
+		calls: make(map[string]int),
+	}
+	client := func() *http.Client {
+		return &http.Client{
+			Transport: transport,
+			Timeout:   telemetryExportTimeout,
+			CheckRedirect: func(
+				*http.Request,
+				[]*http.Request,
+			) error {
+				return errOTelRedirect
+			},
+		}
+	}
+	traceAdapter, metricAdapter, err := newOfficialOTLPAdapters(
+		context.Background(),
+		"http://127.0.0.1:4318/v1/traces",
+		"http://127.0.0.1:4318/v1/metrics",
+		map[string]string{},
+		"0.3.0-dev",
+		client(),
+		client(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shutdownOTLPAdapters(traceAdapter, metricAdapter)
+
+	var officialTrace *otlptrace.Exporter = traceAdapter.exporter
+	var officialMetric *otlpmetrichttp.Exporter = metricAdapter.exporter
+	if officialTrace == nil || officialMetric == nil {
+		t.Fatal("official exporter is nil")
+	}
+	if got := officialMetric.Temporality(
+		sdkmetric.InstrumentKindCounter,
+	); got != metricdata.CumulativeTemporality {
+		t.Fatalf("metric temporality = %v", got)
+	}
+	if _, ok := officialMetric.Aggregation(
+		sdkmetric.InstrumentKindCounter,
+	).(sdkmetric.AggregationSum); !ok {
+		t.Fatalf(
+			"metric aggregation = %T",
+			officialMetric.Aggregation(sdkmetric.InstrumentKindCounter),
+		)
+	}
+
+	module, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dependency := range []string{
+		"go.opentelemetry.io/otel/exporters/otlp/" +
+			"otlptrace/otlptracehttp v1.44.0",
+		"go.opentelemetry.io/otel/exporters/otlp/" +
+			"otlpmetric/otlpmetrichttp v1.44.0",
+	} {
+		if !bytes.Contains(module, []byte("\t"+dependency+"\n")) {
+			t.Fatalf("go.mod has no direct %s requirement", dependency)
+		}
+	}
+}
+
+func TestOfficialExporterStartupFailureIsLocalAndNonControlling(
+	t *testing.T,
+) {
+	tests := map[string]string{
+		"OTEL_EXPORTER_OTLP_CERTIFICATE":                "unread-ca",
+		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE":         "unread-cert",
+		"OTEL_EXPORTER_OTLP_CLIENT_KEY":                 "unread-key",
+		"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE":         "unread-trace-ca",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE":  "unread-trace-cert",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY":          "unread-trace-key",
+		"OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE":        "unread-metric-ca",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE": "unread-metric-cert",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY":         "unread-metric-key",
+		"OTEL_GO_X_OBSERVABILITY":                       " TrUe ",
+	}
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			for environmentName := range tests {
+				t.Setenv(environmentName, "")
+			}
+			t.Setenv(name, value)
+			if !ambientOTelConstructorBlocked() {
+				t.Fatalf("%s did not block official constructor", name)
+			}
+			telemetry, err := NewOTLP(
+				context.Background(),
+				Config{
+					SchemaVersion: OTelConfigSchemaVersion,
+					Endpoint:      "http://127.0.0.1:4318",
+					Headers:       map[string]string{},
+				},
+				"0.3.0-dev",
+			)
+			if err != nil {
+				t.Fatalf("exporter startup controlled caller: %v", err)
+			}
+			assertUnavailableTelemetry(t, telemetry)
+		})
+	}
+}
+
+func assertUnavailableTelemetry(t *testing.T, telemetry *Telemetry) {
+	t.Helper()
+	status := telemetry.Status()
+	if !status.Enabled || status.QueueCapacity != 0 ||
+		status.QueueDepth != 0 || status.Failures != 1 ||
+		status.LastFailureAt == nil ||
+		status.LastFailureCode != "exporter_start" {
+		t.Fatalf("startup failure status = %#v", status)
+	}
+	started := time.Now()
+	if telemetry.TryEnqueue(testTelemetryRecord("startup-failure")) {
+		t.Fatal("unavailable exporter accepted telemetry")
+	}
+	if time.Since(started) > 250*time.Millisecond {
+		t.Fatal("unavailable exporter blocked delivery")
+	}
+	if status := telemetry.Status(); status.Dropped != 1 ||
+		status.Failures != 1 ||
+		status.LastFailureCode != "exporter_start" {
+		t.Fatalf("post-drop status = %#v", status)
+	}
+	for range 2 {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			100*time.Millisecond,
+		)
+		if err := telemetry.Shutdown(ctx); err != nil {
+			cancel()
+			t.Fatalf("unavailable shutdown = %v", err)
+		}
+		cancel()
+	}
+}
+
+type boundedRequestRoundTripper struct {
+	mu       sync.Mutex
+	requests []otlpRequest
+}
+
+func (r *boundedRequestRoundTripper) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	defer request.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(
+		request.Body,
+		otelMaxRequestBytes+1,
+	))
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.requests = append(r.requests, otlpRequest{
+		path:            request.URL.Path,
+		method:          request.Method,
+		contentEncoding: request.Header.Get("Content-Encoding"),
+		body:            body,
+	})
+	r.mu.Unlock()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+		Request:    request,
+	}, nil
+}
+
+func TestOfficialMetricExporterBoundsMaximumClosedCardinality(
+	t *testing.T,
+) {
+	clearBlockedOTelConstructorEnvironment(t)
+	transport := &boundedRequestRoundTripper{}
+	client := func() *http.Client {
+		return &http.Client{
+			Transport: transport,
+			Timeout:   telemetryExportTimeout,
+			CheckRedirect: func(
+				*http.Request,
+				[]*http.Request,
+			) error {
+				return errOTelRedirect
+			},
+		}
+	}
+	traceAdapter, metricAdapter, err := newOfficialOTLPAdapters(
+		context.Background(),
+		"http://127.0.0.1:4318/v1/traces",
+		"http://127.0.0.1:4318/v1/metrics",
+		map[string]string{},
+		"0.3.0-dev",
+		client(),
+		client(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shutdownOTLPAdapters(traceAdapter, metricAdapter)
+
+	points := maximumClosedMetricPoints()
+	if len(points) != 1008 {
+		t.Fatalf("closed metric points = %d", len(points))
+	}
+	names := []string{
+		"sworn.eval.attempts",
+		"sworn.eval.retries",
+		"sworn.eval.duration_ns.numerator",
+		"sworn.eval.duration_ns.denominator",
+		"sworn.eval.input_tokens",
+		"sworn.eval.output_tokens",
+		"sworn.eval.usage_coverage.numerator",
+		"sworn.eval.usage_coverage.denominator",
+	}
+	payload := telemetryMetricPayload{
+		resource: telemetryResource{
+			serviceName:    "sworn",
+			serviceVersion: "0.3.0-dev",
+		},
+		metrics: make([]telemetryMetric, 0, len(names)),
+	}
+	for _, name := range names {
+		payload.metrics = append(payload.metrics, telemetryMetric{
+			name:   name,
+			points: points,
+		})
+	}
+	if err := metricAdapter.Export(context.Background(), &payload); err != nil {
+		t.Fatal(err)
+	}
+
+	transport.mu.Lock()
+	requests := append([]otlpRequest(nil), transport.requests...)
+	transport.mu.Unlock()
+	if len(requests) != len(names) {
+		t.Fatalf("metric requests = %d, want %d", len(requests), len(names))
+	}
+	for _, request := range requests {
+		if request.path != "/v1/metrics" ||
+			request.method != http.MethodPost ||
+			request.contentEncoding != "" ||
+			len(request.body) == 0 ||
+			len(request.body) > otelMaxRequestBytes {
+			t.Fatalf("unbounded metric request = %#v", request)
+		}
+	}
+}
+
+func maximumClosedMetricPoints() []telemetryMetricPoint {
+	responsibilities := []struct {
+		role           string
+		responsibility string
+	}{
+		{role: "planner", responsibility: "planner_proposal"},
+		{role: "implementer", responsibility: "implementer_design"},
+		{role: "implementer", responsibility: "implementer_implementation"},
+		{role: "captain", responsibility: "captain_review"},
+		{role: "verifier", responsibility: "work_verification"},
+		{role: "verifier", responsibility: "assembly_verification"},
+		{role: "other", responsibility: "other"},
+	}
+	operations := []string{"driver.dispatch", "other"}
+	transports := []string{
+		"completed",
+		"transport_error",
+		"timeout",
+		"cancelled",
+		"runner_error",
+		"other",
+	}
+	outcomes := []string{
+		"pending",
+		"claimed",
+		"succeeded",
+		"operational_failed",
+		"uncertain",
+		"other",
+	}
+	usageValues := []string{"reported", "unavailable"}
+	observedAt := time.Date(2026, 7, 29, 1, 2, 33, 0, time.UTC)
+	points := make(
+		[]telemetryMetricPoint,
+		0,
+		telemetryMetricCardinality,
+	)
+	for _, responsibility := range responsibilities {
+		for _, operation := range operations {
+			for _, transport := range transports {
+				for _, outcome := range outcomes {
+					for _, usage := range usageValues {
+						points = append(points, telemetryMetricPoint{
+							attributes: []telemetryAttribute{
+								stringTelemetryAttribute(
+									"sworn.role",
+									responsibility.role,
+								),
+								stringTelemetryAttribute(
+									"sworn.responsibility",
+									responsibility.responsibility,
+								),
+								stringTelemetryAttribute(
+									"sworn.operation",
+									operation,
+								),
+								stringTelemetryAttribute(
+									"sworn.transport",
+									transport,
+								),
+								stringTelemetryAttribute(
+									"sworn.outcome",
+									outcome,
+								),
+								stringTelemetryAttribute(
+									"sworn.usage_known",
+									usage,
+								),
+							},
+							observedAt: observedAt,
+							value:      1,
+						})
+					}
+				}
+			}
+		}
+	}
+	return points
+}
+
 func assertTraceWirePayload(t *testing.T, body []byte) {
 	t.Helper()
 	var request collectortracepb.ExportTraceServiceRequest
@@ -220,9 +564,11 @@ func assertTraceWirePayload(t *testing.T, body []byte) {
 		attributes := protoAttributeMap(t, span.Attributes)
 		assertExactKeys(t, attributes, allowed[span.Name])
 		if span.Kind != tracepb.Span_SPAN_KIND_INTERNAL ||
-			span.Flags != 1 || span.TraceState != "" ||
+			span.Flags != 257 || span.TraceState != "" ||
 			len(span.Events) != 0 || len(span.Links) != 0 ||
-			span.Status != nil ||
+			span.Status == nil ||
+			span.Status.Code != tracepb.Status_STATUS_CODE_UNSET ||
+			span.Status.Message != "" ||
 			span.DroppedAttributesCount != 0 ||
 			span.DroppedEventsCount != 0 ||
 			span.DroppedLinksCount != 0 {
@@ -421,7 +767,9 @@ type trackingOTLPRoundTripper struct {
 func (r *trackingOTLPRoundTripper) RoundTrip(
 	request *http.Request,
 ) (*http.Response, error) {
-	body := newTrackingResponseBody(5 * otelMaxRequestBytes)
+	body := newTrackingResponseBody(
+		otelMaxResponseBytes + otelMaxRequestBytes,
+	)
 	r.mu.Lock()
 	r.calls[request.URL.Path]++
 	r.bodies[request.URL.Path] = body
@@ -438,7 +786,7 @@ func (r *trackingOTLPRoundTripper) RoundTrip(
 func TestExplicitOTLPTransportDisablesRetriesAndBoundsResponses(
 	t *testing.T,
 ) {
-	t.Parallel()
+	clearBlockedOTelConstructorEnvironment(t)
 
 	transport := &trackingOTLPRoundTripper{
 		calls:  make(map[string]int),
@@ -496,7 +844,9 @@ func TestExplicitOTLPTransportDisablesRetriesAndBoundsResponses(
 			continue
 		}
 		read, size, closed := body.status()
-		if !closed || read <= 0 || int64(read) >= size {
+		if !closed || read <= 0 ||
+			read > otelMaxResponseBytes+1 ||
+			int64(read) >= size {
 			t.Errorf(
 				"%s response read/size/closed = %d/%d/%t",
 				path,
@@ -535,7 +885,9 @@ func (r *staticOTLPRoundTripper) RoundTrip(
 	return &http.Response{
 		StatusCode: response.status,
 		Status:     http.StatusText(response.status),
-		Header:     make(http.Header),
+		Header: http.Header{
+			"Content-Type": []string{"application/x-protobuf"},
+		},
 		Body: io.NopCloser(
 			bytes.NewReader(append([]byte(nil), response.body...)),
 		),
@@ -544,6 +896,7 @@ func (r *staticOTLPRoundTripper) RoundTrip(
 }
 
 func TestOTLPResponseFailuresStayFixedAndPrivate(t *testing.T) {
+	clearBlockedOTelConstructorEnvironment(t)
 	const sentinel = "PRIVATE_COLLECTOR_RESPONSE_SENTINEL"
 	tracePartial, err := proto.Marshal(
 		&collectortracepb.ExportTraceServiceResponse{
@@ -567,6 +920,26 @@ func TestOTLPResponseFailuresStayFixedAndPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	traceMessageOnly, err := proto.Marshal(
+		&collectortracepb.ExportTraceServiceResponse{
+			PartialSuccess: &collectortracepb.ExportTracePartialSuccess{
+				ErrorMessage: sentinel,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricMessageOnly, err := proto.Marshal(
+		&collectormetricspb.ExportMetricsServiceResponse{
+			PartialSuccess: &collectormetricspb.ExportMetricsPartialSuccess{
+				ErrorMessage: sentinel,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name      string
 		responses map[string]staticOTLPResponse
@@ -581,6 +954,19 @@ func TestOTLPResponseFailuresStayFixedAndPrivate(t *testing.T) {
 				"/base/v1/metrics": {
 					status: http.StatusOK,
 					body:   metricPartial,
+				},
+			},
+		},
+		{
+			name: "partial success message only",
+			responses: map[string]staticOTLPResponse{
+				"/base/v1/traces": {
+					status: http.StatusOK,
+					body:   traceMessageOnly,
+				},
+				"/base/v1/metrics": {
+					status: http.StatusOK,
+					body:   metricMessageOnly,
 				},
 			},
 		},
@@ -658,7 +1044,7 @@ func TestOTLPResponseFailuresStayFixedAndPrivate(t *testing.T) {
 	}
 }
 
-func TestOTelHostileAmbientIsSilentInSubprocess(t *testing.T) {
+func TestOTelExplicitPolicyOverridesHostileAmbientInSubprocess(t *testing.T) {
 	const helper = "SWORN_TEST_OTEL_HOSTILE_AMBIENT"
 	const sentinel = "PRIVATE_HOSTILE_OTEL_SENTINEL_7d91"
 	if os.Getenv(helper) == "1" {
@@ -686,6 +1072,7 @@ func TestOTelHostileAmbientIsSilentInSubprocess(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		assertHostileOTelEnvironmentUnchanged(t, sentinel)
 		if !telemetry.TryEnqueue(testTelemetryRecord("subprocess")) {
 			t.Fatal("record was not accepted")
 		}
@@ -700,33 +1087,38 @@ func TestOTelHostileAmbientIsSilentInSubprocess(t *testing.T) {
 	}
 
 	hostile := map[string]string{
-		helper:                                "1",
-		"OTEL_RESOURCE_ATTRIBUTES":            "private=" + sentinel,
-		"OTEL_SERVICE_NAME":                   sentinel,
-		"OTEL_TRACES_SAMPLER":                 sentinel,
-		"OTEL_TRACES_SAMPLER_ARG":             sentinel,
-		"OTEL_METRICS_EXEMPLAR_FILTER":        sentinel,
-		"OTEL_GO_X_CARDINALITY_LIMIT":         sentinel,
-		"OTEL_EXPORTER_OTLP_ENDPOINT":         "://invalid-" + sentinel,
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "://trace-" + sentinel,
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "://metric-" + sentinel,
-		"OTEL_EXPORTER_OTLP_TIMEOUT":          sentinel,
-		"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT":   sentinel,
-		"OTEL_EXPORTER_OTLP_METRICS_TIMEOUT":  sentinel,
-		"OTEL_EXPORTER_OTLP_CERTIFICATE":      "/missing/" + sentinel,
-		"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE": "/missing/trace-" +
-			sentinel,
-		"OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE": "/missing/metric-" +
-			sentinel,
-		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE": "/missing/client-" +
-			sentinel,
-		"OTEL_EXPORTER_OTLP_CLIENT_KEY":                            "/missing/key-" + sentinel,
-		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE":        sentinel,
-		"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION": sentinel,
+		helper:                                                     "1",
+		"OTEL_RESOURCE_ATTRIBUTES":                                 "private=" + sentinel,
+		"OTEL_SERVICE_NAME":                                        sentinel,
+		"OTEL_TRACES_SAMPLER":                                      sentinel,
+		"OTEL_TRACES_SAMPLER_ARG":                                  sentinel,
+		"OTEL_METRICS_EXEMPLAR_FILTER":                             sentinel,
+		"OTEL_GO_X_CARDINALITY_LIMIT":                              sentinel,
+		"OTEL_GO_X_OBSERVABILITY":                                  "false",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":                              "https://ambient-" + sentinel + ".invalid/base",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":                       "https://trace-" + sentinel + ".invalid/v1/traces",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT":                      "https://metric-" + sentinel + ".invalid/v1/metrics",
+		"OTEL_EXPORTER_OTLP_HEADERS":                               "X-Ambient-Secret=" + sentinel,
+		"OTEL_EXPORTER_OTLP_TRACES_HEADERS":                        "X-Ambient-Secret=" + sentinel,
+		"OTEL_EXPORTER_OTLP_METRICS_HEADERS":                       "X-Ambient-Secret=" + sentinel,
+		"OTEL_EXPORTER_OTLP_COMPRESSION":                           "gzip",
+		"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION":                    "gzip",
+		"OTEL_EXPORTER_OTLP_METRICS_COMPRESSION":                   "gzip",
+		"OTEL_EXPORTER_OTLP_TIMEOUT":                               "1",
+		"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT":                        "1",
+		"OTEL_EXPORTER_OTLP_METRICS_TIMEOUT":                       "1",
+		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE":        "delta",
+		"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION": "base2_exponential_bucket_histogram",
+		"HTTP_PROXY":                                               "http://proxy-" + sentinel + ".invalid",
+		"HTTPS_PROXY":                                              "http://proxy-" + sentinel + ".invalid",
+		"NO_PROXY":                                                 "",
+	}
+	for _, name := range otelTLSFileEnvironmentNamesForTest() {
+		hostile[name] = ""
 	}
 	command := exec.Command(
 		os.Args[0],
-		"-test.run=^TestOTelHostileAmbientIsSilentInSubprocess$",
+		"-test.run=^TestOTelExplicitPolicyOverridesHostileAmbientInSubprocess$",
 		"-test.count=1",
 		"-test.v",
 	)
@@ -749,6 +1141,58 @@ func TestOTelHostileAmbientIsSilentInSubprocess(t *testing.T) {
 		if strings.Contains(output, sentinel) {
 			t.Fatalf("%s exposed hostile ambient sentinel", name)
 		}
+	}
+}
+
+func clearBlockedOTelConstructorEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range otelTLSFileEnvironmentNamesForTest() {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OTEL_GO_X_OBSERVABILITY", "false")
+}
+
+func otelTLSFileEnvironmentNamesForTest() []string {
+	return []string{
+		"OTEL_EXPORTER_OTLP_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_CLIENT_KEY",
+		"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY",
+		"OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY",
+	}
+}
+
+func assertHostileOTelEnvironmentUnchanged(
+	t *testing.T,
+	sentinel string,
+) {
+	t.Helper()
+	for _, name := range []string{
+		"OTEL_RESOURCE_ATTRIBUTES",
+		"OTEL_SERVICE_NAME",
+		"OTEL_TRACES_SAMPLER",
+		"OTEL_TRACES_SAMPLER_ARG",
+		"OTEL_METRICS_EXEMPLAR_FILTER",
+		"OTEL_GO_X_CARDINALITY_LIMIT",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_HEADERS",
+		"OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+		"OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+	} {
+		if !strings.Contains(os.Getenv(name), sentinel) {
+			t.Fatalf("%s was changed", name)
+		}
+	}
+	if os.Getenv("OTEL_GO_X_OBSERVABILITY") != "false" {
+		t.Fatal("OTEL_GO_X_OBSERVABILITY was changed")
 	}
 }
 
@@ -788,9 +1232,14 @@ func TestOTelHTTPClientHasClosedNetworkPolicy(t *testing.T) {
 	if !ok || transport.Proxy != nil ||
 		!transport.DisableCompression ||
 		!transport.DisableKeepAlives ||
+		transport.MaxConnsPerHost != 1 ||
 		transport.TLSClientConfig == nil ||
 		transport.TLSClientConfig.MinVersion != tls.VersionTLS12 ||
-		len(transport.TLSNextProto) != 0 {
+		len(transport.TLSNextProto) != 0 ||
+		transport.Protocols == nil ||
+		!transport.Protocols.HTTP1() ||
+		transport.Protocols.HTTP2() ||
+		transport.Protocols.UnencryptedHTTP2() {
 		t.Fatalf("transport policy = %#v", transport)
 	}
 }

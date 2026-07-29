@@ -3,356 +3,321 @@ package observe
 import (
 	"context"
 	"errors"
-	"net/http"
+	"time"
 
-	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
-	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
-	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/proto"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
-var errOTLPPayload = errors.New("OTLP payload invalid")
+const otelMetricPointsPerRequest = telemetryMetricCardinality
 
-type otlpTraceExporter struct {
-	sender *otlpHTTPSender
+var errOTLPAdapterPayload = errors.New("OTLP adapter payload invalid")
+
+type otelTraceAdapter struct {
+	exporter *otlptrace.Exporter
+	resource *resource.Resource
 }
 
-func newOTLPTraceExporter(
-	endpoint string,
-	headers map[string]string,
-	client *http.Client,
-) *otlpTraceExporter {
-	return &otlpTraceExporter{
-		sender: newOTLPHTTPSender(endpoint, headers, client),
-	}
-}
-
-func (e *otlpTraceExporter) ExportSpans(
+func (a *otelTraceAdapter) ExportSpans(
 	ctx context.Context,
 	spans []telemetrySpan,
 ) error {
-	request, err := otlpTraceRequest(spans)
-	if err != nil {
-		return err
+	if a == nil || a.exporter == nil || a.resource == nil ||
+		len(spans) == 0 {
+		return errOTLPAdapterPayload
 	}
-	response, err := e.sender.post(ctx, request)
-	if err != nil {
-		return err
-	}
-	rejected, err := otlpResponseRejected(response)
-	if err != nil {
-		return err
-	}
-	if rejected {
-		return errOTLPResponse
-	}
-	return nil
-}
-
-func (e *otlpTraceExporter) Shutdown(context.Context) error {
-	return e.sender.shutdown()
-}
-
-type otlpMetricExporter struct {
-	sender *otlpHTTPSender
-}
-
-func newOTLPMetricExporter(
-	endpoint string,
-	headers map[string]string,
-	client *http.Client,
-) *otlpMetricExporter {
-	return &otlpMetricExporter{
-		sender: newOTLPHTTPSender(endpoint, headers, client),
-	}
-}
-
-func (e *otlpMetricExporter) Export(
-	ctx context.Context,
-	value *telemetryMetricPayload,
-) error {
-	requests, err := otlpMetricRequests(value)
-	if err != nil {
-		return err
-	}
-	for _, request := range requests {
-		response, err := e.sender.post(ctx, request)
-		if err != nil {
-			return err
-		}
-		rejected, err := otlpResponseRejected(response)
-		if err != nil {
-			return err
-		}
-		if rejected {
-			return errOTLPResponse
-		}
-	}
-	return nil
-}
-
-func (e *otlpMetricExporter) Shutdown(context.Context) error {
-	return e.sender.shutdown()
-}
-
-func otlpTraceRequest(
-	spans []telemetrySpan,
-) (*tracepb.TracesData, error) {
-	if len(spans) == 0 {
-		return nil, errOTLPPayload
-	}
-	protoSpans := make([]*tracepb.Span, 0, len(spans))
+	values := make([]sdktrace.ReadOnlySpan, 0, len(spans))
 	for _, span := range spans {
-		attributes, err := otlpAttributes(span.attributes)
+		value, err := a.readOnlySpan(span)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		value := &tracepb.Span{
-			TraceId:           append([]byte(nil), span.traceID[:]...),
-			SpanId:            append([]byte(nil), span.spanID[:]...),
-			Flags:             1,
-			Name:              span.name,
-			Kind:              tracepb.Span_SPAN_KIND_INTERNAL,
-			StartTimeUnixNano: uint64(span.startedAt.UnixNano()),
-			EndTimeUnixNano:   uint64(span.endedAt.UnixNano()),
-			Attributes:        attributes,
-		}
-		if span.hasParent {
-			value.ParentSpanId = append(
-				[]byte(nil),
-				span.parentSpanID[:]...,
-			)
-		}
-		protoSpans = append(protoSpans, value)
+		values = append(values, value)
 	}
-	resourceValue, err := otlpResource(spans[0].resource)
+	return a.exporter.ExportSpans(ctx, values)
+}
+
+func (a *otelTraceAdapter) readOnlySpan(
+	value telemetrySpan,
+) (sdktrace.ReadOnlySpan, error) {
+	attributes, err := otelSDKAttributes(value.attributes)
 	if err != nil {
 		return nil, err
 	}
-	// TracesData is wire-identical to ExportTraceServiceRequest. The official
-	// generated contract requires both envelopes to evolve together.
-	return &tracepb.TracesData{
-		ResourceSpans: []*tracepb.ResourceSpans{{
-			Resource: resourceValue,
-			ScopeSpans: []*tracepb.ScopeSpans{{
-				Scope: &commonpb.InstrumentationScope{
-					Name: "sworn.observe",
-				},
-				Spans: protoSpans,
-			}},
-		}},
+	traceID := trace.TraceID(value.traceID)
+	spanID := trace.SpanID(value.spanID)
+	if !traceID.IsValid() || !spanID.IsValid() ||
+		value.name == "" || value.startedAt.IsZero() ||
+		value.endedAt.Before(value.startedAt) {
+		return nil, errOTLPAdapterPayload
+	}
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	})
+	var parent trace.SpanContext
+	if value.hasParent {
+		parentID := trace.SpanID(value.parentSpanID)
+		if !parentID.IsValid() {
+			return nil, errOTLPAdapterPayload
+		}
+		parent = trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID:    traceID,
+			SpanID:     parentID,
+			TraceFlags: trace.FlagsSampled,
+		})
+	}
+	return otelReadOnlySpan{
+		name:        value.name,
+		spanContext: spanContext,
+		parent:      parent,
+		startedAt:   value.startedAt,
+		endedAt:     value.endedAt,
+		attributes:  attributes,
+		resource:    a.resource,
 	}, nil
 }
 
-func otlpMetricRequests(
+func (a *otelTraceAdapter) Shutdown(ctx context.Context) error {
+	if a == nil || a.exporter == nil {
+		return nil
+	}
+	return a.exporter.Shutdown(ctx)
+}
+
+type otelMetricAdapter struct {
+	exporter *otlpmetrichttp.Exporter
+	resource *resource.Resource
+}
+
+func (a *otelMetricAdapter) Export(
+	ctx context.Context,
 	value *telemetryMetricPayload,
-) ([]*metricspb.MetricsData, error) {
-	if value == nil || len(value.metrics) == 0 {
-		return nil, errOTLPPayload
+) error {
+	if a == nil || a.exporter == nil || a.resource == nil ||
+		value == nil || len(value.metrics) == 0 {
+		return errOTLPAdapterPayload
 	}
-	resourceValue, err := otlpResource(value.resource)
+	batches, err := a.metricBatches(value)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	metrics := make([]*metricspb.Metric, 0, len(value.metrics))
+	for index := range batches {
+		if err := a.exporter.Export(ctx, &batches[index]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *otelMetricAdapter) metricBatches(
+	value *telemetryMetricPayload,
+) ([]metricdata.ResourceMetrics, error) {
+	metrics := make([]metricdata.Metrics, 0, len(value.metrics))
+	pointCounts := make([]int, 0, len(value.metrics))
 	for _, metric := range value.metrics {
+		if metric.name == "" || len(metric.points) == 0 ||
+			len(metric.points) > otelMetricPointsPerRequest {
+			return nil, errOTLPAdapterPayload
+		}
 		points := make(
-			[]*metricspb.NumberDataPoint,
+			[]metricdata.DataPoint[int64],
 			0,
 			len(metric.points),
 		)
 		for _, point := range metric.points {
-			attributes, err := otlpAttributes(point.attributes)
-			if err != nil {
-				return nil, err
+			attributes, err := otelSDKAttributes(point.attributes)
+			if err != nil || point.observedAt.IsZero() {
+				return nil, errOTLPAdapterPayload
 			}
-			points = append(points, &metricspb.NumberDataPoint{
-				Attributes:   attributes,
-				TimeUnixNano: uint64(point.observedAt.UnixNano()),
-				Value: &metricspb.NumberDataPoint_AsInt{
-					AsInt: point.value,
-				},
+			points = append(points, metricdata.DataPoint[int64]{
+				Attributes: attribute.NewSet(attributes...),
+				Time:       point.observedAt,
+				Value:      point.value,
 			})
 		}
-		metrics = append(metrics, &metricspb.Metric{
+		metrics = append(metrics, metricdata.Metrics{
 			Name: metric.name,
-			Data: &metricspb.Metric_Gauge{
-				Gauge: &metricspb.Gauge{DataPoints: points},
-			},
+			Data: metricdata.Gauge[int64]{DataPoints: points},
 		})
+		pointCounts = append(pointCounts, len(points))
 	}
-	buildRequest := func(
-		values []*metricspb.Metric,
-	) *metricspb.MetricsData {
-		// MetricsData is wire-identical to ExportMetricsServiceRequest.
-		return &metricspb.MetricsData{
-			ResourceMetrics: []*metricspb.ResourceMetrics{{
-				Resource: resourceValue,
-				ScopeMetrics: []*metricspb.ScopeMetrics{{
-					Scope: &commonpb.InstrumentationScope{
-						Name: "sworn.observe",
-					},
-					Metrics: values,
-				}},
+
+	scope := instrumentation.Scope{Name: "sworn.observe"}
+	batches := make([]metricdata.ResourceMetrics, 0, len(metrics))
+	current := make([]metricdata.Metrics, 0, len(metrics))
+	currentPoints := 0
+	flush := func() {
+		batches = append(batches, metricdata.ResourceMetrics{
+			Resource: a.resource,
+			ScopeMetrics: []metricdata.ScopeMetrics{{
+				Scope:   scope,
+				Metrics: current,
 			}},
-		}
+		})
+		current = nil
+		currentPoints = 0
 	}
-	requests := make(
-		[]*metricspb.MetricsData,
-		0,
-		2,
-	)
-	current := make([]*metricspb.Metric, 0, len(metrics))
-	for _, metric := range metrics {
-		candidate := append(
-			append([]*metricspb.Metric(nil), current...),
-			metric,
-		)
-		request := buildRequest(candidate)
-		if proto.Size(request) <= otelMaxRequestBytes {
-			current = candidate
-			continue
+	for index, metric := range metrics {
+		if currentPoints != 0 &&
+			currentPoints+pointCounts[index] >
+				otelMetricPointsPerRequest {
+			flush()
 		}
-		if len(current) == 0 {
-			return nil, errOTLPRequestSize
-		}
-		requests = append(requests, buildRequest(current))
-		current = []*metricspb.Metric{metric}
-		if proto.Size(buildRequest(current)) > otelMaxRequestBytes {
-			return nil, errOTLPRequestSize
-		}
+		current = append(current, metric)
+		currentPoints += pointCounts[index]
 	}
 	if len(current) != 0 {
-		requests = append(requests, buildRequest(current))
+		flush()
 	}
-	return requests, nil
+	return batches, nil
 }
 
-func otlpResponseRejected(body []byte) (bool, error) {
-	for len(body) != 0 {
-		number, wireType, tagLength := protowire.ConsumeTag(body)
-		if tagLength < 0 {
-			return false, errOTLPResponse
-		}
-		body = body[tagLength:]
-		if number == 1 {
-			if wireType != protowire.BytesType {
-				return false, errOTLPResponse
-			}
-			partial, fieldLength := protowire.ConsumeBytes(body)
-			if fieldLength < 0 {
-				return false, errOTLPResponse
-			}
-			rejected, err := otlpPartialRejected(partial)
-			if err != nil || rejected {
-				return rejected, err
-			}
-			body = body[fieldLength:]
-			continue
-		}
-		fieldLength := protowire.ConsumeFieldValue(
-			number,
-			wireType,
-			body,
-		)
-		if fieldLength < 0 {
-			return false, errOTLPResponse
-		}
-		body = body[fieldLength:]
+func (a *otelMetricAdapter) Shutdown(ctx context.Context) error {
+	if a == nil || a.exporter == nil {
+		return nil
 	}
-	return false, nil
+	return a.exporter.Shutdown(ctx)
 }
 
-func otlpPartialRejected(body []byte) (bool, error) {
-	for len(body) != 0 {
-		number, wireType, tagLength := protowire.ConsumeTag(body)
-		if tagLength < 0 {
-			return false, errOTLPResponse
-		}
-		body = body[tagLength:]
-		if number == 1 {
-			if wireType != protowire.VarintType {
-				return false, errOTLPResponse
-			}
-			rejected, fieldLength := protowire.ConsumeVarint(body)
-			if fieldLength < 0 {
-				return false, errOTLPResponse
-			}
-			if rejected != 0 {
-				return true, nil
-			}
-			body = body[fieldLength:]
-			continue
-		}
-		fieldLength := protowire.ConsumeFieldValue(
-			number,
-			wireType,
-			body,
-		)
-		if fieldLength < 0 {
-			return false, errOTLPResponse
-		}
-		body = body[fieldLength:]
-	}
-	return false, nil
+// otelReadOnlySpan deliberately embeds the SDK interface to inherit its
+// private compatibility method, then defines every readable field explicitly.
+// This feeds the official trace exporter without installing an SDK provider or
+// ambient resource detectors.
+type otelReadOnlySpan struct {
+	sdktrace.ReadOnlySpan
+
+	name        string
+	spanContext trace.SpanContext
+	parent      trace.SpanContext
+	startedAt   time.Time
+	endedAt     time.Time
+	attributes  []attribute.KeyValue
+	resource    *resource.Resource
 }
 
-func otlpResource(value telemetryResource) (*resourcepb.Resource, error) {
-	attributes, err := otlpAttributes([]telemetryAttribute{
-		stringTelemetryAttribute("service.name", value.serviceName),
-		stringTelemetryAttribute(
-			"service.version",
-			value.serviceVersion,
-		),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &resourcepb.Resource{Attributes: attributes}, nil
+func (s otelReadOnlySpan) Name() string {
+	return s.name
 }
 
-func otlpAttributes(
+func (s otelReadOnlySpan) SpanContext() trace.SpanContext {
+	return s.spanContext
+}
+
+func (s otelReadOnlySpan) Parent() trace.SpanContext {
+	return s.parent
+}
+
+func (otelReadOnlySpan) SpanKind() trace.SpanKind {
+	return trace.SpanKindInternal
+}
+
+func (s otelReadOnlySpan) StartTime() time.Time {
+	return s.startedAt
+}
+
+func (s otelReadOnlySpan) EndTime() time.Time {
+	return s.endedAt
+}
+
+func (s otelReadOnlySpan) Attributes() []attribute.KeyValue {
+	return s.attributes
+}
+
+func (otelReadOnlySpan) Links() []sdktrace.Link {
+	return nil
+}
+
+func (otelReadOnlySpan) Events() []sdktrace.Event {
+	return nil
+}
+
+func (otelReadOnlySpan) Status() sdktrace.Status {
+	return sdktrace.Status{}
+}
+
+func (otelReadOnlySpan) InstrumentationScope() instrumentation.Scope {
+	return instrumentation.Scope{Name: "sworn.observe"}
+}
+
+func (s otelReadOnlySpan) InstrumentationLibrary() instrumentation.Library {
+	return s.InstrumentationScope()
+}
+
+func (s otelReadOnlySpan) Resource() *resource.Resource {
+	return s.resource
+}
+
+func (otelReadOnlySpan) DroppedAttributes() int {
+	return 0
+}
+
+func (otelReadOnlySpan) DroppedLinks() int {
+	return 0
+}
+
+func (otelReadOnlySpan) DroppedEvents() int {
+	return 0
+}
+
+func (otelReadOnlySpan) ChildSpanCount() int {
+	return 0
+}
+
+func otelSDKResource(
+	value telemetryResource,
+) (*resource.Resource, error) {
+	if value.serviceName == "" || value.serviceVersion == "" {
+		return nil, errOTLPAdapterPayload
+	}
+	return resource.NewSchemaless(
+		attribute.String("service.name", value.serviceName),
+		attribute.String("service.version", value.serviceVersion),
+	), nil
+}
+
+func otelSDKAttributes(
 	values []telemetryAttribute,
-) ([]*commonpb.KeyValue, error) {
-	result := make([]*commonpb.KeyValue, 0, len(values))
+) ([]attribute.KeyValue, error) {
+	result := make([]attribute.KeyValue, 0, len(values))
 	for _, value := range values {
-		converted, err := otlpAttributeValue(value)
-		if err != nil {
-			return nil, err
+		if value.key == "" {
+			return nil, errOTLPAdapterPayload
 		}
-		result = append(result, &commonpb.KeyValue{
-			Key:   value.key,
-			Value: converted,
-		})
+		switch value.kind {
+		case telemetryStringAttribute:
+			result = append(
+				result,
+				attribute.String(value.key, value.stringValue),
+			)
+		case telemetryInt64Attribute:
+			result = append(
+				result,
+				attribute.Int64(value.key, value.int64Value),
+			)
+		case telemetryBoolAttribute:
+			result = append(
+				result,
+				attribute.Bool(value.key, value.boolValue),
+			)
+		default:
+			return nil, errOTLPAdapterPayload
+		}
 	}
 	return result, nil
 }
 
-func otlpAttributeValue(
-	value telemetryAttribute,
-) (*commonpb.AnyValue, error) {
-	switch value.kind {
-	case telemetryStringAttribute:
-		return &commonpb.AnyValue{
-			Value: &commonpb.AnyValue_StringValue{
-				StringValue: value.stringValue,
-			},
-		}, nil
-	case telemetryInt64Attribute:
-		return &commonpb.AnyValue{
-			Value: &commonpb.AnyValue_IntValue{
-				IntValue: value.int64Value,
-			},
-		}, nil
-	case telemetryBoolAttribute:
-		return &commonpb.AnyValue{
-			Value: &commonpb.AnyValue_BoolValue{
-				BoolValue: value.boolValue,
-			},
-		}, nil
-	default:
-		return nil, errOTLPPayload
-	}
-}
+var (
+	_ telemetryTraceExporter  = (*otelTraceAdapter)(nil)
+	_ telemetryMetricExporter = (*otelMetricAdapter)(nil)
+	_ sdktrace.SpanExporter   = (*otlptrace.Exporter)(nil)
+	_ sdkmetric.Exporter      = (*otlpmetrichttp.Exporter)(nil)
+)
