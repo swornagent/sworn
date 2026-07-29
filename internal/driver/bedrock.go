@@ -29,6 +29,7 @@ type BedrockProfileConfig struct {
 
 type bedrockTransport struct {
 	config    BedrockProfileConfig
+	surface   ProfileSurface
 	resolve   AWSRuntimeResolver
 	liveProbe ProfileLiveProbe
 	client    *http.Client
@@ -64,7 +65,13 @@ func NewBedrockAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	transport, err := newBedrockTransport(config, resolver, probe, roundTripper)
+	transport, err := newBedrockTransport(
+		config,
+		ProfileSurfaceBedrockRuntimeConverse,
+		resolver,
+		probe,
+		roundTripper,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +92,7 @@ func NewBedrockAdapter(
 
 func newBedrockTransport(
 	config BedrockProfileConfig,
+	surface ProfileSurface,
 	resolver AWSRuntimeResolver,
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
@@ -95,7 +103,8 @@ func newBedrockTransport(
 		validateEndpoint(config.Endpoint) != nil ||
 		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes ||
 		len(config.CredentialRefs) == 0 || resolver == nil ||
-		validateAWSChainSpec(config.Chain) != nil {
+		validateAWSChainSpec(config.Chain) != nil ||
+		bedrockSigningService(surface) == "" {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
@@ -119,7 +128,8 @@ func newBedrockTransport(
 		roundTripper = http.DefaultTransport.(*http.Transport).Clone()
 	}
 	transport := &bedrockTransport{
-		config: config, resolve: resolver, liveProbe: probe, refs: refs,
+		config: config, surface: surface,
+		resolve: resolver, liveProbe: probe, refs: refs,
 		runAWS: execAWSCommand,
 		client: &http.Client{
 			Transport: roundTripper,
@@ -459,12 +469,16 @@ func (transport *bedrockTransport) roundTrip(
 		return nil, fail("INVALID_PROVIDER_REQUEST")
 	}
 	httpRequest.Header.Set("Content-Type", request.ContentType)
+	service := bedrockSigningService(transport.surface)
+	if service == "" {
+		return nil, fail("AWS_SIGNING_FAILED")
+	}
 	if err := signAWSRequest(
 		httpRequest,
 		request.Body,
 		credentials,
 		snapshot.Region,
-		"bedrock",
+		service,
 		time.Now().UTC(),
 	); err != nil {
 		return nil, err
@@ -490,6 +504,17 @@ func (transport *bedrockTransport) roundTrip(
 		return nil, fail("PROVIDER_ERROR")
 	}
 	return body, nil
+}
+
+func bedrockSigningService(surface ProfileSurface) string {
+	switch surface {
+	case ProfileSurfaceBedrockRuntimeConverse:
+		return "bedrock"
+	case ProfileSurfaceBedrockMantleChat:
+		return "bedrock-mantle"
+	default:
+		return ""
+	}
 }
 
 func (transport *bedrockTransport) check(

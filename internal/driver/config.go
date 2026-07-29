@@ -51,7 +51,8 @@ type DriverProcessAdapterConfig struct {
 }
 
 // DriverAdapterConfig is a closed union over the existing adapter
-// constructors. Exactly one field is present.
+// constructors. Exactly one field is present. A Mantle entry's Endpoint is
+// the exact POST URL ending /v1/chat/completions, not a base URL.
 type DriverAdapterConfig struct {
 	Process  *DriverProcessAdapterConfig `json:"process,omitempty"`
 	Native   *NativeAdapterConfig        `json:"native,omitempty"`
@@ -607,7 +608,7 @@ func validateAdapterDocumentEndpoint(
 	case driverAdapterBedrock:
 		endpoint = config.Bedrock.Endpoint
 	case driverAdapterMantle:
-		endpoint = config.Mantle.Endpoint
+		return validateMantleEndpoint(config.Mantle.Endpoint)
 	default:
 		return nil
 	}
