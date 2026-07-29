@@ -26,6 +26,8 @@ const (
 	MaxToolScanBytes      = 4_194_304
 )
 
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+
 type toolPathEntry struct {
 	Relative  string
 	Directory bool
@@ -116,8 +118,8 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 	}
 	definitions = append(definitions, providerToolDefinition{
 		Name:        "sworn_submit",
-		Description: "Submit the one final Baton responsibility result and terminate this invocation.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"submission":{"type":"object"}},"required":["submission"],"additionalProperties":false}`),
+		Description: "Include only the prompt's result_fields. For plan/checks use decoded byte_count, sha256:<64 lowercase hex> digest, and base64 bytes; detail may be empty.",
+		InputSchema: json.RawMessage(swornSubmitInputSchema),
 	})
 	return definitions
 }
@@ -374,9 +376,9 @@ func decodeToolSubmission(value any) (Submission, error) {
 		value,
 		[]string{
 			"schema_version", "invocation_id", "responsibility", "summary",
-			"detail", "plan", "checks", "decision",
+			"detail",
 		},
-		nil,
+		[]string{"plan", "checks", "decision"},
 	)
 	if err != nil {
 		return Submission{}, err
@@ -410,6 +412,20 @@ func decodeToolSubmission(value any) (Submission, error) {
 	var submission Submission
 	if json.Unmarshal(body, &submission) != nil {
 		return Submission{}, fail("INVALID_SUBMISSION")
+	}
+	// Structurally valid fields outside this responsibility carry no authority.
+	// Drop that model noise before the strict, permission-bound validation.
+	switch submission.Responsibility {
+	case PlannerProposal:
+		submission.Checks, submission.Decision = nil, nil
+	case ImplementerDesign:
+		submission.Plan, submission.Checks, submission.Decision = nil, nil, nil
+	case ImplementerImplementation:
+		submission.Plan, submission.Decision = nil, nil
+	case CaptainReview:
+		submission.Plan, submission.Checks = nil, nil
+	case WorkVerification, AssemblyVerification:
+		submission.Plan = nil
 	}
 	if err := ValidateSubmission(submission); err != nil {
 		return Submission{}, err

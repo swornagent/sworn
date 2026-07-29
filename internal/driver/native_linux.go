@@ -19,8 +19,6 @@ import (
 	"time"
 )
 
-const nativeOutputSchemaJSON = `{"type":"object","additionalProperties":true}`
-
 type nativeEventState struct {
 	mu         sync.Mutex
 	family     ProfileFamily
@@ -489,7 +487,7 @@ func waitNativeCaptureGate(
 }
 
 func nativeConfigSurfaceDigest(files []*os.File) (string, error) {
-	if len(files) != 3 {
+	if len(files) != 2 {
 		return "", fail("NATIVE_SURFACE_INVALID")
 	}
 	var surface []byte
@@ -620,7 +618,6 @@ func certifyNativeRuntime(
 	}()
 	for _, configPath := range []string{
 		nativeMCPConfigTarget(config.Family),
-		"/sworn/config/output-schema.json",
 		"/sworn/config/models.json",
 	} {
 		info, statErr := os.Stat(root + configPath)
@@ -772,7 +769,7 @@ func nativeConfigFiles(
 	if config.Family == ProfileClaude {
 		mcpConfiguration = map[string]any{"mcpServers": map[string]any{
 			"sworn": map[string]any{
-				"type": "http", "url": brokerURL,
+				"type": "http", "url": brokerURL, "alwaysLoad": true,
 				"headers": map[string]string{
 					"Authorization": "Bearer " + string(capability),
 				},
@@ -838,27 +835,18 @@ func nativeConfigFiles(
 	if err != nil {
 		return nil, err
 	}
-	schemaBody := []byte(nativeOutputSchemaJSON)
-	schema, err := unlinkedConfigFile(schemaBody)
-	clearBytes(schemaBody)
-	if err != nil {
-		_ = mcp.Close()
-		return nil, err
-	}
 	catalogBody, err := codexModelCatalog(invocation.Selected.Model)
 	if err != nil {
 		_ = mcp.Close()
-		_ = schema.Close()
 		return nil, err
 	}
 	catalog, err := unlinkedConfigFile(catalogBody)
 	clearBytes(catalogBody)
 	if err != nil {
 		_ = mcp.Close()
-		_ = schema.Close()
 		return nil, err
 	}
-	return []*os.File{mcp, schema, catalog}, nil
+	return []*os.File{mcp, catalog}, nil
 }
 
 func nativeCommand(
@@ -869,7 +857,7 @@ func nativeCommand(
 	configFiles []*os.File,
 	captureRun *nativeCaptureRun,
 ) ([]string, [][]byte, []*os.File, error) {
-	if len(closure) != len(config.RuntimeFiles)+1 || len(configFiles) != 3 ||
+	if len(closure) != len(config.RuntimeFiles)+1 || len(configFiles) != 2 ||
 		credential.File() == nil {
 		return nil, nil, nil, fail("NATIVE_NOT_CERTIFIED")
 	}
@@ -914,13 +902,12 @@ func nativeCommand(
 		"--ro-bind-fd", "3", "/sworn/bin/agent",
 		"--bind-fd", "4", config.CredentialTarget,
 		"--perms", "0600", "--ro-bind-data", "5", nativeMCPConfigTarget(config.Family),
-		"--perms", "0600", "--ro-bind-data", "6", "/sworn/config/output-schema.json",
-		"--perms", "0600", "--ro-bind-data", "7", "/sworn/config/models.json",
+		"--perms", "0600", "--ro-bind-data", "6", "/sworn/config/models.json",
 	)
 	for index, runtimeFile := range config.RuntimeFiles {
 		arguments = append(
 			arguments,
-			"--ro-bind-fd", itoa(8+index), runtimeFile.Target,
+			"--ro-bind-fd", itoa(7+index), runtimeFile.Target,
 		)
 	}
 	arguments = append(arguments, "--chdir", GuestWorkspacePath)
@@ -986,7 +973,6 @@ func claudeArguments(model string, access WorkspaceAccess) []string {
 		"--no-session-persistence",
 		"--max-turns", itoa(MaxProviderTurns),
 		"--model", model,
-		"--json-schema", nativeOutputSchemaJSON,
 		"--output-format", "stream-json",
 		"--verbose",
 	}
@@ -1003,8 +989,6 @@ func codexArguments(model string, fresh bool) []string {
 		"--skip-git-repo-check",
 		"-C", GuestWorkspacePath,
 		"-m", model,
-		"--output-schema", "/sworn/config/output-schema.json",
-		"-o", "/tmp/final",
 	}
 	for _, feature := range codexDisabledFeatures {
 		arguments = append(arguments, "--disable", feature)
@@ -1232,14 +1216,13 @@ func exactClaudeCapabilities(value any) bool {
 
 func exactClaudeTools(value any, access WorkspaceAccess) bool {
 	array, ok := value.([]any)
-	if !ok || len(array) != len(toolDefinitions(access))+1 {
+	if !ok || len(array) != len(toolDefinitions(access)) {
 		return false
 	}
 	expected := make(map[string]struct{})
 	for _, definition := range toolDefinitions(access) {
 		expected["mcp__sworn__"+definition.Name] = struct{}{}
 	}
-	expected["StructuredOutput"] = struct{}{}
 	if len(array) != len(expected) {
 		return false
 	}

@@ -157,6 +157,7 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 			"stopReason": "tool_use",
 			"usage": map[string]any{
 				"inputTokens": 23, "outputTokens": 29, "totalTokens": 52,
+				"serverToolUsage": map[string]any{},
 			},
 		})
 	}))

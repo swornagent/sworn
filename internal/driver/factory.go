@@ -169,11 +169,8 @@ func (factory *ProductionDriverFactory) liveProbe(
 		if err != nil {
 			return fail("LIVE_PROBE_FAILED")
 		}
-		observation, err := (Dispatcher{}).Invoke(ctx, invocation)
-		if err != nil || observation.Handoff == nil {
-			return fail("LIVE_PROBE_FAILED")
-		}
-		return nil
+		_, err = (Dispatcher{}).Invoke(ctx, invocation)
+		return err
 	}
 }
 

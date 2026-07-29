@@ -227,6 +227,11 @@ func TestSigV4VectorIsDeterministicAndBindsBodyRegionAndToken(t *testing.T) {
 	if request2.Header.Get("Authorization") == first {
 		t.Fatal("body mutation did not change signature")
 	}
+	if canonical := awsCanonicalURI(
+		"/model/amazon.nova-pro-v1%3A0/converse",
+	); canonical != "/model/amazon.nova-pro-v1%253A0/converse" {
+		t.Fatalf("reserved model path canonicalized as %q", canonical)
+	}
 }
 
 func TestAWSCLIUsesOnlyExactPinnedClosureAndClosedCommands(t *testing.T) {

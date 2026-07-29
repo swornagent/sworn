@@ -225,8 +225,11 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 			"performanceConfig", "serviceTier",
 		},
 	)
-	if err != nil || root["stopReason"] != "tool_use" {
-		return providerTurn{}, fail("PROVIDER_ERROR")
+	if err != nil {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if root["stopReason"] != "tool_use" {
+		return providerTurn{}, fail("MISSING_SUBMISSION")
 	}
 	output, err := closedObject(root["output"], []string{"message"}, nil)
 	if err != nil {
@@ -367,7 +370,10 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 		usage, usageErr := closedObject(
 			usageValue,
 			[]string{"inputTokens", "outputTokens", "totalTokens"},
-			[]string{"cacheReadInputTokens", "cacheWriteInputTokens"},
+			[]string{
+				"cacheReadInputTokens", "cacheWriteInputTokens",
+				"serverToolUsage",
+			},
 		)
 		input, inputOK := safeJSONInt(usage["inputTokens"])
 		outputTokens, outputOK := safeJSONInt(usage["outputTokens"])
@@ -501,7 +507,7 @@ func (transport *bedrockTransport) roundTrip(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		clearBytes(body)
-		return nil, fail("PROVIDER_ERROR")
+		return nil, providerHTTPStatusError(response.StatusCode)
 	}
 	return body, nil
 }
@@ -564,7 +570,7 @@ func (transport *bedrockTransport) check(
 			return ReadinessNotCertified, "live_probe_not_configured"
 		}
 		if err := transport.liveProbe(ctx, *ref, model); err != nil {
-			return ReadinessFail, "live_probe_failed"
+			return ReadinessFail, certificationFailureCode(err)
 		}
 		return ReadinessPass, "live_probe_passed"
 	default:
@@ -618,9 +624,7 @@ func signAWSRequest(
 	}
 	signedHeaders := strings.Join(names, ";")
 	canonicalURI := request.URL.EscapedPath()
-	if canonicalURI == "" {
-		canonicalURI = "/"
-	}
+	canonicalURI = awsCanonicalURI(canonicalURI)
 	canonicalRequest := strings.Join([]string{
 		request.Method,
 		canonicalURI,
@@ -652,6 +656,31 @@ func signAWSRequest(
 	)
 	clearBytes(signature)
 	return nil
+}
+
+func awsCanonicalURI(value string) string {
+	if value == "" {
+		return "/"
+	}
+	const hexadecimal = "0123456789ABCDEF"
+	var encoded strings.Builder
+	encoded.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character == '/' ||
+			character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '-' || character == '.' ||
+			character == '_' || character == '~' {
+			encoded.WriteByte(character)
+			continue
+		}
+		encoded.WriteByte('%')
+		encoded.WriteByte(hexadecimal[character>>4])
+		encoded.WriteByte(hexadecimal[character&0x0f])
+	}
+	return encoded.String()
 }
 
 func hmacSHA256(key, body []byte) []byte {

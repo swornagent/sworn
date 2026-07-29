@@ -183,7 +183,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	rawMessage, err := closedObject(
 		choice["message"],
 		[]string{"role", "content", "tool_calls"},
-		[]string{"reasoning_content", "refusal", "annotations"},
+		[]string{"reasoning", "reasoning_content", "refusal", "annotations"},
 	)
 	if err != nil || rawMessage["role"] != "assistant" {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
@@ -194,6 +194,14 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	if annotations, present := rawMessage["annotations"]; present {
 		array, ok := annotations.([]any)
 		if !ok || len(array) != 0 {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+	}
+	if reasoningValue, present := rawMessage["reasoning"]; present &&
+		reasoningValue != nil {
+		reasoning, ok := reasoningValue.(string)
+		if !ok || len(reasoning) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(reasoning)) {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 	}

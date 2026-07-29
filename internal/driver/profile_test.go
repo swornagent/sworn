@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -160,6 +161,60 @@ func TestProfileReportsAreClosedSecretFreeAndDoNotSubstitute(t *testing.T) {
 	unknown := registry.Doctor(context.Background(), "other", "model")
 	if unknown.State != ReadinessNotCertified || unknown.Code != "unknown_profile" {
 		t.Fatalf("unknown report = %#v", unknown)
+	}
+}
+
+func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"setup", fail("LIVE_PROBE_FAILED"), "certification_setup_failed"},
+		{"credential", fail("CREDENTIAL_UNAVAILABLE"), "certification_credential_failed"},
+		{"runtime", fail("PROCESS_START_FAILED"), "certification_runtime_failed"},
+		{"transport", fail("PROVIDER_TRANSPORT_FAILED"), "certification_provider_transport_failed"},
+		{"rejected", fail("PROVIDER_ERROR"), "certification_provider_rejected"},
+		{"authorization", providerHTTPStatusError(403), "certification_provider_authorization_failed"},
+		{"limited", providerHTTPStatusError(429), "certification_provider_limited"},
+		{"request", providerHTTPStatusError(400), "certification_provider_request_rejected"},
+		{"unavailable", providerHTTPStatusError(503), "certification_provider_unavailable"},
+		{"submission", fail("MISSING_SUBMISSION"), "certification_submission_failed"},
+		{"response contract", fail("CONTINUATION_INVALID"), "certification_response_contract_failed"},
+		{"usage", fail("INVALID_USAGE"), "certification_usage_failed"},
+		{"tool", fail("TOOL_NOT_ALLOWED"), "certification_tool_failed"},
+		{"resource", fail("RESOURCE_LIMIT"), "certification_resource_limited"},
+		{"timeout", context.DeadlineExceeded, "certification_timeout"},
+		{"cancelled", context.Canceled, "certification_cancelled"},
+		{"wrapped", fmt.Errorf("secret-canary: %w", fail("PROVIDER_ERROR")), "certification_provider_rejected"},
+		{"arbitrary error", fmt.Errorf("secret-canary"), "certification_contract_failed"},
+		{"arbitrary contract", fail("SECRET_CANARY"), "certification_contract_failed"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			code := certificationFailureCode(test.err)
+			if code != test.code {
+				t.Fatalf("code = %q, want %q", code, test.code)
+			}
+		})
+	}
+}
+
+func TestSubmissionAdapterErrorsRemainClassifiable(t *testing.T) {
+	for _, code := range []string{
+		"INVALID_SUBMISSION", "INVALID_IDENTITY", "INVALID_RESPONSIBILITY",
+		"INVALID_SUMMARY", "INVALID_DETAIL", "INVALID_EXACT_BYTES",
+		"INVALID_PLAN_BYTES", "INVALID_DECISION", "SUBMISSION_REJECTED",
+		"SUBMISSION_SHAPE_MISMATCH",
+	} {
+		normalized := normalizeAdapterError(fail(code))
+		if !IsCode(normalized, code) ||
+			certificationFailureCode(normalized) != "certification_submission_failed" {
+			t.Fatalf("%s normalized to %v", code, normalized)
+		}
 	}
 }
 
