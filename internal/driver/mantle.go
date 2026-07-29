@@ -1,6 +1,10 @@
 package driver
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+	"strings"
+)
 
 // BedrockMantleAuthMode is closed to the two authentication surfaces exposed
 // by Bedrock Mantle. A configured mode is never substituted after failure.
@@ -15,13 +19,16 @@ func (mode BedrockMantleAuthMode) valid() bool {
 	return mode == BedrockMantleAPIKey || mode == BedrockMantleAWS
 }
 
-// BedrockMantleProfileConfig describes the OpenAI-compatible Chat
-// Completions endpoint. Chain is present only for standard AWS-chain/SigV4
-// mode; API-key mode always uses Authorization: Bearer.
+// BedrockMantleProfileConfig describes one OpenAI-compatible Chat Completions
+// endpoint. Endpoint is the exact POST URL and must end
+// /v1/chat/completions; it is not a base URL. Chain is present only for
+// standard AWS-chain/SigV4 mode; API-key mode always uses Authorization:
+// Bearer.
 type BedrockMantleProfileConfig struct {
-	Key            string                `json:"key"`
-	ID             string                `json:"id"`
-	Version        string                `json:"version"`
+	Key     string `json:"key"`
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	// Endpoint is the exact POST URL ending /v1/chat/completions.
 	Endpoint       string                `json:"endpoint"`
 	CredentialRefs []string              `json:"credential_refs"`
 	ResponseBytes  int                   `json:"response_bytes"`
@@ -31,6 +38,7 @@ type BedrockMantleProfileConfig struct {
 
 // NewBedrockMantleAdapter composes the existing OpenAI conversation codec and
 // shared provider tool loop with exactly one configured Bedrock auth mode.
+// Config.Endpoint is sent as the exact POST URL.
 func NewBedrockMantleAdapter(
 	config BedrockMantleProfileConfig,
 	headerResolver HeaderCredentialResolver,
@@ -41,7 +49,7 @@ func NewBedrockMantleAdapter(
 	if !providerKeyPattern.MatchString(config.Key) ||
 		!driverIdentityPattern.MatchString(config.ID) ||
 		!versionPattern.MatchString(config.Version) ||
-		validateEndpoint(config.Endpoint) != nil ||
+		validateMantleEndpoint(config.Endpoint) != nil ||
 		config.ResponseBytes < 1 ||
 		config.ResponseBytes > MaxProviderResponseBytes ||
 		len(config.CredentialRefs) == 0 ||
@@ -92,6 +100,7 @@ func NewBedrockMantleAdapter(
 				ResponseBytes:  config.ResponseBytes,
 				Chain:          *config.Chain,
 			},
+			ProfileSurfaceBedrockMantleChat,
 			awsResolver,
 			probe,
 			roundTripper,
@@ -133,4 +142,16 @@ func NewBedrockMantleAdapter(
 		factory,
 		transport,
 	)
+}
+
+func validateMantleEndpoint(value string) error {
+	if validateEndpoint(value) != nil {
+		return fail("INVALID_ENDPOINT")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.RawQuery != "" ||
+		!strings.HasSuffix(parsed.Path, "/v1/chat/completions") {
+		return fail("INVALID_ENDPOINT")
+	}
+	return nil
 }

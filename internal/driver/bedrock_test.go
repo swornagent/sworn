@@ -16,6 +16,19 @@ import (
 	"time"
 )
 
+func TestBedrockSigningServiceIsClosedBySurface(t *testing.T) {
+	t.Parallel()
+	for surface, expected := range map[ProfileSurface]string{
+		ProfileSurfaceBedrockRuntimeConverse: "bedrock",
+		ProfileSurfaceBedrockMantleChat:      "bedrock-mantle",
+		ProfileSurface("user-configured"):    "",
+	} {
+		if actual := bedrockSigningService(surface); actual != expected {
+			t.Fatalf("surface %q service = %q, want %q", surface, actual, expected)
+		}
+	}
+}
+
 func TestBedrockConverseReplaysCompleteAdmittedAssistantMessage(t *testing.T) {
 	t.Parallel()
 	config := BedrockProfileConfig{
@@ -124,6 +137,8 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 		authorization := request.Header.Get("Authorization")
 		if request.URL.Path != "/model/exact-model/converse" ||
 			!strings.Contains(authorization, "Credential=AKIAEXAMPLE1234/") ||
+			!strings.Contains(authorization, "/bedrock/aws4_request") ||
+			strings.Contains(authorization, "/bedrock-mantle/aws4_request") ||
 			strings.Contains(authorization, "secret-example-value") ||
 			bytes.Contains(body, []byte("secret-example-value")) {
 			t.Errorf("Bedrock request = %s, auth=%q, body=%s", request.URL, authorization, body)
