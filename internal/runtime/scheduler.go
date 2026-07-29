@@ -3085,15 +3085,27 @@ func implementationReceiptApplied(
 		if entries[index].OID != cycle.Binds {
 			continue
 		}
-		if entries[index].Receipt.Attempt == nil {
+		bound := entries[index].Receipt
+		if bound.Attempt == nil {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		attempt := *bound.Attempt
+		switch {
+		case bound.Role == "captain" && bound.Result == "proceed":
+		case bound.Role == "implementer" &&
+			bound.Result == "candidate":
+			attempt++
+		case bound.Role == "verifier" &&
+			(bound.Result == "pass" || bound.Result == "fail"):
+			attempt++
+		default:
 			return false, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		if expectedAttempt != nil &&
-			*expectedAttempt != *entries[index].Receipt.Attempt {
+			*expectedAttempt != attempt {
 			return false, runtimeFail("AMBIGUOUS_ACTION_HISTORY", nil)
 		}
-		value := *entries[index].Receipt.Attempt
-		expectedAttempt = &value
+		expectedAttempt = &attempt
 	}
 	if expectedAttempt == nil {
 		return false, runtimeFail("CORRUPT_JOURNAL", nil)

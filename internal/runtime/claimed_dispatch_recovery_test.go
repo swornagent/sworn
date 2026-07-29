@@ -504,6 +504,28 @@ func TestImplementationReceiptAppliedUsesRetiredFullEvidence(
 	if err != nil || !applied {
 		t.Fatalf("retired exact receipt applied=%v err=%v", applied, err)
 	}
+	t.Run("verifier failure advances candidate attempt", func(t *testing.T) {
+		state := exact()
+		state.SliceHistories[0].History.Entries[0].Receipt.Role =
+			"verifier"
+		state.SliceHistories[0].History.Entries[0].Receipt.Result =
+			"fail"
+		next := attempt + 1
+		state.SliceHistories[0].History.Entries[1].Receipt.Attempt =
+			&next
+		applied, err := implementationReceiptApplied(
+			state,
+			cycle,
+			record,
+		)
+		if err != nil || !applied {
+			t.Fatalf(
+				"repair candidate applied=%v err=%v",
+				applied,
+				err,
+			)
+		}
+	})
 	for name, mutate := range map[string]func(*baton.State){
 		"detail": func(state *baton.State) {
 			state.SliceHistories[0].History.Entries[1].Detail =

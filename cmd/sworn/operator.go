@@ -39,6 +39,7 @@ type serveOptions struct {
 	runID          string
 	journalPath    string
 	manifestPath   string
+	driverConfig   string
 	operatorConfig string
 }
 
@@ -80,7 +81,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(
 			stderr,
 			"usage: sworn serve --run ID --journal ABS "+
-				"[--manifest ABS] [--operator-config ABS]\n",
+				"[--manifest ABS] [--config ABS] [--operator-config ABS]\n",
 		)
 		return 2
 	}
@@ -102,6 +103,7 @@ func parseServeOptions(args []string) (serveOptions, bool) {
 		"--run":             true,
 		"--journal":         true,
 		"--manifest":        true,
+		"--config":          true,
 		"--operator-config": true,
 	}
 	values := make(map[string]string, len(allowed))
@@ -123,6 +125,8 @@ func parseServeOptions(args []string) (serveOptions, bool) {
 		!absoluteCleanOperatorPath(values["--journal"]) ||
 		(values["--manifest"] != "" &&
 			!absoluteCleanOperatorPath(values["--manifest"])) ||
+		(values["--config"] != "" &&
+			!absoluteCleanOperatorPath(values["--config"])) ||
 		(values["--operator-config"] != "" &&
 			!absoluteCleanOperatorPath(values["--operator-config"])) {
 		return serveOptions{}, false
@@ -131,6 +135,7 @@ func parseServeOptions(args []string) (serveOptions, bool) {
 		runID:          values["--run"],
 		journalPath:    values["--journal"],
 		manifestPath:   values["--manifest"],
+		driverConfig:   values["--config"],
 		operatorConfig: values["--operator-config"],
 	}, true
 }
@@ -182,14 +187,16 @@ func serveOperator(
 		expectedDigest = status.ManifestDigest
 	}
 
-	runtimeService, err := runtimepkg.OpenService(
+	runtimeService, driverFactory, err := openRuntimeService(
 		parent,
 		options.journalPath,
+		options.driverConfig,
 	)
 	if err != nil {
 		return errors.New("operator unavailable")
 	}
 	defer runtimeService.Close()
+	defer driverFactory.Close()
 	operatorStore, err := journal.Open(parent, options.journalPath)
 	if err != nil {
 		return errors.New("operator unavailable")

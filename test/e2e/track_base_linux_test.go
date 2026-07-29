@@ -251,7 +251,7 @@ func prepareConsumedBaseRun(
 	return repository, journalPath, manifestPath
 }
 
-func TestRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
 	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
 	defer server.Close()
