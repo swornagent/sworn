@@ -133,15 +133,19 @@ func driverCLIConfigFixture(t *testing.T) string {
 			Reference: "SWORN_TEST_OPENAI_KEY",
 		}},
 		Adapters: []driver.DriverAdapterConfig{{
-			OpenAI: &driver.HTTPProfileConfig{
-				Key:              "openai-adapter",
-				ID:               "sworn.openai",
-				Version:          "1.0.0",
-				Endpoint:         "https://example.invalid/v1/chat/completions",
-				CredentialHeader: "Authorization",
-				CredentialPrefix: "Bearer ",
-				CredentialRefs:   []string{credential},
-				ResponseBytes:    driver.MaxProviderResponseBytes,
+			OpenAI: &driver.OpenAIProfileConfig{
+				HTTPProfileConfig: driver.HTTPProfileConfig{
+					Key:              "openai-adapter",
+					ID:               "sworn.openai",
+					Version:          "1.0.0",
+					Endpoint:         "https://example.invalid/v1/responses",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{credential},
+					ResponseBytes:    driver.MaxProviderResponseBytes,
+				},
+				API:             driver.OpenAIResponsesAPI,
+				ReasoningEffort: "medium",
 			},
 		}},
 		Profiles: []driver.DriverProfile{{

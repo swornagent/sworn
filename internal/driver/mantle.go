@@ -130,6 +130,7 @@ func NewBedrockMantleAdapter(
 			tools,
 			prompt,
 			false,
+			"",
 		)
 	}
 	return newLoopAdapter(

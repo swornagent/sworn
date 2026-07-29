@@ -34,10 +34,12 @@ does not modify Baton's immutable `NOT RUN` source manifest.
 The runtime and readiness CLI share one canonical
 `sworn.driver-config/v1` loader and host factory. Production manifests bind the
 configuration digest and four explicit role/model selections; scripted
-manifests and production configuration are mutually exclusive. The all-driver
-gate requires Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek,
-Gemini, Bedrock Runtime Converse, and Bedrock Mantle to pass with their exact
-configured models. There is no skip, fake, fallback, or substitution path.
+manifests and production configuration are mutually exclusive. Native OpenAI
+uses Responses; Chat Completions remains the OpenAI-compatible surface for
+providers that speak that dialect. The all-driver gate requires Codex CLI,
+Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, Bedrock Runtime
+Converse, and Bedrock Mantle to pass with their exact configured models. There
+is no skip, fake, fallback, or substitution path.
 
 The deterministic production journey uses a disposable repository, three
 tracks, a dependency, and two serial slices on one track. It reopens the same

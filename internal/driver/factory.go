@@ -368,7 +368,7 @@ func cloneDriverAdapterConfig(
 		value := cloneNativeAdapterConfig(*config.Native)
 		config.Native = &value
 	case config.OpenAI != nil:
-		value := cloneHTTPProfileConfig(*config.OpenAI)
+		value := cloneOpenAIProfileConfig(*config.OpenAI)
 		config.OpenAI = &value
 	case config.DeepSeek != nil:
 		value := cloneHTTPProfileConfig(*config.DeepSeek)

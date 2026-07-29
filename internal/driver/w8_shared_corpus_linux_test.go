@@ -86,9 +86,10 @@ func (adapter *w8CountedAdapter) checkProfile(
 type w8ProviderCodec string
 
 const (
-	w8OpenAICodec  w8ProviderCodec = "openai"
-	w8GeminiCodec  w8ProviderCodec = "gemini"
-	w8BedrockCodec w8ProviderCodec = "bedrock"
+	w8OpenAICodec    w8ProviderCodec = "openai"
+	w8ResponsesCodec w8ProviderCodec = "responses"
+	w8GeminiCodec    w8ProviderCodec = "gemini"
+	w8BedrockCodec   w8ProviderCodec = "bedrock"
 )
 
 type w8ProviderRoundTripper struct {
@@ -124,7 +125,7 @@ func (transport *w8ProviderRoundTripper) RoundTrip(
 	}
 	transport.transportInput = append(transport.transportInput[:0], body...)
 	switch transport.codec {
-	case w8OpenAICodec:
+	case w8OpenAICodec, w8ResponsesCodec:
 		var envelope struct {
 			Model string `json:"model"`
 		}
@@ -185,6 +186,41 @@ func (transport *w8ProviderRoundTripper) toolCallResponse(
 ) ([]byte, error) {
 	var value any
 	switch transport.codec {
+	case w8ResponsesCodec:
+		argumentBody, err := json.Marshal(arguments)
+		if err != nil {
+			return nil, err
+		}
+		summary := []any{}
+		if includeOpaqueText {
+			summary = append(summary, map[string]any{
+				"type": "summary_text",
+				"text": w8CorpusSentinel,
+			})
+		}
+		value = map[string]any{
+			"id":     fmt.Sprintf("w8-response-%d", transport.requests),
+			"object": "response",
+			"status": "completed",
+			"error":  nil,
+			"output": []any{
+				map[string]any{
+					"type":              "reasoning",
+					"id":                fmt.Sprintf("w8-reasoning-%d", transport.requests),
+					"status":            "completed",
+					"summary":           summary,
+					"content":           []any{},
+					"encrypted_content": fmt.Sprintf("w8-encrypted-%d", transport.requests),
+				},
+				map[string]any{
+					"type":      "function_call",
+					"call_id":   id,
+					"name":      name,
+					"arguments": string(argumentBody),
+					"status":    "completed",
+				},
+			},
+		}
 	case w8OpenAICodec:
 		argumentBody, err := json.Marshal(arguments)
 		if err != nil {
@@ -266,7 +302,13 @@ func TestW8SharedProductionCorpusHasExactSeventyPassRecords(t *testing.T) {
 	targets := []*w8CorpusTarget{
 		w8NewNativeTarget(t, "codex", ProfileCodex, nativeBinary),
 		w8NewNativeTarget(t, "claude", ProfileClaude, nativeBinary),
-		w8NewProviderTarget(t, "openai", ProfileOpenAIHTTP, "", w8OpenAICodec),
+		w8NewProviderTarget(
+			t,
+			"openai",
+			ProfileOpenAIHTTP,
+			ProfileSurfaceOpenAIResponses,
+			w8ResponsesCodec,
+		),
 		w8NewProviderTarget(t, "deepseek", ProfileDeepSeek, "", w8OpenAICodec),
 		w8NewProviderTarget(t, "gemini", ProfileGemini, "", w8GeminiCodec),
 		w8NewProviderTarget(
@@ -896,14 +938,18 @@ func w8NewProviderTarget(
 	var err error
 	switch name {
 	case "openai":
-		adapter, err = NewOpenAICompatibleAdapter(
-			HTTPProfileConfig{
-				Key: key, ID: id, Version: "1.0.0",
-				Endpoint:         "http://localhost/openai/chat/completions",
-				CredentialHeader: "Authorization",
-				CredentialPrefix: "Bearer ",
-				CredentialRefs:   []string{ref},
-				ResponseBytes:    MaxProviderResponseBytes,
+		adapter, err = NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: key, ID: id, Version: "1.0.0",
+					Endpoint:         "http://localhost/openai/v1/responses",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{ref},
+					ResponseBytes:    MaxProviderResponseBytes,
+				},
+				API:             OpenAIResponsesAPI,
+				ReasoningEffort: "medium",
 			},
 			w8HeaderCredential,
 			nil,

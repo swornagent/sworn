@@ -3,24 +3,23 @@
 ## Outcome
 
 The final candidate reaches every configured provider with the exact configured
-model. The evidence bundle has a current PASS for six profiles:
+model. The identity-bound evidence bundle has a current PASS for seven
+profiles:
 
 - Bedrock Mantle, `openai.gpt-oss-120b`;
 - Bedrock Runtime Converse, `amazon.nova-pro-v1:0`;
 - Claude Code CLI, `claude-sonnet-4-6`;
 - Codex CLI, `gpt-5.6-sol`;
-- DeepSeek, `deepseek-v4-flash`; and
-- Gemini GenerateContent, `gemini-3.5-flash`.
+- DeepSeek, `deepseek-v4-flash`;
+- Gemini GenerateContent, `gemini-3.5-flash`; and
+- native OpenAI Responses, `gpt-5.6-sol`.
 
-The final aggregate run named one model-output failure: a malformed DeepSeek
-submission. Its targeted recheck passed without a code or configuration
-change. The first failure remains in the evidence; no provider adapter retries
-internally.
-
-The remaining OpenAI-compatible HTTP failure is the provider's HTTP 429
-`insufficient_quota` response for the configured API key. Codex uses ChatGPT
-CLI authentication and passes independently. No driver, model, credential, or
-provider fallback substitutes for the failed OpenAI API profile.
+The earlier aggregate run named a malformed DeepSeek submission and an OpenAI
+quota limit. Both first failures remain in the evidence. DeepSeek passed its
+unchanged targeted recheck; after API credit was restored, native OpenAI moved
+to the recommended Responses surface and passed its targeted final-candidate
+check. No adapter retries internally, and no driver, model, credential, or
+provider fallback substitutes for either profile.
 
 This was a forward repair of the existing `W8-parity-release` slice. It did not
 replace the plan, reset completed slices, create replacement work IDs, or
@@ -28,14 +27,14 @@ discard prior evidence.
 
 ## Bound candidate and configuration
 
-- stripped binary: `/tmp/sworn-v0.3.0`;
+- stripped binary: `/tmp/sworn-responses-final.Kz6aNX/sworn-a`;
 - binary SHA-256:
-  `c6e06d38b1fb650ad02b5ef8de6a4d3c33ffd77ac109058d3b638ff5ea11bc9b`;
-- binary size: 22,212,770 bytes;
+  `7a72bb6bb25c15147bcd185f8dd28172470a1ba2a1813989ff5f6a39f77d4f28`;
+- binary size: 22,237,346 bytes;
 - driver configuration:
   `/home/brad/.config/sworn/v1-rc-driver-config.json`;
 - configuration SHA-256:
-  `cbce7163485c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`;
+  `12ab8326666c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`;
 - stable native resolver source:
   `/home/brad/.config/sworn/resolv.conf`;
 - resolver SHA-256:
@@ -92,6 +91,60 @@ and `/tmp/sworn-v0.3.0-doctor-frozen.IECA0e.json`
 (`6eb6d7cb53ea0f4906517d6b7b6c0e09eda6ee1ca1cc2f7de78f6bea7c59610f`);
 each returns seven PASS reports.
 
+## Native OpenAI uses Responses
+
+After API credit was restored, the OpenAI profile exposed a protocol mismatch
+rather than a model-capability failure: GPT-5.6 Sol rejected function tools
+combined with reasoning effort on Chat Completions. Chat works with reasoning
+explicitly disabled, but that would discard useful reasoning in the four
+model-facing Baton responsibilities.
+
+OpenAI recommends Responses for new projects and specifically for GPT-5.6
+reasoning, tools, and multi-turn work:
+
+- <https://developers.openai.com/api/docs/guides/migrate-to-responses>
+- <https://developers.openai.com/api/docs/guides/latest-model>
+
+Sworn therefore treats Responses as the native OpenAI surface. The existing
+role-neutral loop remains the only scheduler and tool authority. A small wire
+codec sends `store:false`, explicit `reasoning.effort`, and the existing
+function tools; it retains each bounded output Item exactly, then correlates
+`function_call_output` by `call_id`. Encrypted reasoning stays memory-only and
+is replayed to OpenAI, never exposed as a Sworn result. Chat Completions remains
+an explicit compatibility surface for providers that speak that dialect.
+There is no dialect guessing, fallback, provider SDK, hosted tool, or second
+orchestration loop.
+
+The exact certification prompt and tool set first proved the wire contract
+directly:
+
+| Evidence | SHA-256 | Result |
+| --- | --- | --- |
+| `/tmp/sworn-responses-request.mAl9FN.json` | `5d5d862de945383780bec301a5bbfd37f8f1e1bc8c79fbbe1274fa572d8ea6ba` | first Responses request |
+| `/tmp/sworn-responses-body.njXpaa.json` | `0100eacf605ee5fc5802d4a5b087e3841160f74801e60e685a22d5094fbfac54` | encrypted reasoning plus `Read` call |
+| `/tmp/sworn-responses-request2.BR1pZX.json` | `efc8a4133e844d33b0156886b0e8ee3e24c99d9b3ca1721ab0dc490f280e81fc` | exact Item replay plus correlated tool output |
+| `/tmp/sworn-responses-body2.tSEQBS.json` | `162df51ea65a684d3f7f855cfb4bdb0f4dacc82ccd25632d442bdf9385094124` | encrypted reasoning plus terminating `sworn_submit` |
+
+The first integrated targeted certification also passed as
+`openai_responses` with `gpt-5.6-sol`; final-candidate evidence below supersedes
+that development binary:
+
+| Evidence | SHA-256 | Result |
+| --- | --- | --- |
+| `/tmp/sworn-responses-final.Kz6aNX/sworn-a` | `7a72bb6bb25c15147bcd185f8dd28172470a1ba2a1813989ff5f6a39f77d4f28` | reproducible stripped final binary |
+| `/tmp/sworn-responses-final.Kz6aNX/driver-inspect-all.json` | `06c7947457ad25253f9649e9b53e0ee0a1f107c381472861eb93372dc5eeba4e` | seven configured profiles PASS offline inspection |
+| `/tmp/sworn-responses-final.Kz6aNX/driver-certify-openai-sourced.json` | `c471080180ff9047ed2f7ecfccdd0bf89aedd9f4fef623b966e2158bf38172b6` | final OpenAI Responses live certification PASS |
+
+The first final-binary invocation had not loaded the owner environment and
+failed at `certification_credential_failed` before contacting OpenAI. Loading
+the existing owner-only environment resolved that procedural seam; no adapter
+or model retry hid it.
+
+DeepSeek, Mantle, Gemini, Claude, Codex, and Bedrock were not live-rerun merely
+because the native OpenAI dialect changed. Their bound profile, model, surface,
+and configuration facts remain current, and the final shared corpus re-proves
+their relevant wire behavior.
+
 ## Gate lesson
 
 A monolithic all-green live-model sample amplifies independent provider and
@@ -104,8 +157,8 @@ unrelated successful providers again.
 
 ## Release consequence
 
-The code and six reachable provider surfaces are ready for the normal offline
-release gates. The current all-seven gate remains fail-closed until the
-configured OpenAI API account has usable quota and one aggregate run passes,
-or an approved plan revision adopts the targeted evidence bundle or names an
-exact deferral.
+All offline release gates pass, and the identity-bound live bundle covers every
+required profile and surface. Revision 10 proposes this lean evidence rule
+without changing a slice identity or resetting prior PASS work. Baton authority
+remains fail-closed only until the repository owner approves and installs that
+plan revision.

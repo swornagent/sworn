@@ -75,13 +75,17 @@ func productionConfig(t *testing.T) driver.LoadedDriverConfig {
 			Reference: "SWORN_TEST_TOKEN",
 		}},
 		Adapters: []driver.DriverAdapterConfig{{
-			OpenAI: &driver.HTTPProfileConfig{
-				Key: "openai", ID: "sworn.openai", Version: "1.0.0",
-				Endpoint:         "https://example.invalid/v1/chat/completions",
-				CredentialHeader: "Authorization",
-				CredentialPrefix: "Bearer ",
-				CredentialRefs:   []string{"token"},
-				ResponseBytes:    driver.MaxProviderResponseBytes,
+			OpenAI: &driver.OpenAIProfileConfig{
+				HTTPProfileConfig: driver.HTTPProfileConfig{
+					Key: "openai", ID: "sworn.openai", Version: "1.0.0",
+					Endpoint:         "https://example.invalid/v1/responses",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{"token"},
+					ResponseBytes:    driver.MaxProviderResponseBytes,
+				},
+				API:             driver.OpenAIResponsesAPI,
+				ReasoningEffort: "medium",
 			},
 		}},
 		Profiles: []driver.DriverProfile{
@@ -265,13 +269,17 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 				},
 			},
 			{
-				OpenAI: &driver.HTTPProfileConfig{
-					Key: "openai", ID: "sworn.openai", Version: "1.0.0",
-					Endpoint:         "https://example.invalid/v1/chat/completions",
-					CredentialHeader: "Authorization",
-					CredentialPrefix: "Bearer ",
-					CredentialRefs:   []string{"token"},
-					ResponseBytes:    driver.MaxProviderResponseBytes,
+				OpenAI: &driver.OpenAIProfileConfig{
+					HTTPProfileConfig: driver.HTTPProfileConfig{
+						Key: "openai", ID: "sworn.openai", Version: "1.0.0",
+						Endpoint:         "https://example.invalid/v1/responses",
+						CredentialHeader: "Authorization",
+						CredentialPrefix: "Bearer ",
+						CredentialRefs:   []string{"token"},
+						ResponseBytes:    driver.MaxProviderResponseBytes,
+					},
+					API:             driver.OpenAIResponsesAPI,
+					ReasoningEffort: "medium",
 				},
 			},
 		},
