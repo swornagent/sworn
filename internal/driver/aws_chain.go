@@ -129,6 +129,10 @@ func validateAWSChainSpec(spec AWSChainSpec) error {
 			// Both are supported only when the runtime values are identical.
 		}
 	}
+	if directAWSEnvironmentSpec(spec) &&
+		validateDirectAWSEnvironmentKeys(spec) != nil {
+		return fail("AWS_CONFIGURATION_INVALID")
+	}
 	return nil
 }
 
@@ -138,13 +142,20 @@ func resolveAWSChain(
 	environment [][]byte,
 	runner awsCommandRunner,
 ) (awsSnapshot, *awsCredentials, error) {
-	if validateAWSChainSpec(spec) != nil || runner == nil {
+	if validateAWSChainSpec(spec) != nil {
 		clearEnvironment(environment)
 		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
 	}
 	if err := validateAWSEnvironment(spec, environment); err != nil {
 		clearEnvironment(environment)
 		return awsSnapshot{}, nil, err
+	}
+	if directAWSEnvironmentSpec(spec) {
+		return resolveDirectAWSEnvironment(ctx, spec, environment)
+	}
+	if runner == nil {
+		clearEnvironment(environment)
+		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
 	}
 	defer clearEnvironment(environment)
 	arguments := []string{"configure", "list"}
@@ -201,6 +212,101 @@ func resolveAWSChain(
 		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
 	}
 	return first, credentials, nil
+}
+
+func directAWSEnvironmentSpec(spec AWSChainSpec) bool {
+	return spec.RegionSource == AWSSourceEnvironment &&
+		spec.CredentialSource == AWSSourceEnvironment
+}
+
+func validateDirectAWSEnvironmentKeys(spec AWSChainSpec) error {
+	if spec.Profile != "" {
+		return fail("AWS_CONFIGURATION_INVALID")
+	}
+	keys := make(map[string]struct{}, len(spec.EnvironmentKeys))
+	for _, key := range spec.EnvironmentKeys {
+		switch key {
+		case "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN", "AWS_REGION", "AWS_DEFAULT_REGION":
+		default:
+			return fail("AWS_CONFIGURATION_INVALID")
+		}
+		keys[key] = struct{}{}
+	}
+	for _, required := range []string{
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+	} {
+		if _, present := keys[required]; !present {
+			return fail("AWS_CONFIGURATION_INVALID")
+		}
+	}
+	_, region := keys["AWS_REGION"]
+	_, defaultRegion := keys["AWS_DEFAULT_REGION"]
+	if !region && !defaultRegion {
+		return fail("AWS_CONFIGURATION_INVALID")
+	}
+	return nil
+}
+
+func resolveDirectAWSEnvironment(
+	ctx context.Context,
+	spec AWSChainSpec,
+	environment [][]byte,
+) (awsSnapshot, *awsCredentials, error) {
+	if ctx == nil || ctx.Err() != nil ||
+		validateDirectAWSEnvironmentKeys(spec) != nil {
+		clearEnvironment(environment)
+		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
+	}
+	defer clearEnvironment(environment)
+	values := make(map[string][]byte, len(environment))
+	for _, entry := range environment {
+		separator := bytes.IndexByte(entry, '=')
+		if separator < 1 {
+			return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
+		}
+		values[string(entry[:separator])] = entry[separator+1:]
+	}
+	region := values["AWS_REGION"]
+	if len(region) == 0 {
+		region = values["AWS_DEFAULT_REGION"]
+	}
+	if len(region) == 0 || string(region) != spec.Region {
+		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
+	}
+	access := values["AWS_ACCESS_KEY_ID"]
+	secret := values["AWS_SECRET_ACCESS_KEY"]
+	token := values["AWS_SESSION_TOKEN"]
+	if !validDirectAWSSecret(access, 8, 256) ||
+		!validDirectAWSSecret(secret, 8, 4_096) ||
+		(len(token) != 0 && !validDirectAWSSecret(token, 1, 65_536)) {
+		return awsSnapshot{}, nil, fail("AWS_NOT_CERTIFIED")
+	}
+	credentials := &awsCredentials{
+		accessKeyID:     append([]byte(nil), access...),
+		secretAccessKey: append([]byte(nil), secret...),
+		sessionToken:    append([]byte(nil), token...),
+	}
+	keys := normalizedAWSEnvironmentKeys(spec.EnvironmentKeys)
+	fingerprintBody := []byte(
+		"environment\x00environment\x00" + strings.Join(keys, "\x00"),
+	)
+	fingerprint := sha256.Sum256(fingerprintBody)
+	clearBytes(fingerprintBody)
+	return awsSnapshot{
+		Profile:           "",
+		Region:            spec.Region,
+		RegionSource:      AWSSourceEnvironment,
+		CredentialSource:  AWSSourceEnvironment,
+		sourceFingerprint: fingerprint,
+	}, credentials, nil
+}
+
+func validDirectAWSSecret(body []byte, minimum, maximum int) bool {
+	return len(body) >= minimum && len(body) <= maximum &&
+		validOpaqueText(body) &&
+		!bytes.ContainsAny(body, "\x00\r\n")
 }
 
 func parseAWSConfigureList(body []byte) (awsSnapshot, error) {

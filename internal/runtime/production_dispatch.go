@@ -242,21 +242,43 @@ func sliceEvidence(
 func assemblyEvidence(
 	state baton.State,
 ) ([]productionEvidenceBinding, error) {
+	if len(state.Tracks) == 0 ||
+		len(state.Assembly.InputPins) != len(state.Tracks) {
+		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
 	result := make([]productionEvidenceBinding, 0, len(state.Assembly.InputPins))
-	for sliceID, passOID := range state.Assembly.InputPins {
-		slice, ok := state.Slice(sliceID)
-		if !ok || passOID == nil || slice.Pass == nil ||
-			slice.Pass.OID != *passOID || slice.Candidate == nil ||
-			slice.Candidate.Receipt.Candidate == nil ||
-			slice.Candidate.Receipt.ProductTree == nil {
+	seenTracks := make(map[string]struct{}, len(state.Tracks))
+	seenSlices := make(map[string]struct{}, len(state.Slices))
+	for index := range state.Tracks {
+		track := &state.Tracks[index]
+		productTree, pinned := state.Assembly.InputPins[track.ID]
+		if track.ID == "" || !pinned || productTree == nil ||
+			len(track.Slices) == 0 ||
+			track.Ref != "refs/heads/track/"+state.Release+"/"+track.ID ||
+			!validGitObjectID(track.Head) ||
+			track.Head != track.AuthorityHead {
 			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 		}
-		track, ok := state.Track(slice.Location.Track.ID)
-		if !ok {
+		if _, duplicate := seenTracks[track.ID]; duplicate {
+			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		seenTracks[track.ID] = struct{}{}
+		for _, slice := range track.Slices {
+			if !exactPassedSlice(slice, track.ID) {
+				return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+			}
+			sliceID := slice.Location.Slice.ID
+			if _, duplicate := seenSlices[sliceID]; duplicate {
+				return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+			}
+			seenSlices[sliceID] = struct{}{}
+		}
+		slice := track.Slices[len(track.Slices)-1]
+		if *slice.Candidate.Receipt.ProductTree != *productTree {
 			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 		}
 		result = append(result, productionEvidenceBinding{
-			Slice:            sliceID,
+			Slice:            slice.Location.Slice.ID,
 			PassReceipt:      slice.Pass.OID,
 			CandidateReceipt: slice.Candidate.OID,
 			Candidate:        *slice.Candidate.Receipt.Candidate,
@@ -269,6 +291,48 @@ func assemblyEvidence(
 		return result[i].Slice < result[j].Slice
 	})
 	return result, nil
+}
+
+func exactPassedSlice(slice *baton.SliceState, trackID string) bool {
+	if slice == nil || slice.Location.Track.ID != trackID ||
+		slice.Location.Slice.ID == "" ||
+		slice.Candidate == nil || slice.Candidate.OID == "" ||
+		slice.Candidate.Receipt.Role != "implementer" ||
+		slice.Candidate.Receipt.Result != "candidate" ||
+		slice.Candidate.Receipt.SliceID() != slice.Location.Slice.ID ||
+		slice.Candidate.Receipt.Candidate == nil ||
+		slice.Candidate.Receipt.ProductTree == nil ||
+		!runtimeDigestPattern.MatchString(
+			*slice.Candidate.Receipt.ProductTree,
+		) ||
+		slice.Pass == nil || slice.Pass.OID == "" ||
+		slice.Pass.Receipt.Role != "verifier" ||
+		slice.Pass.Receipt.Result != "pass" ||
+		slice.Pass.Receipt.SliceID() != slice.Location.Slice.ID ||
+		slice.Pass.Receipt.Binds != slice.Candidate.OID ||
+		slice.Pass.Receipt.Candidate == nil ||
+		*slice.Pass.Receipt.Candidate !=
+			*slice.Candidate.Receipt.Candidate ||
+		slice.Pass.Receipt.ProductTree == nil ||
+		*slice.Pass.Receipt.ProductTree !=
+			*slice.Candidate.Receipt.ProductTree {
+		return false
+	}
+	return true
+}
+
+func validGitObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' ||
+			character > '9' && character < 'a' ||
+			character > 'f' {
+			return false
+		}
+	}
+	return true
 }
 
 func captureProductionWorkContext(

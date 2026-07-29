@@ -92,8 +92,10 @@ type profileSurfaceReporter interface {
 	profileSurface() ProfileSurface
 }
 
-// NewProductionRegistry admits the complete W5 family set as one common
-// registry. It does not create role or model choices; callers must still
+// NewProductionRegistry admits the complete W5 production-family set as one
+// common registry. The deterministic fake remains available to subset
+// registries and scripted manifests, but is not required for production
+// readiness. This does not create role or model choices; callers must still
 // provide all four explicit RoleSelections for each dispatch configuration.
 func NewProductionRegistry(
 	configs []ProfileConfig,
@@ -136,7 +138,7 @@ func NewProductionRegistry(
 		}
 	}
 	for _, family := range []ProfileFamily{
-		ProfileFake, ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
+		ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
 		ProfileDeepSeek, ProfileGemini, ProfileBedrock,
 	} {
 		if families[family] < 1 {

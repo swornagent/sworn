@@ -529,15 +529,21 @@ func (transport *bedrockTransport) check(
 	if _, admitted := transport.refs[*ref]; !admitted {
 		return ReadinessNotCertified, "credential_reference_unknown"
 	}
-	closure, err := openAWSClosure(transport.config.Chain)
-	if err != nil {
-		return ReadinessNotCertified, "aws_cli_closure_changed"
+	directEnvironment := directAWSEnvironmentSpec(transport.config.Chain)
+	if !directEnvironment {
+		closure, err := openAWSClosure(transport.config.Chain)
+		if err != nil {
+			return ReadinessNotCertified, "aws_cli_closure_changed"
+		}
+		closeNativeFiles(closure)
 	}
-	closeNativeFiles(closure)
 	switch kind {
 	case checkInspect:
 		return ReadinessPass, "aws_configuration_exact"
 	case checkDoctor:
+		if directEnvironment {
+			return ReadinessPass, "aws_environment_ready"
+		}
 		if transport.runAWS == nil {
 			return ReadinessNotCertified, "aws_cli_runner_missing"
 		}

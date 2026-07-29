@@ -14,6 +14,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -22,17 +23,18 @@ const usage = `Sworn runs autonomous delivery with the Baton protocol.
 
 Available in the v0.3 walking skeleton:
   sworn version [--json]
-  sworn run --manifest PATH --journal PATH
+  sworn run --manifest PATH --journal PATH [--config ABS]
   sworn pause|resume|cancel|takeover --run ID --journal PATH --command ID --generation N
   sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
+  sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
   sworn status --run ID --journal PATH --json
   sworn board --run ID --journal PATH [--json]
-  sworn serve --run ID --journal ABS [--manifest ABS] [--operator-config ABS]
+  sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn help
 `
 
 const (
-	swornVersion = "0.3.0-dev"
+	swornVersion = "1.0.0-rc.1"
 	swornState   = "baton-rc8-admitted"
 )
 
@@ -56,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVersion(args[1:], stdout, stderr)
 	case "run":
 		return runStart(args[1:], stdout, stderr)
+	case "driver":
+		return runDriver(args[1:], stdout, stderr)
 	case "resume":
 		return runControl(journal.Resume, args[1:], stdout, stderr)
 	case "pause":
@@ -104,9 +108,18 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 }
 
 func runStart(args []string, stdout, stderr io.Writer) int {
-	options, ok := parseOptions(args, []string{"--manifest", "--journal"}, nil)
+	options, ok := parseOptionsWithOptionalValues(
+		args,
+		[]string{"--manifest", "--journal"},
+		[]string{"--config"},
+		nil,
+		nil,
+	)
 	if !ok {
-		fmt.Fprintln(stderr, "usage: sworn run --manifest PATH --journal PATH")
+		fmt.Fprintln(
+			stderr,
+			"usage: sworn run --manifest PATH --journal PATH [--config ABS]",
+		)
 		return 2
 	}
 	body, err := readManifest(options["--manifest"])
@@ -119,12 +132,17 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	service, err := runtimepkg.OpenService(ctx, options["--journal"])
+	service, factory, err := openRuntimeService(
+		ctx,
+		options["--journal"],
+		options["--config"],
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "sworn run: %v\n", err)
 		return 1
 	}
 	defer service.Close()
+	defer factory.Close()
 	status, err := service.Start(ctx, body)
 	if err != nil {
 		fmt.Fprintf(stderr, "sworn run: %v\n", err)
@@ -142,11 +160,25 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 	if kind == journal.Retry {
 		values = append(values, "--work", "--epoch")
 	}
-	options, ok := parseOptions(args, values, nil)
+	var optionalValues []string
+	if kind == journal.Resume || kind == journal.Retry ||
+		kind == journal.Takeover {
+		optionalValues = []string{"--config"}
+	}
+	options, ok := parseOptionsWithOptionalValues(
+		args,
+		values,
+		optionalValues,
+		nil,
+		nil,
+	)
 	if !ok {
 		fmt.Fprintf(stderr, "usage: sworn %s --run ID --journal PATH --command ID --generation N", kind)
 		if kind == journal.Retry {
 			fmt.Fprint(stderr, " --work SHA256 --epoch N")
+		}
+		if len(optionalValues) != 0 {
+			fmt.Fprint(stderr, " [--config ABS]")
 		}
 		fmt.Fprintln(stderr)
 		return 2
@@ -165,12 +197,17 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 		}
 	}
 	ctx := context.Background()
-	service, err := runtimepkg.OpenService(ctx, options["--journal"])
+	service, factory, err := openRuntimeService(
+		ctx,
+		options["--journal"],
+		options["--config"],
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "sworn %s: %v\n", kind, err)
 		return 1
 	}
 	defer service.Close()
+	defer factory.Close()
 	status, err := service.Control(ctx, runtimepkg.ControlCommand{
 		RunID: options["--run"], ID: options["--command"], Kind: kind,
 		ExpectedGeneration: generation, WorkID: options["--work"], ExpectedEpoch: epoch,
@@ -286,6 +323,22 @@ func parseOptions(
 	return parseOptionSets(args, values, switches, nil)
 }
 
+func parseOptionsWithOptionalValues(
+	args []string,
+	requiredValues []string,
+	optionalValues []string,
+	requiredSwitches []string,
+	optionalSwitches []string,
+) (map[string]string, bool) {
+	return parseOptionSetsWithOptionalValues(
+		args,
+		requiredValues,
+		optionalValues,
+		requiredSwitches,
+		optionalSwitches,
+	)
+}
+
 func parseOptionsWithOptionalSwitches(
 	args []string,
 	values []string,
@@ -300,8 +353,30 @@ func parseOptionSets(
 	requiredSwitches []string,
 	optionalSwitches []string,
 ) (map[string]string, bool) {
-	allowedValues := make(map[string]bool, len(values))
-	for _, name := range values {
+	return parseOptionSetsWithOptionalValues(
+		args,
+		values,
+		nil,
+		requiredSwitches,
+		optionalSwitches,
+	)
+}
+
+func parseOptionSetsWithOptionalValues(
+	args []string,
+	requiredValues []string,
+	optionalValues []string,
+	requiredSwitches []string,
+	optionalSwitches []string,
+) (map[string]string, bool) {
+	allowedValues := make(
+		map[string]bool,
+		len(requiredValues)+len(optionalValues),
+	)
+	for _, name := range requiredValues {
+		allowedValues[name] = true
+	}
+	for _, name := range optionalValues {
 		allowedValues[name] = true
 	}
 	allowedSwitches := make(
@@ -316,7 +391,8 @@ func parseOptionSets(
 	}
 	result := make(
 		map[string]string,
-		len(values)+len(requiredSwitches)+len(optionalSwitches),
+		len(requiredValues)+len(optionalValues)+
+			len(requiredSwitches)+len(optionalSwitches),
 	)
 	for index := 0; index < len(args); index++ {
 		name := args[index]
@@ -339,7 +415,7 @@ func parseOptionSets(
 		}
 		result[name] = args[index]
 	}
-	for _, name := range values {
+	for _, name := range requiredValues {
 		if result[name] == "" {
 			return nil, false
 		}
@@ -350,6 +426,36 @@ func parseOptionSets(
 		}
 	}
 	return result, true
+}
+
+func openRuntimeService(
+	ctx context.Context,
+	journalPath string,
+	configPath string,
+) (*runtimepkg.Service, *driver.ProductionDriverFactory, error) {
+	if configPath == "" {
+		service, err := runtimepkg.OpenService(ctx, journalPath)
+		return service, nil, err
+	}
+	loaded, err := driver.LoadDriverConfig(configPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	factory, err := driver.NewProductionDriverFactory(loaded)
+	if err != nil {
+		return nil, nil, err
+	}
+	service, err := runtimepkg.OpenServiceWithDriverConfig(
+		ctx,
+		journalPath,
+		loaded,
+		factory.Options(),
+	)
+	if err != nil {
+		_ = factory.Close()
+		return nil, nil, err
+	}
+	return service, factory, nil
 }
 
 func resolveGitExecutable() (string, error) {

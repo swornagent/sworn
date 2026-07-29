@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestBedrockSigningServiceIsClosedBySurface(t *testing.T) {
@@ -206,23 +206,15 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 	}
 	loop := adapter.(*loopAdapter)
 	transport := loop.transport.(*bedrockTransport)
-	expiration := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	var chainCalls atomic.Int64
 	transport.runAWS = func(
 		_ context.Context,
 		_ AWSChainSpec,
 		_ [][]byte,
-		arguments ...string,
+		_ ...string,
 	) ([]byte, error) {
 		chainCalls.Add(1)
-		if strings.Join(arguments, " ") ==
-			"configure export-credentials --format process" {
-			return []byte(
-				`{"Version":1,"AccessKeyId":"AKIAEXAMPLE1234","SecretAccessKey":"secret-example-value","Expiration":"` +
-					expiration + `"}`,
-			), nil
-		}
-		return []byte(awsEnvironmentTable), nil
+		return nil, errors.New("AWS CLI must not run for direct environment credentials")
 	}
 	invocation := productionInvocationFixture(
 		t,
@@ -235,7 +227,7 @@ func TestBedrockStandardChainFakeServerSignsWithoutPersistingSecrets(t *testing.
 	)
 	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 	if err != nil || observation.Handoff == nil || requests.Load() != 1 ||
-		chainCalls.Load() != 3 ||
+		chainCalls.Load() != 0 ||
 		observation.Usage.InputTokens == nil ||
 		*observation.Usage.InputTokens != 23 ||
 		observation.Usage.OutputTokens == nil ||

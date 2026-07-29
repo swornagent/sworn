@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,7 +14,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
@@ -248,21 +248,13 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := adapter.(*loopAdapter).transport.(*bedrockTransport)
-	expiration := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	transport.runAWS = func(
 		_ context.Context,
 		_ AWSChainSpec,
 		_ [][]byte,
-		arguments ...string,
+		_ ...string,
 	) ([]byte, error) {
-		if strings.Join(arguments, " ") ==
-			"configure export-credentials --format process" {
-			return []byte(
-				`{"Version":1,"AccessKeyId":"AKIAMANTLE12345","SecretAccessKey":"mantle-aws-secret","Expiration":"` +
-					expiration + `"}`,
-			), nil
-		}
-		return []byte(awsEnvironmentTable), nil
+		return nil, errors.New("AWS CLI must not run for direct environment credentials")
 	}
 	invocation := productionInvocationFixture(
 		t,

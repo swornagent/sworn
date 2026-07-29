@@ -213,6 +213,17 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 	}).openEngine(manifest); !IsCode(err, "DRIVER_CONFIG_UNAVAILABLE") {
 		t.Fatalf("missing production config = %v", err)
 	}
+	_, fakeBody, _ := fixtureManifest(t)
+	scriptedManifest, err := admitManifest(fakeBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.openEngine(scriptedManifest); !IsCode(
+		err,
+		"DRIVER_CONFIG_UNEXPECTED",
+	) {
+		t.Fatalf("unexpected production config in fake mode = %v", err)
+	}
 	differentConfig, err := driver.DecodeDriverConfig(bytes.Replace(
 		config.CanonicalJSON(),
 		[]byte("example.invalid"),
@@ -366,6 +377,170 @@ func TestSelectedNativeProfileIsCertifiedOncePerProcessAndModel(
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("native certification calls = %d, want 2", calls.Load())
+	}
+}
+
+func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	passedSlice := func(trackID, sliceID, token string) *baton.SliceState {
+		candidateOID := strings.Repeat(token, 40)
+		passOID := strings.Repeat(string(token[0]+1), 40)
+		candidate := strings.Repeat(string(token[0]+2), 40)
+		productTree := "sha256:" + strings.Repeat(token, 64)
+		return &baton.SliceState{
+			Location: baton.SliceLocation{
+				Track: baton.Track{ID: trackID},
+				Slice: baton.Slice{ID: sliceID},
+			},
+			Candidate: &baton.ReceiptEntry{
+				OID: candidateOID,
+				Receipt: baton.Receipt{
+					Slice: &sliceID, Role: "implementer",
+					Result: "candidate", Candidate: &candidate,
+					ProductTree: &productTree,
+				},
+			},
+			Pass: &baton.ReceiptEntry{
+				OID: passOID,
+				Receipt: baton.Receipt{
+					Slice: &sliceID, Role: "verifier", Result: "pass",
+					Binds: candidateOID, Candidate: &candidate,
+					ProductTree: &productTree,
+				},
+			},
+		}
+	}
+	fixture := func() baton.State {
+		a1 := passedSlice("T1", "A1", "1")
+		a2 := passedSlice("T1", "A2", "4")
+		b1 := passedSlice("T2", "B1", "7")
+		treeOne := *a2.Candidate.Receipt.ProductTree
+		treeTwo := *b1.Candidate.Receipt.ProductTree
+		return baton.State{
+			Release: "release",
+			Tracks: []baton.TrackState{
+				{
+					ID: "T1", Ref: "refs/heads/track/release/T1",
+					Head:          strings.Repeat("b", 40),
+					AuthorityHead: strings.Repeat("b", 40),
+					Slices:        []*baton.SliceState{a1, a2},
+				},
+				{
+					ID: "T2", DependsOn: []string{"T1"},
+					Ref:           "refs/heads/track/release/T2",
+					Head:          strings.Repeat("c", 40),
+					AuthorityHead: strings.Repeat("c", 40),
+					Slices:        []*baton.SliceState{b1},
+				},
+			},
+			Slices: []*baton.SliceState{a1, a2, b1},
+			Assembly: baton.AssemblyState{
+				InputPins: map[string]*string{
+					"T1": &treeOne,
+					"T2": &treeTwo,
+				},
+			},
+		}
+	}
+	state := fixture()
+	evidence, err := assemblyEvidence(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeOne := *state.Assembly.InputPins["T1"]
+	treeTwo := *state.Assembly.InputPins["T2"]
+	if len(evidence) != 2 ||
+		evidence[0].Slice != "A2" ||
+		evidence[0].ProductTree != treeOne ||
+		evidence[1].Slice != "B1" ||
+		evidence[1].ProductTree != treeTwo {
+		t.Fatalf("assembly evidence = %#v", evidence)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*baton.State)
+	}{
+		{
+			name: "missing pin",
+			mutate: func(value *baton.State) {
+				delete(value.Assembly.InputPins, "T2")
+			},
+		},
+		{
+			name: "extra pin",
+			mutate: func(value *baton.State) {
+				extra := "sha256:" + strings.Repeat("e", 64)
+				value.Assembly.InputPins["T3"] = &extra
+			},
+		},
+		{
+			name: "duplicate final slice",
+			mutate: func(value *baton.State) {
+				slice := value.Tracks[1].Slices[0]
+				duplicate := "A2"
+				slice.Location.Slice.ID = duplicate
+				slice.Candidate.Receipt.Slice = &duplicate
+				slice.Pass.Receipt.Slice = &duplicate
+			},
+		},
+		{
+			name: "slice track drift",
+			mutate: func(value *baton.State) {
+				value.Tracks[0].Slices[1].Location.Track.ID = "T2"
+			},
+		},
+		{
+			name: "pass shape and binding drift",
+			mutate: func(value *baton.State) {
+				pass := &value.Tracks[0].Slices[1].Pass.Receipt
+				pass.Role = "captain"
+				pass.Binds = strings.Repeat("f", 40)
+			},
+		},
+		{
+			name: "candidate identity drift",
+			mutate: func(value *baton.State) {
+				candidate := strings.Repeat("d", 40)
+				value.Tracks[0].Slices[1].Pass.Receipt.Candidate =
+					&candidate
+			},
+		},
+		{
+			name: "tree pin drift",
+			mutate: func(value *baton.State) {
+				tree := "sha256:" + strings.Repeat("f", 64)
+				value.Assembly.InputPins["T1"] = &tree
+			},
+		},
+		{
+			name: "source drift",
+			mutate: func(value *baton.State) {
+				value.Tracks[1].AuthorityHead = strings.Repeat("d", 40)
+			},
+		},
+		{
+			name: "serial predecessor not passed",
+			mutate: func(value *baton.State) {
+				value.Tracks[0].Slices[0].Pass = nil
+			},
+		},
+	}
+	for _, testCase := range cases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			value := fixture()
+			testCase.mutate(&value)
+			if _, err := assemblyEvidence(value); !IsCode(
+				err,
+				"INVALID_AUTHORITY_STATE",
+			) {
+				t.Fatalf("assembly drift = %v", err)
+			}
+		})
 	}
 }
 
