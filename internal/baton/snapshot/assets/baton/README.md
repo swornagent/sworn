@@ -35,8 +35,9 @@ limits, authority, and real dependencies—not an exhaustive inventory of paths
 or commands. Ancillary support discovery and extra evidence repair forward
 under the same approved plan while material contract changes still stop.
 
-The portable kit includes five canonical operations, generated Claude Code and
-Codex Skills, one plan template, deterministic reference tools, a read-only
-terminal and browser board. Longer design and evidence documents are optional
-project artefacts. Drivers, scheduling, retries, and telemetry belong to an
-engine such as Sworn.
+The portable kit includes five canonical operations, one generated
+client-neutral payload of standalone Skills, deterministic reference tools,
+and a read-only terminal and browser board. `baton-plan` carries its plan
+template inside its own skill directory. Longer design and evidence documents
+are optional project artefacts. Drivers, scheduling, retries, and telemetry
+belong to an engine such as Sworn.

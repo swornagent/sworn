@@ -35,7 +35,7 @@ Available in the v0.3 walking skeleton:
 
 const (
 	swornVersion = "1.0.0-rc.1"
-	swornState   = "baton-rc8-admitted"
+	swornState   = "baton-rc9-admitted"
 )
 
 type versionInfo struct {

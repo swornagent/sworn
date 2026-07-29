@@ -1,8 +1,8 @@
 {
   "schema": "sworn.batongolden/v2",
-  "baton": "1.0.0-rc.8",
-  "generator": "exact embedded RC8 JavaScript reference",
-  "oracle_sha256": "f24e3e0b1ccea17ca8edc526fb208119045de6984c3fa65b540c18b9147e017b",
+  "baton": "1.0.0-rc.9",
+  "generator": "exact embedded Baton JavaScript reference",
+  "oracle_sha256": "449db02b7aa34f00436ee6d4604f326e93037160ec9063fe4b3fb9a9fb98cf08",
   "references": [
     {
       "file": "actions.mjs",

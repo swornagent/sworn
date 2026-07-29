@@ -15,7 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-func TestVerifyReportsExactRC8Admission(t *testing.T) {
+func TestVerifyReportsExactBatonAdmission(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"verify"}, &stdout, &stderr); code != 0 {

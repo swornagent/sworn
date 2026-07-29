@@ -225,7 +225,7 @@ func TestSubmissionRejectsWrongResponsibilityDecisionAndExactBytes(t *testing.T)
 	}
 }
 
-func TestSubmissionPermissionPinsRC8PackageAdapterAndFreshVerifier(t *testing.T) {
+func TestSubmissionPermissionPinsBatonPackageAdapterAndFreshVerifier(t *testing.T) {
 	t.Parallel()
 	permission, _ := permissionFixture(t, RolePlanner, PlannerProposal)
 	permission.descriptor.Package.Version = "1.0.0-rc.3"
@@ -244,7 +244,7 @@ func TestSubmissionPermissionPinsRC8PackageAdapterAndFreshVerifier(t *testing.T)
 	}
 }
 
-func TestSubmissionCodecMatchesRC8LimitsAndBinaryChecks(t *testing.T) {
+func TestSubmissionCodecMatchesBatonLimitsAndBinaryChecks(t *testing.T) {
 	t.Parallel()
 	submission := submissionFixture(
 		t,
@@ -449,7 +449,7 @@ func TestEndpointBlocksSubmitUntilExactlyOneCompletedResult(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor, err := client.Describe()
-			if err != nil || descriptor.Package.Version != "1.0.0-rc.8" ||
+			if err != nil || descriptor.Package.Version != "1.0.0-rc.9" ||
 				descriptor.Package.SupportPackageSHA256 == "" {
 				t.Fatalf("descriptor = %#v, error = %v", descriptor, err)
 			}

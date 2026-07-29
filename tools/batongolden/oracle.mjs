@@ -85,7 +85,7 @@ function runGit(repo, args, options = {}) {
 }
 
 function createRepository(objectFormat) {
-  const repo = mkdtempSync(path.join(tmpdir(), `sworn-rc8-oracle-${objectFormat}-`));
+  const repo = mkdtempSync(path.join(tmpdir(), `sworn-baton-oracle-${objectFormat}-`));
   const init = spawnSync(git, ['init', '--quiet', `--object-format=${objectFormat}`, repo], {
     encoding: 'utf8',
     env: {
@@ -107,7 +107,7 @@ function createRepository(objectFormat) {
 }
 
 function commitFile(repo, parent, ref, relativePath, contents, timestamp) {
-  const privateDir = mkdtempSync(path.join(tmpdir(), 'sworn-rc8-oracle-index-'));
+  const privateDir = mkdtempSync(path.join(tmpdir(), 'sworn-baton-oracle-index-'));
   const index = path.join(privateDir, 'index');
   const env = { GIT_INDEX_FILE: index };
   try {
@@ -491,8 +491,8 @@ const references = ['actions.mjs', 'git.mjs', 'receipts.mjs', 'state.mjs'].map((
 });
 writeJSON('manifest.json', {
   schema: 'sworn.batongolden/v2',
-  baton: '1.0.0-rc.8',
-  generator: 'exact embedded RC8 JavaScript reference',
+  baton: '1.0.0-rc.9',
+  generator: 'exact embedded Baton JavaScript reference',
   oracle_sha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
   references,
   files,
