@@ -18,14 +18,15 @@ that contains itself.
 
 | Gate | Exact result |
 | --- | --- |
-| `GOFLAGS=-buildvcs=false go test ./...` | PASS; real-binary E2E package 498.522s |
-| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; real-binary E2E package 505.975s |
+| `GOFLAGS=-buildvcs=false go test ./...` | PASS; real-binary E2E package 483.146s |
+| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; real-binary E2E package 521.048s |
 | `GOFLAGS=-buildvcs=false go vet ./...` | PASS |
 | `go mod tidy -diff` | PASS; empty diff |
 | `gofmt -l` over all tracked Go files | PASS; no paths |
 | `git diff --check` | PASS |
-| W8 path-scope audit | PASS; all 34 changed paths are within the approved scope |
-| Two fresh product-copy stripped builds | PASS; byte-identical size and SHA-256 |
+| W8 implementation scope audit | PASS; all 34 readiness implementation paths are within the approved scope |
+| RC9 revision audit | PASS; the 23-path admission commit binds the exact upstream identity/assets and their generated bindings, tests, and evidence |
+| Two fresh product-copy stripped builds | PASS; byte-identical size and SHA-256; record-only history excluded |
 
 ## Product size and dependency facts
 
@@ -36,16 +37,16 @@ the standard generated-code marker. Blank and comment lines count.
 | Fact | Measured value |
 | --- | ---: |
 | Production Go files | 94 |
-| Production Go lines | 46,495 |
+| Production Go lines | 46,432 |
 | Legacy baseline at `bad1a6767994cacef2c354061d22db842cb6ca08` | 10,464 |
-| Delta from legacy baseline | +36,031 |
+| Delta from legacy baseline | +35,968 |
 | W8 design measurement | 42,555 |
-| W8 implementation delta | +3,940 |
+| W8 implementation delta | +3,877 |
 | Production packages below `cmd` and `internal` | 8 |
 | Direct module requirements | 10 |
 | Direct-dependency delta in W8 | 0 |
 | Stripped Linux amd64 binary | 22,204,578 bytes |
-| Stripped binary SHA-256 | `de293261198a0180d573d6e322214fc9c6f4f84e85f283ea349d5351b7a8051a` |
+| Stripped binary SHA-256 | `64d40923e2fc69b7bd5c6d0eef039fdfa62ceea0d920220f3c2cdb49fbf39aed` |
 
 The ten direct requirements are:
 
@@ -104,14 +105,16 @@ Sworn does not invent a score or turn delivery success into a quality verdict.
 
 ## Readiness verdict
 
-The deterministic, parity, telemetry, and touched-package gates pass. The
-credential-backed all-family certification gate is currently
-**NOT CERTIFIED** because `SWORN_DRIVER_CONFIG` is not provisioned on the
-measurement host and the native Claude credential reports logged out with
-empty access and refresh tokens. The exact pinned Claude Code `2.1.208`
-executable and its declared Linux runtime closure are present; their
-availability does not turn an unauthenticated probe into a pass. The 70-record
-shared corpus is not a substitute for that live gate.
+The deterministic, parity, telemetry, and touched-package gates pass. A
+canonical secret-free seven-profile configuration is provisioned with digest
+`sha256:30ab641a8da1bfd939585f80367c9842f9ac286dc97df5b08f9de377ab5b7ffc`;
+`driver inspect --all` and `driver doctor --all` both return seven PASS
+reports. The credential-backed all-family certification gate remains
+**NOT CERTIFIED** because the native Claude credential reports logged out.
+The exact pinned Claude Code `2.1.208` executable and its declared Linux
+runtime closure are present; their availability does not turn an
+unauthenticated probe into a pass. The 70-record shared corpus is not a
+substitute for that live gate.
 
 Technical readiness therefore remains fail-closed until one exact configured
 run of:
