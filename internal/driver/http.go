@@ -16,14 +16,14 @@ type HeaderCredentialResolver func(context.Context, string) ([]byte, error)
 type ProfileLiveProbe func(context.Context, string, string) error
 
 type HTTPProfileConfig struct {
-	Key              string
-	ID               string
-	Version          string
-	Endpoint         string
-	CredentialHeader string
-	CredentialPrefix string
-	CredentialRefs   []string
-	ResponseBytes    int
+	Key              string   `json:"key"`
+	ID               string   `json:"id"`
+	Version          string   `json:"version"`
+	Endpoint         string   `json:"endpoint"`
+	CredentialHeader string   `json:"credential_header"`
+	CredentialPrefix string   `json:"credential_prefix"`
+	CredentialRefs   []string `json:"credential_refs"`
+	ResponseBytes    int      `json:"response_bytes"`
 }
 
 type httpTransport struct {

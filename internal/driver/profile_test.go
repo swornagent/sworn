@@ -8,6 +8,7 @@ import (
 type familyAdapter struct {
 	identity AdapterIdentity
 	family   ProfileFamily
+	surface  ProfileSurface
 	state    ReadinessState
 	code     string
 }
@@ -15,6 +16,9 @@ type familyAdapter struct {
 func (adapter *familyAdapter) Identity() AdapterIdentity { return adapter.identity }
 func (adapter *familyAdapter) profileFamily() ProfileFamily {
 	return adapter.family
+}
+func (adapter *familyAdapter) profileSurface() ProfileSurface {
+	return adapter.surface
 }
 func (adapter *familyAdapter) checkProfile(
 	context.Context,
@@ -32,7 +36,12 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	t.Parallel()
 	families := []ProfileFamily{
 		ProfileFake, ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
-		ProfileDeepSeek, ProfileGemini, ProfileBedrock,
+		ProfileDeepSeek, ProfileGemini, ProfileBedrock, ProfileBedrock,
+	}
+	surfaces := []ProfileSurface{
+		"", "", "", "", "", "",
+		ProfileSurfaceBedrockRuntimeConverse,
+		ProfileSurfaceBedrockMantleChat,
 	}
 	var adapters []Adapter
 	var configs []ProfileConfig
@@ -43,7 +52,8 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 				Key: key, ID: "driver." + key, Version: "1.0.0",
 				ConfigurationDigest: Digest([]byte(key)),
 			},
-			family: family, state: ReadinessPass, code: "fixture_ready",
+			family: family, surface: surfaces[index],
+			state: ReadinessPass, code: "fixture_ready",
 		}
 		profile := ProfileConfig{
 			Key: "profile-" + itoa(index), Adapter: key, Network: NetworkRequired,
@@ -80,8 +90,11 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	if _, err := registry.Resolve(selections, Role("merge")); !IsCode(err, "ROLE_NOT_DISPATCHABLE") {
 		t.Fatalf("Merge error = %v", err)
 	}
-	if _, err := NewProductionRegistry(configs[:len(configs)-1], adapters); !IsCode(err, "MISSING_PROFILE_FAMILY") {
-		t.Fatalf("missing family error = %v", err)
+	if _, err := NewProductionRegistry(
+		configs[:len(configs)-1],
+		adapters,
+	); !IsCode(err, "MISSING_PROFILE_SURFACE") {
+		t.Fatalf("missing surface error = %v", err)
 	}
 	missingCredential := append([]ProfileConfig(nil), configs...)
 	missingCredential[1].CredentialRef = nil

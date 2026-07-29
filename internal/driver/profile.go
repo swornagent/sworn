@@ -17,7 +17,7 @@ const (
 	ProfileOpenAIHTTP ProfileFamily = "openai_compatible_http"
 	ProfileDeepSeek   ProfileFamily = "deepseek"
 	ProfileGemini     ProfileFamily = "gemini_generate_content"
-	ProfileBedrock    ProfileFamily = "bedrock_converse"
+	ProfileBedrock    ProfileFamily = "bedrock"
 )
 
 func (family ProfileFamily) valid() bool {
@@ -28,6 +28,23 @@ func (family ProfileFamily) valid() bool {
 	default:
 		return false
 	}
+}
+
+// ProfileSurface distinguishes closed endpoint dialects within one family.
+// It is empty for families with only one admitted production surface.
+type ProfileSurface string
+
+const (
+	ProfileSurfaceBedrockRuntimeConverse ProfileSurface = "bedrock_runtime_converse"
+	ProfileSurfaceBedrockMantleChat      ProfileSurface = "bedrock_mantle_chat_completions"
+)
+
+func (surface ProfileSurface) validFor(family ProfileFamily) bool {
+	if family == ProfileBedrock {
+		return surface == ProfileSurfaceBedrockRuntimeConverse ||
+			surface == ProfileSurfaceBedrockMantleChat
+	}
+	return surface == ""
 }
 
 type ReadinessState string
@@ -50,6 +67,7 @@ type ProfileReport struct {
 	Profile             string         `json:"profile"`
 	Model               string         `json:"model"`
 	Family              ProfileFamily  `json:"family"`
+	Surface             ProfileSurface `json:"surface,omitempty"`
 	AdapterID           string         `json:"adapter_id"`
 	AdapterVersion      string         `json:"adapter_version"`
 	ConfigurationDigest string         `json:"configuration_digest"`
@@ -70,6 +88,10 @@ type profileChecker interface {
 	checkProfile(context.Context, profileCheckKind, ProfileConfig, string) (ReadinessState, string)
 }
 
+type profileSurfaceReporter interface {
+	profileSurface() ProfileSurface
+}
+
 // NewProductionRegistry admits the complete W5 family set as one common
 // registry. It does not create role or model choices; callers must still
 // provide all four explicit RoleSelections for each dispatch configuration.
@@ -82,6 +104,7 @@ func NewProductionRegistry(
 		return SelectionRegistry{}, err
 	}
 	families := make(map[ProfileFamily]int)
+	surfaces := make(map[ProfileSurface]int)
 	for _, registered := range registry.profiles {
 		checker, ok := registered.adapter.(profileChecker)
 		if !ok {
@@ -91,7 +114,17 @@ func NewProductionRegistry(
 		if !family.valid() {
 			return SelectionRegistry{}, fail("INVALID_ADAPTER")
 		}
+		surface := ProfileSurface("")
+		if reporter, ok := registered.adapter.(profileSurfaceReporter); ok {
+			surface = reporter.profileSurface()
+		}
+		if !surface.validFor(family) {
+			return SelectionRegistry{}, fail("INVALID_ADAPTER")
+		}
 		families[family]++
+		if surface != "" {
+			surfaces[surface]++
+		}
 		if family == ProfileFake {
 			if registered.config.Network != NetworkNone ||
 				registered.config.CredentialRef != nil {
@@ -108,6 +141,14 @@ func NewProductionRegistry(
 	} {
 		if families[family] < 1 {
 			return SelectionRegistry{}, fail("MISSING_PROFILE_FAMILY")
+		}
+	}
+	for _, surface := range []ProfileSurface{
+		ProfileSurfaceBedrockRuntimeConverse,
+		ProfileSurfaceBedrockMantleChat,
+	} {
+		if surfaces[surface] < 1 {
+			return SelectionRegistry{}, fail("MISSING_PROFILE_SURFACE")
 		}
 	}
 	return registry, nil
@@ -180,7 +221,11 @@ func (registry SelectionRegistry) check(
 		return report
 	}
 	report.Family = checker.profileFamily()
+	if reporter, ok := registered.adapter.(profileSurfaceReporter); ok {
+		report.Surface = reporter.profileSurface()
+	}
 	if !report.Family.valid() || validateAdapterIdentity(identity) != nil ||
+		!report.Surface.validFor(report.Family) ||
 		identity.Key != registered.config.Adapter {
 		report.State = ReadinessFail
 		report.Code = "adapter_identity_invalid"
