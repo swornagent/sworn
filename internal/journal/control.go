@@ -167,9 +167,17 @@ func (s *Store) CurrentOwner(ctx context.Context, runID string) (OwnerLease, boo
 	if s.conn == nil {
 		return OwnerLease{}, false, fail("CLOSED", nil)
 	}
+	return currentOwnerOnConnection(ctx, s.conn, runID)
+}
+
+func currentOwnerOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	runID string,
+) (OwnerLease, bool, error) {
 	var state, token, expires, completed string
 	var generation int64
-	err := s.conn.QueryRowContext(
+	err := conn.QueryRowContext(
 		ctx,
 		`SELECT e.state,COALESCE(e.current_claim,''),COALESCE(c.expires_at,''),
 		        COALESCE(c.completed_at,''),

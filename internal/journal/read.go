@@ -130,21 +130,27 @@ func (s *Store) ClaimedEffects(ctx context.Context, runID string) ([]Effect, err
 	return result, nil
 }
 
-func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
-	if err := validateIdentity(runID, "run"); err != nil {
-		return Snapshot{}, err
-	}
-	if s == nil {
-		return Snapshot{}, fail("CLOSED", nil)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.db == nil || s.conn == nil {
-		return Snapshot{}, fail("CLOSED", nil)
-	}
+const MaxWindowEvents = 1024
+
+type Window struct {
+	Snapshot           Snapshot
+	Control            ControlProjection
+	Owner              OwnerLease
+	OwnerPresent       bool
+	ThroughEventOffset int64
+	HasMoreEvents      bool
+}
+
+func snapshotOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	runID string,
+	afterOffset, throughOffset int64,
+	eventLimit int,
+) (Snapshot, error) {
 	var result Snapshot
 	var runAt string
-	err := s.conn.QueryRowContext(
+	err := conn.QueryRowContext(
 		ctx,
 		`SELECT run_id, manifest_digest, repository, release_id, target_ref, created_at
 		 FROM runs WHERE run_id = ?`,
@@ -168,7 +174,7 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	commandRows, err := s.conn.QueryContext(
+	commandRows, err := conn.QueryContext(
 		ctx,
 		`SELECT replay_key, kind, payload_digest, payload, created_at
 		 FROM commands WHERE run_id = ? ORDER BY replay_key`,
@@ -203,7 +209,7 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 		return Snapshot{}, dbError(err)
 	}
 
-	effectRows, err := s.conn.QueryContext(
+	effectRows, err := conn.QueryContext(
 		ctx,
 		`SELECT effect_id FROM effects WHERE run_id = ? ORDER BY effect_id`,
 		runID,
@@ -224,18 +230,24 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 		return Snapshot{}, dbError(err)
 	}
 	for _, effectID := range effectIDs {
-		effect, err := effectOnConnection(ctx, s.conn, runID, effectID)
+		effect, err := effectOnConnection(ctx, conn, runID, effectID)
 		if err != nil {
 			return Snapshot{}, err
 		}
 		result.Effects = append(result.Effects, effect)
 	}
 
-	eventRows, err := s.conn.QueryContext(
+	eventRows, err := conn.QueryContext(
 		ctx,
 		`SELECT event_offset, kind, body_digest, body, created_at
-		 FROM events WHERE run_id = ? ORDER BY event_offset`,
+		 FROM events
+		 WHERE run_id = ? AND event_offset > ? AND event_offset <= ?
+		 ORDER BY event_offset
+		 LIMIT ?`,
 		runID,
+		afterOffset,
+		throughOffset,
+		eventLimit,
 	)
 	if err != nil {
 		return Snapshot{}, dbError(err)
@@ -266,4 +278,87 @@ func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
 		return Snapshot{}, dbError(err)
 	}
 	return result, nil
+}
+
+func eventHighWatermark(ctx context.Context, conn *sql.Conn, runID string) (int64, error) {
+	var result int64
+	if err := conn.QueryRowContext(
+		ctx,
+		"SELECT COALESCE(max(event_offset), 0) FROM events WHERE run_id = ?",
+		runID,
+	).Scan(&result); err != nil {
+		return 0, dbError(err)
+	}
+	return result, nil
+}
+
+func (s *Store) Snapshot(ctx context.Context, runID string) (Snapshot, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return Snapshot{}, err
+	}
+	var result Snapshot
+	err := s.readTransaction(ctx, func(conn *sql.Conn) error {
+		through, err := eventHighWatermark(ctx, conn, runID)
+		if err != nil {
+			return err
+		}
+		result, err = snapshotOnConnection(ctx, conn, runID, 0, through, -1)
+		return err
+	})
+	return result, err
+}
+
+// ReadWindow returns one replay page and all of its runtime overlay from one
+// SQLite read transaction. The caller may safely resume from
+// ThroughEventOffset; HasMoreEvents means another page is already durable.
+func (s *Store) ReadWindow(
+	ctx context.Context,
+	runID string,
+	afterOffset int64,
+	maxEvents int,
+) (Window, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return Window{}, err
+	}
+	if afterOffset < 0 || maxEvents < 1 || maxEvents > MaxWindowEvents {
+		return Window{}, fail("INVALID_EVENT_WINDOW", nil)
+	}
+	var result Window
+	err := s.readTransaction(ctx, func(conn *sql.Conn) error {
+		high, err := eventHighWatermark(ctx, conn, runID)
+		if err != nil {
+			return err
+		}
+		if afterOffset > high {
+			return fail("INVALID_EVENT_OFFSET", nil)
+		}
+		snapshot, err := snapshotOnConnection(
+			ctx,
+			conn,
+			runID,
+			afterOffset,
+			high,
+			maxEvents+1,
+		)
+		if err != nil {
+			return err
+		}
+		result.Snapshot = snapshot
+		if len(result.Snapshot.Events) > maxEvents {
+			result.Snapshot.Events = result.Snapshot.Events[:maxEvents]
+			result.HasMoreEvents = true
+			result.ThroughEventOffset =
+				result.Snapshot.Events[len(result.Snapshot.Events)-1].Offset
+		} else {
+			result.ThroughEventOffset = high
+		}
+		result.Control, err = projectionOnConnection(ctx, conn, runID)
+		if err != nil {
+			return err
+		}
+		result.Owner, result.OwnerPresent, err =
+			currentOwnerOnConnection(ctx, conn, runID)
+		return err
+	})
+	return result, err
 }

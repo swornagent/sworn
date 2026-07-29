@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func TestBuiltBinaryRetiredCommandsDoNotConsumePaths(t *testing.T) {
+func TestBuiltBinaryClosedCommandsDoNotConsumePaths(t *testing.T) {
 	binary := buildCurrentSworn(t)
 
 	fifo := filepath.Join(t.TempDir(), "retired-input.fifo")
@@ -26,9 +26,18 @@ func TestBuiltBinaryRetiredCommandsDoNotConsumePaths(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
+		want string
 	}{
-		{"board", []string{"board", "--store", fifo, "--json"}},
-		{"shim", []string{"__executor-shim", "--sworn-start-marker", marker}},
+		{
+			"legacy board shape",
+			[]string{"board", "--store", fifo, "--json"},
+			"usage: sworn board",
+		},
+		{
+			"retired shim",
+			[]string{"__executor-shim", "--sworn-start-marker", marker},
+			"is not implemented in the v0.3 walking skeleton",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,7 +54,7 @@ func TestBuiltBinaryRetiredCommandsDoNotConsumePaths(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q", stdout.String())
 			}
-			if !strings.Contains(stderr.String(), "is not implemented in the v0.3 walking skeleton") {
+			if !strings.Contains(stderr.String(), test.want) {
 				t.Fatalf("stderr = %q", stderr.String())
 			}
 			if strings.Contains(stderr.String(), fifo) || strings.Contains(stderr.String(), marker) {
