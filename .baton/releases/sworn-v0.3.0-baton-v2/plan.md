@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v0.3.0-baton-v2",
-  "revision": 9,
-  "previous_plan": "1bca24d5f23933dc42a5991e0a7015c2ef59b986",
+  "revision": 10,
+  "previous_plan": "aa6ae4fb591458b6e19e6c99c2d668442f7d85a2",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v9",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v10",
   "tracks": [
     {
       "id": "T0-admission",
@@ -256,14 +256,14 @@
             },
             {
               "id": "A-W8-drivers",
-              "text": "The real CLI exposes inspect, doctor, and certify for Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, and Bedrock. Bedrock certifies both the native Runtime Converse/SigV4 surface and the bedrock-mantle OpenAI-compatible Chat Completions surface behind the same role-neutral contract. Mantle reuses the common OpenAI-compatible codec and bounded tool loop while supporting an Amazon Bedrock API key or the standard AWS credential chain; it is an endpoint dialect, not a seventh driver family or a second provider loop. Each family and both Bedrock surfaces pass the shared corpus and a credential-backed live smoke with an explicit configured model. NOT CERTIFIED, skipped, substituted, or fallback results fail technical readiness unless the repository owner ratifies an exact named deferral in a revised plan."
+              "text": "The real CLI exposes inspect, doctor, and certify for Codex CLI, Claude Code CLI, native OpenAI HTTP, DeepSeek, Gemini, and Bedrock. Native OpenAI uses the Responses API with explicit configured reasoning effort. The unchanged common Chat Completions dialect serves DeepSeek, bedrock-mantle, and compatible endpoints; both HTTP codecs remain translations behind the existing role-neutral bounded tool loop. Bedrock certifies both Runtime Converse/SigV4 and bedrock-mantle, with Mantle supporting an Amazon Bedrock API key or the standard AWS credential chain. Live PASS evidence binds the exact profile, explicit model, surface, configuration, and relevant implementation identity. A bound PASS remains current while those exact inputs are unchanged; only stale, failing, or affected profiles rerun, and no aggregate all-provider rerun is required. The evidence bundle must show every required profile and surface currently PASS. NOT CERTIFIED, skipped, substituted, fallback, or unbound results fail technical readiness unless the repository owner ratifies an exact named deferral in a revised plan."
             },
             {
               "id": "A-W8-release",
               "text": "Fresh product-only copies pass full, race, vet, format, and reproducible build checks. Release evidence binds exact product, binary, package, dependency, size, scenario, usage, retry, timing, and quality facts."
             }
           ],
-          "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver certify --all --config \"$SWORN_DRIVER_CONFIG\" --json", "git diff --check"],
+          "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver inspect --all --config \"$SWORN_DRIVER_CONFIG\" --json", "For each stale, failing, or affected profile/model only: /tmp/sworn-v0.3.0 driver certify --profile PROFILE --model MODEL --config \"$SWORN_DRIVER_CONFIG\" --json; retain exact-identity PASS evidence for unchanged profiles and fail unless the combined evidence bundle covers every required profile and surface", "git diff --check"],
           "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "The deterministic fake and scripted manifests remain test and recovery compatibility surfaces and cannot satisfy the production journey or live driver readiness. W8 integrates the existing scheduler and role-neutral driver contract; it adds no second scheduler, provider tool loop, orchestration framework, or dependency. Secrets never enter manifests, journals, evaluation, telemetry, or public diagnostics.", "RC9 revendoring is limited to its exact embedded release identity, README, and conformance-manifest changes. The protocol, five operations, record and board references, Coach baseline, and twelve autonomous cases remain byte-identical to RC8. Sworn does not vendor RC9 installers, skills, wrappers, client paths, or any replacement engine behavior.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
           "depends_on": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"],
           "consumes": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"]
@@ -285,7 +285,7 @@ cockpit, local evaluation, opt-in telemetry, and exact integration.
 
 This is a proposal. Only the repository owner may approve these exact bytes
 through the protected marker
-`baton-plan-approval-sworn-v0.3.0-baton-v2-v9` on
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v10` on
 `swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
 
 # Migration boundary
@@ -361,6 +361,14 @@ facts. W8 keeps the same slice identity; its existing unsealed work may be
 reused as implementation input, but fresh design, Captain, candidate, and
 Verifier decisions bind revision 9.
 
+Revision 10 changes only W8. Native OpenAI now uses Responses with explicit
+reasoning effort while compatible endpoints retain the common Chat Completions
+dialect behind the same role-neutral loop. Live PASS evidence remains valid
+only for an unchanged profile, model, surface, configuration, and relevant
+implementation; only stale, failing, or affected profiles rerun. W0 through W6
+retain their contracts, attempts, candidates, products, and PASS facts. W8 keeps
+its identity and existing work; no slice is reset, replaced, or added.
+
 # Scope
 
 Included are the complete local engine, six production driver families,
@@ -393,10 +401,12 @@ track.
 
 # Checks
 
-Each slice runs its listed focused checks. W8 repeats the full, race, vet,
-format, reproducibility, real-binary parity, and credential-backed all-family
-certification suites. A missing driver configuration, skipped or substituted
-profile, worker exit, or command success is never evidence for a Baton verdict.
+Each slice runs its listed focused checks. W8 repeats the offline full, race,
+vet, format, reproducibility, and real-binary parity gates, then live-certifies
+only stale, failing, or affected profiles. The bound evidence bundle must show
+every required profile and surface currently PASS. Missing, skipped,
+substituted, fallback, unbound, worker-exit, or command-success-only evidence
+never satisfies the gate.
 
 # Constraints
 
