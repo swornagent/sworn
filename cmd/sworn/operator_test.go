@@ -1158,7 +1158,7 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 			AllowedAuthorIDs:    []int64{1},
 			AllowedAssociations: []string{"OWNER"},
 		},
-		Driver: runtimepkg.FakeDriverConfig{
+		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",
 			Digest:     "sha256:" + strings.Repeat("a", 64),
 			AdapterKey: "fixture",
