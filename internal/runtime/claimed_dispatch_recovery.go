@@ -17,7 +17,6 @@ import (
 )
 
 type currentDriverAuthority struct {
-	before       string
 	beforeDigest string
 }
 
@@ -159,54 +158,58 @@ func validateImplementationDispatchProof(
 		effect.ReplayKey != cycle.DispatchEffect ||
 		effect.Kind != "driver.dispatch" ||
 		effect.BeforeDigest != sha256Digest([]byte(cycle.Before)) ||
-		effect.ExpectedDigest != sha256Digest(effect.Result) ||
 		effect.ResultDigest != sha256Digest(effect.Result) ||
 		effect.CurrentClaim != "" ||
 		effect.ErrorCode != "" {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	if err := validateDriverRecoveryCommand(command, effect); err != nil {
+	submission, dispatch, err := validateSucceededDriverResult(
+		engine.manifest,
+		command,
+		effect,
+	)
+	if err != nil {
 		return err
 	}
-	work, epoch, err := attemptIdentity(effect.ID)
-	if err != nil ||
-		work != cycle.DispatchWork ||
-		epoch != 1 ||
-		effect.ID != journal.AttemptEffectID(cycle.DispatchWork, 1, 1) {
-		return runtimeFail("CORRUPT_JOURNAL", err)
+	if err := validateImplementationDispatchBinding(
+		cycle,
+		effect,
+		dispatch,
+	); err != nil {
+		return err
 	}
 
-	submission, err := driver.DecodeSubmission(effect.Result)
-	if err != nil ||
-		submission.Responsibility != driver.ImplementerImplementation {
-		return runtimeFail("CORRUPT_JOURNAL", err)
-	}
-	var script ScriptedAttempt
-	scriptCount := 0
-	for _, candidate := range engine.manifest.value.Scripts {
-		if candidate.Slice != cycle.Slice ||
-			candidate.Responsibility != driver.ImplementerImplementation ||
-			invocationID(engine.manifest.value.RunID, candidate) !=
-				submission.InvocationID {
-			continue
-		}
-		script = candidate
-		scriptCount++
-	}
-	if scriptCount != 1 || script.Behavior != "submit" {
+	if submission.Responsibility != driver.ImplementerImplementation {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	scriptSubmission, err := base64.StdEncoding.Strict().DecodeString(
-		script.Submission,
-	)
-	if err != nil ||
-		!bytes.Equal(scriptSubmission, effect.Result) ||
-		!bytes.Equal(command.Payload, mustJSON(fakeScript{
-			SchemaVersion: "sworn.fake-script/v1",
-			Behavior:      script.Behavior,
-			Submission:    script.Submission,
-		})) {
-		return runtimeFail("CORRUPT_JOURNAL", err)
+	if dispatch.production == nil {
+		var script ScriptedAttempt
+		scriptCount := 0
+		for _, candidate := range engine.manifest.value.Scripts {
+			if candidate.Slice != cycle.Slice ||
+				candidate.Responsibility != driver.ImplementerImplementation ||
+				invocationID(engine.manifest.value.RunID, candidate) !=
+					submission.InvocationID {
+				continue
+			}
+			script = candidate
+			scriptCount++
+		}
+		if scriptCount != 1 || script.Behavior != "submit" {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		scriptSubmission, err := base64.StdEncoding.Strict().DecodeString(
+			script.Submission,
+		)
+		if err != nil ||
+			!bytes.Equal(scriptSubmission, effect.Result) ||
+			!bytes.Equal(command.Payload, mustJSON(fakeScript{
+				SchemaVersion: "sworn.fake-script/v1",
+				Behavior:      script.Behavior,
+				Submission:    script.Submission,
+			})) {
+			return runtimeFail("CORRUPT_JOURNAL", err)
+		}
 	}
 
 	checks, err := exactBytes(submission.Checks)
@@ -217,6 +220,75 @@ func validateImplementationDispatchProof(
 		return runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return nil
+}
+
+func validateImplementationDispatchBinding(
+	cycle implementationCycle,
+	effect journal.Effect,
+	dispatch driverRecoveryCommand,
+) error {
+	work, epoch, err := attemptIdentity(effect.ID)
+	if err != nil ||
+		work != cycle.DispatchWork ||
+		epoch != 1 ||
+		effect.ID != journal.AttemptEffectID(cycle.DispatchWork, 1, 1) {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if dispatch.production != nil {
+		context := dispatch.production.Context
+		if context.Slice != cycle.Slice ||
+			context.Responsibility != driver.ImplementerImplementation ||
+			context.Before != cycle.Before ||
+			context.Plan == nil || context.Plan.OID != cycle.Plan ||
+			context.Receipt == nil || context.Receipt.OID != cycle.Binds ||
+			context.Authority.ReleaseHead != cycle.ReleaseHead ||
+			context.Authority.TargetHead != cycle.TargetHead ||
+			context.Authority.TrackRef != cycle.TrackRef ||
+			context.Authority.TrackHead != cycle.TrackHead {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+	}
+	return nil
+}
+
+func incompleteProductionImplementationDispatch(
+	manifest admittedManifest,
+	commands map[string]journal.Command,
+	effects map[string]journal.Effect,
+	cycle implementationCycle,
+) (bool, error) {
+	if !manifest.value.production() {
+		return false, nil
+	}
+	command, commandOK := commands[cycle.DispatchEffect]
+	effect, effectOK := effects[cycle.DispatchEffect]
+	if !commandOK || !effectOK {
+		return false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if effect.State == journal.Succeeded {
+		return false, nil
+	}
+	switch effect.State {
+	case journal.Claimed, journal.Uncertain, journal.OperationalFailed:
+	default:
+		return false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	dispatch, err := validateDriverRecoveryCommand(
+		manifest,
+		command,
+		effect,
+	)
+	if err != nil || dispatch.production == nil {
+		return false, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if err := validateImplementationDispatchBinding(
+		cycle,
+		effect,
+		dispatch,
+	); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Service) validateImplementationDispatchProof(
@@ -452,7 +524,12 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 		if !ok {
 			return true, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if err := validateDriverRecoveryCommand(command, effect); err != nil {
+		dispatch, err := validateDriverRecoveryCommand(
+			engine.manifest,
+			command,
+			effect,
+		)
+		if err != nil {
 			return true, err
 		}
 		work, epoch, err := driverRecoveryWorkIdentity(effect)
@@ -460,6 +537,28 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			return true, err
 		}
 		if governed, ok := implementation[effect.ID]; ok {
+			if dispatch.production != nil {
+				context := dispatch.production.Context
+				outerWork, _, identityErr := attemptIdentity(
+					governed.outer.ID,
+				)
+				if identityErr != nil ||
+					context.Slice != governed.cycle.Slice ||
+					context.Responsibility !=
+						driver.ImplementerImplementation ||
+					context.Before != governed.cycle.Before ||
+					context.Attempt < 1 ||
+					governed.outer.ID != journal.AttemptEffectID(
+						outerWork,
+						context.Epoch,
+						context.Try,
+					) {
+					return true, runtimeFail(
+						"CORRUPT_JOURNAL",
+						identityErr,
+					)
+				}
+			}
 			if effect.BeforeDigest != sha256Digest([]byte(governed.cycle.Before)) {
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
@@ -467,6 +566,13 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			case journal.Claimed:
 				if stateErr == nil &&
 					implementationDispatchAuthorityCurrent(state, governed.cycle) {
+					if err := validateCurrentProductionDispatchContext(
+						ctx,
+						engine,
+						dispatch,
+					); err != nil {
+						return true, err
+					}
 					continue
 				}
 			case journal.Uncertain:
@@ -475,6 +581,15 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 						state,
 						governed.cycle,
 					) {
+					if stateErr == nil {
+						if err := validateCurrentProductionDispatchContext(
+							ctx,
+							engine,
+							dispatch,
+						); err != nil {
+							return true, err
+						}
+					}
 					// The exact cycle may still be live. Preserve the coupled
 					// ambiguity instead of independently resolving its child.
 					continue
@@ -484,11 +599,21 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 					// recovery writes parent and child ambiguity atomically.
 					continue
 				}
+				coupled := []string{governed.outer.ID, effect.ID}
+				if prepared, ok := effects[governed.cycle.PreparedEffect]; ok {
+					if prepared.State != journal.Uncertain {
+						return true, runtimeFail(
+							"RECOVERY_UNCERTAIN",
+							nil,
+						)
+					}
+					coupled = append(coupled, prepared.ID)
+				}
 				if err := s.journal.ResolveUncertainManyOwned(
 					context.WithoutCancel(ctx),
 					owner,
 					owner.RunID,
-					[]string{governed.outer.ID, effect.ID},
+					coupled,
 					"stale_authority",
 					s.now().UTC(),
 				); err != nil {
@@ -513,6 +638,24 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			}
 			return true, nil
 		}
+		if dispatch.production != nil {
+			context := dispatch.production.Context
+			expectedWork := driverWorkIdentity(
+				engine.manifest.digest,
+				context.Slice,
+				context.Responsibility,
+				context.Attempt,
+				context.Before,
+			)
+			if expectedWork != work ||
+				effect.ID != journal.AttemptEffectID(
+					expectedWork,
+					context.Epoch,
+					context.Try,
+				) {
+				return true, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		}
 		if authority, ok := current[work]; ok {
 			currentEpoch := control.RetryEpochs[work]
 			if currentEpoch == 0 {
@@ -531,6 +674,13 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			}
 			if effect.BeforeDigest != authority.beforeDigest {
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if err := validateCurrentProductionDispatchContext(
+				ctx,
+				engine,
+				dispatch,
+			); err != nil {
+				return true, err
 			}
 			if effect.State == journal.Claimed {
 				if err := s.journal.ReconcileOwned(
@@ -564,6 +714,37 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 		return true, nil
 	}
 	return false, nil
+}
+
+func validateCurrentProductionDispatchContext(
+	ctx context.Context,
+	engine *engine,
+	dispatch driverRecoveryCommand,
+) error {
+	if dispatch.production == nil {
+		return nil
+	}
+	persisted := dispatch.production.Context
+	_, currentBody, err := captureProductionWorkContext(
+		ctx,
+		engine,
+		dispatchCoordinates{
+			Slice:          persisted.Slice,
+			Responsibility: persisted.Responsibility,
+			BatonAttempt:   persisted.Attempt,
+			Epoch:          persisted.Epoch,
+			Try:            persisted.Try,
+		},
+		persisted.Before,
+		persisted.WorkspaceAccess,
+	)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(currentBody, mustJSON(persisted)) {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return nil
 }
 
 func (s *Service) resolveStaleDriverEffect(
@@ -611,7 +792,6 @@ func currentDriverAuthorities(
 			before,
 		)
 		authority := currentDriverAuthority{
-			before:       before,
 			beforeDigest: sha256Digest([]byte(before)),
 		}
 		if prior, duplicate := current[work]; duplicate && prior != authority {
@@ -830,32 +1010,98 @@ func driverRecoveryWorkIdentity(
 	return attemptIdentity(effect.ID)
 }
 
+type driverRecoveryCommand struct {
+	fake       *fakeScript
+	production *productionDispatchCommand
+}
+
 func validateDriverRecoveryCommand(
+	manifest admittedManifest,
 	command journal.Command,
 	effect journal.Effect,
-) error {
+) (driverRecoveryCommand, error) {
 	if err := validateRecoveryCommand(command, effect, false); err != nil {
-		return err
+		return driverRecoveryCommand{}, err
+	}
+	if manifest.value.production() {
+		persisted, err := parseProductionDispatchCommand(
+			manifest,
+			command.Payload,
+		)
+		if err != nil ||
+			effect.ExpectedDigest != productionOutputExpectation ||
+			effect.BeforeDigest !=
+				sha256Digest([]byte(persisted.Context.Before)) {
+			return driverRecoveryCommand{},
+				runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		return driverRecoveryCommand{production: &persisted}, nil
 	}
 	var script fakeScript
 	if json.Unmarshal(command.Payload, &script) != nil ||
 		!bytes.Equal(command.Payload, mustJSON(script)) ||
 		script.SchemaVersion != "sworn.fake-script/v1" ||
 		script.Behavior == "" {
-		return runtimeFail("CORRUPT_JOURNAL", nil)
+		return driverRecoveryCommand{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	var expected []byte
 	if script.Submission != "" {
 		var err error
 		expected, err = base64.StdEncoding.Strict().DecodeString(script.Submission)
 		if err != nil {
-			return runtimeFail("CORRUPT_JOURNAL", err)
+			return driverRecoveryCommand{},
+				runtimeFail("CORRUPT_JOURNAL", err)
 		}
 	}
 	if effect.ExpectedDigest != sha256Digest(expected) {
-		return runtimeFail("CORRUPT_JOURNAL", nil)
+		return driverRecoveryCommand{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	return nil
+	return driverRecoveryCommand{fake: &script}, nil
+}
+
+func validateSucceededDriverResult(
+	manifest admittedManifest,
+	command journal.Command,
+	effect journal.Effect,
+) (driver.Submission, driverRecoveryCommand, error) {
+	dispatch, err := validateDriverRecoveryCommand(
+		manifest,
+		command,
+		effect,
+	)
+	if err != nil ||
+		effect.State != journal.Succeeded ||
+		effect.ResultDigest != sha256Digest(effect.Result) {
+		return driver.Submission{}, driverRecoveryCommand{},
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	submission, err := driver.DecodeSubmission(effect.Result)
+	if err != nil {
+		return driver.Submission{}, driverRecoveryCommand{},
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if dispatch.production != nil {
+		context := dispatch.production.Context
+		if submission.InvocationID != context.InvocationID ||
+			submission.Responsibility != context.Responsibility {
+			return driver.Submission{}, driverRecoveryCommand{},
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+	} else {
+		var expected []byte
+		if dispatch.fake.Submission != "" {
+			expected, err = base64.StdEncoding.Strict().DecodeString(
+				dispatch.fake.Submission,
+			)
+		}
+		if err != nil || !bytes.Equal(effect.Result, expected) {
+			return driver.Submission{}, driverRecoveryCommand{},
+				runtimeFail("CORRUPT_JOURNAL", err)
+		}
+	}
+	return submission, dispatch, nil
 }
 
 func attemptWorkIdentity(effectID string) (string, error) {

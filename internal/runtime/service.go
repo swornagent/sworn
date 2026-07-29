@@ -33,6 +33,7 @@ type Service struct {
 	journal       *journal.Store
 	resolver      approvalResolver
 	dispatcher    driver.Driver
+	production    *productionDriverRuntime
 	gitExecutable string
 	now           func() time.Time
 }
@@ -69,6 +70,7 @@ type engine struct {
 	workspaces *gitx.Workspaces
 	product    *gitx.ProductExclusionAdmission
 	registry   driver.SelectionRegistry
+	configured *configuredRuntimeRegistry
 	inertness  baton.InertnessResolver
 	actionMu   sync.Mutex
 }
@@ -130,6 +132,27 @@ type admittedPlanProposal struct {
 }
 
 func OpenService(ctx context.Context, path string) (*Service, error) {
+	return openService(ctx, path, nil)
+}
+
+func OpenServiceWithDriverConfig(
+	ctx context.Context,
+	path string,
+	config driver.LoadedDriverConfig,
+	options driver.DriverFactoryOptions,
+) (*Service, error) {
+	production, err := newProductionDriverRuntime(config, options)
+	if err != nil {
+		return nil, err
+	}
+	return openService(ctx, path, production)
+}
+
+func openService(
+	ctx context.Context,
+	path string,
+	production *productionDriverRuntime,
+) (*Service, error) {
 	gitExecutable, err := resolveGitExecutable()
 	if err != nil {
 		return nil, err
@@ -140,7 +163,8 @@ func OpenService(ctx context.Context, path string) (*Service, error) {
 	}
 	return &Service{journal: store, resolver: newProductionApprovalResolver(func() (string, error) {
 		return os.Getenv("SWORN_GITHUB_TOKEN"), nil
-	}), dispatcher: driver.Dispatcher{}, gitExecutable: gitExecutable, now: time.Now}, nil
+	}), dispatcher: driver.Dispatcher{}, production: production,
+		gitExecutable: gitExecutable, now: time.Now}, nil
 }
 
 func OpenStatusService(ctx context.Context, path string) (*Service, error) {
@@ -185,6 +209,16 @@ func (s *Service) Close() error {
 }
 
 func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
+	var registry driver.SelectionRegistry
+	var configured *configuredRuntimeRegistry
+	if manifest.value.production() {
+		var err error
+		configured, err = s.production.registryFor(manifest)
+		if err != nil {
+			return nil, err
+		}
+		registry = configured.registry.SelectionRegistry
+	}
 	repository, err := gitx.Open(manifest.value.Repository, s.gitExecutable)
 	if err != nil || repository.Root() != manifest.value.Repository {
 		return nil, runtimeFail("REPOSITORY_BINDING_MISMATCH", err)
@@ -213,23 +247,26 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 	if err != nil {
 		return nil, runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
-	adapter, err := driver.NewProcessAdapter(manifest.value.Driver.AdapterKey,
-		driver.FakeDriverID, driver.FakeDriverVersion, driver.ExecutableIdentity{
-			Path: manifest.value.Driver.Executable, Digest: manifest.value.Driver.Digest})
-	if err != nil {
-		_ = workspaces.Close()
-		return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
-	}
-	registry, err := driver.NewSelectionRegistry([]driver.ProfileConfig{{
-		Key: manifest.value.Driver.Profile, Adapter: manifest.value.Driver.AdapterKey,
-		Network: driver.NetworkNone}}, []driver.Adapter{adapter})
-	if err != nil {
-		_ = workspaces.Close()
-		return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
+	if !manifest.value.production() {
+		adapter, err := driver.NewProcessAdapter(manifest.value.Driver.AdapterKey,
+			driver.FakeDriverID, driver.FakeDriverVersion, driver.ExecutableIdentity{
+				Path: manifest.value.Driver.Executable, Digest: manifest.value.Driver.Digest})
+		if err != nil {
+			_ = workspaces.Close()
+			return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
+		}
+		registry, err = driver.NewSelectionRegistry([]driver.ProfileConfig{{
+			Key: manifest.value.Driver.Profile, Adapter: manifest.value.Driver.AdapterKey,
+			Network: driver.NetworkNone}}, []driver.Adapter{adapter})
+		if err != nil {
+			_ = workspaces.Close()
+			return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
+		}
 	}
 	return &engine{manifest: manifest, repository: repository, git: gitRepository,
 		actions: actions, installer: newAuthorityInstaller(actions), workspaces: workspaces,
-		product: productAdmission, registry: registry, inertness: inertness}, nil
+		product: productAdmission, registry: registry, configured: configured,
+		inertness: inertness}, nil
 }
 
 func (e *engine) Close() error {
@@ -428,7 +465,6 @@ func admitPlanProposal(
 	effect, ok := effects[wire.Authority.SourceEffect]
 	if !ok || effect.Kind != "driver.dispatch" ||
 		effect.State != journal.Succeeded ||
-		effect.ExpectedDigest != sha256Digest(effect.Result) ||
 		effect.BeforeDigest != sha256Digest([]byte(wire.Authority.Before)) ||
 		!strings.HasPrefix(
 			effect.ID,
@@ -437,11 +473,26 @@ func admitPlanProposal(
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	sourceCommand, ok := commands[effect.ReplayKey]
-	if !ok || validateRecoveryCommand(sourceCommand, effect, false) != nil {
+	if !ok {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	submission, err := driver.DecodeSubmission(effect.Result)
-	if err != nil || submission.Responsibility != driver.PlannerProposal {
+	var submission driver.Submission
+	if manifest.value.production() {
+		submission, _, err = validateSucceededDriverResult(
+			manifest,
+			sourceCommand,
+			effect,
+		)
+	} else {
+		if effect.ExpectedDigest != sha256Digest(effect.Result) ||
+			validateRecoveryCommand(sourceCommand, effect, false) != nil {
+			return admittedPlanProposal{},
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		submission, err = driver.DecodeSubmission(effect.Result)
+	}
+	if err != nil ||
+		submission.Responsibility != driver.PlannerProposal {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	sourcePlan, err := exactBytes(submission.Plan)
