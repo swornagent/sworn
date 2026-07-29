@@ -44,15 +44,15 @@ func (kind AWSSourceKind) valid() bool {
 }
 
 type AWSChainSpec struct {
-	CLI                    ExecutableIdentity
-	CLIVersion             string
-	Profile                string
-	Region                 string
-	RegionSource           AWSSourceKind
-	CredentialSource       AWSSourceKind
-	EnvironmentKeys        []string
-	RuntimeFiles           []PinnedRuntimeFile
-	RequiredRuntimeTargets []string
+	CLI                    ExecutableIdentity  `json:"cli"`
+	CLIVersion             string              `json:"cli_version"`
+	Profile                string              `json:"profile"`
+	Region                 string              `json:"region"`
+	RegionSource           AWSSourceKind       `json:"region_source"`
+	CredentialSource       AWSSourceKind       `json:"credential_source"`
+	EnvironmentKeys        []string            `json:"environment_keys"`
+	RuntimeFiles           []PinnedRuntimeFile `json:"runtime_files"`
+	RequiredRuntimeTargets []string            `json:"required_runtime_targets"`
 }
 
 // AWSRuntimeResolver supplies one invocation-private standard-chain

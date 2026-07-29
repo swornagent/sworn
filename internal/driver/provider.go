@@ -47,6 +47,7 @@ type providerTransport interface {
 type loopAdapter struct {
 	identity  AdapterIdentity
 	family    ProfileFamily
+	surface   ProfileSurface
 	new       providerConversationFactory
 	transport providerTransport
 }
@@ -54,6 +55,7 @@ type loopAdapter struct {
 func newLoopAdapter(
 	key, id, version string,
 	family ProfileFamily,
+	surface ProfileSurface,
 	configuration any,
 	factory providerConversationFactory,
 	transport providerTransport,
@@ -62,6 +64,7 @@ func newLoopAdapter(
 		!driverIdentityPattern.MatchString(id) ||
 		!versionPattern.MatchString(version) ||
 		!family.valid() || family == ProfileFake ||
+		!surface.validFor(family) ||
 		factory == nil || transport == nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
@@ -77,6 +80,7 @@ func newLoopAdapter(
 			ConfigurationDigest: Digest(body),
 		},
 		family:    family,
+		surface:   surface,
 		new:       factory,
 		transport: transport,
 	}, nil
@@ -94,6 +98,13 @@ func (adapter *loopAdapter) profileFamily() ProfileFamily {
 		return ""
 	}
 	return adapter.family
+}
+
+func (adapter *loopAdapter) profileSurface() ProfileSurface {
+	if adapter == nil {
+		return ""
+	}
+	return adapter.surface
 }
 
 func (adapter *loopAdapter) checkProfile(
