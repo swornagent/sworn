@@ -87,26 +87,45 @@ function validSnapshot(value) {
 }
 
 function validGraphHandoff(graph, handoff) {
-  if (typeof handoff.ready !== "boolean" ||
-    handoff.nodes.length !== handoff.responsibilities.length) {
+  if (typeof handoff.ready !== "boolean") {
     return false;
   }
   const nodeIDs = new Set();
   const batonNodes = [];
+  const batonResponsibilities = [];
+  const seenResponsibilities = new Set();
   for (const node of graph.nodes) {
-    if (!node || typeof node.id !== "string" || nodeIDs.has(node.id) ||
+    if (!node || typeof node.id !== "string" || node.id === "" ||
+      nodeIDs.has(node.id) ||
       typeof node.has_baton !== "boolean") {
       return false;
     }
     nodeIDs.add(node.id);
     if (node.has_baton) {
+      if (typeof node.next_responsibility !== "string" ||
+        node.next_responsibility === "" ||
+        node.next_responsibility === "none") {
+        return false;
+      }
       batonNodes.push(node.id);
+      if (!seenResponsibilities.has(node.next_responsibility)) {
+        batonResponsibilities.push(node.next_responsibility);
+        seenResponsibilities.add(node.next_responsibility);
+      }
     }
   }
-  if (handoff.nodes.some((nodeID) => !nodeIDs.has(nodeID)) ||
+  if (handoff.nodes.some((nodeID) =>
+    typeof nodeID !== "string" || !nodeIDs.has(nodeID)) ||
     new Set(handoff.nodes).size !== handoff.nodes.length ||
     batonNodes.length !== handoff.nodes.length ||
-    batonNodes.some((nodeID, index) => nodeID !== handoff.nodes[index])) {
+    batonNodes.some((nodeID, index) => nodeID !== handoff.nodes[index]) ||
+    handoff.responsibilities.some((responsibility) =>
+      typeof responsibility !== "string") ||
+    new Set(handoff.responsibilities).size !==
+      handoff.responsibilities.length ||
+    batonResponsibilities.length !== handoff.responsibilities.length ||
+    batonResponsibilities.some((responsibility, index) =>
+      responsibility !== handoff.responsibilities[index])) {
     return false;
   }
   return handoff.ready === (handoff.nodes.length > 0);
