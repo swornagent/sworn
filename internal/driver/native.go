@@ -288,7 +288,7 @@ func (adapter *nativeAdapter) checkProfile(
 			pathValue,
 			certificate,
 		); err != nil {
-			return ReadinessFail, "live_smoke_failed"
+			return ReadinessFail, certificationFailureCode(err)
 		}
 		adapter.certMu.Lock()
 		adapter.certified[nativeCertificationKey(profile, model)] = certificate

@@ -8,7 +8,7 @@ that contains itself.
 
 ## Measurement environment
 
-- captured: 2026-07-29
+- captured: 2026-07-30
 - operating system: Linux 6.8.0-136-generic, amd64
 - Go toolchain: go1.26.5 linux/amd64
 - build mode: `CGO_ENABLED=0`, `-mod=readonly`, `-buildvcs=false`,
@@ -18,13 +18,13 @@ that contains itself.
 
 | Gate | Exact result |
 | --- | --- |
-| `GOFLAGS=-buildvcs=false go test ./...` | PASS; real-binary E2E package 483.146s |
-| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; real-binary E2E package 521.048s |
+| `GOFLAGS=-buildvcs=false go test ./...` | PASS; isolated real-binary E2E package 506.576s |
+| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; isolated real-binary E2E package 515.529s; no race warning |
 | `GOFLAGS=-buildvcs=false go vet ./...` | PASS |
 | `go mod tidy -diff` | PASS; empty diff |
 | `gofmt -l` over all tracked Go files | PASS; no paths |
 | `git diff --check` | PASS |
-| W8 implementation scope audit | PASS; all 34 readiness implementation paths are within the approved scope |
+| W8 implementation scope audit | PASS; the live repair is confined to the existing driver/CLI-test readiness scope plus its requested durable capture |
 | RC9 revision audit | PASS; the 23-path admission commit binds the exact upstream identity/assets and their generated bindings, tests, and evidence |
 | Two fresh product-copy stripped builds | PASS; byte-identical size and SHA-256; record-only history excluded |
 
@@ -37,16 +37,16 @@ the standard generated-code marker. Blank and comment lines count.
 | Fact | Measured value |
 | --- | ---: |
 | Production Go files | 94 |
-| Production Go lines | 46,432 |
+| Production Go lines | 46,588 |
 | Legacy baseline at `bad1a6767994cacef2c354061d22db842cb6ca08` | 10,464 |
-| Delta from legacy baseline | +35,968 |
+| Delta from legacy baseline | +36,124 |
 | W8 design measurement | 42,555 |
-| W8 implementation delta | +3,877 |
+| W8 implementation delta | +4,033 |
 | Production packages below `cmd` and `internal` | 8 |
 | Direct module requirements | 10 |
 | Direct-dependency delta in W8 | 0 |
-| Stripped Linux amd64 binary | 22,204,578 bytes |
-| Stripped binary SHA-256 | `64d40923e2fc69b7bd5c6d0eef039fdfa62ceea0d920220f3c2cdb49fbf39aed` |
+| Stripped Linux amd64 binary | 22,212,770 bytes |
+| Stripped binary SHA-256 | `c6e06d38b1fb650ad02b5ef8de6a4d3c33ffd77ac109058d3b638ff5ea11bc9b` |
 
 The ten direct requirements are:
 
@@ -107,14 +107,24 @@ Sworn does not invent a score or turn delivery success into a quality verdict.
 
 The deterministic, parity, telemetry, and touched-package gates pass. A
 canonical secret-free seven-profile configuration is provisioned with digest
-`sha256:30ab641a8da1bfd939585f80367c9842f9ac286dc97df5b08f9de377ab5b7ffc`;
-`driver inspect --all` and `driver doctor --all` both return seven PASS
-reports. The credential-backed all-family certification gate remains
-**NOT CERTIFIED** because the native Claude credential reports logged out.
-The exact pinned Claude Code `2.1.208` executable and its declared Linux
-runtime closure are present; their availability does not turn an
-unauthenticated probe into a pass. The 70-record shared corpus is not a
-substitute for that live gate.
+`sha256:cbce7163485c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`;
+fresh final-binary `driver inspect --all` and `driver doctor --all` each return
+seven PASS reports.
+
+The frozen aggregate live run passes Bedrock Mantle, Bedrock Runtime, Claude
+Code, Codex CLI, and Gemini. It reports one malformed DeepSeek submission and
+the OpenAI API provider limit. A targeted DeepSeek recheck with the same
+binary, configuration, profile, and model passes. The targeted OpenAI recheck
+still fails, and a direct secret-contained provider probe identifies HTTP 429
+`insufficient_quota`. ChatGPT Pro authentication used by Codex CLI is separate
+and passes; it does not substitute for the configured OpenAI API profile.
+
+The credential-backed all-family gate therefore remains **NOT CERTIFIED**.
+The current approved W8 check requires one `certify --all` invocation to pass
+every configured profile. The targeted evidence demonstrates that six
+surfaces are reachable, but it does not silently revise that gate. The durable
+live-repair capture records a leaner aggregate-discovery plus targeted-recheck
+evidence model for explicit approval.
 
 Technical readiness therefore remains fail-closed until one exact configured
 run of:

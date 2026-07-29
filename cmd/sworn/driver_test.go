@@ -81,7 +81,7 @@ func TestDriverReadinessCLIIsClosedDeterministicAndFailClosed(t *testing.T) {
 	}
 	if len(output.Reports) != 1 ||
 		output.Reports[0].State != driver.ReadinessFail ||
-		output.Reports[0].Code != "live_probe_failed" ||
+		output.Reports[0].Code != "certification_credential_failed" ||
 		certifyErr.Len() != 0 {
 		t.Fatalf("certify output = %#v, stderr=%q", output, certifyErr.String())
 	}

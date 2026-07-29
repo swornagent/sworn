@@ -188,7 +188,7 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 				bytes.Contains(argumentBody, []byte(invocation.HostWorkspace)) ||
 				!slicesContain(arguments, "--die-with-parent") ||
 				!slicesContain(arguments, "--share-net") ||
-				len(extraFiles) != len(config.RuntimeFiles)+5 {
+				len(extraFiles) != len(config.RuntimeFiles)+4 {
 				t.Fatalf(
 					"native surface = args %q env %q extra=%d",
 					arguments,
@@ -204,11 +204,13 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 				}
 			}
 			mcpBody := readOpenFile(t, configFiles[0])
-			catalogBody := readOpenFile(t, configFiles[2])
+			catalogBody := readOpenFile(t, configFiles[1])
 			switch family {
 			case ProfileCodex:
 				if bytes.Contains(environmentBody, capability) ||
 					bytes.Count(mcpBody, capability) != 1 ||
+					slicesContain(arguments, "--output-schema") ||
+					slicesContain(arguments, "-o") ||
 					slicesContain(arguments, "-c") ||
 					!containsArgumentSequence(arguments, codexArguments(
 						invocation.Selected.Model,
@@ -228,6 +230,8 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 			case ProfileClaude:
 				if bytes.Contains(environmentBody, capability) ||
 					bytes.Count(mcpBody, capability) != 1 ||
+					!bytes.Contains(mcpBody, []byte(`"alwaysLoad":true`)) ||
+					slicesContain(arguments, "--json-schema") ||
 					!containsArgumentSequence(
 						arguments,
 						claudeArguments(
@@ -484,7 +488,6 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 		for _, definition := range toolDefinitions(ReadWrite) {
 			tools = append(tools, "mcp__sworn__"+definition.Name)
 		}
-		tools = append(tools, "StructuredOutput")
 		event := map[string]any{
 			"type": "system", "subtype": "init",
 			"model": "exact-native-model", "permissionMode": "dontAsk",
@@ -521,8 +524,13 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 			!broker.Ready() {
 			t.Fatalf("Claude init = %v, state=%#v", err, state)
 		}
-		if !broker.Ready() {
-			t.Fatal("broker did not open after exact Claude event and handshake")
+		ambient := make([]any, len(tools), len(tools)+1)
+		for index, name := range tools {
+			ambient[index] = name
+		}
+		ambient = append(ambient, "StructuredOutput")
+		if exactClaudeTools(ambient, ReadWrite) {
+			t.Fatal("competing StructuredOutput tool was accepted")
 		}
 	})
 

@@ -100,18 +100,42 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 	if err := broker.Arm(); err != nil {
 		t.Fatal(err)
 	}
+	openCall := toolCallRequest(4, "Read", map[string]any{
+		"path": GuestWorkspacePath + "/broker.txt",
+	})
+	openCall["params"].(map[string]any)["_meta"] = map[string]any{
+		"claudecode/toolUseId": "tool-1",
+		"progressToken":        1,
+	}
 	status, body = brokerRequest(
 		t,
 		broker,
 		capability,
-		toolCallRequest(4, "Read", map[string]any{
-			"path": GuestWorkspacePath + "/broker.txt",
-		}),
+		openCall,
 	)
 	responseBodies = append(responseBodies, body)
 	if status != http.StatusOK ||
 		!bytes.Contains(body, []byte(`"text":"broker body"`)) {
 		t.Fatalf("open call = %d %s", status, body)
+	}
+	for name, value := range map[string]any{
+		"scalar metadata": "invalid",
+		"unknown sibling": map[string]any{},
+	} {
+		request := toolCallRequest(40, "Read", map[string]any{
+			"path": GuestWorkspacePath + "/broker.txt",
+		})
+		params := request["params"].(map[string]any)
+		if name == "scalar metadata" {
+			params["_meta"] = value
+		} else {
+			params["unknown"] = value
+		}
+		status, body = brokerRequest(t, broker, capability, request)
+		if status != http.StatusBadRequest ||
+			!bytes.Contains(body, []byte(`"message":"invalid_params"`)) {
+			t.Fatalf("%s = %d %s", name, status, body)
+		}
 	}
 
 	firstDone := make(chan brokerHTTPResult, 1)

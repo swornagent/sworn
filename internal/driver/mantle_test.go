@@ -57,6 +57,7 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 				"choices": []any{map[string]any{
 					"message": map[string]any{
 						"role": "assistant", "content": nil,
+						"reasoning": "bounded response-only reasoning",
 						"tool_calls": []any{openAIToolCallFixture(
 							"mantle-read",
 							"Read",
@@ -74,7 +75,8 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 		if len(envelope.Messages) != 3 ||
 			envelope.Messages[2].Role != "tool" ||
 			envelope.Messages[2].ToolCallID != "mantle-read" ||
-			string(envelope.Messages[2].Content) != `"bounded input"` {
+			string(envelope.Messages[2].Content) != `"bounded input"` ||
+			bytes.Contains(body, []byte(`"reasoning"`)) {
 			t.Errorf("Mantle continuation = %s", body)
 		}
 		writeJSONResponse(t, writer, openAIToolCallResponse(

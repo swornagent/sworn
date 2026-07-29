@@ -415,6 +415,12 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 				request.Header.Get("x-goog-api-key") != "gemini-secret" {
 				t.Errorf("Gemini request = %s, headers=%#v", request.URL, request.Header)
 			}
+			body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+			if err != nil ||
+				!bytes.Contains(body, []byte(`"parametersJsonSchema"`)) ||
+				bytes.Contains(body, []byte(`"parameters":`)) {
+				t.Errorf("Gemini JSON Schema field = %s, error=%v", body, err)
+			}
 			writeJSONResponse(t, writer, map[string]any{
 				"candidates": []any{map[string]any{
 					"content": map[string]any{
@@ -426,11 +432,12 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 							},
 						}},
 					},
-					"finishReason": "STOP",
+					"finishReason":  "STOP",
+					"finishMessage": "tool call completed",
 				}},
 				"usageMetadata": map[string]any{
 					"promptTokenCount": 11, "candidatesTokenCount": 13,
-					"totalTokenCount": 24,
+					"totalTokenCount": 24, "serviceTier": "STANDARD",
 				},
 			})
 		}))

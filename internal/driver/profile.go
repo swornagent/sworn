@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"sort"
 )
 
@@ -90,6 +91,72 @@ type profileChecker interface {
 
 type profileSurfaceReporter interface {
 	profileSurface() ProfileSurface
+}
+
+// certificationFailureCode exposes only a small stage vocabulary. Provider
+// text, stderr, request content, paths, credentials, and arbitrary error codes
+// never cross the readiness boundary.
+func certificationFailureCode(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded),
+		IsCode(err, "INVOCATION_TIMEOUT"):
+		return "certification_timeout"
+	case errors.Is(err, context.Canceled),
+		IsCode(err, "INVOCATION_CANCELLED"):
+		return "certification_cancelled"
+	}
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) {
+		return "certification_contract_failed"
+	}
+	switch contractErr.Code {
+	case "LIVE_PROBE_FAILED":
+		return "certification_setup_failed"
+	case "CREDENTIAL_UNAVAILABLE", "CREDENTIAL_NOT_CERTIFIED",
+		"CREDENTIAL_IDENTITY_CHANGED", "AWS_CREDENTIAL_EXPORT_INVALID":
+		return "certification_credential_failed"
+	case "PROCESS_START_FAILED", "PROCESS_FAILED", "ISOLATION_UNAVAILABLE",
+		"PROCESS_TREE_NOT_QUIESCENT", "INVALID_WORKSPACE",
+		"WORKSPACE_INSPECTION_FAILED", "UNSAFE_WORKSPACE_SYMLINK",
+		"UNSAFE_WORKSPACE_SURFACE", "WORKSPACE_IDENTITY_CHANGED",
+		"WORKSPACE_MUTATED", "INPUT_BINDING_MISMATCH", "INPUT_STAGE_FAILED",
+		"INVALID_PRODUCTION_INPUT_PATH", "INVALID_PROJECTION",
+		"INPUT_CLEANUP_FAILED":
+		return "certification_runtime_failed"
+	case "PROVIDER_TRANSPORT_FAILED", "TRANSPORT_FAILURE",
+		"HTTP_REDIRECT_REFUSED", "AWS_RESOLUTION_FAILED", "AWS_SIGNING_FAILED":
+		return "certification_provider_transport_failed"
+	case "PROVIDER_ERROR":
+		return "certification_provider_rejected"
+	case "PROVIDER_AUTHORIZATION_FAILED":
+		return "certification_provider_authorization_failed"
+	case "PROVIDER_LIMITED":
+		return "certification_provider_limited"
+	case "PROVIDER_REQUEST_REJECTED":
+		return "certification_provider_request_rejected"
+	case "PROVIDER_UNAVAILABLE":
+		return "certification_provider_unavailable"
+	case "MISSING_SUBMISSION", "SUBMISSION_REJECTED", "SUBMISSION_CONFLICT",
+		"SUBMISSION_PROTOCOL_FAILED", "SUBMISSION_BINDING_MISMATCH",
+		"SUBMISSION_SHAPE_MISMATCH", "INVALID_HANDOFF", "INVALID_SUBMISSION",
+		"INVALID_IDENTITY", "INVALID_RESPONSIBILITY", "INVALID_SUMMARY",
+		"INVALID_DETAIL", "INVALID_EXACT_BYTES", "INVALID_PLAN_BYTES",
+		"INVALID_DECISION":
+		return "certification_submission_failed"
+	case "CONTINUATION_INVALID", "INVALID_JSON", "MISSING_JSON",
+		"TRAILING_JSON", "NONCANONICAL_JSON":
+		return "certification_response_contract_failed"
+	case "INVALID_USAGE", "PARTIAL_USAGE", "PARTIAL_COST",
+		"INVALID_COST_OBSERVATION":
+		return "certification_usage_failed"
+	case "TOOL_NOT_ALLOWED", "INVALID_TOOL_ARGUMENT", "TOOL_PATH_INVALID",
+		"TOOL_READ_FAILED", "TOOL_WRITE_FAILED", "TOOL_EDIT_FAILED":
+		return "certification_tool_failed"
+	case "RESOURCE_LIMIT", "OUTPUT_OVERFLOW":
+		return "certification_resource_limited"
+	default:
+		return "certification_contract_failed"
+	}
 }
 
 // NewProductionRegistry admits the complete W5 production-family set as one

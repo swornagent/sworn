@@ -470,10 +470,20 @@ func (broker *nativeBroker) callTool(
 		return
 	}
 	defer broker.callMu.Unlock()
-	object, err := closedObject(params, []string{"name", "arguments"}, nil)
+	object, err := closedObject(
+		params,
+		[]string{"name", "arguments"},
+		[]string{"_meta"},
+	)
 	if err != nil {
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
+	}
+	if metadata, present := object["_meta"]; present {
+		if _, ok := metadata.(map[string]any); !ok {
+			writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
+			return
+		}
 	}
 	name, ok := object["name"].(string)
 	arguments, marshalErr := canonicalJSON(object["arguments"])
