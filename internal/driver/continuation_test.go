@@ -55,6 +55,7 @@ func TestDeepSeekReplaysReasoningAndExactToolCorrelation(t *testing.T) {
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
 		true,
+		"",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +105,7 @@ func TestOpenAIProfileRejectsUnexpectedReasoningState(t *testing.T) {
 		toolDefinitions(ReadOnly),
 		[]byte(`{}`),
 		false,
+		"",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +118,125 @@ func TestOpenAIProfileRejectsUnexpectedReasoningState(t *testing.T) {
 	unknown := []byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call","type":"function","function":{"name":"Read","arguments":"{}","provider_extension":"forbidden"}}]},"finish_reason":"tool_calls"}]}`)
 	if _, err := conversation.accept(unknown); !IsCode(err, "CONTINUATION_INVALID") {
 		t.Fatalf("unknown continuation field error = %v", err)
+	}
+}
+
+func TestResponsesReplaysEncryptedReasoningAndExactToolCorrelation(t *testing.T) {
+	t.Parallel()
+	conversation, err := newResponsesConversation(
+		"https://api.example.invalid/v1/responses",
+		"gpt-5.6-sol",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		"medium",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	reasoning := json.RawMessage(
+		`{"type":"reasoning","id":"reasoning-1","status":"completed","summary":[{"type":"summary_text","text":"provider-owned"}],"content":[{"type":"reasoning_text","text":"provider-owned"}],"encrypted_content":"opaque-encrypted-reasoning"}`,
+	)
+	message := json.RawMessage(
+		`{"type":"message","id":"message-1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"provider-owned"}]}`,
+	)
+	function := json.RawMessage(
+		`{"type":"function_call","call_id":"call-1","name":"Read","arguments":"{\"path\":\"/workspace/a.txt\"}","status":"completed","caller":"provider-owned","namespace":"provider-owned"}`,
+	)
+	response := append(
+		[]byte(`{"id":"response-1","object":"response","status":"completed","output":[`),
+		reasoning...,
+	)
+	response = append(response, ',')
+	response = append(response, message...)
+	response = append(response, ',')
+	response = append(response, function...)
+	response = append(
+		response,
+		[]byte(`],"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"future_metadata":{"ignored":true}}`)...,
+	)
+	turn, err := conversation.accept(response)
+	if err != nil || len(turn.Calls) != 1 ||
+		turn.Calls[0].ID != "call-1" ||
+		turn.Calls[0].Name != "Read" ||
+		string(turn.Calls[0].Arguments) != `{"path":"/workspace/a.txt"}` ||
+		turn.Usage == nil ||
+		turn.Usage.InputTokens != 2 ||
+		turn.Usage.OutputTokens != 3 {
+		t.Fatalf("turn = %#v, %v", turn, err)
+	}
+	if err := conversation.appendResults([]providerToolResult{{
+		ID: "call-1", Name: "Read", Content: []byte("file body"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request, err := conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replay struct {
+		Store     *bool              `json:"store"`
+		Reasoning responsesReasoning `json:"reasoning"`
+		Input     []json.RawMessage  `json:"input"`
+	}
+	if json.Unmarshal(request.Body, &replay) != nil ||
+		replay.Store == nil || *replay.Store ||
+		replay.Reasoning.Effort != "medium" ||
+		len(replay.Input) != 5 ||
+		!bytes.Equal(replay.Input[1], reasoning) ||
+		!bytes.Equal(replay.Input[2], message) ||
+		!bytes.Equal(replay.Input[3], function) {
+		t.Fatalf("Responses replay = %s", request.Body)
+	}
+	var result responsesFunctionOutput
+	if json.Unmarshal(replay.Input[4], &result) != nil ||
+		result.Type != "function_call_output" ||
+		result.CallID != "call-1" ||
+		result.Output != "file body" {
+		t.Fatalf("Responses tool result = %s", replay.Input[4])
+	}
+	duplicate := []byte(
+		`{"status":"completed","output":[{"type":"function_call","id":"function-2","call_id":"call-1","name":"Read","arguments":"{}","status":"completed"}]}`,
+	)
+	if _, err := conversation.accept(duplicate); !IsCode(err, "CONTINUATION_INVALID") {
+		t.Fatalf("duplicate call error = %v", err)
+	}
+}
+
+func TestOpenAIAPIConfigurationIsExplicit(t *testing.T) {
+	t.Parallel()
+	base := HTTPProfileConfig{
+		Key: "openai", ID: "sworn.openai", Version: "1.0.0",
+		CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+		CredentialRefs: []string{"credential-ref"},
+		ResponseBytes:  MaxProviderResponseBytes,
+	}
+	for _, test := range []struct {
+		name   string
+		api    OpenAIAPI
+		path   string
+		effort string
+		valid  bool
+	}{
+		{"Responses custom route", OpenAIResponsesAPI, "/deployments/model/responses", "medium", true},
+		{"Responses needs effort", OpenAIResponsesAPI, "/v1/responses", "", false},
+		{"Chat compatibility", OpenAIChatCompletionsAPI, "/chat/completions", "", true},
+		{"Chat disables reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "none", true},
+		{"Chat rejects reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "low", false},
+		{"Unknown dialect", OpenAIAPI("unknown"), "/v1/responses", "medium", false},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			config := OpenAIProfileConfig{
+				HTTPProfileConfig: base,
+				API:               test.api,
+				ReasoningEffort:   test.effort,
+			}
+			config.Endpoint = "https://api.example.invalid" + test.path
+			if config.valid() != test.valid {
+				t.Fatalf("valid = %t, want %t", config.valid(), test.valid)
+			}
+		})
 	}
 }
 

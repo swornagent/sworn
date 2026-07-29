@@ -465,13 +465,16 @@ func productionJourneyConfig(
 				CredentialRefs:   []string{geminiCredential},
 				ResponseBytes:    driver.MaxProviderResponseBytes,
 			}},
-			{OpenAI: &driver.HTTPProfileConfig{
-				Key: "a-openai", ID: "sworn.journey.openai", Version: "1.0.0",
-				Endpoint:         providerURL + "/openai/v1/chat/completions",
-				CredentialHeader: "Authorization",
-				CredentialPrefix: "Bearer ",
-				CredentialRefs:   []string{openAICredential},
-				ResponseBytes:    driver.MaxProviderResponseBytes,
+			{OpenAI: &driver.OpenAIProfileConfig{
+				HTTPProfileConfig: driver.HTTPProfileConfig{
+					Key: "a-openai", ID: "sworn.journey.openai", Version: "1.0.0",
+					Endpoint:         providerURL + "/openai/v1/chat/completions",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{openAICredential},
+					ResponseBytes:    driver.MaxProviderResponseBytes,
+				},
+				API: driver.OpenAIChatCompletionsAPI,
 			}},
 		},
 		Profiles: []driver.DriverProfile{

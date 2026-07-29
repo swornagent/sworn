@@ -56,7 +56,7 @@ type DriverProcessAdapterConfig struct {
 type DriverAdapterConfig struct {
 	Process  *DriverProcessAdapterConfig `json:"process,omitempty"`
 	Native   *NativeAdapterConfig        `json:"native,omitempty"`
-	OpenAI   *HTTPProfileConfig          `json:"openai,omitempty"`
+	OpenAI   *OpenAIProfileConfig        `json:"openai,omitempty"`
 	DeepSeek *HTTPProfileConfig          `json:"deepseek,omitempty"`
 	Gemini   *HTTPProfileConfig          `json:"gemini,omitempty"`
 	Bedrock  *BedrockProfileConfig       `json:"bedrock,omitempty"`
@@ -321,11 +321,17 @@ func buildConfiguredAdapter(
 			filePathResolver(sources),
 			options.NativeSmokeBuilders[descriptor.key],
 		)
-	case driverAdapterOpenAI, driverAdapterDeepSeek, driverAdapterGemini:
+	case driverAdapterOpenAI:
+		value := cloneOpenAIProfileConfig(*config.OpenAI)
+		return NewOpenAIAdapter(
+			value,
+			headerSourceResolver(sources, options),
+			probe,
+			roundTripper,
+		)
+	case driverAdapterDeepSeek, driverAdapterGemini:
 		var source HTTPProfileConfig
 		switch descriptor.kind {
-		case driverAdapterOpenAI:
-			source = *config.OpenAI
 		case driverAdapterDeepSeek:
 			source = *config.DeepSeek
 		case driverAdapterGemini:
@@ -334,8 +340,6 @@ func buildConfiguredAdapter(
 		value := cloneHTTPProfileConfig(source)
 		resolver := headerSourceResolver(sources, options)
 		switch descriptor.kind {
-		case driverAdapterOpenAI:
-			return NewOpenAICompatibleAdapter(value, resolver, probe, roundTripper)
 		case driverAdapterDeepSeek:
 			return NewDeepSeekAdapter(value, resolver, probe, roundTripper)
 		default:
@@ -516,12 +520,28 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 			sources: []CredentialSourceKind{CredentialFile},
 		})
 	}
+	if config.OpenAI != nil {
+		surface := ProfileSurfaceOpenAIChat
+		if config.OpenAI.API == OpenAIResponsesAPI {
+			surface = ProfileSurfaceOpenAIResponses
+		}
+		descriptors = append(descriptors, driverAdapterDescriptor{
+			kind: driverAdapterOpenAI, key: config.OpenAI.Key,
+			id: config.OpenAI.ID, version: config.OpenAI.Version,
+			family:  ProfileOpenAIHTTP,
+			surface: surface,
+			refs:    config.OpenAI.CredentialRefs,
+			sources: []CredentialSourceKind{
+				CredentialEnvironment,
+				CredentialFile,
+			},
+		})
+	}
 	for _, candidate := range []struct {
 		config *HTTPProfileConfig
 		kind   driverAdapterKind
 		family ProfileFamily
 	}{
-		{config.OpenAI, driverAdapterOpenAI, ProfileOpenAIHTTP},
 		{config.DeepSeek, driverAdapterDeepSeek, ProfileDeepSeek},
 		{config.Gemini, driverAdapterGemini, ProfileGemini},
 	} {
@@ -581,6 +601,8 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 			!validCredentialRefs(descriptor.refs)) ||
 		(descriptor.kind == driverAdapterProcess &&
 			len(descriptor.refs) != 0) ||
+		(descriptor.kind == driverAdapterOpenAI &&
+			!config.OpenAI.valid()) ||
 		(descriptor.kind == driverAdapterMantle &&
 			(!config.Mantle.AuthMode.valid() ||
 				(config.Mantle.AuthMode == BedrockMantleAPIKey &&
@@ -716,6 +738,11 @@ func cloneNativeAdapterConfig(config NativeAdapterConfig) NativeAdapterConfig {
 
 func cloneHTTPProfileConfig(config HTTPProfileConfig) HTTPProfileConfig {
 	config.CredentialRefs = append([]string(nil), config.CredentialRefs...)
+	return config
+}
+
+func cloneOpenAIProfileConfig(config OpenAIProfileConfig) OpenAIProfileConfig {
+	config.HTTPProfileConfig = cloneHTTPProfileConfig(config.HTTPProfileConfig)
 	return config
 }
 

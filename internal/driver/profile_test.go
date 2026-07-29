@@ -40,7 +40,7 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 		ProfileDeepSeek, ProfileGemini, ProfileBedrock, ProfileBedrock,
 	}
 	surfaces := []ProfileSurface{
-		"", "", "", "", "", "",
+		"", "", "", ProfileSurfaceOpenAIResponses, "", "",
 		ProfileSurfaceBedrockRuntimeConverse,
 		ProfileSurfaceBedrockMantleChat,
 	}

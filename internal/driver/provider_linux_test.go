@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func TestOpenAICompatibleFakeServerCorpusCoversEveryRole(t *testing.T) {
+func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 	tests := []struct {
 		name           string
 		role           Role
@@ -51,20 +51,33 @@ func TestOpenAICompatibleFakeServerCorpusCoversEveryRole(t *testing.T) {
 					t.Errorf("headers = %#v", request.Header)
 				}
 				var body struct {
-					Model string `json:"model"`
+					Model     string `json:"model"`
+					Input     []any  `json:"input"`
+					Store     *bool  `json:"store"`
+					Stream    *bool  `json:"stream"`
+					Reasoning struct {
+						Effort string `json:"effort"`
+					} `json:"reasoning"`
 					Tools []struct {
-						Function struct {
-							Name string `json:"name"`
-						} `json:"function"`
+						Name   string `json:"name"`
+						Strict bool   `json:"strict"`
 					} `json:"tools"`
 				}
 				if json.NewDecoder(request.Body).Decode(&body) != nil ||
-					body.Model != "exact-model" {
+					body.Model != "exact-model" ||
+					len(body.Input) != 1 ||
+					body.Store == nil || *body.Store ||
+					body.Stream == nil || *body.Stream ||
+					body.Reasoning.Effort != "medium" ||
+					request.URL.Path != "/v1/responses" {
 					t.Errorf("provider request = %#v", body)
 				}
 				names := make(map[string]struct{}, len(body.Tools))
 				for _, tool := range body.Tools {
-					names[tool.Function.Name] = struct{}{}
+					if tool.Strict {
+						t.Errorf("strict tool = %#v", tool)
+					}
+					names[tool.Name] = struct{}{}
 				}
 				_, hasWrite := names["Write"]
 				_, hasEdit := names["Edit"]
@@ -72,7 +85,9 @@ func TestOpenAICompatibleFakeServerCorpusCoversEveryRole(t *testing.T) {
 					(test.access == ReadWrite) != hasEdit {
 					t.Errorf("access-derived tools = %#v", names)
 				}
-				writeJSONResponse(t, writer, openAIToolCallResponse(
+				writeJSONResponse(t, writer, responsesToolCallResponse(
+					"response-1",
+					"function-1",
 					"submit-1",
 					"sworn_submit",
 					arguments,
@@ -85,13 +100,17 @@ func TestOpenAICompatibleFakeServerCorpusCoversEveryRole(t *testing.T) {
 				returnedSecret = []byte("credential-canary")
 				return returnedSecret, nil
 			}
-			adapter, err := NewOpenAICompatibleAdapter(
-				HTTPProfileConfig{
-					Key: "openai-adapter", ID: "sworn.openai", Version: "1.0.0",
-					Endpoint:         server.URL + "/chat/completions",
-					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-					CredentialRefs: []string{"credential-ref"},
-					ResponseBytes:  MaxProviderResponseBytes,
+			adapter, err := NewOpenAIAdapter(
+				OpenAIProfileConfig{
+					HTTPProfileConfig: HTTPProfileConfig{
+						Key: "openai-adapter", ID: "sworn.openai", Version: "1.0.0",
+						Endpoint:         server.URL + "/v1/responses",
+						CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+						CredentialRefs: []string{"credential-ref"},
+						ResponseBytes:  MaxProviderResponseBytes,
+					},
+					API:             OpenAIResponsesAPI,
+					ReasoningEffort: "medium",
 				},
 				resolver,
 				nil,
@@ -151,6 +170,13 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 			t.Error(err)
 			return
 		}
+		var chatEnvelope struct {
+			ReasoningEffort string `json:"reasoning_effort"`
+		}
+		if json.Unmarshal(body, &chatEnvelope) != nil ||
+			chatEnvelope.ReasoningEffort != "none" {
+			t.Errorf("chat reasoning effort = %s", body)
+		}
 		if turn == 1 {
 			writeJSONResponse(t, writer, map[string]any{
 				"choices": []any{map[string]any{
@@ -191,13 +217,17 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 		))
 	}))
 	defer server.Close()
-	adapter, err := NewOpenAICompatibleAdapter(
-		HTTPProfileConfig{
-			Key: "openai-order", ID: "sworn.openai.order", Version: "1.0.0",
-			Endpoint:         server.URL + "/chat/completions",
-			CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-			CredentialRefs: []string{"credential-ref"},
-			ResponseBytes:  MaxProviderResponseBytes,
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-order", ID: "sworn.openai.order", Version: "1.0.0",
+				Endpoint:         server.URL + "/v1/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIChatCompletionsAPI,
+			ReasoningEffort: "none",
 		},
 		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
 		nil,
@@ -260,13 +290,16 @@ func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T
 				test.handler(writer, request)
 			}))
 			defer server.Close()
-			adapter, err := NewOpenAICompatibleAdapter(
-				HTTPProfileConfig{
-					Key: "failure-adapter", ID: "sworn.failure", Version: "1.0.0",
-					Endpoint:         server.URL + "/chat/completions",
-					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-					CredentialRefs: []string{"credential-ref"},
-					ResponseBytes:  MaxProviderResponseBytes,
+			adapter, err := NewOpenAIAdapter(
+				OpenAIProfileConfig{
+					HTTPProfileConfig: HTTPProfileConfig{
+						Key: "failure-adapter", ID: "sworn.failure", Version: "1.0.0",
+						Endpoint:         server.URL + "/v1/chat/completions",
+						CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+						CredentialRefs: []string{"credential-ref"},
+						ResponseBytes:  MaxProviderResponseBytes,
+					},
+					API: OpenAIChatCompletionsAPI,
 				},
 				func(context.Context, string) ([]byte, error) {
 					return []byte("credential-canary"), nil
@@ -588,6 +621,30 @@ func openAIToolCallFixture(id, name, arguments string) map[string]any {
 	return map[string]any{
 		"id": id, "type": "function",
 		"function": map[string]any{"name": name, "arguments": arguments},
+	}
+}
+
+func responsesToolCallResponse(
+	responseID string,
+	itemID string,
+	callID string,
+	name string,
+	arguments string,
+	inputTokens int64,
+	outputTokens int64,
+) map[string]any {
+	return map[string]any{
+		"id": responseID, "object": "response", "status": "completed",
+		"error": nil,
+		"output": []any{map[string]any{
+			"type": "function_call", "id": itemID, "call_id": callID,
+			"name": name, "arguments": arguments, "status": "completed",
+		}},
+		"usage": map[string]any{
+			"input_tokens": inputTokens, "output_tokens": outputTokens,
+			"total_tokens": inputTokens + outputTokens,
+		},
+		"future_inert_metadata": map[string]any{"ignored": true},
 	}
 }
 

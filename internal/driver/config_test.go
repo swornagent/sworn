@@ -36,7 +36,6 @@ func TestDriverConfigCodecDigestAndPrivacyAreStrict(t *testing.T) {
 	for _, forbidden := range []string{
 		"credential-secret-canary",
 		"fallback",
-		"responses",
 	} {
 		if bytes.Contains(body, []byte(forbidden)) {
 			t.Fatalf("configuration contained %q: %s", forbidden, body)
@@ -167,20 +166,26 @@ func TestDriverConfigFactoryBuildsSubsetAndEveryFamilyWithoutResolvingSecrets(t 
 	classic := all.Inspect(context.Background(), "bedrock", "model-bedrock")
 	mantleAPI := all.Inspect(context.Background(), "mantle-api", "model-mantle-api")
 	mantleAWS := all.Inspect(context.Background(), "mantle-aws", "model-mantle-aws")
-	if classic.Family != ProfileBedrock ||
+	openAI := all.Inspect(context.Background(), "openai", "model-openai")
+	if openAI.Family != ProfileOpenAIHTTP ||
+		openAI.Surface != ProfileSurfaceOpenAIResponses ||
+		classic.Family != ProfileBedrock ||
 		classic.Surface != ProfileSurfaceBedrockRuntimeConverse ||
 		mantleAPI.Family != ProfileBedrock ||
 		mantleAPI.Surface != ProfileSurfaceBedrockMantleChat ||
 		mantleAWS.Family != ProfileBedrock ||
 		mantleAWS.Surface != ProfileSurfaceBedrockMantleChat {
 		t.Fatalf(
-			"Bedrock reports classic=%#v api=%#v aws=%#v",
+			"reports openai=%#v classic=%#v api=%#v aws=%#v",
+			openAI,
 			classic,
 			mantleAPI,
 			mantleAWS,
 		)
 	}
-	reportBody, err := canonicalJSON([]ProfileReport{classic, mantleAPI, mantleAWS})
+	reportBody, err := canonicalJSON([]ProfileReport{
+		openAI, classic, mantleAPI, mantleAWS,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,12 +334,15 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 			ResponseBytes:  MaxProviderResponseBytes, AuthMode: BedrockMantleAWS,
 			Chain: &awsChain,
 		}},
-		{OpenAI: &HTTPProfileConfig{
-			Key: "a-openai", ID: "sworn.openai", Version: "1.0.0",
-			Endpoint:         "http://localhost:4106/chat/completions",
-			CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-			CredentialRefs: []string{"openai-env"},
-			ResponseBytes:  MaxProviderResponseBytes,
+		{OpenAI: &OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "a-openai", ID: "sworn.openai", Version: "1.0.0",
+				Endpoint:         "http://localhost:4106/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"openai-env"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API: OpenAIResponsesAPI, ReasoningEffort: "medium",
 		}},
 	}
 	profile := func(

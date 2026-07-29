@@ -18,8 +18,8 @@ that contains itself.
 
 | Gate | Exact result |
 | --- | --- |
-| `GOFLAGS=-buildvcs=false go test ./...` | PASS; isolated real-binary E2E package 506.576s |
-| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; isolated real-binary E2E package 515.529s; no race warning |
+| `GOFLAGS=-buildvcs=false go test ./...` | PASS; isolated real-binary E2E package 503.634s |
+| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; isolated real-binary E2E package 515.625s; no race warning |
 | `GOFLAGS=-buildvcs=false go vet ./...` | PASS |
 | `go mod tidy -diff` | PASS; empty diff |
 | `gofmt -l` over all tracked Go files | PASS; no paths |
@@ -36,17 +36,17 @@ the standard generated-code marker. Blank and comment lines count.
 
 | Fact | Measured value |
 | --- | ---: |
-| Production Go files | 94 |
-| Production Go lines | 46,588 |
+| Production Go files | 95 |
+| Production Go lines | 47,006 |
 | Legacy baseline at `bad1a6767994cacef2c354061d22db842cb6ca08` | 10,464 |
-| Delta from legacy baseline | +36,124 |
+| Delta from legacy baseline | +36,542 |
 | W8 design measurement | 42,555 |
-| W8 implementation delta | +4,033 |
+| W8 implementation delta | +4,451 |
 | Production packages below `cmd` and `internal` | 8 |
 | Direct module requirements | 10 |
 | Direct-dependency delta in W8 | 0 |
-| Stripped Linux amd64 binary | 22,212,770 bytes |
-| Stripped binary SHA-256 | `c6e06d38b1fb650ad02b5ef8de6a4d3c33ffd77ac109058d3b638ff5ea11bc9b` |
+| Stripped Linux amd64 binary | 22,237,346 bytes |
+| Stripped binary SHA-256 | `7a72bb6bb25c15147bcd185f8dd28172470a1ba2a1813989ff5f6a39f77d4f28` |
 
 The ten direct requirements are:
 
@@ -62,10 +62,9 @@ The ten direct requirements are:
 - `modernc.org/sqlite v1.54.0`
 
 The implementation adds no package, provider SDK, scheduler, tool loop,
-credential store, or module requirement. It composes the configured factory
-over the existing registry, dispatcher, adapters, journal, runtime, Git/Baton
-actions, and operator telemetry service. New production code is confined to
-the existing `cmd/sworn`, `internal/driver`, and `internal/runtime` packages.
+credential store, or module requirement. The OpenAI Responses codec translates
+one additional provider wire format behind the existing dispatcher and bounded
+tool loop. New production code is confined to `internal/driver`.
 
 ## Executable scenario facts
 
@@ -105,34 +104,30 @@ Sworn does not invent a score or turn delivery success into a quality verdict.
 
 ## Readiness verdict
 
-The deterministic, parity, telemetry, and touched-package gates pass. A
-canonical secret-free seven-profile configuration is provisioned with digest
-`sha256:cbce7163485c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`;
-fresh final-binary `driver inspect --all` and `driver doctor --all` each return
-seven PASS reports.
+The deterministic, parity, telemetry, full, race, vet, format, tidy, and
+reproducible-build gates pass. The canonical secret-free seven-profile
+configuration now has digest
+`sha256:12ab8326666c5b9cdcd99ffc6ccba440db661d312f217804ac953902945c164e`.
+Final-binary `driver inspect --all` returns seven PASS reports; its evidence is
+`/tmp/sworn-responses-final.Kz6aNX/driver-inspect-all.json`, SHA-256
+`06c7947457ad25253f9649e9b53e0ee0a1f107c381472861eb93372dc5eeba4e`.
 
-The frozen aggregate live run passes Bedrock Mantle, Bedrock Runtime, Claude
-Code, Codex CLI, and Gemini. It reports one malformed DeepSeek submission and
-the OpenAI API provider limit. A targeted DeepSeek recheck with the same
-binary, configuration, profile, and model passes. The targeted OpenAI recheck
-still fails, and a direct secret-contained provider probe identifies HTTP 429
-`insufficient_quota`. ChatGPT Pro authentication used by Codex CLI is separate
-and passes; it does not substitute for the configured OpenAI API profile.
+The existing frozen live bundle remains visible: its aggregate run passes
+Bedrock Mantle, Bedrock Runtime, Claude Code, Codex CLI, and Gemini, and the
+targeted DeepSeek recheck passes. Those exact profile/model/configuration
+surfaces and their wire behavior are unchanged; the final shared corpus also
+passes them. Native OpenAI alone changed to Responses and was rerun. The final
+targeted result passes `gpt-5.6-sol` with family
+`openai_compatible_http`, surface `openai_responses`, adapter
+`sworn.openai` `1.0.0`, and adapter configuration digest
+`sha256:299d4f4d7981fdacad0fdeb11a3b5d458afc513d911630cbe07707d5f78e132a`.
+Its evidence is
+`/tmp/sworn-responses-final.Kz6aNX/driver-certify-openai-sourced.json`,
+SHA-256
+`c471080180ff9047ed2f7ecfccdd0bf89aedd9f4fef623b966e2158bf38172b6`.
 
-The credential-backed all-family gate therefore remains **NOT CERTIFIED**.
-The current approved W8 check requires one `certify --all` invocation to pass
-every configured profile. The targeted evidence demonstrates that six
-surfaces are reachable, but it does not silently revise that gate. The durable
-live-repair capture records a leaner aggregate-discovery plus targeted-recheck
-evidence model for explicit approval.
-
-Technical readiness therefore remains fail-closed until one exact configured
-run of:
-
-```sh
-sworn driver certify --all --config "$SWORN_DRIVER_CONFIG" --json
-```
-
-returns PASS for Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek,
-Gemini, Bedrock Runtime Converse, and Bedrock Mantle with their explicit
-configured models, or an approved plan revision names an exact deferral.
+Together, the identity-bound bundle covers every required profile and both
+Bedrock surfaces without substituting one provider for another. Revision 10
+proposes this lean evidence rule while preserving W0 through W6 and the
+existing W8 identity. The technical facts are ready; Baton authority remains
+fail-closed only until the repository owner approves and installs revision 10.

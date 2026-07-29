@@ -30,8 +30,9 @@ This candidate provides:
 
 - the real `sworn run`, control, status, board, and local operator surfaces;
 - deterministic scripted manifests for tests and recovery compatibility;
-- production Codex CLI, Claude Code CLI, OpenAI-compatible, DeepSeek, Gemini,
-  and Bedrock drivers behind the same role-neutral contract;
+- production Codex CLI, Claude Code CLI, native OpenAI Responses,
+  OpenAI-compatible Chat Completions, DeepSeek, Gemini, and Bedrock drivers
+  behind the same role-neutral contract;
 - both Bedrock Runtime Converse/SigV4 and Bedrock Mantle Chat Completions
   surfaces, with no provider or model fallback;
 - secret-free driver inspect, doctor, and live-certification reports; and
@@ -66,6 +67,10 @@ and certification models. Credential values remain in the selected environment
 or owner-only files and never enter configuration, manifests, journals,
 diagnostics, evidence, or telemetry. `driver certify --all` exits nonzero for
 any missing, failed, or not-certified production family or Bedrock surface.
+
+Native OpenAI uses the Responses API with an explicit reasoning effort.
+Chat Completions remains an explicit compatibility surface; Sworn never
+guesses a dialect or falls back between them.
 
 ## Build and verify
 
