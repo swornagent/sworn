@@ -609,7 +609,7 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("PRAGMA user_version = 2"); err != nil {
+	if _, err := db.Exec("PRAGMA user_version = 3"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -617,6 +617,258 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	}
 	if _, err := Open(ctx, path); !IsCode(err, "IDENTITY_MISMATCH") {
 		t.Fatalf("foreign schema identity = %v", err)
+	}
+}
+
+func downgradeExactV2ToV1(t *testing.T, path string, mutate bool) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	statements := []string{
+		"DROP INDEX outbox_delivery_order",
+		"DROP INDEX eval_records_by_run_offset",
+		"DROP TABLE notification_outbox",
+		"DROP TABLE eval_records",
+		"DROP TABLE observer_cursors",
+		"PRAGMA user_version = 1",
+	}
+	if mutate {
+		statements = append(statements, "CREATE TABLE foreign_v1(value TEXT) STRICT")
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	got, err := schemaFingerprint(context.Background(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mutate && got != legacySchemaIdentityDigest {
+		t.Fatalf("legacy fingerprint = %s, want %s", got, legacySchemaIdentityDigest)
+	}
+}
+
+func TestOpenMigratesOnlyExactV1AndPreservesExistingFacts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run, _, _ := journalFixture(t)
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, false)
+
+	readOnly, err := OpenReadOnly(ctx, path)
+	if !IsCode(err, "IDENTITY_MISMATCH") || readOnly != nil {
+		t.Fatalf("v1 read-only admission = %#v, %v", readOnly, err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	snapshot, err := migrated.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Run.ID != run.ID || len(snapshot.Commands) != 1 || len(snapshot.Effects) != 1 {
+		t.Fatalf("migrated facts = %#v", snapshot)
+	}
+	if err := verifySchemaIdentity(ctx, migrated.conn); err != nil {
+		t.Fatal(err)
+	}
+	migratedFingerprint, err := schemaFingerprint(ctx, migrated.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := Open(ctx, filepath.Join(t.TempDir(), "fresh-v2.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	freshFingerprint, err := schemaFingerprint(ctx, fresh.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedFingerprint != freshFingerprint ||
+		freshFingerprint != schemaIdentityDigest {
+		t.Fatalf(
+			"fresh/migrated parity = fresh %s migrated %s want %s",
+			freshFingerprint,
+			migratedFingerprint,
+			schemaIdentityDigest,
+		)
+	}
+}
+
+func TestV1MigrationNormalizesTheBoundedAttemptWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run, _, effect := journalFixture(t)
+	path := store.Path()
+	usage := []byte(`{"token_status":"unavailable"}`)
+	base := run.CreatedAt.Truncate(time.Second).Add(time.Second)
+	olderBoundary := base.Add(100 * time.Millisecond)
+	newerBoundary := base.Add(110 * time.Millisecond)
+	later := base.Add(time.Second)
+	if err := store.immediate(ctx, func(conn *sql.Conn) error {
+		for attempt := 1; attempt <= MaxObservationAttempts+1; attempt++ {
+			at := later
+			switch attempt {
+			case 1:
+				at = olderBoundary
+			case 2:
+				at = newerBoundary
+			}
+			if _, err := conn.ExecContext(
+				ctx,
+				`INSERT INTO attempts(
+				     run_id, effect_id, attempt, responsibility,
+				     transport_status, observation_digest, usage_digest,
+				     usage, created_at
+				 ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				run.ID,
+				effect.ID,
+				attempt,
+				"implementer_implementation",
+				"completed",
+				digest([]byte("observation")),
+				digest(usage),
+				usage,
+				at.UTC().Format(time.RFC3339Nano),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, false)
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	observation, err := migrated.ReadObservation(
+		ctx,
+		run.ID,
+		MaxObservationAttempts,
+		1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Attempts) != MaxObservationAttempts {
+		t.Fatalf(
+			"attempt window = %d, want %d",
+			len(observation.Attempts),
+			MaxObservationAttempts,
+		)
+	}
+	var olderPresent, newerPresent bool
+	for index, attempt := range observation.Attempts {
+		if index > 0 &&
+			attempt.CreatedAt.Before(observation.Attempts[index-1].CreatedAt) {
+			t.Fatalf(
+				"attempt window is not chronological at %d: %s before %s",
+				index,
+				attempt.CreatedAt,
+				observation.Attempts[index-1].CreatedAt,
+			)
+		}
+		switch attempt.Number {
+		case 1:
+			olderPresent = true
+		case 2:
+			newerPresent = true
+		}
+	}
+	if olderPresent || !newerPresent {
+		t.Fatalf(
+			"migration selected boundary attempts: older=%t newer=%t",
+			olderPresent,
+			newerPresent,
+		)
+	}
+	rows, err := migrated.conn.QueryContext(
+		ctx,
+		`SELECT created_at FROM attempts
+		 WHERE run_id=? ORDER BY attempt`,
+		run.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var encoded string
+		if err := rows.Scan(&encoded); err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := parseTime(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := parsed.UTC().Format(
+			"2006-01-02T15:04:05.000000000Z",
+		); encoded != want {
+			t.Fatalf("migrated timestamp = %q, want %q", encoded, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenRejectsModifiedV1WithoutPartialMigration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, _, _ := journalFixture(t)
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV2ToV1(t, path, true)
+
+	if _, err := Open(ctx, path); !IsCode(err, "IDENTITY_MISMATCH") {
+		t.Fatalf("modified v1 admission = %v", err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version, migratedTables int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_schema
+		 WHERE type='table' AND name IN
+		       ('observer_cursors','eval_records','notification_outbox')`,
+	).Scan(&migratedTables); err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 || migratedTables != 0 {
+		t.Fatalf("modified v1 changed: version=%d tables=%d", version, migratedTables)
 	}
 }
 

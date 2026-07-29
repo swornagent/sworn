@@ -26,13 +26,18 @@ const (
 	MaxEventBytes   = 256 * 1024
 	MaxLease        = 15 * time.Minute
 	ApplicationID   = 1_398_230_866
-	SchemaVersion   = 1
+	SchemaVersion   = 2
 
-	schemaIdentityDigest = "sha256:bb78cc011e12981e7a7d82ac3198936b0a04c9ce8516f062d4d2017957f3cd3e"
+	legacySchemaVersion        = 1
+	legacySchemaIdentityDigest = "sha256:bb78cc011e12981e7a7d82ac3198936b0a04c9ce8516f062d4d2017957f3cd3e"
+	schemaIdentityDigest       = "sha256:dfb1f66f6b0186165409b98bd684deaabbb5e626c64b8649df7c1c7ab5a229f7"
 )
 
 //go:embed schema.sql
 var schema string
+
+//go:embed migrate_v1_to_v2.sql
+var migrationV1ToV2 string
 
 var (
 	identityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$`)
@@ -165,18 +170,6 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 		return nil, fail("OPEN_FAILED", errors.New("SQLite connection unavailable"))
 	}
 	store := &Store{path: clean, db: db, conn: conn, readOnly: true}
-	var count int
-	if err := conn.QueryRowContext(
-		ctx,
-		`SELECT count(*) FROM sqlite_schema
-		 WHERE type = 'table' AND name IN (
-			'runs', 'commands', 'effects', 'claims', 'attempts', 'receipts', 'events'
-		 )`,
-	).Scan(&count); err != nil || count != 7 {
-		_ = conn.Close()
-		_ = db.Close()
-		return nil, fail("SCHEMA_FAILED", errors.New("journal schema is unavailable"))
-	}
 	var applicationID, userVersion int
 	if err := conn.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil ||
 		applicationID != ApplicationID {
@@ -236,14 +229,32 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fail("IDENTITY_MISMATCH", errors.New("journal catalog identity is unavailable"))
 	}
 	empty := priorObjects == 0 && priorApplicationID == 0 && priorUserVersion == 0
-	if !empty {
-		if priorApplicationID != ApplicationID || priorUserVersion != SchemaVersion {
-			return fail("IDENTITY_MISMATCH", errors.New("journal identity does not match Sworn"))
-		}
-	}
 	if empty {
 		if _, err := s.conn.ExecContext(ctx, schema); err != nil {
 			return fail("SCHEMA_FAILED", errors.New("journal schema was rejected"))
+		}
+	} else {
+		if priorApplicationID != ApplicationID {
+			return fail("IDENTITY_MISMATCH", errors.New("journal identity does not match Sworn"))
+		}
+		switch priorUserVersion {
+		case SchemaVersion:
+			if err := verifySchemaIdentity(ctx, s.conn); err != nil {
+				return err
+			}
+		case legacySchemaVersion:
+			if err := verifySchemaIdentityAs(
+				ctx,
+				s.conn,
+				legacySchemaIdentityDigest,
+			); err != nil {
+				return err
+			}
+			if err := migrateV1ToV2(ctx, s.conn); err != nil {
+				return err
+			}
+		default:
+			return fail("IDENTITY_MISMATCH", errors.New("journal identity does not match Sworn"))
 		}
 	}
 	var journalMode string
@@ -312,13 +323,40 @@ func schemaFingerprint(ctx context.Context, conn *sql.Conn) (string, error) {
 }
 
 func verifySchemaIdentity(ctx context.Context, conn *sql.Conn) error {
+	return verifySchemaIdentityAs(ctx, conn, schemaIdentityDigest)
+}
+
+func verifySchemaIdentityAs(ctx context.Context, conn *sql.Conn, expected string) error {
 	observed, err := schemaFingerprint(ctx, conn)
 	if err != nil {
 		return err
 	}
-	if observed != schemaIdentityDigest {
+	if observed != expected {
 		return fail("IDENTITY_MISMATCH", errors.New("journal schema fingerprint does not match Sworn"))
 	}
+	return nil
+}
+
+func migrateV1ToV2(ctx context.Context, conn *sql.Conn) (err error) {
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fail("DATABASE_BUSY", errors.New("migration write unavailable"))
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if _, err = conn.ExecContext(ctx, migrationV1ToV2); err != nil {
+		return fail("SCHEMA_FAILED", errors.New("journal migration was rejected"))
+	}
+	if err = verifySchemaIdentity(ctx, conn); err != nil {
+		return err
+	}
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fail("COMMIT_FAILED", errors.New("journal migration acknowledgement unavailable"))
+	}
+	committed = true
 	return nil
 }
 
@@ -385,6 +423,41 @@ func (s *Store) immediate(ctx context.Context, fn func(*sql.Conn) error) (err er
 	return nil
 }
 
+// readTransaction holds one SQLite snapshot across every query used to build a
+// projection. It serializes only this Store's connection; other processes may
+// continue writing and are observed on the next window.
+func (s *Store) readTransaction(
+	ctx context.Context,
+	fn func(*sql.Conn) error,
+) (err error) {
+	if s == nil || ctx == nil {
+		return fail("CLOSED", nil)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil || s.conn == nil {
+		return fail("CLOSED", nil)
+	}
+	conn := s.conn
+	if _, err = conn.ExecContext(ctx, "BEGIN"); err != nil {
+		return fail("DATABASE_BUSY", errors.New("read snapshot unavailable"))
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if err = fn(conn); err != nil {
+		return err
+	}
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fail("COMMIT_FAILED", errors.New("read snapshot acknowledgement unavailable"))
+	}
+	committed = true
+	return nil
+}
+
 func digest(body []byte) string {
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -408,7 +481,10 @@ func canonicalTime(value time.Time) (string, error) {
 	if value.IsZero() {
 		return "", fail("INVALID_TIME", nil)
 	}
-	return value.UTC().Format(time.RFC3339Nano), nil
+	// SQLite orders notification windows lexically. A fixed-width fractional
+	// component preserves exact chronological order within the same second;
+	// RFC3339Nano's elided zeroes do not.
+	return value.UTC().Format("2006-01-02T15:04:05.000000000Z"), nil
 }
 
 func randomToken() (string, error) {

@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -23,6 +26,8 @@ Available in the v0.3 walking skeleton:
   sworn pause|resume|cancel|takeover --run ID --journal PATH --command ID --generation N
   sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
   sworn status --run ID --journal PATH --json
+  sworn board --run ID --journal PATH [--json]
+  sworn serve --run ID --journal ABS [--manifest ABS] [--operator-config ABS]
   sworn help
 `
 
@@ -63,6 +68,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runControl(journal.Takeover, args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
+	case "board":
+		return runBoard(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "sworn: command %q is not implemented in the v0.3 walking skeleton\n", args[0])
 		return 2
@@ -204,20 +213,111 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runBoard(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseOptionsWithOptionalSwitches(
+		args,
+		[]string{"--run", "--journal"},
+		[]string{"--json"},
+	)
+	if !ok {
+		fmt.Fprintln(stderr, "usage: sworn board --run ID --journal PATH [--json]")
+		return 2
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: git is unavailable")
+		return 1
+	}
+	ctx := context.Background()
+	journalReader, err := journal.OpenReadOnly(ctx, options["--journal"])
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: journal is unavailable")
+		return 1
+	}
+	defer journalReader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, options["--journal"])
+	if err != nil {
+		if runtimepkg.IsCode(err, "GIT_UNAVAILABLE") {
+			fmt.Fprintln(stderr, "sworn board: git is unavailable")
+		} else {
+			fmt.Fprintln(stderr, "sworn board: journal is unavailable")
+		}
+		return 1
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: git is unavailable")
+		return 1
+	}
+	projector, err := cockpit.NewProjector(
+		journalReader,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: snapshot is unavailable")
+		return 1
+	}
+	snapshot, err := projector.Snapshot(ctx, options["--run"])
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: snapshot is unavailable")
+		return 1
+	}
+	if options["--json"] == "true" {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		err = encoder.Encode(snapshot)
+	} else {
+		_, err = io.WriteString(stdout, cockpit.RenderTerminal(snapshot))
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "sworn board: output failed")
+		return 1
+	}
+	return 0
+}
+
 func parseOptions(
 	args []string,
 	values []string,
 	switches []string,
 ) (map[string]string, bool) {
+	return parseOptionSets(args, values, switches, nil)
+}
+
+func parseOptionsWithOptionalSwitches(
+	args []string,
+	values []string,
+	switches []string,
+) (map[string]string, bool) {
+	return parseOptionSets(args, values, nil, switches)
+}
+
+func parseOptionSets(
+	args []string,
+	values []string,
+	requiredSwitches []string,
+	optionalSwitches []string,
+) (map[string]string, bool) {
 	allowedValues := make(map[string]bool, len(values))
 	for _, name := range values {
 		allowedValues[name] = true
 	}
-	allowedSwitches := make(map[string]bool, len(switches))
-	for _, name := range switches {
+	allowedSwitches := make(
+		map[string]bool,
+		len(requiredSwitches)+len(optionalSwitches),
+	)
+	for _, name := range requiredSwitches {
 		allowedSwitches[name] = true
 	}
-	result := make(map[string]string, len(values)+len(switches))
+	for _, name := range optionalSwitches {
+		allowedSwitches[name] = true
+	}
+	result := make(
+		map[string]string,
+		len(values)+len(requiredSwitches)+len(optionalSwitches),
+	)
 	for index := 0; index < len(args); index++ {
 		name := args[index]
 		if allowedSwitches[name] {
@@ -234,7 +334,7 @@ func parseOptions(
 			return nil, false
 		}
 		index++
-		if args[index] == "" {
+		if args[index] == "" || strings.HasPrefix(args[index], "--") {
 			return nil, false
 		}
 		result[name] = args[index]
@@ -244,12 +344,24 @@ func parseOptions(
 			return nil, false
 		}
 	}
-	for _, name := range switches {
+	for _, name := range requiredSwitches {
 		if result[name] != "true" {
 			return nil, false
 		}
 	}
 	return result, true
+}
+
+func resolveGitExecutable() (string, error) {
+	executable, err := exec.LookPath("git")
+	if err != nil {
+		return "", err
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(executable)
 }
 
 func readManifest(path string) ([]byte, error) {

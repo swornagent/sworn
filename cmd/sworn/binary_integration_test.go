@@ -41,9 +41,11 @@ func TestModuleHasOnlyTheAdmittedPackageSet(t *testing.T) {
 	want := []string{
 		"github.com/swornagent/sworn/cmd/sworn",
 		"github.com/swornagent/sworn/internal/baton",
+		"github.com/swornagent/sworn/internal/cockpit",
 		"github.com/swornagent/sworn/internal/driver",
 		"github.com/swornagent/sworn/internal/gitx",
 		"github.com/swornagent/sworn/internal/journal",
+		"github.com/swornagent/sworn/internal/observe",
 		"github.com/swornagent/sworn/internal/runtime",
 		"github.com/swornagent/sworn/tools/batonassets",
 		"github.com/swornagent/sworn/tools/batongolden",
