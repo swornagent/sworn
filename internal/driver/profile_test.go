@@ -74,6 +74,14 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	if len(registry.Profiles()) != len(families) {
 		t.Fatalf("profiles = %v", registry.Profiles())
 	}
+	withoutFake, err := NewProductionRegistry(configs[1:], adapters)
+	if err != nil || len(withoutFake.Profiles()) != len(families)-1 {
+		t.Fatalf(
+			"production registry without fake = %v, %v",
+			withoutFake.Profiles(),
+			err,
+		)
+	}
 	selections := RoleSelections{
 		Planner:     RoleSelection{Profile: "profile-1", Model: "planner-model"},
 		Implementer: RoleSelection{Profile: "profile-2", Model: "implementer-model"},

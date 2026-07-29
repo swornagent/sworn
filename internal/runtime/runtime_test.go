@@ -1014,6 +1014,20 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 		map[string]struct{}{currentWork: {}}) {
 		t.Fatal("exact current exhaustion did not park")
 	}
+	currentTrackBaseWork := workIdentity(
+		trackBaseBefore(state, currentSlice),
+		"git.prepare_track_base",
+	)
+	if !exhaustedWorkApplies(
+		manifest,
+		nil,
+		true,
+		state,
+		journal.Snapshot{},
+		map[string]struct{}{currentTrackBaseWork: {}},
+	) {
+		t.Fatal("exact current track-base exhaustion did not park")
+	}
 	state.Slices = nil
 	state.Tracks[0].Slices = nil
 	if exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},

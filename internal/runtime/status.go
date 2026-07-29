@@ -182,12 +182,20 @@ func exhaustedWorkApplies(
 			before := sliceFingerprint(state, slice.Location.Slice.ID)
 			switch {
 			case slice.NextRole == "implementer" && slice.Stage == "design":
+				add(workIdentity(
+					trackBaseBefore(state, slice),
+					"git.prepare_track_base",
+				))
 				add(driverWorkIdentity(manifest.digest, slice.Location.Slice.ID,
 					driver.ImplementerDesign, slice.Attempt, before))
 			case slice.NextRole == "captain":
 				add(driverWorkIdentity(manifest.digest, slice.Location.Slice.ID,
 					driver.CaptainReview, slice.Attempt, before))
 			case slice.NextRole == "implementer" && slice.Stage == "implement":
+				add(workIdentity(
+					trackBaseBefore(state, slice),
+					"git.prepare_track_base",
+				))
 				add(workIdentity(before, "git.seal"))
 			case slice.NextRole == "verifier":
 				add(driverWorkIdentity(manifest.digest, slice.Location.Slice.ID,

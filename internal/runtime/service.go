@@ -209,6 +209,9 @@ func (s *Service) Close() error {
 }
 
 func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
+	if err := s.validateDriverConfigMode(manifest); err != nil {
+		return nil, err
+	}
 	var registry driver.SelectionRegistry
 	var configured *configuredRuntimeRegistry
 	if manifest.value.production() {
@@ -269,6 +272,21 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 		inertness: inertness}, nil
 }
 
+func (s *Service) validateDriverConfigMode(
+	manifest admittedManifest,
+) error {
+	if manifest.value.production() {
+		if s == nil || s.production == nil {
+			return runtimeFail("DRIVER_CONFIG_UNAVAILABLE", nil)
+		}
+		return nil
+	}
+	if s != nil && s.production != nil {
+		return runtimeFail("DRIVER_CONFIG_UNEXPECTED", nil)
+	}
+	return nil
+}
+
 func (e *engine) Close() error {
 	if e == nil || e.workspaces == nil {
 		return nil
@@ -291,6 +309,9 @@ func (s *Service) Start(ctx context.Context, manifestBytes []byte) (RunStatus, e
 	}
 	manifest, err := admitManifest(manifestBytes)
 	if err != nil {
+		return RunStatus{}, err
+	}
+	if err := s.validateDriverConfigMode(manifest); err != nil {
 		return RunStatus{}, err
 	}
 	now := s.now().UTC()
