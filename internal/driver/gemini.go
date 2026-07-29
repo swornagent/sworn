@@ -79,7 +79,7 @@ func NewGeminiAdapter(
 	}{transport.config, ProfileGemini}
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
-		configuration, factory, transport,
+		"", configuration, factory, transport,
 	)
 }
 

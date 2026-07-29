@@ -92,6 +92,7 @@ func newOpenAIAdapter(
 		config.ID,
 		config.Version,
 		family,
+		"",
 		configuration,
 		factory,
 		transport,

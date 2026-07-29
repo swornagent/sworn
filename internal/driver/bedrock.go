@@ -16,15 +16,15 @@ import (
 )
 
 type BedrockProfileConfig struct {
-	Key               string
-	ID                string
-	Version           string
-	Endpoint          string
-	CredentialRefs    []string
-	ResponseBytes     int
-	Chain             AWSChainSpec
-	AllowCachePoint   bool
-	AllowGuardContent bool
+	Key               string       `json:"key"`
+	ID                string       `json:"id"`
+	Version           string       `json:"version"`
+	Endpoint          string       `json:"endpoint"`
+	CredentialRefs    []string     `json:"credential_refs"`
+	ResponseBytes     int          `json:"response_bytes"`
+	Chain             AWSChainSpec `json:"chain"`
+	AllowCachePoint   bool         `json:"allow_cache_point"`
+	AllowGuardContent bool         `json:"allow_guard_content"`
 }
 
 type bedrockTransport struct {
@@ -64,6 +64,31 @@ func NewBedrockAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
+	transport, err := newBedrockTransport(config, resolver, probe, roundTripper)
+	if err != nil {
+		return nil, err
+	}
+	config = transport.config
+	factory := func(
+		prompt []byte,
+		model string,
+		tools []providerToolDefinition,
+	) (providerConversation, error) {
+		return newBedrockConversation(config, model, tools, prompt)
+	}
+	return newLoopAdapter(
+		config.Key, config.ID, config.Version, ProfileBedrock,
+		ProfileSurfaceBedrockRuntimeConverse,
+		config, factory, transport,
+	)
+}
+
+func newBedrockTransport(
+	config BedrockProfileConfig,
+	resolver AWSRuntimeResolver,
+	probe ProfileLiveProbe,
+	roundTripper http.RoundTripper,
+) (*bedrockTransport, error) {
 	if !providerKeyPattern.MatchString(config.Key) ||
 		!driverIdentityPattern.MatchString(config.ID) ||
 		!versionPattern.MatchString(config.Version) ||
@@ -103,17 +128,7 @@ func NewBedrockAdapter(
 			},
 		},
 	}
-	factory := func(
-		prompt []byte,
-		model string,
-		tools []providerToolDefinition,
-	) (providerConversation, error) {
-		return newBedrockConversation(config, model, tools, prompt)
-	}
-	return newLoopAdapter(
-		config.Key, config.ID, config.Version, ProfileBedrock,
-		config, factory, transport,
-	)
+	return transport, nil
 }
 
 func newBedrockConversation(
