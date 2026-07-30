@@ -36,7 +36,7 @@ func TestBuiltBinaryClosedCommandsDoNotConsumePaths(t *testing.T) {
 		{
 			"retired shim",
 			[]string{"__executor-shim", "--sworn-start-marker", marker},
-			"is not implemented in the v0.3 walking skeleton",
+			"unknown command",
 		},
 	}
 	for _, test := range tests {

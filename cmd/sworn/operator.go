@@ -92,7 +92,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	)
 	defer stop()
 	if err := serveOperator(ctx, options, stdout); err != nil {
-		_, _ = io.WriteString(stderr, "sworn serve: unavailable\n")
+		writeKnownFailure(
+			stderr,
+			"serve",
+			"Could not open the local delivery board. Check the run, journal, and operator settings.",
+			"",
+		)
 		return 1
 	}
 	return 0

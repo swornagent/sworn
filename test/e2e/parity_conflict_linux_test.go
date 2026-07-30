@@ -261,7 +261,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		"--manifest", manifestPath,
 		"--journal", journalPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("conflict start stdout=%q stderr=%q", stdout, stderr)
 	}
 	approvals.publish(
@@ -279,7 +279,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		"--generation", "0",
 	)
 	for generation := int64(1); stderr == "" &&
-		strings.Contains(stdout, "state running") &&
+		strings.Contains(stdout, "  state: running") &&
 		generation <= 5; generation++ {
 		stdout, stderr = runBinary(
 			t,
@@ -292,7 +292,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 			"--generation", fmt.Sprintf("%d", generation),
 		)
 	}
-	if stderr != "" || !strings.Contains(stdout, "state parked") {
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		state := readBatonState(
 			t,
 			repository,

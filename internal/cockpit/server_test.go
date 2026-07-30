@@ -797,10 +797,11 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"path.dataset.edgeId = edge.id",
 		"path.dataset.from = edge.from",
 		"path.dataset.to = edge.to",
-		`"Not reported"`,
-		"No admitted delivery graph is recorded yet.",
-		"No durable evidence has been recorded for this snapshot.",
-		"State unavailable. Sworn could not confirm this item from durable facts.",
+		`"Not recorded"`,
+		"This run does not have a delivery plan to show yet.",
+		"Sworn has not recorded any activity for this run yet.",
+		"Sworn could not confirm the current Baton handoff records.",
+		"Sworn is carrying the next recorded Baton handoff.",
 		"new TextEncoder().encode(answer).byteLength",
 	} {
 		if !strings.Contains(javascript, required) {

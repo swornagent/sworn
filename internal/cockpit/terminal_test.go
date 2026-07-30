@@ -19,6 +19,13 @@ func TestRenderTerminalPresentsTheTruthfulSnapshot(t *testing.T) {
 	}
 
 	for _, fact := range []string{
+		`SWORN DELIVERY BOARD`,
+		`Status: Sworn is working`,
+		`What's happening: Sworn is carrying the next recorded Baton handoff.`,
+		`Next: Sworn will continue with the next ready handoff.`,
+		`Needs you: No, unless Sworn asks a question.`,
+		`Checked: The latest saved run record.`,
+		`TECHNICAL DETAILS`,
 		`id="run-1" release="release-1"`,
 		`state="running" desired="running" outcome=""`,
 		`control_generation=4 through_offset=17`,
@@ -88,7 +95,9 @@ func TestRenderTerminalHonoursNormalAndNarrowWidths(t *testing.T) {
 			}
 		}
 		for _, fact := range []string{
-			"SWORN COCKPIT",
+			"SWORN DELIVERY BOARD",
+			"SUMMARY",
+			"TECHNICAL DETAILS",
 			"GRAPH nodes=3 edges=2",
 			"HANDOFF",
 			"NOTIFICATIONS count=1",
