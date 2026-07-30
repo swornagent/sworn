@@ -269,6 +269,52 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 		observedAt,
 		outcome,
 	)
+	for _, count := range record.Continuation.Counts {
+		r.metrics.record(
+			"sworn.eval.continuations",
+			count.Count,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.continuation.mode",
+					count.Mode,
+				),
+				stringTelemetryAttribute(
+					"sworn.continuation.outcome",
+					count.Outcome,
+				),
+			},
+		)
+	}
+	for _, continuationOutcome := range []struct {
+		outcome string
+		value   int64
+	}{
+		{
+			outcome: continuationOutcomeReuse,
+			value:   record.Continuation.Reused,
+		},
+		{
+			outcome: continuationOutcomeFallback,
+			value:   record.Continuation.Fallback,
+		},
+		{
+			outcome: continuationOutcomeFallbackExpired,
+			value:   record.Continuation.Expired,
+		},
+	} {
+		r.metrics.record(
+			"sworn.eval.continuation.outcomes",
+			continuationOutcome.value,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.continuation.outcome",
+					continuationOutcome.outcome,
+				),
+			},
+		)
+	}
 	for _, recovery := range []struct {
 		category string
 		value    int64

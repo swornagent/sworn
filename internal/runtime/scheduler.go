@@ -1370,6 +1370,9 @@ func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *g
 		if err == nil {
 			return submission, nil
 		}
+		if IsCode(err, "CONTINUATION_CLEANUP_FAILED") {
+			return driver.Submission{}, err
+		}
 		effect, readErr := s.journal.Effect(ctx, engine.manifest.value.RunID,
 			journal.AttemptEffectID(workID, epoch, try))
 		if readErr != nil || effect.State != journal.OperationalFailed {
@@ -1834,6 +1837,104 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 	return err
 }
 
+func exactDesignContinuationPromotion(
+	entry *retainedContinuation,
+	runID string,
+	state baton.State,
+	slice *baton.SliceState,
+	track *baton.TrackState,
+) bool {
+	if entry == nil || entry.handle == nil ||
+		entry.designReceipt != "" ||
+		entry.selectionDigest == "" ||
+		!runtimeDigestPattern.MatchString(entry.before) ||
+		slice == nil || track == nil ||
+		slice.CurrentReceipt == nil ||
+		state.Plan.TargetStale ||
+		entry.binding.RunID != runID ||
+		entry.binding.Release != state.Release ||
+		entry.binding.Slice != slice.Location.Slice.ID ||
+		entry.binding.Attempt != slice.Attempt ||
+		entry.before != workIdentity(
+			state.Plan.OID,
+			state.Refs.Target.Head,
+			entry.sourceTrackHead,
+			slice.Location.Slice.ID,
+			"design",
+			"implementer",
+			slice.Attempt,
+			entry.sourceReceipt,
+			slice.InputPins,
+		) ||
+		slice.CurrentReceipt.OID != track.Head ||
+		slice.CurrentReceipt.Parent != entry.sourceTrackHead ||
+		slice.CurrentReceipt.Receipt.Binds != entry.sourceReceipt ||
+		slice.CurrentReceipt.Receipt.Role != "implementer" ||
+		slice.CurrentReceipt.Receipt.Result != "designed" ||
+		slice.CurrentReceipt.Receipt.Attempt == nil ||
+		*slice.CurrentReceipt.Receipt.Attempt != slice.Attempt ||
+		slice.CurrentReceipt.Receipt.Plan != state.Plan.OID ||
+		slice.CurrentReceipt.Receipt.SliceID() !=
+			slice.Location.Slice.ID ||
+		track.Ref != "refs/heads/track/"+state.Release+"/"+
+			slice.Location.Track.ID {
+		return false
+	}
+	planDigest := driver.Digest(mustJSON(continuationPlanAuthority{
+		OID:      state.Plan.OID,
+		Digest:   state.Plan.Digest,
+		Revision: state.Plan.Metadata.Revision,
+	}))
+	targetDigest := driver.Digest(mustJSON(continuationTargetAuthority{
+		TargetRef:    state.Refs.Target.Ref,
+		TargetHead:   state.Refs.Target.Head,
+		Track:        slice.Location.Track.ID,
+		TrackRef:     track.Ref,
+		PreparedBase: slice.PreparedBase,
+		Evidence:     sliceEvidence(slice.ConsumedInputs),
+	}))
+	return entry.binding.PlanAuthorityDigest == planDigest &&
+		entry.binding.TargetAuthorityDigest == targetDigest &&
+		entry.binding.ToolContractDigest != ""
+}
+
+func (s *Service) promoteDesignContinuation(
+	ctx context.Context,
+	engine *engine,
+	sliceID string,
+) error {
+	runID := engine.manifest.value.RunID
+	entry := s.takeContinuation(runID, sliceID)
+	if entry == nil {
+		return nil
+	}
+	state, err := baton.ReadState(
+		engine.git,
+		engine.manifest.value.Release,
+		engine.inertness,
+	)
+	if err != nil {
+		return closeRetainedContinuation(entry)
+	}
+	slice, ok := state.Slice(sliceID)
+	if !ok {
+		return closeRetainedContinuation(entry)
+	}
+	track, ok := state.Track(slice.Location.Track.ID)
+	if !ok ||
+		!exactDesignContinuationPromotion(
+			entry,
+			runID,
+			state,
+			slice,
+			track,
+		) {
+		return closeRetainedContinuation(entry)
+	}
+	entry.designReceipt = slice.CurrentReceipt.OID
+	return s.storeContinuation(runID, sliceID, entry)
+}
+
 func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	sliceID string) error {
 	state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
@@ -1871,14 +1972,46 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			sliceID, driver.ImplementerDesign, slice.Attempt, before, owner)
 		closeErr := workspace.Close()
 		if runErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
 			return runErr
 		}
 		if closeErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
 			return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
 		}
-		return s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
-			Release: state.Release, Slice: sliceID, Role: "implementer", Result: "designed",
-			Summary: submission.Summary, Detail: []byte(submission.Detail)})
+		appendErr := s.appendReceipt(
+			ctx,
+			engine,
+			owner,
+			state,
+			before,
+			baton.AppendReceiptInput{
+				Release: state.Release, Slice: sliceID,
+				Role: "implementer", Result: "designed",
+				Summary: submission.Summary,
+				Detail:  []byte(submission.Detail),
+			},
+		)
+		if appendErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
+			return appendErr
+		}
+		return s.promoteDesignContinuation(ctx, engine, sliceID)
 	case slice.NextRole == "captain":
 		workspace, err := engine.workspaces.OpenTrack(key, gitx.CaptainView)
 		if err != nil {
@@ -1893,10 +2026,30 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		if closeErr != nil {
 			return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
 		}
-		return s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
-			Release: state.Release, Slice: sliceID, Role: "captain",
-			Result: string(submission.Decision.Outcome), Summary: submission.Summary,
-			Detail: []byte(submission.Detail)})
+		appendErr := s.appendReceipt(
+			ctx,
+			engine,
+			owner,
+			state,
+			before,
+			baton.AppendReceiptInput{
+				Release: state.Release, Slice: sliceID,
+				Role:    "captain",
+				Result:  string(submission.Decision.Outcome),
+				Summary: submission.Summary,
+				Detail:  []byte(submission.Detail),
+			},
+		)
+		if appendErr != nil {
+			return appendErr
+		}
+		if submission.Decision.Outcome != driver.DecisionProceed {
+			return s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			)
+		}
+		return nil
 	case slice.NextRole == "implementer" && slice.Stage == "implement":
 		return s.implementSlice(ctx, engine, owner, state, slice)
 	case slice.NextRole == "verifier":
@@ -2066,6 +2219,9 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
 		}
 		if IsCode(err, "RECOVERY_UNCERTAIN") {
+			return err
+		}
+		if IsCode(err, "CONTINUATION_CLEANUP_FAILED") {
 			return err
 		}
 		if completeErr := s.completeImplementationFailure(
@@ -4958,6 +5114,11 @@ func (s *Service) driveOwned(ctx context.Context, runID string, owner journal.Ow
 	resultErr error,
 ) {
 	defer s.journal.ReleaseOwner(context.Background(), owner, s.now().UTC())
+	defer func() {
+		if closeErr := s.closeRunContinuations(runID); closeErr != nil {
+			resultErr = errors.Join(resultErr, closeErr)
+		}
+	}()
 	ownedCtx, cancelWork := context.WithCancel(ctx)
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	watchDone := make(chan error, 1)

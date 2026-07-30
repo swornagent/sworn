@@ -36,6 +36,19 @@ type Service struct {
 	production    *productionDriverRuntime
 	gitExecutable string
 	now           func() time.Time
+
+	continuationMu sync.Mutex
+	continuations  map[string]*retainedContinuation
+}
+
+type retainedContinuation struct {
+	handle          *driver.Continuation
+	binding         driver.ContinuationBinding
+	selectionDigest string
+	before          string
+	sourceReceipt   string
+	sourceTrackHead string
+	designReceipt   string
 }
 
 type RunStatus struct {
@@ -202,10 +215,121 @@ func newService(store *journal.Store, resolver approvalResolver, dispatcher driv
 }
 
 func (s *Service) Close() error {
-	if s == nil || s.journal == nil {
+	if s == nil {
 		return nil
 	}
-	return s.journal.Close()
+	cleanupErr := s.closeAllContinuations()
+	if s.journal == nil {
+		return cleanupErr
+	}
+	return errors.Join(
+		cleanupErr,
+		s.journal.Close(),
+	)
+}
+
+func continuationRegistryKey(runID, slice string) string {
+	return runID + "\x00" + slice
+}
+
+func (s *Service) storeContinuation(
+	runID string,
+	slice string,
+	entry *retainedContinuation,
+) error {
+	if s == nil || entry == nil || entry.handle == nil {
+		return runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	key := continuationRegistryKey(runID, slice)
+	s.continuationMu.Lock()
+	if s.continuations == nil {
+		s.continuations = make(map[string]*retainedContinuation)
+	}
+	prior := s.continuations[key]
+	if prior != nil {
+		delete(s.continuations, key)
+		if err := closeRetainedContinuation(prior); err != nil {
+			cleanupErr := closeRetainedContinuation(entry)
+			s.continuationMu.Unlock()
+			return errors.Join(err, cleanupErr)
+		}
+	}
+	s.continuations[key] = entry
+	s.continuationMu.Unlock()
+	return nil
+}
+
+func (s *Service) takeContinuation(
+	runID string,
+	slice string,
+) *retainedContinuation {
+	if s == nil {
+		return nil
+	}
+	key := continuationRegistryKey(runID, slice)
+	s.continuationMu.Lock()
+	defer s.continuationMu.Unlock()
+	entry := s.continuations[key]
+	delete(s.continuations, key)
+	return entry
+}
+
+func (s *Service) discardContinuation(
+	runID string,
+	slice string,
+) error {
+	return closeRetainedContinuation(s.takeContinuation(runID, slice))
+}
+
+func (s *Service) closeRunContinuations(runID string) error {
+	if s == nil {
+		return nil
+	}
+	prefix := runID + "\x00"
+	s.continuationMu.Lock()
+	entries := make([]*retainedContinuation, 0)
+	for key, entry := range s.continuations {
+		if strings.HasPrefix(key, prefix) {
+			entries = append(entries, entry)
+			delete(s.continuations, key)
+		}
+	}
+	s.continuationMu.Unlock()
+	return closeRetainedContinuations(entries)
+}
+
+func (s *Service) closeAllContinuations() error {
+	if s == nil {
+		return nil
+	}
+	s.continuationMu.Lock()
+	entries := make([]*retainedContinuation, 0, len(s.continuations))
+	for key, entry := range s.continuations {
+		entries = append(entries, entry)
+		delete(s.continuations, key)
+	}
+	s.continuationMu.Unlock()
+	return closeRetainedContinuations(entries)
+}
+
+func closeRetainedContinuations(entries []*retainedContinuation) error {
+	var result error
+	for _, entry := range entries {
+		result = errors.Join(result, closeRetainedContinuation(entry))
+	}
+	return result
+}
+
+func closeRetainedContinuation(entry *retainedContinuation) error {
+	if entry == nil || entry.handle == nil {
+		return nil
+	}
+	handle := entry.handle
+	entry.handle = nil
+	if err := handle.Close(); err != nil {
+		return runtimeFail("CONTINUATION_CLEANUP_FAILED", err)
+	}
+	return nil
 }
 
 func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {

@@ -89,7 +89,9 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		},
 		facts: []journal.EvaluationFact{
 			{Kind: journal.EvaluationEvent, EventOffset: 1,
-				EventKind: "dispatch_completed", FinishedAt: finished},
+				EventKind: "dispatch_completed.continuation." +
+					"provider_cursor.reuse",
+				FinishedAt: finished},
 			{Kind: journal.EvaluationEvent, EventOffset: 2,
 				EventKind: "dispatch_uncertain", FinishedAt: finished},
 			{Kind: journal.EvaluationEvent, EventOffset: 3,
@@ -160,6 +162,17 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Recovery != (RecoverySummary{
 			Uncertain: 1, Reconciled: 1, Recovered: 1,
 		}) ||
+		!reflect.DeepEqual(
+			record.Continuation,
+			ContinuationSummary{
+				Reused: 1,
+				Counts: []ContinuationCount{{
+					Mode:    "provider_cursor",
+					Outcome: "reuse",
+					Count:   1,
+				}},
+			},
+		) ||
 		record.Usage.InputTokens == nil || *record.Usage.InputTokens != 0 ||
 		record.Usage.OutputTokens == nil || *record.Usage.OutputTokens != 0 ||
 		len(record.Usage.Costs) != 1 ||

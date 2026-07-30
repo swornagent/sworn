@@ -114,25 +114,26 @@ type RecoverySummary struct {
 }
 
 type Record struct {
-	SchemaVersion string          `json:"schema_version"`
-	ID            string          `json:"id"`
-	SwornVersion  string          `json:"sworn_version"`
-	RunID         string          `json:"run_id"`
-	Release       string          `json:"release"`
-	RunState      string          `json:"run_state"`
-	Outcome       string          `json:"outcome"`
-	ThroughOffset int64           `json:"through_offset"`
-	StartedAt     time.Time       `json:"started_at"`
-	ObservedAt    time.Time       `json:"observed_at"`
-	ElapsedNS     int64           `json:"elapsed_ns"`
-	Events        int64           `json:"events"`
-	Attempts      int64           `json:"attempts"`
-	Retries       int64           `json:"retries"`
-	Recovery      RecoverySummary `json:"recovery"`
-	DurationNS    Ratio           `json:"duration_ns"`
-	Usage         UsageSummary    `json:"usage"`
-	Groups        []AttemptGroup  `json:"groups"`
-	Quality       []Quality       `json:"quality"`
+	SchemaVersion string              `json:"schema_version"`
+	ID            string              `json:"id"`
+	SwornVersion  string              `json:"sworn_version"`
+	RunID         string              `json:"run_id"`
+	Release       string              `json:"release"`
+	RunState      string              `json:"run_state"`
+	Outcome       string              `json:"outcome"`
+	ThroughOffset int64               `json:"through_offset"`
+	StartedAt     time.Time           `json:"started_at"`
+	ObservedAt    time.Time           `json:"observed_at"`
+	ElapsedNS     int64               `json:"elapsed_ns"`
+	Events        int64               `json:"events"`
+	Attempts      int64               `json:"attempts"`
+	Retries       int64               `json:"retries"`
+	Recovery      RecoverySummary     `json:"recovery"`
+	Continuation  ContinuationSummary `json:"continuation"`
+	DurationNS    Ratio               `json:"duration_ns"`
+	Usage         UsageSummary        `json:"usage"`
+	Groups        []AttemptGroup      `json:"groups"`
+	Quality       []Quality           `json:"quality"`
 }
 
 // Advance persists one cumulative, canonical evaluation record at a stable
@@ -208,14 +209,15 @@ func (e *Evaluator) Advance(
 }
 
 type aggregate struct {
-	events   int64
-	attempts int64
-	retries  int64
-	recovery RecoverySummary
-	duration int64
-	usage    usageAggregate
-	groups   map[groupKey]*groupAggregate
-	err      error
+	events       int64
+	attempts     int64
+	retries      int64
+	recovery     RecoverySummary
+	continuation continuationAggregate
+	duration     int64
+	usage        usageAggregate
+	groups       map[groupKey]*groupAggregate
+	err          error
 }
 
 type groupKey struct {
@@ -251,6 +253,9 @@ func (a *aggregate) add(fact journal.EvaluationFact) {
 		a.events, a.err = safeAdd(a.events, 1)
 		if a.err == nil {
 			a.addRecovery(fact.EventKind)
+		}
+		if a.err == nil {
+			a.err = a.continuation.add(fact.EventKind)
 		}
 	case journal.EvaluationAttempt:
 		a.addAttempt(fact)
@@ -428,6 +433,7 @@ func (a *aggregate) record(
 		Attempts:      a.attempts,
 		Retries:       a.retries,
 		Recovery:      a.recovery,
+		Continuation:  a.continuation.summary(),
 		DurationNS:    knownRatio(a.duration, a.attempts),
 		Usage:         a.usage.summary(a.attempts),
 		Groups:        groups,
