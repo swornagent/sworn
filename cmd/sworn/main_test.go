@@ -3,212 +3,428 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
-	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/swornagent/sworn/internal/app"
-	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/buildinfo"
-	"github.com/swornagent/sworn/internal/engine"
-	"github.com/swornagent/sworn/internal/store"
+	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/journal"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-func TestVersionJSON(t *testing.T) {
+func TestVersionJSONReportsExactBatonAdmission(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version", "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("run() code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	var info buildinfo.Info
-	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
-		t.Fatalf("decode stdout: %v", err)
+	var got versionInfo
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
 	}
-	if info.Version != "0.2.0-dev" {
-		t.Fatalf("version = %q, want 0.2.0-dev", info.Version)
+	if got.Version != swornVersion || got.State != swornState {
+		t.Fatalf("version identity = %#v", got)
+	}
+	if got.Baton.PackageVersion != baton.PackageVersion ||
+		got.Baton.TagObject != baton.TagObject ||
+		got.Baton.Commit != baton.Commit ||
+		got.Baton.Tree != baton.Tree ||
+		got.Baton.ArchiveSHA256 != baton.ArchiveSHA256 ||
+		got.Baton.SupportPackageSHA256 != baton.SupportPackageSHA256 ||
+		got.Baton.ManifestSHA256 != baton.ManifestSHA256 ||
+		got.Baton.AssetCount != baton.AssetCount ||
+		got.Baton.AssetBytes != baton.AssetBytes {
+		t.Fatalf("Baton identity = %#v", got.Baton)
+	}
+	if strings.Contains(stdout.String(), `"commit":"unknown"`) {
+		t.Fatalf("version output reintroduced Sworn commit stamping: %s", stdout.String())
 	}
 }
 
-func TestBoardReadsCommittedProjection(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "control.db")
-	control, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := json.Marshal(engine.CreatePayload{
-		DeliveryID: "delivery-1",
-		PlanDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		Repository: "repo-1",
-		TargetRef:  "refs/heads/main",
-		Work:       []string{"work-1"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = control.Apply(context.Background(), engine.Command{
-		ID: "cmd-create", RunID: "run-1", Kind: engine.CommandCreate,
-		ExpectedRevision: engine.NoRevision, Payload: payload,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := control.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"board", "run-1", "--store", path, "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("run() code = %d, stderr = %q", code, stderr.String())
-	}
-	var projection board.Projection
-	if err := json.Unmarshal(stdout.Bytes(), &projection); err != nil {
-		t.Fatal(err)
-	}
-	if projection.SchemaVersion != board.SchemaVersion || projection.DeliveryID != "delivery-1" || projection.SourceRevision != 0 {
-		t.Fatalf("projection = %+v", projection)
-	}
-}
-
-func TestUnknownCommandFailsExplicitly(t *testing.T) {
+func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"deliver"}, &stdout, &stderr); code != 2 {
-		t.Fatalf("run() code = %d, want 2", code)
+	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "not implemented") {
-		t.Fatalf("stderr = %q, want explicit not implemented error", stderr.String())
+	want := "sworn 1.0.0-rc.1\nstate baton-rc9-admitted\nbaton 1.0.0-rc.9 (" + baton.Commit + ")\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
 }
 
-func TestRunCommandInvokesOneBoundedApplication(t *testing.T) {
+func TestHelpIsTheOnlyArgumentFreeCommand(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join(t.TempDir(), "run.json")
-	var received app.Request
-	invocations := 0
-	application := func(_ context.Context, request app.Request) (app.Result, error) {
-		invocations++
-		received = request
-		return validRunResult(), nil
+	for _, args := range [][]string{nil, {"help"}, {"--help"}, {"-h"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%v) = %d, stderr = %q", args, code, stderr.String())
+		}
+		if stdout.String() != usage || stderr.Len() != 0 {
+			t.Fatalf("run(%v) stdout = %q, stderr = %q", args, stdout.String(), stderr.String())
+		}
 	}
-	var stdout, stderr bytes.Buffer
-	code := runWithApplication(
-		context.Background(),
-		[]string{"run", "run-1", "work-1", "--config", configPath, "--json"},
-		&stdout, &stderr, application,
-	)
-	if code != 0 || stderr.Len() != 0 {
-		t.Fatalf("run command = %d, stderr = %q", code, stderr.String())
+}
+
+func TestRetiredAndUnknownCommandsShareOneClosedPath(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"__executor-shim", "--marker", "/unwritable"},
+		{"deliver"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%v) = %d, want 2", args, code)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("run(%v) stdout = %q", args, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "is not implemented in the v0.3 walking skeleton") {
+			t.Fatalf("run(%v) stderr = %q", args, stderr.String())
+		}
+		if strings.Contains(stderr.String(), "/unreadable") || strings.Contains(stderr.String(), "/unwritable") {
+			t.Fatalf("run(%v) inspected or echoed a retired path: %q", args, stderr.String())
+		}
 	}
-	if invocations != 1 || received != (app.Request{
-		ConfigPath: configPath, RunID: "run-1", WorkID: "work-1",
-	}) {
-		t.Fatalf("application invocations = %d, request = %#v", invocations, received)
-	}
-	var result app.Result
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+}
+
+func TestBoardTerminalAndJSONRenderOneReadOnlySnapshot(t *testing.T) {
+	journalPath := boardJournalFixture(t)
+	before, err := os.ReadFile(journalPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if result.SchemaVersion != app.RunResultSchemaVersion || result.State != engine.WorkReviewable ||
-		result.Revision != 7 {
-		t.Fatalf("run result = %#v", result)
+
+	var jsonOut, jsonErr bytes.Buffer
+	if code := run(
+		[]string{"board", "--run", "run-1", "--journal", journalPath, "--json"},
+		&jsonOut,
+		&jsonErr,
+	); code != 0 {
+		t.Fatalf("board JSON = %d, stderr = %q", code, jsonErr.String())
+	}
+	var snapshot cockpit.Snapshot
+	if err := json.Unmarshal(jsonOut.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(jsonOut.Bytes(), []byte("\n  \"schema_version\"")) {
+		t.Fatalf("board JSON is not pretty printed: %q", jsonOut.String())
+	}
+	if snapshot.SchemaVersion != cockpit.SnapshotSchemaVersion ||
+		snapshot.Run.ID != "run-1" ||
+		snapshot.Run.Release != "release-1" ||
+		snapshot.Run.TargetRef != "refs/heads/main" ||
+		snapshot.Run.DesiredState != "running" {
+		t.Fatalf("snapshot facts = %#v", snapshot)
+	}
+	if len(snapshot.Diagnostics) != 1 ||
+		snapshot.Diagnostics[0].Code != "BATON_UNAVAILABLE" {
+		t.Fatalf("snapshot diagnostics = %#v", snapshot.Diagnostics)
+	}
+
+	var terminalOut, terminalErr bytes.Buffer
+	if code := run(
+		[]string{"board", "--run", "run-1", "--journal", journalPath},
+		&terminalOut,
+		&terminalErr,
+	); code != 0 {
+		t.Fatalf("board terminal = %d, stderr = %q", code, terminalErr.String())
+	}
+	if terminalOut.String() != cockpit.RenderTerminal(snapshot) {
+		t.Fatalf(
+			"terminal did not render JSON snapshot facts:\n%s\nwant:\n%s",
+			terminalOut.String(),
+			cockpit.RenderTerminal(snapshot),
+		)
+	}
+	after, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("board mutated the journal")
 	}
 }
 
-func TestRunCommandRejectsInvalidApplicationResult(t *testing.T) {
-	t.Parallel()
-
+func TestBoardRejectsInvalidArgumentsPathsAndRunsWithoutExposure(t *testing.T) {
+	journalPath := boardJournalFixture(t)
+	unavailable := filepath.Join(t.TempDir(), "TOP-SECRET.sqlite")
 	tests := []struct {
 		name   string
-		mutate func(*app.Result)
+		args   []string
+		code   int
+		stderr string
 	}{
-		{"partial executed shape", func(result *app.Result) { result.Admission = nil }},
-		{"duplicate effect", func(result *app.Result) { result.CheckEffectIDs[0] = result.BuildEffectID }},
-		{"duplicate command", func(result *app.Result) { result.Checks.CommandID = result.Build.CommandID }},
-		{"negative recovery", func(result *app.Result) { result.Recovery.Bound = -1 }},
-		{"non-contiguous revisions", func(result *app.Result) { result.Checks.Revision-- }},
-		{"already reviewable with effect", func(result *app.Result) {
-			result.Build = nil
-			result.Checks = nil
-			result.Admission = nil
-			result.BuildEffectID = ""
-		}},
+		{
+			name:   "missing run",
+			args:   []string{"board", "--journal", journalPath},
+			code:   2,
+			stderr: "usage: sworn board --run ID --journal PATH [--json]\n",
+		},
+		{
+			name: "duplicate JSON switch",
+			args: []string{
+				"board", "--run", "run-1", "--journal", journalPath,
+				"--json", "--json",
+			},
+			code:   2,
+			stderr: "usage: sworn board --run ID --journal PATH [--json]\n",
+		},
+		{
+			name: "unknown switch",
+			args: []string{
+				"board", "--run", "run-1", "--journal", journalPath, "--write",
+			},
+			code:   2,
+			stderr: "usage: sworn board --run ID --journal PATH [--json]\n",
+		},
+		{
+			name: "switch consumed as value",
+			args: []string{
+				"board", "--run", "--json", "--journal", journalPath,
+			},
+			code:   2,
+			stderr: "usage: sworn board --run ID --journal PATH [--json]\n",
+		},
+		{
+			name: "relative journal",
+			args: []string{
+				"board", "--run", "run-1", "--journal", "TOP-SECRET.sqlite",
+			},
+			code:   1,
+			stderr: "sworn board: journal is unavailable\n",
+		},
+		{
+			name: "missing journal",
+			args: []string{
+				"board", "--run", "run-1", "--journal", unavailable,
+			},
+			code:   1,
+			stderr: "sworn board: journal is unavailable\n",
+		},
+		{
+			name: "unknown run",
+			args: []string{
+				"board", "--run", "TOP-SECRET", "--journal", journalPath,
+			},
+			code:   1,
+			stderr: "sworn board: snapshot is unavailable\n",
+		},
+		{
+			name: "malformed run",
+			args: []string{
+				"board", "--run", "TOP SECRET", "--journal", journalPath,
+			},
+			code:   1,
+			stderr: "sworn board: snapshot is unavailable\n",
+		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			result := validRunResult()
-			test.mutate(&result)
 			var stdout, stderr bytes.Buffer
-			code := runWithApplication(
-				context.Background(),
-				[]string{"run", "run-1", "--config", filepath.Join(t.TempDir(), "run.json"), "--json"},
-				&stdout, &stderr,
-				func(context.Context, app.Request) (app.Result, error) { return result, nil },
-			)
-			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "invalid bounded run result") {
-				t.Fatalf("invalid result = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			if code := run(test.args, &stdout, &stderr); code != test.code {
+				t.Fatalf("run() = %d, want %d", code, test.code)
+			}
+			if stdout.Len() != 0 || stderr.String() != test.stderr {
+				t.Fatalf(
+					"stdout = %q, stderr = %q, want stderr %q",
+					stdout.String(),
+					stderr.String(),
+					test.stderr,
+				)
+			}
+			if strings.Contains(stderr.String(), "TOP-SECRET") ||
+				strings.Contains(stderr.String(), "TOP SECRET") ||
+				strings.Contains(stderr.String(), journalPath) {
+				t.Fatalf("board exposed rejected input: %q", stderr.String())
 			}
 		})
 	}
+	if _, err := os.Lstat(unavailable); !os.IsNotExist(err) {
+		t.Fatalf("board created unavailable journal path: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run(
+		[]string{"status", "--run", "run-1", "--journal", journalPath},
+		&stdout,
+		&stderr,
+	); code != 2 {
+		t.Fatalf("status without required --json = %d, want 2", code)
+	}
+	if stderr.String() != "usage: sworn status --run ID --journal PATH --json\n" {
+		t.Fatalf("status stderr = %q", stderr.String())
+	}
 }
 
-func TestRunCommandRejectsInvalidSurfaceBeforeComposition(t *testing.T) {
+func TestBoardFailsClosedWhenGitIsUnavailable(t *testing.T) {
+	t.Setenv("PATH", "")
+	var stdout, stderr bytes.Buffer
+	if code := run(
+		[]string{"board", "--run", "run-1", "--journal", "/not-consumed.sqlite"},
+		&stdout,
+		&stderr,
+	); code != 1 {
+		t.Fatalf("run() = %d, want 1", code)
+	}
+	if stdout.Len() != 0 || stderr.String() != "sworn board: git is unavailable\n" {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRuntimeCommandsRejectEveryOpenOrAmbiguousShapeBeforeIO(t *testing.T) {
 	t.Parallel()
 
-	invoked := false
-	application := func(context.Context, app.Request) (app.Result, error) {
-		invoked = true
-		return app.Result{}, errors.New("must not run")
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"run", "--manifest", "/blocking"}, "usage: sworn run"},
+		{[]string{"run", "--manifest", "/blocking", "--journal", "/journal", "--journal", "/other"}, "usage: sworn run"},
+		{[]string{"resume", "--run", "r1"}, "usage: sworn resume"},
+		{[]string{"status", "--run", "r1", "--journal", "/blocking"}, "usage: sworn status"},
 	}
-	for _, args := range [][]string{
-		{"run", "run-1"},
-		{"run", "run-1", "--config", "relative.json"},
-		{"run", "run-1", "--config", "/tmp/run.json", "--config", "/tmp/run.json"},
-		{"run", "run-1", "--config", "/tmp/run.json", "--json", "--json"},
-		{"run", "run-1", "work-1", "work-2", "--config", "/tmp/run.json"},
-	} {
+	for _, test := range tests {
 		var stdout, stderr bytes.Buffer
-		if code := runWithApplication(context.Background(), args, &stdout, &stderr, application); code != 2 {
-			t.Fatalf("runWithApplication(%v) = %d, stderr = %q", args, code, stderr.String())
+		if code := run(test.args, &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%v) = %d, want 2", test.args, code)
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
+			t.Fatalf("run(%v) stdout = %q, stderr = %q", test.args, stdout.String(), stderr.String())
+		}
+		if strings.Contains(stderr.String(), "/blocking") {
+			t.Fatalf("run(%v) consumed or exposed ignored path: %q", test.args, stderr.String())
 		}
 	}
-	if invoked {
-		t.Fatal("invalid command reached application composition")
-	}
 }
 
-func TestRunCommandReportsApplicationFailureWithoutOutput(t *testing.T) {
+func boardJournalFixture(t *testing.T) string {
+	t.Helper()
+	repository := filepath.Join(t.TempDir(), "repository")
+	if err := os.Mkdir(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "init", "--quiet", "--initial-branch=main")
+	readme := filepath.Join(repository, "README.md")
+	if err := os.WriteFile(readme, []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "add", "--", "README.md")
+	runGit(
+		t,
+		repository,
+		"-c", "user.name=Sworn Board Test",
+		"-c", "user.email=sworn-board@example.invalid",
+		"commit", "--quiet", "-m", "fixture",
+	)
+
+	profile := driver.RoleSelection{
+		Profile: "fixture",
+		Model:   "fixture-model",
+	}
+	manifest := runtimepkg.Manifest{
+		SchemaVersion:     runtimepkg.ManifestVersion,
+		RunID:             "run-1",
+		Repository:        repository,
+		Release:           "release-1",
+		TargetRef:         "refs/heads/main",
+		Intent:            "Project one read-only board fixture.",
+		MaxParallelTracks: 1,
+		Approval: runtimepkg.ApprovalPolicy{
+			Repository:          "acme/repo",
+			Issue:               1,
+			AllowedAuthorIDs:    []int64{1},
+			AllowedAssociations: []string{"OWNER"},
+		},
+		Driver: &runtimepkg.FakeDriverConfig{
+			Executable: "/bin/true",
+			Digest: "sha256:" +
+				strings.Repeat("a", 64),
+			AdapterKey: "fixture",
+			Profile:    "fixture",
+		},
+		Roles: driver.RoleSelections{
+			Planner:     profile,
+			Implementer: profile,
+			Captain:     profile,
+			Verifier:    profile,
+		},
+		Limits: driver.Limits{
+			TimeoutMillis: 1,
+			OutputBytes:   1,
+		},
+		Scripts: []runtimepkg.ScriptedAttempt{{
+			Responsibility: driver.PlannerProposal,
+			BatonAttempt:   1,
+			Epoch:          1,
+			Try:            1,
+			Behavior:       "none",
+		}},
+	}
+	manifestBody, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBody = append(manifestBody, '\n')
+	if _, err := runtimepkg.ParseManifest(manifestBody); err != nil {
+		t.Fatalf("fixture manifest: %v", err)
+	}
+	sum := sha256.Sum256(manifestBody)
+	manifestDigest := fmt.Sprintf("sha256:%x", sum)
+	journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 123).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: manifestDigest,
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}); err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     manifest.RunID,
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody,
+		CreatedAt: now,
+	}); err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return journalPath
+}
+
+func TestVersionRejectsEveryOtherShape(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join(t.TempDir(), "run.json")
-	var stdout, stderr bytes.Buffer
-	code := runWithApplication(
-		context.Background(), []string{"run", "run-1", "--config", configPath},
-		&stdout, &stderr,
-		func(context.Context, app.Request) (app.Result, error) {
-			return app.Result{}, errors.New("bounded convergence failed")
-		},
-	)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "bounded convergence failed") {
-		t.Fatalf("run failure = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
-	}
-}
-
-func validRunResult() app.Result {
-	return app.Result{
-		SchemaVersion: app.RunResultSchemaVersion,
-		RunID:         "run-1", WorkID: "work-1", State: engine.WorkReviewable, Revision: 7,
-		BuildEffectID: "effect-build", CheckEffectIDs: []string{"effect-check"},
-		Build:     &app.CommandResult{CommandID: "cmd-build", Revision: 5},
-		Checks:    &app.CommandResult{CommandID: "cmd-checks", Revision: 6},
-		Admission: &app.CommandResult{CommandID: "cmd-admit", Revision: 7},
+	for _, args := range [][]string{{"version", "--json", "--json"}, {"version", "--text"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%v) = %d, want 2", args, code)
+		}
+		if stdout.Len() != 0 || stderr.String() != "usage: sworn version [--json]\n" {
+			t.Fatalf("run(%v) stdout = %q, stderr = %q", args, stdout.String(), stderr.String())
+		}
 	}
 }

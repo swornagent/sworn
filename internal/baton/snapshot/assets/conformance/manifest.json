@@ -1,0 +1,204 @@
+{
+  "schema_version": "baton.conformance-manifest/v2",
+  "baton_version": "1.0.0-rc.9",
+  "profiles": {
+    "portable_kit": {
+      "status": "EXECUTABLE",
+      "commands": [
+        "python3 conformance/check.py",
+        "node --test test/records/*.test.mjs test/operations/*.test.mjs test/skills/*.test.mjs test/board/*.test.mjs test/release/*.test.mjs"
+      ],
+      "record_contract": {
+        "plan": {
+          "format": "baton.plan/v2",
+          "valid_fixtures": [
+            "conformance/fixtures/valid-plan-v2.md",
+            "conformance/fixtures/valid-plan-revision-v2.md",
+            "conformance/fixtures/valid-plan-transitive-overlap-v2.md"
+          ],
+          "invalid_fixtures": [
+            {
+              "instance": "conformance/fixtures/invalid-plan-broken-revision-v2.md",
+              "error": "INVALID_FIELD"
+            },
+            {
+              "instance": "conformance/fixtures/invalid-plan-serial-cycle-v2.md",
+              "error": "DEPENDENCY_CYCLE"
+            },
+            {
+              "instance": "conformance/fixtures/invalid-plan-cross-layer-cycle-v2.md",
+              "error": "DEPENDENCY_CYCLE"
+            }
+          ]
+        },
+        "receipt": {
+          "representation": "Baton-Receipt Git trailer",
+          "schema": {
+            "path": "schemas/receipt-v1.json",
+            "digest": "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"
+          },
+          "valid_fixtures": [
+            "conformance/fixtures/valid-slice-receipt.txt",
+            "conformance/fixtures/valid-assembly-receipt.txt"
+          ],
+          "invalid_schema_fixtures": [
+            "conformance/fixtures/invalid-unknown-field-receipt.txt",
+            "conformance/fixtures/invalid-runtime-no-verdict-receipt.txt"
+          ],
+          "invalid_semantic_fixtures": [
+            {
+              "instance": "conformance/fixtures/invalid-role-result-receipt.txt",
+              "error": "INVALID_FIELD"
+            },
+            {
+              "instance": "conformance/fixtures/invalid-stale-detail-receipt.txt",
+              "error": "STALE_BINDING"
+            }
+          ]
+        },
+        "strict_json_cases": [
+          {
+            "instance": "conformance/fixtures/raw-valid-edge.json",
+            "valid": true
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-duplicate-key.json",
+            "valid": false,
+            "error": "duplicate_key"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-nonfinite.json",
+            "valid": false,
+            "error": "nonfinite_number"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unicode.json",
+            "valid": false,
+            "error": "invalid_unicode"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-integer.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-float.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          },
+          {
+            "instance": "conformance/fixtures/raw-invalid-unsafe-exponent.json",
+            "valid": false,
+            "error": "unsafe_integer"
+          }
+        ]
+      },
+      "cases": [
+        {
+          "id": "strict-plan-v2-and-receipt-v1",
+          "suites": [
+            "conformance/check.py",
+            "test/records/receipts.test.mjs",
+            "test/records/receipt-git.test.mjs"
+          ]
+        },
+        {
+          "id": "forward-revision-stable-attempts-and-selective-invalidation",
+          "suites": [
+            "test/records/actions.test.mjs",
+            "test/board/oracle.test.mjs"
+          ]
+        },
+        {
+          "id": "fixed-git-boundary-reconciliation-and-exact-composition",
+          "suites": [
+            "test/records/actions.test.mjs",
+            "test/records/git-boundary.test.mjs",
+            "test/records/git-trust-adversarial.test.mjs"
+          ]
+        },
+        {
+          "id": "operations-standalone-skills-and-agent-led-install-contract",
+          "suites": [
+            "test/operations/operations.test.mjs",
+            "test/skills/generated.test.mjs",
+            "test/skills/docs.test.mjs"
+          ]
+        },
+        {
+          "id": "git-derived-oracle-terminal-and-performance",
+          "suites": [
+            "test/board/oracle.test.mjs",
+            "test/board/terminal.test.mjs",
+            "test/board/performance.test.mjs"
+          ]
+        },
+        {
+          "id": "release-overhead-and-manifest-truth",
+          "suites": [
+            "test/release/conformance.test.mjs",
+            "test/release/overhead.test.mjs"
+          ]
+        }
+      ],
+      "measurements": {
+        "command": "node scripts/measure-overhead.mjs --check",
+        "baseline": "conformance/baselines/v0.16.0-overhead.json"
+      }
+    },
+    "autonomous_engine": {
+      "status": "NOT RUN",
+      "adapter_contract": "conformance/engine-adapter.md",
+      "cases": [
+        {
+          "id": "protected-external-approval",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "role-instruction-credential-workspace-process-isolation",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "clean-read-only-fresh-verifier-dispatch",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "one-writer-per-track-with-independent-track-concurrency",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "procedural-retry-and-git-reconciliation-without-verdict",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "crash-recovery-at-every-effect-boundary",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "timeout-cancellation-cleanup-and-bounded-retry",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "dependency-scheduling-and-one-serial-worker-per-track",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "exact-track-composition-and-ownership-transfer",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "fresh-assembly-verification",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "moved-target-compare-and-set-refusal",
+          "status": "NOT RUN"
+        },
+        {
+          "id": "exact-release-integration",
+          "status": "NOT RUN"
+        }
+      ]
+    }
+  }
+}

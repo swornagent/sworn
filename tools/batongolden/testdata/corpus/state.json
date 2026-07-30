@@ -1,0 +1,1128 @@
+{
+  "flows": [
+    {
+      "object_format": "sha1",
+      "states": [
+        {
+          "label": "approved",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "d5867b282bdcdfcc1961e4447cef5c592ecb1419"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "32045b069c6470da5cded485eebfeb59bb9ca0a8"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": null
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": null
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "waiting",
+              "next_role": "none",
+              "outcome": "none",
+              "input_pins": {
+                "T1": null,
+                "T2": null
+              },
+              "current_receipt": null,
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": [
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha1",
+                "track": "T1",
+                "work": null,
+                "message": "track T1 may be materialized from approved facts"
+              },
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha1",
+                "track": "T2",
+                "work": null,
+                "message": "track T2 may be materialized from approved facts"
+              }
+            ]
+          }
+        },
+        {
+          "label": "passed-S1",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "d5867b282bdcdfcc1961e4447cef5c592ecb1419"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "32045b069c6470da5cded485eebfeb59bb9ca0a8"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": "a7c22a542e210d014cf0946f7e5335bca80937fc"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": null
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "candidate": "580c4186ea9a0531b8f5e42550fb46af1dc51360",
+                "pass": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "waiting",
+              "next_role": "none",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
+                "T2": null
+              },
+              "current_receipt": null,
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": [
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha1",
+                "track": "T2",
+                "work": null,
+                "message": "track T2 may be materialized from approved facts"
+              }
+            ]
+          }
+        },
+        {
+          "label": "passed-S2",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "d5867b282bdcdfcc1961e4447cef5c592ecb1419"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "32045b069c6470da5cded485eebfeb59bb9ca0a8"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": "a7c22a542e210d014cf0946f7e5335bca80937fc"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": "f26f611d7960b3dd6f7443bf3374d27df3619414"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "candidate": "580c4186ea9a0531b8f5e42550fb46af1dc51360",
+                "pass": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "candidate": "bc60eb892e6a7ff2e4d75b18adcb9ba85e49c927",
+                "pass": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "ready",
+              "next_role": "merge",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
+                "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
+              },
+              "current_receipt": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "assembly-candidate",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "06aed282fd9a04cf7a62fa87996974a00ed42097"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "32045b069c6470da5cded485eebfeb59bb9ca0a8"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": "a7c22a542e210d014cf0946f7e5335bca80937fc"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": "f26f611d7960b3dd6f7443bf3374d27df3619414"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "candidate": "580c4186ea9a0531b8f5e42550fb46af1dc51360",
+                "pass": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "candidate": "bc60eb892e6a7ff2e4d75b18adcb9ba85e49c927",
+                "pass": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "ready",
+              "next_role": "verifier",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
+                "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
+              },
+              "current_receipt": "06aed282fd9a04cf7a62fa87996974a00ed42097",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "assembly-pass",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "eba1de6e66af458852f64c1cb52cbbfa1d99b099"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "32045b069c6470da5cded485eebfeb59bb9ca0a8"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": "a7c22a542e210d014cf0946f7e5335bca80937fc"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": "f26f611d7960b3dd6f7443bf3374d27df3619414"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "candidate": "580c4186ea9a0531b8f5e42550fb46af1dc51360",
+                "pass": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "candidate": "bc60eb892e6a7ff2e4d75b18adcb9ba85e49c927",
+                "pass": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "merge",
+              "status": "ready",
+              "next_role": "merge",
+              "outcome": "pass",
+              "input_pins": {
+                "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
+                "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
+              },
+              "current_receipt": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
+              "pass": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "merged",
+          "state": {
+            "release": "golden-sha1",
+            "plan": {
+              "oid": "7b44759e2da29e96bf197568ab94efa7e19fbf97",
+              "digest": "sha256:0d4b39e3464d35f881080cd7fb12a73e57bbaef9bda8b9c4fcea60f223a301e0",
+              "revision": 1,
+              "approval_oid": "d5867b282bdcdfcc1961e4447cef5c592ecb1419",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha1",
+                "head": "789a71211566661db63703f6d00271ff603d187b"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha1/T1",
+                  "head": "a7c22a542e210d014cf0946f7e5335bca80937fc"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha1/T2",
+                  "head": "f26f611d7960b3dd6f7443bf3374d27df3619414"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "candidate": "580c4186ea9a0531b8f5e42550fb46af1dc51360",
+                "pass": "a7c22a542e210d014cf0946f7e5335bca80937fc",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "candidate": "bc60eb892e6a7ff2e4d75b18adcb9ba85e49c927",
+                "pass": "f26f611d7960b3dd6f7443bf3374d27df3619414",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "merge",
+              "status": "complete",
+              "next_role": "none",
+              "outcome": "merged",
+              "input_pins": {
+                "T1": "sha256:4f1cbe90ebd508526e19e33ca7a02ffd5b34141dfa92ffd12a37ec245ddb4549",
+                "T2": "sha256:227f5888eab9650190e804de42ef6c8b5ae4a42d4a1488e73e09476427f028e0"
+              },
+              "current_receipt": "789a71211566661db63703f6d00271ff603d187b",
+              "candidate": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac",
+              "pass": "eba1de6e66af458852f64c1cb52cbbfa1d99b099",
+              "stale_reason": null,
+              "result_commit": "8aa08e25ec3d19fc8579d7781de7fb912fc36cac"
+            },
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "object_format": "sha256",
+      "states": [
+        {
+          "label": "approved",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "f139b05be2d667e8d6f62de92d0e02a312f4550702d920945b99541796a24dae"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": null
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": null
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "waiting",
+              "next_role": "none",
+              "outcome": "none",
+              "input_pins": {
+                "T1": null,
+                "T2": null
+              },
+              "current_receipt": null,
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": [
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha256",
+                "track": "T1",
+                "work": null,
+                "message": "track T1 may be materialized from approved facts"
+              },
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha256",
+                "track": "T2",
+                "work": null,
+                "message": "track T2 may be materialized from approved facts"
+              }
+            ]
+          }
+        },
+        {
+          "label": "passed-S1",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "f139b05be2d667e8d6f62de92d0e02a312f4550702d920945b99541796a24dae"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": null
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "candidate": "cacf154e6e02af07df80933c55373e76a694fba4ed89f5f80a7795a7061587e7",
+                "pass": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "design",
+                "status": "ready",
+                "next_role": "implementer",
+                "outcome": "none",
+                "attempt": 1,
+                "maximum_attempt": 0,
+                "input_pins": {},
+                "current_receipt": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+                "candidate": null,
+                "pass": null,
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "waiting",
+              "next_role": "none",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
+                "T2": null
+              },
+              "current_receipt": null,
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": [
+              {
+                "code": "TRACK_REF_ABSENT",
+                "release": "golden-sha256",
+                "track": "T2",
+                "work": null,
+                "message": "track T2 may be materialized from approved facts"
+              }
+            ]
+          }
+        },
+        {
+          "label": "passed-S2",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "f139b05be2d667e8d6f62de92d0e02a312f4550702d920945b99541796a24dae"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "candidate": "cacf154e6e02af07df80933c55373e76a694fba4ed89f5f80a7795a7061587e7",
+                "pass": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "candidate": "4d927fd9da0d732dc81bf3725cbac3b61611a267393ddc1993335a89caa2c677",
+                "pass": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "ready",
+              "next_role": "merge",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
+                "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
+              },
+              "current_receipt": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "candidate": null,
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "assembly-candidate",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "66972fc75be35b5f961b7d02dcfddfdeae3bafc96200a6d3aed2094f1d9278a7"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "f139b05be2d667e8d6f62de92d0e02a312f4550702d920945b99541796a24dae"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "candidate": "cacf154e6e02af07df80933c55373e76a694fba4ed89f5f80a7795a7061587e7",
+                "pass": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "candidate": "4d927fd9da0d732dc81bf3725cbac3b61611a267393ddc1993335a89caa2c677",
+                "pass": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "verify",
+              "status": "ready",
+              "next_role": "verifier",
+              "outcome": "none",
+              "input_pins": {
+                "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
+                "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
+              },
+              "current_receipt": "66972fc75be35b5f961b7d02dcfddfdeae3bafc96200a6d3aed2094f1d9278a7",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
+              "pass": null,
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "assembly-pass",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "f139b05be2d667e8d6f62de92d0e02a312f4550702d920945b99541796a24dae"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "candidate": "cacf154e6e02af07df80933c55373e76a694fba4ed89f5f80a7795a7061587e7",
+                "pass": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "candidate": "4d927fd9da0d732dc81bf3725cbac3b61611a267393ddc1993335a89caa2c677",
+                "pass": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "merge",
+              "status": "ready",
+              "next_role": "merge",
+              "outcome": "pass",
+              "input_pins": {
+                "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
+                "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
+              },
+              "current_receipt": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
+              "pass": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
+              "stale_reason": null,
+              "result_commit": null
+            },
+            "diagnostics": []
+          }
+        },
+        {
+          "label": "merged",
+          "state": {
+            "release": "golden-sha256",
+            "plan": {
+              "oid": "69be50fb3fcd5689f881524345b7c5d6c19edf9ad5452cd2747e1b2207feeace",
+              "digest": "sha256:3feee07ae9304a5552e1aa73b48c8a54a1472186d4e6f0c1b56d7a70f51bb6f2",
+              "revision": 1,
+              "approval_oid": "97a5c3629fa32d2278da809d8e69a3fdcfe1d502df82d5acb49fb8b1fb65e034",
+              "target_stale": false,
+              "contracts": {
+                "S1": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+                "S2": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9"
+              }
+            },
+            "refs": {
+              "release": {
+                "ref": "refs/heads/release-wt/golden-sha256",
+                "head": "b938b161541eb2cacb5ace208204764da1885ed20e21e20cdcbddf0cefdd2688"
+              },
+              "target": {
+                "ref": "refs/heads/main",
+                "head": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830"
+              },
+              "tracks": [
+                {
+                  "id": "T1",
+                  "ref": "refs/heads/track/golden-sha256/T1",
+                  "head": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299"
+                },
+                {
+                  "id": "T2",
+                  "ref": "refs/heads/track/golden-sha256/T2",
+                  "head": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e"
+                }
+              ]
+            },
+            "slices": [
+              {
+                "id": "S1",
+                "track": "T1",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "candidate": "cacf154e6e02af07df80933c55373e76a694fba4ed89f5f80a7795a7061587e7",
+                "pass": "d1efd1fa80e4e9c2acac6c07eb44a9f0f953e56980bca4194f703aaa18292299",
+                "retained": false,
+                "stale_reason": null
+              },
+              {
+                "id": "S2",
+                "track": "T2",
+                "stage": "merge",
+                "status": "ready",
+                "next_role": "merge",
+                "outcome": "pass",
+                "attempt": 1,
+                "maximum_attempt": 1,
+                "input_pins": {},
+                "current_receipt": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "candidate": "4d927fd9da0d732dc81bf3725cbac3b61611a267393ddc1993335a89caa2c677",
+                "pass": "2d968147fd0d73f1fca5d3a71e0a034f0c2a172f43504132c91e87da77c1e43e",
+                "retained": false,
+                "stale_reason": null
+              }
+            ],
+            "assembly": {
+              "stage": "merge",
+              "status": "complete",
+              "next_role": "none",
+              "outcome": "merged",
+              "input_pins": {
+                "T1": "sha256:e88f8c9098b83feedb48b916cf0d0feb18b6e15b57923e23dd25e19622778a14",
+                "T2": "sha256:11a26d7c08cc6bb95616fe410239c676b87a239207c0408e68525fc1be08bd93"
+              },
+              "current_receipt": "b938b161541eb2cacb5ace208204764da1885ed20e21e20cdcbddf0cefdd2688",
+              "candidate": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830",
+              "pass": "325cdbaa44c8c8099a48d929fd834843271427ff3de70ab66a6b67b73199deaa",
+              "stale_reason": null,
+              "result_commit": "24e6c7788854e08584f21775852b14ca786a645514aecf0072d0cdecd508a830"
+            },
+            "diagnostics": []
+          }
+        }
+      ]
+    }
+  ]
+}

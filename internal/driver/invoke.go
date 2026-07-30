@@ -1,0 +1,493 @@
+package driver
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+)
+
+const (
+	MaxResultEnvelopeBytes = 16_384
+	MaxStderrBytes         = 65_536
+	MaxStderrRetain        = 1_024
+)
+
+// Dispatcher performs one adapter attempt without lifecycle, Git, or Baton
+// receipt authority.
+type Dispatcher struct{}
+
+// Driver is the single role-neutral invocation shape used by every provider.
+type Driver interface {
+	Invoke(context.Context, Invocation) (Observation, error)
+}
+
+var _ Driver = Dispatcher{}
+
+// Invoker is retained as the role-neutral dispatcher name used by early W2
+// callers; it does not imply a process-only adapter.
+type Invoker = Dispatcher
+
+type Invocation struct {
+	Request       Request
+	HostWorkspace string
+	Selected      SelectedProfile
+	Permission    SubmissionPermission
+	Inputs        []InputContent
+	FakeProfile   FakeProfile
+}
+type Diagnostic struct {
+	Code        string `json:"code"`
+	StderrBytes int64  `json:"stderr_bytes"`
+	Truncated   bool   `json:"truncated"`
+}
+type SealedHandoff struct {
+	SubmissionBytes  []byte `json:"submission_bytes"`
+	SubmissionDigest string `json:"submission_digest"`
+	SealBytes        []byte `json:"seal_bytes"`
+	SealDigest       string `json:"seal_digest"`
+}
+type TerminalEvent struct {
+	Sequence uint64 `json:"sequence"`
+	Kind     string `json:"kind"`
+}
+type Observation struct {
+	TransportStatus TransportStatus `json:"transport_status"`
+	DurationMillis  int64           `json:"duration_ms"`
+	Usage           UsageReceipt    `json:"usage"`
+	Diagnostic      Diagnostic      `json:"diagnostic"`
+	Handoff         *SealedHandoff  `json:"handoff"`
+	Events          []TerminalEvent `json:"events"`
+}
+
+func (Dispatcher) Invoke(ctx context.Context, invocation Invocation) (Observation, error) {
+	if ctx == nil {
+		return Observation{}, fail("INVALID_CONTEXT")
+	}
+	if err := ctx.Err(); err != nil {
+		return contextFailure(err)
+	}
+	if err := validateInvocation(invocation); err != nil {
+		return Observation{}, err
+	}
+	observation, err := invocation.Selected.adapter.invoke(ctx, invocation)
+	if err != nil {
+		// A transport or adapter failure can never carry a model decision.
+		return sanitizeFailedObservation(observation), normalizeAdapterError(err)
+	}
+	if err := validateObservation(invocation, observation); err != nil {
+		observation.Handoff = nil
+		if IsCode(err, "MISSING_SUBMISSION") {
+			if observation.Diagnostic.Code == "none" {
+				observation.Diagnostic.Code = "submission_absent"
+			}
+			return observation, err
+		}
+		if IsCode(err, "INVALID_HANDOFF") {
+			return failureObservation("invalid_handoff"), err
+		}
+		return invalidObservation(), err
+	}
+	return observation, nil
+}
+
+func validateObservation(invocation Invocation, observation Observation) error {
+	if observation.TransportStatus != Completed ||
+		observation.DurationMillis < 0 ||
+		observation.DurationMillis > MaxSafeInteger ||
+		!validDiagnosticCode(observation.Diagnostic.Code) ||
+		observation.Diagnostic.StderrBytes < 0 ||
+		observation.Diagnostic.StderrBytes > MaxSafeInteger {
+		return fail("INVALID_OBSERVATION")
+	}
+	if _, err := EncodeUsageReceipt(observation.Usage); err != nil {
+		return err
+	}
+	if len(observation.Events) > 1_024 {
+		return fail("RESOURCE_LIMIT")
+	}
+	for index, event := range observation.Events {
+		if event.Sequence != uint64(index+1) ||
+			!validTerminalEventKind(event.Kind) {
+			return fail("INVALID_OBSERVATION")
+		}
+	}
+	if observation.Handoff == nil {
+		return fail("MISSING_SUBMISSION")
+	}
+	if observation.Diagnostic.Code != "none" {
+		return fail("INVALID_OBSERVATION")
+	}
+	handoff := observation.Handoff
+	if len(handoff.SubmissionBytes) == 0 ||
+		handoff.SubmissionDigest != Digest(handoff.SubmissionBytes) ||
+		len(handoff.SealBytes) == 0 ||
+		handoff.SealDigest != Digest(handoff.SealBytes) {
+		return fail("INVALID_HANDOFF")
+	}
+	submission, err := DecodeSubmission(handoff.SubmissionBytes)
+	if err != nil {
+		return fail("INVALID_HANDOFF")
+	}
+	if err := invocation.Permission.validate(submission); err != nil {
+		return fail("INVALID_HANDOFF")
+	}
+	seal, err := DecodeSeal(handoff.SealBytes)
+	if err != nil || !seal.Accepted || seal.Code != "accepted" ||
+		seal.InvocationID != invocation.Request.InvocationID ||
+		seal.SubmissionDigest != handoff.SubmissionDigest {
+		return fail("INVALID_HANDOFF")
+	}
+	return nil
+}
+
+func validDiagnosticCode(code string) bool {
+	switch code {
+	case "none",
+		"submission_rejected",
+		"submission_absent",
+		"stdout_overflow",
+		"post_result_stdout",
+		"extra_stdout",
+		"invalid_driver_result",
+		"driver_transport_failed",
+		"invalid_usage",
+		"late_submission",
+		"submission_protocol_failed",
+		"process_failed",
+		"submit_without_engine_stop",
+		"invocation_cancelled",
+		"invocation_timeout",
+		"publication_gate_failed",
+		"submission_binding_failed",
+		"stderr_overflow",
+		"process_status_failed",
+		"process_not_quiescent",
+		"workspace_postcheck_failed",
+		"input_cleanup_failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func validFatalDiagnosticCode(code string) bool {
+	switch code {
+	case "stdout_overflow",
+		"post_result_stdout",
+		"extra_stdout",
+		"invalid_driver_result",
+		"driver_transport_failed",
+		"invalid_usage",
+		"late_submission",
+		"submission_protocol_failed",
+		"process_failed",
+		"submit_without_engine_stop",
+		"invocation_cancelled",
+		"invocation_timeout",
+		"publication_gate_failed",
+		"submission_binding_failed",
+		"stderr_overflow",
+		"process_status_failed",
+		"process_not_quiescent",
+		"workspace_postcheck_failed",
+		"input_cleanup_failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func validTerminalEventKind(kind string) bool {
+	switch kind {
+	case "result_completed",
+		"submit_accepted_pending",
+		"submit_rejected_pending",
+		"submit_acknowledged",
+		"engine_stop_after_submit",
+		"process_waited",
+		"published",
+		"completed_without_handoff",
+		"process_group_quiescent",
+		"workspace_postcheck",
+		"input_projection_removed",
+		"producers_joined":
+		return true
+	default:
+		const fatalPrefix = "fatal:"
+		return len(kind) > len(fatalPrefix) &&
+			kind[:len(fatalPrefix)] == fatalPrefix &&
+			validFatalDiagnosticCode(kind[len(fatalPrefix):])
+	}
+}
+
+func invalidObservation() Observation {
+	return failureObservation("invalid_observation")
+}
+
+func failureObservation(code string) Observation {
+	return Observation{
+		TransportStatus: RunnerError,
+		Usage: UsageReceipt{
+			TokenStatus: UsageUnavailable,
+			CostStatus:  UsageUnavailable,
+		},
+		Diagnostic: Diagnostic{Code: code},
+	}
+}
+
+func sanitizeFailedObservation(observation Observation) Observation {
+	sanitized := failureObservation("adapter_failed")
+	if observation.DurationMillis >= 0 &&
+		observation.DurationMillis <= MaxSafeInteger {
+		sanitized.DurationMillis = observation.DurationMillis
+	}
+	if validFatalDiagnosticCode(observation.Diagnostic.Code) &&
+		observation.Diagnostic.StderrBytes >= 0 &&
+		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
+		sanitized.Diagnostic = observation.Diagnostic
+	}
+	if len(observation.Events) <= 1_024 {
+		sanitized.Events = make([]TerminalEvent, 0, len(observation.Events))
+		for index, event := range observation.Events {
+			if event.Sequence != uint64(index+1) ||
+				!validTerminalEventKind(event.Kind) {
+				sanitized.Events = nil
+				sanitized.Diagnostic = Diagnostic{Code: "adapter_failed"}
+				break
+			}
+			sanitized.Events = append(sanitized.Events, event)
+		}
+	}
+	return sanitized
+}
+
+func normalizeAdapterError(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return fail("INVOCATION_CANCELLED")
+	case errors.Is(err, context.DeadlineExceeded):
+		return fail("INVOCATION_TIMEOUT")
+	}
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) && validAdapterErrorCode(contractErr.Code) {
+		// Recreate the error so adapter-provided wrapping text cannot escape.
+		return fail(contractErr.Code)
+	}
+	return fail("ADAPTER_FAILURE")
+}
+
+func validAdapterErrorCode(code string) bool {
+	switch code {
+	case "INVALID_EXECUTABLE",
+		"EXECUTABLE_IDENTITY_MISMATCH",
+		"INVALID_WORKSPACE",
+		"WORKSPACE_INSPECTION_FAILED",
+		"UNSAFE_WORKSPACE_SYMLINK",
+		"RESOURCE_LIMIT",
+		"INPUT_BINDING_MISMATCH",
+		"INPUT_STAGE_FAILED",
+		"INVALID_PRODUCTION_INPUT_PATH",
+		"INVALID_PROJECTION",
+		"INVALID_DIRECTORY",
+		"ENDPOINT_UNAVAILABLE",
+		"PROCESS_START_FAILED",
+		"ISOLATION_UNAVAILABLE",
+		"INVALID_NETWORK_POLICY",
+		"UNSAFE_WORKSPACE_SURFACE",
+		"OUTPUT_OVERFLOW",
+		"PROTOCOL_FAILURE",
+		"MISSING_JSON",
+		"INVALID_UTF8",
+		"INVALID_UNICODE",
+		"TRAILING_JSON",
+		"UNKNOWN_FIELD",
+		"INVALID_FIELD",
+		"INVALID_JSON",
+		"MISSING_FIELD",
+		"INVALID_VERSION",
+		"INVALID_DRIVER",
+		"INVALID_MODEL",
+		"INVALID_TRANSPORT_STATUS",
+		"INVALID_USAGE",
+		"INVALID_COST_OBSERVATION",
+		"PARTIAL_USAGE",
+		"PARTIAL_COST",
+		"RESULT_BINDING_MISMATCH",
+		"INVALID_RESULT",
+		"INVALID_SUBMISSION",
+		"INVALID_IDENTITY",
+		"INVALID_RESPONSIBILITY",
+		"INVALID_SUMMARY",
+		"INVALID_DETAIL",
+		"INVALID_EXACT_BYTES",
+		"INVALID_PLAN_BYTES",
+		"INVALID_DECISION",
+		"NONCANONICAL_JSON",
+		"DUPLICATE_NAME",
+		"TRANSPORT_FAILURE",
+		"SUBMISSION_REJECTED",
+		"SUBMISSION_CONFLICT",
+		"SUBMISSION_PROTOCOL_FAILED",
+		"SUBMISSION_SHAPE_MISMATCH",
+		"PROCESS_FAILED",
+		"INVOCATION_CANCELLED",
+		"INVOCATION_TIMEOUT",
+		"SUBMISSION_BINDING_MISMATCH",
+		"PROCESS_TREE_NOT_QUIESCENT",
+		"WORKSPACE_IDENTITY_CHANGED",
+		"WORKSPACE_MUTATED",
+		"INPUT_CLEANUP_FAILED",
+		"INVALID_PACKAGE",
+		"INVALID_PERMISSION",
+		"UNSUPPORTED_HOST",
+		"MISSING_SUBMISSION",
+		"PROVIDER_ERROR",
+		"PROVIDER_AUTHORIZATION_FAILED",
+		"PROVIDER_LIMITED",
+		"PROVIDER_REQUEST_REJECTED",
+		"PROVIDER_UNAVAILABLE",
+		"PROVIDER_TRANSPORT_FAILED",
+		"INVALID_PROVIDER_REQUEST",
+		"HTTP_REDIRECT_REFUSED",
+		"CONTINUATION_INVALID",
+		"TOOL_NOT_ALLOWED",
+		"TOOL_PATH_INVALID",
+		"TOOL_READ_FAILED",
+		"TOOL_WRITE_FAILED",
+		"TOOL_EDIT_FAILED",
+		"INVALID_TOOL_ARGUMENT",
+		"CREDENTIAL_UNAVAILABLE",
+		"CREDENTIAL_NOT_CERTIFIED",
+		"CREDENTIAL_IDENTITY_CHANGED",
+		"NATIVE_NOT_CERTIFIED",
+		"NATIVE_SURFACE_INVALID",
+		"INVALID_BROKER",
+		"BROKER_STATE_INVALID",
+		"AWS_CONFIGURATION_INVALID",
+		"AWS_NOT_CERTIFIED",
+		"AWS_CREDENTIAL_EXPORT_INVALID",
+		"AWS_RESOLUTION_FAILED",
+		"AWS_SIGNING_FAILED":
+		return true
+	default:
+		return false
+	}
+}
+
+func contextFailure(err error) (Observation, error) {
+	diagnostic, code := "invocation_cancelled", "INVOCATION_CANCELLED"
+	if err == context.DeadlineExceeded {
+		diagnostic, code = "invocation_timeout", "INVOCATION_TIMEOUT"
+	}
+	return Observation{Diagnostic: Diagnostic{Code: diagnostic}}, fail(code)
+}
+func validateInvocation(invocation Invocation) error {
+	if err := ValidateRequest(invocation.Request); err != nil {
+		return err
+	}
+	if invocation.Request.Workspace.Path != GuestWorkspacePath ||
+		validateWorkspace(Workspace{
+			Path:   invocation.HostWorkspace,
+			Access: invocation.Request.Workspace.Access,
+		}) != nil {
+		return fail("INVOCATION_WORKSPACE_MISMATCH")
+	}
+	if err := validateSelectedProfile(invocation.Selected); err != nil {
+		return err
+	}
+	if invocation.Request.Profile != invocation.Selected.Profile.Key ||
+		invocation.Request.Model != invocation.Selected.Model {
+		return fail("INVOCATION_BINDING_MISMATCH")
+	}
+	if err := validateNetworkPolicy(
+		invocation.Selected.Adapter.ID,
+		invocation.Selected.Profile.Network,
+	); err != nil {
+		return err
+	}
+	descriptor, err := invocation.Permission.Describe()
+	if err != nil {
+		return err
+	}
+	_, packageIdentity, err := admittedPackage()
+	if err != nil {
+		return fail("INVALID_PACKAGE")
+	}
+	body, err := EncodeRequest(invocation.Request)
+	if err != nil {
+		return err
+	}
+	inputBody, err := canonicalJSON(invocation.Request.Inputs)
+	if err != nil {
+		return err
+	}
+	if descriptor.InvocationID != invocation.Request.InvocationID ||
+		descriptor.Package != packageIdentity ||
+		descriptor.RequestDigest != Digest(body) ||
+		descriptor.Role != invocation.Request.Role ||
+		descriptor.OperationID != invocation.Request.Operation.ID ||
+		descriptor.ProfileKey != invocation.Selected.Profile.Key ||
+		descriptor.AdapterID != invocation.Selected.Adapter.ID ||
+		descriptor.AdapterVersion != invocation.Selected.Adapter.Version ||
+		descriptor.AdapterConfigDigest != invocation.Selected.Adapter.ConfigurationDigest ||
+		descriptor.Network != invocation.Selected.Profile.Network ||
+		descriptor.Model != invocation.Selected.Model ||
+		descriptor.WorkspaceAccess != invocation.Request.Workspace.Access ||
+		descriptor.FreshContext != invocation.Request.FreshContext ||
+		descriptor.InputsDigest != Digest(inputBody) {
+		return fail("PERMISSION_BINDING_MISMATCH")
+	}
+	if invocation.Selected.Adapter.ID == FakeDriverID {
+		if !invocation.FakeProfile.valid() {
+			return fail("INVALID_PROFILE")
+		}
+	} else if invocation.FakeProfile != "" {
+		return fail("INVALID_PROFILE")
+	}
+	return nil
+}
+
+type boundedBuffer struct {
+	mu              sync.Mutex
+	maximum, retain int
+	body            []byte
+	total           int64
+	overflow        bool
+	onOverflow      func()
+}
+
+func (buffer *boundedBuffer) Write(body []byte) (int, error) {
+	buffer.mu.Lock()
+	buffer.total += int64(len(body))
+	if len(buffer.body) < buffer.retain {
+		remaining := buffer.retain - len(buffer.body)
+		if remaining > len(body) {
+			remaining = len(body)
+		}
+		buffer.body = append(buffer.body, body[:remaining]...)
+	}
+	if buffer.maximum > 0 && buffer.total > int64(buffer.maximum) {
+		if !buffer.overflow {
+			buffer.overflow = true
+			overflow := buffer.onOverflow
+			buffer.mu.Unlock()
+			if overflow != nil {
+				overflow()
+			}
+			return len(body), nil
+		}
+		buffer.mu.Unlock()
+		return len(body), nil
+	}
+	buffer.mu.Unlock()
+	return len(body), nil
+}
+func (buffer *boundedBuffer) snapshot() ([]byte, int64, bool) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return append([]byte(nil), buffer.body...), buffer.total, buffer.overflow
+}
+func invocationContext(parent context.Context, timeoutMillis int64) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, time.Duration(timeoutMillis)*time.Millisecond)
+}

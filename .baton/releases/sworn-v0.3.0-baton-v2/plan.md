@@ -1,0 +1,417 @@
+```baton-plan-v2
+{
+  "schema_version": "baton.plan/v2",
+  "release": "sworn-v0.3.0-baton-v2",
+  "revision": 10,
+  "previous_plan": "aa6ae4fb591458b6e19e6c99c2d668442f7d85a2",
+  "repository": "swornagent/sworn",
+  "target_ref": "refs/heads/release/v0.3.0",
+  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v0.3.0-baton-v2-v10",
+  "tracks": [
+    {
+      "id": "T0-admission",
+      "depends_on": [],
+      "slices": [
+        {
+          "id": "W0-reset-admission",
+          "outcome": "Admit the exact Baton RC5 release and the reviewed Sworn foundation into a new v2 record line without importing legacy authority.",
+          "scope": {
+            "include": [".gitattributes", ".github/workflows", "AGENTS.md", "README.md", "cmd/sworn", "go.mod", "go.sum", "internal", "tools/batonassets", "tools/batongolden"],
+            "exclude": [".baton/releases"]
+          },
+          "acceptance": [
+            {
+              "id": "A-W0-base",
+              "text": "Immediately before materialization, refs/heads/release/v0.3.0 is commit 2c9ce0493971e0e833d4dec6c562b030315e33c9, tree a10d213da750ece28a6dc066e2170c76fc959def, with parents c32d6846a98aef59a33d0a4bca89a4fde434a1d1 and 045d6e9c56c5da523f5d8a149e29fefeb7c56f17. Drift requires a plan revision."
+            },
+            {
+              "id": "A-W0-baton",
+              "text": "The embedded release is Baton v1.0.0-rc.5: annotated tag 306ed09c3152e8a7413e6b9d09d63d00ee12ff4a, peeled commit b0133b9e53755484f7aa9140fc3c1b349e2f50dd, tree c079d41d3955d9690a9be39d1711ef45fa3625f3, archive SHA-256 8fea81036dc678e9a0aa4c2d1fb0c8ed016c23b9e7d77c183f3f168467002dd5, and generated package digest sha256:cd3f1285318820ca5ee3a96785ab40915f7b2970ec14d9e3f578898de4a953c1."
+            },
+            {
+              "id": "A-W0-lineage",
+              "text": "All RC2 and RC3 plan-v1 refs, plans, approvals, receipts, statuses, proofs, and verdicts remain immutable archaeology. Reviewed RC3 product bytes may be replayed as implementation input, but no prior authority or PASS is reused."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test ./tools/batonassets/... ./tools/batongolden/... ./cmd/sworn/...", "git diff --check"],
+          "constraints": ["Baton records are never product, model, build, package, or candidate input.", "Official builds use -buildvcs=false and -trimpath.", "The measured post-foundation production-line, dependency, and binary baselines must be recorded before W3 begins."],
+          "depends_on": [],
+          "consumes": []
+        }
+      ]
+    },
+    {
+      "id": "T1-authority",
+      "depends_on": ["T0-admission"],
+      "slices": [
+        {
+          "id": "W1-authority-core",
+          "outcome": "Implement Baton RC5 authority, product identity, operation derivation, and exact Git composition in pure Go.",
+          "scope": {
+            "include": ["internal/baton", "internal/gitx", "tools/batongolden"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W1-contract",
+              "text": "Strict baton.plan/v2 and receipt-v1 parsing, bindings, operation derivation, selective invalidation, exact composition, and compare-and-set integration match the pinned RC5 goldens. The board is derived and never action authority."
+            },
+            {
+              "id": "A-W1-git",
+              "text": "Callers and model processes cannot choose raw Git commands, authority refs, parents, merge mode, or arbitrary paths. Stale, conflicting, symbolic, consumed, or ambiguous state fails without moving a ref."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/gitx/... ./tools/batongolden/..."],
+          "constraints": ["Legacy RC3 W1 code may be replayed only into a fresh candidate with fresh Captain review, evidence, and verification.", "Scheduler policy, provider transport, and operator UI remain outside this slice."],
+          "depends_on": ["W0-reset-admission"],
+          "consumes": ["W0-reset-admission"]
+        }
+      ]
+    },
+    {
+      "id": "T2-driver",
+      "depends_on": ["T0-admission"],
+      "slices": [
+        {
+          "id": "W2-driver-core",
+          "outcome": "Provide one role-neutral bounded invocation and sealed-submission contract with a deterministic fake.",
+          "scope": {
+            "include": ["internal/driver"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W2-contract",
+              "text": "Planner, Implementer, Captain, and Verifier use one contract with explicit driver and model selection. Merge is deterministic engine work and is never dispatched to a model."
+            },
+            {
+              "id": "A-W2-isolation",
+              "text": "Each invocation receives only its bounded workspace and ordered digest-bound inputs. Fresh Verifier access is clean and read-only; one schema-checked submission is the only role-output seam; cancellation cleans the process tree."
+            },
+            {
+              "id": "A-W2-truth",
+              "text": "Transport failure creates no Baton decision. Reported usage, legitimate zero, and unavailable usage remain distinct, and Sworn does not estimate tokens or cost."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/driver/..."],
+          "constraints": ["Legacy RC3 W2 code may be replayed only into a fresh candidate with fresh Captain review, evidence, and verification.", "Production provider codecs remain W5 work.", "No role-specific driver, model default, provider fallback, or retained raw model transcript."],
+          "depends_on": ["W0-reset-admission"],
+          "consumes": ["W0-reset-admission"]
+        }
+      ]
+    },
+    {
+      "id": "T3-runtime",
+      "depends_on": ["T1-authority", "T2-driver"],
+      "slices": [
+        {
+          "id": "W3-walking-skeleton",
+          "outcome": "Drive one approved track through every Baton responsibility and exact integration.",
+          "scope": {
+            "include": ["cmd/sworn", "go.mod", "go.sum", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W3-flow",
+              "text": "The real binary proposes a plan, pauses for protected external approval, installs the exact bytes, runs Implementer design, distinct Captain review, resumed implementation, fresh read-only work verification, deterministic composition, fresh assembly verification, and exact Merge."
+            },
+            {
+              "id": "A-W3-journal",
+              "text": "One SQLite journal durably records replay-stable commands, finite claims, attempts, before-effect identity, effect receipts, usage, and append-only events. Replay is idempotent and an uncertain external effect is reconciled before retry."
+            },
+            {
+              "id": "A-W3-boundary",
+              "text": "Agents never receive a canonical authority worktree or approval credentials. Runtime state makes effects recoverable but never becomes a second Baton lifecycle."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/..."],
+          "constraints": ["No delivery actor can mint plan approval.", "Only typed internal APIs may create worktrees, advance refs, or persist Baton receipts.", "Production provider adapters and the browser cockpit remain outside this slice."],
+          "depends_on": ["W1-authority-core", "W2-driver-core"],
+          "consumes": ["W1-authority-core", "W2-driver-core"]
+        },
+        {
+          "id": "W4-topology-recovery",
+          "outcome": "Add Coach-loop worktree topology, bounded parallel tracks, and honest recovery.",
+          "scope": {
+            "include": ["cmd/sworn", "internal/baton", "internal/gitx", "internal/journal", "internal/runtime", "test/e2e", "tools/batongolden"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W4-topology",
+              "text": "A release worktree owns assembly; dependency-ready tracks may run concurrently with one serial writer per track. Before design, one typed idempotent CAS action prepares each track from its current authority, the exact approved target, and its plan-ordered consumed PASS candidates. Those inputs remain ancestors of the consumer; implementation scope is measured only from the prepared base; recovery cannot substitute, omit, or double-apply an input. Final composition is serial and plan-ordered. When it creates a tree not already covered by an exact fresh work PASS, a distinct fresh assembly Verifier gates Merge. A one-slice direct candidate may reuse only its exact fresh work PASS; any tree change requires new verification."
+            },
+            {
+              "id": "A-W4-recovery",
+              "text": "Pause, resume, cancel, retry, and takeover are typed idempotent commands with persisted hard caps. Timeouts, crashes, lease expiry, logs, and bookkeeping gaps are operational facts, never Baton verdicts or reasons to replan. Every mutating runtime action and candidate seal binds the exact installed plan, release, target, and Baton before-state vector. Receipt replay is bounded to the current release epoch so inherited prior-release receipts cannot gain authority. Authority drift atomically prevents stale mutation; recovery reconciles every claimed effect before new work, safely rolls back an exact stale candidate when required, and terminalizes stale effects without reuse; target staleness preempts model work."
+            },
+            {
+              "id": "A-W4-replan",
+              "text": "Replanning appends an approved plan revision and preserves the release, unchanged slice identities, and valid receipt continuity across each contiguous unchanged plan lineage. It invalidates only changed slices and consumers whose exact input product pins changed. Prepared bases are reconciled or replaced by exact CAS; replanning never resets, locks, or renames an otherwise valid slice set."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/baton/... ./internal/driver/... ./internal/gitx/... ./internal/journal/... ./internal/runtime/... ./cmd/sworn/... ./test/e2e/... ./tools/batongolden/..."],
+          "constraints": ["Consumed-input materialisation is engine-owned operational topology. It adds no Baton role, lifecycle stage, receipt, status file, or model-authored artefact. Ancillary tests, oracles, support files, and additional focused checks may repair forward under this unchanged outcome.", "The embedded release is Baton v1.0.0-rc.8: annotated tag 749714b60ac6356fbeb43d91ee3ad478820f2ad8, peeled commit a8fdb397e0839bdc58ad4b865e163dd37654752c, tree b39fe4c538a06ce7f28b70edd551395f99a8373c, archive SHA-256 bcbc310c2c5c98f82c721968ced7929ec58b0cdc2ab531a615fec706fe863582, and generated support package digest sha256:339799b218d4f8846cec1114a9756dda96a51744a72eb975bb9b632c4e349726. Sworn admits RC8 product-base resolution and derives it only from the exact approved target, ordered prior-slice PASS authority, and exact consumed PASS bindings; no runtime, driver, or agent may supply a raw merge base or conflict choice. Production driver behavior may not change.", "Each dispatch or external effect gets one initial attempt plus at most two automatic retries in a persisted epoch; exhaustion parks the slice for explicit typed operator action.", "A parked track does not stop independent ready tracks, but its consumers and assembly remain gated.", "Provider codecs, telemetry export, and browser styling remain outside this slice."],
+          "depends_on": ["W3-walking-skeleton"],
+          "consumes": ["W3-walking-skeleton", "W5-production-adapters"]
+        }
+      ]
+    },
+    {
+      "id": "T4-adapters",
+      "depends_on": ["T2-driver"],
+      "slices": [
+        {
+          "id": "W5-production-adapters",
+          "outcome": "Implement the required production driver profiles behind the common role-neutral contract.",
+          "scope": {
+            "include": ["internal/driver"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W5-profiles",
+              "text": "Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, and Bedrock are profiles behind one contract, alongside the deterministic fake. Every role chooses an explicit profile and model; no silent default or fallback exists."
+            },
+            {
+              "id": "A-W5-native",
+              "text": "Codex uses unattended `exec --ephemeral --yolo`; clean Verifier invocation also ignores user config and rules and disables memories and external memory import. Claude Code uses a bounded non-interactive native mode with no ambient MCP, browser, session, or unapproved tool surface."
+            },
+            {
+              "id": "A-W5-http",
+              "text": "The HTTP and cloud profiles share one bounded allowlisted workspace-tool loop and one terminating sworn_submit seam. OpenAI-compatible and DeepSeek, Gemini generateContent, and Bedrock Converse/SigV4 codecs preserve tool calls, cancellation, configured credentials, reported usage, and provider errors without owning orchestration. Bedrock alone resolves the standard AWS region and credential chain and records only its non-secret source kind."
+            },
+            {
+              "id": "A-W5-certification",
+              "text": "Every profile passes the shared fake-server corpus and exposes secret-free inspect, doctor, and certify results through the common driver API. Credential-gated live smokes report PASS, FAIL, or NOT CERTIFIED per configured profile without substitution."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/driver/... ./cmd/sworn/..."],
+          "constraints": ["No managed inference, credential custody, provider marketplace, provider SDK without measured necessity, or provider-specific workflow.", "Provider/model identifiers may be recorded locally but never become unbounded metric labels."],
+          "depends_on": ["W2-driver-core"],
+          "consumes": ["W2-driver-core"]
+        }
+      ]
+    },
+    {
+      "id": "T5-operator",
+      "depends_on": ["T3-runtime"],
+      "slices": [
+        {
+          "id": "W6-operator-evidence",
+          "outcome": "Deliver the truthful local cockpit, evaluation facts, and non-controlling observability.",
+          "scope": {
+            "include": ["cmd/sworn", "go.mod", "go.sum", "internal/cockpit", "internal/journal", "internal/observe"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W6-cockpit",
+              "text": "Terminal and responsive browser views render the same Baton graph plus a durable runtime overlay. They reconstruct from snapshot and event offset, never invent progress, and submit only closed typed local commands."
+            },
+            {
+              "id": "A-W6-open-operations",
+              "text": "The MIT product includes the complete local operations API, responsive WebUI, generic webhook delivery, durable notification outbox, and secure self-hosting capabilities. Repository and Baton authority remain local."
+            },
+            {
+              "id": "A-W6-eval",
+              "text": "A versioned local eval stream records exact outcomes, timings, retries, recovery, reported tokens and cost, and quality denominators independently of OTLP configuration or export. Unknown remains null, content is excluded, and exported scores never control delivery."
+            },
+            {
+              "id": "A-W6-otel",
+              "text": "Direct Go OpenTelemetry emits only a versioned positive allowlist of opt-in, bounded, asynchronous traces and fixed-enum low-cardinality metrics. Local status exposes exporter health, failures, and dropped telemetry. Prompts, completions, source, diffs, paths, credentials, raw argv, arbitrary errors, and tool payloads cannot leave the process; exporter failure cannot affect delivery."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test -race ./internal/cockpit/... ./internal/journal/... ./internal/observe/... ./cmd/sworn/..."],
+          "constraints": ["The board is a projection and typed command client, never a second scheduler or Baton writer.", "Hosted control plane, managed identity, managed notifications, and privileged remote control remain outside this slice.", "No LangChain, LangGraph, DBOS, Temporal, embedded collector, OTel logs, or vendor telemetry SDK in v0.3."],
+          "depends_on": ["W4-topology-recovery"],
+          "consumes": ["W4-topology-recovery"]
+        }
+      ]
+    },
+    {
+      "id": "T6-release",
+      "depends_on": ["T3-runtime", "T4-adapters", "T5-operator"],
+      "slices": [
+        {
+          "id": "W8-parity-release",
+          "outcome": "Prove Coach-loop parity and Sworn v0.3 technical readiness through the real binary.",
+          "scope": {
+            "include": ["README.md", "cmd/sworn", "docs/releases/v0.3.0", "internal/baton", "internal/driver", "internal/runtime", "test/e2e"],
+            "exclude": []
+          },
+          "acceptance": [
+            {
+              "id": "A-W8-conformance",
+              "text": "The real binary passes every autonomous-engine case in the Baton v1.0.0-rc.9 conformance manifest, blob 859ec28547a2cce4f70571d795954ba0fd80ba7b and SHA-256 cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c. Missing, duplicate, skipped, or NOT RUN cases fail the gate, and runtime success never substitutes for a Baton PASS."
+            },
+            {
+              "id": "A-W8-parity",
+              "text": "The Coach parity baseline at sawy3r/baton v1.0.0-rc.9, path docs/captures/2026-07-24-coach-loop-parity-baseline.md, blob ed1ec7963aa37c204f080567c208f0879f0fd6cb, SHA-256 8ad596e72fefb1b4cb43fdcce8cf4a705f65ead7618bb575dca1675cb9c7c39c, has no MISSING row. The real binary proves parallel tracks, fresh work and assembly verification, exact integration, timeout/no-verdict, crash recovery, stale target, repair after FAIL, BLOCKED routing, composition conflict, truthful restart views, multi-driver per-role models, and telemetry non-interference."
+            },
+            {
+              "id": "A-W8-journey",
+              "text": "One disposable fixture completes unattended delivery across three tracks, includes a dependency and two serial slices, uses two production driver families through the common configured registry with distinct explicit role models and no scripted submissions, fallback, or substitution, survives restart with the same secret-free configuration identity, and finishes with a target tree exactly equal to the passed assembly."
+            },
+            {
+              "id": "A-W8-drivers",
+              "text": "The real CLI exposes inspect, doctor, and certify for Codex CLI, Claude Code CLI, native OpenAI HTTP, DeepSeek, Gemini, and Bedrock. Native OpenAI uses the Responses API with explicit configured reasoning effort. The unchanged common Chat Completions dialect serves DeepSeek, bedrock-mantle, and compatible endpoints; both HTTP codecs remain translations behind the existing role-neutral bounded tool loop. Bedrock certifies both Runtime Converse/SigV4 and bedrock-mantle, with Mantle supporting an Amazon Bedrock API key or the standard AWS credential chain. Live PASS evidence binds the exact profile, explicit model, surface, configuration, and relevant implementation identity. A bound PASS remains current while those exact inputs are unchanged; only stale, failing, or affected profiles rerun, and no aggregate all-provider rerun is required. The evidence bundle must show every required profile and surface currently PASS. NOT CERTIFIED, skipped, substituted, fallback, or unbound results fail technical readiness unless the repository owner ratifies an exact named deferral in a revised plan."
+            },
+            {
+              "id": "A-W8-release",
+              "text": "Fresh product-only copies pass full, race, vet, format, and reproducible build checks. Release evidence binds exact product, binary, package, dependency, size, scenario, usage, retry, timing, and quality facts."
+            }
+          ],
+          "checks": ["GOFLAGS=-buildvcs=false go test ./...", "GOFLAGS=-buildvcs=false go test -race ./...", "GOFLAGS=-buildvcs=false go vet ./...", "bash -o pipefail -c 'unformatted=\"$(git ls-files -z -- \"*.go\" \":(exclude,top).baton/releases/**\" | xargs -0 -r gofmt -l)\"; test -z \"$unformatted\"'", "CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' -o /tmp/sworn-v0.3.0 ./cmd/sworn", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver inspect --all --config \"$SWORN_DRIVER_CONFIG\" --json", "test -n \"$SWORN_DRIVER_CONFIG\" && /tmp/sworn-v0.3.0 driver certify --profile openai --model gpt-5.6-sol --config \"$SWORN_DRIVER_CONFIG\" --json", "git diff --check"],
+          "constraints": ["The measured legacy baseline at bad1a6767994cacef2c354061d22db842cb6ca08 is 10464 physical lines in tracked .go files under cmd and internal, excluding _test.go, testdata or fixtures paths, and files carrying the standard Code generated ... DO NOT EDIT marker; blank and comment lines count. Exact approval of this plan supersedes all provisional numeric budgets in issue #157.", "Report the exact total and delta under that classifier plus production package count, direct dependencies, and stripped binary size. Material growth triggers proof-backed Captain architecture review of capability ownership, duplicate policy or orchestration, package boundaries, dependency necessity, and binary composition. Measurements are telemetry; no raw count is by itself a release verdict or plan-revision trigger.", "Each lifecycle, retry, broker, tool, credential, and provider mechanic has one authoritative owner. Common mechanics live behind role-neutral interfaces; adapters translate only native or provider surfaces. Duplicate policy or orchestration fails review; coincidental syntax alone does not require abstraction.", "The deterministic fake and scripted manifests remain test and recovery compatibility surfaces and cannot satisfy the production journey or live driver readiness. W8 integrates the existing scheduler and role-neutral driver contract; it adds no second scheduler, provider tool loop, orchestration framework, or dependency. Secrets never enter manifests, journals, evaluation, telemetry, or public diagnostics.", "RC9 revendoring is limited to its exact embedded release identity, README, and conformance-manifest changes. The protocol, five operations, record and board references, Coach baseline, and twelve autonomous cases remain byte-identical to RC8. Sworn does not vendor RC9 installers, skills, wrappers, client paths, or any replacement engine behavior.", "This gate proves technical readiness only and grants no tagging, main merge, hosted deployment, or sworn.sh publication authority."],
+          "depends_on": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"],
+          "consumes": ["W4-topology-recovery", "W5-production-adapters", "W6-operator-evidence"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+# Goal
+
+Deliver Sworn v0.3 as the lean Go engine that runs Baton autonomously: protected
+approval, the four model-facing roles, deterministic Merge, parallel track
+worktrees, common multi-vendor drivers, crash recovery, a truthful graph
+cockpit, local evaluation, opt-in telemetry, and exact integration.
+
+# Authority
+
+This is a proposal. Only the repository owner may approve these exact bytes
+through the protected marker
+`baton-plan-approval-sworn-v0.3.0-baton-v2-v10` on
+`swornagent/sworn#157`. The legacy RC3 approval does not approve these bytes.
+
+# Migration boundary
+
+The prior RC3 line predates Baton 1.0 and uses `baton.plan/v1`. RC5 strictly
+reads `baton.plan/v2`, so that legacy line cannot be a current plan revision or
+revision predecessor. It remains immutable migration input outside the Baton
+1.0 plan lineage. This one-time format bridge starts the first RC5-conforming
+internal record identity, `sworn-v0.3.0-baton-v2`, at revision 1. It retains all
+seven track and eight slice identities, leaves every legacy ref untouched, and
+imports no legacy authority.
+
+This is not ordinary replanning. After this bridge, future changes stay on this
+release identity, append revisions, preserve unchanged slices, and invalidate
+only changed contracts and their actual consumers. A later release identity is
+permitted only if the goal, target, or authority is replaced.
+
+- W0 binds the published RC5 release and exact untouched target.
+- W1 and W2 rebuild current authority from reviewed legacy product bytes under
+  fresh design, Captain, evidence, and Verifier decisions.
+- W3, W4, W5, W6, and W8 retain their stable outcome identities.
+- No outcome is added or retired, and no prior PASS is reused.
+
+Revision 4 changes only W4: it admits `internal/gitx` and binds recovery to
+exact authority. W0 through W3 retain their current PASS because their contracts
+and consumed inputs are unchanged. W5, W6, and W8 retain their identities and
+remain downstream gates. No slice is added, retired, renamed, or reset.
+
+Revision 5 changes only W4 after live downstream work exposed two gaps in its
+existing acceptance: the Go reducer rejected a valid unchanged-slice repair
+across an unrelated plan revision, and dependent workspaces did not receive
+their exact consumed PASS products as a scope-neutral base. W0 through W3 and
+W5 retain their contracts, identities, attempts, candidates, and PASS facts.
+W4 requires one new attempt; only W6 and W8 are invalidated as actual consumers
+of its changed product. No slice is added, retired, replaced, renamed, or
+globally reset.
+
+Revision 6 supersedes the unapproved earlier revision-6 proposal. It changes
+only W4 plus the still-unattempted W8 release gate. W4 now binds the published
+Baton RC7 release and its repair-forward commitment, consumed-input continuity,
+release-epoch, and approved-target preparation semantics. W0 through W3 and W5
+retain their contracts, attempts, candidates, products, and PASS facts. W4
+advances from attempt 7 to attempt 8 on the same slice; W6 remains its unchanged
+downstream consumer; W8 has no prior attempt and now proves RC7. No production
+driver behavior, slice identity, or prior PASS is reset.
+
+Revision 7 changes only W4 plus the still-unattempted W8 release gate. W4 now
+binds the published Baton RC8 release and its authority-derived product-base
+fallback after an ordinary composition conflict. Sworn supplies the admitted
+resolver; no agent or runtime caller supplies a raw base or conflict choice.
+W0 through W3 and W5 retain their contracts, attempts, candidates, products,
+and PASS facts. W4 remains the same slice at attempt 8; W6 remains its unchanged
+downstream consumer; W8 has no prior attempt and now proves RC8. No production
+driver behavior, slice identity, or prior PASS is reset.
+
+Revision 8 changes only the still-unattempted W8 release gate. It admits the
+existing driver and runtime product surfaces needed to replace fake-script-only
+dispatch with the already-built common production registry, and makes the
+unattended no-script multi-driver journey and live all-family certification
+explicit. It also certifies both classic Bedrock Runtime and the recommended
+OpenAI-compatible bedrock-mantle endpoint as two dialects behind the same
+Bedrock family and common tool loop. W0 through W6 retain their contracts,
+attempts, candidates, products, and PASS facts. W8 remains the same unattempted
+slice. No prior PASS, slice identity, scheduler, provider loop, or dependency is
+reset or added.
+
+Revision 9 changes only W8. It revendors the published Baton RC9 identity and
+conformance manifest while preserving the byte-identical protocol, operations,
+record and board references, Coach baseline, and twelve autonomous cases. It
+imports no RC9 client installer or skills machinery and changes no engine
+behavior. W0 through W6 keep their contracts, attempts, products, and PASS
+facts. W8 keeps the same slice identity; its existing unsealed work may be
+reused as implementation input, but fresh design, Captain, candidate, and
+Verifier decisions bind revision 9.
+
+Revision 10 changes only W8. Native OpenAI now uses Responses with explicit
+reasoning effort while compatible endpoints retain the common Chat Completions
+dialect behind the same role-neutral loop. Live PASS evidence remains valid
+only for an unchanged profile, model, surface, configuration, and relevant
+implementation; only stale, failing, or affected profiles rerun. W0 through W6
+retain their contracts, attempts, candidates, products, and PASS facts. W8 keeps
+its identity and existing work; no slice is reset, replaced, or added.
+
+# Scope
+
+Included are the complete local engine, six production driver families,
+classic and Mantle Bedrock endpoint dialects, safe parallelism and recovery,
+the terminal/browser cockpit, public local operations surfaces, evaluation,
+opt-in OTel, and executable Coach parity.
+
+Excluded are managed inference, hosted credentials, the hosted control plane,
+publication, and speculative website claims.
+
+# Acceptance
+
+The acceptance IDs above are observable product gates. Compact receipts bind
+the exact plan, design, candidate, checks, evidence, Verifier decision, and Git
+objects. Raw logs and long evidence stay in the engine evidence store.
+
+# Ordered tracks and slices
+
+W0 admits the exact base and Baton package. W1 and W2 then rebuild authority and
+the common driver boundary in parallel. W3 and W4 deliver the runtime and
+topology. W5 production adapters can advance from W2 while W6 cockpit and
+observability advance from W4. W8 is the only technical-readiness gate.
+
+# Dependencies and inputs
+
+`depends_on` controls eligibility. `consumes` names the exact passed product
+inputs whose change invalidates a consumer. Tracks may advance concurrently only
+when these edges and their scopes permit it; one writer remains serial within a
+track.
+
+# Checks
+
+Each slice runs its listed focused checks. W8 repeats the offline full, race,
+vet, format, reproducibility, and real-binary parity gates, then live-certifies
+only stale, failing, or affected profiles. The bound evidence bundle must show
+every required profile and surface currently PASS. Missing, skipped,
+substituted, fallback, unbound, worker-exit, or command-success-only evidence
+never satisfies the gate.
+
+# Constraints
+
+Sworn derives Baton operations; it does not duplicate Baton's lifecycle.
+Drivers are common and role-neutral. Telemetry is optional and non-controlling.
+The visual board is a graph projection and typed command client, not an
+editable workflow authority. Git history carries archaeology; normal delivery
+keeps only the approved plan and compact receipts.
