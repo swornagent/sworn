@@ -25,6 +25,7 @@ const (
 	nativeSessionRootPrefix   = "sworn-native-session-v1-"
 	nativeSessionParkedPrefix = "sworn-native-session-parked-v1-"
 	nativeSessionMemoryRoot   = "/dev/shm"
+	nativeAutomationHostRoot  = "/nonexistent/sworn-native-automation"
 	nativeTmpfsMagic          = 0x01021994
 	nativeSessionMaxEntries   = 4_096
 	nativeSessionMaxDepth     = 32
@@ -38,7 +39,7 @@ type nativeEventState struct {
 	mu               sync.Mutex
 	family           ProfileFamily
 	model            string
-	access           WorkspaceAccess
+	definitions      []providerToolDefinition
 	broker           *nativeBroker
 	launch           *nativeContinuationLaunch
 	nativeSeen       bool
@@ -52,14 +53,141 @@ type nativeCaptureRun struct {
 	provider    *nativeProviderCapture
 	certificate nativeSurfaceStageCertificate
 	stage       nativeInvocationStage
+	automation  *nativeAutomationRun
+}
+
+type nativeStagePolicy struct {
+	invocation   Invocation
+	provider     *nativeProviderCapture
+	continuation *nativeContinuationLaunch
+	automation   *nativeAutomationRun
+	stage        nativeInvocationStage
+}
+
+type nativeAutomationRun struct {
+	invocation  AutomationInvocation
+	stage       nativeInvocationStage
+	definitions []providerToolDefinition
+	certificate nativeSurfaceStageCertificate
+	observation AutomationObservation
+}
+
+type nativeAutomationSession struct {
+	mu          sync.Mutex
+	started     time.Time
+	invocation  AutomationInvocation
+	definitions []providerToolDefinition
+	corrections int
+	terminal    bool
+	terminalErr error
+	recovery    *RecoveryDecision
+	advisory    *AdvisoryResult
+}
+
+func newNativeAutomationSession(
+	started time.Time,
+	invocation AutomationInvocation,
+) (*nativeAutomationSession, error) {
+	definitions, err := automationToolDefinitions(invocation)
+	if err != nil || len(definitions) != 1 {
+		return nil, fail("INVALID_AUTOMATION_INVOCATION")
+	}
+	return &nativeAutomationSession{
+		started:     started,
+		invocation:  invocation,
+		definitions: definitions,
+	}, nil
+}
+
+func (session *nativeAutomationSession) brokerToolDefinitions() []providerToolDefinition {
+	if session == nil {
+		return nil
+	}
+	return append([]providerToolDefinition(nil), session.definitions...)
+}
+
+func (session *nativeAutomationSession) execute(
+	_ context.Context,
+	call providerToolCall,
+) providerToolResult {
+	result := providerToolResult{ID: call.ID, Name: call.Name}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.terminal {
+		result.Content = []byte("error:TOOL_SESSION_CLOSED")
+		result.Failed = true
+		return result
+	}
+	expected := session.definitions[0].Name
+	if call.Name != expected || len(call.Arguments) == 0 ||
+		len(call.Arguments) > MaxToolArgumentBytes {
+		session.terminal = true
+		session.terminalErr = fail("AUTOMATION_PROTOCOL_FAILED")
+		result.Content = []byte("error:AUTOMATION_PROTOCOL_FAILED")
+		result.Failed = true
+		return result
+	}
+	observation, err := decodeAutomationTerminal(
+		session.started,
+		session.invocation,
+		call.Arguments,
+		Usage{},
+		false,
+	)
+	if err != nil {
+		session.corrections++
+		if session.corrections > MaxAutomationCorrections {
+			session.terminal = true
+			session.terminalErr = fail("AUTOMATION_CORRECTIONS_EXHAUSTED")
+			err = session.terminalErr
+		}
+		result.Content = []byte("error:" + contractCode(err))
+		result.Failed = true
+		return result
+	}
+	session.terminal = true
+	session.recovery = observation.Recovery
+	session.advisory = observation.Advisory
+	result.Content = []byte("accepted")
+	return result
+}
+
+func (session *nativeAutomationSession) terminated() (bool, error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.terminal, session.terminalErr
+}
+
+func (session *nativeAutomationSession) complete(
+	usage UsageReceipt,
+) (AutomationObservation, error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.terminal || session.terminalErr != nil ||
+		(session.recovery == nil) == (session.advisory == nil) {
+		return AutomationObservation{}, fail("AUTOMATION_PROTOCOL_FAILED")
+	}
+	duration := time.Since(session.started).Milliseconds()
+	if duration < 0 {
+		duration = 0
+	}
+	return AutomationObservation{
+		TransportStatus: Completed,
+		DurationMillis:  duration,
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: "none"},
+		Recovery:        session.recovery,
+		Advisory:        session.advisory,
+	}, nil
 }
 
 type nativeContinuationLaunch struct {
-	state      *nativeContinuationState
-	resume     bool
-	expectedID []byte
-	capturedID []byte
-	accepted   bool
+	state       *nativeContinuationState
+	resume      bool
+	recoverable bool
+	expectedID  []byte
+	capturedID  []byte
+	accepted    bool
 }
 
 type nativeContinuationState struct {
@@ -266,6 +394,37 @@ func (state *nativeContinuationState) claim(
 	}
 	state.claimed = true
 	return append([]byte(nil), state.sessionID...), nil
+}
+
+// transfer moves the retained native home after a yielded resume. The prior
+// handle becomes inert before the dispatcher closes it.
+func (state *nativeContinuationState) transfer() (
+	*nativeContinuationState,
+	error,
+) {
+	if state == nil {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.validLocked() || !state.claimed ||
+		!validNativeSessionID(state.sessionID) {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	next := &nativeContinuationState{
+		family:    state.family,
+		root:      state.root,
+		home:      state.home,
+		lease:     state.lease,
+		sessionID: append([]byte(nil), state.sessionID...),
+	}
+	state.closed = true
+	state.root = ""
+	state.home = nil
+	state.lease = nil
+	clearBytes(state.sessionID)
+	state.sessionID = nil
+	return next, nil
 }
 
 // validateRetainedHome inspects Sworn's containment invariants without parsing
@@ -634,6 +793,214 @@ func parkNativeSessionRoot(root string) {
 	_ = os.Chmod(root, 0)
 }
 
+func platformCaptureNativeAutomationSurface(
+	parent context.Context,
+	invocations nativeAutomationSmokeInvocations,
+	config NativeAdapterConfig,
+) (nativeAutomationSurfaceCertificate, error) {
+	if parent == nil || parent.Err() != nil ||
+		validateAutomationInvocation(invocations.Recovery) != nil ||
+		validateAutomationInvocation(invocations.Advisory) != nil ||
+		invocations.Recovery.Recovery == nil ||
+		invocations.Advisory.Advisory == nil ||
+		invocations.Recovery.Selected.Adapter !=
+			invocations.Advisory.Selected.Adapter ||
+		invocations.Recovery.Selected.Profile.Key !=
+			invocations.Advisory.Selected.Profile.Key ||
+		invocations.Recovery.Selected.Model !=
+			invocations.Advisory.Selected.Model {
+		return nativeAutomationSurfaceCertificate{},
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	recovery, err := platformCaptureNativeAutomationStage(
+		parent,
+		invocations.Recovery,
+		config,
+	)
+	if err != nil {
+		return nativeAutomationSurfaceCertificate{},
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	advisory, err := platformCaptureNativeAutomationStage(
+		parent,
+		invocations.Advisory,
+		config,
+	)
+	if err != nil {
+		return nativeAutomationSurfaceCertificate{},
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	certificate := nativeAutomationSurfaceCertificate{
+		Family: config.Family,
+		ProfileDigest: nativeProfileDigest(
+			invocations.Recovery.Selected.Profile,
+		),
+		Model: invocations.Recovery.Selected.Model,
+		AdapterConfigDigest: invocations.Recovery.
+			Selected.Adapter.ConfigurationDigest,
+		ExecutableDigest: config.CLI.Digest,
+		CLIVersion:       config.CLIVersion,
+		Recovery:         recovery,
+		Advisory:         advisory,
+	}
+	if validateNativeAutomationSurfaceCertificate(
+		certificate,
+		invocations.Recovery,
+		config,
+	) != nil ||
+		validateNativeAutomationSurfaceCertificate(
+			certificate,
+			invocations.Advisory,
+			config,
+		) != nil {
+		return nativeAutomationSurfaceCertificate{},
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	return certificate, nil
+}
+
+func platformCaptureNativeAutomationStage(
+	parent context.Context,
+	invocation AutomationInvocation,
+	config NativeAdapterConfig,
+) (nativeSurfaceStageCertificate, error) {
+	stage, definitions, err := nativeAutomationSurface(invocation)
+	if err != nil {
+		return nativeSurfaceStageCertificate{}, err
+	}
+	provider, err := newNativeProviderCaptureWithTools(
+		config.Family,
+		invocation.Selected.Model,
+		definitions,
+	)
+	if err != nil {
+		return nativeSurfaceStageCertificate{}, err
+	}
+	launchInvocation, err := nativeAutomationLaunchInvocation(
+		invocation,
+	)
+	if err != nil {
+		return nativeSurfaceStageCertificate{}, err
+	}
+	run := &nativeAutomationRun{
+		invocation:  invocation,
+		stage:       stage,
+		definitions: definitions,
+	}
+	return platformCaptureNativeStagePolicy(
+		parent,
+		config,
+		nativeStagePolicy{
+			invocation: launchInvocation,
+			provider:   provider,
+			automation: run,
+			stage:      stage,
+		},
+	)
+}
+
+func platformInvokeNativeAutomation(
+	parent context.Context,
+	invocation AutomationInvocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	certificate nativeAutomationSurfaceCertificate,
+) (AutomationObservation, error) {
+	if validateNativeAutomationSurfaceCertificate(
+		certificate,
+		invocation,
+		config,
+	) != nil {
+		return AutomationObservation{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	stageKind, definitions, err := nativeAutomationSurface(invocation)
+	if err != nil {
+		return AutomationObservation{}, err
+	}
+	stage := certificate.Recovery
+	if stageKind == nativeInvocationStageAdvisory {
+		stage = certificate.Advisory
+	}
+	launchInvocation, err := nativeAutomationLaunchInvocation(
+		invocation,
+	)
+	if err != nil {
+		return AutomationObservation{}, err
+	}
+	run := &nativeAutomationRun{
+		invocation:  invocation,
+		stage:       stageKind,
+		definitions: definitions,
+		certificate: stage,
+	}
+	if _, err := platformRunNative(
+		parent,
+		launchInvocation,
+		config,
+		credentialPath,
+		nil,
+		nil,
+		nil,
+		run,
+	); err != nil {
+		return AutomationObservation{}, err
+	}
+	return run.observation, nil
+}
+
+func nativeAutomationLaunchInvocation(
+	invocation AutomationInvocation,
+) (Invocation, error) {
+	if validateAutomationInvocation(invocation) != nil {
+		return Invocation{}, fail("INVALID_AUTOMATION_INVOCATION")
+	}
+	var invocationID string
+	if invocation.Recovery != nil {
+		invocationID = invocation.Recovery.InvocationID
+	} else {
+		invocationID = invocation.Advisory.InvocationID
+	}
+	request := Request{
+		SchemaVersion: RequestSchemaVersion,
+		InvocationID:  invocationID,
+		Profile:       invocation.Selected.Profile.Key,
+		Model:         invocation.Selected.Model,
+		Workspace: Workspace{
+			Path:   GuestWorkspacePath,
+			Access: ReadOnly,
+		},
+		Inputs:       []Input{},
+		FreshContext: true,
+		Limits: Limits{
+			TimeoutMillis: 120_000,
+			OutputBytes:   MaxAutomationBytes,
+		},
+	}
+	return Invocation{
+		Request:       request,
+		HostWorkspace: nativeAutomationHostRoot,
+		Selected:      invocation.Selected,
+	}, nil
+}
+
+func nativeAutomationSurface(
+	invocation AutomationInvocation,
+) (
+	nativeInvocationStage,
+	[]providerToolDefinition,
+	error,
+) {
+	definitions, err := automationToolDefinitions(invocation)
+	if err != nil || len(definitions) != 1 {
+		return 0, nil, fail("INVALID_AUTOMATION_INVOCATION")
+	}
+	stage := nativeInvocationStageRecovery
+	if invocation.Advisory != nil {
+		stage = nativeInvocationStageAdvisory
+	}
+	return stage, definitions, nil
+}
+
 func platformInvokeNative(
 	parent context.Context,
 	invocation Invocation,
@@ -656,6 +1023,7 @@ func platformInvokeNative(
 		nil,
 		&certificate,
 		nil,
+		nil,
 	)
 }
 
@@ -673,6 +1041,48 @@ func platformStartNativeContinuation(
 	) != nil {
 		return Observation{}, nil, fail("NATIVE_NOT_CERTIFIED")
 	}
+	return platformStartNativeContinuationMode(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		certificate,
+		false,
+	)
+}
+
+func platformStartNativeRecoverableContinuation(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	certificate nativeSurfaceCertificate,
+) (Observation, continuationState, error) {
+	if validateNativeSurfaceCertificate(
+		certificate,
+		invocation,
+		config,
+	) != nil {
+		return Observation{}, nil, fail("NATIVE_NOT_CERTIFIED")
+	}
+	return platformStartNativeContinuationMode(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		certificate,
+		true,
+	)
+}
+
+func platformStartNativeContinuationMode(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	certificate nativeSurfaceCertificate,
+	recoverable bool,
+) (observation Observation, state continuationState, resultErr error) {
 	nativeState, err := newNativeContinuationState(config)
 	if err != nil {
 		observation, runErr := platformRunNative(
@@ -683,6 +1093,7 @@ func platformStartNativeContinuation(
 			nil,
 			&certificate,
 			nil,
+			nil,
 		)
 		return observation, nil, runErr
 	}
@@ -691,7 +1102,10 @@ func platformStartNativeContinuation(
 			resultErr = joinErrors(resultErr, nativeState.closeContinuation())
 		}
 	}()
-	launch := &nativeContinuationLaunch{state: nativeState}
+	launch := &nativeContinuationLaunch{
+		state:       nativeState,
+		recoverable: recoverable,
+	}
 	defer clearBytes(launch.capturedID)
 	observation, resultErr = platformRunNative(
 		parent,
@@ -701,9 +1115,35 @@ func platformStartNativeContinuation(
 		nil,
 		&certificate,
 		launch,
+		nil,
 	)
 	if resultErr != nil {
-		return observation, nil, resultErr
+		if !IsCode(resultErr, "MISSING_SUBMISSION") ||
+			!launch.accepted ||
+			!validNativeSessionID(launch.capturedID) {
+			return observation, nil, resultErr
+		}
+		if err := nativeState.retainSessionID(launch.capturedID); err != nil {
+			return Observation{}, nil, err
+		}
+		if err := reserveRecoveryStep(
+			parent,
+			invocation.RecoveryStepHook,
+			RecoveryStepProseNudge,
+		); err != nil {
+			return Observation{}, nil, err
+		}
+		return platformResumeNativeContinuationMode(
+			parent,
+			nativeProseNudgeInvocation(invocation),
+			config,
+			credentialPath,
+			certificate,
+			nativeState,
+			true,
+			false,
+			!recoverable,
+		)
 	}
 	if !launch.accepted || !validNativeSessionID(launch.capturedID) {
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
@@ -729,19 +1169,77 @@ func platformResumeNativeContinuation(
 	) != nil {
 		return Observation{}, fail("CONTINUATION_INVALID")
 	}
+	observation, next, err := platformResumeNativeContinuationMode(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		certificate,
+		prior,
+		false,
+		true,
+		false,
+	)
+	if closeErr := closeContinuationState(next); closeErr != nil {
+		return Observation{}, closeErr
+	}
+	return observation, err
+}
+
+func platformResumeNativeRecoverableContinuation(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	certificate nativeSurfaceCertificate,
+	prior continuationState,
+	retainDesignTerminal bool,
+) (Observation, continuationState, error) {
+	if validateNativeSurfaceCertificate(
+		certificate,
+		invocation,
+		config,
+	) != nil {
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
+	}
+	return platformResumeNativeContinuationMode(
+		parent,
+		invocation,
+		config,
+		credentialPath,
+		certificate,
+		prior,
+		true,
+		true,
+		retainDesignTerminal,
+	)
+}
+
+func platformResumeNativeContinuationMode(
+	parent context.Context,
+	invocation Invocation,
+	config NativeAdapterConfig,
+	credentialPath string,
+	certificate nativeSurfaceCertificate,
+	prior continuationState,
+	recoverable bool,
+	allowProseNudge bool,
+	retainDesignTerminal bool,
+) (Observation, continuationState, error) {
 	nativeState, ok := prior.(*nativeContinuationState)
 	if !ok || nativeState == nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	sessionID, err := nativeState.claim(config.Family)
 	if err != nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	defer clearBytes(sessionID)
 	launch := &nativeContinuationLaunch{
-		state:      nativeState,
-		resume:     true,
-		expectedID: sessionID,
+		state:       nativeState,
+		resume:      true,
+		recoverable: recoverable,
+		expectedID:  sessionID,
 	}
 	defer clearBytes(launch.capturedID)
 	observation, err := platformRunNative(
@@ -752,12 +1250,63 @@ func platformResumeNativeContinuation(
 		nil,
 		&certificate,
 		launch,
+		nil,
 	)
 	if err != nil && !launch.accepted &&
 		!isContinuationCancellation(err) {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
-	return observation, err
+	if allowProseNudge && IsCode(err, "MISSING_SUBMISSION") &&
+		launch.accepted &&
+		bytes.Equal(launch.capturedID, sessionID) {
+		if reserveErr := reserveRecoveryStep(
+			parent,
+			invocation.RecoveryStepHook,
+			RecoveryStepProseNudge,
+		); reserveErr != nil {
+			return Observation{}, nil, reserveErr
+		}
+		retryState, transferErr := nativeState.transfer()
+		if transferErr != nil {
+			return Observation{}, nil, transferErr
+		}
+		observation, next, retryErr := platformResumeNativeContinuationMode(
+			parent,
+			nativeProseNudgeInvocation(invocation),
+			config,
+			credentialPath,
+			certificate,
+			retryState,
+			recoverable,
+			false,
+			retainDesignTerminal,
+		)
+		if closeErr := retryState.closeContinuation(); closeErr != nil {
+			_ = closeContinuationState(next)
+			return Observation{}, nil, closeErr
+		}
+		return observation, next, retryErr
+	}
+	retain := observation.Yield != nil && recoverable
+	retain = retain ||
+		observation.Handoff != nil && retainDesignTerminal
+	if err != nil || !retain {
+		return observation, nil, err
+	}
+	next, transferErr := nativeState.transfer()
+	if transferErr != nil {
+		return Observation{}, nil, transferErr
+	}
+	return observation, next, nil
+}
+
+func nativeProseNudgeInvocation(invocation Invocation) Invocation {
+	nudge := RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputNudge,
+	}
+	invocation.recoverableInput = &nudge
+	return invocation
 }
 
 func platformCaptureNativeSurface(
@@ -768,16 +1317,6 @@ func platformCaptureNativeSurface(
 	certificate nativeSurfaceCertificate,
 	resultErr error,
 ) {
-	state, err := newNativeContinuationState(config)
-	if err != nil {
-		return nativeSurfaceCertificate{}, err
-	}
-	defer func() {
-		if closeErr := state.closeContinuation(); closeErr != nil {
-			certificate = nativeSurfaceCertificate{}
-			resultErr = closeErr
-		}
-	}()
 	freshReadOnly, err := platformCaptureNativeStage(
 		parent,
 		invocations.FreshReadOnly,
@@ -796,39 +1335,24 @@ func platformCaptureNativeSurface(
 	if err != nil {
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
-	startLaunch := &nativeContinuationLaunch{state: state}
-	defer clearBytes(startLaunch.capturedID)
-	continuationStart, err := platformCaptureNativeStage(
-		parent,
-		invocations.ContinuationStart,
-		config,
-		startLaunch,
-	)
-	if err != nil || !startLaunch.accepted ||
-		!validNativeSessionID(startLaunch.capturedID) {
+	continuationStart, resumeReadOnly, err :=
+		platformCaptureNativeContinuationPair(
+			parent,
+			invocations.ContinuationStart,
+			invocations.FreshReadOnly,
+			config,
+		)
+	if err != nil {
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
-	if err := state.retainSessionID(startLaunch.capturedID); err != nil {
-		return nativeSurfaceCertificate{}, err
-	}
-	sessionID, err := state.claim(config.Family)
+	continuationStartRW, resume, err :=
+		platformCaptureNativeContinuationPair(
+			parent,
+			invocations.FreshReadWrite,
+			invocations.Resume,
+			config,
+		)
 	if err != nil {
-		return nativeSurfaceCertificate{}, err
-	}
-	defer clearBytes(sessionID)
-	resumeLaunch := &nativeContinuationLaunch{
-		state:      state,
-		resume:     true,
-		expectedID: sessionID,
-	}
-	defer clearBytes(resumeLaunch.capturedID)
-	resume, err := platformCaptureNativeStage(
-		parent,
-		invocations.Resume,
-		config,
-		resumeLaunch,
-	)
-	if err != nil || !resumeLaunch.accepted {
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	certificate = nativeSurfaceCertificate{
@@ -839,12 +1363,14 @@ func platformCaptureNativeSurface(
 		Model: invocations.ContinuationStart.Selected.Model,
 		AdapterConfigDigest: invocations.ContinuationStart.
 			Selected.Adapter.ConfigurationDigest,
-		ExecutableDigest:  config.CLI.Digest,
-		CLIVersion:        config.CLIVersion,
-		FreshReadOnly:     freshReadOnly,
-		FreshReadWrite:    freshReadWrite,
-		ContinuationStart: continuationStart,
-		Resume:            resume,
+		ExecutableDigest:    config.CLI.Digest,
+		CLIVersion:          config.CLIVersion,
+		FreshReadOnly:       freshReadOnly,
+		FreshReadWrite:      freshReadWrite,
+		ContinuationStart:   continuationStart,
+		ContinuationStartRW: continuationStartRW,
+		ResumeReadOnly:      resumeReadOnly,
+		Resume:              resume,
 	}
 	if validateNativeSurfaceCertificate(
 		certificate,
@@ -854,6 +1380,71 @@ func platformCaptureNativeSurface(
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	return certificate, nil
+}
+
+func platformCaptureNativeContinuationPair(
+	parent context.Context,
+	start Invocation,
+	resume Invocation,
+	config NativeAdapterConfig,
+) (
+	startCertificate nativeSurfaceStageCertificate,
+	resumeCertificate nativeSurfaceStageCertificate,
+	resultErr error,
+) {
+	state, err := newNativeContinuationState(config)
+	if err != nil {
+		return startCertificate, resumeCertificate, err
+	}
+	defer func() {
+		if closeErr := state.closeContinuation(); closeErr != nil {
+			startCertificate = nativeSurfaceStageCertificate{}
+			resumeCertificate = nativeSurfaceStageCertificate{}
+			resultErr = closeErr
+		}
+	}()
+	startLaunch := &nativeContinuationLaunch{
+		state:       state,
+		recoverable: true,
+	}
+	defer clearBytes(startLaunch.capturedID)
+	startCertificate, err = platformCaptureNativeStage(
+		parent,
+		start,
+		config,
+		startLaunch,
+	)
+	if err != nil || !startLaunch.accepted ||
+		!validNativeSessionID(startLaunch.capturedID) {
+		return startCertificate, resumeCertificate,
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	if err := state.retainSessionID(startLaunch.capturedID); err != nil {
+		return startCertificate, resumeCertificate, err
+	}
+	sessionID, err := state.claim(config.Family)
+	if err != nil {
+		return startCertificate, resumeCertificate, err
+	}
+	defer clearBytes(sessionID)
+	resumeLaunch := &nativeContinuationLaunch{
+		state:       state,
+		resume:      true,
+		recoverable: true,
+		expectedID:  sessionID,
+	}
+	defer clearBytes(resumeLaunch.capturedID)
+	resumeCertificate, err = platformCaptureNativeStage(
+		parent,
+		resume,
+		config,
+		resumeLaunch,
+	)
+	if err != nil || !resumeLaunch.accepted {
+		return startCertificate, resumeCertificate,
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	return startCertificate, resumeCertificate, nil
 }
 
 func platformCaptureNativeStage(
@@ -881,39 +1472,74 @@ func platformCaptureNativeStage(
 	if err != nil {
 		return nativeSurfaceStageCertificate{}, err
 	}
-	defer provider.Close()
-	credentialBody, err := nativeCaptureCredentialBody(provider)
+	return platformCaptureNativeStagePolicy(
+		parent,
+		config,
+		nativeStagePolicy{
+			invocation:   invocation,
+			provider:     provider,
+			continuation: launch,
+			stage:        stage,
+		},
+	)
+}
+
+func platformCaptureNativeStagePolicy(
+	parent context.Context,
+	config NativeAdapterConfig,
+	policy nativeStagePolicy,
+) (nativeSurfaceStageCertificate, error) {
+	if policy.provider == nil {
+		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	defer policy.provider.Close()
+	credentialPath, cleanup, err := nativeCaptureCredential(policy.provider)
 	if err != nil {
 		return nativeSurfaceStageCertificate{}, err
 	}
-	credentialDirectory, err := os.MkdirTemp("", "sworn-native-capture-")
-	if err != nil {
-		clearBytes(credentialBody)
-		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
-	}
-	defer os.RemoveAll(credentialDirectory)
-	credentialPath := filepath.Join(credentialDirectory, "credential")
-	if err := os.WriteFile(credentialPath, credentialBody, 0o600); err != nil {
-		clearBytes(credentialBody)
-		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
-	}
-	clearBytes(credentialBody)
+	defer cleanup()
 	run := &nativeCaptureRun{
-		provider: provider,
-		stage:    stage,
+		provider:   policy.provider,
+		stage:      policy.stage,
+		automation: policy.automation,
 	}
 	if _, err := platformRunNative(
 		parent,
-		invocation,
+		policy.invocation,
 		config,
 		credentialPath,
 		run,
 		nil,
-		launch,
+		policy.continuation,
+		policy.automation,
 	); err != nil {
 		return nativeSurfaceStageCertificate{}, err
 	}
+	if policy.automation != nil {
+		return policy.automation.certificate, nil
+	}
 	return run.certificate, nil
+}
+
+func nativeCaptureCredential(
+	provider *nativeProviderCapture,
+) (string, func(), error) {
+	body, err := nativeCaptureCredentialBody(provider)
+	if err != nil {
+		return "", func() {}, err
+	}
+	defer clearBytes(body)
+	root, err := os.MkdirTemp("", "sworn-native-capture-")
+	if err != nil {
+		return "", func() {}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	cleanup := func() { _ = os.RemoveAll(root) }
+	target := filepath.Join(root, "credential")
+	if os.WriteFile(target, body, 0o600) != nil {
+		cleanup()
+		return "", func() {}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	return target, cleanup, nil
 }
 
 func platformRunNative(
@@ -924,9 +1550,25 @@ func platformRunNative(
 	captureRun *nativeCaptureRun,
 	certificate *nativeSurfaceCertificate,
 	launch *nativeContinuationLaunch,
+	automationRun *nativeAutomationRun,
 ) (observation Observation, resultErr error) {
 	started := time.Now()
-	if (captureRun == nil) == (certificate == nil) {
+	if automationRun == nil &&
+		((captureRun == nil) == (certificate == nil) ||
+			(captureRun != nil && captureRun.automation != nil)) {
+		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	if automationRun != nil &&
+		(certificate != nil || launch != nil ||
+			(captureRun != nil && captureRun.automation != automationRun) ||
+			(captureRun == nil &&
+				!validNativeAutomationStage(
+					automationRun.certificate,
+					config.Family,
+					invocation.Selected.Model,
+					automationRun.stage,
+					automationRun.definitions,
+				))) {
 		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	var certifiedStage nativeSurfaceStageCertificate
@@ -941,16 +1583,45 @@ func platformRunNative(
 			return Observation{}, stageErr
 		}
 	}
-	session, err := newToolSession(invocation)
-	if err != nil {
-		return Observation{}, err
-	}
-	defer func() {
-		if closeErr := session.Close(); closeErr != nil {
-			observation.Handoff = nil
-			resultErr = joinErrors(resultErr, closeErr)
+	definitions := toolDefinitions(invocation.Request.Workspace.Access)
+	var session nativeBrokerSession
+	var batonSession *toolSession
+	var automationSession *nativeAutomationSession
+	var err error
+	projectionRoot := filepath.Join(
+		invocation.HostWorkspace,
+		".sworn-no-input-projection",
+	)
+	if automationRun == nil {
+		batonSession, err = newToolSession(invocation)
+		if err != nil {
+			return Observation{}, err
 		}
-	}()
+		session = batonSession
+		projectionRoot = batonSession.projection.Root()
+	} else {
+		definitions = automationRun.definitions
+		automationSession, err = newNativeAutomationSession(
+			started,
+			automationRun.invocation,
+		)
+		if err != nil ||
+			nativeToolDefinitionsDigest(
+				automationSession.definitions,
+			) != nativeToolDefinitionsDigest(definitions) {
+			return Observation{}, fail("NATIVE_NOT_CERTIFIED")
+		}
+		session = automationSession
+	}
+	if batonSession != nil {
+		defer func() {
+			if closeErr := batonSession.Close(); closeErr != nil {
+				observation.Handoff = nil
+				observation.Yield = nil
+				resultErr = joinErrors(resultErr, closeErr)
+			}
+		}()
+	}
 	var broker *nativeBroker
 	if certificate != nil {
 		broker, err = newNativeBroker(session, nativeHandshakeEvidence{
@@ -960,9 +1631,18 @@ func platformRunNative(
 			InitializeDigest:   certifiedStage.InitializeDigest,
 			NotificationDigest: certifiedStage.NotificationDigest,
 			ListDigest:         certifiedStage.ListDigest,
-			ToolDigest: nativeToolSurfaceDigest(
-				invocation.Request.Workspace.Access,
-			),
+			ToolDigest:         nativeToolDefinitionsDigest(definitions),
+		})
+	} else if automationRun != nil && captureRun == nil {
+		stage := automationRun.certificate
+		broker, err = newNativeBroker(session, nativeHandshakeEvidence{
+			Protocol:           stage.Protocol,
+			ClientName:         stage.ClientName,
+			ClientVersion:      stage.ClientVersion,
+			InitializeDigest:   stage.InitializeDigest,
+			NotificationDigest: stage.NotificationDigest,
+			ListDigest:         stage.ListDigest,
+			ToolDigest:         nativeToolDefinitionsDigest(definitions),
 		})
 	} else {
 		broker, err = newNativeBroker(session)
@@ -1029,6 +1709,7 @@ func platformRunNative(
 		configFiles,
 		captureRun,
 		launch,
+		definitions,
 	)
 	if err != nil {
 		return Observation{}, err
@@ -1048,7 +1729,12 @@ func platformRunNative(
 	extraFiles = append(extraFiles, statusWriter)
 	ctx, cancel := invocationContext(parent, invocation.Request.Limits.TimeoutMillis)
 	defer cancel()
-	prompt, err := modelPrompt(invocation)
+	var prompt []byte
+	if automationRun == nil {
+		prompt, err = modelPrompt(invocation)
+	} else {
+		prompt, err = automationPrompt(automationRun.invocation)
+	}
 	if err != nil {
 		return Observation{}, err
 	}
@@ -1085,8 +1771,11 @@ func platformRunNative(
 	command.Stderr = stderrWriter
 	state := &nativeEventState{
 		family: config.Family, model: invocation.Selected.Model,
-		access: invocation.Request.Workspace.Access, broker: broker,
-		launch: launch,
+		definitions: append(
+			[]providerToolDefinition(nil),
+			definitions...,
+		),
+		broker: broker, launch: launch,
 	}
 	if err := command.Start(); err != nil {
 		return Observation{}, fail("PROCESS_START_FAILED")
@@ -1108,10 +1797,11 @@ func platformRunNative(
 		config,
 		credential,
 		closure,
-		session.projection.Root(),
+		projectionRoot,
 		capability,
 		captureRun,
 		launch,
+		definitions,
 	); runtimeErr != nil {
 		_ = syscall.Kill(-processGroup, syscall.SIGKILL)
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
@@ -1241,9 +1931,8 @@ func platformRunNative(
 	}
 	if captureRun != nil {
 		if !captureReceived ||
-			providerEvidence.ToolDigest != nativeToolSurfaceDigest(
-				invocation.Request.Workspace.Access,
-			) {
+			providerEvidence.ToolDigest !=
+				nativeToolDefinitionsDigest(definitions) {
 			return Observation{}, fail("NATIVE_SURFACE_INVALID")
 		}
 		handshake, err := broker.HandshakeEvidence()
@@ -1271,40 +1960,70 @@ func platformRunNative(
 			clearBytes(brokerIdentity)
 			return Observation{}, fail("NATIVE_SURFACE_INVALID")
 		}
-		captureRun.certificate = nativeSurfaceStageCertificate{
-			Access:                invocation.Request.Workspace.Access,
-			InvocationStage:       captureRun.stage,
-			ToolDigest:            providerEvidence.ToolDigest,
-			CaptureEvidenceDigest: Digest(evidenceBody),
-			ArgumentDigest: nativeCLIArgumentDigest(
-				config.Family,
-				invocation.Selected.Model,
-				invocation.Request.Workspace.Access,
-				captureRun.stage,
-			),
-			Protocol:           handshake.Protocol,
-			ClientName:         handshake.ClientName,
-			ClientVersion:      handshake.ClientVersion,
-			InitializeDigest:   handshake.InitializeDigest,
-			NotificationDigest: handshake.NotificationDigest,
-			ListDigest:         handshake.ListDigest,
+		if automationRun == nil {
+			captureRun.certificate = nativeSurfaceStageCertificate{
+				Access:                invocation.Request.Workspace.Access,
+				InvocationStage:       captureRun.stage,
+				ToolDigest:            providerEvidence.ToolDigest,
+				CaptureEvidenceDigest: Digest(evidenceBody),
+				ArgumentDigest: nativeCLIArgumentDigest(
+					config.Family,
+					invocation.Selected.Model,
+					invocation.Request.Workspace.Access,
+					captureRun.stage,
+				),
+				Protocol:           handshake.Protocol,
+				ClientName:         handshake.ClientName,
+				ClientVersion:      handshake.ClientVersion,
+				InitializeDigest:   handshake.InitializeDigest,
+				NotificationDigest: handshake.NotificationDigest,
+				ListDigest:         handshake.ListDigest,
+			}
+		} else {
+			automationRun.certificate = nativeSurfaceStageCertificate{
+				InvocationStage:       automationRun.stage,
+				ToolDigest:            providerEvidence.ToolDigest,
+				CaptureEvidenceDigest: Digest(evidenceBody),
+				ArgumentDigest: nativeAutomationCLIArgumentDigest(
+					config.Family,
+					invocation.Selected.Model,
+					definitions,
+				),
+				AuthorityDigest: nativeAutomationAuthorityDigest(
+					config.Family,
+					invocation.Selected.Model,
+					automationRun.stage,
+					definitions,
+				),
+				Protocol:           handshake.Protocol,
+				ClientName:         handshake.ClientName,
+				ClientVersion:      handshake.ClientVersion,
+				InitializeDigest:   handshake.InitializeDigest,
+				NotificationDigest: handshake.NotificationDigest,
+				ListDigest:         handshake.ListDigest,
+			}
 		}
 		clearBytes(evidenceBody)
 		clearBytes(brokerIdentity)
 		return Observation{}, nil
 	}
-	submitted, submitErr := session.submitted()
-	if submitErr != nil {
-		return Observation{}, submitErr
+	terminated, terminalErr := session.terminated()
+	if terminalErr != nil {
+		return Observation{}, terminalErr
 	}
-	if !submitted {
+	if !terminated {
 		if waitErr != nil {
 			return Observation{}, fail("PROVIDER_TRANSPORT_FAILED")
 		}
+		if automationRun != nil {
+			return Observation{}, fail("AUTOMATION_PROTOCOL_FAILED")
+		}
 		return Observation{}, fail("MISSING_SUBMISSION")
 	}
-	if closeErr := session.Close(); closeErr != nil {
-		return Observation{}, closeErr
+	if batonSession != nil {
+		if closeErr := batonSession.Close(); closeErr != nil {
+			return Observation{}, closeErr
+		}
 	}
 	usage, err := NormalizeUsage(nil, nil)
 	if hasUsage {
@@ -1313,7 +2032,24 @@ func platformRunNative(
 	if err != nil {
 		return Observation{}, err
 	}
-	return completedToolObservation(started, usage, session.handoff()), nil
+	if automationRun != nil {
+		automationRun.observation, err = automationSession.complete(usage)
+		if err != nil {
+			return Observation{}, err
+		}
+		return Observation{}, nil
+	}
+	if batonSession == nil {
+		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+	}
+	if yielded := batonSession.yielded(); yielded != nil {
+		return completedYieldObservation(started, usage, yielded), nil
+	}
+	return completedToolObservation(
+		started,
+		usage,
+		batonSession.handoff(),
+	), nil
 }
 
 func waitNativeCaptureGate(
@@ -1405,6 +2141,7 @@ func certifyNativeRuntime(
 	capability []byte,
 	captureRun *nativeCaptureRun,
 	launch *nativeContinuationLaunch,
+	definitions []providerToolDefinition,
 ) error {
 	if pid <= 0 || credential == nil || credential.File() == nil ||
 		len(closure) != len(config.RuntimeFiles)+1 ||
@@ -1433,10 +2170,12 @@ func certifyNativeRuntime(
 		clearBytes(cmdline)
 		return fail("NATIVE_SURFACE_INVALID")
 	}
-	expectedArguments, err := nativeAgentArguments(
+	expectedArguments, err := nativeAgentArgumentsFor(
 		config,
-		invocation,
+		invocation.Selected.Model,
+		invocation.Request.FreshContext,
 		launch,
+		definitions,
 	)
 	if err != nil {
 		clearBytes(cmdline)
@@ -1484,6 +2223,10 @@ func certifyNativeRuntime(
 	root := procRoot + "/root"
 	workspaceEntries, err := os.ReadDir(root + GuestWorkspacePath)
 	if err != nil || len(workspaceEntries) != 0 {
+		return fail("NATIVE_SURFACE_INVALID")
+	}
+	if nativeAutomationDefinitions(definitions) &&
+		!nativeWorkspaceReadOnly(root+GuestWorkspacePath) {
 		return fail("NATIVE_SURFACE_INVALID")
 	}
 	if _, err := os.Stat(root + GuestInputPath); !os.IsNotExist(err) {
@@ -1559,6 +2302,21 @@ func certifyNativeRuntime(
 		}
 	}
 	return nil
+}
+
+func nativeWorkspaceReadOnly(root string) bool {
+	probe := filepath.Join(root, ".sworn-authority-probe")
+	file, err := os.OpenFile(
+		probe,
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		0o600,
+	)
+	if err == nil {
+		_ = file.Close()
+		_ = os.Remove(probe)
+		return false
+	}
+	return errors.Is(err, syscall.EROFS)
 }
 
 func readBoundedProcFile(name string, maximum int64) ([]byte, error) {
@@ -1745,9 +2503,11 @@ func nativeCommand(
 	configFiles []*os.File,
 	captureRun *nativeCaptureRun,
 	launch *nativeContinuationLaunch,
+	definitions []providerToolDefinition,
 ) ([]string, [][]byte, []*os.File, error) {
 	if len(closure) != len(config.RuntimeFiles)+1 || len(configFiles) != 2 ||
-		credential.File() == nil {
+		credential.File() == nil ||
+		nativeToolDefinitionsDigest(definitions) == "" {
 		return nil, nil, nil, fail("NATIVE_NOT_CERTIFIED")
 	}
 	extra := []*os.File{closure[0], credential.File()}
@@ -1795,6 +2555,9 @@ func nativeCommand(
 	for _, directory := range dirList {
 		arguments = append(arguments, "--dir", directory)
 	}
+	if nativeAutomationDefinitions(definitions) {
+		arguments = append(arguments, "--remount-ro", GuestWorkspacePath)
+	}
 	if homeFD >= 0 {
 		arguments = append(
 			arguments,
@@ -1825,10 +2588,12 @@ func nativeCommand(
 		[]byte("HOME=/home/sworn"), []byte("TMPDIR=/tmp"),
 		[]byte("LANG=C.UTF-8"), []byte("LC_ALL=C.UTF-8"), []byte("TZ=UTC"),
 	}
-	cliArguments, err := nativeAgentArguments(
+	cliArguments, err := nativeAgentArgumentsFor(
 		config,
-		invocation,
+		invocation.Selected.Model,
+		invocation.Request.FreshContext,
 		launch,
+		definitions,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1868,17 +2633,36 @@ func nativeAgentArguments(
 	invocation Invocation,
 	launch *nativeContinuationLaunch,
 ) ([]string, error) {
+	return nativeAgentArgumentsFor(
+		config,
+		invocation.Selected.Model,
+		invocation.Request.FreshContext,
+		launch,
+		toolDefinitions(invocation.Request.Workspace.Access),
+	)
+}
+
+func nativeAgentArgumentsFor(
+	config NativeAdapterConfig,
+	model string,
+	fresh bool,
+	launch *nativeContinuationLaunch,
+	definitions []providerToolDefinition,
+) ([]string, error) {
+	if nativeToolDefinitionsDigest(definitions) == "" {
+		return nil, fail("NATIVE_NOT_CERTIFIED")
+	}
 	switch config.Family {
 	case ProfileClaude:
-		return claudeArguments(
-			invocation.Selected.Model,
-			invocation.Request.Workspace.Access,
+		return claudeArgumentsWithTools(
+			model,
+			definitions,
 			launch,
 		), nil
 	case ProfileCodex:
 		return codexArguments(
-			invocation.Selected.Model,
-			invocation.Request.FreshContext,
+			model,
+			fresh,
 			launch,
 		), nil
 	default:
@@ -1891,8 +2675,16 @@ func claudeArguments(
 	access WorkspaceAccess,
 	launch *nativeContinuationLaunch,
 ) []string {
-	tools := make([]string, 0, len(toolDefinitions(access)))
-	for _, definition := range toolDefinitions(access) {
+	return claudeArgumentsWithTools(model, toolDefinitions(access), launch)
+}
+
+func claudeArgumentsWithTools(
+	model string,
+	definitions []providerToolDefinition,
+	launch *nativeContinuationLaunch,
+) []string {
+	tools := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
 		tools = append(tools, "mcp__sworn__"+definition.Name)
 	}
 	toolList := strings.Join(tools, ",")
@@ -1906,7 +2698,7 @@ func claudeArguments(
 		"--permission-mode", "dontAsk",
 		"--disable-slash-commands",
 		"--no-chrome",
-		"--max-turns", itoa(MaxProviderTurns),
+		"--max-turns", itoa(nativeMaximumTurns(definitions)),
 		"--model", model,
 		"--output-format", "stream-json",
 		"--verbose",
@@ -1922,6 +2714,21 @@ func claudeArguments(
 		)
 	}
 	return arguments
+}
+
+func nativeMaximumTurns(definitions []providerToolDefinition) int {
+	if nativeAutomationDefinitions(definitions) {
+		return MaxAutomationTurns
+	}
+	return MaxProviderTurns
+}
+
+func nativeAutomationDefinitions(
+	definitions []providerToolDefinition,
+) bool {
+	return len(definitions) == 1 &&
+		(definitions[0].Name == "sworn_recovery_decide" ||
+			definitions[0].Name == "sworn_advisory_respond")
 }
 
 func codexArguments(
@@ -1992,6 +2799,76 @@ func nativeCLIArgumentDigest(
 		return ""
 	}
 	body, err := canonicalJSON(arguments)
+	if err != nil {
+		return ""
+	}
+	return Digest(body)
+}
+
+func nativeAutomationCLIArgumentDigest(
+	family ProfileFamily,
+	model string,
+	definitions []providerToolDefinition,
+) string {
+	arguments, err := nativeAgentArgumentsFor(
+		NativeAdapterConfig{Family: family},
+		model,
+		true,
+		nil,
+		definitions,
+	)
+	if err != nil {
+		return ""
+	}
+	body, err := canonicalJSON(arguments)
+	if err != nil {
+		return ""
+	}
+	return Digest(body)
+}
+
+func nativeAutomationAuthorityDigest(
+	family ProfileFamily,
+	model string,
+	stage nativeInvocationStage,
+	definitions []providerToolDefinition,
+) string {
+	if !nativeAutomationDefinitions(definitions) {
+		return ""
+	}
+	arguments := nativeAutomationCLIArgumentDigest(
+		family,
+		model,
+		definitions,
+	)
+	if arguments == "" {
+		return ""
+	}
+	body, err := canonicalJSON(struct {
+		Stage              nativeInvocationStage
+		Arguments          string
+		Tools              string
+		Home               string
+		Workspace          string
+		ProductMounted     bool
+		InputMounted       bool
+		ShellPresent       bool
+		SubmissionPresent  bool
+		BatonToolsPresent  bool
+		WorkspaceToolsSeen bool
+	}{
+		Stage:              stage,
+		Arguments:          arguments,
+		Tools:              nativeToolDefinitionsDigest(definitions),
+		Home:               "fresh_private",
+		Workspace:          "empty_read_only",
+		ProductMounted:     false,
+		InputMounted:       false,
+		ShellPresent:       false,
+		SubmissionPresent:  false,
+		BatonToolsPresent:  false,
+		WorkspaceToolsSeen: false,
+	})
 	if err != nil {
 		return ""
 	}
@@ -2111,7 +2988,7 @@ func (state *nativeEventState) accept(body []byte) error {
 				!emptyJSONArray(root["slash_commands"]) ||
 				!emptyJSONArray(root["skills"]) ||
 				!emptyJSONArray(root["plugins"]) ||
-				!exactClaudeTools(root["tools"], state.access) ||
+				!exactClaudeTools(root["tools"], state.definitions) ||
 				!exactClaudeMCP(root["mcp_servers"]) ||
 				!exactClaudeCapabilities(root["capabilities"]) ||
 				root["analytics_disabled"] != true ||
@@ -2244,13 +3121,16 @@ func exactClaudeCapabilities(value any) bool {
 	return len(expected) == 0
 }
 
-func exactClaudeTools(value any, access WorkspaceAccess) bool {
+func exactClaudeTools(
+	value any,
+	definitions []providerToolDefinition,
+) bool {
 	array, ok := value.([]any)
-	if !ok || len(array) != len(toolDefinitions(access)) {
+	if !ok || len(array) != len(definitions) {
 		return false
 	}
 	expected := make(map[string]struct{})
-	for _, definition := range toolDefinitions(access) {
+	for _, definition := range definitions {
 		expected["mcp__sworn__"+definition.Name] = struct{}{}
 	}
 	if len(array) != len(expected) {

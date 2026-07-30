@@ -23,6 +23,10 @@ type promptEnvelope struct {
 	Workspace      struct {
 		Access string `json:"access"`
 	} `json:"workspace"`
+	Recovery *struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	} `json:"recovery"`
 }
 
 func main() {
@@ -41,14 +45,24 @@ func main() {
 	}
 	resumeID, resume := explicitResume(family, os.Args[1:])
 	statePath := filepath.Join(os.Getenv("HOME"), ".native-session-id")
+	countPath := filepath.Join(os.Getenv("HOME"), ".native-resume-count")
 	if resume {
 		retained, readErr := os.ReadFile(statePath)
 		if readErr != nil || string(retained) != sessionID ||
 			resumeID != sessionID {
 			os.Exit(23)
 		}
-	} else if os.WriteFile(statePath, []byte(sessionID), 0o600) != nil {
-		os.Exit(24)
+		count, countErr := os.ReadFile(countPath)
+		if countErr != nil || len(count) != 1 ||
+			count[0] < '0' || count[0] >= '9' ||
+			os.WriteFile(countPath, []byte{count[0] + 1}, 0o600) != nil {
+			os.Exit(24)
+		}
+	} else {
+		if os.WriteFile(statePath, []byte(sessionID), 0o600) != nil ||
+			os.WriteFile(countPath, []byte("0"), 0o600) != nil {
+			os.Exit(24)
+		}
 	}
 	emitInit(family, prompt.Workspace.Access)
 	initialize := map[string]any{
@@ -89,6 +103,46 @@ func main() {
 		os.Exit(29)
 	}
 	time.Sleep(100 * time.Millisecond)
+	if strings.Contains(prompt.InvocationID, "prose-nudge-twice") ||
+		(strings.Contains(prompt.InvocationID, "prose-nudge") &&
+			prompt.Recovery == nil) {
+		emitProse(family)
+		return
+	}
+	if strings.Contains(prompt.InvocationID, "resume-prose") &&
+		prompt.Recovery != nil &&
+		prompt.Recovery.Kind != "nudge" {
+		emitProse(family)
+		return
+	}
+	if strings.Contains(prompt.InvocationID, "recoverable") &&
+		(prompt.Recovery == nil ||
+			(prompt.Recovery.Kind == "answer" &&
+				strings.Contains(
+					strings.ToLower(prompt.Recovery.Content),
+					"yield again",
+				))) {
+		status, response := rpc(
+			brokerURL,
+			token,
+			3,
+			"tools/call",
+			map[string]any{
+				"name": "sworn_yield",
+				"arguments": map[string]any{"yield": map[string]any{
+					"schema_version": "sworn.yield/v1",
+					"invocation_id":  prompt.InvocationID,
+					"kind":           "question",
+					"message":        "Provide the bounded fixture answer.",
+				}},
+			},
+		)
+		if status != http.StatusOK ||
+			!bytes.Contains(response, []byte(`"text":"accepted"`)) {
+			os.Exit(30)
+		}
+		select {}
+	}
 	submission := map[string]any{
 		"schema_version": "sworn.submission/v1",
 		"invocation_id":  prompt.InvocationID,
@@ -120,6 +174,14 @@ func main() {
 		os.Exit(28)
 	}
 	select {}
+}
+
+func emitProse(family string) {
+	if family == "codex" {
+		fmt.Println(`{"type":"item.completed","item":{"type":"agent_message","text":"I completed the work but forgot the terminal."}}`)
+		return
+	}
+	fmt.Println(`{"type":"result","subtype":"success","result":"I completed the work but forgot the terminal."}`)
 }
 
 func providerUnavailableFixture() bool {
@@ -187,7 +249,11 @@ func emitInit(family string, access string) {
 			"mcp__sworn__Edit",
 		)
 	}
-	tools = append(tools, "mcp__sworn__sworn_submit")
+	tools = append(
+		tools,
+		"mcp__sworn__sworn_yield",
+		"mcp__sworn__sworn_submit",
+	)
 	event := map[string]any{
 		"type": "system", "subtype": "init",
 		"session_id":     sessionID,

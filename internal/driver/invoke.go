@@ -39,17 +39,35 @@ type ContinuationDriver interface {
 
 var _ ContinuationDriver = Dispatcher{}
 
+// RecoverableTurnDriver resumes only the exact yielded worker responsibility.
+// A nil handle starts a fresh turn; a nil handle with input explicitly
+// rehydrates a lost or expired turn without granting submission authority.
+type RecoverableTurnDriver interface {
+	Driver
+	InvokeRecoverableTurn(
+		context.Context,
+		Invocation,
+		ContinuationBinding,
+		*Continuation,
+		*RecoverableTurnInput,
+	) (Observation, *Continuation, ContinuationResult, error)
+}
+
+var _ RecoverableTurnDriver = Dispatcher{}
+
 // Invoker is retained as the role-neutral dispatcher name used by early W2
 // callers; it does not imply a process-only adapter.
 type Invoker = Dispatcher
 
 type Invocation struct {
-	Request       Request
-	HostWorkspace string
-	Selected      SelectedProfile
-	Permission    SubmissionPermission
-	Inputs        []InputContent
-	FakeProfile   FakeProfile
+	Request          Request
+	HostWorkspace    string
+	Selected         SelectedProfile
+	Permission       SubmissionPermission
+	Inputs           []InputContent
+	FakeProfile      FakeProfile
+	RecoveryStepHook RecoveryStepHook
+	recoverableInput *RecoverableTurnInput
 }
 type Diagnostic struct {
 	Code        string `json:"code"`
@@ -72,6 +90,7 @@ type Observation struct {
 	Usage           UsageReceipt    `json:"usage"`
 	Diagnostic      Diagnostic      `json:"diagnostic"`
 	Handoff         *SealedHandoff  `json:"handoff"`
+	Yield           *Yield          `json:"yield,omitempty"`
 	Events          []TerminalEvent `json:"events"`
 }
 
@@ -135,11 +154,21 @@ func validateObservation(invocation Invocation, observation Observation) error {
 			return fail("INVALID_OBSERVATION")
 		}
 	}
-	if observation.Handoff == nil {
+	if observation.Handoff == nil && observation.Yield == nil {
 		return fail("MISSING_SUBMISSION")
+	}
+	if observation.Handoff != nil && observation.Yield != nil {
+		return fail("INVALID_OBSERVATION")
 	}
 	if observation.Diagnostic.Code != "none" {
 		return fail("INVALID_OBSERVATION")
+	}
+	if observation.Yield != nil {
+		if err := ValidateYield(*observation.Yield); err != nil ||
+			observation.Yield.InvocationID != invocation.Request.InvocationID {
+			return fail("INVALID_YIELD")
+		}
+		return nil
 	}
 	handoff := observation.Handoff
 	if len(handoff.SubmissionBytes) == 0 ||
@@ -234,7 +263,9 @@ func validTerminalEventKind(kind string) bool {
 		"process_group_quiescent",
 		"workspace_postcheck",
 		"input_projection_removed",
-		"producers_joined":
+		"producers_joined",
+		"yield_accepted",
+		"engine_stop_after_yield":
 		return true
 	default:
 		const fatalPrefix = "fatal:"
@@ -339,6 +370,9 @@ func validAdapterErrorCode(code string) bool {
 		"RESULT_BINDING_MISMATCH",
 		"INVALID_RESULT",
 		"INVALID_SUBMISSION",
+		"INVALID_YIELD",
+		"INVALID_YIELD_KIND",
+		"INVALID_YIELD_MESSAGE",
 		"INVALID_IDENTITY",
 		"INVALID_RESPONSIBILITY",
 		"INVALID_SUMMARY",
@@ -352,7 +386,9 @@ func validAdapterErrorCode(code string) bool {
 		"SUBMISSION_REJECTED",
 		"SUBMISSION_CONFLICT",
 		"SUBMISSION_PROTOCOL_FAILED",
+		"SUBMISSION_CORRECTIONS_EXHAUSTED",
 		"SUBMISSION_SHAPE_MISMATCH",
+		"YIELD_BINDING_MISMATCH",
 		"PROCESS_FAILED",
 		"INVOCATION_CANCELLED",
 		"INVOCATION_TIMEOUT",
@@ -391,7 +427,23 @@ func validAdapterErrorCode(code string) bool {
 		"AWS_NOT_CERTIFIED",
 		"AWS_CREDENTIAL_EXPORT_INVALID",
 		"AWS_RESOLUTION_FAILED",
-		"AWS_SIGNING_FAILED":
+		"AWS_SIGNING_FAILED",
+		"INVALID_RECOVERY_INVOCATION",
+		"INVALID_RECOVERY_DECISION",
+		"INVALID_ADVISORY_INVOCATION",
+		"INVALID_ADVISORY_RESULT",
+		"INVALID_AUTOMATION_INVOCATION",
+		"INVALID_AUTOMATION_BINDING",
+		"INVALID_AUTOMATION_FACTS",
+		"INVALID_AUTOMATION_MESSAGE",
+		"INVALID_AUTOMATION_VALUE",
+		"INVALID_AUTOMATION_OBSERVATION",
+		"AUTOMATION_BINDING_MISMATCH",
+		"AUTOMATION_PROTOCOL_FAILED",
+		"AUTOMATION_CORRECTIONS_EXHAUSTED",
+		"AUTOMATION_UNSUPPORTED",
+		"RECOVERY_STEP_REFUSED",
+		"INVALID_RECOVERABLE_INPUT":
 		return true
 	default:
 		return false

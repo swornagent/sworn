@@ -89,7 +89,9 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		},
 		facts: []journal.EvaluationFact{
 			{Kind: journal.EvaluationEvent, EventOffset: 1,
-				EventKind: "dispatch_completed", FinishedAt: finished},
+				EventKind: "dispatch_completed.continuation." +
+					"provider_cursor.reuse",
+				FinishedAt: finished},
 			{Kind: journal.EvaluationEvent, EventOffset: 2,
 				EventKind: "dispatch_uncertain", FinishedAt: finished},
 			{Kind: journal.EvaluationEvent, EventOffset: 3,
@@ -160,6 +162,17 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Recovery != (RecoverySummary{
 			Uncertain: 1, Reconciled: 1, Recovered: 1,
 		}) ||
+		!reflect.DeepEqual(
+			record.Continuation,
+			ContinuationSummary{
+				Reused: 1,
+				Counts: []ContinuationCount{{
+					Mode:    "provider_cursor",
+					Outcome: "reuse",
+					Count:   1,
+				}},
+			},
+		) ||
 		record.Usage.InputTokens == nil || *record.Usage.InputTokens != 0 ||
 		record.Usage.OutputTokens == nil || *record.Usage.OutputTokens != 0 ||
 		len(record.Usage.Costs) != 1 ||
@@ -266,6 +279,53 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 		if !contains(body, expected) {
 			t.Fatalf("body missing %s: %s", expected, body)
 		}
+	}
+}
+
+func TestEvaluatorDoesNotDoubleCountTurnRecoveryAsGenericRecovery(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    started.Add(time.Second),
+		},
+		facts: []journal.EvaluationFact{{
+			Kind:        journal.EvaluationEvent,
+			EventOffset: 1,
+			EventKind:   "turn_recovery.outcome.recovered",
+			FinishedAt:  started.Add(time.Second),
+		}},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(
+		context.Background(),
+		"run-1",
+	)
+	if err != nil || !changed ||
+		record.TurnRecovery.Recovered != 1 ||
+		record.Recovery.Recovered != 0 {
+		t.Fatalf(
+			"turn recovery classification changed=%t record=%#v error=%v",
+			changed,
+			record,
+			err,
+		)
 	}
 }
 

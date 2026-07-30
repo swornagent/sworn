@@ -127,7 +127,10 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 		Eval: []EvalDraft{{
 			SourceEventOffset: firstOffset,
 			ID:                "eval-1",
-			Body:              []byte(`{"outcome":"progress"}`),
+			Body: []byte(
+				`{"schema_version":"sworn.eval/v2",` +
+					`"outcome":"progress"}`,
+			),
 		}},
 		Notifications: []NotificationDraft{{
 			DestinationID:     "webhook-primary",
@@ -147,7 +150,10 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 	}
 	conflict := replay
 	conflict.Eval = append([]EvalDraft(nil), conflict.Eval...)
-	conflict.Eval[0].Body = []byte(`{"outcome":"different"}`)
+	conflict.Eval[0].Body = []byte(
+		`{"schema_version":"sworn.eval/v2",` +
+			`"outcome":"different"}`,
+	)
 	if err := store.AdvanceObserver(ctx, conflict); !IsCode(err, "REPLAY_CONFLICT") {
 		t.Fatalf("conflicting replay = %v", err)
 	}
@@ -197,7 +203,10 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 		Eval: []EvalDraft{{
 			SourceEventOffset: thirdOffset + 100,
 			ID:                "eval-missing",
-			Body:              []byte(`{"outcome":"missing"}`),
+			Body: []byte(
+				`{"schema_version":"sworn.eval/v2",` +
+					`"outcome":"missing"}`,
+			),
 		}},
 		At: now.Add(5 * time.Second),
 	}
@@ -248,6 +257,119 @@ func TestObserverAdvanceIsAtomicReplaySafeAndOrdered(t *testing.T) {
 	if err != nil || len(notifications) != 2 ||
 		notifications[1].Sequence != 2 {
 		t.Fatalf("ordered notifications = %#v, %v", notifications, err)
+	}
+}
+
+func TestEvalRecordsWriteV2AndReplayExplicitV1(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	for index := 0; index < 2; index++ {
+		if err := store.AppendEvent(
+			ctx,
+			run.ID,
+			"runtime_progress",
+			[]byte{byte('1' + index)},
+			now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advance := ObserverAdvance{
+		RunID:          run.ID,
+		Observer:       "eval-schema-compatibility",
+		ExpectedOffset: 0,
+		ThroughOffset:  snapshot.Events[1].Offset,
+		Eval: []EvalDraft{
+			{
+				SourceEventOffset: snapshot.Events[0].Offset,
+				ID:                "legacy",
+				Body: []byte(
+					`{"schema_version":"sworn.eval/v1",` +
+						`"id":"legacy","sworn_version":"0.3.0",` +
+						`"run_id":"` + run.ID + `",` +
+						`"release":"legacy-release",` +
+						`"run_state":"completed",` +
+						`"outcome":"passed"}`,
+				),
+			},
+			{
+				SourceEventOffset: snapshot.Events[1].Offset,
+				ID:                "current",
+				Body: []byte(
+					`{"schema_version":"sworn.eval/v2",` +
+						`"outcome":"current"}`,
+				),
+			},
+		},
+		At: now.Add(3 * time.Second),
+	}
+	if err := store.AdvanceObserver(ctx, advance); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		advance.Observer,
+		0,
+		MaxObserverItems,
+	)
+	if err != nil || len(records) != 2 ||
+		records[0].SchemaVersion != EvalSchemaVersionV1 ||
+		records[1].SchemaVersion != EvalSchemaVersionV2 {
+		t.Fatalf("records = %#v, %v", records, err)
+	}
+	replay := advance
+	replay.At = replay.At.Add(time.Hour)
+	if err := store.AdvanceObserver(ctx, replay); err != nil {
+		t.Fatalf("mixed-version replay = %v", err)
+	}
+}
+
+func TestEvalRecordsRejectMalformedOrUnversionedBodies(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		"runtime_progress",
+		[]byte("1"),
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range [][]byte{
+		[]byte(`{"outcome":"legacy"}`),
+		[]byte(`{"schema_version":`),
+	} {
+		err := store.AdvanceObserver(ctx, ObserverAdvance{
+			RunID:          run.ID,
+			Observer:       "eval-schema-rejection",
+			ExpectedOffset: 0,
+			ThroughOffset:  snapshot.Events[0].Offset,
+			Eval: []EvalDraft{{
+				SourceEventOffset: snapshot.Events[0].Offset,
+				ID:                "invalid",
+				Body:              body,
+			}},
+			At: now.Add(time.Second),
+		})
+		if !IsCode(err, "INVALID_EVAL_RECORD") {
+			t.Fatalf("body %q = %v", body, err)
+		}
 	}
 }
 
@@ -582,12 +704,18 @@ func TestEvalPagingIsObserverScopedAtSharedSourceOffsets(t *testing.T) {
 				{
 					SourceEventOffset: snapshot.Events[1].Offset,
 					ID:                observer + "-2",
-					Body:              []byte(`{"kind":"outcome"}`),
+					Body: []byte(
+						`{"schema_version":"sworn.eval/v2",` +
+							`"kind":"outcome"}`,
+					),
 				},
 				{
 					SourceEventOffset: snapshot.Events[0].Offset,
 					ID:                observer + "-1",
-					Body:              []byte(`{"kind":"attempt"}`),
+					Body: []byte(
+						`{"schema_version":"sworn.eval/v2",` +
+							`"kind":"attempt"}`,
+					),
 				},
 			},
 			At: now.Add(3 * time.Second),

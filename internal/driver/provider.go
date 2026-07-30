@@ -24,12 +24,14 @@ type providerRequest struct {
 type providerTurn struct {
 	Calls []providerToolCall
 	Usage *Usage
+	Prose bool
 }
 
 type providerConversation interface {
 	request() (providerRequest, error)
 	accept([]byte) (providerTurn, error)
 	appendResults([]providerToolResult) error
+	appendInstruction([]byte) error
 	resume([]byte, []providerToolDefinition) error
 	close()
 }
@@ -260,11 +262,42 @@ func (adapter *loopAdapter) invokeContinuation(
 	return observation, state, resultErr
 }
 
+func (adapter *loopAdapter) invokeRecoverableContinuation(
+	ctx context.Context,
+	invocation Invocation,
+) (Observation, continuationState, error) {
+	return adapter.invokeContinuation(ctx, invocation)
+}
+
 func (adapter *loopAdapter) resumeContinuation(
 	ctx context.Context,
 	invocation Invocation,
 	prior continuationState,
 ) (Observation, error) {
+	observation, _, err := adapter.resumeProviderContinuation(
+		ctx, invocation, prior, false, false,
+	)
+	return observation, err
+}
+
+func (adapter *loopAdapter) resumeRecoverableContinuation(
+	ctx context.Context,
+	invocation Invocation,
+	prior continuationState,
+	retainDesignTerminal bool,
+) (Observation, continuationState, error) {
+	return adapter.resumeProviderContinuation(
+		ctx, invocation, prior, true, retainDesignTerminal,
+	)
+}
+
+func (adapter *loopAdapter) resumeProviderContinuation(
+	ctx context.Context,
+	invocation Invocation,
+	prior continuationState,
+	retainYield bool,
+	retainDesignTerminal bool,
+) (Observation, continuationState, error) {
 	started := time.Now()
 	state, ok := prior.(*apiContinuationState)
 	if adapter == nil || !ok || state == nil || state.closed ||
@@ -274,11 +307,11 @@ func (adapter *loopAdapter) resumeContinuation(
 		state.bytes < 1 || state.bytes > MaxProviderRequestBytes ||
 		invocation.Selected.Adapter != adapter.identity ||
 		invocation.Selected.Profile.Network != NetworkRequired {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	prompt, err := modelPrompt(invocation)
 	if err != nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	err = state.conversation.resume(
 		prompt,
@@ -286,29 +319,42 @@ func (adapter *loopAdapter) resumeContinuation(
 	)
 	clearBytes(prompt)
 	if err != nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	request, err := state.conversation.request()
 	if err != nil || len(request.Body) < 1 ||
 		len(request.Body) > MaxProviderRequestBytes {
 		clearBytes(request.Body)
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	defer clearBytes(request.Body)
-	observation, _, resultErr := adapter.runConversation(
+	observation, retained, resultErr := adapter.runConversation(
 		ctx,
 		started,
 		invocation,
 		state.conversation,
 		&request,
-		false,
+		retainYield,
 	)
 	// CONTINUATION_INVALID is reserved for rejection before provider or tool
 	// effects so the dispatcher can safely request one fresh rehydration.
 	if IsCode(resultErr, "CONTINUATION_INVALID") {
 		resultErr = fail("PROTOCOL_FAILURE")
 	}
-	return observation, resultErr
+	if retained != nil {
+		state.conversation = nil
+		state.dialect = ""
+		state.mode = ""
+		state.bytes = 0
+		state.closed = true
+	}
+	if retained != nil &&
+		(observation.Yield == nil || !retainYield) &&
+		(observation.Handoff == nil || !retainDesignTerminal) {
+		_ = closeContinuationState(retained)
+		retained = nil
+	}
+	return observation, retained, resultErr
 }
 
 func (adapter *loopAdapter) runConversation(
@@ -326,6 +372,7 @@ func (adapter *loopAdapter) runConversation(
 	defer func() {
 		if closeErr := session.Close(); closeErr != nil {
 			observation.Handoff = nil
+			observation.Yield = nil
 			if state != nil {
 				_ = closeContinuationState(state)
 				state = nil
@@ -336,6 +383,7 @@ func (adapter *loopAdapter) runConversation(
 	var total Usage
 	usageAvailable := false
 	seenIDs := make(map[string]struct{})
+	proseNudges := 0
 	for turn := 0; turn < MaxProviderTurns; turn++ {
 		if err := ctx.Err(); err != nil {
 			return Observation{}, nil, err
@@ -376,18 +424,35 @@ func (adapter *loopAdapter) runConversation(
 			usageAvailable = true
 		}
 		if len(providerTurn.Calls) == 0 {
-			return Observation{}, nil, fail("MISSING_SUBMISSION")
+			if !providerTurn.Prose || proseNudges >= 1 {
+				return Observation{}, nil, fail("MISSING_SUBMISSION")
+			}
+			if err := reserveRecoveryStep(
+				ctx,
+				invocation.RecoveryStepHook,
+				RecoveryStepProseNudge,
+			); err != nil {
+				return Observation{}, nil, err
+			}
+			if err := conversation.appendInstruction(
+				[]byte(providerProseNudge),
+			); err != nil {
+				return Observation{}, nil, err
+			}
+			proseNudges++
+			continue
 		}
 		if len(providerTurn.Calls) > MaxToolCalls {
 			return Observation{}, nil, fail("RESOURCE_LIMIT")
 		}
-		submitCalls := 0
+		terminalCalls := 0
 		for _, call := range providerTurn.Calls {
-			if call.Name == "sworn_submit" {
-				submitCalls++
+			if call.Name == "sworn_submit" || call.Name == "sworn_yield" {
+				terminalCalls++
 			}
 		}
-		if submitCalls > 0 && (submitCalls != 1 || len(providerTurn.Calls) != 1) {
+		if terminalCalls > 0 &&
+			(terminalCalls != 1 || len(providerTurn.Calls) != 1) {
 			return Observation{}, nil, fail("SUBMISSION_PROTOCOL_FAILED")
 		}
 		results := make([]providerToolResult, 0, len(providerTurn.Calls))
@@ -397,9 +462,9 @@ func (adapter *loopAdapter) runConversation(
 			}
 			results = append(results, session.execute(ctx, call))
 		}
-		if submitted, submitErr := session.submitted(); submitted || submitErr != nil {
-			if submitErr != nil {
-				return Observation{}, nil, submitErr
+		if terminated, terminalErr := session.terminated(); terminated {
+			if terminalErr != nil {
+				return Observation{}, nil, terminalErr
 			}
 			if retain {
 				if err := conversation.appendResults(results); err != nil {
@@ -416,11 +481,10 @@ func (adapter *loopAdapter) runConversation(
 			if err != nil {
 				return Observation{}, nil, err
 			}
-			observation := completedToolObservation(
-				started,
-				usage,
-				session.handoff(),
-			)
+			observation := completedToolObservation(started, usage, session.handoff())
+			if yielded := session.yielded(); yielded != nil {
+				observation = completedYieldObservation(started, usage, yielded)
+			}
 			if !retain {
 				return observation, nil, nil
 			}
@@ -447,6 +511,8 @@ func (adapter *loopAdapter) runConversation(
 	return Observation{}, nil, fail("RESOURCE_LIMIT")
 }
 
+const providerProseNudge = "Finish this turn now by calling exactly one advertised Sworn terminal tool. Do not answer in prose."
+
 func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) error {
 	if validateText(call.ID, MaxCorrelationIDBytes, false) != nil ||
 		!providerKeyPattern.MatchString(call.Name) ||
@@ -458,7 +524,8 @@ func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) e
 	}
 	seen[call.ID] = struct{}{}
 	switch call.Name {
-	case "Bash", "Read", "Write", "Edit", "Glob", "Grep", "sworn_submit":
+	case "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+		"sworn_submit", "sworn_yield":
 		return nil
 	default:
 		return fail("TOOL_NOT_ALLOWED")
@@ -500,6 +567,40 @@ func completedToolObservation(
 	}
 }
 
+func completedYieldObservation(
+	started time.Time,
+	usage UsageReceipt,
+	yield *Yield,
+) Observation {
+	kinds := []string{
+		"result_completed",
+		"yield_accepted",
+		"engine_stop_after_yield",
+		"process_waited",
+		"process_group_quiescent",
+		"workspace_postcheck",
+		"input_projection_removed",
+		"producers_joined",
+		"completed_without_handoff",
+	}
+	events := make([]TerminalEvent, len(kinds))
+	for index, kind := range kinds {
+		events[index] = TerminalEvent{Sequence: uint64(index + 1), Kind: kind}
+	}
+	duration := time.Since(started).Milliseconds()
+	if duration < 0 {
+		duration = 0
+	}
+	return Observation{
+		TransportStatus: Completed,
+		DurationMillis:  duration,
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: "none"},
+		Yield:           yield,
+		Events:          events,
+	}
+}
+
 func modelPrompt(invocation Invocation) ([]byte, error) {
 	descriptor, err := invocation.Permission.Describe()
 	if err != nil {
@@ -515,8 +616,12 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Responsibility Responsibility `json:"responsibility"`
 		ResultFields   []string       `json:"result_fields"`
 		Instruction    string         `json:"instruction"`
+		Recovery       *struct {
+			Kind    RecoverableInputKind `json:"kind"`
+			Content string               `json:"content"`
+		} `json:"recovery,omitempty"`
 	}
-	body, err := json.Marshal(promptEnvelope{
+	envelope := promptEnvelope{
 		SchemaVersion:  "sworn.model-prompt/v1",
 		InvocationID:   invocation.Request.InvocationID,
 		Role:           invocation.Request.Role,
@@ -525,8 +630,26 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Inputs:         invocation.Request.Inputs,
 		Responsibility: descriptor.Responsibility,
 		ResultFields:   submissionResultFields(descriptor.Responsibility),
-		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Copy this envelope's exact invocation_id and responsibility into sworn_submit, call it exactly once, and then stop.",
-	})
+		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
+	}
+	if invocation.recoverableInput != nil {
+		if err := ValidateRecoverableTurnInput(
+			*invocation.recoverableInput,
+		); err != nil {
+			return nil, err
+		}
+		content := invocation.recoverableInput.Answer
+		if invocation.recoverableInput.Kind == RecoverableInputNudge {
+			content = recoverableTurnNudge
+		}
+		envelope.Recovery = &struct {
+			Kind    RecoverableInputKind `json:"kind"`
+			Content string               `json:"content"`
+		}{
+			Kind: invocation.recoverableInput.Kind, Content: content,
+		}
+	}
+	body, err := json.Marshal(envelope)
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		return nil, fail("RESOURCE_LIMIT")
 	}

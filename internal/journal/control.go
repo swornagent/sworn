@@ -446,22 +446,95 @@ func (s *Store) ReleaseOwner(ctx context.Context, lease OwnerLease, now time.Tim
 		if err := checkOwner(ctx, conn, lease, now); err != nil {
 			return err
 		}
-		at, _ := canonicalTime(now)
-		if _, err := conn.ExecContext(ctx,
-			`UPDATE claims SET completed_at=?,outcome='released'
-			 WHERE run_id=? AND effect_id='runtime.owner' AND token=?`,
-			at, lease.RunID, lease.Token); err != nil {
-			return dbError(err)
-		}
-		if _, err := conn.ExecContext(ctx,
-			`UPDATE effects SET state='pending',current_claim=NULL,updated_at=?
-			 WHERE run_id=? AND effect_id='runtime.owner' AND current_claim=?`,
-			at, lease.RunID, lease.Token); err != nil {
-			return dbError(err)
-		}
-		return appendEvent(ctx, conn, lease.RunID, "owner_released",
-			[]byte(strconv.FormatInt(lease.Generation, 10)), at)
+		return releaseOwnerOnConnection(ctx, conn, lease, now)
 	})
+}
+
+// ReleaseOwnerIfIdle closes the final answer-vs-owner race. The answered
+// attention and owner release are checked under the same write transaction:
+// either the current owner remains responsible for the wake, or a later
+// answer observes no owner and can acquire it.
+func (s *Store) ReleaseOwnerIfIdle(
+	ctx context.Context,
+	lease OwnerLease,
+	now time.Time,
+) (bool, error) {
+	released := false
+	err := s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := checkOwner(ctx, conn, lease, now); err != nil {
+			return err
+		}
+		control, err := projectionOnConnection(ctx, conn, lease.RunID)
+		if err != nil {
+			return err
+		}
+		if control.Desired != "running" {
+			if err := releaseOwnerOnConnection(
+				ctx,
+				conn,
+				lease,
+				now,
+			); err != nil {
+				return err
+			}
+			released = true
+			return nil
+		}
+		attentions, err := attentionProjectionsOnConnection(
+			ctx,
+			conn,
+			lease.RunID,
+			true,
+		)
+		if err != nil {
+			return err
+		}
+		for _, attention := range attentions {
+			if attention.State == AttentionAnswered {
+				return nil
+			}
+		}
+		if err := releaseOwnerOnConnection(
+			ctx,
+			conn,
+			lease,
+			now,
+		); err != nil {
+			return err
+		}
+		released = true
+		return nil
+	})
+	return released, err
+}
+
+func releaseOwnerOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	lease OwnerLease,
+	now time.Time,
+) error {
+	at, _ := canonicalTime(now)
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE claims SET completed_at=?,outcome='released'
+		 WHERE run_id=? AND effect_id='runtime.owner' AND token=?`,
+		at, lease.RunID, lease.Token); err != nil {
+		return dbError(err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE effects SET state='pending',current_claim=NULL,updated_at=?
+		 WHERE run_id=? AND effect_id='runtime.owner' AND current_claim=?`,
+		at, lease.RunID, lease.Token); err != nil {
+		return dbError(err)
+	}
+	return appendEvent(
+		ctx,
+		conn,
+		lease.RunID,
+		"owner_released",
+		[]byte(strconv.FormatInt(lease.Generation, 10)),
+		at,
+	)
 }
 
 func (s *Store) EnsureAttempt(ctx context.Context, command Command, effect Effect, attempt EffectAttempt) error {

@@ -170,7 +170,7 @@ func conflictParityManifest(
 		return leftKey < rightKey
 	})
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersion,
+		SchemaVersion:     swornruntime.ManifestVersionV2,
 		RunID:             runID,
 		Repository:        repository,
 		Release:           "parity-conflict-release",

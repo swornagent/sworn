@@ -48,6 +48,22 @@ assembly verification, and requires the final target tree to equal the passed
 assembly tree. Credential-backed provider certification is an additional
 explicit gate and is never replaced by deterministic local servers.
 
+Implementer continuation is a process-local optimization across independent
+Captain review. Exact authority drift or process restart discards it and
+rehydrates fresh; Planner, Captain, and every Verifier remain separate
+invocations. Turn recovery uses an explicit automation profile with bounded
+actions and budgets. It cannot synthesize Baton authority, and unresolved
+judgment becomes durable human attention while unrelated tracks may continue.
+
+## Compatibility boundary
+
+- Runtime manifests admit canonical v3 with explicit recovery automation and
+  legacy v2 without automation.
+- Cockpit snapshots and HTTP routes are v2; there is no HTTP v1 alias.
+- New evaluation records are `sworn.eval/v2`.
+- The SQLite journal schema is v2.
+- Webhook events remain `sworn.webhook-event/v1`.
+
 ## Release checks and measurements
 
 The candidate is frozen only after fresh product copies pass full tests, the

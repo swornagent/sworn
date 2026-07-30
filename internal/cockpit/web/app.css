@@ -59,7 +59,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -393,7 +394,8 @@ main {
 .node[data-state="failed"]::before,
 .node[data-state="blocked"]::before,
 .node[data-state="uncertain"]::before,
-.node[data-state="parked"]::before {
+.node[data-state="parked"]::before,
+.node[data-runtime-state="parked"]::before {
   background: var(--fault);
 }
 
@@ -529,9 +531,54 @@ main {
 }
 
 .evidence,
-.outbox {
+.outbox,
+.attention-panel {
   padding: 1.25rem 0;
   border-bottom: 2px solid var(--carbon);
+}
+
+.attention-panel ol {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-panel li {
+  padding: 0.9rem;
+  background: var(--paper);
+  border: 2px solid var(--baton);
+}
+
+.attention-question {
+  max-width: 60rem;
+  white-space: pre-wrap;
+}
+
+.attention-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.attention-form label,
+.attention-form textarea {
+  display: block;
+  width: 100%;
+}
+
+.attention-form textarea {
+  margin-top: 0.3rem;
+  padding: 0.65rem;
+  color: var(--carbon);
+  background: var(--record);
+  border: 1px solid var(--carbon);
+  resize: vertical;
+}
+
+.attention-form .control {
+  justify-self: start;
 }
 
 .evidence ol,

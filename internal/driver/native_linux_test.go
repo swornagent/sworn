@@ -238,6 +238,9 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 				configFiles,
 				nil,
 				nil,
+				toolDefinitions(
+					invocation.Request.Workspace.Access,
+				),
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -311,6 +314,67 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 						mcpBody,
 					)
 				}
+			}
+			pair, err := nativeAutomationCertificationInvocations(
+				invocation.Selected,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, automationTools, err := nativeAutomationSurface(
+				pair.Recovery,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			automationLaunch, err := nativeAutomationLaunchInvocation(
+				pair.Recovery,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			automationArguments, automationEnvironment, _, err :=
+				nativeCommand(
+					config,
+					automationLaunch,
+					credential,
+					closure,
+					configFiles,
+					nil,
+					nil,
+					automationTools,
+				)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer clearEnvironment(automationEnvironment)
+			if !containsArgumentSequence(
+				automationArguments,
+				[]string{"--remount-ro", GuestWorkspacePath},
+			) ||
+				nativeToolDefinitionsDigest(automationTools) ==
+					nativeToolSurfaceDigest(ReadOnly) ||
+				nativeToolDefinitionsDigest(automationTools) ==
+					nativeToolSurfaceDigest(ReadWrite) {
+				t.Fatalf(
+					"automation containment = args %q tools %#v",
+					automationArguments,
+					automationTools,
+				)
+			}
+			if family == ProfileClaude &&
+				!containsArgumentSequence(
+					automationArguments,
+					claudeArgumentsWithTools(
+						invocation.Selected.Model,
+						automationTools,
+						nil,
+					),
+				) {
+				t.Fatalf(
+					"Claude automation argv = %q",
+					automationArguments,
+				)
 			}
 			clearBytes(mcpBody)
 			clearBytes(catalogBody)
@@ -474,7 +538,7 @@ func TestCodexFirstProviderRequestRejectsToolSurfaceMutation(t *testing.T) {
 			body,
 			ProfileCodex,
 			model,
-			ReadWrite,
+			toolDefinitions(ReadWrite),
 		)
 		return err
 	}
@@ -626,7 +690,7 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 		}
 		state := &nativeEventState{
 			family: ProfileClaude, model: "exact-native-model",
-			access: ReadWrite, broker: broker,
+			definitions: toolDefinitions(ReadWrite), broker: broker,
 		}
 		body, _ := json.Marshal(event)
 		capability := broker.capability()
@@ -652,7 +716,7 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 			ambient[index] = name
 		}
 		ambient = append(ambient, "StructuredOutput")
-		if exactClaudeTools(ambient, ReadWrite) {
+		if exactClaudeTools(ambient, toolDefinitions(ReadWrite)) {
 			t.Fatal("competing StructuredOutput tool was accepted")
 		}
 	})
@@ -671,7 +735,7 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 		defer broker.Close()
 		state := &nativeEventState{
 			family: ProfileCodex, model: "exact-native-model",
-			access: ReadWrite, broker: broker,
+			definitions: toolDefinitions(ReadWrite), broker: broker,
 		}
 		if err := state.accept([]byte(
 			`{"type":"thread.started","thread_id":"thread-1"}`,
@@ -765,7 +829,12 @@ func nativeSurfaceCertificateFixture(
 			ReadOnly,
 			nativeInvocationStageContinuationStart,
 		),
-		Resume: stage(ReadWrite, nativeInvocationStageResume),
+		ContinuationStartRW: stage(
+			ReadWrite,
+			nativeInvocationStageContinuationStart,
+		),
+		ResumeReadOnly: stage(ReadOnly, nativeInvocationStageResume),
+		Resume:         stage(ReadWrite, nativeInvocationStageResume),
 	}
 }
 
@@ -837,6 +906,44 @@ func nativeSmokeInvocationsFixture(
 			false,
 		),
 	}
+}
+
+func nativeSameDutyInvocationFixture(
+	t *testing.T,
+	base Invocation,
+	invocationID string,
+) Invocation {
+	t.Helper()
+	descriptor, err := base.Permission.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRequest(
+		invocationID,
+		base.Request.Role,
+		base.Selected.Profile.Key,
+		base.Selected.Model,
+		base.Request.Workspace,
+		base.Request.Inputs,
+		base.Request.FreshContext,
+		base.Request.Limits,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := NewSubmissionPermission(
+		request,
+		base.Selected,
+		descriptor.Containment,
+		descriptor.Responsibility,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := base
+	result.Request = request
+	result.Permission = permission
+	return result
 }
 
 func completeBrokerHandshake(
@@ -1029,6 +1136,95 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 				t.Fatal("consumed native session root still exists")
 			}
 
+			promotionStart := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-recoverable-promote-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				promotionStart,
+				binding,
+				nil,
+			)
+			if err != nil || observation.Yield == nil || handle == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"promotion start = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			promotionBinding := binding
+			promotionBinding.ToolContractDigest =
+				Digest([]byte("native-promoted-design-contract"))
+			promotionInput := &RecoverableTurnInput{
+				SchemaVersion: RecoverableTurnInputSchemaVersion,
+				Kind:          RecoverableInputAnswer,
+				Answer:        "Use the exact admitted design evidence.",
+				TargetBinding: &promotionBinding,
+			}
+			observation, next, result, err =
+				(Dispatcher{}).InvokeRecoverableTurn(
+					context.Background(),
+					promotionStart,
+					binding,
+					handle,
+					promotionInput,
+				)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || next == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"native design promotion = observation %#v, next %p, result %#v, error %v",
+					observation,
+					next,
+					result,
+					err,
+				)
+			}
+			promotedCell := continuationCellFor(next)
+			promotedCell.mu.Lock()
+			promotedState, ok :=
+				promotedCell.state.(*nativeContinuationState)
+			promotedCell.mu.Unlock()
+			if !ok {
+				t.Fatal("promotion did not retain native state")
+			}
+			promotedState.mu.Lock()
+			promotedRoot := promotedState.root
+			promotedState.mu.Unlock()
+			promotionResume := nativeSameDutyInvocationFixture(
+				t,
+				pair.Resume,
+				"native-promoted-implementation-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				promotionResume,
+				promotionBinding,
+				next,
+			)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || handle != nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusResumed {
+				t.Fatalf(
+					"promoted native resume = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			if _, err := os.Lstat(promotedRoot); !os.IsNotExist(err) {
+				t.Fatal("promoted native session root still exists")
+			}
+
 			plain, err := (Dispatcher{}).Invoke(
 				context.Background(),
 				pair.FreshReadOnly,
@@ -1081,6 +1277,276 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 			}
 			if _, err := os.Lstat(failedRoot); !os.IsNotExist(err) {
 				t.Fatal("failed native session root still exists")
+			}
+
+			reservations := 0
+			prose := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-prose-nudge-"+string(family),
+			)
+			prose.RecoveryStepHook = func(
+				_ context.Context,
+				kind RecoveryStepKind,
+			) error {
+				if kind != RecoveryStepProseNudge {
+					t.Fatalf("native recovery kind = %s", kind)
+				}
+				reservations++
+				return nil
+			}
+			observation, next, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				prose,
+				binding,
+				nil,
+			)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || next == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended ||
+				reservations != 1 {
+				t.Fatalf(
+					"native prose nudge = observation %#v, next %p, result %#v, reservations %d, error %v",
+					observation,
+					next,
+					result,
+					reservations,
+					err,
+				)
+			}
+			if err := next.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			reservations = 0
+			twice := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-prose-nudge-twice-"+string(family),
+			)
+			twice.RecoveryStepHook = prose.RecoveryStepHook
+			observation, next, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				twice,
+				binding,
+				nil,
+			)
+			if !IsCode(err, "MISSING_SUBMISSION") ||
+				observation.Diagnostic.Code != "adapter_failed" ||
+				next != nil ||
+				result.Status != ContinuationStatusCompleted ||
+				reservations != 1 {
+				t.Fatalf(
+					"second native prose = observation %#v, next %p, result %#v, reservations %d, error %v",
+					observation,
+					next,
+					result,
+					reservations,
+					err,
+				)
+			}
+
+			start := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-recoverable-start-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).
+				InvokeRecoverableTurn(
+					context.Background(),
+					start,
+					binding,
+					nil,
+					nil,
+				)
+			if err != nil || observation.Yield == nil ||
+				observation.Handoff != nil || handle == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"recoverable start = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			firstCell := continuationCellFor(handle)
+			firstCell.mu.Lock()
+			firstState, ok := firstCell.state.(*nativeContinuationState)
+			firstCell.mu.Unlock()
+			if !ok {
+				t.Fatal("recoverable start did not retain native state")
+			}
+			firstState.mu.Lock()
+			recoverableRoot := firstState.root
+			firstState.mu.Unlock()
+
+			yieldAgain := RecoverableTurnInput{
+				SchemaVersion: RecoverableTurnInputSchemaVersion,
+				Kind:          RecoverableInputAnswer,
+				Answer:        "Please yield again.",
+			}
+			resumeYield := nativeSameDutyInvocationFixture(
+				t,
+				start,
+				"native-recoverable-resume-yield-"+string(family),
+			)
+			observation, next, result, err = (Dispatcher{}).
+				InvokeRecoverableTurn(
+					context.Background(),
+					resumeYield,
+					binding,
+					handle,
+					&yieldAgain,
+				)
+			if err != nil || observation.Yield == nil || next == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"recoverable yielded resume = observation %#v, next %p, result %#v, error %v",
+					observation,
+					next,
+					result,
+					err,
+				)
+			}
+			nextCell := continuationCellFor(next)
+			nextCell.mu.Lock()
+			nextState, ok := nextCell.state.(*nativeContinuationState)
+			nextCell.mu.Unlock()
+			if !ok {
+				t.Fatal("yielded resume did not transfer native state")
+			}
+			nextState.mu.Lock()
+			nextRoot := nextState.root
+			nextState.mu.Unlock()
+			if nextRoot != recoverableRoot {
+				t.Fatalf(
+					"native session root changed: %q -> %q",
+					recoverableRoot,
+					nextRoot,
+				)
+			}
+
+			complete := RecoverableTurnInput{
+				SchemaVersion: RecoverableTurnInputSchemaVersion,
+				Kind:          RecoverableInputAnswer,
+				Answer:        "Complete the fixture now.",
+			}
+			resumeComplete := nativeSameDutyInvocationFixture(
+				t,
+				start,
+				"native-recoverable-resume-complete-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).
+				InvokeRecoverableTurn(
+					context.Background(),
+					resumeComplete,
+					binding,
+					next,
+					&complete,
+				)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || handle != nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusResumed {
+				t.Fatalf(
+					"recoverable completion = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			if _, err := os.Lstat(recoverableRoot); !os.IsNotExist(err) {
+				t.Fatal("completed recoverable native session root still exists")
+			}
+
+			resumeProseStart := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-recoverable-resume-prose-start-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).
+				InvokeRecoverableTurn(
+					context.Background(),
+					resumeProseStart,
+					binding,
+					nil,
+					nil,
+				)
+			if err != nil || observation.Yield == nil || handle == nil {
+				t.Fatalf(
+					"resume prose setup = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			resumeProseCell := continuationCellFor(handle)
+			resumeProseCell.mu.Lock()
+			resumeProseState, ok :=
+				resumeProseCell.state.(*nativeContinuationState)
+			resumeProseCell.mu.Unlock()
+			if !ok {
+				t.Fatal("resume prose setup did not retain native state")
+			}
+			resumeProseState.mu.Lock()
+			resumeProseRoot := resumeProseState.root
+			resumeProseState.mu.Unlock()
+			resumeCount, err := os.Open(filepath.Join(
+				resumeProseRoot,
+				"home",
+				".native-resume-count",
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resumeCount.Close()
+			reservations = 0
+			resumeProse := nativeSameDutyInvocationFixture(
+				t,
+				resumeProseStart,
+				"native-recoverable-resume-prose-answer-"+string(family),
+			)
+			resumeProse.RecoveryStepHook = prose.RecoveryStepHook
+			observation, next, result, err = (Dispatcher{}).
+				InvokeRecoverableTurn(
+					context.Background(),
+					resumeProse,
+					binding,
+					handle,
+					&complete,
+				)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || next != nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusResumed ||
+				reservations != 1 {
+				t.Fatalf(
+					"resume prose nudge = observation %#v, next %p, result %#v, reservations %d, error %v",
+					observation,
+					next,
+					result,
+					reservations,
+					err,
+				)
+			}
+			count := []byte{0}
+			if read, readErr := resumeCount.ReadAt(count, 0); readErr != nil ||
+				read != 1 || string(count) != "2" {
+				t.Fatalf(
+					"same native root resume count = %q, bytes=%d, error=%v",
+					count,
+					read,
+					readErr,
+				)
+			}
+			if _, err := os.Lstat(resumeProseRoot); !os.IsNotExist(err) {
+				t.Fatal("completed resume-prose native root still exists")
 			}
 		})
 	}
@@ -1212,11 +1678,11 @@ func TestNativeContinuationIdentityMismatchPrecedesBrokerArm(t *testing.T) {
 		),
 	}
 	state := &nativeEventState{
-		family: ProfileCodex,
-		model:  "native-continuation-model",
-		access: ReadWrite,
-		broker: broker,
-		launch: launch,
+		family:      ProfileCodex,
+		model:       "native-continuation-model",
+		definitions: toolDefinitions(ReadWrite),
+		broker:      broker,
+		launch:      launch,
 	}
 	err = state.accept([]byte(
 		`{"type":"thread.started","thread_id":"22222222-2222-4222-8222-222222222222"}`,

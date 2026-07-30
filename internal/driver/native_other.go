@@ -22,7 +22,35 @@ func platformCaptureNativeSurface(
 	return nativeSurfaceCertificate{}, fail("UNSUPPORTED_HOST")
 }
 
+func platformCaptureNativeAutomationSurface(
+	context.Context,
+	nativeAutomationSmokeInvocations,
+	NativeAdapterConfig,
+) (nativeAutomationSurfaceCertificate, error) {
+	return nativeAutomationSurfaceCertificate{}, fail("UNSUPPORTED_HOST")
+}
+
+func platformInvokeNativeAutomation(
+	context.Context,
+	AutomationInvocation,
+	NativeAdapterConfig,
+	string,
+	nativeAutomationSurfaceCertificate,
+) (AutomationObservation, error) {
+	return AutomationObservation{}, fail("UNSUPPORTED_HOST")
+}
+
 func platformStartNativeContinuation(
+	context.Context,
+	Invocation,
+	NativeAdapterConfig,
+	string,
+	nativeSurfaceCertificate,
+) (Observation, continuationState, error) {
+	return Observation{}, nil, fail("UNSUPPORTED_HOST")
+}
+
+func platformStartNativeRecoverableContinuation(
 	context.Context,
 	Invocation,
 	NativeAdapterConfig,
@@ -41,6 +69,18 @@ func platformResumeNativeContinuation(
 	continuationState,
 ) (Observation, error) {
 	return Observation{}, fail("UNSUPPORTED_HOST")
+}
+
+func platformResumeNativeRecoverableContinuation(
+	context.Context,
+	Invocation,
+	NativeAdapterConfig,
+	string,
+	nativeSurfaceCertificate,
+	continuationState,
+	bool,
+) (Observation, continuationState, error) {
+	return Observation{}, nil, fail("UNSUPPORTED_HOST")
 }
 
 func nativeVersion(context.Context, NativeAdapterConfig) ([]byte, error) {

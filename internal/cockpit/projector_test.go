@@ -141,6 +141,24 @@ func projectionFixture() (
 				CreatedAt: now.Add(2 * time.Second),
 			},
 		},
+		Attentions: []journal.AttentionProjection{func() journal.AttentionProjection {
+			recovery := journal.RecoveryBinding{
+				LaneID:     "T1",
+				CycleID:    "sha256:" + strings.Repeat("5", 64),
+				TurnID:     "sha256:" + strings.Repeat("6", 64),
+				ProgressID: "sha256:" + strings.Repeat("7", 64),
+			}
+			return journal.AttentionProjection{
+				Attention: journal.AttentionBinding{
+					ID:       journal.AttentionID(recovery, 1),
+					Ordinal:  1,
+					Recovery: recovery,
+				},
+				Generation: 1,
+				State:      journal.AttentionOpen,
+				Question:   "Which approved path should this lane use?",
+			}
+		}()},
 		Events: []journal.EventFact{{
 			Offset: 7, Kind: "dispatch_completed",
 			CreatedAt: now.Add(3 * time.Second),
@@ -286,12 +304,19 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 			t.Errorf("missing edge %s in %#v", expected, snapshot.Graph.Edges)
 		}
 	}
-	if !snapshot.Graph.Nodes[2].HasBaton ||
+	if snapshot.Graph.Nodes[1].State != "present" ||
+		snapshot.Graph.Nodes[1].RuntimeState != "parked" ||
+		snapshot.Graph.Nodes[2].State != "ready" ||
+		snapshot.Graph.Nodes[2].RuntimeState != "parked" ||
+		!snapshot.Graph.Nodes[2].HasBaton ||
 		snapshot.Graph.Nodes[2].NextResponsibility != "implementer" {
-		t.Fatalf("exact handoff = %#v", snapshot.Graph.Nodes[2])
+		t.Fatalf("lane-local park = %#v", snapshot.Graph.Nodes[:3])
 	}
 	if !snapshot.Handoff.Ready ||
-		!reflect.DeepEqual(snapshot.Handoff.Nodes, []string{"slice:S1"}) ||
+		!reflect.DeepEqual(
+			snapshot.Handoff.Nodes,
+			[]string{"slice:S1"},
+		) ||
 		!reflect.DeepEqual(
 			snapshot.Handoff.Responsibilities,
 			[]string{"implementer"},
@@ -316,10 +341,48 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 	if !hasAction(snapshot.Actions, "retry") ||
 		!hasAction(snapshot.Actions, "pause") ||
 		!hasAction(snapshot.Actions, "cancel") ||
+		!hasAction(snapshot.Actions, "answer_attention") ||
 		!hasAction(snapshot.Actions, "redeliver") ||
+		len(snapshot.Runtime.Attentions) != 1 ||
+		snapshot.Runtime.Attentions[0].LaneID != "T1" ||
+		snapshot.Runtime.Attentions[0].Question !=
+			"Which approved path should this lane use?" ||
 		len(snapshot.Runtime.Notifications) != 1 ||
 		snapshot.Runtime.Notifications[0].MessageID != "message-1" {
 		t.Fatalf("safe actions = %#v", snapshot.Actions)
+	}
+}
+
+func TestStableObservationSeparatesPlanSlugFromLocalCheckout(t *testing.T) {
+	t.Parallel()
+
+	run, observation, status, state := projectionFixture()
+	state.Repository = "acme/repo"
+	if !stableObservation(
+		run,
+		observation,
+		status,
+		status,
+		state,
+		nil,
+		state,
+		nil,
+	) {
+		t.Fatal("plan repository slug was compared with local run path")
+	}
+	changed := state
+	changed.Refs.Target.Head = strings.Repeat("9", 40)
+	if stableObservation(
+		run,
+		observation,
+		status,
+		status,
+		state,
+		nil,
+		changed,
+		nil,
+	) {
+		t.Fatal("ref-vector drift was accepted")
 	}
 }
 

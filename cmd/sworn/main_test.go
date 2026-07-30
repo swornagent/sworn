@@ -360,6 +360,9 @@ func boardJournalFixture(t *testing.T) string {
 			Captain:     profile,
 			Verifier:    profile,
 		},
+		Automation: &runtimepkg.AutomationSelections{
+			Recovery: profile,
+		},
 		Limits: driver.Limits{
 			TimeoutMillis: 1,
 			OutputBytes:   1,

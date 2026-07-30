@@ -438,6 +438,7 @@ func (f *fakeOperatorProjector) Events(
 type fakeOperatorCommands struct {
 	startCalls     int
 	controlCalls   int
+	answerCalls    int
 	redeliverCalls int
 	onStart        func() error
 }
@@ -469,6 +470,14 @@ func (f *fakeOperatorCommands) Redeliver(
 ) error {
 	f.redeliverCalls++
 	return nil
+}
+
+func (f *fakeOperatorCommands) AnswerAttention(
+	context.Context,
+	cockpit.AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	f.answerCalls++
+	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
 func TestOperatorAuthorityGuardsEveryConsumerAndActivatesOnStart(
@@ -885,7 +894,7 @@ func TestServeWiresExistingRunAndStopsOnContext(t *testing.T) {
 		Timeout:   2 * time.Second,
 	}
 	response, err := client.Get(
-		"http://" + address + "/api/v1/operator/telemetry",
+		"http://" + address + "/api/v2/operator/telemetry",
 	)
 	if err != nil {
 		cancel()
@@ -994,7 +1003,7 @@ func TestServeManifestCreatesRunOnlyAtStart(t *testing.T) {
 	}
 	request, err := http.NewRequest(
 		http.MethodPost,
-		"http://"+address+"/api/v1/start",
+		"http://"+address+"/api/v2/start",
 		bytes.NewReader(requestBody),
 	)
 	if err != nil {
@@ -1171,6 +1180,9 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 			Implementer: profile,
 			Captain:     profile,
 			Verifier:    profile,
+		},
+		Automation: &runtimepkg.AutomationSelections{
+			Recovery: profile,
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 1,

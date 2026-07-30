@@ -1456,7 +1456,11 @@ func emitInit(family, model, access string) {
 	if access == "read_write" {
 		tools = append(tools, "mcp__sworn__Write", "mcp__sworn__Edit")
 	}
-	tools = append(tools, "mcp__sworn__sworn_submit")
+	tools = append(
+		tools,
+		"mcp__sworn__sworn_yield",
+		"mcp__sworn__sworn_submit",
+	)
 	event := map[string]any{
 		"type": "system", "subtype": "init",
 		"model": model, "permissionMode": "dontAsk",

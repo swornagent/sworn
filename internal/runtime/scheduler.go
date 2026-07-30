@@ -1370,6 +1370,9 @@ func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *g
 		if err == nil {
 			return submission, nil
 		}
+		if IsCode(err, "CONTINUATION_CLEANUP_FAILED") {
+			return driver.Submission{}, err
+		}
 		effect, readErr := s.journal.Effect(ctx, engine.manifest.value.RunID,
 			journal.AttemptEffectID(workID, epoch, try))
 		if readErr != nil || effect.State != journal.OperationalFailed {
@@ -1834,6 +1837,104 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 	return err
 }
 
+func exactDesignContinuationPromotion(
+	entry *retainedContinuation,
+	runID string,
+	state baton.State,
+	slice *baton.SliceState,
+	track *baton.TrackState,
+) bool {
+	if entry == nil || entry.handle == nil ||
+		entry.designReceipt != "" ||
+		entry.selectionDigest == "" ||
+		!runtimeDigestPattern.MatchString(entry.before) ||
+		slice == nil || track == nil ||
+		slice.CurrentReceipt == nil ||
+		state.Plan.TargetStale ||
+		entry.binding.RunID != runID ||
+		entry.binding.Release != state.Release ||
+		entry.binding.Slice != slice.Location.Slice.ID ||
+		entry.binding.Attempt != slice.Attempt ||
+		entry.before != workIdentity(
+			state.Plan.OID,
+			state.Refs.Target.Head,
+			entry.sourceTrackHead,
+			slice.Location.Slice.ID,
+			"design",
+			"implementer",
+			slice.Attempt,
+			entry.sourceReceipt,
+			slice.InputPins,
+		) ||
+		slice.CurrentReceipt.OID != track.Head ||
+		slice.CurrentReceipt.Parent != entry.sourceTrackHead ||
+		slice.CurrentReceipt.Receipt.Binds != entry.sourceReceipt ||
+		slice.CurrentReceipt.Receipt.Role != "implementer" ||
+		slice.CurrentReceipt.Receipt.Result != "designed" ||
+		slice.CurrentReceipt.Receipt.Attempt == nil ||
+		*slice.CurrentReceipt.Receipt.Attempt != slice.Attempt ||
+		slice.CurrentReceipt.Receipt.Plan != state.Plan.OID ||
+		slice.CurrentReceipt.Receipt.SliceID() !=
+			slice.Location.Slice.ID ||
+		track.Ref != "refs/heads/track/"+state.Release+"/"+
+			slice.Location.Track.ID {
+		return false
+	}
+	planDigest := driver.Digest(mustJSON(continuationPlanAuthority{
+		OID:      state.Plan.OID,
+		Digest:   state.Plan.Digest,
+		Revision: state.Plan.Metadata.Revision,
+	}))
+	targetDigest := driver.Digest(mustJSON(continuationTargetAuthority{
+		TargetRef:    state.Refs.Target.Ref,
+		TargetHead:   state.Refs.Target.Head,
+		Track:        slice.Location.Track.ID,
+		TrackRef:     track.Ref,
+		PreparedBase: slice.PreparedBase,
+		Evidence:     sliceEvidence(slice.ConsumedInputs),
+	}))
+	return entry.binding.PlanAuthorityDigest == planDigest &&
+		entry.binding.TargetAuthorityDigest == targetDigest &&
+		entry.binding.ToolContractDigest != ""
+}
+
+func (s *Service) promoteDesignContinuation(
+	ctx context.Context,
+	engine *engine,
+	sliceID string,
+) error {
+	runID := engine.manifest.value.RunID
+	entry := s.takeContinuation(runID, sliceID)
+	if entry == nil {
+		return nil
+	}
+	state, err := baton.ReadState(
+		engine.git,
+		engine.manifest.value.Release,
+		engine.inertness,
+	)
+	if err != nil {
+		return closeRetainedContinuation(entry)
+	}
+	slice, ok := state.Slice(sliceID)
+	if !ok {
+		return closeRetainedContinuation(entry)
+	}
+	track, ok := state.Track(slice.Location.Track.ID)
+	if !ok ||
+		!exactDesignContinuationPromotion(
+			entry,
+			runID,
+			state,
+			slice,
+			track,
+		) {
+		return closeRetainedContinuation(entry)
+	}
+	entry.designReceipt = slice.CurrentReceipt.OID
+	return s.storeContinuation(runID, sliceID, entry)
+}
+
 func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	sliceID string) error {
 	state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
@@ -1871,14 +1972,46 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			sliceID, driver.ImplementerDesign, slice.Attempt, before, owner)
 		closeErr := workspace.Close()
 		if runErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
 			return runErr
 		}
 		if closeErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
 			return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
 		}
-		return s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
-			Release: state.Release, Slice: sliceID, Role: "implementer", Result: "designed",
-			Summary: submission.Summary, Detail: []byte(submission.Detail)})
+		appendErr := s.appendReceipt(
+			ctx,
+			engine,
+			owner,
+			state,
+			before,
+			baton.AppendReceiptInput{
+				Release: state.Release, Slice: sliceID,
+				Role: "implementer", Result: "designed",
+				Summary: submission.Summary,
+				Detail:  []byte(submission.Detail),
+			},
+		)
+		if appendErr != nil {
+			if cleanupErr := s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			); cleanupErr != nil {
+				return cleanupErr
+			}
+			return appendErr
+		}
+		return s.promoteDesignContinuation(ctx, engine, sliceID)
 	case slice.NextRole == "captain":
 		workspace, err := engine.workspaces.OpenTrack(key, gitx.CaptainView)
 		if err != nil {
@@ -1893,10 +2026,30 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		if closeErr != nil {
 			return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
 		}
-		return s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
-			Release: state.Release, Slice: sliceID, Role: "captain",
-			Result: string(submission.Decision.Outcome), Summary: submission.Summary,
-			Detail: []byte(submission.Detail)})
+		appendErr := s.appendReceipt(
+			ctx,
+			engine,
+			owner,
+			state,
+			before,
+			baton.AppendReceiptInput{
+				Release: state.Release, Slice: sliceID,
+				Role:    "captain",
+				Result:  string(submission.Decision.Outcome),
+				Summary: submission.Summary,
+				Detail:  []byte(submission.Detail),
+			},
+		)
+		if appendErr != nil {
+			return appendErr
+		}
+		if submission.Decision.Outcome != driver.DecisionProceed {
+			return s.discardContinuation(
+				engine.manifest.value.RunID,
+				sliceID,
+			)
+		}
+		return nil
 	case slice.NextRole == "implementer" && slice.Stage == "implement":
 		return s.implementSlice(ctx, engine, owner, state, slice)
 	case slice.NextRole == "verifier":
@@ -1973,15 +2126,29 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		effectID := journal.AttemptEffectID(workID, epoch, try)
 		dispatchWork := workIdentity(effectID, "driver.dispatch")
 		preparedWork := workIdentity(effectID, "git.seal.prepared")
+		childEpoch, childTry := int64(1), int64(1)
+		if _, enabled := engine.manifest.value.recoverySelection(); enabled {
+			dispatchWork = workIdentity(workID, "driver.dispatch")
+			preparedWork = workIdentity(workID, "git.seal.prepared")
+			childEpoch, childTry = epoch, try
+		}
 		cycle := implementationCycle{
 			Release: state.Release, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
 			Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
 			TargetHead: state.Refs.Target.Head, Track: key.Track, TrackRef: track.Ref,
 			TrackHead: track.Head, DispatchWork: dispatchWork,
-			DispatchEffect: journal.AttemptEffectID(dispatchWork, 1, 1),
-			PreparedWork:   preparedWork,
-			PreparedEffect: journal.AttemptEffectID(preparedWork, 1, 1),
+			DispatchEffect: journal.AttemptEffectID(
+				dispatchWork,
+				childEpoch,
+				childTry,
+			),
+			PreparedWork: preparedWork,
+			PreparedEffect: journal.AttemptEffectID(
+				preparedWork,
+				childEpoch,
+				childTry,
+			),
 		}
 		if len(slice.Location.Slice.Consumes) > 0 {
 			if slice.PreparedBase == "" || slice.PreparedBase != track.Head {
@@ -2004,6 +2171,8 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		if err != nil {
 			return runtimeFail("JOURNAL_READ_FAILED", err)
 		}
+		var claim journal.Claim
+		resumingAnswer := false
 		switch effect.State {
 		case journal.Succeeded:
 			var record sealedRecord
@@ -2013,6 +2182,37 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			}
 			return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
 		case journal.Claimed:
+			attention, found, attentionErr := s.attentionForWork(
+				ctx,
+				owner.RunID,
+				cycle.DispatchWork,
+			)
+			if attentionErr != nil {
+				return attentionErr
+			}
+			if found {
+				dispatch, dispatchErr := s.journal.Effect(
+					ctx,
+					owner.RunID,
+					cycle.DispatchEffect,
+				)
+				if dispatchErr != nil {
+					return runtimeFail("JOURNAL_READ_FAILED", dispatchErr)
+				}
+				if dispatch.State != journal.Claimed {
+					return runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				if attention.State == journal.AttentionOpen {
+					return runtimeFail("EFFECT_PARKED", nil)
+				}
+				resumingAnswer = true
+				claim = journal.Claim{
+					RunID:    owner.RunID,
+					EffectID: effectID,
+					Token:    effect.CurrentClaim,
+				}
+				break
+			}
 			record, retry, recoverErr := s.recoverImplementationCycle(
 				ctx, engine, owner, cycle, effect)
 			if recoverErr != nil {
@@ -2029,9 +2229,11 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		default:
 			return runtimeFail("RECOVERY_UNCERTAIN", nil)
 		}
-		claim, err := s.journal.ClaimOwned(ctx, owner, effectID, now, effectLease)
-		if err != nil {
-			return runtimeFail("EFFECT_CLAIM_FAILED", err)
+		if claim.Token == "" {
+			claim, err = s.journal.ClaimOwned(ctx, owner, effectID, now, effectLease)
+			if err != nil {
+				return runtimeFail("EFFECT_CLAIM_FAILED", err)
+			}
 		}
 		var record sealedRecord
 		record, err = s.runImplementationCycle(
@@ -2068,6 +2270,18 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		if IsCode(err, "RECOVERY_UNCERTAIN") {
 			return err
 		}
+		if IsCode(err, "CONTINUATION_CLEANUP_FAILED") {
+			return err
+		}
+		if IsCode(err, "EFFECT_PARKED") {
+			return err
+		}
+		if resumingAnswer {
+			// The durable answer is the lane's wake token. A failure before
+			// its dispatch is committed must leave the same claimed cycle
+			// replayable; advancing to a fresh outer try would orphan it.
+			return err
+		}
 		if completeErr := s.completeImplementationFailure(
 			context.WithoutCancel(ctx), owner, effectID, claim.Token, stableErrorCode(err)); completeErr != nil {
 			return completeErr
@@ -2077,6 +2291,156 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		}
 	}
 	return runtimeFail("EFFECT_PARKED", nil)
+}
+
+func (s *Service) executeClaimedImplementationCycle(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	state baton.State,
+	slice *baton.SliceState,
+	active activeImplementationCycle,
+) error {
+	if slice == nil ||
+		active.outer.State != journal.Claimed ||
+		active.outer.CurrentClaim == "" {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	work, epoch, try, err := attemptCoordinates(
+		active.cycle.DispatchEffect,
+	)
+	if err != nil || work != active.cycle.DispatchWork {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	record, err := s.runImplementationCycle(
+		ctx,
+		engine,
+		owner,
+		state,
+		slice,
+		gitx.TrackKey{
+			Release: active.cycle.Release,
+			Track:   active.cycle.Track,
+		},
+		active.cycle,
+		dispatchCoordinates{
+			Slice:          active.cycle.Slice,
+			Responsibility: driver.ImplementerImplementation,
+			BatonAttempt:   slice.Attempt,
+			Epoch:          epoch,
+			Try:            try,
+		},
+		active.outer,
+	)
+	if err != nil {
+		return err
+	}
+	body := mustJSON(record)
+	if err := s.journal.CompleteOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID:    owner.RunID,
+			EffectID: active.outer.ID,
+			Token:    active.outer.CurrentClaim,
+			State:    journal.Succeeded,
+			Result:   body,
+			Receipts: []journal.Receipt{{
+				Kind: "git_candidate",
+				Body: body,
+			}},
+			EventKind: "candidate_sealed",
+			EventBody: body,
+			At:        s.now().UTC(),
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return s.appendImplementationReceipt(
+		ctx,
+		engine,
+		owner,
+		active.cycle,
+		record,
+	)
+}
+
+func (s *Service) retireStaleImplementationCycle(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	active activeImplementationCycle,
+	commands map[string]journal.Command,
+	effects map[string]journal.Effect,
+) error {
+	retire := []journal.RetireRecoveryEffect{{
+		EffectID:      active.outer.ID,
+		ExpectedState: active.outer.State,
+		ClaimToken:    active.outer.CurrentClaim,
+	}, {
+		EffectID:      active.dispatch.ID,
+		ExpectedState: active.dispatch.State,
+		ClaimToken:    active.dispatch.CurrentClaim,
+	}}
+	if prepared, found := effects[active.cycle.PreparedEffect]; found {
+		switch prepared.State {
+		case journal.Claimed, journal.Succeeded:
+			command, commandFound := commands[prepared.ReplayKey]
+			if !commandFound {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			record, err := validatePreparedSealEnvelope(
+				command,
+				prepared,
+				active.cycle,
+			)
+			if err != nil {
+				return err
+			}
+			if prepared.State == journal.Succeeded &&
+				(!bytesEqualCanonicalJSON(prepared.Result, record) ||
+					!bytes.Equal(prepared.Result, mustJSON(record))) {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if err := s.rollbackCycleCandidate(
+				engine,
+				active.cycle,
+				&record,
+			); err != nil {
+				return runtimeFail("RECOVERY_UNCERTAIN", err)
+			}
+		case journal.OperationalFailed:
+			// The prior terminalization already rolled its candidate back.
+		default:
+			return runtimeFail("RECOVERY_UNCERTAIN", nil)
+		}
+		retire = append(retire, journal.RetireRecoveryEffect{
+			EffectID:      prepared.ID,
+			ExpectedState: prepared.State,
+			ClaimToken:    prepared.CurrentClaim,
+		})
+	}
+	if err := s.discardRecoverableContinuation(
+		owner.RunID,
+		active.dispatch.ID,
+	); err != nil {
+		return runtimeFail("CONTINUATION_CLEANUP_FAILED", err)
+	}
+	if _, err := s.journal.RetireRecoveryAttentionOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.RetireRecoveryAttentionCommand{
+			RunID:              owner.RunID,
+			Attention:          active.attention.Attention,
+			ExpectedGeneration: active.attention.Generation,
+			Effects:            retire,
+			ErrorCode:          "stale_authority",
+		},
+		s.now().UTC(),
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
 }
 
 func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
@@ -2096,12 +2460,31 @@ func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
 		}
 		effects[effect.ID] = effect
 	}
-	seenCommands := make(map[string]struct{}, len(snapshot.Commands))
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
 	for _, command := range snapshot.Commands {
-		if _, duplicate := seenCommands[command.ReplayKey]; duplicate {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
 			return true, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		seenCommands[command.ReplayKey] = struct{}{}
+		commands[command.ReplayKey] = command
+	}
+	attentions, err := s.journal.Attentions(ctx, owner.RunID)
+	if err != nil {
+		return true, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	activeWork, err := activeAttentionWork(attentions)
+	if err != nil {
+		return true, err
+	}
+	activeCycles, err := selectActiveImplementationCycles(
+		engine.manifest,
+		snapshot.Commands,
+		effects,
+		activeWork,
+	)
+	if err != nil {
+		return true, err
+	}
+	for _, command := range snapshot.Commands {
 		if command.Kind != "git.seal" {
 			continue
 		}
@@ -2126,9 +2509,68 @@ func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
 		if cycle.Slice != slice.Location.Slice.ID ||
 			cycle.Binds != slice.CurrentReceipt.OID ||
 			cycle.Plan != state.Plan.OID ||
-			cycle.ReleaseHead != state.Refs.Release.Head ||
 			cycle.TargetHead != state.Refs.Target.Head {
 			continue
+		}
+		if active, found := activeCycles[effect.ID]; found {
+			current := implementationAuthorityCurrent(state, cycle)
+			if current &&
+				active.dispatch.State == journal.Claimed {
+				dispatchCommand, commandFound :=
+					commands[active.dispatch.ReplayKey]
+				if !commandFound {
+					return true, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				dispatch, dispatchErr := validateDriverRecoveryCommand(
+					engine.manifest,
+					dispatchCommand,
+					active.dispatch,
+				)
+				if dispatchErr != nil {
+					return true, dispatchErr
+				}
+				contextErr := validateCurrentProductionDispatchContext(
+					ctx,
+					engine,
+					dispatch,
+				)
+				switch {
+				case contextErr == nil:
+				case IsCode(contextErr, "STALE_DISPATCH"):
+					current = false
+				default:
+					return true, contextErr
+				}
+			}
+			if !current ||
+				active.dispatch.State ==
+					journal.OperationalFailed {
+				if err := s.retireStaleImplementationCycle(
+					ctx,
+					engine,
+					owner,
+					active,
+					commands,
+					effects,
+				); err != nil {
+					return true, err
+				}
+				return true, nil
+			}
+			if active.attention.State == journal.AttentionOpen {
+				if active.dispatch.State != journal.Claimed {
+					return true, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				return true, runtimeFail("EFFECT_PARKED", nil)
+			}
+			return true, s.executeClaimedImplementationCycle(
+				ctx,
+				engine,
+				owner,
+				state,
+				slice,
+				active,
+			)
 		}
 		switch effect.State {
 		case journal.Succeeded:
@@ -2387,6 +2829,11 @@ func (s *Service) claimPreparedImplementation(
 	}
 	now := s.now().UTC()
 	payload := mustJSON(record)
+	_, preparedEpoch, preparedTry, coordinateErr :=
+		attemptCoordinates(cycle.PreparedEffect)
+	if coordinateErr != nil {
+		return sealedRecord{}, journal.Claim{}, coordinateErr
+	}
 	if err := s.journal.EnsureAttempt(ctx,
 		journal.Command{RunID: owner.RunID, ReplayKey: cycle.PreparedEffect,
 			Kind: "git.seal.prepared", Payload: payload, CreatedAt: now},
@@ -2394,7 +2841,11 @@ func (s *Service) claimPreparedImplementation(
 			ReplayKey: cycle.PreparedEffect, Kind: "git.seal.prepared",
 			BeforeDigest: cycle.Before, ExpectedDigest: sha256Digest(payload),
 			UpdatedAt: now},
-		journal.EffectAttempt{WorkID: cycle.PreparedWork, Epoch: 1, Try: 1}); err != nil {
+		journal.EffectAttempt{
+			WorkID: cycle.PreparedWork,
+			Epoch:  preparedEpoch,
+			Try:    preparedTry,
+		}); err != nil {
 		if !requireDispatchProof {
 			err = uncertainHandoffPreparation(err)
 		}
@@ -2437,7 +2888,7 @@ func (s *Service) prepareProductionImplementationCandidate(
 	}
 	releaseHead, releaseErr := gitx.ParseOID(
 		engine.repository.ObjectFormat(),
-		cycle.ReleaseHead,
+		fresh.Refs.Release.Head,
 	)
 	targetHead, targetErr := gitx.ParseOID(
 		engine.repository.ObjectFormat(),
@@ -2494,9 +2945,15 @@ func (s *Service) runProductionImplementationDispatch(
 	cycle implementationCycle,
 	coordinates dispatchCoordinates,
 ) (sealedRecord, journal.Claim, error) {
+	dispatchWork, dispatchEpoch, dispatchTry, err :=
+		attemptCoordinates(cycle.DispatchEffect)
+	if err != nil || dispatchWork != cycle.DispatchWork {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
 	var record sealedRecord
 	var preparedClaim journal.Claim
-	_, err := s.runDriverEffectWithPreparation(
+	_, err = s.runDriverEffectWithPreparation(
 		ctx,
 		engine,
 		workspace,
@@ -2504,8 +2961,8 @@ func (s *Service) runProductionImplementationDispatch(
 		coordinates,
 		journal.EffectAttempt{
 			WorkID: cycle.DispatchWork,
-			Epoch:  1,
-			Try:    1,
+			Epoch:  dispatchEpoch,
+			Try:    dispatchTry,
 		},
 		cycle.Before,
 		owner,
@@ -2525,6 +2982,56 @@ func (s *Service) runProductionImplementationDispatch(
 	)
 	if err != nil {
 		return sealedRecord{}, journal.Claim{}, err
+	}
+	if preparedClaim.Token == "" {
+		snapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
+		if snapshotErr != nil {
+			return sealedRecord{}, journal.Claim{},
+				runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		var prepared journal.Effect
+		var command journal.Command
+		effectFound := false
+		commandFound := false
+		for _, effect := range snapshot.Effects {
+			if effect.ID != cycle.PreparedEffect {
+				continue
+			}
+			if effectFound {
+				return sealedRecord{}, journal.Claim{},
+					runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			prepared, effectFound = effect, true
+		}
+		for _, candidate := range snapshot.Commands {
+			if candidate.ReplayKey != cycle.PreparedEffect {
+				continue
+			}
+			if commandFound {
+				return sealedRecord{}, journal.Claim{},
+					runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			command, commandFound = candidate, true
+		}
+		if !effectFound || !commandFound ||
+			prepared.State != journal.Claimed ||
+			prepared.CurrentClaim == "" {
+			return sealedRecord{}, journal.Claim{},
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		record, snapshotErr = validatePreparedSealEnvelope(
+			command,
+			prepared,
+			cycle,
+		)
+		if snapshotErr != nil {
+			return sealedRecord{}, journal.Claim{}, snapshotErr
+		}
+		preparedClaim = journal.Claim{
+			RunID:    owner.RunID,
+			EffectID: prepared.ID,
+			Token:    prepared.CurrentClaim,
+		}
 	}
 	if preparedClaim.Token == "" ||
 		!sealedRecordMatchesCycle(record, cycle) {
@@ -2583,6 +3090,13 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 			outer,
 		)
 	}
+	dispatchWork, dispatchEpoch, dispatchTry, dispatchErr :=
+		attemptCoordinates(cycle.DispatchEffect)
+	if dispatchErr != nil || dispatchWork != cycle.DispatchWork {
+		_ = workspace.Close()
+		return sealedRecord{},
+			runtimeFail("CORRUPT_JOURNAL", dispatchErr)
+	}
 	submission, err := s.runDriverEffect(
 		ctx,
 		engine,
@@ -2591,8 +3105,8 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		coordinates,
 		journal.EffectAttempt{
 			WorkID: cycle.DispatchWork,
-			Epoch:  1,
-			Try:    1,
+			Epoch:  dispatchEpoch,
+			Try:    dispatchTry,
 		},
 		cycle.Before,
 		owner,
@@ -2619,7 +3133,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	var preparedClaim journal.Claim
 	var record sealedRecord
 	releaseHead, releaseErr := gitx.ParseOID(
-		engine.repository.ObjectFormat(), cycle.ReleaseHead)
+		engine.repository.ObjectFormat(), fresh.Refs.Release.Head)
 	targetHead, targetErr := gitx.ParseOID(
 		engine.repository.ObjectFormat(), cycle.TargetHead)
 	if releaseErr != nil || targetErr != nil {
@@ -3020,7 +3534,6 @@ func (s *Service) validateSealedCycle(engine *engine, cycle implementationCycle,
 		expectedTrack = record.Candidate
 	}
 	if !ok || !trackOK || state.Plan.OID != cycle.Plan ||
-		state.Refs.Release.Head != cycle.ReleaseHead ||
 		state.Refs.Target.Head != cycle.TargetHead ||
 		track.Ref != cycle.TrackRef || track.Head != expectedTrack ||
 		current.Status != "ready" || current.Stage != "implement" ||
@@ -3044,7 +3557,6 @@ func implementationAuthorityCurrent(state baton.State, cycle implementationCycle
 		) == cycle.Before &&
 		!state.Plan.TargetStale &&
 		state.Plan.OID == cycle.Plan &&
-		state.Refs.Release.Head == cycle.ReleaseHead &&
 		state.Refs.Target.Head == cycle.TargetHead &&
 		track.Ref == cycle.TrackRef &&
 		current.Status == "ready" && current.Stage == "implement" &&
@@ -3310,6 +3822,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 		return s.rejectStalePreparedSeal(
 			ctx, engine, owner, cycle, record, claimToken)
 	}
+	releaseAuthority := state.Refs.Release.Head
 	if disposition == gitx.SealAllOld {
 		if err := s.validateSealedCycle(engine, cycle, record, false); err != nil {
 			return sealedRecord{}, err
@@ -3338,7 +3851,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 						ref.State == gitx.RefDirect && ref.Head == before
 				case releaseRef:
 					release, parseErr := gitx.ParseOID(
-						engine.repository.ObjectFormat(), cycle.ReleaseHead)
+						engine.repository.ObjectFormat(), releaseAuthority)
 					authorityExact = authorityExact && parseErr == nil &&
 						ref.State == gitx.RefDirect && ref.Head == release
 				case engine.manifest.value.TargetRef:
@@ -3359,7 +3872,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 				err = runtimeFail("STALE_DISPATCH", freshErr)
 			} else {
 				release, releaseErr := gitx.ParseOID(
-					engine.repository.ObjectFormat(), cycle.ReleaseHead)
+					engine.repository.ObjectFormat(), releaseAuthority)
 				target, targetErr := gitx.ParseOID(
 					engine.repository.ObjectFormat(), cycle.TargetHead)
 				if releaseErr != nil || targetErr != nil {
@@ -3690,6 +4203,14 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	if err != nil {
 		return true, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
+	attentions, err := s.journal.Attentions(ctx, owner.RunID)
+	if err != nil {
+		return true, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	parkedDispatches, err := activeAttentionWork(attentions)
+	if err != nil {
+		return true, err
+	}
 	commands := make(map[string]journal.Command, len(snapshot.Commands))
 	for _, command := range snapshot.Commands {
 		if _, duplicate := commands[command.ReplayKey]; duplicate {
@@ -3734,6 +4255,15 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		}
 		cyclesByOuter[command.ReplayKey] = cycle
 		outerByPrepared[cycle.PreparedEffect] = command.ReplayKey
+	}
+	activeCycles, err := selectActiveImplementationCycles(
+		engine.manifest,
+		snapshot.Commands,
+		effects,
+		parkedDispatches,
+	)
+	if err != nil {
+		return true, err
 	}
 	for _, command := range snapshot.Commands {
 		if command.Kind != "git.seal" {
@@ -4003,6 +4533,76 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 			cycle,
 		); err != nil {
 			return true, fmt.Errorf("recover terminal seal objects: %w", err)
+		}
+		if active, parked := activeCycles[outer.ID]; parked {
+			state, stateErr := baton.ReadState(
+				engine.git,
+				cycle.Release,
+				engine.inertness,
+			)
+			if stateErr != nil {
+				return true,
+					runtimeFail("BATON_UNAVAILABLE", stateErr)
+			}
+			slice, present := state.Slice(cycle.Slice)
+			current := present &&
+				implementationAuthorityCurrent(state, cycle)
+			if current &&
+				active.dispatch.State == journal.Claimed {
+				dispatchCommand, found := commands[active.dispatch.ReplayKey]
+				if !found {
+					return true, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				dispatch, dispatchErr := validateDriverRecoveryCommand(
+					engine.manifest,
+					dispatchCommand,
+					active.dispatch,
+				)
+				if dispatchErr != nil {
+					return true, dispatchErr
+				}
+				contextErr := validateCurrentProductionDispatchContext(
+					ctx,
+					engine,
+					dispatch,
+				)
+				switch {
+				case contextErr == nil:
+				case IsCode(contextErr, "STALE_DISPATCH"):
+					current = false
+				default:
+					return true, contextErr
+				}
+			}
+			if !current ||
+				active.dispatch.State ==
+					journal.OperationalFailed {
+				if err := s.retireStaleImplementationCycle(
+					ctx,
+					engine,
+					owner,
+					active,
+					commands,
+					effects,
+				); err != nil {
+					return true, err
+				}
+				return true, nil
+			}
+			if active.attention.State == journal.AttentionOpen {
+				if active.dispatch.State != journal.Claimed {
+					return true, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				continue
+			}
+			return true, s.executeClaimedImplementationCycle(
+				ctx,
+				engine,
+				owner,
+				state,
+				slice,
+				active,
+			)
 		}
 		if outer.State != journal.Pending &&
 			outer.State != journal.Claimed &&
@@ -4953,11 +5553,66 @@ func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journ
 	return errors.Join(err, cleanupErr)
 }
 
-func (s *Service) driveOwned(ctx context.Context, runID string, owner journal.OwnerLease) (
+func (s *Service) driveOwned(
+	ctx context.Context,
+	runID string,
+	owner journal.OwnerLease,
+) (status RunStatus, resultErr error) {
+	defer func() {
+		if closeErr := s.closeRunContinuations(runID); closeErr != nil {
+			resultErr = errors.Join(resultErr, closeErr)
+		}
+	}()
+	for {
+		status, resultErr = s.driveOwnedCycle(
+			ctx,
+			runID,
+			owner,
+		)
+		if IsCode(resultErr, "EFFECT_PARKED") {
+			status, resultErr = s.Status(
+				context.Background(),
+				runID,
+			)
+		}
+		if resultErr != nil {
+			releaseErr := s.journal.ReleaseOwner(
+				context.Background(),
+				owner,
+				s.now().UTC(),
+			)
+			resultErr = errors.Join(resultErr, releaseErr)
+			return status, resultErr
+		}
+		if s.beforeOwnerRelease != nil {
+			s.beforeOwnerRelease()
+		}
+		released, releaseErr := s.journal.ReleaseOwnerIfIdle(
+			context.Background(),
+			owner,
+			s.now().UTC(),
+		)
+		if releaseErr != nil {
+			fallbackErr := s.journal.ReleaseOwner(
+				context.Background(),
+				owner,
+				s.now().UTC(),
+			)
+			return RunStatus{}, errors.Join(
+				runtimeFail("OWNER_UNAVAILABLE", releaseErr),
+				fallbackErr,
+			)
+		}
+		if released {
+			return status, nil
+		}
+	}
+}
+
+func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journal.OwnerLease) (
 	status RunStatus,
 	resultErr error,
 ) {
-	defer s.journal.ReleaseOwner(context.Background(), owner, s.now().UTC())
 	ownedCtx, cancelWork := context.WithCancel(ctx)
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	watchDone := make(chan error, 1)

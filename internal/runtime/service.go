@@ -30,12 +30,26 @@ var (
 )
 
 type Service struct {
-	journal       *journal.Store
-	resolver      approvalResolver
-	dispatcher    driver.Driver
-	production    *productionDriverRuntime
-	gitExecutable string
-	now           func() time.Time
+	journal            *journal.Store
+	resolver           approvalResolver
+	dispatcher         driver.Driver
+	production         *productionDriverRuntime
+	gitExecutable      string
+	now                func() time.Time
+	beforeOwnerRelease func()
+
+	continuationMu sync.Mutex
+	continuations  map[string]*retainedContinuation
+}
+
+type retainedContinuation struct {
+	handle          *driver.Continuation
+	binding         driver.ContinuationBinding
+	selectionDigest string
+	before          string
+	sourceReceipt   string
+	sourceTrackHead string
+	designReceipt   string
 }
 
 type RunStatus struct {
@@ -202,10 +216,216 @@ func newService(store *journal.Store, resolver approvalResolver, dispatcher driv
 }
 
 func (s *Service) Close() error {
-	if s == nil || s.journal == nil {
+	if s == nil {
 		return nil
 	}
-	return s.journal.Close()
+	cleanupErr := s.closeAllContinuations()
+	if s.journal == nil {
+		return cleanupErr
+	}
+	return errors.Join(
+		cleanupErr,
+		s.journal.Close(),
+	)
+}
+
+const (
+	continuationDesign   = "design"
+	continuationRecovery = "recovery"
+)
+
+func continuationRegistryKey(runID, kind, identity string) string {
+	return runID + "\x00" + kind + "\x00" + identity
+}
+
+func continuationRegistryPrefix(runID, kind string) string {
+	return runID + "\x00" + kind + "\x00"
+}
+
+func (s *Service) storeRetainedContinuation(
+	runID string,
+	kind string,
+	identity string,
+	entry *retainedContinuation,
+) error {
+	if s == nil || entry == nil || entry.handle == nil {
+		return runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	key := continuationRegistryKey(runID, kind, identity)
+	s.continuationMu.Lock()
+	if s.continuations == nil {
+		s.continuations = make(map[string]*retainedContinuation)
+	}
+	prior := s.continuations[key]
+	if prior != nil {
+		delete(s.continuations, key)
+		if err := closeRetainedContinuation(prior); err != nil {
+			cleanupErr := closeRetainedContinuation(entry)
+			s.continuationMu.Unlock()
+			return errors.Join(err, cleanupErr)
+		}
+	}
+	s.continuations[key] = entry
+	s.continuationMu.Unlock()
+	return nil
+}
+
+func (s *Service) takeRetainedContinuation(
+	runID string,
+	kind string,
+	identity string,
+) *retainedContinuation {
+	if s == nil {
+		return nil
+	}
+	key := continuationRegistryKey(runID, kind, identity)
+	s.continuationMu.Lock()
+	defer s.continuationMu.Unlock()
+	entry := s.continuations[key]
+	delete(s.continuations, key)
+	return entry
+}
+
+func (s *Service) discardRetainedContinuation(
+	runID string,
+	kind string,
+	identity string,
+) error {
+	return closeRetainedContinuation(
+		s.takeRetainedContinuation(runID, kind, identity),
+	)
+}
+
+func (s *Service) closeRunRetainedContinuations(
+	runID string,
+	kind string,
+) error {
+	if s == nil {
+		return nil
+	}
+	prefix := continuationRegistryPrefix(runID, kind)
+	s.continuationMu.Lock()
+	entries := make([]*retainedContinuation, 0)
+	for key, entry := range s.continuations {
+		if strings.HasPrefix(key, prefix) {
+			entries = append(entries, entry)
+			delete(s.continuations, key)
+		}
+	}
+	s.continuationMu.Unlock()
+	return closeRetainedContinuations(entries)
+}
+
+func (s *Service) storeContinuation(
+	runID string,
+	slice string,
+	entry *retainedContinuation,
+) error {
+	return s.storeRetainedContinuation(
+		runID,
+		continuationDesign,
+		slice,
+		entry,
+	)
+}
+
+func (s *Service) takeContinuation(
+	runID string,
+	slice string,
+) *retainedContinuation {
+	return s.takeRetainedContinuation(runID, continuationDesign, slice)
+}
+
+func (s *Service) discardContinuation(
+	runID string,
+	slice string,
+) error {
+	return s.discardRetainedContinuation(
+		runID,
+		continuationDesign,
+		slice,
+	)
+}
+
+func (s *Service) storeRecoverableContinuation(
+	runID string,
+	effectID string,
+	entry *retainedContinuation,
+) error {
+	return s.storeRetainedContinuation(
+		runID,
+		continuationRecovery,
+		effectID,
+		entry,
+	)
+}
+
+func (s *Service) takeRecoverableContinuation(
+	runID string,
+	effectID string,
+) *retainedContinuation {
+	return s.takeRetainedContinuation(
+		runID,
+		continuationRecovery,
+		effectID,
+	)
+}
+
+func (s *Service) discardRecoverableContinuation(
+	runID string,
+	effectID string,
+) error {
+	return s.discardRetainedContinuation(
+		runID,
+		continuationRecovery,
+		effectID,
+	)
+}
+
+func (s *Service) closeRunRecoverableContinuations(runID string) error {
+	return s.closeRunRetainedContinuations(runID, continuationRecovery)
+}
+
+func (s *Service) closeRunContinuations(runID string) error {
+	return s.closeRunRetainedContinuations(runID, continuationDesign)
+}
+
+func (s *Service) closeAllContinuations() error {
+	if s == nil {
+		return nil
+	}
+	s.continuationMu.Lock()
+	entries := make(
+		[]*retainedContinuation,
+		0,
+		len(s.continuations),
+	)
+	for key, entry := range s.continuations {
+		entries = append(entries, entry)
+		delete(s.continuations, key)
+	}
+	s.continuationMu.Unlock()
+	return closeRetainedContinuations(entries)
+}
+
+func closeRetainedContinuations(entries []*retainedContinuation) error {
+	var result error
+	for _, entry := range entries {
+		result = errors.Join(result, closeRetainedContinuation(entry))
+	}
+	return result
+}
+
+func closeRetainedContinuation(entry *retainedContinuation) error {
+	if entry == nil || entry.handle == nil {
+		return nil
+	}
+	handle := entry.handle
+	entry.handle = nil
+	if err := handle.Close(); err != nil {
+		return runtimeFail("CONTINUATION_CLEANUP_FAILED", err)
+	}
+	return nil
 }
 
 func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
@@ -592,6 +812,99 @@ func (s *Service) loadRun(
 type ControlCommand = journal.ControlCommand
 type ControlReceipt = journal.ControlReceipt
 
+type AnswerAttentionCommand struct {
+	RunID              string `json:"run_id"`
+	AttentionID        string `json:"attention_id"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	Answer             string `json:"answer"`
+}
+
+func (s *Service) AnswerAttention(
+	ctx context.Context,
+	command AnswerAttentionCommand,
+) (RunStatus, error) {
+	if s == nil || s.journal == nil || ctx == nil ||
+		command.ExpectedGeneration != 1 {
+		return RunStatus{}, runtimeFail("INVALID_ATTENTION_COMMAND", nil)
+	}
+	attention, err := s.journal.Attention(
+		ctx,
+		command.RunID,
+		command.AttentionID,
+	)
+	if err != nil {
+		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	if _, err := s.journal.AnswerAttention(
+		ctx,
+		journal.AnswerAttentionCommand{
+			RunID:              command.RunID,
+			Attention:          attention.Attention,
+			ExpectedGeneration: command.ExpectedGeneration,
+			Answer:             command.Answer,
+		},
+		s.now().UTC(),
+	); err != nil {
+		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	control, err := s.journal.ControlProjection(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	if control.Desired != "running" {
+		return s.Status(ctx, command.RunID)
+	}
+	now := s.now().UTC()
+	owner, present, err := s.journal.CurrentOwner(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	if present {
+		if owner.ExpiresAt.After(now) {
+			status, statusErr := s.Status(ctx, command.RunID)
+			if statusErr != nil {
+				return RunStatus{}, statusErr
+			}
+			// Close the ordinary release race without polling: if the owner
+			// consumed the wake it remains active; if it released while
+			// status was projected, this caller can acquire below.
+			owner, present, err = s.journal.CurrentOwner(
+				ctx,
+				command.RunID,
+			)
+			if err != nil {
+				return RunStatus{},
+					runtimeFail("OWNER_UNAVAILABLE", err)
+			}
+			now = s.now().UTC()
+			if present && owner.ExpiresAt.After(now) {
+				return status, nil
+			}
+			if present {
+				return RunStatus{},
+					runtimeFail("TAKEOVER_REQUIRED", nil)
+			}
+		} else {
+			return RunStatus{},
+				runtimeFail("TAKEOVER_REQUIRED", nil)
+		}
+	}
+	owner, err = s.journal.AcquireOwner(
+		ctx,
+		command.RunID,
+		now,
+		ownerDuration(),
+		false,
+	)
+	if journal.IsCode(err, "OWNER_ACTIVE") {
+		return s.Status(ctx, command.RunID)
+	}
+	if err != nil {
+		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	return s.driveOwned(ctx, command.RunID, owner)
+}
+
 func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatus, error) {
 	if s == nil || s.journal == nil || ctx == nil {
 		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
@@ -602,6 +915,11 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 		s.now().UTC(),
 	); err != nil {
 		return RunStatus{}, runtimeFail("CONTROL_REJECTED", err)
+	}
+	if command.Kind == journal.Cancel {
+		cleanupErr := s.closeRunRecoverableContinuations(command.RunID)
+		status, statusErr := s.Status(ctx, command.RunID)
+		return status, errors.Join(statusErr, cleanupErr)
 	}
 	if command.Kind != journal.Resume && command.Kind != journal.Takeover {
 		return s.Status(ctx, command.RunID)

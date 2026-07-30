@@ -1075,13 +1075,13 @@ func TestImplementationCycleEnvelopeBindsExactTopologyAndWork(t *testing.T) {
 		TrackHead: "5555555555555555555555555555555555555555",
 	}
 	outerWork := workIdentity(cycle.Before, "git.seal")
-	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle.DispatchWork = workIdentity(outerID, "driver.dispatch")
+	outerID := journal.AttemptEffectID(outerWork, 1, 2)
+	cycle.DispatchWork = workIdentity(outerWork, "driver.dispatch")
 	cycle.DispatchEffect = journal.AttemptEffectID(
-		cycle.DispatchWork, 1, 1)
-	cycle.PreparedWork = workIdentity(outerID, "git.seal.prepared")
+		cycle.DispatchWork, 1, 2)
+	cycle.PreparedWork = workIdentity(outerWork, "git.seal.prepared")
 	cycle.PreparedEffect = journal.AttemptEffectID(
-		cycle.PreparedWork, 1, 1)
+		cycle.PreparedWork, 1, 2)
 	exact := func(value implementationCycle) (
 		journal.Command,
 		journal.Effect,
@@ -1103,6 +1103,27 @@ func TestImplementationCycleEnvelopeBindsExactTopologyAndWork(t *testing.T) {
 		effect,
 	); err != nil || got != cycle {
 		t.Fatalf("exact cycle = %#v, err=%v", got, err)
+	}
+	legacy := cycle
+	legacy.DispatchWork = workIdentity(outerID, "driver.dispatch")
+	legacy.DispatchEffect = journal.AttemptEffectID(
+		legacy.DispatchWork,
+		1,
+		1,
+	)
+	legacy.PreparedWork = workIdentity(outerID, "git.seal.prepared")
+	legacy.PreparedEffect = journal.AttemptEffectID(
+		legacy.PreparedWork,
+		1,
+		1,
+	)
+	legacyCommand, legacyEffect := exact(legacy)
+	if got, err := validateImplementationCycleEnvelope(
+		manifest,
+		legacyCommand,
+		legacyEffect,
+	); err != nil || got != legacy {
+		t.Fatalf("legacy cycle = %#v, err=%v", got, err)
 	}
 	tests := map[string]func(*implementationCycle, *journal.Command, *journal.Effect){
 		"release": func(value *implementationCycle, _ *journal.Command, _ *journal.Effect) {

@@ -75,6 +75,174 @@ func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
 	}
 }
 
+func TestSubmissionCorrectionsAreBoundedAndYieldCannotPromoteAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+	invocation, _, _ := memoryInvocationFixture(t)
+	reservations := 0
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepSubmissionCorrection {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations++
+		return nil
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for correction := 1; correction <= MaxSubmissionCorrections; correction++ {
+		result := executeToolJSON(
+			t,
+			session,
+			"malformed-"+itoa(correction),
+			"sworn_submit",
+			map[string]any{"submission": map[string]any{}},
+		)
+		terminated, terminalErr := session.terminated()
+		if !result.Failed || terminated || terminalErr != nil {
+			t.Fatalf(
+				"correction %d = %#v, terminated=%v, error=%v",
+				correction,
+				result,
+				terminated,
+				terminalErr,
+			)
+		}
+	}
+	exhausted := executeToolJSON(
+		t,
+		session,
+		"malformed-exhausted",
+		"sworn_submit",
+		map[string]any{"submission": map[string]any{}},
+	)
+	terminated, terminalErr := session.terminated()
+	if !exhausted.Failed || !terminated ||
+		!IsCode(terminalErr, "SUBMISSION_CORRECTIONS_EXHAUSTED") ||
+		session.handoff() != nil || session.yielded() != nil ||
+		reservations != MaxSubmissionCorrections {
+		t.Fatalf(
+			"exhausted = %#v, terminated=%v, error=%v",
+			exhausted,
+			terminated,
+			terminalErr,
+		)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	invocation, _, _ = memoryInvocationFixture(t)
+	reservations = 0
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepSubmissionCorrection {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations++
+		return nil
+	}
+	session, err = newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for correction := 1; correction <= MaxSubmissionCorrections; correction++ {
+		result := executeToolJSON(
+			t,
+			session,
+			"correctable-"+itoa(correction),
+			"sworn_submit",
+			map[string]any{"submission": map[string]any{}},
+		)
+		if !result.Failed {
+			t.Fatalf("correction %d accepted", correction)
+		}
+	}
+	valid := executeToolJSON(
+		t,
+		session,
+		"valid-after-corrections",
+		"sworn_submit",
+		map[string]any{"submission": submissionFixture(
+			t,
+			invocation.Request.InvocationID,
+			PlannerProposal,
+			"",
+		)},
+	)
+	submitted, submitErr := session.submitted()
+	if valid.Failed || !submitted || submitErr != nil ||
+		session.handoff() == nil || session.yielded() != nil ||
+		reservations != MaxSubmissionCorrections {
+		t.Fatalf(
+			"valid = %#v, submitted=%v, error=%v",
+			valid,
+			submitted,
+			submitErr,
+		)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	invocation, _, _ = memoryInvocationFixture(t)
+	session, err = newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yielded := executeToolJSON(
+		t,
+		session,
+		"yield",
+		"sworn_yield",
+		map[string]any{"yield": Yield{
+			SchemaVersion: YieldSchemaVersion,
+			InvocationID:  invocation.Request.InvocationID,
+			Kind:          YieldQuestion,
+			Message:       "Which admitted base should I use?",
+		}},
+	)
+	submitted, submitErr = session.submitted()
+	terminated, terminalErr = session.terminated()
+	if yielded.Failed || !terminated || terminalErr != nil ||
+		submitted || submitErr != nil ||
+		session.handoff() != nil || session.yielded() == nil {
+		t.Fatalf(
+			"yield = %#v, terminated=%v, submitted=%v, errors=%v/%v",
+			yielded,
+			terminated,
+			submitted,
+			terminalErr,
+			submitErr,
+		)
+	}
+	afterYield := executeToolJSON(
+		t,
+		session,
+		"submit-after-yield",
+		"sworn_submit",
+		map[string]any{"submission": submissionFixture(
+			t,
+			invocation.Request.InvocationID,
+			PlannerProposal,
+			"",
+		)},
+	)
+	if !afterYield.Failed || session.handoff() != nil {
+		t.Fatalf("submission promoted after yield: %#v", afterYield)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	request, err := NewRequest(
@@ -123,7 +291,7 @@ func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.
 		!strings.Contains(prompt.Instruction, "/sworn/inputs/") ||
 		!strings.Contains(prompt.Instruction, "input's path") ||
 		!strings.Contains(prompt.Instruction, "exact invocation_id and responsibility") ||
-		!strings.Contains(prompt.Instruction, "exactly once") {
+		!strings.Contains(prompt.Instruction, "exactly one terminal") {
 		t.Fatalf("model prompt = %s", body)
 	}
 }

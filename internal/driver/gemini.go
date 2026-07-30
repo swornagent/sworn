@@ -274,9 +274,6 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		}
 		parts = append(parts, decoded)
 	}
-	if len(calls) == 0 {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
-	}
 	if len(opaque) > 0 {
 		retained, retainErr := conversation.ledger.retain(opaque...)
 		if retainErr != nil {
@@ -293,7 +290,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 	conversation.contents = append(conversation.contents, geminiContent{Role: "model", Parts: parts})
 	conversation.pending = pending
 	conversation.step++
-	turn := providerTurn{Calls: calls}
+	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usage, present := root["usageMetadata"]; present {
 		metadata, metadataErr := closedObject(
 			usage,
@@ -316,6 +313,22 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		turn.Usage = &Usage{InputTokens: input, OutputTokens: output}
 	}
 	return turn, nil
+}
+
+func (conversation *geminiConversation) appendInstruction(body []byte) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(body) {
+		return fail("CONTINUATION_INVALID")
+	}
+	text := string(body)
+	conversation.contents = append(conversation.contents, geminiContent{
+		Role: "user",
+		Parts: []geminiPart{
+			{Text: &text},
+		},
+	})
+	return nil
 }
 
 func (conversation *geminiConversation) appendResults(results []providerToolResult) error {
