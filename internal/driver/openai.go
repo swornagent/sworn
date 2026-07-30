@@ -312,13 +312,19 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		[]string{"message", "finish_reason"},
 		[]string{"index", "logprobs"},
 	)
-	if err != nil || choice["finish_reason"] != "tool_calls" {
+	if err != nil {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	finishReason, finishOK := choice["finish_reason"].(string)
+	if !finishOK ||
+		(finishReason != "tool_calls" && finishReason != "stop") {
 		return providerTurn{}, fail("MISSING_SUBMISSION")
 	}
 	rawMessage, err := closedObject(
 		choice["message"],
-		[]string{"role", "content", "tool_calls"},
+		[]string{"role", "content"},
 		[]string{
+			"tool_calls",
 			"reasoning", "reasoning_content", "reasoning_details",
 			"refusal", "annotations",
 		},
@@ -343,8 +349,16 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 	}
-	rawToolCalls, ok := rawMessage["tool_calls"].([]any)
-	if !ok || len(rawToolCalls) == 0 || len(rawToolCalls) > MaxToolCalls {
+	rawToolCalls := []any(nil)
+	if rawToolCallsValue, present := rawMessage["tool_calls"]; present &&
+		rawToolCallsValue != nil {
+		var ok bool
+		rawToolCalls, ok = rawToolCallsValue.([]any)
+		if !ok || len(rawToolCalls) > MaxToolCalls {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+	}
+	if (finishReason == "tool_calls") != (len(rawToolCalls) > 0) {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	message := openAIMessage{Role: "assistant"}
@@ -448,7 +462,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	conversation.messages = append(conversation.messages, message)
 	conversation.pending = append([]providerToolCall(nil), calls...)
-	turn := providerTurn{Calls: calls}
+	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
 		usage, usageErr := closedObject(
 			usageValue,
@@ -468,6 +482,23 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		}
 	}
 	return turn, nil
+}
+
+func (conversation *openAIConversation) appendInstruction(body []byte) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(body) {
+		return fail("CONTINUATION_INVALID")
+	}
+	content, err := json.Marshal(string(body))
+	if err != nil || len(content) > MaxOpaqueFieldBytes {
+		clearBytes(content)
+		return fail("CONTINUATION_INVALID")
+	}
+	conversation.messages = append(conversation.messages, openAIMessage{
+		Role: "user", Content: content,
+	})
+	return nil
 }
 
 func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {

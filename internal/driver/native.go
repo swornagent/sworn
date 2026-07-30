@@ -63,6 +63,7 @@ type nativeSurfaceStageCertificate struct {
 	ToolDigest            string
 	CaptureEvidenceDigest string
 	ArgumentDigest        string
+	AuthorityDigest       string
 	Protocol              string
 	ClientName            string
 	ClientVersion         string
@@ -77,6 +78,8 @@ const (
 	nativeInvocationStageFresh nativeInvocationStage = iota + 1
 	nativeInvocationStageContinuationStart
 	nativeInvocationStageResume
+	nativeInvocationStageRecovery
+	nativeInvocationStageAdvisory
 )
 
 type nativeSurfaceCertificate struct {
@@ -89,17 +92,39 @@ type nativeSurfaceCertificate struct {
 	FreshReadOnly       nativeSurfaceStageCertificate
 	FreshReadWrite      nativeSurfaceStageCertificate
 	ContinuationStart   nativeSurfaceStageCertificate
+	ContinuationStartRW nativeSurfaceStageCertificate
+	ResumeReadOnly      nativeSurfaceStageCertificate
 	Resume              nativeSurfaceStageCertificate
 }
 
+// nativeAutomationSurfaceCertificate is deliberately disjoint from the
+// Baton invocation certificate. An automation launch is admitted only after
+// both of its one-tool surfaces have been observed from the pinned CLI.
+type nativeAutomationSurfaceCertificate struct {
+	Family              ProfileFamily
+	ProfileDigest       string
+	Model               string
+	AdapterConfigDigest string
+	ExecutableDigest    string
+	CLIVersion          string
+	Recovery            nativeSurfaceStageCertificate
+	Advisory            nativeSurfaceStageCertificate
+}
+
+type nativeAutomationSmokeInvocations struct {
+	Recovery AutomationInvocation
+	Advisory AutomationInvocation
+}
+
 type nativeAdapter struct {
-	identity     AdapterIdentity
-	config       NativeAdapterConfig
-	resolve      FileCredentialResolver
-	smokeBuilder NativeSmokeBuilder
-	refs         map[string]struct{}
-	certMu       sync.RWMutex
-	certified    map[string]nativeSurfaceCertificate
+	identity            AdapterIdentity
+	config              NativeAdapterConfig
+	resolve             FileCredentialResolver
+	smokeBuilder        NativeSmokeBuilder
+	refs                map[string]struct{}
+	certMu              sync.RWMutex
+	certified           map[string]nativeSurfaceCertificate
+	automationCertified map[string]nativeAutomationSurfaceCertificate
 }
 
 func NewNativeAdapter(
@@ -141,7 +166,8 @@ func NewNativeAdapter(
 			ConfigurationDigest: Digest(body),
 		},
 		config: config, resolve: resolver, smokeBuilder: builder, refs: refs,
-		certified: make(map[string]nativeSurfaceCertificate),
+		certified:           make(map[string]nativeSurfaceCertificate),
+		automationCertified: make(map[string]nativeAutomationSurfaceCertificate),
 	}, nil
 }
 
@@ -309,6 +335,20 @@ func (adapter *nativeAdapter) checkProfile(
 		if err != nil {
 			return ReadinessFail, "native_surface_failed"
 		}
+		automationInvocations, err := nativeAutomationCertificationInvocations(
+			selected,
+		)
+		if err != nil {
+			return ReadinessFail, "native_automation_smoke_invalid"
+		}
+		automationCertificate, err := platformCaptureNativeAutomationSurface(
+			ctx,
+			automationInvocations,
+			adapter.config,
+		)
+		if err != nil {
+			return ReadinessFail, "native_automation_surface_failed"
+		}
 		credentialPath, err := adapter.resolve(ctx, *profile.CredentialRef)
 		if err != nil {
 			return ReadinessFail, certificationFailureCode(err)
@@ -323,12 +363,42 @@ func (adapter *nativeAdapter) checkProfile(
 			return ReadinessFail, certificationFailureCode(err)
 		}
 		adapter.certMu.Lock()
-		adapter.certified[nativeCertificationKey(profile, model)] = certificate
+		key := nativeCertificationKey(profile, model)
+		if adapter.certified == nil {
+			adapter.certified = make(map[string]nativeSurfaceCertificate)
+		}
+		if adapter.automationCertified == nil {
+			adapter.automationCertified = make(
+				map[string]nativeAutomationSurfaceCertificate,
+			)
+		}
+		adapter.certified[key] = certificate
+		adapter.automationCertified[key] = automationCertificate
 		adapter.certMu.Unlock()
 		return ReadinessPass, "live_smoke_passed"
 	default:
 		return ReadinessFail, "check_kind_invalid"
 	}
+}
+
+func (adapter *nativeAdapter) invokeAutomation(
+	ctx context.Context,
+	invocation AutomationInvocation,
+) (AutomationObservation, error) {
+	certificate, credentialPath, err := adapter.nativeAutomationRuntime(
+		ctx,
+		invocation,
+	)
+	if err != nil {
+		return AutomationObservation{}, err
+	}
+	return platformInvokeNativeAutomation(
+		ctx,
+		invocation,
+		adapter.config,
+		credentialPath,
+		certificate,
+	)
 }
 
 func (adapter *nativeAdapter) invoke(
@@ -368,6 +438,26 @@ func (adapter *nativeAdapter) invokeContinuation(
 	)
 }
 
+func (adapter *nativeAdapter) invokeRecoverableContinuation(
+	ctx context.Context,
+	invocation Invocation,
+) (Observation, continuationState, error) {
+	if validateInvocation(invocation) != nil {
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
+	}
+	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
+	if err != nil {
+		return Observation{}, nil, err
+	}
+	return platformStartNativeRecoverableContinuation(
+		ctx,
+		invocation,
+		adapter.config,
+		pathValue,
+		certificate,
+	)
+}
+
 func (adapter *nativeAdapter) resumeContinuation(
 	ctx context.Context,
 	invocation Invocation,
@@ -381,6 +471,28 @@ func (adapter *nativeAdapter) resumeContinuation(
 		return Observation{}, err
 	}
 	return platformResumeNativeContinuation(
+		ctx,
+		invocation,
+		adapter.config,
+		pathValue,
+		certificate,
+		state,
+	)
+}
+
+func (adapter *nativeAdapter) resumeRecoverableContinuation(
+	ctx context.Context,
+	invocation Invocation,
+	state continuationState,
+) (Observation, continuationState, error) {
+	if validateInvocation(invocation) != nil {
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
+	}
+	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
+	if err != nil {
+		return Observation{}, nil, err
+	}
+	return platformResumeNativeRecoverableContinuation(
 		ctx,
 		invocation,
 		adapter.config,
@@ -416,6 +528,95 @@ func (adapter *nativeAdapter) nativeRuntime(
 		return nativeSurfaceCertificate{}, "", fail("CREDENTIAL_NOT_CERTIFIED")
 	}
 	return certificate, pathValue, nil
+}
+
+func (adapter *nativeAdapter) nativeAutomationRuntime(
+	ctx context.Context,
+	invocation AutomationInvocation,
+) (nativeAutomationSurfaceCertificate, string, error) {
+	if adapter == nil ||
+		invocation.Selected.Adapter != adapter.identity ||
+		invocation.Selected.Profile.CredentialRef == nil {
+		return nativeAutomationSurfaceCertificate{}, "", fail("INVALID_ADAPTER")
+	}
+	ref := *invocation.Selected.Profile.CredentialRef
+	if _, admitted := adapter.refs[ref]; !admitted {
+		return nativeAutomationSurfaceCertificate{}, "",
+			fail("CREDENTIAL_NOT_CERTIFIED")
+	}
+	adapter.certMu.RLock()
+	key := nativeCertificationKey(
+		invocation.Selected.Profile,
+		invocation.Selected.Model,
+	)
+	certificate, certified := adapter.automationCertified[key]
+	adapter.certMu.RUnlock()
+	if !certified {
+		return nativeAutomationSurfaceCertificate{}, "",
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	pathValue, err := adapter.resolve(ctx, ref)
+	if err != nil {
+		return nativeAutomationSurfaceCertificate{}, "",
+			fail("CREDENTIAL_NOT_CERTIFIED")
+	}
+	return certificate, pathValue, nil
+}
+
+func nativeAutomationCertificationInvocations(
+	selected SelectedProfile,
+) (nativeAutomationSmokeInvocations, error) {
+	selection := ModelSelection{
+		Profile: selected.Profile.Key,
+		Model:   selected.Model,
+	}
+	binding := AutomationBinding{
+		RunID:                 "native-certification-run",
+		TrackID:               "native-certification-track",
+		Slice:                 "native-certification-slice",
+		BatonAttempt:          1,
+		PlanAuthorityDigest:   Digest([]byte("native-certification-plan")),
+		TargetAuthorityDigest: Digest([]byte("native-certification-target")),
+		WorkIdentity:          Digest([]byte("native-certification-work")),
+		ProgressIdentity:      Digest([]byte("native-certification-progress")),
+	}
+	recovery := RecoveryInvocation{
+		SchemaVersion: RecoveryInvocationSchemaVersion,
+		InvocationID:  "native-recovery-certification",
+		Binding:       binding,
+		Selection:     selection,
+		Facts: []AutomationFact{{
+			Name:  FactWorkerTerminal,
+			Value: "question",
+		}},
+	}
+	advisory := AdvisoryInvocation{
+		SchemaVersion: AdvisoryInvocationSchemaVersion,
+		InvocationID:  "native-advisory-certification",
+		Binding:       binding,
+		Selection:     selection,
+		Question:      "Can the admitted facts answer this bounded question?",
+		Facts: []AutomationFact{{
+			Name:  FactCurrentStatus,
+			Value: "certification",
+		}},
+	}
+	pair := nativeAutomationSmokeInvocations{
+		Recovery: AutomationInvocation{
+			Selected: selected,
+			Recovery: &recovery,
+		},
+		Advisory: AutomationInvocation{
+			Selected: selected,
+			Advisory: &advisory,
+		},
+	}
+	if validateAutomationInvocation(pair.Recovery) != nil ||
+		validateAutomationInvocation(pair.Advisory) != nil {
+		return nativeAutomationSmokeInvocations{},
+			fail("NATIVE_NOT_CERTIFIED")
+	}
+	return pair, nil
 }
 
 func validateNativeSmokeInvocations(
@@ -509,7 +710,10 @@ func nativeCertificationKey(profile ProfileConfig, model string) string {
 }
 
 func nativeToolSurfaceDigest(access WorkspaceAccess) string {
-	definitions := toolDefinitions(access)
+	return nativeToolDefinitionsDigest(toolDefinitions(access))
+}
+
+func nativeToolDefinitionsDigest(definitions []providerToolDefinition) string {
 	body, err := canonicalJSON(definitions)
 	if err != nil {
 		return ""

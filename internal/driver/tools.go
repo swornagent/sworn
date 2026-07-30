@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	MaxToolCalls          = 256
-	MaxToolArgumentBytes  = 262_144
-	MaxToolResultBytes    = 262_144
-	MaxToolPathBytes      = 4_096
-	MaxToolMatches        = 256
-	MaxBashScriptBytes    = 131_072
-	MaxBashCombinedOutput = 262_144
-	MaxToolWalkEntries    = 4_096
-	MaxToolScanBytes      = 4_194_304
+	MaxToolCalls             = 256
+	MaxToolArgumentBytes     = 262_144
+	MaxToolResultBytes       = 262_144
+	MaxToolPathBytes         = 4_096
+	MaxToolMatches           = 256
+	MaxBashScriptBytes       = 131_072
+	MaxBashCombinedOutput    = 262_144
+	MaxToolWalkEntries       = 4_096
+	MaxToolScanBytes         = 4_194_304
+	MaxSubmissionCorrections = 2
 )
 
 const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
@@ -54,17 +55,19 @@ type providerToolResult struct {
 }
 
 type toolSession struct {
-	mu         sync.Mutex
-	invocation Invocation
-	projection *InputProjection
-	before     workspaceManifest
-	server     *submissionServer
-	calls      int
-	terminal   bool
-	submitErr  error
-	submission []byte
-	seal       []byte
-	closed     bool
+	mu                sync.Mutex
+	invocation        Invocation
+	projection        *InputProjection
+	before            workspaceManifest
+	server            *submissionServer
+	calls             int
+	terminal          bool
+	submitErr         error
+	submitCorrections int
+	submission        []byte
+	seal              []byte
+	yield             *Yield
+	closed            bool
 }
 
 func newToolSession(invocation Invocation) (*toolSession, error) {
@@ -116,11 +119,18 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}},"required":["path","old_string","new_string"],"additionalProperties":false}`)},
 		)
 	}
-	definitions = append(definitions, providerToolDefinition{
-		Name:        "sworn_submit",
-		Description: "Include only the prompt's result_fields. For plan/checks use decoded byte_count, sha256:<64 lowercase hex> digest, and base64 bytes; detail may be empty.",
-		InputSchema: json.RawMessage(swornSubmitInputSchema),
-	})
+	definitions = append(definitions,
+		providerToolDefinition{
+			Name:        "sworn_yield",
+			Description: "Stop without Baton authority. Use question when a bounded answer may unblock this turn; use blocked when work cannot continue.",
+			InputSchema: json.RawMessage(swornYieldInputSchema),
+		},
+		providerToolDefinition{
+			Name:        "sworn_submit",
+			Description: "Include only the prompt's result_fields. For plan/checks use decoded byte_count, sha256:<64 lowercase hex> digest, and base64 bytes; detail may be empty.",
+			InputSchema: json.RawMessage(swornSubmitInputSchema),
+		},
+	)
 	return definitions
 }
 
@@ -164,7 +174,9 @@ func (session *toolSession) execute(
 	case "Bash":
 		body, err = session.bash(ctx, call.Arguments)
 	case "sworn_submit":
-		body, err = session.submit(call.Arguments)
+		body, err = session.submit(ctx, call.Arguments)
+	case "sworn_yield":
+		body, err = session.yieldTurn(call.Arguments)
 	default:
 		err = fail("TOOL_NOT_ALLOWED")
 	}
@@ -340,24 +352,28 @@ func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte,
 	return runToolBash(ctx, session.invocation, session.projection.Root(), request.Script)
 }
 
-func (session *toolSession) submit(arguments []byte) ([]byte, error) {
+func (session *toolSession) submit(
+	ctx context.Context,
+	arguments []byte,
+) ([]byte, error) {
 	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
 	if err != nil {
-		return nil, err
+		return nil, session.rejectSubmission(ctx, err)
 	}
 	root, err := closedObject(value, []string{"submission"}, nil)
 	if err != nil {
-		return nil, err
+		return nil, session.rejectSubmission(ctx, err)
 	}
 	submission, err := decodeToolSubmission(root["submission"])
 	if err != nil {
-		session.finishSubmission(nil, nil, err)
-		return nil, err
+		return nil, session.rejectSubmission(ctx, err)
 	}
 	body, err := EncodeSubmission(submission)
 	if err != nil {
-		session.finishSubmission(nil, nil, err)
-		return nil, err
+		return nil, session.rejectSubmission(ctx, err)
+	}
+	if err := session.invocation.Permission.validate(submission); err != nil {
+		return nil, session.rejectSubmission(ctx, err)
 	}
 	seal, sealBytes, submitErr := session.server.Submit(body)
 	if submitErr != nil || !seal.Accepted {
@@ -368,6 +384,67 @@ func (session *toolSession) submit(arguments []byte) ([]byte, error) {
 		return nil, submitErr
 	}
 	session.finishSubmission(body, sealBytes, nil)
+	return []byte("accepted"), nil
+}
+
+func (session *toolSession) rejectSubmission(
+	ctx context.Context,
+	err error,
+) error {
+	session.mu.Lock()
+	if session.closed || session.terminal {
+		session.mu.Unlock()
+		return fail("TOOL_SESSION_CLOSED")
+	}
+	session.submitCorrections++
+	if session.submitCorrections > MaxSubmissionCorrections {
+		session.terminal = true
+		session.submitErr = fail("SUBMISSION_CORRECTIONS_EXHAUSTED")
+		session.mu.Unlock()
+		return session.submitErr
+	}
+	session.mu.Unlock()
+	if reserveErr := reserveRecoveryStep(
+		ctx,
+		session.invocation.RecoveryStepHook,
+		RecoveryStepSubmissionCorrection,
+	); reserveErr != nil {
+		session.mu.Lock()
+		session.terminal = true
+		session.submitErr = reserveErr
+		session.mu.Unlock()
+		return reserveErr
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed || session.terminal {
+		return fail("TOOL_SESSION_CLOSED")
+	}
+	return err
+}
+
+func (session *toolSession) yieldTurn(arguments []byte) ([]byte, error) {
+	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
+	if err != nil {
+		session.finishYield(nil, err)
+		return nil, err
+	}
+	root, err := closedObject(value, []string{"yield"}, nil)
+	if err != nil {
+		session.finishYield(nil, err)
+		return nil, err
+	}
+	yield, err := decodeToolYield(root["yield"])
+	if err != nil {
+		session.finishYield(nil, err)
+		return nil, err
+	}
+	if yield.InvocationID != session.invocation.Request.InvocationID {
+		err = fail("YIELD_BINDING_MISMATCH")
+		session.finishYield(nil, err)
+		return nil, err
+	}
+	session.finishYield(&yield, nil)
 	return []byte("accepted"), nil
 }
 
@@ -442,10 +519,38 @@ func (session *toolSession) finishSubmission(body, seal []byte, err error) {
 	session.seal = append([]byte(nil), seal...)
 }
 
+func (session *toolSession) finishYield(value *Yield, err error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.terminal = true
+	session.submitErr = err
+	if value != nil {
+		copyValue := *value
+		session.yield = &copyValue
+	}
+}
+
 func (session *toolSession) submitted() (bool, error) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	return session.terminal && session.submitErr == nil, session.submitErr
+	return session.terminal && session.submitErr == nil &&
+		session.yield == nil && len(session.submission) != 0, session.submitErr
+}
+
+func (session *toolSession) terminated() (bool, error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.terminal, session.submitErr
+}
+
+func (session *toolSession) yielded() *Yield {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.terminal || session.submitErr != nil || session.yield == nil {
+		return nil
+	}
+	copyValue := *session.yield
+	return &copyValue
 }
 
 func (session *toolSession) handoff() *SealedHandoff {

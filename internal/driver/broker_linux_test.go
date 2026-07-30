@@ -4,6 +4,7 @@ package driver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -12,6 +13,56 @@ import (
 	"testing"
 	"time"
 )
+
+func TestNativeBrokerRefusedCorrectionClosesWithoutResultBytes(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepSubmissionCorrection {
+			t.Fatalf("recovery kind = %s", kind)
+		}
+		return fail("TEST_REFUSAL")
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	malformed := toolCallRequest(
+		1,
+		"sworn_submit",
+		map[string]any{"submission": map[string]any{}},
+	)
+	status, body := brokerRequest(t, broker, capability, malformed)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"closed"`)) ||
+		bytes.Contains(body, []byte(`"result"`)) ||
+		bytes.Contains(body, []byte(`"content"`)) ||
+		bytes.Contains(body, []byte("error:")) {
+		t.Fatalf("refused correction = %d %s", status, body)
+	}
+	select {
+	case <-broker.Terminal():
+	default:
+		t.Fatal("refused correction did not close broker")
+	}
+	status, body = brokerRequest(t, broker, capability, malformed)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"closed"`)) {
+		t.Fatalf("second call = %d %s", status, body)
+	}
+}
 
 func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
@@ -226,6 +277,42 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 		if bytes.Contains(response, capability) {
 			t.Fatalf("capability escaped broker response: %s", response)
 		}
+	}
+}
+
+func openNativeBrokerForTest(
+	t *testing.T,
+	broker *nativeBroker,
+	capability []byte,
+) {
+	t.Helper()
+	for _, request := range []map[string]any{
+		{
+			"jsonrpc": "2.0", "id": 101, "method": "initialize",
+			"params": map[string]any{
+				"protocolVersion": "2025-06-18",
+				"capabilities":    map[string]any{},
+				"clientInfo": map[string]any{
+					"name": "codex", "version": CodexCLIVersion,
+				},
+			},
+		},
+		{
+			"jsonrpc": "2.0", "method": "notifications/initialized",
+			"params": map[string]any{},
+		},
+		{
+			"jsonrpc": "2.0", "id": 102, "method": "tools/list",
+			"params": map[string]any{},
+		},
+	} {
+		status, body := brokerRequest(t, broker, capability, request)
+		if status != http.StatusOK && status != http.StatusAccepted {
+			t.Fatalf("broker handshake = %d %s", status, body)
+		}
+	}
+	if err := broker.Arm(); err != nil {
+		t.Fatal(err)
 	}
 }
 

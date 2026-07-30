@@ -186,9 +186,6 @@ func (conversation *responsesConversation) accept(
 			body: rawResponse.Output[index],
 		})
 	}
-	if len(calls) == 0 {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
-	}
 	retained, err := conversation.ledger.retain(retainedFields...)
 	if err != nil {
 		return providerTurn{}, err
@@ -197,7 +194,7 @@ func (conversation *responsesConversation) accept(
 		conversation.input = append(conversation.input, item)
 	}
 	conversation.pending = append([]providerToolCall(nil), calls...)
-	turn := providerTurn{Calls: calls}
+	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
 		usage, usageErr := closedObject(
 			usageValue,
@@ -215,6 +212,24 @@ func (conversation *responsesConversation) accept(
 		}
 	}
 	return turn, nil
+}
+
+func (conversation *responsesConversation) appendInstruction(body []byte) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(body) {
+		return fail("CONTINUATION_INVALID")
+	}
+	message, err := json.Marshal(struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}{Role: "user", Content: string(body)})
+	if err != nil || len(message) > MaxOpaqueFieldBytes {
+		clearBytes(message)
+		return fail("CONTINUATION_INVALID")
+	}
+	conversation.input = append(conversation.input, message)
+	return nil
 }
 
 func validateResponsesReasoningItem(item map[string]any) error {

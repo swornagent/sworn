@@ -150,6 +150,325 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 	}
 }
 
+func TestProviderWorkerYieldIsTerminalWithoutSealedBatonAuthority(t *testing.T) {
+	t.Parallel()
+	const invocationID = "provider-yield"
+	arguments, err := json.Marshal(map[string]any{
+		"yield": Yield{
+			SchemaVersion: YieldSchemaVersion,
+			InvocationID:  invocationID,
+			Kind:          YieldQuestion,
+			Message:       "Which exact prepared base should I use?",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		var body struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		}
+		if json.NewDecoder(request.Body).Decode(&body) != nil {
+			t.Error("invalid provider request")
+		}
+		names := make(map[string]struct{}, len(body.Tools))
+		for _, tool := range body.Tools {
+			names[tool.Name] = struct{}{}
+		}
+		if _, ok := names["sworn_submit"]; !ok {
+			t.Error("submission terminal missing")
+		}
+		if _, ok := names["sworn_yield"]; !ok {
+			t.Error("yield terminal missing")
+		}
+		writeJSONResponse(t, writer, responsesToolCallResponse(
+			"yield-response",
+			"yield-function",
+			"yield-call",
+			"sworn_yield",
+			string(arguments),
+			3,
+			2,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-yield", ID: "sworn.openai.yield", Version: "1.0.0",
+				Endpoint:         server.URL + "/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIResponsesAPI,
+			ReasoningEffort: "none",
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Yield == nil ||
+		observation.Handoff != nil ||
+		observation.Yield.InvocationID != invocationID ||
+		observation.Yield.Kind != YieldQuestion {
+		t.Fatalf("observation = %#v, error = %v", observation, err)
+	}
+}
+
+func TestProviderMalformedSubmissionGetsExactlyTwoSameSessionCorrections(
+	t *testing.T,
+) {
+	t.Parallel()
+	const invocationID = "provider-submit-corrections"
+	valid := submissionToolArguments(t, submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	))
+	var turns atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := turns.Add(1)
+		arguments := `{"submission":{}}`
+		if turn == int64(MaxSubmissionCorrections+1) {
+			arguments = valid
+		}
+		writeJSONResponse(t, writer, responsesToolCallResponse(
+			"correction-response-"+itoa(int(turn)),
+			"correction-function-"+itoa(int(turn)),
+			"correction-call-"+itoa(int(turn)),
+			"sworn_submit",
+			arguments,
+			1,
+			1,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-corrections", ID: "sworn.openai.corrections",
+				Version: "1.0.0", Endpoint: server.URL + "/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIResponsesAPI,
+			ReasoningEffort: "none",
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	var reservations atomic.Int64
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepSubmissionCorrection {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations.Add(1)
+		return nil
+	}
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil ||
+		observation.Yield != nil ||
+		turns.Load() != int64(MaxSubmissionCorrections+1) ||
+		reservations.Load() != int64(MaxSubmissionCorrections) {
+		t.Fatalf(
+			"observation = %#v, turns=%d, error=%v",
+			observation,
+			turns.Load(),
+			err,
+		)
+	}
+}
+
+func TestProviderProseNudgeIsReservedOnceAndFailClosed(t *testing.T) {
+	tests := []struct {
+		name         string
+		refuse       bool
+		secondProse  bool
+		wantRequests int64
+		wantCode     string
+	}{
+		{name: "submit_after_nudge", wantRequests: 2},
+		{
+			name: "reservation_refused", refuse: true,
+			wantRequests: 1, wantCode: "RECOVERY_STEP_REFUSED",
+		},
+		{
+			name: "second_prose_stops", secondProse: true,
+			wantRequests: 2, wantCode: "MISSING_SUBMISSION",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			const invocationID = "provider-prose-nudge"
+			valid := submissionToolArguments(t, submissionFixture(
+				t,
+				invocationID,
+				ImplementerImplementation,
+				"",
+			))
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(
+				writer http.ResponseWriter,
+				request *http.Request,
+			) {
+				turn := requests.Add(1)
+				var body struct {
+					Input []map[string]any `json:"input"`
+				}
+				if json.NewDecoder(request.Body).Decode(&body) != nil {
+					t.Error("invalid provider request")
+				}
+				if turn == 2 {
+					last := body.Input[len(body.Input)-1]
+					if last["role"] != "user" ||
+						last["content"] != providerProseNudge {
+						t.Errorf("nudge = %#v", last)
+					}
+				}
+				if turn == 1 || test.secondProse {
+					writeJSONResponse(t, writer, map[string]any{
+						"status": "completed",
+						"output": []any{map[string]any{
+							"type": "message", "role": "assistant",
+							"status": "completed",
+							"content": []any{map[string]any{
+								"type": "output_text",
+								"text": "I have finished.",
+							}},
+						}},
+						"usage": map[string]any{
+							"input_tokens": 1, "output_tokens": 1,
+							"total_tokens": 2,
+						},
+					})
+					return
+				}
+				writeJSONResponse(t, writer, responsesToolCallResponse(
+					"nudge-response",
+					"nudge-function",
+					"nudge-call",
+					"sworn_submit",
+					valid,
+					1,
+					1,
+				))
+			}))
+			defer server.Close()
+			adapter, err := NewOpenAIAdapter(
+				OpenAIProfileConfig{
+					HTTPProfileConfig: HTTPProfileConfig{
+						Key: "openai-prose", ID: "sworn.openai.prose",
+						Version:          "1.0.0",
+						Endpoint:         server.URL + "/v1/responses",
+						CredentialHeader: "Authorization",
+						CredentialPrefix: "Bearer ",
+						CredentialRefs:   []string{"credential-ref"},
+						ResponseBytes:    MaxProviderResponseBytes,
+					},
+					API: OpenAIResponsesAPI, ReasoningEffort: "none",
+				},
+				func(context.Context, string) ([]byte, error) {
+					return []byte("secret"), nil
+				},
+				nil,
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation := productionInvocationFixture(
+				t,
+				adapter,
+				ProfileOpenAIHTTP,
+				invocationID,
+				RoleImplementer,
+				ImplementerImplementation,
+				ReadWrite,
+			)
+			var reservations atomic.Int64
+			invocation.RecoveryStepHook = func(
+				_ context.Context,
+				kind RecoveryStepKind,
+			) error {
+				if kind != RecoveryStepProseNudge {
+					t.Fatalf("reservation kind = %s", kind)
+				}
+				reservations.Add(1)
+				if test.refuse {
+					return fail("TEST_REFUSAL")
+				}
+				return nil
+			}
+			observation, invokeErr :=
+				(Dispatcher{}).Invoke(context.Background(), invocation)
+			if requests.Load() != test.wantRequests ||
+				reservations.Load() != 1 {
+				t.Fatalf(
+					"requests=%d reservations=%d",
+					requests.Load(),
+					reservations.Load(),
+				)
+			}
+			if test.wantCode == "" {
+				if invokeErr != nil || observation.Handoff == nil {
+					t.Fatalf(
+						"observation=%#v error=%v",
+						observation,
+						invokeErr,
+					)
+				}
+			} else if !IsCode(invokeErr, test.wantCode) {
+				t.Fatalf("error=%v, want %s", invokeErr, test.wantCode)
+			}
+		})
+	}
+}
+
 func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 	invocationID := "provider-tool-order"
 	submission := submissionFixture(

@@ -96,6 +96,13 @@ type Continuation struct {
 	cell func() *continuationCell
 }
 
+type continuationFlow uint8
+
+const (
+	continuationFlowW3 continuationFlow = iota + 1
+	continuationFlowRecoverable
+)
+
 type continuationCell struct {
 	mu               sync.Mutex
 	binding          [sha256.Size]byte
@@ -103,6 +110,11 @@ type continuationCell struct {
 	expiresNano      int64
 	mode             ContinuationMode
 	state            continuationState
+	flow             continuationFlow
+	sourceRole       Role
+	sourceDuty       Responsibility
+	sourceAccess     WorkspaceAccess
+	sourceFresh      bool
 	closed           bool
 }
 
@@ -186,29 +198,21 @@ func startContinuation(
 		return observation, nil, fresh, invokeErr
 	}
 	if state == nil {
-		fresh.Status = ContinuationStatusCompleted
-		return observation, nil, fresh, nil
-	}
-	mode, size := state.continuationMode(), state.continuationBytes()
-	if !mode.validRetained() || size < 1 || size > maxContinuationStateBytes {
-		if closeErr := closeContinuationState(state); closeErr != nil {
-			return failureObservation("adapter_failed"), nil, fresh, closeErr
+		if observation.Yield != nil {
+			fresh.Status = ContinuationStatusUnsupported
+		} else {
+			fresh.Status = ContinuationStatusCompleted
 		}
-		fresh.Status = ContinuationStatusOverflow
 		return observation, nil, fresh, nil
 	}
-	cell := &continuationCell{
-		binding:          fingerprint,
-		sourceInvocation: sha256.Sum256([]byte(invocation.Request.InvocationID)),
-		expiresNano:      time.Now().Add(maxContinuationLifetime).UnixNano(),
-		mode:             mode,
-		state:            state,
+	flow := continuationFlowW3
+	if observation.Yield != nil {
+		flow = continuationFlowRecoverable
 	}
-	handle := &Continuation{cell: func() *continuationCell { return cell }}
-	return observation, handle, ContinuationResult{
-		Mode:   mode,
-		Status: ContinuationStatusSuspended,
-	}, nil
+	handle, result, retainErr := retainedContinuation(
+		fingerprint, invocation, state, flow,
+	)
+	return observation, handle, result, retainErr
 }
 
 func resumeContinuation(
@@ -261,6 +265,8 @@ func resumeContinuation(
 	case cell.closed || cell.state == nil:
 		cell.mu.Unlock()
 		return Observation{}, nil, fresh, nil
+	case cell.flow != continuationFlowW3:
+		discardStatus = ContinuationStatusMismatch
 	case time.Now().UnixNano() >= cell.expiresNano:
 		discardStatus = ContinuationStatusExpired
 	case cell.binding != fingerprint ||
@@ -280,29 +286,66 @@ func resumeContinuation(
 	cell.zeroLocked()
 	cell.mu.Unlock()
 
-	observation, invokeErr := adapter.resumeContinuation(
-		ctx,
-		invocation,
-		state,
-	)
+	var nextState continuationState
+	var observation Observation
+	var invokeErr error
+	recoverableAdapter, retainsYield :=
+		invocation.Selected.adapter.(recoverableContinuationAdapter)
+	if retainsYield {
+		observation, nextState, invokeErr =
+			recoverableAdapter.resumeRecoverableContinuation(
+				ctx,
+				invocation,
+				state,
+			)
+	} else {
+		observation, invokeErr = adapter.resumeContinuation(
+			ctx,
+			invocation,
+			state,
+		)
+	}
 	observation, invokeErr = finishAdapterInvocation(
 		invocation,
 		observation,
 		invokeErr,
 	)
 	stateCloseErr := closeContinuationState(state)
+	if invokeErr != nil {
+		_ = closeContinuationState(nextState)
+		nextState = nil
+	}
 	resultStatus := ContinuationStatusResumed
 	if isContinuationCancellation(invokeErr) {
 		resultStatus = ContinuationStatusCancelled
 	}
 	if stateCloseErr != nil {
+		_ = closeContinuationState(nextState)
 		return failureObservation("adapter_failed"), nil, ContinuationResult{
 			Mode: mode, Status: resultStatus,
 		}, stateCloseErr
 	}
 	if IsCode(invokeErr, "CONTINUATION_INVALID") {
+		_ = closeContinuationState(nextState)
 		return Observation{}, nil,
 			freshContinuation(ContinuationStatusMismatch), nil
+	}
+	if invokeErr == nil && observation.Yield != nil {
+		handle, result, retainErr := retainedContinuation(
+			fingerprint,
+			invocation,
+			nextState,
+			continuationFlowRecoverable,
+		)
+		if retainErr != nil {
+			return observation, nil, result, retainErr
+		}
+		return observation, handle, result, nil
+	}
+	if closeErr := closeContinuationState(nextState); closeErr != nil {
+		return failureObservation("adapter_failed"), nil, ContinuationResult{
+			Mode: mode, Status: resultStatus,
+		}, closeErr
 	}
 	return observation, nil, ContinuationResult{
 		Mode:   mode,
@@ -447,7 +490,53 @@ func (cell *continuationCell) zeroLocked() {
 	cell.expiresNano = 0
 	cell.mode = ""
 	cell.state = nil
+	cell.flow = 0
+	cell.sourceRole = ""
+	cell.sourceDuty = ""
+	cell.sourceAccess = ""
+	cell.sourceFresh = false
 	cell.closed = true
+}
+
+func retainedContinuation(
+	fingerprint [sha256.Size]byte,
+	invocation Invocation,
+	state continuationState,
+	flow continuationFlow,
+) (*Continuation, ContinuationResult, error) {
+	if state == nil {
+		return nil, freshContinuation(ContinuationStatusUnsupported), nil
+	}
+	mode, size := state.continuationMode(), state.continuationBytes()
+	if !mode.validRetained() || size < 1 || size > maxContinuationStateBytes {
+		closeErr := closeContinuationState(state)
+		result := freshContinuation(ContinuationStatusOverflow)
+		if closeErr != nil {
+			return nil, result, closeErr
+		}
+		return nil, result, nil
+	}
+	descriptor, err := invocation.Permission.Describe()
+	if err != nil {
+		_ = closeContinuationState(state)
+		return nil, freshContinuation(ContinuationStatusMismatch), err
+	}
+	cell := &continuationCell{
+		binding:          fingerprint,
+		sourceInvocation: sha256.Sum256([]byte(invocation.Request.InvocationID)),
+		expiresNano:      time.Now().Add(maxContinuationLifetime).UnixNano(),
+		mode:             mode,
+		state:            state,
+		flow:             flow,
+		sourceRole:       descriptor.Role,
+		sourceDuty:       descriptor.Responsibility,
+		sourceAccess:     descriptor.WorkspaceAccess,
+		sourceFresh:      descriptor.FreshContext,
+	}
+	handle := &Continuation{cell: func() *continuationCell { return cell }}
+	return handle, ContinuationResult{
+		Mode: mode, Status: ContinuationStatusSuspended,
+	}, nil
 }
 
 func closeContinuationState(state continuationState) error {
