@@ -978,12 +978,12 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 ) {
 	for _, test := range []struct {
 		name            string
-		fixture         turnRecoveryFixtureDriver
+		fixture         *turnRecoveryFixtureDriver
 		wantAutomations int
 	}{
 		{
 			name: "arbitrary direct resume",
-			fixture: turnRecoveryFixtureDriver{
+			fixture: &turnRecoveryFixtureDriver{
 				parkS1:         true,
 				recoveryAction: driver.RecoveryResumeWorker,
 				directAnswer:   "Use the exact approved fixture value.",
@@ -992,7 +992,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 		},
 		{
 			name: "mutated fact alias cannot authorize direct resume",
-			fixture: turnRecoveryFixtureDriver{
+			fixture: &turnRecoveryFixtureDriver{
 				parkS1:              true,
 				recoveryAction:      driver.RecoveryResumeWorker,
 				directAnswer:        "Use the exact approved fixture value.",
@@ -1002,7 +1002,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 		},
 		{
 			name: "captain cannot answer",
-			fixture: turnRecoveryFixtureDriver{
+			fixture: &turnRecoveryFixtureDriver{
 				parkS1:         true,
 				recoveryAction: driver.RecoveryAskCaptain,
 				cannotAdvise:   true,
@@ -1011,7 +1011,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 		},
 		{
 			name: "mutated advisory alias cannot authorize resume",
-			fixture: turnRecoveryFixtureDriver{
+			fixture: &turnRecoveryFixtureDriver{
 				parkS1:                true,
 				recoveryAction:        driver.RecoveryAskCaptain,
 				mutateAdvisoryBinding: true,
@@ -1020,7 +1020,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixtureDriver := &test.fixture
+			fixtureDriver := test.fixture
 			fixture := newProductionImplementationRecoveryFixture(
 				t,
 				fixtureDriver,
