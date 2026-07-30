@@ -48,6 +48,12 @@ func NewProductionDriverFactory(
 	if err != nil {
 		return nil, fail("FACTORY_UNAVAILABLE")
 	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil || !filepath.IsAbs(resolvedRoot) {
+		_ = os.RemoveAll(root)
+		return nil, fail("FACTORY_UNAVAILABLE")
+	}
+	root = resolvedRoot
 	factory := &ProductionDriverFactory{root: root}
 	factory.options.EnvironmentCredentials = systemEnvironmentCredential
 	factory.options.FileCredentials = systemFileCredential

@@ -74,24 +74,30 @@ guesses a dialect or falls back between them.
 
 ## Build and verify
 
-Go 1.26.5 or newer is required. Linux also requires root-owned
-`/usr/bin/bwrap` with unprivileged user namespaces enabled. The release gates
-are:
+Go 1.26.5 or newer is required. Source tests, vet, and compilation are
+supported on Linux and macOS:
 
 ```sh
 GOFLAGS=-buildvcs=false go test ./...
-GOFLAGS=-buildvcs=false go test -race ./...
 GOFLAGS=-buildvcs=false go vet ./...
 test -z "$(git ls-files -z -- '*.go' \
   ':(exclude,top).baton/releases/**' | xargs -0 -r gofmt -l)"
 go mod tidy -diff
 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build \
   -mod=readonly -buildvcs=false -trimpath -ldflags='-s -w' \
-  -o /tmp/sworn-v0.3.0 ./cmd/sworn
-test -n "$SWORN_DRIVER_CONFIG"
-/tmp/sworn-v0.3.0 driver certify --all \
-  --config "$SWORN_DRIVER_CONFIG" --json
+  -o /tmp/sworn-v1.0.0-rc.1 ./cmd/sworn
 git diff --check
+```
+
+Autonomous execution and live certification currently require Linux with
+root-owned `/usr/bin/bwrap` and unprivileged user namespaces enabled. The full
+Linux release gate adds:
+
+```sh
+GOFLAGS=-buildvcs=false go test -race ./...
+test -n "$SWORN_DRIVER_CONFIG"
+/tmp/sworn-v1.0.0-rc.1 driver certify --all \
+  --config "$SWORN_DRIVER_CONFIG" --json
 ```
 
 See [the v0.3 release evidence](docs/releases/v0.3.0/README.md) for the exact
