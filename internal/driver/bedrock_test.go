@@ -83,6 +83,63 @@ func TestBedrockConverseReplaysCompleteAdmittedAssistantMessage(t *testing.T) {
 		!bytes.Contains(replay.Messages[2], []byte(`"toolUseId":"tool-1"`)) {
 		t.Fatalf("Bedrock replay = %s", request.Body)
 	}
+	assistant := append([]byte(nil), conversation.messages[1]...)
+	if err := conversation.resume(
+		[]byte(`{"invocation_id":"implementation"}`),
+		toolDefinitions(ReadWrite),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(conversation.messages[1], assistant) {
+		t.Fatal("Bedrock resume changed the admitted assistant message")
+	}
+	request, err = conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resumed struct {
+		Messages   []json.RawMessage `json:"messages"`
+		ToolConfig struct {
+			Tools []bedrockTool `json:"tools"`
+		} `json:"toolConfig"`
+	}
+	if json.Unmarshal(request.Body, &resumed) != nil ||
+		len(resumed.Messages) != 3 {
+		t.Fatalf("Bedrock resumed replay = %s", request.Body)
+	}
+	var finalUser struct {
+		Role    string `json:"role"`
+		Content []struct {
+			ToolResult *struct {
+				ToolUseID string `json:"toolUseId"`
+				Content   []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+				Status string `json:"status"`
+			} `json:"toolResult"`
+			Text *string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(resumed.Messages[2], &finalUser) != nil ||
+		finalUser.Role != "user" ||
+		len(finalUser.Content) != 2 ||
+		finalUser.Content[0].ToolResult == nil ||
+		finalUser.Content[0].ToolResult.ToolUseID != "tool-1" ||
+		len(finalUser.Content[0].ToolResult.Content) != 1 ||
+		finalUser.Content[0].ToolResult.Content[0].Text != "file body" ||
+		finalUser.Content[0].ToolResult.Status != "success" ||
+		finalUser.Content[1].Text == nil ||
+		*finalUser.Content[1].Text !=
+			`{"invocation_id":"implementation"}` {
+		t.Fatalf("Bedrock resumed user message = %s", resumed.Messages[2])
+	}
+	hasWrite := false
+	for _, tool := range resumed.ToolConfig.Tools {
+		hasWrite = hasWrite || tool.ToolSpec.Name == "Write"
+	}
+	if !hasWrite {
+		t.Fatalf("Bedrock resumed tools = %s", request.Body)
+	}
 
 	for name, invalid := range map[string][]byte{
 		"unknown union":     []byte(`{"output":{"message":{"role":"assistant","content":[{"providerExtension":{}}]}},"stopReason":"tool_use"}`),

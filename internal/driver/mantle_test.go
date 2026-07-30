@@ -109,6 +109,12 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	loop := adapter.(*loopAdapter)
+	if loop.dialect != providerDialectMantleChat ||
+		loop.dialect.continuationMode() != ContinuationModeTranscriptReplay ||
+		loop.surface != ProfileSurfaceBedrockMantleChat {
+		t.Fatalf("Mantle continuation identity = %#v", loop)
+	}
 	invocation := productionInvocationFixture(
 		t,
 		adapter,

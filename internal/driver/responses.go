@@ -42,15 +42,9 @@ func newResponsesConversation(
 		!validOpenAIReasoningEffort(reasoningEffort) {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	tools := make([]responsesTool, len(definitions))
-	for index, definition := range definitions {
-		tools[index] = responsesTool{
-			Type:        "function",
-			Name:        definition.Name,
-			Description: definition.Description,
-			Parameters:  append([]byte(nil), definition.InputSchema...),
-			Strict:      false,
-		}
+	tools, err := responsesTools(definitions)
+	if err != nil {
+		return nil, err
 	}
 	initial, err := json.Marshal(struct {
 		Role    string `json:"role"`
@@ -67,6 +61,30 @@ func newResponsesConversation(
 		input:           []json.RawMessage{initial},
 		ledger:          newContinuationLedger(),
 	}, nil
+}
+
+func responsesTools(
+	definitions []providerToolDefinition,
+) ([]responsesTool, error) {
+	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	tools := make([]responsesTool, len(definitions))
+	for index, definition := range definitions {
+		if !providerKeyPattern.MatchString(definition.Name) ||
+			len(definition.InputSchema) == 0 ||
+			len(definition.InputSchema) > MaxToolArgumentBytes {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		tools[index] = responsesTool{
+			Type:        "function",
+			Name:        definition.Name,
+			Description: definition.Description,
+			Parameters:  append([]byte(nil), definition.InputSchema...),
+			Strict:      false,
+		}
+	}
+	return tools, nil
 }
 
 func (conversation *responsesConversation) request() (providerRequest, error) {
@@ -93,6 +111,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		Stream:            false,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
+		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
 	return providerRequest{
@@ -270,6 +289,71 @@ func (conversation *responsesConversation) appendResults(
 	return nil
 }
 
+func (conversation *responsesConversation) resume(
+	prompt []byte,
+	definitions []providerToolDefinition,
+) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
+		!validResponsesResumeTail(conversation.input) {
+		return fail("CONTINUATION_INVALID")
+	}
+	tools, err := responsesTools(definitions)
+	if err != nil {
+		return err
+	}
+	item, err := json.Marshal(struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}{Role: "user", Content: string(prompt)})
+	if err != nil || len(item) > MaxProviderRequestBytes {
+		clearBytes(item)
+		clearResponsesTools(tools)
+		return fail("CONTINUATION_INVALID")
+	}
+	clearResponsesTools(conversation.tools)
+	conversation.tools = tools
+	conversation.input = append(conversation.input, item)
+	return nil
+}
+
+func validResponsesResumeTail(input []json.RawMessage) bool {
+	if len(input) < 3 {
+		return false
+	}
+	value, err := decodeStrict(input[len(input)-1], MaxOpaqueFieldBytes)
+	if err != nil {
+		return false
+	}
+	result, err := closedObject(
+		value,
+		[]string{"type", "call_id", "output"},
+		nil,
+	)
+	callID, callIDOK := result["call_id"].(string)
+	output, outputOK := result["output"].(string)
+	if err != nil || result["type"] != "function_call_output" ||
+		!callIDOK ||
+		validateText(callID, MaxCorrelationIDBytes, false) != nil ||
+		!outputOK || !validOpaqueText([]byte(output)) {
+		return false
+	}
+	for index := len(input) - 2; index > 0; index-- {
+		var call struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+			Name   string `json:"name"`
+		}
+		if json.Unmarshal(input[index], &call) == nil &&
+			call.Type == "function_call" &&
+			call.CallID == callID &&
+			providerKeyPattern.MatchString(call.Name) {
+			return true
+		}
+	}
+	return false
+}
+
 func (conversation *responsesConversation) close() {
 	if conversation == nil {
 		return
@@ -278,10 +362,17 @@ func (conversation *responsesConversation) close() {
 	for _, item := range conversation.input {
 		clearBytes(item)
 	}
-	for index := range conversation.tools {
-		clearBytes(conversation.tools[index].Parameters)
-	}
+	clearResponsesTools(conversation.tools)
+	conversation.endpoint = ""
+	conversation.model = ""
+	conversation.reasoningEffort = ""
 	conversation.input = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func clearResponsesTools(tools []responsesTool) {
+	for index := range tools {
+		clearBytes(tools[index].Parameters)
+	}
 }

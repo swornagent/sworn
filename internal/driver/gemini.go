@@ -79,7 +79,7 @@ func NewGeminiAdapter(
 	}{transport.config, ProfileGemini}
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
-		"", configuration, factory, transport,
+		"", providerDialectGemini, configuration, factory, transport,
 	)
 }
 
@@ -91,12 +91,9 @@ func newGeminiConversation(
 	if validateEndpoint(baseURL) != nil || validateText(model, 500, false) != nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	declarations := make([]geminiDeclaration, len(definitions))
-	for index, definition := range definitions {
-		declarations[index] = geminiDeclaration{
-			Name: definition.Name, Description: definition.Description,
-			ParametersJSONSchema: append([]byte(nil), definition.InputSchema...),
-		}
+	declarations, err := geminiDeclarations(definitions)
+	if err != nil {
+		return nil, err
 	}
 	promptText := string(prompt)
 	return &geminiConversation{
@@ -106,6 +103,27 @@ func newGeminiConversation(
 		}},
 		ledger: newContinuationLedger(),
 	}, nil
+}
+
+func geminiDeclarations(
+	definitions []providerToolDefinition,
+) ([]geminiDeclaration, error) {
+	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	declarations := make([]geminiDeclaration, len(definitions))
+	for index, definition := range definitions {
+		if !providerKeyPattern.MatchString(definition.Name) ||
+			len(definition.InputSchema) == 0 ||
+			len(definition.InputSchema) > MaxToolArgumentBytes {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		declarations[index] = geminiDeclaration{
+			Name: definition.Name, Description: definition.Description,
+			ParametersJSONSchema: append([]byte(nil), definition.InputSchema...),
+		}
+	}
+	return declarations, nil
 }
 
 func (conversation *geminiConversation) request() (providerRequest, error) {
@@ -130,6 +148,7 @@ func (conversation *geminiConversation) request() (providerRequest, error) {
 		}{CandidateCount: 1},
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
+		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
 	endpoint := strings.TrimSuffix(conversation.baseURL, "/") +
@@ -321,6 +340,52 @@ func (conversation *geminiConversation) appendResults(results []providerToolResu
 	return nil
 }
 
+func (conversation *geminiConversation) resume(
+	prompt []byte,
+	definitions []providerToolDefinition,
+) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
+		len(conversation.contents) < 3 {
+		return fail("CONTINUATION_INVALID")
+	}
+	last := &conversation.contents[len(conversation.contents)-1]
+	assistant := conversation.contents[len(conversation.contents)-2]
+	if last.Role != "user" || len(last.Parts) == 0 ||
+		assistant.Role != "model" {
+		return fail("CONTINUATION_INVALID")
+	}
+	calls := make([]*geminiFunctionCall, 0, len(assistant.Parts))
+	for index := range assistant.Parts {
+		if assistant.Parts[index].FunctionCall != nil {
+			calls = append(calls, assistant.Parts[index].FunctionCall)
+		}
+	}
+	if len(calls) != len(last.Parts) {
+		return fail("CONTINUATION_INVALID")
+	}
+	for index, part := range last.Parts {
+		if part.FunctionResponse == nil || part.Text != nil ||
+			part.FunctionCall != nil || part.ThoughtSignature != "" ||
+			part.FunctionResponse.ID != calls[index].ID ||
+			part.FunctionResponse.Name != calls[index].Name ||
+			!validOpaqueText(
+				[]byte(part.FunctionResponse.Response.Output),
+			) {
+			return fail("CONTINUATION_INVALID")
+		}
+	}
+	declarations, err := geminiDeclarations(definitions)
+	if err != nil {
+		return err
+	}
+	text := string(prompt)
+	last.Parts = append(last.Parts, geminiPart{Text: &text})
+	clearGeminiDeclarations(conversation.tools)
+	conversation.tools = declarations
+	return nil
+}
+
 func (conversation *geminiConversation) close() {
 	if conversation == nil {
 		return
@@ -341,9 +406,19 @@ func (conversation *geminiConversation) close() {
 			}
 		}
 	}
+	clearGeminiDeclarations(conversation.tools)
+	conversation.baseURL = ""
+	conversation.model = ""
 	conversation.contents = nil
 	conversation.pending = nil
 	conversation.tools = nil
+	conversation.step = 0
+}
+
+func clearGeminiDeclarations(declarations []geminiDeclaration) {
+	for index := range declarations {
+		clearBytes(declarations[index].ParametersJSONSchema)
+	}
 }
 
 func safeJSONInt(value any) (int64, bool) {

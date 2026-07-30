@@ -86,6 +86,7 @@ func NewBedrockAdapter(
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileBedrock,
 		ProfileSurfaceBedrockRuntimeConverse,
+		providerDialectBedrockConverse,
 		config, factory, transport,
 	)
 }
@@ -150,12 +151,9 @@ func newBedrockConversation(
 	if validateText(model, 500, false) != nil || validateEndpoint(config.Endpoint) != nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	tools := make([]bedrockTool, len(definitions))
-	for index, definition := range definitions {
-		tools[index].ToolSpec.Name = definition.Name
-		tools[index].ToolSpec.Description = definition.Description
-		tools[index].ToolSpec.InputSchema.JSON =
-			append([]byte(nil), definition.InputSchema...)
+	tools, err := bedrockTools(definitions)
+	if err != nil {
+		return nil, err
 	}
 	initialMessage, err := json.Marshal(map[string]any{
 		"role": "user",
@@ -175,6 +173,27 @@ func newBedrockConversation(
 		allowGuardContent: config.AllowGuardContent,
 		ledger:            newContinuationLedger(),
 	}, nil
+}
+
+func bedrockTools(
+	definitions []providerToolDefinition,
+) ([]bedrockTool, error) {
+	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	tools := make([]bedrockTool, len(definitions))
+	for index, definition := range definitions {
+		if !providerKeyPattern.MatchString(definition.Name) ||
+			len(definition.InputSchema) == 0 ||
+			len(definition.InputSchema) > MaxToolArgumentBytes {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		tools[index].ToolSpec.Name = definition.Name
+		tools[index].ToolSpec.Description = definition.Description
+		tools[index].ToolSpec.InputSchema.JSON =
+			append([]byte(nil), definition.InputSchema...)
+	}
+	return tools, nil
 }
 
 func (conversation *bedrockConversation) request() (providerRequest, error) {
@@ -199,6 +218,7 @@ func (conversation *bedrockConversation) request() (providerRequest, error) {
 		}{Tools: conversation.tools},
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
+		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
 	endpoint := conversation.endpoint + "/model/" +
@@ -415,6 +435,130 @@ func (conversation *bedrockConversation) appendResults(results []providerToolRes
 	return nil
 }
 
+func (conversation *bedrockConversation) resume(
+	prompt []byte,
+	definitions []providerToolDefinition,
+) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
+		len(conversation.messages) < 3 {
+		return fail("CONTINUATION_INVALID")
+	}
+	last := conversation.messages[len(conversation.messages)-1]
+	value, err := decodeStrict(last, MaxOpaqueStepBytes)
+	if err != nil {
+		return fail("CONTINUATION_INVALID")
+	}
+	message, err := closedObject(
+		value,
+		[]string{"role", "content"},
+		nil,
+	)
+	content, ok := message["content"].([]any)
+	if err != nil || message["role"] != "user" ||
+		!ok || len(content) == 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	toolUseIDs, err := bedrockToolUseIDs(
+		conversation.messages[len(conversation.messages)-2],
+	)
+	if err != nil || len(toolUseIDs) != len(content) {
+		return fail("CONTINUATION_INVALID")
+	}
+	for index, rawBlock := range content {
+		block, blockOK := rawBlock.(map[string]any)
+		if !blockOK || len(block) != 1 {
+			return fail("CONTINUATION_INVALID")
+		}
+		toolResult, present := block["toolResult"]
+		result, resultErr := closedObject(
+			toolResult,
+			[]string{"toolUseId", "content", "status"},
+			nil,
+		)
+		id, idOK := result["toolUseId"].(string)
+		status, statusOK := result["status"].(string)
+		resultContent, contentOK := result["content"].([]any)
+		if !present || resultErr != nil || !idOK ||
+			validateText(id, MaxCorrelationIDBytes, false) != nil ||
+			id != toolUseIDs[index] ||
+			!statusOK || (status != "success" && status != "error") ||
+			!contentOK || len(resultContent) != 1 {
+			return fail("CONTINUATION_INVALID")
+		}
+		textBlock, textErr := closedObject(
+			resultContent[0],
+			[]string{"text"},
+			nil,
+		)
+		text, textOK := textBlock["text"].(string)
+		if textErr != nil || !textOK ||
+			!validOpaqueText([]byte(text)) {
+			return fail("CONTINUATION_INVALID")
+		}
+	}
+	content = append(content, map[string]string{"text": string(prompt)})
+	resumed, err := json.Marshal(map[string]any{
+		"role": "user", "content": content,
+	})
+	if err != nil || len(resumed) > MaxOpaqueStepBytes {
+		clearBytes(resumed)
+		return fail("CONTINUATION_INVALID")
+	}
+	tools, err := bedrockTools(definitions)
+	if err != nil {
+		clearBytes(resumed)
+		return err
+	}
+	clearBytes(last)
+	clearBedrockTools(conversation.tools)
+	conversation.messages[len(conversation.messages)-1] = resumed
+	conversation.tools = tools
+	return nil
+}
+
+func bedrockToolUseIDs(messageBody json.RawMessage) ([]string, error) {
+	value, err := decodeStrict(messageBody, MaxOpaqueStepBytes)
+	if err != nil {
+		return nil, err
+	}
+	message, err := closedObject(
+		value,
+		[]string{"role", "content"},
+		nil,
+	)
+	content, ok := message["content"].([]any)
+	if err != nil || message["role"] != "assistant" || !ok {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	var ids []string
+	for _, rawBlock := range content {
+		block, blockOK := rawBlock.(map[string]any)
+		if !blockOK || len(block) != 1 {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		toolUseValue, present := block["toolUse"]
+		if !present {
+			continue
+		}
+		toolUse, toolUseErr := closedObject(
+			toolUseValue,
+			[]string{"toolUseId", "name", "input"},
+			nil,
+		)
+		id, idOK := toolUse["toolUseId"].(string)
+		if toolUseErr != nil || !idOK ||
+			validateText(id, MaxCorrelationIDBytes, false) != nil {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	return ids, nil
+}
+
 func (conversation *bedrockConversation) close() {
 	if conversation == nil {
 		return
@@ -424,9 +568,18 @@ func (conversation *bedrockConversation) close() {
 	for _, message := range conversation.messages {
 		clearBytes(message)
 	}
+	clearBedrockTools(conversation.tools)
+	conversation.endpoint = ""
+	conversation.model = ""
 	conversation.messages = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func clearBedrockTools(tools []bedrockTool) {
+	for index := range tools {
+		clearBytes(tools[index].ToolSpec.InputSchema.JSON)
+	}
 }
 
 func (transport *bedrockTransport) roundTrip(
