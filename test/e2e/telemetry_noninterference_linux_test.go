@@ -258,7 +258,7 @@ func telemetryParityDelivery(
 	start := telemetryParityPost(
 		t,
 		address,
-		"/api/v1/start",
+		"/api/v2/start",
 		cockpit.StartCommand{
 			ManifestDigest: "sha256:" + hex.EncodeToString(sum[:]),
 		},
@@ -286,7 +286,7 @@ func telemetryParityDelivery(
 		resume = telemetryParityPost(
 			t,
 			address,
-			"/api/v1/runs/"+runID+"/commands",
+			"/api/v2/runs/"+runID+"/commands",
 			resumeCommand,
 		)
 	} else {
@@ -365,7 +365,7 @@ func telemetryParityBackpressuredResume(
 	command cockpit.ControlCommand,
 ) swornruntime.RunStatus {
 	t.Helper()
-	const path = "/api/v1/runs/e2e-telemetry-parity/commands"
+	const path = "/api/v2/runs/e2e-telemetry-parity/commands"
 	blocker.arm()
 	completed := make(chan telemetryParityHTTPResult, 1)
 	go func() {
@@ -651,7 +651,7 @@ func telemetryParityWaitHealth(
 	var lastErr error
 	for time.Now().Before(deadline) {
 		response, err := client.Get(
-			"http://" + address + "/api/v1/operator/telemetry",
+			"http://" + address + "/api/v2/operator/telemetry",
 		)
 		if err == nil {
 			body, readErr := io.ReadAll(io.LimitReader(response.Body, 1024*1024))

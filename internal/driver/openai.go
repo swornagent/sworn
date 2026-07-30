@@ -8,7 +8,7 @@ import (
 type openAIConversation struct {
 	endpoint        string
 	model           string
-	deepSeek        bool
+	dialect         providerDialect
 	reasoningEffort string
 	tools           []openAITool
 	messages        []openAIMessage
@@ -20,6 +20,7 @@ type openAIMessage struct {
 	Role             string           `json:"role"`
 	Content          json.RawMessage  `json:"content,omitempty"`
 	ReasoningContent json.RawMessage  `json:"reasoning_content,omitempty"`
+	ReasoningDetails json.RawMessage  `json:"reasoning_details,omitempty"`
 	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
@@ -47,8 +48,9 @@ type openAITool struct {
 type OpenAIAPI string
 
 const (
-	OpenAIResponsesAPI       OpenAIAPI = "responses"
-	OpenAIChatCompletionsAPI OpenAIAPI = "chat_completions"
+	OpenAIResponsesAPI           OpenAIAPI = "responses"
+	OpenAIChatCompletionsAPI     OpenAIAPI = "chat_completions"
+	OpenRouterChatCompletionsAPI OpenAIAPI = "openrouter_chat_completions"
 )
 
 type OpenAIProfileConfig struct {
@@ -78,9 +80,11 @@ func NewOpenAIAdapter(
 	config.HTTPProfileConfig = transport.config
 	var factory providerConversationFactory
 	surface := ProfileSurfaceOpenAIChat
+	dialect := providerDialectOpenAIChat
 	switch config.API {
 	case OpenAIResponsesAPI:
 		surface = ProfileSurfaceOpenAIResponses
+		dialect = providerDialectOpenAIResponses
 		factory = func(
 			prompt []byte,
 			model string,
@@ -94,7 +98,11 @@ func NewOpenAIAdapter(
 				config.ReasoningEffort,
 			)
 		}
-	case OpenAIChatCompletionsAPI:
+	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
+		if config.API == OpenRouterChatCompletionsAPI {
+			surface = ProfileSurfaceOpenRouterChat
+			dialect = providerDialectOpenRouterChat
+		}
 		factory = func(
 			prompt []byte,
 			model string,
@@ -105,7 +113,7 @@ func NewOpenAIAdapter(
 				model,
 				tools,
 				prompt,
-				false,
+				dialect,
 				config.ReasoningEffort,
 			)
 		}
@@ -122,6 +130,7 @@ func NewOpenAIAdapter(
 		config.Version,
 		ProfileOpenAIHTTP,
 		surface,
+		dialect,
 		configuration,
 		factory,
 		transport,
@@ -148,7 +157,7 @@ func NewDeepSeekAdapter(
 			model,
 			tools,
 			prompt,
-			true,
+			providerDialectDeepSeekChat,
 			"",
 		)
 	}
@@ -162,6 +171,7 @@ func NewDeepSeekAdapter(
 		config.Version,
 		ProfileDeepSeek,
 		"",
+		providerDialectDeepSeekChat,
 		configuration,
 		factory,
 		transport,
@@ -176,6 +186,9 @@ func (config OpenAIProfileConfig) valid() bool {
 		return config.ReasoningEffort == "" ||
 			config.ReasoningEffort == "none"
 	}
+	if config.API == OpenRouterChatCompletionsAPI {
+		return config.ReasoningEffort == ""
+	}
 	return config.API == OpenAIResponsesAPI &&
 		config.ReasoningEffort != "" &&
 		validOpenAIReasoningEffort(config.ReasoningEffort)
@@ -185,31 +198,55 @@ func newOpenAIConversation(
 	endpoint, model string,
 	definitions []providerToolDefinition,
 	prompt []byte,
-	deepSeek bool,
+	dialect providerDialect,
 	reasoningEffort string,
 ) (*openAIConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
+		(dialect != providerDialectOpenAIChat &&
+			dialect != providerDialectOpenRouterChat &&
+			dialect != providerDialectDeepSeekChat &&
+			dialect != providerDialectMantleChat) ||
 		(reasoningEffort != "" && reasoningEffort != "none") {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	tools := make([]openAITool, len(definitions))
-	for index, definition := range definitions {
-		tools[index].Type = "function"
-		tools[index].Function.Name = definition.Name
-		tools[index].Function.Description = definition.Description
-		tools[index].Function.Parameters = append([]byte(nil), definition.InputSchema...)
+	if dialect != providerDialectOpenAIChat && reasoningEffort != "" {
+		return nil, fail("INVALID_ADAPTER")
+	}
+	tools, err := openAITools(definitions)
+	if err != nil {
+		return nil, err
 	}
 	content, _ := json.Marshal(string(prompt))
 	return &openAIConversation{
 		endpoint:        endpoint,
 		model:           model,
-		deepSeek:        deepSeek,
+		dialect:         dialect,
 		reasoningEffort: reasoningEffort,
 		tools:           tools,
 		messages:        []openAIMessage{{Role: "user", Content: content}},
 		ledger:          newContinuationLedger(),
 	}, nil
+}
+
+func openAITools(definitions []providerToolDefinition) ([]openAITool, error) {
+	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	tools := make([]openAITool, len(definitions))
+	for index, definition := range definitions {
+		if !providerKeyPattern.MatchString(definition.Name) ||
+			len(definition.InputSchema) == 0 ||
+			len(definition.InputSchema) > MaxToolArgumentBytes {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		tools[index].Type = "function"
+		tools[index].Function.Name = definition.Name
+		tools[index].Function.Description = definition.Description
+		tools[index].Function.Parameters =
+			append([]byte(nil), definition.InputSchema...)
+	}
+	return tools, nil
 }
 
 func (conversation *openAIConversation) request() (providerRequest, error) {
@@ -229,6 +266,7 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 		Effort: conversation.reasoningEffort,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
+		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
 	return providerRequest{
@@ -274,13 +312,22 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		[]string{"message", "finish_reason"},
 		[]string{"index", "logprobs"},
 	)
-	if err != nil || choice["finish_reason"] != "tool_calls" {
+	if err != nil {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	finishReason, finishOK := choice["finish_reason"].(string)
+	if !finishOK ||
+		(finishReason != "tool_calls" && finishReason != "stop") {
 		return providerTurn{}, fail("MISSING_SUBMISSION")
 	}
 	rawMessage, err := closedObject(
 		choice["message"],
-		[]string{"role", "content", "tool_calls"},
-		[]string{"reasoning", "reasoning_content", "refusal", "annotations"},
+		[]string{"role", "content"},
+		[]string{
+			"tool_calls",
+			"reasoning", "reasoning_content", "reasoning_details",
+			"refusal", "annotations",
+		},
 	)
 	if err != nil || rawMessage["role"] != "assistant" {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
@@ -302,8 +349,16 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 	}
-	rawToolCalls, ok := rawMessage["tool_calls"].([]any)
-	if !ok || len(rawToolCalls) == 0 || len(rawToolCalls) > MaxToolCalls {
+	rawToolCalls := []any(nil)
+	if rawToolCallsValue, present := rawMessage["tool_calls"]; present &&
+		rawToolCallsValue != nil {
+		var ok bool
+		rawToolCalls, ok = rawToolCallsValue.([]any)
+		if !ok || len(rawToolCalls) > MaxToolCalls {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+	}
+	if (finishReason == "tool_calls") != (len(rawToolCalls) > 0) {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	message := openAIMessage{Role: "assistant"}
@@ -320,7 +375,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	if reasoningValue, present := rawMessage["reasoning_content"]; present &&
 		reasoningValue != nil {
-		if !conversation.deepSeek {
+		if conversation.dialect != providerDialectDeepSeekChat {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		reasoning, ok := reasoningValue.(string)
@@ -335,6 +390,36 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			return providerTurn{}, err
 		}
 		message.ReasoningContent, _ = json.Marshal(string(retained[0]))
+	}
+	if detailsValue, present := rawMessage["reasoning_details"]; present &&
+		detailsValue != nil {
+		if conversation.dialect != providerDialectOpenRouterChat {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+		var raw struct {
+			Choices []struct {
+				Message struct {
+					ReasoningDetails json.RawMessage `json:"reasoning_details"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal(body, &raw) != nil ||
+			len(raw.Choices) != 1 ||
+			validateOpenRouterReasoningDetails(
+				detailsValue,
+				raw.Choices[0].Message.ReasoningDetails,
+			) != nil {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+		retained, retainErr := conversation.ledger.retain(opaqueField{
+			kind: opaqueText,
+			body: raw.Choices[0].Message.ReasoningDetails,
+		})
+		if retainErr != nil {
+			return providerTurn{}, retainErr
+		}
+		message.ReasoningDetails =
+			append(json.RawMessage(nil), retained[0]...)
 	}
 	calls := make([]providerToolCall, 0, len(rawToolCalls))
 	for _, rawToolCall := range rawToolCalls {
@@ -377,7 +462,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	conversation.messages = append(conversation.messages, message)
 	conversation.pending = append([]providerToolCall(nil), calls...)
-	turn := providerTurn{Calls: calls}
+	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
 		usage, usageErr := closedObject(
 			usageValue,
@@ -399,6 +484,109 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	return turn, nil
 }
 
+func (conversation *openAIConversation) appendInstruction(body []byte) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(body) {
+		return fail("CONTINUATION_INVALID")
+	}
+	content, err := json.Marshal(string(body))
+	if err != nil || len(content) > MaxOpaqueFieldBytes {
+		clearBytes(content)
+		return fail("CONTINUATION_INVALID")
+	}
+	conversation.messages = append(conversation.messages, openAIMessage{
+		Role: "user", Content: content,
+	})
+	return nil
+}
+
+func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
+	details, ok := value.([]any)
+	if !ok || len(details) == 0 || len(details) > MaxContinuationSteps ||
+		len(raw) == 0 || len(raw) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(raw) {
+		return fail("CONTINUATION_INVALID")
+	}
+	for index, rawDetail := range details {
+		detail, err := closedObject(
+			rawDetail,
+			[]string{"type", "format"},
+			[]string{
+				"id", "index", "summary", "data", "text", "signature",
+			},
+		)
+		if err != nil {
+			return fail("CONTINUATION_INVALID")
+		}
+		detailType, typeOK := detail["type"].(string)
+		format, formatOK := detail["format"].(string)
+		if !typeOK || !formatOK ||
+			validateText(format, 128, false) != nil {
+			return fail("CONTINUATION_INVALID")
+		}
+		switch format {
+		case "unknown",
+			"openai-responses-v1",
+			"azure-openai-responses-v1",
+			"bedrock-openai-responses-v1",
+			"xai-responses-v1",
+			"meta-responses-v1",
+			"anthropic-claude-v1",
+			"google-gemini-v1":
+		default:
+			return fail("CONTINUATION_INVALID")
+		}
+		if id, present := detail["id"]; present && id != nil {
+			idText, idOK := id.(string)
+			if !idOK || validateText(idText, MaxCorrelationIDBytes, false) != nil {
+				return fail("CONTINUATION_INVALID")
+			}
+		}
+		if itemIndex, present := detail["index"]; present {
+			parsed, parsedOK := safeJSONInt(itemIndex)
+			if !parsedOK || parsed != int64(index) {
+				return fail("CONTINUATION_INVALID")
+			}
+		}
+		requiredField := ""
+		switch detailType {
+		case "reasoning.summary":
+			requiredField = "summary"
+		case "reasoning.encrypted":
+			requiredField = "data"
+		case "reasoning.text":
+			requiredField = "text"
+		default:
+			return fail("CONTINUATION_INVALID")
+		}
+		for _, field := range []string{"summary", "data", "text"} {
+			fieldValue, present := detail[field]
+			if field == requiredField {
+				text, textOK := fieldValue.(string)
+				if !present || !textOK || len(text) > MaxOpaqueFieldBytes ||
+					!validOpaqueText([]byte(text)) {
+					return fail("CONTINUATION_INVALID")
+				}
+			} else if present {
+				return fail("CONTINUATION_INVALID")
+			}
+		}
+		if signature, present := detail["signature"]; present &&
+			signature != nil {
+			signatureText, signatureOK := signature.(string)
+			if detailType != "reasoning.text" || !signatureOK ||
+				len(signatureText) > MaxOpaqueFieldBytes ||
+				!validOpaqueText([]byte(signatureText)) {
+				return fail("CONTINUATION_INVALID")
+			}
+		} else if present && detailType != "reasoning.text" {
+			return fail("CONTINUATION_INVALID")
+		}
+	}
+	return nil
+}
+
 func (conversation *openAIConversation) appendResults(results []providerToolResult) error {
 	if conversation == nil || len(results) != len(conversation.pending) {
 		return fail("CONTINUATION_INVALID")
@@ -418,6 +606,52 @@ func (conversation *openAIConversation) appendResults(results []providerToolResu
 	return nil
 }
 
+func (conversation *openAIConversation) resume(
+	prompt []byte,
+	definitions []providerToolDefinition,
+) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
+		!validOpenAIResumeTail(conversation.messages) {
+		return fail("CONTINUATION_INVALID")
+	}
+	tools, err := openAITools(definitions)
+	if err != nil {
+		return err
+	}
+	content, err := json.Marshal(string(prompt))
+	if err != nil || len(content) > MaxProviderRequestBytes {
+		clearBytes(content)
+		clearOpenAITools(tools)
+		return fail("CONTINUATION_INVALID")
+	}
+	clearOpenAITools(conversation.tools)
+	conversation.tools = tools
+	conversation.messages = append(conversation.messages, openAIMessage{
+		Role: "user", Content: content,
+	})
+	return nil
+}
+
+func validOpenAIResumeTail(messages []openAIMessage) bool {
+	if len(messages) < 3 {
+		return false
+	}
+	assistant := messages[len(messages)-2]
+	result := messages[len(messages)-1]
+	if assistant.Role != "assistant" || len(assistant.ToolCalls) != 1 ||
+		result.Role != "tool" || result.ToolCallID == "" ||
+		result.ToolCallID != assistant.ToolCalls[0].ID ||
+		len(result.ToolCalls) != 0 ||
+		len(result.ReasoningContent) != 0 ||
+		len(result.ReasoningDetails) != 0 {
+		return false
+	}
+	var content string
+	return json.Unmarshal(result.Content, &content) == nil &&
+		validOpaqueText([]byte(content))
+}
+
 func (conversation *openAIConversation) close() {
 	if conversation == nil {
 		return
@@ -426,11 +660,23 @@ func (conversation *openAIConversation) close() {
 	for index := range conversation.messages {
 		clearBytes(conversation.messages[index].Content)
 		clearBytes(conversation.messages[index].ReasoningContent)
+		clearBytes(conversation.messages[index].ReasoningDetails)
 		for tool := range conversation.messages[index].ToolCalls {
 			clearBytes(conversation.messages[index].ToolCalls[tool].Function.Arguments)
 		}
 	}
+	clearOpenAITools(conversation.tools)
+	conversation.endpoint = ""
+	conversation.model = ""
+	conversation.dialect = ""
+	conversation.reasoningEffort = ""
 	conversation.messages = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func clearOpenAITools(tools []openAITool) {
+	for index := range tools {
+		clearBytes(tools[index].Function.Parameters)
+	}
 }

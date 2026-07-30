@@ -130,6 +130,12 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 			Captain:     driver.RoleSelection{Profile: "fixture", Model: "captain-model"},
 			Verifier:    driver.RoleSelection{Profile: "fixture", Model: "verifier-model"},
 		},
+		Automation: &AutomationSelections{
+			Recovery: driver.RoleSelection{
+				Profile: "fixture",
+				Model:   "recovery-model",
+			},
+		},
 		Limits: driver.Limits{TimeoutMillis: 30_000, OutputBytes: 65_536},
 		Scripts: []ScriptedAttempt{
 			{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1,
@@ -168,8 +174,8 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	unknown := append([]byte(nil), body...)
 	unknown = []byte(strings.Replace(
 		string(unknown),
-		`"schema_version":"sworn.runtime-manifest/v2"`,
-		`"schema_version":"sworn.runtime-manifest/v2","unknown":true`,
+		`"schema_version":"sworn.runtime-manifest/v3"`,
+		`"schema_version":"sworn.runtime-manifest/v3","unknown":true`,
 		1,
 	))
 	if _, err := admitManifest(unknown); !IsCode(err, "INVALID_MANIFEST") {
@@ -197,6 +203,28 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	if _, err := admitManifest(append(mutatedBody, '\n')); !IsCode(err, "INVALID_SCRIPTED_SUBMISSION") {
 		t.Fatalf("responsibility substitution = %v", err)
 	}
+	withoutAutomation := manifest
+	withoutAutomation.Automation = nil
+	withoutAutomationBody, err := json.Marshal(withoutAutomation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitManifest(
+		append(withoutAutomationBody, '\n'),
+	); !IsCode(err, "INVALID_AUTOMATION") {
+		t.Fatalf("missing v3 automation = %v", err)
+	}
+	legacyWithAutomation := manifest
+	legacyWithAutomation.SchemaVersion = ManifestVersionV2
+	legacyWithAutomationBody, err := json.Marshal(legacyWithAutomation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitManifest(
+		append(legacyWithAutomationBody, '\n'),
+	); !IsCode(err, "INVALID_AUTOMATION") {
+		t.Fatalf("v2 automation = %v", err)
+	}
 }
 
 func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.T) {
@@ -206,7 +234,20 @@ func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.
 	if !bytes.Contains(fakeBody, []byte(`"driver":{`)) ||
 		!bytes.Contains(fakeBody, []byte(`"scripted_attempts":[`)) ||
 		bytes.Contains(fakeBody, []byte(`"driver_config_digest"`)) {
-		t.Fatalf("fake v2 shape changed: %s", fakeBody)
+		t.Fatalf("fake v3 shape changed: %s", fakeBody)
+	}
+
+	legacy := fake
+	legacy.SchemaVersion = ManifestVersionV2
+	legacy.Automation = nil
+	legacyBody, err := canonicalManifest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyAdmitted, err := admitManifest(legacyBody)
+	_, recoveryEnabled := legacyAdmitted.value.recoverySelection()
+	if err != nil || recoveryEnabled {
+		t.Fatalf("legacy v2 admission = %#v, %v", legacyAdmitted.value, err)
 	}
 
 	production := fake
@@ -225,6 +266,12 @@ func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.
 		},
 		Verifier: driver.RoleSelection{
 			Profile: "verifier-profile", Model: "verifier-model",
+		},
+	}
+	production.Automation = &AutomationSelections{
+		Recovery: driver.RoleSelection{
+			Profile: "recovery-profile",
+			Model:   "recovery-model",
 		},
 	}
 	body, err := canonicalManifest(production)

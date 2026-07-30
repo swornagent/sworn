@@ -83,6 +83,63 @@ func TestBedrockConverseReplaysCompleteAdmittedAssistantMessage(t *testing.T) {
 		!bytes.Contains(replay.Messages[2], []byte(`"toolUseId":"tool-1"`)) {
 		t.Fatalf("Bedrock replay = %s", request.Body)
 	}
+	assistant := append([]byte(nil), conversation.messages[1]...)
+	if err := conversation.resume(
+		[]byte(`{"invocation_id":"implementation"}`),
+		toolDefinitions(ReadWrite),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(conversation.messages[1], assistant) {
+		t.Fatal("Bedrock resume changed the admitted assistant message")
+	}
+	request, err = conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resumed struct {
+		Messages   []json.RawMessage `json:"messages"`
+		ToolConfig struct {
+			Tools []bedrockTool `json:"tools"`
+		} `json:"toolConfig"`
+	}
+	if json.Unmarshal(request.Body, &resumed) != nil ||
+		len(resumed.Messages) != 3 {
+		t.Fatalf("Bedrock resumed replay = %s", request.Body)
+	}
+	var finalUser struct {
+		Role    string `json:"role"`
+		Content []struct {
+			ToolResult *struct {
+				ToolUseID string `json:"toolUseId"`
+				Content   []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+				Status string `json:"status"`
+			} `json:"toolResult"`
+			Text *string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(resumed.Messages[2], &finalUser) != nil ||
+		finalUser.Role != "user" ||
+		len(finalUser.Content) != 2 ||
+		finalUser.Content[0].ToolResult == nil ||
+		finalUser.Content[0].ToolResult.ToolUseID != "tool-1" ||
+		len(finalUser.Content[0].ToolResult.Content) != 1 ||
+		finalUser.Content[0].ToolResult.Content[0].Text != "file body" ||
+		finalUser.Content[0].ToolResult.Status != "success" ||
+		finalUser.Content[1].Text == nil ||
+		*finalUser.Content[1].Text !=
+			`{"invocation_id":"implementation"}` {
+		t.Fatalf("Bedrock resumed user message = %s", resumed.Messages[2])
+	}
+	hasWrite := false
+	for _, tool := range resumed.ToolConfig.Tools {
+		hasWrite = hasWrite || tool.ToolSpec.Name == "Write"
+	}
+	if !hasWrite {
+		t.Fatalf("Bedrock resumed tools = %s", request.Body)
+	}
 
 	for name, invalid := range map[string][]byte{
 		"unknown union":     []byte(`{"output":{"message":{"role":"assistant","content":[{"providerExtension":{}}]}},"stopReason":"tool_use"}`),
@@ -103,6 +160,284 @@ func TestBedrockConverseReplaysCompleteAdmittedAssistantMessage(t *testing.T) {
 		if acceptErr == nil {
 			t.Fatalf("%s accepted", name)
 		}
+	}
+}
+
+type bedrockTerminalTestTransport struct {
+	response []byte
+	request  providerRequest
+}
+
+func (transport *bedrockTerminalTestTransport) roundTrip(
+	_ context.Context,
+	_ *string,
+	request providerRequest,
+) ([]byte, error) {
+	transport.request = request
+	transport.request.Body = append([]byte(nil), request.Body...)
+	return append([]byte(nil), transport.response...), nil
+}
+
+func (*bedrockTerminalTestTransport) check(
+	context.Context,
+	profileCheckKind,
+	*string,
+	string,
+) (ReadinessState, string) {
+	return ReadinessPass, "test"
+}
+
+func bedrockTerminalTestAdapter(
+	t *testing.T,
+	transport providerTransport,
+) *loopAdapter {
+	t.Helper()
+	config := BedrockProfileConfig{
+		Endpoint: "https://bedrock-runtime.us-east-1.amazonaws.com",
+	}
+	adapter, err := newLoopAdapter(
+		"bedrock-terminal-test",
+		"sworn.bedrock.terminal-test",
+		"1.0.0",
+		ProfileBedrock,
+		ProfileSurfaceBedrockRuntimeConverse,
+		providerDialectBedrockConverse,
+		map[string]string{"fixture": "bedrock-terminal"},
+		func(
+			prompt []byte,
+			model string,
+			definitions []providerToolDefinition,
+		) (providerConversation, error) {
+			return newBedrockConversation(
+				config,
+				model,
+				definitions,
+				prompt,
+			)
+		},
+		transport,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
+}
+
+func bedrockTerminalTestSelected(adapter Adapter) SelectedProfile {
+	credential := "credential-ref"
+	profile := ProfileConfig{
+		Key:           "bedrock-terminal-profile",
+		Adapter:       adapter.Identity().Key,
+		Network:       NetworkRequired,
+		CredentialRef: &credential,
+	}
+	return SelectedProfile{
+		Profile: profile,
+		Adapter: adapter.Identity(),
+		Model:   "exact-model",
+		adapter: adapter,
+	}
+}
+
+func bedrockTerminalTestResponse(
+	t *testing.T,
+	id string,
+	name string,
+	input any,
+) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"output": map[string]any{"message": map[string]any{
+			"role": "assistant",
+			"content": []any{map[string]any{
+				"toolUse": map[string]any{
+					"toolUseId": id,
+					"name":      name,
+					"input":     input,
+				},
+			}},
+		}},
+		"stopReason": "tool_use",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func bedrockTerminalRequest(
+	t *testing.T,
+	request providerRequest,
+) (string, []string) {
+	t.Helper()
+	var body struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+		ToolConfig struct {
+			Tools []bedrockTool `json:"tools"`
+		} `json:"toolConfig"`
+	}
+	if json.Unmarshal(request.Body, &body) != nil ||
+		len(body.System) != 1 {
+		t.Fatalf("Bedrock terminal request = %s", request.Body)
+	}
+	names := make([]string, len(body.ToolConfig.Tools))
+	for index, tool := range body.ToolConfig.Tools {
+		names[index] = tool.ToolSpec.Name
+	}
+	return body.System[0].Text, names
+}
+
+func TestBedrockAutomationUsesItsExactRecoveryAndAdvisoryTerminal(
+	t *testing.T,
+) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		terminal   string
+		invocation func(SelectedProfile) AutomationInvocation
+		input      any
+	}{
+		{
+			name:     "recovery",
+			terminal: "sworn_recovery_decide",
+			invocation: func(selected SelectedProfile) AutomationInvocation {
+				selection := ModelSelection{
+					Profile: selected.Profile.Key,
+					Model:   selected.Model,
+				}
+				return AutomationInvocation{
+					Selected: selected,
+					Recovery: pointerTo(
+						recoveryInvocationFixture(selection),
+					),
+				}
+			},
+			input: map[string]any{"decision": RecoveryDecision{
+				SchemaVersion: RecoveryDecisionSchemaVersion,
+				InvocationID:  "recovery-1",
+				Action:        RecoveryAskCaptain,
+			}},
+		},
+		{
+			name:     "advisory",
+			terminal: "sworn_advisory_respond",
+			invocation: func(selected SelectedProfile) AutomationInvocation {
+				selection := ModelSelection{
+					Profile: selected.Profile.Key,
+					Model:   selected.Model,
+				}
+				return AutomationInvocation{
+					Selected: selected,
+					Advisory: &AdvisoryInvocation{
+						SchemaVersion: AdvisoryInvocationSchemaVersion,
+						InvocationID:  "advisory-1",
+						Binding:       automationBindingFixture(),
+						Selection:     selection,
+						Question:      "Can the admitted facts answer this?",
+						Facts: []AutomationFact{{
+							Name: FactCurrentStatus, Value: "bounded",
+						}},
+					},
+				}
+			},
+			input: map[string]any{"result": AdvisoryResult{
+				SchemaVersion: AdvisoryResultSchemaVersion,
+				InvocationID:  "advisory-1",
+				Outcome:       AdvisoryCannotAnswer,
+			}},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			transport := &bedrockTerminalTestTransport{}
+			adapter := bedrockTerminalTestAdapter(t, transport)
+			selected := bedrockTerminalTestSelected(adapter)
+			invocation := test.invocation(selected)
+			transport.response = bedrockTerminalTestResponse(
+				t,
+				test.name+"-call",
+				test.terminal,
+				test.input,
+			)
+			observation, err := (Dispatcher{}).InvokeAutomation(
+				context.Background(),
+				invocation,
+			)
+			if err != nil ||
+				(observation.Recovery == nil) ==
+					(observation.Advisory == nil) {
+				t.Fatalf(
+					"Bedrock %s observation = %#v, error=%v",
+					test.name,
+					observation,
+					err,
+				)
+			}
+			system, names := bedrockTerminalRequest(
+				t,
+				transport.request,
+			)
+			expected := "Use only the supplied Sworn tools and terminate with exactly one call to " +
+				test.terminal + "."
+			if system != expected ||
+				len(names) != 1 ||
+				names[0] != test.terminal ||
+				strings.Contains(system, "sworn_submit") {
+				t.Fatalf(
+					"Bedrock %s system=%q tools=%q",
+					test.name,
+					system,
+					names,
+				)
+			}
+		})
+	}
+}
+
+func TestBedrockWorkerSurfaceAdvertisesAndAcceptsYield(t *testing.T) {
+	t.Parallel()
+	const invocationID = "bedrock-worker-yield"
+	yield := Yield{
+		SchemaVersion: YieldSchemaVersion,
+		InvocationID:  invocationID,
+		Kind:          YieldQuestion,
+		Message:       "Which exact prepared base should I use?",
+	}
+	transport := &bedrockTerminalTestTransport{
+		response: bedrockTerminalTestResponse(
+			t,
+			"yield-call",
+			"sworn_yield",
+			map[string]any{"yield": yield},
+		),
+	}
+	adapter := bedrockTerminalTestAdapter(t, transport)
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileBedrock,
+		invocationID,
+		RoleImplementer,
+		ImplementerDesign,
+		ReadOnly,
+	)
+	observation, err := (Dispatcher{}).Invoke(
+		context.Background(),
+		invocation,
+	)
+	if err != nil || observation.Yield == nil ||
+		*observation.Yield != yield || observation.Handoff != nil {
+		t.Fatalf("Bedrock yield observation = %#v, error=%v", observation, err)
+	}
+	system, names := bedrockTerminalRequest(t, transport.request)
+	expected := "Use only the supplied Sworn tools and terminate with exactly one call to sworn_submit or sworn_yield."
+	if system != expected ||
+		!slicesContain(names, "sworn_submit") ||
+		!slicesContain(names, "sworn_yield") {
+		t.Fatalf("Bedrock worker system=%q tools=%q", system, names)
 	}
 }
 

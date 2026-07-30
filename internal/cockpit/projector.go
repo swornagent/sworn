@@ -195,7 +195,6 @@ func stableObservation(
 	}
 	return equalRefVectors(firstState.Refs, secondState.Refs) &&
 		firstState.Release == observation.Run.Release &&
-		firstState.Repository == observation.Run.Repository &&
 		firstState.Refs.Target.Ref == observation.Run.TargetRef &&
 		secondRuntime.TargetHead == firstState.Refs.Target.Head &&
 		secondRuntime.ReleaseHead == firstState.Refs.Release.Head
@@ -233,12 +232,18 @@ func buildSnapshot(
 			},
 			Effects:  make([]EffectView, 0, len(status.Effects)),
 			Attempts: make([]AttemptView, 0, len(observation.Attempts)),
+			Attentions: make(
+				[]AttentionView,
+				0,
+				len(observation.Attentions),
+			),
 			Notifications: make(
 				[]NotificationView,
 				0,
 				len(observation.Notifications),
 			),
 			NotificationsTruncated: observation.NotificationsTruncated,
+			AttentionsTruncated:    observation.AttentionsTruncated,
 		},
 		Evidence:      make([]Evidence, 0, len(observation.Events)),
 		Actions:       []Action{},
@@ -246,6 +251,7 @@ func buildSnapshot(
 		ThroughOffset: observation.EventOffset,
 	}
 	redeliveryActions := make([]Action, 0)
+	attentionActions := make([]Action, 0)
 	if observation.OwnerPresent {
 		result.Runtime.Owner.Active = observation.Owner.ExpiresAt.After(now)
 		result.Runtime.Owner.Generation = observation.Owner.Generation
@@ -265,6 +271,26 @@ func buildSnapshot(
 			return Snapshot{}, err
 		}
 		result.Runtime.Attempts = append(result.Runtime.Attempts, view)
+	}
+	for _, attention := range observation.Attentions {
+		result.Runtime.Attentions = append(
+			result.Runtime.Attentions,
+			AttentionView{
+				ID:         attention.Attention.ID,
+				LaneID:     attention.Attention.Recovery.LaneID,
+				State:      string(attention.State),
+				Generation: attention.Generation,
+				Question:   attention.Question,
+				Answer:     attention.Answer,
+			},
+		)
+		if attention.State == journal.AttentionOpen {
+			attentionActions = append(attentionActions, Action{
+				Kind:               "answer_attention",
+				ExpectedGeneration: attention.Generation,
+				AttentionID:        attention.Attention.ID,
+			})
+		}
 	}
 	for _, notification := range observation.Notifications {
 		view := NotificationView{
@@ -301,6 +327,12 @@ func buildSnapshot(
 			})
 		}
 	}
+	if observation.AttentionsTruncated {
+		result.Diagnostics = append(
+			result.Diagnostics,
+			Diagnostic{Code: "ATTENTIONS_TRUNCATED"},
+		)
+	}
 	if observation.NotificationsTruncated {
 		result.Diagnostics = append(
 			result.Diagnostics,
@@ -332,7 +364,11 @@ func buildSnapshot(
 		)
 		return result, nil
 	}
-	result.Graph = projectGraph(state, status.State)
+	result.Graph = projectGraph(
+		state,
+		status.State,
+		observation.Attentions,
+	)
 	result.Handoff = projectHandoff(result.Graph)
 	for _, diagnostic := range state.Diagnostics {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
@@ -343,7 +379,8 @@ func buildSnapshot(
 	}
 	if !state.Plan.TargetStale && len(state.Diagnostics) == 0 {
 		controls := safeActions(status, observation.Control)
-		result.Actions = append(controls, redeliveryActions...)
+		result.Actions = append(controls, attentionActions...)
+		result.Actions = append(result.Actions, redeliveryActions...)
 	}
 	return result, nil
 }
@@ -428,7 +465,19 @@ func strictUsage(body []byte, value *driver.UsageReceipt) error {
 	return nil
 }
 
-func projectGraph(state baton.State, runState string) Graph {
+func projectGraph(
+	state baton.State,
+	runState string,
+	attentions []journal.AttentionProjection,
+) Graph {
+	parkedLanes := make(map[string]struct{}, len(attentions))
+	for _, attention := range attentions {
+		if attention.State == journal.AttentionOpen ||
+			attention.State == journal.AttentionAnswered {
+			parkedLanes[attention.Attention.Recovery.LaneID] =
+				struct{}{}
+		}
+	}
 	result := Graph{
 		Nodes: []Node{{
 			ID:    "release:" + state.Release,
@@ -449,11 +498,16 @@ func projectGraph(state baton.State, runState string) Graph {
 	finalSlices := make(map[string]string, len(state.Tracks))
 	for _, track := range state.Tracks {
 		trackID := "track:" + track.ID
+		runtimeState := ""
+		if _, parked := parkedLanes[track.ID]; parked {
+			runtimeState = "parked"
+		}
 		result.Nodes = append(result.Nodes, Node{
-			ID:    trackID,
-			Kind:  "track",
-			Label: track.ID,
-			State: "present",
+			ID:           trackID,
+			Kind:         "track",
+			Label:        track.ID,
+			State:        "present",
+			RuntimeState: runtimeState,
 		})
 		addEdge("contains", "release:"+state.Release, trackID)
 		for _, dependency := range track.DependsOn {
@@ -462,17 +516,25 @@ func projectGraph(state baton.State, runState string) Graph {
 		previous := ""
 		for _, slice := range track.Slices {
 			sliceID := "slice:" + slice.Location.Slice.ID
+			hasBaton := slice.Status == "ready" &&
+				slice.NextRole != "none"
+			runtimeState := ""
+			if _, parked := parkedLanes[track.ID]; parked &&
+				hasBaton {
+				runtimeState = "parked"
+			}
 			result.Nodes = append(result.Nodes, Node{
 				ID:                 sliceID,
 				Kind:               "slice",
 				Label:              slice.Location.Slice.ID,
 				Track:              track.ID,
 				State:              slice.Status,
+				RuntimeState:       runtimeState,
 				Stage:              slice.Stage,
 				Outcome:            slice.Outcome,
 				NextResponsibility: slice.NextRole,
 				Attempt:            slice.Attempt,
-				HasBaton:           slice.Status == "ready" && slice.NextRole != "none",
+				HasBaton:           hasBaton,
 			})
 			addEdge("contains", trackID, sliceID)
 			if previous != "" {
@@ -491,16 +553,23 @@ func projectGraph(state baton.State, runState string) Graph {
 		}
 	}
 	assemblyID := "assembly:" + state.Release
+	assemblyHasBaton := state.Assembly.Status == "ready" &&
+		state.Assembly.NextRole != "none"
+	assemblyRuntimeState := ""
+	if _, parked := parkedLanes["release"]; parked &&
+		assemblyHasBaton {
+		assemblyRuntimeState = "parked"
+	}
 	result.Nodes = append(result.Nodes, Node{
 		ID:                 assemblyID,
 		Kind:               "assembly",
 		Label:              "Assembly",
 		State:              state.Assembly.Status,
+		RuntimeState:       assemblyRuntimeState,
 		Stage:              state.Assembly.Stage,
 		Outcome:            state.Assembly.Outcome,
 		NextResponsibility: state.Assembly.NextRole,
-		HasBaton: state.Assembly.Status == "ready" &&
-			state.Assembly.NextRole != "none",
+		HasBaton:           assemblyHasBaton,
 	})
 	addEdge("contains", "release:"+state.Release, assemblyID)
 	for _, track := range state.Tracks {

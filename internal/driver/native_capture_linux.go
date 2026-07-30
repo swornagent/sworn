@@ -27,7 +27,7 @@ type nativeProviderEvidence struct {
 type nativeProviderCapture struct {
 	family           ProfileFamily
 	model            string
-	access           WorkspaceAccess
+	definitions      []providerToolDefinition
 	address          string
 	prefix           string
 	token            []byte
@@ -43,9 +43,22 @@ func newNativeProviderCapture(
 	model string,
 	access WorkspaceAccess,
 ) (*nativeProviderCapture, error) {
+	return newNativeProviderCaptureWithTools(
+		family,
+		model,
+		toolDefinitions(access),
+	)
+}
+
+func newNativeProviderCaptureWithTools(
+	family ProfileFamily,
+	model string,
+	definitions []providerToolDefinition,
+) (*nativeProviderCapture, error) {
 	if (family != ProfileCodex && family != ProfileClaude) ||
 		validateText(model, 500, false) != nil ||
-		(access != ReadOnly && access != ReadWrite) {
+		len(definitions) == 0 ||
+		nativeToolDefinitionsDigest(definitions) == "" {
 		return nil, fail("NATIVE_NOT_CERTIFIED")
 	}
 	random := make([]byte, 32)
@@ -61,7 +74,11 @@ func newNativeProviderCapture(
 		return nil, fail("ENDPOINT_UNAVAILABLE")
 	}
 	capture := &nativeProviderCapture{
-		family: family, model: model, access: access,
+		family: family, model: model,
+		definitions: append(
+			[]providerToolDefinition(nil),
+			definitions...,
+		),
 		address: listener.Addr().String(), prefix: prefix,
 		token: token, listener: listener,
 		captured: make(chan nativeProviderEvidence, 1),
@@ -170,7 +187,7 @@ func (capture *nativeProviderCapture) ServeHTTP(
 		body,
 		capture.family,
 		capture.model,
-		capture.access,
+		capture.definitions,
 	)
 	if err != nil {
 		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
@@ -228,7 +245,7 @@ func validateNativeProviderRequest(
 	body []byte,
 	family ProfileFamily,
 	model string,
-	access WorkspaceAccess,
+	definitions []providerToolDefinition,
 ) (string, error) {
 	value, err := decodeStrict(body, MaxProviderRequestBytes)
 	if err != nil {
@@ -242,7 +259,6 @@ func validateNativeProviderRequest(
 	if !ok {
 		return "", fail("NATIVE_SURFACE_INVALID")
 	}
-	definitions := toolDefinitions(access)
 	switch family {
 	case ProfileCodex:
 		if root["tool_choice"] != "auto" ||
@@ -257,7 +273,7 @@ func validateNativeProviderRequest(
 	default:
 		return "", fail("NATIVE_SURFACE_INVALID")
 	}
-	return nativeToolSurfaceDigest(access), nil
+	return nativeToolDefinitionsDigest(definitions), nil
 }
 
 func exactClaudeProviderTools(
@@ -506,17 +522,237 @@ func validateNativeSurfaceCertificate(
 			invocation.Selected.Adapter.ConfigurationDigest ||
 		certificate.ExecutableDigest != config.CLI.Digest ||
 		certificate.CLIVersion != config.CLIVersion ||
-		certificate.ToolDigest != nativeToolSurfaceDigest(ReadWrite) ||
-		!digestPattern.MatchString(certificate.CaptureEvidenceDigest) ||
-		certificate.Protocol == "" ||
-		certificate.ClientName == "" ||
-		certificate.ClientVersion == "" ||
-		!digestPattern.MatchString(certificate.InitializeDigest) ||
-		!digestPattern.MatchString(certificate.NotificationDigest) ||
-		!digestPattern.MatchString(certificate.ListDigest) {
+		!validNativeSurfaceStage(
+			certificate.FreshReadOnly,
+			config.Family,
+			invocation.Selected.Model,
+			ReadOnly,
+			nativeInvocationStageFresh,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.FreshReadWrite,
+			config.Family,
+			invocation.Selected.Model,
+			ReadWrite,
+			nativeInvocationStageFresh,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.ContinuationStart,
+			config.Family,
+			invocation.Selected.Model,
+			ReadOnly,
+			nativeInvocationStageContinuationStart,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.ContinuationStartRW,
+			config.Family,
+			invocation.Selected.Model,
+			ReadWrite,
+			nativeInvocationStageContinuationStart,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.ResumeReadOnly,
+			config.Family,
+			invocation.Selected.Model,
+			ReadOnly,
+			nativeInvocationStageResume,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.Resume,
+			config.Family,
+			invocation.Selected.Model,
+			ReadWrite,
+			nativeInvocationStageResume,
+		) {
 		return fail("NATIVE_NOT_CERTIFIED")
 	}
 	return nil
+}
+
+func validateNativeAutomationSurfaceCertificate(
+	certificate nativeAutomationSurfaceCertificate,
+	invocation AutomationInvocation,
+	config NativeAdapterConfig,
+) error {
+	if validateAutomationInvocation(invocation) != nil {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	pair, err := nativeAutomationCertificationInvocations(
+		invocation.Selected,
+	)
+	if err != nil {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	_, recoveryDefinitions, err := nativeAutomationSurface(pair.Recovery)
+	if err != nil {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	_, advisoryDefinitions, err := nativeAutomationSurface(pair.Advisory)
+	if err != nil {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	if certificate.Family != config.Family ||
+		certificate.ProfileDigest != nativeProfileDigest(
+			invocation.Selected.Profile,
+		) ||
+		certificate.Model != invocation.Selected.Model ||
+		certificate.AdapterConfigDigest !=
+			invocation.Selected.Adapter.ConfigurationDigest ||
+		certificate.ExecutableDigest != config.CLI.Digest ||
+		certificate.CLIVersion != config.CLIVersion ||
+		!validNativeAutomationStage(
+			certificate.Recovery,
+			config.Family,
+			invocation.Selected.Model,
+			nativeInvocationStageRecovery,
+			recoveryDefinitions,
+		) ||
+		!validNativeAutomationStage(
+			certificate.Advisory,
+			config.Family,
+			invocation.Selected.Model,
+			nativeInvocationStageAdvisory,
+			advisoryDefinitions,
+		) ||
+		certificate.Recovery.ToolDigest ==
+			certificate.Advisory.ToolDigest ||
+		certificate.Recovery.ToolDigest ==
+			nativeToolSurfaceDigest(ReadOnly) ||
+		certificate.Recovery.ToolDigest ==
+			nativeToolSurfaceDigest(ReadWrite) ||
+		certificate.Advisory.ToolDigest ==
+			nativeToolSurfaceDigest(ReadOnly) ||
+		certificate.Advisory.ToolDigest ==
+			nativeToolSurfaceDigest(ReadWrite) {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	return nil
+}
+
+func validNativeAutomationStage(
+	stage nativeSurfaceStageCertificate,
+	family ProfileFamily,
+	model string,
+	invocationStage nativeInvocationStage,
+	definitions []providerToolDefinition,
+) bool {
+	return validNativeStageCertificate(
+		stage,
+		family,
+		model,
+		"",
+		invocationStage,
+		definitions,
+	)
+}
+
+func validNativeSurfaceStage(
+	stage nativeSurfaceStageCertificate,
+	family ProfileFamily,
+	model string,
+	access WorkspaceAccess,
+	invocationStage nativeInvocationStage,
+) bool {
+	return validNativeStageCertificate(
+		stage,
+		family,
+		model,
+		access,
+		invocationStage,
+		toolDefinitions(access),
+	)
+}
+
+func validNativeStageCertificate(
+	stage nativeSurfaceStageCertificate,
+	family ProfileFamily,
+	model string,
+	access WorkspaceAccess,
+	invocationStage nativeInvocationStage,
+	definitions []providerToolDefinition,
+) bool {
+	automation := invocationStage == nativeInvocationStageRecovery ||
+		invocationStage == nativeInvocationStageAdvisory
+	argumentDigest := nativeCLIArgumentDigest(
+		family,
+		model,
+		access,
+		invocationStage,
+	)
+	authorityDigest := ""
+	if automation {
+		argumentDigest = nativeAutomationCLIArgumentDigest(
+			family,
+			model,
+			definitions,
+		)
+		authorityDigest = nativeAutomationAuthorityDigest(
+			family,
+			model,
+			invocationStage,
+			definitions,
+		)
+	}
+	return stage.Access == access &&
+		stage.InvocationStage == invocationStage &&
+		stage.ToolDigest == nativeToolDefinitionsDigest(definitions) &&
+		digestPattern.MatchString(stage.CaptureEvidenceDigest) &&
+		stage.ArgumentDigest == argumentDigest &&
+		stage.AuthorityDigest == authorityDigest &&
+		stage.Protocol != "" &&
+		stage.ClientName != "" &&
+		stage.ClientVersion != "" &&
+		digestPattern.MatchString(stage.InitializeDigest) &&
+		digestPattern.MatchString(stage.NotificationDigest) &&
+		digestPattern.MatchString(stage.ListDigest)
+}
+
+func nativeCertificateStage(
+	certificate nativeSurfaceCertificate,
+	invocation Invocation,
+	launch *nativeContinuationLaunch,
+) (nativeSurfaceStageCertificate, error) {
+	access := invocation.Request.Workspace.Access
+	if launch == nil {
+		if !invocation.Request.FreshContext {
+			return nativeSurfaceStageCertificate{},
+				fail("NATIVE_NOT_CERTIFIED")
+		}
+		switch access {
+		case ReadOnly:
+			return certificate.FreshReadOnly, nil
+		case ReadWrite:
+			return certificate.FreshReadWrite, nil
+		default:
+			return nativeSurfaceStageCertificate{},
+				fail("NATIVE_NOT_CERTIFIED")
+		}
+	}
+	if launch.recoverable {
+		switch {
+		case !launch.resume && access == ReadOnly:
+			return certificate.ContinuationStart, nil
+		case !launch.resume && access == ReadWrite:
+			return certificate.ContinuationStartRW, nil
+		case launch.resume && access == ReadOnly:
+			return certificate.ResumeReadOnly, nil
+		case launch.resume && access == ReadWrite:
+			return certificate.Resume, nil
+		default:
+			return nativeSurfaceStageCertificate{},
+				fail("NATIVE_NOT_CERTIFIED")
+		}
+	}
+	if launch.resume {
+		if access == ReadWrite && !invocation.Request.FreshContext {
+			return certificate.Resume, nil
+		}
+		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	if access == ReadOnly && invocation.Request.FreshContext {
+		return certificate.ContinuationStart, nil
+	}
+	return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 }
 
 func nativeCaptureCredentialBody(

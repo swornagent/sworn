@@ -150,6 +150,7 @@ func TestRenderTerminalHandlesAnEmptySnapshot(t *testing.T) {
 		"GRAPH nodes=0 edges=0",
 		"EFFECTS count=0",
 		"ATTEMPTS count=0",
+		"ATTENTIONS count=0 truncated=false",
 		"NOTIFICATIONS count=0 truncated=false",
 		"EVIDENCE count=0 through_offset=0",
 		"ACTIONS count=0",

@@ -88,6 +88,22 @@ not inject an error code. Exhaustion is one initial attempt plus two automatic
 retries in the same persisted epoch. No S3 model work or assembly work begins
 after the prerequisite base composition fails.
 
+### Paired turn-recovery evidence
+
+Focused paired checks captured on 2026-07-30 passed:
+
+| Scenario | Direct implementation | Human recovery | Signed recovery minus direct delta |
+| --- | --- | --- | --- |
+| Shared runtime fixed fixture | 16 ms; 14 input / 10 output tokens | 66 ms; 28 input / 20 output tokens | +50 ms; +14 input / +10 output tokens |
+| Real binary, eval v2 | 6,419,606,905 elapsed ns; 336,441,597 implementation ns; 14 input / 10 output tokens; recovered 0, human escalation 0, false acceptance 0 | 8,512,129,544 elapsed ns; 1,734,950,593 implementation ns; 28 input / 20 output tokens; recovered 1, human escalation 1, false acceptance 0 | +2,092,522,639 elapsed ns; +1,398,508,996 implementation ns; +14 input / +10 output tokens |
+
+The real-binary pair used the same plan bytes and produced the same exact
+product tree and outcome. Its focused E2E test passed in 17.989s Go package
+time (18.98s command wall time). The shared focused package passed in
+0.009s (0.71s command wall time). The signed elapsed delta is one observed
+fixture result, evidence that both paths are measured; it is not a performance
+guarantee, and the test does not assert its sign.
+
 ## Usage and quality facts
 
 The deterministic production providers report token usage and no cost:

@@ -370,7 +370,7 @@ func e2eManifest(
 		return left < right
 	})
 	manifest := swornruntime.Manifest{
-		SchemaVersion: swornruntime.ManifestVersion,
+		SchemaVersion: swornruntime.ManifestVersionV2,
 		RunID:         runID, Repository: repository, Release: release,
 		TargetRef: "refs/heads/main", Intent: "Drive the exact approved E2E track.",
 		MaxParallelTracks: 2,

@@ -10,9 +10,13 @@ import (
 
 var telemetryMetricNames = []string{
 	"sworn.eval.events",
+	"sworn.eval.continuations",
+	"sworn.eval.continuation.outcomes",
 	"sworn.eval.attempts",
 	"sworn.eval.retries",
 	"sworn.eval.recoveries",
+	"sworn.eval.turn_recovery.actions",
+	"sworn.eval.turn_recovery.outcomes",
 	"sworn.eval.duration_ns.numerator",
 	"sworn.eval.duration_ns.denominator",
 	"sworn.eval.input_tokens",

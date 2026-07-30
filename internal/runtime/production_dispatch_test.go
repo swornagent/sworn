@@ -141,6 +141,12 @@ func productionManifest(
 			Profile: "planner", Model: "verifier-model",
 		},
 	}
+	manifest.Automation = &AutomationSelections{
+		Recovery: driver.ModelSelection{
+			Profile: "planner",
+			Model:   "planner-model",
+		},
+	}
 	body, err := canonicalManifest(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -583,6 +589,7 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 			coordinates,
 		),
 		Role:            driver.RoleVerifier,
+		Track:           "T1",
 		Slice:           coordinates.Slice,
 		Responsibility:  coordinates.Responsibility,
 		Attempt:         coordinates.BatonAttempt,
@@ -661,6 +668,24 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		value.Role, _ = roleForResponsibility(mode.responsibility)
 		value.WorkspaceAccess = mode.access
 		value.Candidate = nil
+		value.DesignReceipt = nil
+		if mode.responsibility ==
+			driver.ImplementerImplementation {
+			value.DesignReceipt = &productionReceiptBinding{
+				OID: strings.Repeat("e", 40),
+				BodyInput: driver.Input{
+					Name:   "design-receipt",
+					Path:   productionDesignReceiptPath,
+					Digest: driver.Digest(receiptBody),
+				},
+				DetailInput: driver.Input{
+					Name:   "design-receipt-detail",
+					Path:   productionDesignDetailPath,
+					Digest: driver.Digest(receiptDetail),
+				},
+				body: receiptBody, detail: receiptDetail,
+			}
+		}
 		if mode.responsibility == driver.WorkVerification {
 			value.Candidate = contextValue.Candidate
 		}
@@ -734,6 +759,51 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 	); err != nil {
 		t.Fatal(err)
 	}
+	v1Context := contextValue
+	v1Context.SchemaVersion = productionWorkContextVersionV1
+	v1Context.Track = ""
+	v1Context.PreparedBase = ""
+	v1Context.DesignReceipt = nil
+	v1Request, err := productionRequestForContext(
+		manifest,
+		v1Context,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1RequestBody, err := driver.EncodeRequest(v1Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseProductionDispatchCommand(
+		manifest,
+		mustJSON(productionDispatchCommand{
+			SchemaVersion: productionDispatchVersionV1,
+			RequestDigest: driver.Digest(v1RequestBody),
+			Context:       v1Context,
+		}),
+	); err != nil {
+		t.Fatalf("v1 recovery envelope = %v", err)
+	}
+	for name, hybrid := range map[string]productionDispatchCommand{
+		"v1 command with v2 context": {
+			SchemaVersion: productionDispatchVersionV1,
+			RequestDigest: driver.Digest(requestBody),
+			Context:       contextValue,
+		},
+		"v2 command with v1 context": {
+			SchemaVersion: productionDispatchVersion,
+			RequestDigest: driver.Digest(v1RequestBody),
+			Context:       v1Context,
+		},
+	} {
+		if _, err := parseProductionDispatchCommand(
+			manifest,
+			mustJSON(hybrid),
+		); !IsCode(err, "CORRUPT_JOURNAL") {
+			t.Fatalf("%s = %v", name, err)
+		}
+	}
 
 	command.Context.Evidence[0].ProductTree = "not-a-digest"
 	request, err = productionRequestForContext(
@@ -753,6 +823,43 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		mustJSON(command),
 	); !IsCode(err, "CORRUPT_JOURNAL") {
 		t.Fatalf("substituted evidence = %v", err)
+	}
+}
+
+func TestProductionContextInputRehydrationRejectsMismatchedAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	planBody := []byte("plan\n")
+	input := driver.Input{
+		Name: "plan", Path: productionPlanPath,
+		Digest: driver.Digest(planBody),
+	}
+	persisted := productionWorkContext{
+		Plan: &productionPlanBinding{Input: input},
+	}
+	current := productionWorkContext{
+		Plan: &productionPlanBinding{
+			Input: input,
+			body:  planBody,
+		},
+	}
+	rehydrated, err := rehydrateProductionContextInputs(
+		persisted,
+		current,
+	)
+	if err != nil ||
+		!bytes.Equal(rehydrated.Plan.body, planBody) {
+		t.Fatalf("exact rehydration = %#v, %v", rehydrated.Plan, err)
+	}
+
+	current.Plan.Input.Digest = driver.Digest([]byte("different\n"))
+	if _, err := rehydrateProductionContextInputs(
+		persisted,
+		current,
+	); !IsCode(err, "INVALID_AUTHORITY_STATE") {
+		t.Fatalf("mismatched authority = %v", err)
 	}
 }
 
@@ -1174,11 +1281,11 @@ func newProductionImplementationRecoveryFixture(
 		TargetHead: state.Refs.Target.Head, Track: track.ID,
 		TrackRef: track.Ref, TrackHead: track.Head,
 		DispatchWork: workIdentity(
-			outerID,
+			outerWork,
 			"driver.dispatch",
 		),
 		PreparedWork: workIdentity(
-			outerID,
+			outerWork,
 			"git.seal.prepared",
 		),
 	}

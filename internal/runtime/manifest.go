@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	ManifestVersion   = "sworn.runtime-manifest/v2"
+	ManifestVersionV2 = "sworn.runtime-manifest/v2"
+	ManifestVersion   = "sworn.runtime-manifest/v3"
 	MaxManifestBytes  = 2 * 1024 * 1024
 	MaxParallelTracks = 8
 )
@@ -67,6 +68,10 @@ type FakeDriverConfig struct {
 	Profile    string `json:"profile"`
 }
 
+type AutomationSelections struct {
+	Recovery driver.ModelSelection `json:"recovery"`
+}
+
 type ScriptedAttempt struct {
 	Slice          string                `json:"slice"`
 	Responsibility driver.Responsibility `json:"responsibility"`
@@ -99,12 +104,20 @@ type Manifest struct {
 	Driver             *FakeDriverConfig     `json:"driver,omitempty"`
 	DriverConfigDigest string                `json:"driver_config_digest,omitempty"`
 	Roles              driver.RoleSelections `json:"roles"`
+	Automation         *AutomationSelections `json:"automation,omitempty"`
 	Limits             driver.Limits         `json:"limits"`
 	Scripts            []ScriptedAttempt     `json:"scripted_attempts,omitempty"`
 }
 
 func (m Manifest) production() bool {
 	return m.Driver == nil && m.DriverConfigDigest != ""
+}
+
+func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
+	if m.SchemaVersion != ManifestVersion || m.Automation == nil {
+		return driver.ModelSelection{}, false
+	}
+	return m.Automation.Recovery, true
 }
 
 type admittedManifest struct {
@@ -153,7 +166,19 @@ func admitManifest(body []byte) (admittedManifest, error) {
 }
 
 func validateManifest(manifest Manifest) error {
-	if manifest.SchemaVersion != ManifestVersion {
+	switch manifest.SchemaVersion {
+	case ManifestVersionV2:
+		if manifest.Automation != nil {
+			return runtimeFail("INVALID_AUTOMATION", nil)
+		}
+	case ManifestVersion:
+		if manifest.Automation == nil ||
+			driver.ValidateModelSelection(
+				manifest.Automation.Recovery,
+			) != nil {
+			return runtimeFail("INVALID_AUTOMATION", nil)
+		}
+	default:
 		return runtimeFail("INVALID_MANIFEST_VERSION", nil)
 	}
 	for label, value := range map[string]string{
@@ -209,6 +234,10 @@ func validateManifest(manifest Manifest) error {
 			if role.Profile != manifest.Driver.Profile {
 				return runtimeFail("INVALID_ROLES", nil)
 			}
+		}
+		if recovery, enabled := manifest.recoverySelection(); enabled &&
+			recovery.Profile != manifest.Driver.Profile {
+			return runtimeFail("INVALID_AUTOMATION", nil)
 		}
 		return validateScriptedAttempts(manifest)
 	case manifest.Driver == nil && manifest.DriverConfigDigest != "":

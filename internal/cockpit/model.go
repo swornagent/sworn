@@ -2,7 +2,7 @@ package cockpit
 
 import "time"
 
-const SnapshotSchemaVersion = "sworn.cockpit/v1"
+const SnapshotSchemaVersion = "sworn.cockpit/v2"
 
 type Snapshot struct {
 	SchemaVersion string       `json:"schema_version"`
@@ -41,6 +41,7 @@ type Node struct {
 	Label              string `json:"label"`
 	Track              string `json:"track,omitempty"`
 	State              string `json:"state"`
+	RuntimeState       string `json:"runtime_state,omitempty"`
 	Stage              string `json:"stage,omitempty"`
 	Outcome            string `json:"outcome,omitempty"`
 	NextResponsibility string `json:"next_responsibility,omitempty"`
@@ -65,8 +66,19 @@ type RuntimeView struct {
 	Owner                  OwnerView          `json:"owner"`
 	Effects                []EffectView       `json:"effects"`
 	Attempts               []AttemptView      `json:"attempts"`
+	Attentions             []AttentionView    `json:"attentions"`
+	AttentionsTruncated    bool               `json:"attentions_truncated"`
 	Notifications          []NotificationView `json:"notifications"`
 	NotificationsTruncated bool               `json:"notifications_truncated"`
+}
+
+type AttentionView struct {
+	ID         string `json:"id"`
+	LaneID     string `json:"lane_id"`
+	State      string `json:"state"`
+	Generation int64  `json:"generation"`
+	Question   string `json:"question"`
+	Answer     string `json:"answer,omitempty"`
 }
 
 type OwnerView struct {
@@ -119,6 +131,7 @@ type Evidence struct {
 type Action struct {
 	Kind               string `json:"kind"`
 	ExpectedGeneration int64  `json:"expected_generation"`
+	AttentionID        string `json:"attention_id,omitempty"`
 	WorkID             string `json:"work_id,omitempty"`
 	ExpectedEpoch      int64  `json:"expected_epoch,omitempty"`
 	DestinationID      string `json:"destination_id,omitempty"`

@@ -26,6 +26,7 @@ Available in the v0.3 walking skeleton:
   sworn run --manifest PATH --journal PATH [--config ABS]
   sworn pause|resume|cancel|takeover --run ID --journal PATH --command ID --generation N
   sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
+  sworn answer --run ID --journal PATH --attention SHA256 --generation 1 --answer TEXT [--config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
   sworn status --run ID --journal PATH --json
   sworn board --run ID --journal PATH [--json]
@@ -70,6 +71,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runControl(journal.Retry, args[1:], stdout, stderr)
 	case "takeover":
 		return runControl(journal.Takeover, args[1:], stdout, stderr)
+	case "answer":
+		return runAnswer(args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	case "board":
@@ -80,6 +83,65 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "sworn: command %q is not implemented in the v0.3 walking skeleton\n", args[0])
 		return 2
 	}
+}
+
+func runAnswer(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseOptionsWithOptionalValues(
+		args,
+		[]string{
+			"--run",
+			"--journal",
+			"--attention",
+			"--generation",
+			"--answer",
+		},
+		[]string{"--config"},
+		nil,
+		nil,
+	)
+	if !ok {
+		fmt.Fprintln(
+			stderr,
+			"usage: sworn answer --run ID --journal PATH "+
+				"--attention SHA256 --generation 1 --answer TEXT [--config ABS]",
+		)
+		return 2
+	}
+	generation, err := strconv.ParseInt(options["--generation"], 10, 64)
+	if err != nil || generation != 1 {
+		fmt.Fprintln(stderr, "sworn answer: invalid generation")
+		return 2
+	}
+	ctx := context.Background()
+	service, factory, err := openRuntimeService(
+		ctx,
+		options["--journal"],
+		options["--config"],
+	)
+	if err != nil {
+		fmt.Fprintf(stderr, "sworn answer: %v\n", err)
+		return 1
+	}
+	defer service.Close()
+	defer factory.Close()
+	status, err := service.AnswerAttention(
+		ctx,
+		runtimepkg.AnswerAttentionCommand{
+			RunID:              options["--run"],
+			AttentionID:        options["--attention"],
+			ExpectedGeneration: generation,
+			Answer:             options["--answer"],
+		},
+	)
+	if err != nil {
+		fmt.Fprintf(stderr, "sworn answer: %v\n", err)
+		return 1
+	}
+	if err := writeStatusText(stdout, status); err != nil {
+		fmt.Fprintln(stderr, "sworn answer: output failed")
+		return 1
+	}
+	return 0
 }
 
 func runVersion(args []string, stdout, stderr io.Writer) int {

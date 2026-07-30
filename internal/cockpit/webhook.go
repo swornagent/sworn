@@ -747,6 +747,18 @@ func safeWebhookEventKind(kind string) string {
 		kind == "owner_acquired" ||
 		kind == "owner_released":
 		return webhookControlUpdated
+	case kind == journal.AttentionOpenedEvent ||
+		kind == journal.AttentionAnsweredEvent ||
+		kind == journal.AttentionResolvedEvent ||
+		kind == journal.RecoveryStepReservedEvent ||
+		kind == journal.RecoveryResumeWorkerEvent ||
+		kind == journal.RecoveryAskCaptainEvent ||
+		kind == journal.RecoveryRetryOperationalEvent ||
+		kind == journal.RecoveryParkedEvent ||
+		kind == "turn_recovery.outcome.recovered" ||
+		kind == "turn_recovery.outcome.human_escalation" ||
+		kind == "turn_recovery.outcome.false_acceptance":
+		return webhookRecoveryUpdated
 	case strings.Contains(kind, "uncertain") ||
 		strings.Contains(kind, "reconciled") ||
 		strings.Contains(kind, "recovered") ||

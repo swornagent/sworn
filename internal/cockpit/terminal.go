@@ -105,6 +105,12 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 				"track="+terminalQuote(node.Track),
 			)
 		}
+		if node.RuntimeState != "" {
+			nodeFields = append(
+				nodeFields,
+				"runtime="+terminalQuote(node.RuntimeState),
+			)
+		}
 		if node.Stage != "" {
 			nodeFields = append(
 				nodeFields,
@@ -221,6 +227,33 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 
 	renderer.section(
 		fmt.Sprintf(
+			"ATTENTIONS count=%d truncated=%t",
+			len(snapshot.Runtime.Attentions),
+			snapshot.Runtime.AttentionsTruncated,
+		),
+	)
+	if len(snapshot.Runtime.Attentions) == 0 {
+		renderer.none()
+	}
+	for _, attention := range snapshot.Runtime.Attentions {
+		renderer.line(
+			2,
+			fields(
+				"id="+terminalQuote(attention.ID),
+				"lane="+terminalQuote(attention.LaneID),
+				"state="+terminalQuote(attention.State),
+				"generation="+strconv.FormatInt(
+					attention.Generation,
+					10,
+				),
+				"question="+terminalQuote(attention.Question),
+				"answer="+terminalQuote(attention.Answer),
+			),
+		)
+	}
+
+	renderer.section(
+		fmt.Sprintf(
 			"NOTIFICATIONS count=%d truncated=%t",
 			len(snapshot.Runtime.Notifications),
 			snapshot.Runtime.NotificationsTruncated,
@@ -297,6 +330,12 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 			actionFields = append(
 				actionFields,
 				"work="+terminalQuote(action.WorkID),
+			)
+		}
+		if action.AttentionID != "" {
+			actionFields = append(
+				actionFields,
+				"attention="+terminalQuote(action.AttentionID),
 			)
 		}
 		if action.ExpectedEpoch != 0 {

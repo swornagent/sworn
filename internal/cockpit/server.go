@@ -17,13 +17,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 const (
-	maxRequestBytes     = 8 * 1024
+	maxRequestBytes = 20 * 1024
+	// A JSON escape can expand one decoded answer byte to six transport
+	// bytes. The normal request allowance covers the bounded envelope.
+	maxAttentionAnswerRequestBytes = maxRequestBytes +
+		6*journal.MaxAttentionAnswerBytes
 	defaultSSELimit     = 32
-	telemetryHealthPath = "/api/v1/operator/telemetry"
+	apiVersion          = "v2"
+	apiPathPrefix       = "/api/" + apiVersion
+	telemetryHealthPath = apiPathPrefix + "/operator/telemetry"
 )
 
 var (
@@ -44,6 +51,10 @@ type SnapshotAPI interface {
 type CommandAPI interface {
 	Start(context.Context, StartCommand) (runtimepkg.RunStatus, error)
 	Control(context.Context, ControlCommand) (runtimepkg.RunStatus, error)
+	AnswerAttention(
+		context.Context,
+		AnswerAttentionCommand,
+	) (runtimepkg.RunStatus, error)
 	Redeliver(context.Context, RedeliveryCommand) error
 }
 
@@ -303,7 +314,7 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case telemetryHealthPath:
 		h.serveTelemetryHealth(w, r)
 		return
-	case "/api/v1/start":
+	case apiPathPrefix + "/start":
 		h.serveStart(w, r)
 		return
 	}
@@ -313,7 +324,7 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return
 	}
-	if len(parts) < 5 || parts[0] != "api" || parts[1] != "v1" ||
+	if len(parts) < 5 || parts[0] != "api" || parts[1] != apiVersion ||
 		parts[2] != "runs" || parts[3] != h.runID {
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 		return
@@ -326,12 +337,49 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		h.serveEvents(w, r, runID)
 	case len(parts) == 5 && parts[4] == "commands":
 		h.serveControl(w, r, runID)
+	case len(parts) == 7 && parts[4] == "attentions" &&
+		parts[6] == "answer":
+		h.serveAttentionAnswer(w, r, runID, parts[5])
 	case len(parts) == 6 && parts[4] == "notifications" &&
 		parts[5] == "redeliver":
 		h.serveRedelivery(w, r, runID)
 	default:
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 	}
+}
+
+func (h *HTTPHandler) serveAttentionAnswer(
+	w http.ResponseWriter,
+	r *http.Request,
+	runID, attentionID string,
+) {
+	if r.Method != http.MethodPost || r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	var command AnswerAttentionCommand
+	if !decodeRequestUpTo(
+		w,
+		r,
+		&command,
+		maxAttentionAnswerRequestBytes,
+	) {
+		return
+	}
+	if command.RunID != runID || command.AttentionID != attentionID {
+		writeHTTPError(w, http.StatusBadRequest, "RUN_BINDING_MISMATCH")
+		return
+	}
+	if len(command.Answer) > journal.MaxAttentionAnswerBytes {
+		writeHTTPError(w, http.StatusBadRequest, "INVALID_COMMAND")
+		return
+	}
+	status, err := h.commands.AnswerAttention(r.Context(), command)
+	if err != nil {
+		writeHTTPError(w, http.StatusConflict, errorCode(err))
+		return
+	}
+	writeJSON(w, r, http.StatusOK, status)
 }
 
 func (h *HTTPHandler) serveTelemetryHealth(
@@ -590,6 +638,15 @@ func (h *HTTPHandler) serveRedelivery(
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
+	return decodeRequestUpTo(w, r, target, maxRequestBytes)
+}
+
+func decodeRequestUpTo(
+	w http.ResponseWriter,
+	r *http.Request,
+	target any,
+	limit int64,
+) bool {
 	mediaType, parameters, err := mime.ParseMediaType(
 		r.Header.Get("Content-Type"),
 	)
@@ -599,7 +656,7 @@ func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
 		writeHTTPError(w, http.StatusUnsupportedMediaType, "JSON_REQUIRED")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
