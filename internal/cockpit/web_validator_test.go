@@ -78,6 +78,44 @@ func TestBrowserJavaScriptValidatorAcceptsParallelSameRoleHandoffs(
 	}
 }
 
+func TestWebAttentionAnswerRequiresExactAdmittedAction(t *testing.T) {
+	t.Parallel()
+
+	javascript := mustEmbeddedAsset(t, "web/app.js")
+	for _, required := range []string{
+		"renderAttentions(snapshot.runtime.attentions, snapshot.actions);",
+		"function admittedAnswerAction(attention, actions)",
+		`action.kind === "answer_attention"`,
+		"action.attention_id === attention.id",
+		"action.expected_generation === attention.generation",
+		"admittedAnswerAction(attention, state.snapshot.actions)",
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("attention admission is missing %q", required)
+		}
+	}
+	if strings.Contains(
+		javascript,
+		"renderAttentions(snapshot.runtime.attentions);",
+	) {
+		t.Fatal("attention rendering still ignores admitted snapshot actions")
+	}
+}
+
+func TestWebAttentionAnswerAdmissionIsExactWithoutBrowser(t *testing.T) {
+	t.Parallel()
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+	command := exec.Command(node, "-e", webAttentionAdmissionHarness)
+	command.Stdin = strings.NewReader(mustEmbeddedAsset(t, "web/app.js"))
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("attention admission regression failed: %v\n%s", err, output)
+	}
+}
+
 func parallelSameRoleSnapshotJSON(t *testing.T) json.RawMessage {
 	t.Helper()
 	handler, projector, _ := newHTTPFixture(
@@ -128,6 +166,68 @@ func parallelSameRoleSnapshot() Snapshot {
 	return snapshot
 }
 
+const webAttentionAdmissionHarness = `
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(0, "utf8");
+const start = source.indexOf("function admittedAnswerAction(");
+const end = source.indexOf("function renderAttentions(", start);
+if (start < 0 || end < 0) {
+  throw new Error("attention admission source not found");
+}
+const helper = source.slice(start, end);
+const base = {
+  id: "sha256:" + "a".repeat(64),
+  state: "open",
+  generation: 1,
+};
+const exact = {
+  kind: "answer_attention",
+  attention_id: base.id,
+  expected_generation: 1,
+};
+const admitted = (attention, actions) => {
+  const context = { attention, actions, result: null };
+  vm.runInNewContext(
+    '"use strict";' + helper +
+      'result = Boolean(admittedAnswerAction(attention, actions));',
+    context,
+    { timeout: 1_000 },
+  );
+  return context.result;
+};
+const cases = [
+  ["exact action", base, [exact], true],
+  ["no action", base, [], false],
+  ["wrong attention", base, [{
+    ...exact,
+    attention_id: "sha256:" + "b".repeat(64),
+  }], false],
+  ["stale generation", base, [{
+    ...exact,
+    expected_generation: 2,
+  }], false],
+  ["non-answer action", base, [{
+    ...exact,
+    kind: "pause",
+  }], false],
+  ["answered attention", {
+    ...base,
+    state: "answered",
+  }, [exact], false],
+];
+const failures = cases.filter(
+  ([, attention, actions, want]) =>
+    admitted(attention, actions) !== want,
+);
+if (failures.length !== 0) {
+  throw new Error(
+    "unexpected attention admission: " +
+      failures.map(([name]) => name).join(", "),
+  );
+}
+`
+
 const webValidatorHarness = `
 const fs = require("fs");
 const vm = require("vm");
@@ -143,7 +243,7 @@ const validate = (snapshot) => {
   const context = { result: null, snapshot };
   vm.runInNewContext(
     '"use strict";' +
-      'const SCHEMA = "sworn.cockpit/v1";' +
+      'const SCHEMA = "sworn.cockpit/v2";' +
       'const state = { runID: "run-1" };' +
       validators +
       'result = validSnapshot(snapshot);',

@@ -10,7 +10,7 @@ import (
 
 const (
 	RecoverableTurnInputSchemaVersion = "sworn.recoverable-turn-input/v1"
-	MaxRecoverableInputBytes          = 8_192
+	MaxRecoverableInputBytes          = 16 * 1024
 	recoverableTurnNudge              = "Continue the same responsibility from your last yielded turn. Use the available evidence; yield again only for a real unresolved question or block."
 )
 
@@ -37,6 +37,10 @@ type RecoverableTurnInput struct {
 	SchemaVersion string               `json:"schema_version"`
 	Kind          RecoverableInputKind `json:"kind"`
 	Answer        string               `json:"answer,omitempty"`
+	// TargetBinding is runtime-only authority. It never reaches an adapter;
+	// an exact recovered Implementer design handoff may use it to retain the
+	// same private state for the ordinary implementation continuation.
+	TargetBinding *ContinuationBinding `json:"-"`
 }
 
 func ValidateRecoverableTurnInput(value RecoverableTurnInput) error {
@@ -93,40 +97,23 @@ func (Dispatcher) InvokeRecoverableTurn(
 	continuation *Continuation,
 	input *RecoverableTurnInput,
 ) (Observation, *Continuation, ContinuationResult, error) {
+	var target *ContinuationBinding
+	if input != nil && input.TargetBinding != nil {
+		value := *input.TargetBinding
+		target = &value
+	}
 	if continuation != nil {
 		return resumeRecoverableTurn(
-			ctx, invocation, binding, continuation, input, nil,
+			ctx, invocation, binding, continuation, input, target,
 		)
 	}
-	return startRecoverableTurn(
-		ctx, invocation, binding, input, input != nil,
-	)
-}
-
-// InvokeRecoverableTurnPromotingDesign consumes one yielded design handle.
-// Another yield remains in the same recoverable flow. Only an exact accepted
-// ImplementerDesign handoff may retain adapter state under the separate target
-// W3 binding for a later implementation resume.
-func (Dispatcher) InvokeRecoverableTurnPromotingDesign(
-	ctx context.Context,
-	invocation Invocation,
-	recoveryBinding ContinuationBinding,
-	targetBinding ContinuationBinding,
-	continuation *Continuation,
-	input *RecoverableTurnInput,
-) (Observation, *Continuation, ContinuationResult, error) {
-	if continuation == nil {
+	if target != nil {
 		return Observation{}, nil,
 			freshContinuation(ContinuationStatusMismatch),
 			fail("CONTINUATION_INVALID")
 	}
-	return resumeRecoverableTurn(
-		ctx,
-		invocation,
-		recoveryBinding,
-		continuation,
-		input,
-		&targetBinding,
+	return startRecoverableTurn(
+		ctx, invocation, binding, input, input != nil,
 	)
 }
 
@@ -378,7 +365,9 @@ func sameContinuationScope(
 	return source.RunID == target.RunID &&
 		source.Release == target.Release &&
 		source.Slice == target.Slice &&
-		source.Attempt == target.Attempt
+		source.Attempt == target.Attempt &&
+		source.PlanAuthorityDigest == target.PlanAuthorityDigest &&
+		source.TargetAuthorityDigest == target.TargetAuthorityDigest
 }
 
 func invokeWithoutRecoverableContinuation(
@@ -410,6 +399,7 @@ func prepareRecoverableInvocation(
 		return err
 	}
 	copy := *input
+	copy.TargetBinding = nil
 	invocation.recoverableInput = &copy
 	return nil
 }

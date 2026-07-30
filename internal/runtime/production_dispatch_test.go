@@ -141,6 +141,12 @@ func productionManifest(
 			Profile: "planner", Model: "verifier-model",
 		},
 	}
+	manifest.Automation = &AutomationSelections{
+		Recovery: driver.ModelSelection{
+			Profile: "planner",
+			Model:   "planner-model",
+		},
+	}
 	body, err := canonicalManifest(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -820,6 +826,43 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 	}
 }
 
+func TestProductionContextInputRehydrationRejectsMismatchedAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	planBody := []byte("plan\n")
+	input := driver.Input{
+		Name: "plan", Path: productionPlanPath,
+		Digest: driver.Digest(planBody),
+	}
+	persisted := productionWorkContext{
+		Plan: &productionPlanBinding{Input: input},
+	}
+	current := productionWorkContext{
+		Plan: &productionPlanBinding{
+			Input: input,
+			body:  planBody,
+		},
+	}
+	rehydrated, err := rehydrateProductionContextInputs(
+		persisted,
+		current,
+	)
+	if err != nil ||
+		!bytes.Equal(rehydrated.Plan.body, planBody) {
+		t.Fatalf("exact rehydration = %#v, %v", rehydrated.Plan, err)
+	}
+
+	current.Plan.Input.Digest = driver.Digest([]byte("different\n"))
+	if _, err := rehydrateProductionContextInputs(
+		persisted,
+		current,
+	); !IsCode(err, "INVALID_AUTHORITY_STATE") {
+		t.Fatalf("mismatched authority = %v", err)
+	}
+}
+
 func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 	t *testing.T,
 ) {
@@ -1238,11 +1281,11 @@ func newProductionImplementationRecoveryFixture(
 		TargetHead: state.Refs.Target.Head, Track: track.ID,
 		TrackRef: track.Ref, TrackHead: track.Head,
 		DispatchWork: workIdentity(
-			outerID,
+			outerWork,
 			"driver.dispatch",
 		),
 		PreparedWork: workIdentity(
-			outerID,
+			outerWork,
 			"git.seal.prepared",
 		),
 	}

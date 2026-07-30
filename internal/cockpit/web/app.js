@@ -1,7 +1,8 @@
 "use strict";
 
-const SCHEMA = "sworn.cockpit/v1";
+const SCHEMA = "sworn.cockpit/v2";
 const SNAPSHOT_POLL_MILLIS = 5_000;
+const MAX_ATTENTION_ANSWER_BYTES = 16 * 1024;
 const state = {
   runID: runFromPath(),
   snapshot: null,
@@ -21,6 +22,8 @@ const elements = {
   handoffCount: document.querySelector("#handoff-count"),
   handoffCopy: document.querySelector("#handoff-copy"),
   statusNotice: document.querySelector("#status-notice"),
+  attentionPanel: document.querySelector("#attention-panel"),
+  attentions: document.querySelector("#attention-list"),
   offset: document.querySelector("#offset"),
   viewport: document.querySelector("#board-viewport"),
   boardTitle: document.querySelector("#board-title"),
@@ -78,12 +81,25 @@ function validSnapshot(value) {
     validGraphHandoff(value.graph, value.handoff) &&
     value.runtime && Array.isArray(value.runtime.effects) &&
     Array.isArray(value.runtime.attempts) &&
+    Array.isArray(value.runtime.attentions) &&
+    value.runtime.attentions.every(validAttention) &&
+    typeof value.runtime.attentions_truncated === "boolean" &&
     Array.isArray(value.runtime.notifications) &&
     Array.isArray(value.evidence) &&
     Array.isArray(value.actions) &&
     Array.isArray(value.diagnostics) &&
     Number.isSafeInteger(value.through_offset) &&
     value.through_offset >= 0;
+}
+
+function validAttention(value) {
+  return value && /^sha256:[0-9a-f]{64}$/.test(value.id) &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.lane_id) &&
+    ["open", "answered", "resolved", "cancelled"].includes(value.state) &&
+    Number.isSafeInteger(value.generation) &&
+    value.generation >= 1 && value.generation <= 3 &&
+    typeof value.question === "string" && value.question !== "" &&
+    (value.answer === undefined || typeof value.answer === "string");
 }
 
 function validGraphHandoff(graph, handoff) {
@@ -97,7 +113,9 @@ function validGraphHandoff(graph, handoff) {
   for (const node of graph.nodes) {
     if (!node || typeof node.id !== "string" || node.id === "" ||
       nodeIDs.has(node.id) ||
-      typeof node.has_baton !== "boolean") {
+      typeof node.has_baton !== "boolean" ||
+      (node.runtime_state !== undefined &&
+        !["parked"].includes(node.runtime_state))) {
       return false;
     }
     nodeIDs.add(node.id);
@@ -229,6 +247,7 @@ function render() {
   elements.offset.textContent = `Event ${snapshot.through_offset}`;
   renderHandoff(snapshot.handoff);
   renderDiagnosticStatus();
+  renderAttentions(snapshot.runtime.attentions, snapshot.actions);
   renderEvidence(snapshot.evidence);
   renderOutbox(
     snapshot.runtime.notifications,
@@ -302,6 +321,8 @@ function renderFailure() {
   elements.outbox.replaceChildren();
   elements.outboxWindow.textContent = "";
   elements.actions.replaceChildren();
+  elements.attentionPanel.hidden = true;
+  elements.attentions.replaceChildren();
   if (state.runID) {
     showEmpty(
       "Snapshot unavailable",
@@ -407,6 +428,7 @@ function nodeButton(node, handoffNodes) {
   button.dataset.nodeId = node.id;
   button.dataset.kind = node.kind;
   button.dataset.state = node.state || "unknown";
+  button.dataset.runtimeState = node.runtime_state || "none";
   button.dataset.outcome = node.outcome || "none";
   button.dataset.hasBaton = String(node.has_baton);
   button.dataset.handoff = String(handoffNodes.has(node.id));
@@ -417,6 +439,9 @@ function nodeButton(node, handoffNodes) {
   const meta = document.createElement("span");
   meta.className = "node-meta";
   const parts = [humanize(node.state)];
+  if (node.runtime_state) {
+    parts.push(`runtime ${humanize(node.runtime_state)}`);
+  }
   if (node.next_responsibility && node.next_responsibility !== "none") {
     parts.push(`next ${humanize(node.next_responsibility)}`);
   }
@@ -476,6 +501,7 @@ function renderDetail() {
   details.className = "detail-grid";
   [
     ["State", humanize(node.state)],
+    ["Runtime state", reported(humanize(node.runtime_state))],
     ["Stage", reported(node.stage)],
     ["Outcome", reported(node.outcome)],
     ["Next responsibility", reported(humanize(node.next_responsibility))],
@@ -493,7 +519,9 @@ function renderDetail() {
 }
 
 function renderActions(container, actions) {
-  const buttons = actions.map((action) => {
+  const buttons = actions
+    .filter((action) => action.kind !== "answer_attention")
+    .map((action) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "control";
@@ -504,6 +532,113 @@ function renderActions(container, actions) {
     return button;
   });
   container.replaceChildren(...buttons);
+}
+
+function admittedAnswerAction(attention, actions) {
+  if (attention.state !== "open") {
+    return undefined;
+  }
+  return actions.find((action) =>
+    action.kind === "answer_attention" &&
+    action.attention_id === attention.id &&
+    action.expected_generation === attention.generation
+  );
+}
+
+function renderAttentions(attentions, actions) {
+  if (attentions.length === 0) {
+    elements.attentionPanel.hidden = true;
+    elements.attentions.replaceChildren();
+    return;
+  }
+  elements.attentionPanel.hidden = false;
+  const items = attentions.map((attention) => {
+    const item = document.createElement("li");
+    const identity = document.createElement("p");
+    identity.className = "eyebrow";
+    identity.textContent =
+      `${attention.lane_id} · ${humanize(attention.state)}`;
+    const question = document.createElement("p");
+    question.className = "attention-question";
+    question.textContent = attention.question;
+    item.append(identity, question);
+    const action = admittedAnswerAction(attention, actions);
+    if (action) {
+      const form = document.createElement("form");
+      form.className = "attention-form";
+      const label = document.createElement("label");
+      label.textContent = "Your answer";
+      const input = document.createElement("textarea");
+      input.name = "answer";
+      input.maxLength = 16_384;
+      input.required = true;
+      input.rows = 3;
+      const button = document.createElement("button");
+      button.type = "submit";
+      button.className = "control";
+      button.textContent = "Answer and continue";
+      button.disabled = !controlsAllowed();
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void submitAttention(attention, input, button);
+      });
+      label.append(input);
+      form.append(label, button);
+      item.append(form);
+    } else if (attention.answer) {
+      const answer = document.createElement("p");
+      answer.className = "quiet";
+      answer.textContent = `Answer: ${attention.answer}`;
+      item.append(answer);
+    }
+    return item;
+  });
+  elements.attentions.replaceChildren(...items);
+}
+
+async function submitAttention(attention, input, button) {
+  const answer = input.value.trim();
+  const action = state.snapshot &&
+    admittedAnswerAction(attention, state.snapshot.actions);
+  if (!action || !controlsAllowed() || answer === "") {
+    return;
+  }
+  input.setCustomValidity("");
+  if (new TextEncoder().encode(answer).byteLength >
+    MAX_ATTENTION_ANSWER_BYTES) {
+    input.setCustomValidity("Keep the answer under 16 KiB of UTF-8 text.");
+    input.reportValidity();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch(
+      `/api/v1/runs/${state.runID}/attentions/${attention.id}/answer`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          run_id: state.runID,
+          attention_id: attention.id,
+          expected_generation: action.expected_generation,
+          answer,
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("answer rejected");
+    }
+    await refresh("Answer recorded; the waiting lane is eligible again.");
+    requestAnimationFrame(() => elements.boardTitle.focus());
+  } catch {
+    setConnection("stale", "Refresh required");
+    elements.announcer.textContent =
+      "The answer was not accepted. Refresh before trying again.";
+  }
 }
 
 async function submitAction(action, button) {

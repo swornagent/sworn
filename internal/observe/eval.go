@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	EvalSchemaVersion = "sworn.eval/v1"
+	EvalSchemaVersion = "sworn.eval/v2"
 	EvalObserver      = "eval.core"
 	maxStableReads    = 2
 )
@@ -130,6 +130,7 @@ type Record struct {
 	Retries       int64               `json:"retries"`
 	Recovery      RecoverySummary     `json:"recovery"`
 	Continuation  ContinuationSummary `json:"continuation"`
+	TurnRecovery  TurnRecoverySummary `json:"turn_recovery"`
 	DurationNS    Ratio               `json:"duration_ns"`
 	Usage         UsageSummary        `json:"usage"`
 	Groups        []AttemptGroup      `json:"groups"`
@@ -214,6 +215,7 @@ type aggregate struct {
 	retries      int64
 	recovery     RecoverySummary
 	continuation continuationAggregate
+	turnRecovery turnRecoveryAggregate
 	duration     int64
 	usage        usageAggregate
 	groups       map[groupKey]*groupAggregate
@@ -257,6 +259,9 @@ func (a *aggregate) add(fact journal.EvaluationFact) {
 		if a.err == nil {
 			a.err = a.continuation.add(fact.EventKind)
 		}
+		if a.err == nil {
+			a.err = a.turnRecovery.add(fact.EventKind)
+		}
 	case journal.EvaluationAttempt:
 		a.addAttempt(fact)
 	default:
@@ -265,6 +270,9 @@ func (a *aggregate) add(fact journal.EvaluationFact) {
 }
 
 func (a *aggregate) addRecovery(kind string) {
+	if strings.HasPrefix(kind, "turn_recovery.") {
+		return
+	}
 	var target *int64
 	switch {
 	case strings.Contains(kind, "uncertain"):
@@ -434,6 +442,7 @@ func (a *aggregate) record(
 		Retries:       a.retries,
 		Recovery:      a.recovery,
 		Continuation:  a.continuation.summary(),
+		TurnRecovery:  a.turnRecovery.summary(),
 		DurationNS:    knownRatio(a.duration, a.attempts),
 		Usage:         a.usage.summary(a.attempts),
 		Groups:        groups,

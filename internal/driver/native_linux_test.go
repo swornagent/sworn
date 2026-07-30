@@ -1165,13 +1165,13 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 				SchemaVersion: RecoverableTurnInputSchemaVersion,
 				Kind:          RecoverableInputAnswer,
 				Answer:        "Use the exact admitted design evidence.",
+				TargetBinding: &promotionBinding,
 			}
 			observation, next, result, err =
-				(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+				(Dispatcher{}).InvokeRecoverableTurn(
 					context.Background(),
 					promotionStart,
 					binding,
-					promotionBinding,
 					handle,
 					promotionInput,
 				)

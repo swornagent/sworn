@@ -25,6 +25,7 @@ func validTelemetryRecord(record Record) bool {
 		record.Recovery.Recovered < 0 ||
 		record.Recovery.RolledBack < 0 ||
 		!validContinuationSummary(record.Continuation, record.Events) ||
+		!validTurnRecoverySummary(record.TurnRecovery, record.Events) ||
 		len(record.Groups) > 512 {
 		return false
 	}
@@ -137,6 +138,10 @@ func cloneRecord(record Record) Record {
 	result.Continuation.Counts = append(
 		[]ContinuationCount(nil),
 		record.Continuation.Counts...,
+	)
+	result.TurnRecovery.Actions = append(
+		[]TurnRecoveryCount(nil),
+		record.TurnRecovery.Actions...,
 	)
 	result.Groups = append([]AttemptGroup(nil), record.Groups...)
 	for index := range result.Groups {

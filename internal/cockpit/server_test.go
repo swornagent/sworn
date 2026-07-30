@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -63,6 +65,7 @@ type httpFakeCommands struct {
 	mu           sync.Mutex
 	startCalls   int
 	controlCalls int
+	answerCalls  int
 	redeliveries int
 }
 
@@ -104,6 +107,16 @@ func (f *httpFakeCommands) Redeliver(
 	return nil
 }
 
+func (f *httpFakeCommands) AnswerAttention(
+	context.Context,
+	AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answerCalls++
+	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
 func httpSnapshot() Snapshot {
 	return Snapshot{
 		SchemaVersion: SnapshotSchemaVersion,
@@ -123,6 +136,7 @@ func httpSnapshot() Snapshot {
 		Runtime: RuntimeView{
 			Effects:       []EffectView{},
 			Attempts:      []AttemptView{},
+			Attentions:    []AttentionView{},
 			Notifications: []NotificationView{},
 		},
 		Evidence: []Evidence{},
@@ -289,6 +303,158 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 		if strings.Contains(response.Body.String(), `"kind":"pause"`) {
 			t.Fatalf("%s remote read exposed local controls: %s", name, response.Body)
 		}
+	}
+}
+
+func TestHTTPAttentionAnswerIsTypedAndLoopbackOnly(t *testing.T) {
+	t.Parallel()
+
+	const attentionID = "sha256:" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	local, _, commands := newHTTPFixture(
+		t,
+		testLocalHost,
+		testLocalOrigin,
+	)
+	request := httpRequest(
+		http.MethodPost,
+		testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+			attentionID+"/answer",
+		"127.0.0.1:41100",
+		[]byte(
+			`{"run_id":"run-1","attention_id":"`+
+				attentionID+
+				`","expected_generation":1,"answer":"Proceed."}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	if response := serve(local, request); response.Code != http.StatusOK {
+		t.Fatalf(
+			"local answer = %d, body %s",
+			response.Code,
+			response.Body,
+		)
+	}
+	if commands.answerCalls != 1 {
+		t.Fatalf("answer calls = %d", commands.answerCalls)
+	}
+
+	mismatch := httpRequest(
+		http.MethodPost,
+		testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+			attentionID+"/answer",
+		"127.0.0.1:41101",
+		[]byte(
+			`{"run_id":"run-1","attention_id":"sha256:`+
+				strings.Repeat("b", 64)+
+				`","expected_generation":1,"answer":"Proceed."}`,
+		),
+	)
+	mismatch.Header.Set("Content-Type", "application/json")
+	if response := serve(local, mismatch); response.Code !=
+		http.StatusBadRequest {
+		t.Fatalf("mismatched answer = %d", response.Code)
+	}
+	if commands.answerCalls != 1 {
+		t.Fatalf("mismatch delegated = %d", commands.answerCalls)
+	}
+
+	public, _, publicCommands := newHTTPFixture(
+		t,
+		testPublicHost,
+		testPublicURL,
+	)
+	remote := httpRequest(
+		http.MethodPost,
+		testPublicURL+"/api/v1/runs/run-1/attentions/"+
+			attentionID+"/answer",
+		"203.0.113.10:41102",
+		[]byte(`{}`),
+	)
+	remote.TLS = &tls.ConnectionState{}
+	remote.Header.Set("Authorization", "Bearer "+testHTTPToken)
+	if response := serve(public, remote); response.Code !=
+		http.StatusForbidden {
+		t.Fatalf("remote answer = %d", response.Code)
+	}
+	if publicCommands.answerCalls != 0 {
+		t.Fatalf("remote answer delegated = %d", publicCommands.answerCalls)
+	}
+}
+
+func TestHTTPAttentionAnswerTransportAndDecodedBoundaries(t *testing.T) {
+	t.Parallel()
+
+	const attentionID = "sha256:" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	handler, _, commands := newHTTPFixture(
+		t,
+		testLocalHost,
+		testLocalOrigin,
+	)
+	for _, test := range []struct {
+		name       string
+		answerSize int
+		status     int
+		calls      int
+	}{
+		{
+			name:       "decoded maximum",
+			answerSize: journal.MaxAttentionAnswerBytes,
+			status:     http.StatusOK,
+			calls:      1,
+		},
+		{
+			name:       "one decoded byte over maximum",
+			answerSize: journal.MaxAttentionAnswerBytes + 1,
+			status:     http.StatusBadRequest,
+			calls:      1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(AnswerAttentionCommand{
+				RunID:              "run-1",
+				AttentionID:        attentionID,
+				ExpectedGeneration: 1,
+				// encoding/json expands each '<' to the worst-case
+				// six-byte \u003c transport representation.
+				Answer: strings.Repeat("<", test.answerSize),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.answerSize == journal.MaxAttentionAnswerBytes &&
+				len(body) <= maxRequestBytes {
+				t.Fatalf(
+					"boundary body = %d bytes; test did not exceed default cap",
+					len(body),
+				)
+			}
+			request := httpRequest(
+				http.MethodPost,
+				testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+					attentionID+"/answer",
+				"127.0.0.1:41103",
+				body,
+			)
+			request.Header.Set("Content-Type", "application/json")
+			response := serve(handler, request)
+			if response.Code != test.status {
+				t.Fatalf(
+					"answer = %d, want %d; body %s",
+					response.Code,
+					test.status,
+					response.Body,
+				)
+			}
+			if commands.answerCalls != test.calls {
+				t.Fatalf(
+					"answer calls = %d, want %d",
+					commands.answerCalls,
+					test.calls,
+				)
+			}
+		})
 	}
 }
 
@@ -523,7 +689,7 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 	for _, required := range []string{
 		"id: 7\n",
 		"event: invalidate\n",
-		`"schema_version":"sworn.cockpit/v1"`,
+		`"schema_version":"sworn.cockpit/v2"`,
 		`"through_offset":7`,
 	} {
 		if !strings.Contains(body, required) {
@@ -630,6 +796,7 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"No admitted delivery graph is recorded yet.",
 		"No durable evidence has been recorded for this snapshot.",
 		"State unavailable. Sworn could not confirm this item from durable facts.",
+		"new TextEncoder().encode(answer).byteLength",
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Errorf("JavaScript missing %q", required)

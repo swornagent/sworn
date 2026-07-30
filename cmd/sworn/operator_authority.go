@@ -155,6 +155,20 @@ func (c *operatorCommands) Redeliver(
 	return c.delegate.Redeliver(ctx, command)
 }
 
+func (c *operatorCommands) AnswerAttention(
+	ctx context.Context,
+	command cockpit.AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	if c == nil || c.authority == nil || c.delegate == nil ||
+		command.RunID != c.authority.runID {
+		return runtimepkg.RunStatus{}, errOperatorAuthorityUnavailable
+	}
+	if err := c.authority.require(ctx); err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	return c.delegate.AnswerAttention(ctx, command)
+}
+
 func waitForRunAuthority(
 	ctx context.Context,
 	authority *operatorRunAuthority,

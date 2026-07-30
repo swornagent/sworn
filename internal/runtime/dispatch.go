@@ -297,7 +297,7 @@ func currentPreparedProductionBody(
 	if prepared.productionContext == nil {
 		return nil, runtimeFail("INVALID_CONTINUATION", nil)
 	}
-	current, currentBody, err := captureProductionWorkContext(
+	current, _, err := captureProductionWorkContext(
 		ctx,
 		engine,
 		coordinates,
@@ -316,9 +316,14 @@ func currentPreparedProductionBody(
 		if err != nil {
 			return nil, err
 		}
-		currentBody = mustJSON(current)
 	}
-	return currentBody, nil
+	if current.Slice != "" {
+		// Release metadata is shared by every track. Progress on another
+		// track must not invalidate this lane's otherwise exact authority.
+		current.Authority.ReleaseHead =
+			prepared.productionContext.Authority.ReleaseHead
+	}
+	return mustJSON(current), nil
 }
 
 func revalidatePreparedProductionDispatch(
@@ -344,6 +349,80 @@ func revalidatePreparedProductionDispatch(
 	return nil
 }
 
+func (s *Service) invokeFreshRecoverableDriver(
+	ctx context.Context,
+	invocation driver.Invocation,
+	prepared preparedDriverDispatch,
+	before string,
+	recovery turnRecoveryCycle,
+) (
+	driver.Observation,
+	*retainedContinuation,
+	error,
+) {
+	recoverable, supported := s.dispatcher.(driver.RecoverableTurnDriver)
+	if !supported {
+		observation, err := s.dispatcher.Invoke(ctx, invocation)
+		return observation, nil, err
+	}
+	binding, selectionDigest, err :=
+		recoverableContinuationBinding(prepared, recovery)
+	if err != nil {
+		return driver.Observation{}, nil, err
+	}
+	observation, handle, result, invokeErr :=
+		recoverable.InvokeRecoverableTurn(
+			ctx,
+			invocation,
+			binding,
+			nil,
+			nil,
+		)
+	invokeErr = runtimeContinuationError(invokeErr)
+	if invokeErr != nil {
+		if cleanupErr := closeRetainedContinuation(
+			&retainedContinuation{handle: handle},
+		); cleanupErr != nil {
+			return driver.Observation{}, nil, cleanupErr
+		}
+		return observation, nil, invokeErr
+	}
+	if observation.Yield != nil {
+		switch {
+		case handle != nil &&
+			result.Status == driver.ContinuationStatusSuspended &&
+			validRetainedContinuationMode(result.Mode):
+			return observation, retainedRecoverableContinuation(
+				handle,
+				binding,
+				selectionDigest,
+				before,
+			), nil
+		case handle == nil && validFreshContinuationStart(handle, result):
+			return observation, nil, nil
+		default:
+			if cleanupErr := closeRetainedContinuation(
+				&retainedContinuation{handle: handle},
+			); cleanupErr != nil {
+				return driver.Observation{}, nil, cleanupErr
+			}
+			return driver.Observation{}, nil,
+				runtimeFail("INVALID_CONTINUATION", nil)
+		}
+	}
+	if observation.Handoff == nil ||
+		!validFreshContinuationStart(handle, result) {
+		if cleanupErr := closeRetainedContinuation(
+			&retainedContinuation{handle: handle},
+		); cleanupErr != nil {
+			return driver.Observation{}, nil, cleanupErr
+		}
+		return driver.Observation{}, nil,
+			runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	return observation, nil, nil
+}
+
 func (s *Service) invokePreparedDriver(
 	ctx context.Context,
 	engine *engine,
@@ -351,6 +430,8 @@ func (s *Service) invokePreparedDriver(
 	coordinates dispatchCoordinates,
 	before string,
 	prepared preparedDriverDispatch,
+	owner journal.OwnerLease,
+	recovery *turnRecoveryCycle,
 ) (
 	driver.Observation,
 	*retainedContinuation,
@@ -363,6 +444,21 @@ func (s *Service) invokePreparedDriver(
 		prepared.request,
 		prepared.permission,
 	)
+	if recovery != nil {
+		invocation.RecoveryStepHook =
+			s.turnRecoveryStepHook(owner, recovery)
+	}
+	if (prepared.fake || prepared.productionContext == nil) &&
+		recovery != nil {
+		observation, pending, err := s.invokeFreshRecoverableDriver(
+			ctx,
+			invocation,
+			prepared,
+			before,
+			*recovery,
+		)
+		return observation, pending, nil, err
+	}
 	if prepared.fake || prepared.productionContext == nil {
 		observation, err := s.dispatcher.Invoke(ctx, invocation)
 		return observation, nil, nil, err
@@ -512,6 +608,8 @@ func (s *Service) invokePreparedDriver(
 			*prepared.resumeRequest,
 			*prepared.resumePermission,
 		)
+		resumeInvocation.RecoveryStepHook =
+			invocation.RecoveryStepHook
 		sourceHandle := entry.handle
 		observation, next, result, invokeErr :=
 			continuationDriver.InvokeTurn(
@@ -535,6 +633,31 @@ func (s *Service) invokePreparedDriver(
 				)
 		}
 		invokeErr = runtimeContinuationError(invokeErr)
+		if invokeErr == nil && observation.Yield != nil {
+			if next == nil {
+				if !validFreshContinuationStart(next, result) {
+					return observation, nil, nil,
+						runtimeFail("INVALID_CONTINUATION", nil)
+				}
+				return observation, nil, nil, nil
+			}
+			if result.Status != driver.ContinuationStatusSuspended ||
+				!validRetainedContinuationMode(result.Mode) {
+				if cleanupErr := closeRetainedContinuation(
+					&retainedContinuation{handle: next},
+				); cleanupErr != nil {
+					return driver.Observation{}, nil, nil, cleanupErr
+				}
+				return observation, nil, nil,
+					runtimeFail("INVALID_CONTINUATION", nil)
+			}
+			return observation, retainedRecoverableContinuation(
+				next,
+				binding,
+				selectionDigest,
+				before,
+			), nil, nil
+		}
 		if requestsFreshRehydrate(observation, result, invokeErr) {
 			if next != nil {
 				if cleanupErr := closeRetainedContinuation(
@@ -581,6 +704,17 @@ func (s *Service) invokePreparedDriver(
 			outcome: continuationOutcomeReuse,
 		}, invokeErr
 	default:
+		if recovery != nil {
+			observation, pending, err :=
+				s.invokeFreshRecoverableDriver(
+					ctx,
+					invocation,
+					prepared,
+					before,
+					*recovery,
+				)
+			return observation, pending, nil, err
+		}
 		observation, err := s.dispatcher.Invoke(ctx, invocation)
 		return observation, nil, nil, err
 	}
@@ -841,6 +975,127 @@ func downgradePreparedProductionDispatchV1(
 	return prepared, nil
 }
 
+func restorePreparedProductionDispatch(
+	manifest admittedManifest,
+	prepared preparedDriverDispatch,
+	command productionDispatchCommand,
+) (preparedDriverDispatch, error) {
+	if prepared.productionContext == nil {
+		return preparedDriverDispatch{},
+			runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	workContext, err := rehydrateProductionContextInputs(
+		command.Context,
+		*prepared.productionContext,
+	)
+	if err != nil {
+		return preparedDriverDispatch{}, err
+	}
+	body := mustJSON(workContext)
+	inputs, err := productionInputContents(workContext, body)
+	if err != nil {
+		return preparedDriverDispatch{}, err
+	}
+	request, err := productionRequestForContext(manifest, workContext)
+	if err != nil {
+		return preparedDriverDispatch{}, err
+	}
+	containment := driver.ContainmentReadOnly
+	if request.Workspace.Access == driver.ReadWrite {
+		containment = driver.ContainmentReadWrite
+	}
+	permission, err := driver.NewSubmissionPermission(
+		request,
+		prepared.selected,
+		containment,
+		workContext.Responsibility,
+	)
+	if err != nil {
+		return preparedDriverDispatch{},
+			runtimeFail("DRIVER_REQUEST_FAILED", err)
+	}
+	prepared.request = request
+	prepared.permission = permission
+	prepared.resumeRequest = nil
+	prepared.resumePermission = nil
+	prepared.inputs = inputs
+	prepared.inputBody = body
+	prepared.productionContext = &workContext
+	prepared.commandPayload = mustJSON(command)
+	if command.ResumeRequestDigest != "" {
+		resume, requestErr := productionRequestForContextFreshness(
+			manifest,
+			workContext,
+			false,
+		)
+		if requestErr != nil {
+			return preparedDriverDispatch{}, requestErr
+		}
+		resumePermission, permissionErr := driver.NewSubmissionPermission(
+			resume,
+			prepared.selected,
+			driver.ContainmentReadWrite,
+			workContext.Responsibility,
+		)
+		if permissionErr != nil {
+			return preparedDriverDispatch{},
+				runtimeFail("DRIVER_REQUEST_FAILED", permissionErr)
+		}
+		prepared.resumeRequest = &resume
+		prepared.resumePermission = &resumePermission
+	}
+	return prepared, nil
+}
+
+func rehydrateProductionContextInputs(
+	persisted productionWorkContext,
+	current productionWorkContext,
+) (productionWorkContext, error) {
+	if persisted.Plan != nil {
+		if current.Plan == nil ||
+			current.Plan.Input != persisted.Plan.Input {
+			return productionWorkContext{},
+				runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		binding := *persisted.Plan
+		binding.body = append([]byte(nil), current.Plan.body...)
+		persisted.Plan = &binding
+	}
+	if persisted.Receipt != nil {
+		if current.Receipt == nil ||
+			current.Receipt.BodyInput != persisted.Receipt.BodyInput ||
+			current.Receipt.DetailInput != persisted.Receipt.DetailInput {
+			return productionWorkContext{},
+				runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		binding := *persisted.Receipt
+		binding.body = append([]byte(nil), current.Receipt.body...)
+		binding.detail = append([]byte(nil), current.Receipt.detail...)
+		persisted.Receipt = &binding
+	}
+	if persisted.DesignReceipt != nil {
+		if current.DesignReceipt == nil ||
+			current.DesignReceipt.BodyInput !=
+				persisted.DesignReceipt.BodyInput ||
+			current.DesignReceipt.DetailInput !=
+				persisted.DesignReceipt.DetailInput {
+			return productionWorkContext{},
+				runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		binding := *persisted.DesignReceipt
+		binding.body = append(
+			[]byte(nil),
+			current.DesignReceipt.body...,
+		)
+		binding.detail = append(
+			[]byte(nil),
+			current.DesignReceipt.detail...,
+		)
+		persisted.DesignReceipt = &binding
+	}
+	return persisted, nil
+}
+
 func (s *Service) persistedDriverCommand(
 	ctx context.Context,
 	runID string,
@@ -935,15 +1190,52 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		if parseErr != nil {
 			return driver.Submission{}, parseErr
 		}
+		currentPrepared := prepared
 		if prior.SchemaVersion == productionDispatchVersionV1 {
-			prepared, err = downgradePreparedProductionDispatchV1(
+			currentPrepared, err = downgradePreparedProductionDispatchV1(
 				manifest,
-				prepared,
+				currentPrepared,
 			)
 			if err != nil {
 				return driver.Submission{}, err
 			}
 		}
+		currentBody, currentErr := currentPreparedProductionBody(
+			ctx,
+			engine,
+			coordinates,
+			before,
+			currentPrepared,
+		)
+		if currentErr != nil ||
+			!bytes.Equal(currentBody, mustJSON(prior.Context)) {
+			if currentErr != nil {
+				return driver.Submission{}, currentErr
+			}
+			return driver.Submission{}, runtimeFail("STALE_DISPATCH", nil)
+		}
+		prepared, err = restorePreparedProductionDispatch(
+			manifest,
+			prepared,
+			prior,
+		)
+		if err != nil {
+			return driver.Submission{}, err
+		}
+	}
+	var recovery *turnRecoveryCycle
+	if _, enabled := manifest.value.recoverySelection(); enabled {
+		cycle, cycleErr := turnRecoveryCycleForDispatch(
+			manifest,
+			prepared,
+			coordinates,
+			attemptIdentity.WorkID,
+			before,
+		)
+		if cycleErr != nil {
+			return driver.Submission{}, cycleErr
+		}
+		recovery = &cycle
 	}
 	now := s.now().UTC()
 	command := journal.Command{RunID: manifest.value.RunID, ReplayKey: replayKey,
@@ -979,37 +1271,155 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				return driver.Submission{}, cleanupErr
 			}
 		}
+		if recovery != nil {
+			attention, found, attentionErr := s.attentionForWork(
+				ctx,
+				manifest.value.RunID,
+				attemptIdentity.WorkID,
+			)
+			if attentionErr != nil {
+				return driver.Submission{}, attentionErr
+			}
+			if found {
+				if attention.Attention.Recovery.CycleID !=
+					recovery.binding.CycleID ||
+					attention.Attention.Recovery.LaneID !=
+						recovery.binding.LaneID ||
+					attention.State != journal.AttentionAnswered {
+					return driver.Submission{},
+						runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				if err := s.resolveAnsweredAttention(
+					ctx,
+					owner,
+					attention,
+				); err != nil {
+					return driver.Submission{}, err
+				}
+			}
+		}
 		return cached, nil
 	}
-	if effect.State == journal.Claimed {
+	var answered *journal.AttentionProjection
+	var claim journal.Claim
+	switch effect.State {
+	case journal.Claimed:
+		if recovery != nil {
+			attention, found, attentionErr := s.attentionForWork(
+				ctx,
+				manifest.value.RunID,
+				attemptIdentity.WorkID,
+			)
+			if attentionErr != nil {
+				return driver.Submission{}, attentionErr
+			}
+			if found {
+				if attention.Attention.Recovery.CycleID !=
+					recovery.binding.CycleID ||
+					attention.Attention.Recovery.LaneID !=
+						recovery.binding.LaneID {
+					return driver.Submission{},
+						runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				if attention.State == journal.AttentionOpen {
+					return driver.Submission{},
+						runtimeFail("EFFECT_PARKED", nil)
+				}
+				answered = &attention
+				claim = journal.Claim{
+					RunID:    manifest.value.RunID,
+					EffectID: replayKey,
+					Token:    effect.CurrentClaim,
+				}
+				break
+			}
+		}
 		_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey,
 			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
 			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
 		}, journal.RecoveryAmbiguous)
 		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
-	}
-	if effect.State != journal.Pending {
+	case journal.Pending:
+		claim, err = s.journal.ClaimOwned(
+			ctx,
+			owner,
+			replayKey,
+			s.now().UTC(),
+			effectLease,
+		)
+		if err != nil {
+			return driver.Submission{},
+				runtimeFail("EFFECT_CLAIM_FAILED", err)
+		}
+	default:
 		return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 	}
-	claim, err := s.journal.ClaimOwned(
-		ctx, owner,
-		replayKey,
-		s.now().UTC(),
-		effectLease,
+	var (
+		observation         driver.Observation
+		pendingContinuation *retainedContinuation
+		continuationFact    *continuationDispatchFact
+		invokeErr           error
+		recovered           bool
 	)
-	if err != nil {
-		return driver.Submission{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
+	if answered != nil {
+		observation, pendingContinuation, recovered, invokeErr =
+			s.resumeAnsweredWorker(
+				ctx,
+				engine,
+				workspace,
+				prepared,
+				before,
+				owner,
+				recovery,
+				replayKey,
+				*answered,
+			)
+	} else {
+		observation, pendingContinuation, continuationFact, invokeErr =
+			s.invokePreparedDriver(
+				ctx,
+				engine,
+				workspace,
+				coordinates,
+				before,
+				prepared,
+				owner,
+				recovery,
+			)
+		if recovery != nil &&
+			driver.IsCode(invokeErr, "RECOVERY_STEP_REFUSED") {
+			parkErr := s.parkTurnRecovery(
+				ctx,
+				owner,
+				recovery,
+				replayKey,
+				"Automatic recovery reached its bound. What should the worker do next?",
+				pendingContinuation,
+			)
+			pendingContinuation = nil
+			return driver.Submission{}, errors.Join(parkErr, invokeErr)
+		}
+		if recovery != nil && observation.Yield != nil {
+			observation, pendingContinuation, recovered, invokeErr =
+				s.continueYieldedWorker(
+					ctx,
+					engine,
+					workspace,
+					prepared,
+					before,
+					owner,
+					recovery,
+					replayKey,
+					observation,
+					pendingContinuation,
+				)
+		}
 	}
-	observation, pendingContinuation, continuationFact, invokeErr :=
-		s.invokePreparedDriver(
-			ctx,
-			engine,
-			workspace,
-			coordinates,
-			before,
-			prepared,
-		)
+	if IsCode(invokeErr, "EFFECT_PARKED") ||
+		IsCode(invokeErr, "RECOVERY_UNCERTAIN") {
+		return driver.Submission{}, invokeErr
+	}
 	pendingStored := false
 	pendingCommitted := false
 	defer func() {
@@ -1032,6 +1442,26 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			resultErr = cleanupErr
 		}
 	}()
+	preserveAnswered := func(cause error) error {
+		if answered == nil {
+			return cause
+		}
+		if pendingContinuation != nil &&
+			pendingContinuation.handle != nil {
+			if err := s.storeRecoverableContinuation(
+				owner.RunID,
+				replayKey,
+				pendingContinuation,
+			); err != nil {
+				return runtimeFail(
+					"RECOVERY_UNCERTAIN",
+					errors.Join(cause, err),
+				)
+			}
+		}
+		pendingCommitted = true
+		return runtimeFail("RECOVERY_UNCERTAIN", cause)
+	}
 	eventKind := func(base string) string {
 		kind, kindErr := continuationEventKind(
 			base,
@@ -1051,9 +1481,13 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
 	}
 	observationBody, _ := json.Marshal(observation)
+	transport := observation.TransportStatus
+	if transport == "" && invokeErr != nil {
+		transport = driver.RunnerError
+	}
 	attempt := &journal.Attempt{
 		Number: coordinates.Try, Responsibility: string(coordinates.Responsibility),
-		TransportStatus:   string(observation.TransportStatus),
+		TransportStatus:   string(transport),
 		ObservationDigest: sha256Digest(observationBody),
 		Usage:             usageBody,
 	}
@@ -1061,6 +1495,9 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		attempt.HandoffDigest = observation.Handoff.SubmissionDigest
 	}
 	if invokeErr != nil || observation.Handoff == nil {
+		if answered != nil {
+			return driver.Submission{}, preserveAnswered(invokeErr)
+		}
 		code := stableErrorCode(invokeErr)
 		if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
@@ -1081,6 +1518,12 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				observation.Handoff.SubmissionBytes,
 				prepared.expectedSubmission,
 			)) {
+		if answered != nil {
+			return driver.Submission{},
+				preserveAnswered(
+					runtimeFail("INVALID_DRIVER_HANDOFF", err),
+				)
+		}
 		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
@@ -1101,6 +1544,13 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			prepared,
 		)
 		if authorityErr != nil || !bytes.Equal(currentBody, prepared.inputBody) {
+			if answered != nil {
+				if authorityErr == nil {
+					authorityErr = runtimeFail("STALE_DISPATCH", nil)
+				}
+				return driver.Submission{},
+					preserveAnswered(authorityErr)
+			}
 			code := stableErrorCode(authorityErr)
 			if authorityErr == nil {
 				code = "stale_authority"
@@ -1130,6 +1580,9 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	}
 	if prepareHandoff != nil {
 		if err := prepareHandoff(submission); err != nil {
+			if answered != nil {
+				return driver.Submission{}, preserveAnswered(err)
+			}
 			var uncertain *uncertainHandoffPreparationError
 			if errors.As(err, &uncertain) {
 				reconcileErr := s.journal.ReconcileOwned(
@@ -1177,6 +1630,9 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			coordinates.Slice,
 			pendingContinuation,
 		); err != nil {
+			if answered != nil {
+				return driver.Submission{}, preserveAnswered(err)
+			}
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -1198,6 +1654,21 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		pendingStored = true
 	}
+	if recovery != nil && !recovered {
+		if budget, budgetErr := s.journal.RecoveryBudget(
+			completionCtx,
+			manifest.value.RunID,
+			recovery.binding,
+		); budgetErr == nil {
+			recovered = budget.AutomaticActions > 0
+		}
+	}
+	completionEvent := "dispatch_completed"
+	if recovered {
+		// Bind the recovery outcome to the same durable transaction as the
+		// successful dispatch. A restart can neither lose nor duplicate it.
+		completionEvent = turnRecoveryRecoveredEvent
+	}
 	if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 		RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 		State: journal.Succeeded, Result: observation.Handoff.SubmissionBytes,
@@ -1205,7 +1676,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		Receipts: []journal.Receipt{{
 			Kind: "sealed_driver_handoff", Body: observation.Handoff.SubmissionBytes,
 		}},
-		EventKind: eventKind("dispatch_completed"),
+		EventKind: eventKind(completionEvent),
 		EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
 	}); err != nil {
 		if prepareHandoff != nil {
@@ -1231,5 +1702,14 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	pendingCommitted = true
+	if answered != nil {
+		if err := s.resolveAnsweredAttention(
+			completionCtx,
+			owner,
+			*answered,
+		); err != nil {
+			return driver.Submission{}, err
+		}
+	}
 	return submission, nil
 }

@@ -55,24 +55,6 @@ type RecoverableTurnDriver interface {
 
 var _ RecoverableTurnDriver = Dispatcher{}
 
-// RecoverableDesignPromotionDriver atomically resumes one yielded
-// ImplementerDesign turn and, only after an exact accepted design handoff,
-// rebinds its private adapter state to the ordinary W3
-// ImplementerDesign-to-ImplementerImplementation continuation contract.
-type RecoverableDesignPromotionDriver interface {
-	RecoverableTurnDriver
-	InvokeRecoverableTurnPromotingDesign(
-		ctx context.Context,
-		invocation Invocation,
-		recoveryBinding ContinuationBinding,
-		targetBinding ContinuationBinding,
-		continuation *Continuation,
-		input *RecoverableTurnInput,
-	) (Observation, *Continuation, ContinuationResult, error)
-}
-
-var _ RecoverableDesignPromotionDriver = Dispatcher{}
-
 // Invoker is retained as the role-neutral dispatcher name used by early W2
 // callers; it does not imply a process-only adapter.
 type Invoker = Dispatcher

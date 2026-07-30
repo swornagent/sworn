@@ -108,6 +108,81 @@ func TestObservationAndEventReplayAreBoundedContentFreeSnapshots(t *testing.T) {
 	}
 }
 
+func TestObservationProjectsOnlyBoundedActiveAttentions(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(
+		ctx,
+		run.ID,
+		now,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := testRecoveryBinding(
+		"T3-runtime",
+		"observation-cycle",
+		"turn",
+		"progress",
+	)
+	resolved := testAttentionBinding(recovery, 1)
+	active := testAttentionBinding(recovery, 2)
+	for _, attention := range []AttentionBinding{resolved, active} {
+		if _, err := store.OpenAttention(
+			ctx,
+			owner,
+			OpenAttentionCommand{
+				RunID:              run.ID,
+				Attention:          attention,
+				ExpectedGeneration: 0,
+				Question:           "A bounded public question",
+			},
+			now,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.AnswerAttention(
+		ctx,
+		AnswerAttentionCommand{
+			RunID:              run.ID,
+			Attention:          resolved,
+			ExpectedGeneration: 1,
+			Answer:             "A bounded public answer",
+		},
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolveAttention(
+		ctx,
+		owner,
+		ResolveAttentionCommand{
+			RunID:              run.ID,
+			Attention:          resolved,
+			ExpectedGeneration: 2,
+		},
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := store.ReadObservation(ctx, run.ID, 1, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.AttentionsTruncated ||
+		len(observation.Attentions) != 1 ||
+		observation.Attentions[0].Attention.ID != active.ID ||
+		observation.Attentions[0].State != AttentionOpen {
+		t.Fatalf("active attentions = %#v", observation.Attentions)
+	}
+}
+
 func TestObservationRejectsTamperedUsageIntegrity(t *testing.T) {
 	t.Parallel()
 

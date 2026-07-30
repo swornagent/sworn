@@ -470,13 +470,13 @@ func TestRecoverableDesignTerminalPromotesAtomicallyToW3(t *testing.T) {
 		SchemaVersion: RecoverableTurnInputSchemaVersion,
 		Kind:          RecoverableInputAnswer,
 		Answer:        "Use the exact current design constraint.",
+		TargetBinding: &targetBinding,
 	}
 	observation, promoted, result, err :=
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+		(Dispatcher{}).InvokeRecoverableTurn(
 			context.Background(),
 			design,
 			recoveryBinding,
-			targetBinding,
 			source,
 			input,
 		)
@@ -497,11 +497,10 @@ func TestRecoverableDesignTerminalPromotesAtomicallyToW3(t *testing.T) {
 	promotedAlias := *promoted
 
 	replayObservation, replay, replayResult, replayErr :=
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+		(Dispatcher{}).InvokeRecoverableTurn(
 			context.Background(),
 			design,
 			recoveryBinding,
-			targetBinding,
 			&sourceAlias,
 			input,
 		)
@@ -594,19 +593,19 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 		_ *http.Request,
 	) {
 		switch requests.Add(1) {
-		case 1:
+		case 1, 2, 3:
 			writeRecoverableYield(
 				t, writer, mismatchID, "Which constraint controls?",
 			)
-		case 2:
+		case 4:
 			writeRecoverableYield(
 				t, writer, wrongDutyID, "Which implementation base?",
 			)
-		case 3:
+		case 5:
 			writeRecoverableYield(
 				t, writer, yieldID, "Which constraint controls?",
 			)
-		case 4:
+		case 6:
 			writeRecoverableYieldCall(
 				t,
 				writer,
@@ -630,65 +629,89 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 		Answer:        "Use the exact admitted evidence.",
 	}
 
-	mismatch := productionInvocationFixture(
-		t,
-		adapter,
-		ProfileOpenAIHTTP,
-		mismatchID,
-		RoleImplementer,
-		ImplementerDesign,
-		ReadOnly,
-	)
-	_, mismatchHandle, _, err := (Dispatcher{}).InvokeTurn(
-		context.Background(),
-		mismatch,
-		recoveryBinding,
-		nil,
-	)
-	if err != nil || mismatchHandle == nil {
-		t.Fatalf("mismatch setup handle=%p error=%v", mismatchHandle, err)
-	}
-	mismatchAlias := *mismatchHandle
-	wrongTarget := targetBinding
-	wrongTarget.Slice = "different-slice"
-	observation, next, result, err :=
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+	for index, mutate := range []func(*ContinuationBinding){
+		func(binding *ContinuationBinding) {
+			binding.Slice = "different-slice"
+		},
+		func(binding *ContinuationBinding) {
+			binding.PlanAuthorityDigest =
+				Digest([]byte("different-plan-authority"))
+		},
+		func(binding *ContinuationBinding) {
+			binding.TargetAuthorityDigest =
+				Digest([]byte("different-target-authority"))
+		},
+	} {
+		mismatch := productionInvocationFixture(
+			t,
+			adapter,
+			ProfileOpenAIHTTP,
+			mismatchID,
+			RoleImplementer,
+			ImplementerDesign,
+			ReadOnly,
+		)
+		_, mismatchHandle, _, err := (Dispatcher{}).InvokeTurn(
 			context.Background(),
 			mismatch,
 			recoveryBinding,
-			wrongTarget,
-			mismatchHandle,
-			input,
+			nil,
 		)
-	if err != nil || !reflect.DeepEqual(observation, Observation{}) || next != nil ||
-		result.Status != ContinuationStatusMismatch ||
-		requests.Load() != 1 {
-		t.Fatalf(
-			"mismatched target = observation %#v, next %p, result %#v, requests %d, error %v",
-			observation,
-			next,
-			result,
-			requests.Load(),
-			err,
-		)
-	}
-	_, _, result, err =
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
-			context.Background(),
-			mismatch,
-			recoveryBinding,
-			targetBinding,
-			&mismatchAlias,
-			input,
-		)
-	if err != nil || result.Status != ContinuationStatusClosed ||
-		requests.Load() != 1 {
-		t.Fatalf(
-			"mismatched alias result=%#v requests=%d error=%v",
-			result,
-			requests.Load(),
-			err,
-		)
+		if err != nil || mismatchHandle == nil {
+			t.Fatalf(
+				"mismatch %d setup handle=%p error=%v",
+				index,
+				mismatchHandle,
+				err,
+			)
+		}
+		mismatchAlias := *mismatchHandle
+		wrongTarget := targetBinding
+		mutate(&wrongTarget)
+		input.TargetBinding = &wrongTarget
+		observation, next, result, err :=
+			(Dispatcher{}).InvokeRecoverableTurn(
+				context.Background(),
+				mismatch,
+				recoveryBinding,
+				mismatchHandle,
+				input,
+			)
+		if err != nil ||
+			!reflect.DeepEqual(observation, Observation{}) ||
+			next != nil ||
+			result.Status != ContinuationStatusMismatch ||
+			requests.Load() != int64(index+1) {
+			t.Fatalf(
+				"mismatch %d = observation %#v, next %p, result %#v, requests %d, error %v",
+				index,
+				observation,
+				next,
+				result,
+				requests.Load(),
+				err,
+			)
+		}
+		input.TargetBinding = &targetBinding
+		_, _, result, err =
+			(Dispatcher{}).InvokeRecoverableTurn(
+				context.Background(),
+				mismatch,
+				recoveryBinding,
+				&mismatchAlias,
+				input,
+			)
+		if err != nil ||
+			result.Status != ContinuationStatusClosed ||
+			requests.Load() != int64(index+1) {
+			t.Fatalf(
+				"mismatch %d alias result=%#v requests=%d error=%v",
+				index,
+				result,
+				requests.Load(),
+				err,
+			)
+		}
 	}
 
 	wrongDuty := productionInvocationFixture(
@@ -708,7 +731,7 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 			nil,
 			nil,
 		)
-	if err != nil || wrongDutyHandle == nil || requests.Load() != 2 {
+	if err != nil || wrongDutyHandle == nil || requests.Load() != 4 {
 		t.Fatalf(
 			"wrong-duty setup handle=%p requests=%d error=%v",
 			wrongDutyHandle,
@@ -716,18 +739,18 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 			err,
 		)
 	}
-	observation, next, result, err =
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+	input.TargetBinding = &targetBinding
+	observation, next, result, err :=
+		(Dispatcher{}).InvokeRecoverableTurn(
 			context.Background(),
 			wrongDuty,
 			recoveryBinding,
-			targetBinding,
 			wrongDutyHandle,
 			input,
 		)
 	if err != nil || !reflect.DeepEqual(observation, Observation{}) || next != nil ||
 		result.Status != ContinuationStatusMismatch ||
-		requests.Load() != 2 {
+		requests.Load() != 4 {
 		t.Fatalf(
 			"wrong-duty promotion = observation %#v, next %p, result %#v, requests %d, error %v",
 			observation,
@@ -753,7 +776,7 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 		recoveryBinding,
 		nil,
 	)
-	if err != nil || yieldingHandle == nil || requests.Load() != 3 {
+	if err != nil || yieldingHandle == nil || requests.Load() != 5 {
 		t.Fatalf(
 			"yield setup handle=%p requests=%d error=%v",
 			yieldingHandle,
@@ -761,19 +784,19 @@ func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 			err,
 		)
 	}
+	input.TargetBinding = &targetBinding
 	observation, next, result, err =
-		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+		(Dispatcher{}).InvokeRecoverableTurn(
 			context.Background(),
 			yielding,
 			recoveryBinding,
-			targetBinding,
 			yieldingHandle,
 			input,
 		)
 	if err != nil || observation.Yield == nil ||
 		observation.Handoff != nil || next == nil ||
 		result.Status != ContinuationStatusSuspended ||
-		requests.Load() != 4 {
+		requests.Load() != 6 {
 		t.Fatalf(
 			"yielded promotion = observation %#v, next %p, result %#v, requests %d, error %v",
 			observation,

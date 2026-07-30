@@ -19,6 +19,7 @@ const (
 	AttentionOpenedEvent   = "attention_opened"
 	AttentionAnsweredEvent = "attention_answered"
 	AttentionResolvedEvent = "attention_resolved"
+	AttentionRetiredEvent  = "attention_retired"
 
 	attentionCommandVersion = "sworn.attention-command/v1"
 )
@@ -81,15 +82,24 @@ const (
 	attentionOpenAction    attentionAction = "open"
 	attentionAnswerAction  attentionAction = "answer"
 	attentionResolveAction attentionAction = "resolve"
+	attentionRetireAction  attentionAction = "retire"
 )
 
+type attentionRetireEffect struct {
+	ID            string      `json:"effect_id"`
+	ExpectedState EffectState `json:"expected_state"`
+	ClaimToken    string      `json:"claim_token,omitempty"`
+}
+
 type attentionCommandRecord struct {
-	SchemaVersion      string           `json:"schema_version"`
-	RunID              string           `json:"run_id"`
-	Kind               attentionAction  `json:"kind"`
-	Attention          AttentionBinding `json:"attention"`
-	ExpectedGeneration int64            `json:"expected_generation"`
-	Message            string           `json:"message,omitempty"`
+	SchemaVersion      string                  `json:"schema_version"`
+	RunID              string                  `json:"run_id"`
+	Kind               attentionAction         `json:"kind"`
+	Attention          AttentionBinding        `json:"attention"`
+	ExpectedGeneration int64                   `json:"expected_generation"`
+	Message            string                  `json:"message,omitempty"`
+	RetireEffects      []attentionRetireEffect `json:"retire_effects,omitempty"`
+	ErrorCode          string                  `json:"error_code,omitempty"`
 }
 
 // AttentionID returns the only admitted identity for an attention ordinal.
@@ -127,6 +137,7 @@ func validAttentionMessage(value string, limit int) bool {
 		len(value) <= limit &&
 		utf8.ValidString(value) &&
 		!strings.ContainsRune(value, 0) &&
+		!strings.ContainsRune(value, '\r') &&
 		strings.TrimSpace(value) != ""
 }
 
@@ -152,10 +163,50 @@ func validateAttentionRecord(value attentionCommandRecord) error {
 			return fail("INVALID_ATTENTION", nil)
 		}
 	case attentionResolveAction:
-		if value.ExpectedGeneration != 2 || value.Message != "" {
+		if value.ExpectedGeneration != 2 || value.Message != "" ||
+			len(value.RetireEffects) != 0 || value.ErrorCode != "" {
 			return fail("INVALID_ATTENTION", nil)
 		}
+	case attentionRetireAction:
+		if (value.ExpectedGeneration != 1 &&
+			value.ExpectedGeneration != 2) ||
+			value.Message != "" ||
+			len(value.RetireEffects) == 0 ||
+			len(value.RetireEffects) > 8 ||
+			validateIdentity(value.ErrorCode, "error_code") != nil {
+			return fail("INVALID_ATTENTION", nil)
+		}
+		seen := make(map[string]struct{}, len(value.RetireEffects))
+		for index, effect := range value.RetireEffects {
+			if validateIdentity(effect.ID, "effect") != nil {
+				return fail("INVALID_ATTENTION", nil)
+			}
+			if index > 0 &&
+				value.RetireEffects[index-1].ID >= effect.ID {
+				return fail("INVALID_ATTENTION", nil)
+			}
+			if _, duplicate := seen[effect.ID]; duplicate {
+				return fail("INVALID_ATTENTION", nil)
+			}
+			seen[effect.ID] = struct{}{}
+			switch effect.ExpectedState {
+			case Claimed:
+				if len(effect.ClaimToken) != 64 {
+					return fail("INVALID_CLAIM_TOKEN", nil)
+				}
+			case Succeeded, OperationalFailed:
+				if effect.ClaimToken != "" {
+					return fail("INVALID_CLAIM_TOKEN", nil)
+				}
+			default:
+				return fail("INVALID_ATTENTION", nil)
+			}
+		}
 	default:
+		return fail("INVALID_ATTENTION", nil)
+	}
+	if value.Kind != attentionRetireAction &&
+		(len(value.RetireEffects) != 0 || value.ErrorCode != "") {
 		return fail("INVALID_ATTENTION", nil)
 	}
 	return nil
@@ -249,6 +300,10 @@ func foldAttentionRecords(
 			case projection.Generation == 2 &&
 				command.Kind == attentionResolveAction:
 				projection.State = AttentionResolved
+			case (projection.Generation == 1 ||
+				projection.Generation == 2) &&
+				command.Kind == attentionRetireAction:
+				projection.State = AttentionCancelled
 			default:
 				return nil, fail("CORRUPT_JOURNAL", nil)
 			}
@@ -301,9 +356,135 @@ func attentionEventKind(action attentionAction) (string, error) {
 		return AttentionAnsweredEvent, nil
 	case attentionResolveAction:
 		return AttentionResolvedEvent, nil
+	case attentionRetireAction:
+		return AttentionRetiredEvent, nil
 	default:
 		return "", fail("INVALID_ATTENTION", nil)
 	}
+}
+
+func applyAttentionOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	owner *OwnerLease,
+	record attentionCommandRecord,
+	at time.Time,
+	atValue string,
+) (AttentionReceipt, error) {
+	body := marshalAttentionRecord(record)
+	replayKey := attentionReplayKey(
+		record.Attention.ID,
+		record.ExpectedGeneration+1,
+	)
+	var receipt AttentionReceipt
+	result, replayed, err := replayedTransition(
+		ctx,
+		conn,
+		record.RunID,
+		replayKey,
+		"attention."+string(record.Kind),
+		"runtime.attention",
+		body,
+	)
+	if err != nil {
+		return AttentionReceipt{}, err
+	}
+	if replayed {
+		if json.Unmarshal(result, &receipt) != nil ||
+			receipt.Attention != record.Attention ||
+			receipt.Generation != record.ExpectedGeneration+1 {
+			return AttentionReceipt{}, fail("CORRUPT_JOURNAL", nil)
+		}
+		return receipt, nil
+	}
+	if owner != nil {
+		if err := checkOwner(ctx, conn, *owner, at); err != nil {
+			return AttentionReceipt{}, err
+		}
+	}
+	control, err := projectionOnConnection(ctx, conn, record.RunID)
+	if err != nil {
+		return AttentionReceipt{}, err
+	}
+	if control.Desired == "cancelled" ||
+		(owner != nil && control.Desired != "running") {
+		return AttentionReceipt{}, fail("CONTROL_STOPPED", nil)
+	}
+	projections, err := attentionProjectionsOnConnection(
+		ctx,
+		conn,
+		record.RunID,
+		false,
+	)
+	if err != nil {
+		return AttentionReceipt{}, err
+	}
+	current, found := projections[record.Attention.ID]
+	if !found {
+		current = AttentionProjection{Attention: record.Attention}
+	}
+	if current.Attention != record.Attention ||
+		current.Generation != record.ExpectedGeneration {
+		return AttentionReceipt{},
+			fail("STALE_ATTENTION_GENERATION", nil)
+	}
+	switch record.Kind {
+	case attentionOpenAction:
+		if found {
+			return AttentionReceipt{},
+				fail("STALE_ATTENTION_GENERATION", nil)
+		}
+		receipt.State = AttentionOpen
+	case attentionAnswerAction:
+		if !found || current.State != AttentionOpen {
+			return AttentionReceipt{},
+				fail("STALE_ATTENTION_GENERATION", nil)
+		}
+		receipt.State = AttentionAnswered
+	case attentionResolveAction:
+		if !found || current.State != AttentionAnswered {
+			return AttentionReceipt{},
+				fail("STALE_ATTENTION_GENERATION", nil)
+		}
+		receipt.State = AttentionResolved
+	case attentionRetireAction:
+		if !found ||
+			(current.State != AttentionOpen &&
+				current.State != AttentionAnswered) {
+			return AttentionReceipt{},
+				fail("STALE_ATTENTION_GENERATION", nil)
+		}
+		receipt.State = AttentionCancelled
+	default:
+		return AttentionReceipt{}, fail("INVALID_ATTENTION", nil)
+	}
+	receipt.Attention = record.Attention
+	receipt.Generation = record.ExpectedGeneration + 1
+	result, _ = json.Marshal(receipt)
+	result = append(result, '\n')
+	eventKind, err := attentionEventKind(record.Kind)
+	if err != nil {
+		return AttentionReceipt{}, err
+	}
+	if err := appendSucceededTransition(
+		ctx,
+		conn,
+		succeededTransition{
+			runID:        record.RunID,
+			replayKey:    replayKey,
+			commandKind:  "attention." + string(record.Kind),
+			effectKind:   "runtime.attention",
+			body:         body,
+			beforeDigest: digest([]byte(strconv.FormatInt(current.Generation, 10))),
+			result:       result,
+			eventKind:    eventKind,
+			eventBody:    result,
+			at:           atValue,
+		},
+	); err != nil {
+		return AttentionReceipt{}, err
+	}
+	return receipt, nil
 }
 
 func (s *Store) applyAttention(
@@ -315,110 +496,22 @@ func (s *Store) applyAttention(
 	if err := validateAttentionRecord(record); err != nil {
 		return AttentionReceipt{}, err
 	}
-	body := marshalAttentionRecord(record)
-	replayKey := attentionReplayKey(
-		record.Attention.ID,
-		record.ExpectedGeneration+1,
-	)
 	atValue, err := canonicalTime(at)
 	if err != nil {
 		return AttentionReceipt{}, err
 	}
 	var receipt AttentionReceipt
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
-		result, replayed, err := replayedTransition(
+		var applyErr error
+		receipt, applyErr = applyAttentionOnConnection(
 			ctx,
 			conn,
-			record.RunID,
-			replayKey,
-			"attention."+string(record.Kind),
-			"runtime.attention",
-			body,
+			owner,
+			record,
+			at,
+			atValue,
 		)
-		if err != nil {
-			return err
-		}
-		if replayed {
-			if json.Unmarshal(result, &receipt) != nil ||
-				receipt.Attention != record.Attention ||
-				receipt.Generation != record.ExpectedGeneration+1 {
-				return fail("CORRUPT_JOURNAL", nil)
-			}
-			return nil
-		}
-		if owner != nil {
-			if err := checkOwner(ctx, conn, *owner, at); err != nil {
-				return err
-			}
-		}
-		control, err := projectionOnConnection(ctx, conn, record.RunID)
-		if err != nil {
-			return err
-		}
-		if control.Desired == "cancelled" ||
-			(owner != nil && control.Desired != "running") {
-			return fail("CONTROL_STOPPED", nil)
-		}
-		projections, err := attentionProjectionsOnConnection(
-			ctx,
-			conn,
-			record.RunID,
-			false,
-		)
-		if err != nil {
-			return err
-		}
-		current, found := projections[record.Attention.ID]
-		if !found {
-			current = AttentionProjection{Attention: record.Attention}
-		}
-		if current.Attention != record.Attention ||
-			current.Generation != record.ExpectedGeneration {
-			return fail("STALE_ATTENTION_GENERATION", nil)
-		}
-		switch record.Kind {
-		case attentionOpenAction:
-			if found {
-				return fail("STALE_ATTENTION_GENERATION", nil)
-			}
-			receipt.State = AttentionOpen
-		case attentionAnswerAction:
-			if !found || current.State != AttentionOpen {
-				return fail("STALE_ATTENTION_GENERATION", nil)
-			}
-			receipt.State = AttentionAnswered
-		case attentionResolveAction:
-			if !found || current.State != AttentionAnswered {
-				return fail("STALE_ATTENTION_GENERATION", nil)
-			}
-			receipt.State = AttentionResolved
-		default:
-			return fail("INVALID_ATTENTION", nil)
-		}
-		receipt.Attention = record.Attention
-		receipt.Generation = record.ExpectedGeneration + 1
-		result, _ = json.Marshal(receipt)
-		result = append(result, '\n')
-		eventKind, err := attentionEventKind(record.Kind)
-		if err != nil {
-			return err
-		}
-		return appendSucceededTransition(
-			ctx,
-			conn,
-			succeededTransition{
-				runID:        record.RunID,
-				replayKey:    replayKey,
-				commandKind:  "attention." + string(record.Kind),
-				effectKind:   "runtime.attention",
-				body:         body,
-				beforeDigest: digest([]byte(strconv.FormatInt(current.Generation, 10))),
-				result:       result,
-				eventKind:    eventKind,
-				eventBody:    result,
-				at:           atValue,
-			},
-		)
+		return applyErr
 	})
 	return receipt, err
 }

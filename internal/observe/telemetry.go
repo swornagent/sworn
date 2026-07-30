@@ -337,6 +337,45 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			},
 		)
 	}
+	for _, count := range record.TurnRecovery.Actions {
+		r.metrics.record(
+			"sworn.eval.turn_recovery.actions",
+			count.Count,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.turn_recovery.action",
+					count.Action,
+				),
+			},
+		)
+	}
+	for _, outcome := range []struct {
+		name  string
+		value int64
+	}{
+		{name: "recovered", value: record.TurnRecovery.Recovered},
+		{
+			name:  "human_escalation",
+			value: record.TurnRecovery.HumanEscalations,
+		},
+		{
+			name:  "false_acceptance",
+			value: record.TurnRecovery.FalseAcceptances,
+		},
+	} {
+		r.metrics.record(
+			"sworn.eval.turn_recovery.outcomes",
+			outcome.value,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.turn_recovery.outcome",
+					outcome.name,
+				),
+			},
+		)
+	}
 	for _, group := range record.Groups {
 		usageKnown := "unavailable"
 		if group.Usage.InputTokens != nil {

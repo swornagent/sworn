@@ -27,6 +27,22 @@ type continuationFixtureDriver struct {
 		driver.ContinuationResult,
 		error,
 	)
+	recoverable func(
+		context.Context,
+		driver.Invocation,
+		driver.ContinuationBinding,
+		*driver.Continuation,
+		*driver.RecoverableTurnInput,
+	) (
+		driver.Observation,
+		*driver.Continuation,
+		driver.ContinuationResult,
+		error,
+	)
+	automation func(
+		context.Context,
+		driver.AutomationInvocation,
+	) (driver.AutomationObservation, error)
 }
 
 func (fixture *continuationFixtureDriver) Invoke(
@@ -48,6 +64,40 @@ func (fixture *continuationFixtureDriver) InvokeTurn(
 	error,
 ) {
 	return fixture.turn(ctx, invocation, binding, handle)
+}
+
+func (fixture *continuationFixtureDriver) InvokeRecoverableTurn(
+	ctx context.Context,
+	invocation driver.Invocation,
+	binding driver.ContinuationBinding,
+	handle *driver.Continuation,
+	input *driver.RecoverableTurnInput,
+) (
+	driver.Observation,
+	*driver.Continuation,
+	driver.ContinuationResult,
+	error,
+) {
+	if fixture.recoverable == nil {
+		panic("unexpected recoverable turn")
+	}
+	return fixture.recoverable(
+		ctx,
+		invocation,
+		binding,
+		handle,
+		input,
+	)
+}
+
+func (fixture *continuationFixtureDriver) InvokeAutomation(
+	ctx context.Context,
+	invocation driver.AutomationInvocation,
+) (driver.AutomationObservation, error) {
+	if fixture.automation == nil {
+		panic("unexpected automation turn")
+	}
+	return fixture.automation(ctx, invocation)
 }
 
 func continuationTestObservation(
@@ -151,6 +201,8 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 	}
 	turnCalls := 0
 	freshCalls := 0
+	recoveryCalls := 0
+	automationCalls := 0
 	dispatcher := &continuationFixtureDriver{
 		invoke: func(
 			_ context.Context,
@@ -245,6 +297,99 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 					invocation.Request,
 				)
 			}
+			return driver.Observation{
+					TransportStatus: driver.Completed,
+					Usage: driver.UsageReceipt{
+						TokenStatus: driver.UsageUnavailable,
+						CostStatus:  driver.UsageUnavailable,
+					},
+					Diagnostic: driver.Diagnostic{Code: "none"},
+					Yield: &driver.Yield{
+						SchemaVersion: driver.YieldSchemaVersion,
+						InvocationID: invocation.Request.
+							InvocationID,
+						Kind: driver.YieldQuestion,
+						Message: "Which exact design constraint " +
+							"controls?",
+					},
+				},
+				&driver.Continuation{},
+				driver.ContinuationResult{
+					Mode: driver.
+						ContinuationModeTranscriptReplay,
+					Status: driver.
+						ContinuationStatusSuspended,
+				},
+				nil
+		},
+		recoverable: func(
+			_ context.Context,
+			invocation driver.Invocation,
+			binding driver.ContinuationBinding,
+			handle *driver.Continuation,
+			input *driver.RecoverableTurnInput,
+		) (
+			driver.Observation,
+			*driver.Continuation,
+			driver.ContinuationResult,
+			error,
+		) {
+			if handle == nil && input == nil {
+				freshCalls++
+				if !invocation.Request.FreshContext ||
+					invocation.Request.Workspace.Access !=
+						driver.ReadOnly {
+					t.Fatalf(
+						"fresh isolated invocation = %#v",
+						invocation.Request,
+					)
+				}
+				responsibility := driver.CaptainReview
+				switch invocation.Request.Role {
+				case driver.RoleCaptain:
+					// Selected above.
+				case driver.RoleVerifier:
+					responsibility = driver.WorkVerification
+				default:
+					t.Fatalf(
+						"unexpected fresh role = %s",
+						invocation.Request.Role,
+					)
+				}
+				return continuationTestObservation(
+						t,
+						invocation,
+						responsibility,
+					),
+					nil,
+					driver.ContinuationResult{
+						Mode: driver.
+							ContinuationModeFreshRehydrate,
+						Status: driver.
+							ContinuationStatusCompleted,
+					},
+					nil
+			}
+			recoveryCalls++
+			if handle == nil || input == nil ||
+				input.Kind != driver.RecoverableInputAnswer ||
+				input.Answer !=
+					"Use the exact approved design constraint." ||
+				input.TargetBinding == nil ||
+				*input.TargetBinding != binding ||
+				invocation.Request.Role !=
+					driver.RoleImplementer ||
+				!invocation.Request.FreshContext ||
+				invocation.Request.Workspace.Access !=
+					driver.ReadOnly {
+				t.Fatalf(
+					"recovered design invocation=%#v binding=%#v input=%#v handle=%p",
+					invocation.Request,
+					binding,
+					input,
+					handle,
+				)
+			}
 			return continuationTestObservation(
 					t,
 					invocation,
@@ -258,6 +403,37 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 						ContinuationStatusSuspended,
 				},
 				nil
+		},
+		automation: func(
+			_ context.Context,
+			invocation driver.AutomationInvocation,
+		) (driver.AutomationObservation, error) {
+			automationCalls++
+			if invocation.Recovery == nil ||
+				invocation.Advisory != nil {
+				t.Fatalf(
+					"recovery automation = %#v",
+					invocation,
+				)
+			}
+			answer :=
+				"Use the exact approved design constraint."
+			return driver.AutomationObservation{
+				TransportStatus: driver.Completed,
+				Usage: driver.UsageReceipt{
+					TokenStatus: driver.UsageUnavailable,
+					CostStatus:  driver.UsageUnavailable,
+				},
+				Diagnostic: driver.Diagnostic{Code: "none"},
+				Recovery: &driver.RecoveryDecision{
+					SchemaVersion: driver.
+						RecoveryDecisionSchemaVersion,
+					InvocationID: invocation.Recovery.
+						InvocationID,
+					Action: driver.RecoveryResumeWorker,
+					Answer: &answer,
+				},
+			}, nil
 		},
 	}
 	service := &Service{
@@ -300,11 +476,14 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 	)
 	if entry == nil || entry.handle == nil ||
 		entry.designReceipt == "" || turnCalls != 1 ||
-		freshCalls != 0 {
+		freshCalls != 0 || recoveryCalls != 1 ||
+		automationCalls != 1 {
 		t.Fatalf(
-			"promoted design continuation = %#v, turns=%d fresh=%d",
+			"promoted design continuation = %#v, turns=%d recovery=%d automation=%d fresh=%d",
 			entry,
 			turnCalls,
+			recoveryCalls,
+			automationCalls,
 			freshCalls,
 		)
 	}
@@ -342,12 +521,15 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 		slice.CurrentReceipt.Receipt.Role != "captain" ||
 		slice.CurrentReceipt.Receipt.Result != "proceed" ||
 		slice.CurrentReceipt.Receipt.Binds != entry.designReceipt ||
-		turnCalls != 1 || freshCalls != 1 {
+		turnCalls != 1 || recoveryCalls != 1 ||
+		automationCalls != 1 || freshCalls != 1 {
 		t.Fatalf(
-			"post-Captain state=%#v entry=%#v turns=%d fresh=%d",
+			"post-Captain state=%#v entry=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
 			entry,
 			turnCalls,
+			recoveryCalls,
+			automationCalls,
 			freshCalls,
 		)
 	}
@@ -383,11 +565,14 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 	slice, ok = state.Slice("S1")
 	if !ok || slice.Candidate == nil ||
 		slice.NextRole != "verifier" ||
-		turnCalls != 2 || freshCalls != 1 {
+		turnCalls != 2 || recoveryCalls != 1 ||
+		automationCalls != 1 || freshCalls != 1 {
 		t.Fatalf(
-			"post-implementation state=%#v turns=%d fresh=%d",
+			"post-implementation state=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
 			turnCalls,
+			recoveryCalls,
+			automationCalls,
 			freshCalls,
 		)
 	}
@@ -655,6 +840,8 @@ func TestImplementationContinuationReuseAndFreshFallbackAreClosed(
 				fixture.coordinates,
 				fixture.cycle.Before,
 				prepared,
+				fixture.owner,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -829,6 +1016,8 @@ func TestFreshOnlyRepairBypassesContinuationAndFallbackMetrics(
 		coordinates,
 		before,
 		prepared,
+		fixture.owner,
+		nil,
 	)
 	if err != nil || pending != nil || fact != nil ||
 		freshCalls != 1 || turnCalls != 0 {

@@ -282,6 +282,53 @@ func TestEvaluatorPreservesUnknownUsageAndQualityAsNull(t *testing.T) {
 	}
 }
 
+func TestEvaluatorDoesNotDoubleCountTurnRecoveryAsGenericRecovery(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    started.Add(time.Second),
+		},
+		facts: []journal.EvaluationFact{{
+			Kind:        journal.EvaluationEvent,
+			EventOffset: 1,
+			EventKind:   "turn_recovery.outcome.recovered",
+			FinishedAt:  started.Add(time.Second),
+		}},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(
+		context.Background(),
+		"run-1",
+	)
+	if err != nil || !changed ||
+		record.TurnRecovery.Recovered != 1 ||
+		record.Recovery.Recovered != 0 {
+		t.Fatalf(
+			"turn recovery classification changed=%t record=%#v error=%v",
+			changed,
+			record,
+			err,
+		)
+	}
+}
+
 func TestGraphQualityUsesCurrentTruthAndKeepsUnknownRequirementsNull(
 	t *testing.T,
 ) {

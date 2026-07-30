@@ -37,14 +37,45 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if loadErr != nil {
 		return RunStatus{}, loadErr
 	}
+	attentions, err := s.journal.Attentions(ctx, runID)
+	if err != nil {
+		return RunStatus{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	attentionWork, err := activeAttentionWork(attentions)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	recoveryClaims, err := projectedRecoveryClaims(
+		manifest,
+		snapshot,
+		attentionWork,
+	)
+	if err != nil {
+		return RunStatus{}, err
+	}
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
+	parked, answeredWithoutOwner := false, false
+	for _, attention := range attentionWork {
+		if attention.State == journal.AttentionOpen {
+			parked = true
+		}
+		if attention.State == journal.AttentionAnswered &&
+			!ownerActive {
+			answeredWithoutOwner = true
+		}
+	}
 	for _, effect := range snapshot.Effects {
 		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
 			continue
 		}
 		result.Effects = append(result.Effects, EffectStatus{ID: effect.ID, Kind: effect.Kind,
 			State: string(effect.State), ErrorCode: effect.ErrorCode})
+		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
+			active = active ||
+				(state == journal.AttentionAnswered && ownerActive)
+			continue
+		}
 		active = active || (effect.State == journal.Claimed && ownerActive)
 		uncertain = uncertain || effect.State == journal.Uncertain ||
 			(effect.State == journal.Claimed && !ownerActive)
@@ -63,7 +94,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 		}
 	}
-	parked := len(exhausted) != 0
+	parked = parked || len(exhausted) != 0
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -92,7 +123,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalInstalled {
 			result.TargetHead = proposal.authority.TargetHead
-			parked = intersectsWork(exhausted, map[string]struct{}{
+			parked = parked || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
 		}
@@ -113,9 +144,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "cancelled"
 		}
 	default:
-		if parked {
+		if active {
+			result.State = "running"
+		} else if parked {
 			result.State = "parked"
-		} else if ownerExpired {
+		} else if ownerExpired || answeredWithoutOwner {
 			result.State = "takeover_required"
 		} else if proposalFound && !proposalInstalled {
 			result.State = "awaiting_approval"
@@ -130,13 +163,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = exhaustedWorkApplies(
+	parked = parked || exhaustedWorkApplies(
 		manifest, selected, proposalInstalled, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case active:
 			result.State = "running"
-		case ownerExpired:
+		case ownerExpired || answeredWithoutOwner:
 			result.State = "takeover_required"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
@@ -148,6 +181,269 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	return result, nil
+}
+
+func projectedRecoveryClaims(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	activeWork map[string]journal.AttentionProjection,
+) (map[string]journal.AttentionState, error) {
+	result := make(map[string]journal.AttentionState)
+	if len(activeWork) == 0 {
+		return result, nil
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commands[command.ReplayKey] = command
+	}
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	direct := make(map[string][]journal.Effect)
+	for _, effect := range snapshot.Effects {
+		if _, duplicate := effects[effect.ID]; duplicate {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effects[effect.ID] = effect
+		if effect.Kind != "driver.dispatch" ||
+			(effect.State != journal.Claimed &&
+				effect.State != journal.Succeeded) {
+			continue
+		}
+		work, err := attemptWorkIdentity(effect.ID)
+		if err != nil {
+			continue
+		}
+		if _, found := activeWork[work]; found {
+			direct[work] = append(direct[work], effect)
+		}
+	}
+	active, err := selectActiveImplementationCycles(
+		manifest,
+		snapshot.Commands,
+		effects,
+		activeWork,
+	)
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[string]activeImplementationCycle, len(active))
+	for _, cycle := range active {
+		if _, duplicate := selected[cycle.cycle.DispatchWork]; duplicate {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		selected[cycle.cycle.DispatchWork] = cycle
+	}
+	for work, attention := range activeWork {
+		cycle, implementation := selected[work]
+		dispatches := direct[work]
+		if !implementation {
+			if len(dispatches) != 1 {
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			command, found := commands[dispatches[0].ReplayKey]
+			if !found {
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if err := validateAttentionDispatchBinding(
+				manifest,
+				command,
+				dispatches[0],
+				attention,
+				nil,
+			); err != nil {
+				return nil, err
+			}
+			result[dispatches[0].ID] = attention.State
+			continue
+		}
+		if cycle.attention != attention {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		result[cycle.outer.ID] = cycle.attention.State
+		if cycle.dispatch.State == journal.OperationalFailed {
+			if len(dispatches) != 0 {
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		} else if len(dispatches) != 1 ||
+			dispatches[0].ID != cycle.dispatch.ID {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if cycle.dispatch.State == journal.Claimed {
+			result[cycle.dispatch.ID] = cycle.attention.State
+		}
+	}
+	return result, nil
+}
+
+func validateAttentionDispatchBinding(
+	manifest admittedManifest,
+	command journal.Command,
+	effect journal.Effect,
+	attention journal.AttentionProjection,
+	implementation *implementationCycle,
+) error {
+	if (attention.State != journal.AttentionOpen ||
+		attention.Generation != 1) &&
+		(attention.State != journal.AttentionAnswered ||
+			attention.Generation != 2) {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var submission *driver.Submission
+	var dispatch driverRecoveryCommand
+	var err error
+	switch effect.State {
+	case journal.Succeeded:
+		var cached driver.Submission
+		cached, dispatch, err = validateSucceededDriverResult(
+			manifest,
+			command,
+			effect,
+		)
+		submission = &cached
+		if attention.State != journal.AttentionAnswered {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+	case journal.Claimed, journal.OperationalFailed:
+		dispatch, err = validateDriverRecoveryCommand(
+			manifest,
+			command,
+			effect,
+		)
+	default:
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err != nil {
+		return err
+	}
+	work, epoch, try, err := attemptCoordinates(effect.ID)
+	if err != nil ||
+		attention.Attention.Recovery.ProgressID != work {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	before := ""
+	var prepared preparedDriverDispatch
+	var coordinates dispatchCoordinates
+	if dispatch.production != nil {
+		context := dispatch.production.Context
+		if context.Epoch != epoch ||
+			context.Try != try {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if implementation != nil {
+			if err := validateImplementationDispatchBinding(
+				*implementation,
+				effect,
+				dispatch,
+			); err != nil {
+				return err
+			}
+		} else {
+			expectedWork := driverWorkIdentity(
+				manifest.digest,
+				context.Slice,
+				context.Responsibility,
+				context.Attempt,
+				context.Before,
+			)
+			if work != expectedWork {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		}
+		prepared.productionContext = &context
+		coordinates = dispatchCoordinates{
+			Slice:          context.Slice,
+			Responsibility: context.Responsibility,
+			BatonAttempt:   context.Attempt,
+			Epoch:          context.Epoch,
+			Try:            context.Try,
+		}
+		before = context.Before
+	} else {
+		var matched *ScriptedAttempt
+		for index := range manifest.value.Scripts {
+			script := &manifest.value.Scripts[index]
+			if script.Epoch != epoch ||
+				script.Try != try ||
+				script.Behavior != dispatch.fake.Behavior ||
+				script.Submission != dispatch.fake.Submission {
+				continue
+			}
+			if submission != nil &&
+				(script.Responsibility != submission.Responsibility ||
+					invocationID(manifest.value.RunID, *script) !=
+						submission.InvocationID) {
+				continue
+			}
+			if implementation != nil &&
+				(script.Slice != implementation.Slice ||
+					script.Responsibility !=
+						driver.ImplementerImplementation) {
+				continue
+			}
+			if implementation == nil {
+				lane := script.Slice
+				if lane == "" {
+					lane = "release"
+				}
+				if lane != attention.Attention.Recovery.LaneID {
+					continue
+				}
+			}
+			if matched != nil {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			matched = script
+		}
+		if matched == nil || implementation == nil {
+			// Legacy fake dispatches do not persist their unhashed before
+			// authority. Their exact work and lane remain enforceable.
+			lane := ""
+			if matched != nil {
+				lane = matched.Slice
+				if lane == "" {
+					lane = "release"
+				}
+			}
+			if matched == nil ||
+				attention.Attention.Recovery.LaneID != lane ||
+				matched.Epoch != epoch ||
+				matched.Try != try {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			return nil
+		}
+		if err := validateImplementationDispatchBinding(
+			*implementation,
+			effect,
+			dispatch,
+		); err != nil {
+			return err
+		}
+		before = implementation.Before
+		prepared.fake = true
+		coordinates = dispatchCoordinates{
+			Slice:          matched.Slice,
+			Responsibility: matched.Responsibility,
+			BatonAttempt:   matched.BatonAttempt,
+			Epoch:          epoch,
+			Try:            try,
+		}
+	}
+	cycle, err := turnRecoveryCycleForDispatch(
+		manifest,
+		prepared,
+		coordinates,
+		work,
+		before,
+	)
+	if err != nil ||
+		attention.Attention.Recovery.CycleID != cycle.binding.CycleID ||
+		attention.Attention.Recovery.LaneID != cycle.binding.LaneID {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return nil
 }
 
 func exhaustedWorkApplies(

@@ -14,8 +14,10 @@ import (
 type fakeCommandRuntime struct {
 	startCalls   int
 	controlCalls int
+	answerCalls  int
 	startBody    []byte
 	control      runtimepkg.ControlCommand
+	answer       runtimepkg.AnswerAttentionCommand
 	status       runtimepkg.RunStatus
 	err          error
 }
@@ -35,6 +37,15 @@ func (f *fakeCommandRuntime) Control(
 ) (runtimepkg.RunStatus, error) {
 	f.controlCalls++
 	f.control = command
+	return f.status, f.err
+}
+
+func (f *fakeCommandRuntime) AnswerAttention(
+	_ context.Context,
+	command runtimepkg.AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	f.answerCalls++
+	f.answer = command
 	return f.status, f.err
 }
 
@@ -109,6 +120,25 @@ func TestCommandFacadeDelegatesEachClosedCommandExactlyOnce(t *testing.T) {
 		runtime.control.ExpectedEpoch != 2 {
 		t.Fatalf("control delegation = calls=%d command=%#v", runtime.controlCalls, runtime.control)
 	}
+	if _, err := facade.AnswerAttention(
+		context.Background(),
+		AnswerAttentionCommand{
+			RunID:              "run-1",
+			AttentionID:        "sha256:" + strings.Repeat("c", 64),
+			ExpectedGeneration: 1,
+			Answer:             "Use the existing release authority.",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.answerCalls != 1 ||
+		runtime.answer.ExpectedGeneration != 1 {
+		t.Fatalf(
+			"answer delegation = calls=%d command=%#v",
+			runtime.answerCalls,
+			runtime.answer,
+		)
+	}
 	if err := facade.Redeliver(context.Background(), RedeliveryCommand{
 		RunID: "run-1", DestinationID: "primary", MessageID: "message-1",
 	}); err != nil {
@@ -165,7 +195,18 @@ func TestCommandFacadeRejectsOpenOrUnpinnedInputBeforeDelegation(t *testing.T) {
 			t.Errorf("%s = %v", name, err)
 		}
 	}
+	if _, err := facade.AnswerAttention(
+		context.Background(),
+		AnswerAttentionCommand{
+			RunID:              "run-1",
+			AttentionID:        "attention",
+			ExpectedGeneration: 2,
+		},
+	); !IsCode(err, "INVALID_COMMAND") {
+		t.Fatalf("invalid answer = %v", err)
+	}
 	if runtime.startCalls != 0 || runtime.controlCalls != 0 ||
+		runtime.answerCalls != 0 ||
 		outbox.calls != 0 {
 		t.Fatalf(
 			"rejected input delegated: start=%d control=%d outbox=%d",

@@ -438,6 +438,7 @@ func (f *fakeOperatorProjector) Events(
 type fakeOperatorCommands struct {
 	startCalls     int
 	controlCalls   int
+	answerCalls    int
 	redeliverCalls int
 	onStart        func() error
 }
@@ -469,6 +470,14 @@ func (f *fakeOperatorCommands) Redeliver(
 ) error {
 	f.redeliverCalls++
 	return nil
+}
+
+func (f *fakeOperatorCommands) AnswerAttention(
+	context.Context,
+	cockpit.AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	f.answerCalls++
+	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
 func TestOperatorAuthorityGuardsEveryConsumerAndActivatesOnStart(
@@ -1171,6 +1180,9 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 			Implementer: profile,
 			Captain:     profile,
 			Verifier:    profile,
+		},
+		Automation: &runtimepkg.AutomationSelections{
+			Recovery: profile,
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 1,

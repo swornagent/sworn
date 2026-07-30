@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +115,22 @@ func TestAttentionLifecycleIsPerAttentionCASReplaySafeAndContentBounded(
 		secondProjection.Generation != 1 ||
 		secondProjection.State != AttentionOpen {
 		t.Fatalf("second projection = %#v, %v", secondProjection, err)
+	}
+	if _, err := store.AnswerAttention(ctx, AnswerAttentionCommand{
+		RunID: run.ID, Attention: second,
+		ExpectedGeneration: 1, Answer: "invalid\ranswer",
+	}, now); !IsCode(err, "INVALID_ATTENTION") {
+		t.Fatalf("carriage-return answer = %v", err)
+	}
+	secondProjection, err = store.Attention(ctx, run.ID, second.ID)
+	if err != nil ||
+		secondProjection.Generation != 1 ||
+		secondProjection.State != AttentionOpen {
+		t.Fatalf(
+			"attention after rejected carriage return = %#v, %v",
+			secondProjection,
+			err,
+		)
 	}
 	if _, err := store.ResolveAttention(ctx, owner, ResolveAttentionCommand{
 		RunID: run.ID, Attention: first, ExpectedGeneration: 2,
@@ -271,6 +288,150 @@ func TestAttentionAnswerPersistsWhilePausedAndCancelIsEffectiveTerminal(
 	}
 }
 
+func TestReleaseOwnerIfIdleRetainsAnsweredWakeAtomically(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := testRecoveryBinding(
+		"T-owner-wake",
+		"owner-wake-cycle",
+		"owner-wake-turn",
+		"owner-wake-progress",
+	)
+	attention := testAttentionBinding(recovery, 1)
+	if _, err := store.OpenAttention(ctx, owner, OpenAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 0, Question: "Continue this lane?",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AnswerAttention(ctx, AnswerAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 1, Answer: "Continue.",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	released, err := store.ReleaseOwnerIfIdle(ctx, owner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released {
+		t.Fatal("owner released while an answered wake was pending")
+	}
+	current, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || current.Token != owner.Token {
+		t.Fatalf("owner after retained wake = %#v, present=%t", current, present)
+	}
+
+	if _, err := store.ResolveAttention(ctx, owner, ResolveAttentionCommand{
+		RunID: run.ID, Attention: attention, ExpectedGeneration: 2,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	released, err = store.ReleaseOwnerIfIdle(ctx, owner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !released {
+		t.Fatal("idle owner was not released")
+	}
+	if current, present, err = store.CurrentOwner(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	} else if present {
+		t.Fatalf("owner remained after idle release = %#v", current)
+	}
+}
+
+func TestReleaseOwnerIfIdleLetsPauseOutrankAnsweredWake(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := testRecoveryBinding(
+		"T-paused-wake",
+		"paused-wake-cycle",
+		"paused-wake-turn",
+		"paused-wake-progress",
+	)
+	attention := testAttentionBinding(recovery, 1)
+	if _, err := store.OpenAttention(ctx, owner, OpenAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 0, Question: "Continue after pause?",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AnswerAttention(ctx, AnswerAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 1, Answer: "Continue when resumed.",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "pause-with-wake", Kind: Pause,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	released, err := store.ReleaseOwnerIfIdle(ctx, owner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !released {
+		t.Fatal("pause did not outrank answered wake")
+	}
+	projected, err := store.Attention(ctx, run.ID, attention.ID)
+	if err != nil || projected.State != AttentionAnswered {
+		t.Fatalf("paused answer = %#v, %v", projected, err)
+	}
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "resume-with-wake", Kind: Resume,
+		ExpectedGeneration: 1,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	resumedOwner, err := store.AcquireOwner(
+		ctx,
+		run.ID,
+		now,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released, err = store.ReleaseOwnerIfIdle(ctx, resumedOwner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released {
+		t.Fatal("resumed answered wake did not retain its owner")
+	}
+	if _, err := store.ResolveAttention(ctx, resumedOwner, ResolveAttentionCommand{
+		RunID: run.ID, Attention: attention, ExpectedGeneration: 2,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	released, err = store.ReleaseOwnerIfIdle(ctx, resumedOwner, now)
+	if err != nil || !released {
+		t.Fatalf("release after resumed wake consumption = %t, %v", released, err)
+	}
+}
+
 func TestRecoveryReservationIsOwnerBoundAndControlRunning(t *testing.T) {
 	t.Parallel()
 
@@ -324,6 +485,189 @@ func TestRecoveryReservationIsOwnerBoundAndControlRunning(t *testing.T) {
 		now,
 	); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParkRecoveryAttentionIsAtomicAndReplaySafe(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := testRecoveryBinding(
+		"T-atomic-park", "atomic-cycle", "turn", "progress",
+	)
+	step := testRecoveryStep(run.ID, binding, 1, RecoveryParkTrack)
+	inputTokens, outputTokens := int64(7), int64(11)
+	step.Accounting = &RecoveryAccounting{
+		DurationMillis: 5,
+		TokenStatus:    "reported",
+		InputTokens:    &inputTokens,
+		OutputTokens:   &outputTokens,
+		CostStatus:     "unavailable",
+	}
+	attention := testAttentionBinding(binding, 1)
+	command := ParkRecoveryAttentionCommand{
+		Step: step,
+		Attention: OpenAttentionCommand{
+			RunID: run.ID, Attention: attention,
+			ExpectedGeneration: 0, Question: "Which exact base should continue?",
+		},
+	}
+	parked, err := store.ParkRecoveryAttention(ctx, owner, command, now)
+	if err != nil ||
+		!parked.Step.Parked ||
+		parked.Attention.State != AttentionOpen {
+		t.Fatalf("atomic park = %#v, %v", parked, err)
+	}
+	replayed, err := store.ParkRecoveryAttention(
+		ctx,
+		OwnerLease{},
+		command,
+		now.Add(time.Hour),
+	)
+	if err != nil || !reflect.DeepEqual(replayed, parked) {
+		t.Fatalf("owner-free replay = %#v, %v", replayed, err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parkEvents := 0
+	for _, event := range snapshot.Events {
+		if event.Kind == RecoveryParkedEvent {
+			parkEvents++
+		}
+	}
+	if parkEvents != 1 {
+		t.Fatalf("replayed park events = %d, want 1", parkEvents)
+	}
+	budget, err := store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil ||
+		!reflect.DeepEqual(budget.Accounting, step.Accounting) {
+		t.Fatalf(
+			"parked accounting = %#v, want %#v, error=%v",
+			budget.Accounting,
+			step.Accounting,
+			err,
+		)
+	}
+	changedAccounting := command
+	changedAccounting.Step.Accounting = cloneRecoveryAccounting(
+		command.Step.Accounting,
+	)
+	changedAccounting.Step.Accounting.DurationMillis++
+	if _, err := store.ParkRecoveryAttention(
+		ctx,
+		OwnerLease{},
+		changedAccounting,
+		now,
+	); !IsCode(err, "REPLAY_CONFLICT") {
+		t.Fatalf("changed accounting replay = %v", err)
+	}
+
+	rollbackBinding := testRecoveryBinding(
+		"T-atomic-rollback", "rollback-cycle", "turn", "progress",
+	)
+	rollbackAttention := testAttentionBinding(rollbackBinding, 1)
+	if _, err := store.OpenAttention(ctx, owner, OpenAttentionCommand{
+		RunID: run.ID, Attention: rollbackAttention,
+		ExpectedGeneration: 0, Question: "Existing question",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	conflict := ParkRecoveryAttentionCommand{
+		Step: testRecoveryStep(
+			run.ID,
+			rollbackBinding,
+			1,
+			RecoveryParkTrack,
+		),
+		Attention: OpenAttentionCommand{
+			RunID: run.ID, Attention: rollbackAttention,
+			ExpectedGeneration: 0, Question: "Conflicting question",
+		},
+	}
+	if _, err := store.ParkRecoveryAttention(
+		ctx,
+		owner,
+		conflict,
+		now,
+	); !IsCode(err, "REPLAY_CONFLICT") {
+		t.Fatalf("conflicting attention = %v", err)
+	}
+	budget, err = store.RecoveryBudget(ctx, run.ID, rollbackBinding)
+	if err != nil || budget.Parked || budget.NextOrdinal != 1 {
+		t.Fatalf("rolled-back recovery step = %#v, %v", budget, err)
+	}
+}
+
+func TestRecoveryDecisionReservationsEmitClosedActionEvents(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := testRecoveryBinding(
+		"T-events", "event-cycle", "turn", "progress",
+	)
+	for ordinal, kind := range []RecoveryStepKind{
+		RecoveryResumeWorker,
+		RecoveryAskCaptain,
+	} {
+		if _, err := store.ReserveRecoveryStep(
+			ctx,
+			owner,
+			testRecoveryStep(run.ID, binding, int64(ordinal+1), kind),
+			now,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changedProgress := binding
+	changedProgress.ProgressID = digest([]byte("next-progress"))
+	if _, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		testRecoveryStep(
+			run.ID,
+			changedProgress,
+			3,
+			RecoveryRetryOperationally,
+		),
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case RecoveryResumeWorkerEvent,
+			RecoveryAskCaptainEvent,
+			RecoveryRetryOperationalEvent:
+			got = append(got, event.Kind)
+		}
+	}
+	want := []string{
+		RecoveryResumeWorkerEvent,
+		RecoveryAskCaptainEvent,
+		RecoveryRetryOperationalEvent,
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("recovery action events = %v, want %v", got, want)
 	}
 }
 
@@ -604,7 +948,7 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 		first,
 		now.Add(time.Hour),
 	)
-	if err != nil || replayed != reserved {
+	if err != nil || !reflect.DeepEqual(replayed, reserved) {
 		t.Fatalf("owner-free step replay = %#v, %v", replayed, err)
 	}
 	conflict := first
@@ -664,6 +1008,14 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 		2,
 		RecoveryParkTrack,
 	)
+	parkInput, parkOutput := int64(31), int64(37)
+	park.Accounting = &RecoveryAccounting{
+		DurationMillis: 23,
+		TokenStatus:    "reported",
+		InputTokens:    &parkInput,
+		OutputTokens:   &parkOutput,
+		CostStatus:     "unavailable",
+	}
 	parked, err := store.ReserveRecoveryStep(ctx, owner, park, takeoverAt)
 	if err != nil || !parked.Parked {
 		t.Fatalf("park = %#v, %v", parked, err)
@@ -674,8 +1026,15 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 		park,
 		takeoverAt.Add(time.Hour),
 	)
-	if err != nil || replayedPark != parked {
+	if err != nil || !reflect.DeepEqual(replayedPark, parked) {
 		t.Fatalf("park replay = %#v, %v", replayedPark, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := store.ReserveRecoveryStep(
 		ctx,
@@ -691,7 +1050,8 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 		t.Fatalf("automatic action after park = %v", err)
 	}
 	projection, err := store.RecoveryBudget(ctx, run.ID, binding)
-	if err != nil || !projection.Parked || projection.NextOrdinal != 3 {
+	if err != nil || !projection.Parked || projection.NextOrdinal != 3 ||
+		!reflect.DeepEqual(projection.Accounting, park.Accounting) {
 		t.Fatalf("parked projection = %#v, %v", projection, err)
 	}
 	control, err := store.ControlProjection(ctx, run.ID)
@@ -708,7 +1068,7 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 		switch event.Kind {
 		case "turn_recovery_step_reserved":
 			reservedEvents++
-		case "turn_recovery_parked":
+		case RecoveryParkedEvent:
 			parkedEvents++
 		}
 	}
@@ -718,5 +1078,146 @@ func TestRecoveryStepReplayRestartAndTerminalParkAreDurable(t *testing.T) {
 			reservedEvents,
 			parkedEvents,
 		)
+	}
+}
+
+func TestAnsweredAttentionResumesExactlyOneParkedRecoveryLane(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := testRecoveryBinding(
+		"T-human", "human-cycle", "turn", "progress",
+	)
+	park := testRecoveryStep(run.ID, binding, 1, RecoveryParkTrack)
+	if _, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		park,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	attention := testAttentionBinding(binding, 1)
+	if _, err := store.OpenAttention(ctx, owner, OpenAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 0, Question: "Which authority should continue?",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	resume := testRecoveryStep(
+		run.ID,
+		binding,
+		2,
+		RecoveryResumeWorker,
+	)
+	if _, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		resume,
+		now,
+	); !IsCode(err, "RECOVERY_PARKED") {
+		t.Fatalf("unanswered attention resumed = %v", err)
+	}
+	if _, err := store.AnswerAttention(ctx, AnswerAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 1, Answer: "Continue from the pinned base.",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		resume,
+		now,
+	)
+	if err != nil || receipt.Parked {
+		t.Fatalf("answered attention resume = %#v, %v", receipt, err)
+	}
+	projection, err := store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil || projection.Parked || projection.NextOrdinal != 3 {
+		t.Fatalf("resumed budget = %#v, %v", projection, err)
+	}
+}
+
+func TestHumanWakeDoesNotReplenishOrConsumeAutomaticBudget(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := testRecoveryBinding(
+		"T-human-bound", "human-bound-cycle", "turn", "progress",
+	)
+	for index, kind := range []RecoveryStepKind{
+		RecoveryMalformedCorrection,
+		RecoveryMalformedCorrection,
+		RecoveryProseNudge,
+		RecoveryResumeWorker,
+	} {
+		if _, err := store.ReserveRecoveryStep(
+			ctx,
+			owner,
+			testRecoveryStep(run.ID, binding, int64(index+1), kind),
+			now,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	park := testRecoveryStep(run.ID, binding, 5, RecoveryParkTrack)
+	if _, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		park,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	attention := testAttentionBinding(binding, 5)
+	if _, err := store.OpenAttention(ctx, owner, OpenAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 0, Question: "Human input required.",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AnswerAttention(ctx, AnswerAttentionCommand{
+		RunID: run.ID, Attention: attention,
+		ExpectedGeneration: 1, Answer: "Continue once.",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	resume := testRecoveryStep(
+		run.ID,
+		binding,
+		6,
+		RecoveryResumeWorker,
+	)
+	receipt, err := store.ReserveRecoveryStep(
+		ctx,
+		owner,
+		resume,
+		now,
+	)
+	if err != nil ||
+		receipt.AutomaticActions != MaxRecoveryAutomaticPerCycle ||
+		receipt.SameProgress != 1 ||
+		receipt.Parked {
+		t.Fatalf("human wake receipt = %#v, %v", receipt, err)
+	}
+	projection, err := store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil ||
+		projection.AutomaticActions != MaxRecoveryAutomaticPerCycle ||
+		projection.SameProgress != 1 ||
+		projection.Parked {
+		t.Fatalf("human wake replay = %#v, %v", projection, err)
 	}
 }

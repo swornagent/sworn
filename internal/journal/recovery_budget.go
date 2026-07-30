@@ -18,10 +18,14 @@ const (
 	MaxRecoveryDecisionsPerProgress = int64(2)
 	MaxRecoveryAutomaticPerCycle    = int64(4)
 
-	RecoveryStepReservedEvent = "turn_recovery_step_reserved"
-	RecoveryParkedEvent       = "turn_recovery_parked"
+	RecoveryStepReservedEvent     = "turn_recovery_step_reserved"
+	RecoveryResumeWorkerEvent     = "turn_recovery.action.resume_worker"
+	RecoveryAskCaptainEvent       = "turn_recovery.action.ask_captain"
+	RecoveryRetryOperationalEvent = "turn_recovery.action.retry_operationally"
+	RecoveryParkedEvent           = "turn_recovery.action.pause_track_for_human"
 
-	recoveryStepVersion = "sworn.turn-recovery-step/v1"
+	recoveryStepVersion  = "sworn.turn-recovery-step/v1"
+	recoveryMaximumValue = int64(9_007_199_254_740_991)
 )
 
 // RecoveryBinding deliberately has no content, dispatch try, retry epoch, or
@@ -44,12 +48,27 @@ const (
 	RecoveryParkTrack           RecoveryStepKind = "park_track"
 )
 
+// RecoveryAccounting is a cumulative, content-free cost snapshot. It rides
+// the existing replay-keyed recovery step so a human park does not lose work
+// already paid for.
+type RecoveryAccounting struct {
+	DurationMillis int64   `json:"duration_ms"`
+	TokenStatus    string  `json:"token_status"`
+	InputTokens    *int64  `json:"input_tokens"`
+	OutputTokens   *int64  `json:"output_tokens"`
+	CostStatus     string  `json:"cost_status"`
+	CostMicroUnits *int64  `json:"cost_micro_units"`
+	Currency       *string `json:"currency"`
+	Source         *string `json:"source"`
+}
+
 type RecoveryStepCommand struct {
-	RunID   string           `json:"run_id"`
-	ID      string           `json:"step_id"`
-	Binding RecoveryBinding  `json:"binding"`
-	Ordinal int64            `json:"ordinal"`
-	Kind    RecoveryStepKind `json:"kind"`
+	RunID      string              `json:"run_id"`
+	ID         string              `json:"step_id"`
+	Binding    RecoveryBinding     `json:"binding"`
+	Ordinal    int64               `json:"ordinal"`
+	Kind       RecoveryStepKind    `json:"kind"`
+	Accounting *RecoveryAccounting `json:"accounting,omitempty"`
 }
 
 type RecoveryStepReceipt struct {
@@ -63,15 +82,16 @@ type RecoveryStepReceipt struct {
 }
 
 type RecoveryBudgetProjection struct {
-	Binding          RecoveryBinding `json:"binding"`
-	NextOrdinal      int64           `json:"next_ordinal"`
-	AutomaticActions int64           `json:"automatic_actions"`
-	Corrections      int64           `json:"corrections"`
-	Nudges           int64           `json:"nudges"`
-	Advisories       int64           `json:"advisories"`
-	SameProgress     int64           `json:"same_progress"`
-	Parked           bool            `json:"parked"`
-	LastStepID       string          `json:"last_step_id,omitempty"`
+	Binding          RecoveryBinding     `json:"binding"`
+	NextOrdinal      int64               `json:"next_ordinal"`
+	AutomaticActions int64               `json:"automatic_actions"`
+	Corrections      int64               `json:"corrections"`
+	Nudges           int64               `json:"nudges"`
+	Advisories       int64               `json:"advisories"`
+	SameProgress     int64               `json:"same_progress"`
+	Parked           bool                `json:"parked"`
+	LastStepID       string              `json:"last_step_id,omitempty"`
+	Accounting       *RecoveryAccounting `json:"accounting,omitempty"`
 }
 
 type recoveryStepRecord struct {
@@ -150,7 +170,82 @@ func validateRecoveryStep(value RecoveryStepCommand) error {
 		!validRecoveryKind(value.Kind) {
 		return fail("INVALID_RECOVERY_STEP", nil)
 	}
+	if value.Accounting != nil &&
+		!validRecoveryAccounting(*value.Accounting) {
+		return fail("INVALID_RECOVERY_STEP", nil)
+	}
 	return nil
+}
+
+func validRecoveryAccounting(value RecoveryAccounting) bool {
+	if value.DurationMillis < 0 ||
+		value.DurationMillis > recoveryMaximumValue {
+		return false
+	}
+	switch value.TokenStatus {
+	case "reported":
+		if value.InputTokens == nil || value.OutputTokens == nil ||
+			*value.InputTokens < 0 ||
+			*value.InputTokens > recoveryMaximumValue ||
+			*value.OutputTokens < 0 ||
+			*value.OutputTokens > recoveryMaximumValue {
+			return false
+		}
+	case "unavailable":
+		if value.InputTokens != nil || value.OutputTokens != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	switch value.CostStatus {
+	case "reported":
+		if value.CostMicroUnits == nil ||
+			value.Currency == nil ||
+			value.Source == nil ||
+			*value.CostMicroUnits < 0 ||
+			*value.CostMicroUnits > recoveryMaximumValue ||
+			len(*value.Currency) != 3 ||
+			*value.Source != "provider_reported" {
+			return false
+		}
+		for _, character := range []byte(*value.Currency) {
+			if character < 'A' || character > 'Z' {
+				return false
+			}
+		}
+	case "unavailable":
+		if value.CostMicroUnits != nil ||
+			value.Currency != nil ||
+			value.Source != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+func cloneRecoveryAccounting(
+	value *RecoveryAccounting,
+) *RecoveryAccounting {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	if value.InputTokens != nil {
+		input, output := *value.InputTokens, *value.OutputTokens
+		result.InputTokens = &input
+		result.OutputTokens = &output
+	}
+	if value.CostMicroUnits != nil {
+		cost := *value.CostMicroUnits
+		currency, source := *value.Currency, *value.Source
+		result.CostMicroUnits = &cost
+		result.Currency = &currency
+		result.Source = &source
+	}
+	return &result
 }
 
 func marshalRecoveryStep(value recoveryStepRecord) []byte {
@@ -246,12 +341,18 @@ func recoveryBudgetOnConnection(
 		NextOrdinal: 1,
 	}
 	for _, step := range cycle {
-		if step.Ordinal != result.NextOrdinal || result.Parked {
+		if step.Ordinal != result.NextOrdinal ||
+			(result.Parked && step.Kind != RecoveryResumeWorker) {
 			return RecoveryBudgetProjection{}, fail("CORRUPT_JOURNAL", nil)
+		}
+		humanResume := result.Parked &&
+			step.Kind == RecoveryResumeWorker
+		if humanResume {
+			result.Parked = false
 		}
 		result.NextOrdinal++
 		result.LastStepID = step.ID
-		if recoveryAutomatic(step.Kind) {
+		if recoveryAutomatic(step.Kind) && !humanResume {
 			result.AutomaticActions++
 		}
 		switch step.Kind {
@@ -268,9 +369,14 @@ func recoveryBudgetOnConnection(
 		case RecoveryParkTrack:
 			result.Parked = true
 		}
-		if recoveryDecision(step.Kind) &&
+		if recoveryDecision(step.Kind) && !humanResume &&
 			step.Binding.ProgressID == binding.ProgressID {
 			result.SameProgress++
+		}
+		if step.Accounting != nil {
+			result.Accounting = cloneRecoveryAccounting(
+				step.Accounting,
+			)
 		}
 	}
 	return result, nil
@@ -284,7 +390,11 @@ func applyRecoveryCount(
 	projection *RecoveryBudgetProjection,
 	kind RecoveryStepKind,
 ) {
-	if recoveryAutomatic(kind) {
+	humanResume := projection.Parked && kind == RecoveryResumeWorker
+	if humanResume {
+		projection.Parked = false
+	}
+	if recoveryAutomatic(kind) && !humanResume {
 		projection.AutomaticActions++
 	}
 	switch kind {
@@ -297,7 +407,7 @@ func applyRecoveryCount(
 	case RecoveryParkTrack:
 		projection.Parked = true
 	}
-	if recoveryDecision(kind) {
+	if recoveryDecision(kind) && !humanResume {
 		projection.SameProgress++
 	}
 }
@@ -307,6 +417,11 @@ func recoveryBudgetAllows(
 	kind RecoveryStepKind,
 ) error {
 	if projection.Parked {
+		if kind == RecoveryResumeWorker {
+			// A durable human answer may restart a parked lane. Admission of
+			// that exact answered attention happens in the same transaction.
+			return nil
+		}
 		return fail("RECOVERY_PARKED", nil)
 	}
 	if kind == RecoveryParkTrack {
@@ -339,6 +454,148 @@ func recoveryBudgetAllows(
 	return nil
 }
 
+func reserveRecoveryStepOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	owner OwnerLease,
+	command RecoveryStepCommand,
+	at time.Time,
+	atValue string,
+) (RecoveryStepReceipt, error) {
+	record := recoveryStepRecord{
+		SchemaVersion: recoveryStepVersion,
+		Step:          command,
+	}
+	body := marshalRecoveryStep(record)
+	replayKey := recoveryReplayKey(command.ID)
+	var receipt RecoveryStepReceipt
+	result, replayed, err := replayedTransition(
+		ctx,
+		conn,
+		command.RunID,
+		replayKey,
+		"turn_recovery.step",
+		"runtime.turn_recovery",
+		body,
+	)
+	if err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	if replayed {
+		if json.Unmarshal(result, &receipt) != nil ||
+			!bytes.Equal(
+				marshalRecoveryStep(recoveryStepRecord{
+					SchemaVersion: recoveryStepVersion,
+					Step:          receipt.Step,
+				}),
+				body,
+			) {
+			return RecoveryStepReceipt{}, fail("CORRUPT_JOURNAL", nil)
+		}
+		return receipt, nil
+	}
+	if err := checkOwner(ctx, conn, owner, at); err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	control, err := projectionOnConnection(ctx, conn, command.RunID)
+	if err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	if control.Desired != "running" {
+		return RecoveryStepReceipt{}, fail("CONTROL_STOPPED", nil)
+	}
+	projection, err := recoveryBudgetOnConnection(
+		ctx,
+		conn,
+		command.RunID,
+		command.Binding,
+	)
+	if err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	if command.Ordinal != projection.NextOrdinal {
+		return RecoveryStepReceipt{},
+			fail("STALE_RECOVERY_ORDINAL", nil)
+	}
+	if projection.Parked && command.Kind == RecoveryResumeWorker {
+		attentions, attentionErr := attentionProjectionsOnConnection(
+			ctx,
+			conn,
+			command.RunID,
+			true,
+		)
+		if attentionErr != nil {
+			return RecoveryStepReceipt{}, attentionErr
+		}
+		answered := 0
+		for _, attention := range attentions {
+			if attention.State == AttentionAnswered &&
+				attention.Attention.Recovery.CycleID ==
+					command.Binding.CycleID &&
+				attention.Attention.Recovery.LaneID ==
+					command.Binding.LaneID {
+				answered++
+			}
+		}
+		if answered != 1 {
+			return RecoveryStepReceipt{},
+				fail("RECOVERY_PARKED", nil)
+		}
+	}
+	if err := recoveryBudgetAllows(projection, command.Kind); err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	applyRecoveryCount(&projection, command.Kind)
+	if command.Accounting != nil {
+		projection.Accounting = cloneRecoveryAccounting(
+			command.Accounting,
+		)
+	}
+	projection.NextOrdinal++
+	projection.LastStepID = command.ID
+	receipt = RecoveryStepReceipt{
+		Step:             command,
+		AutomaticActions: projection.AutomaticActions,
+		Corrections:      projection.Corrections,
+		Nudges:           projection.Nudges,
+		Advisories:       projection.Advisories,
+		SameProgress:     projection.SameProgress,
+		Parked:           projection.Parked,
+	}
+	result, _ = json.Marshal(receipt)
+	result = append(result, '\n')
+	eventKind := RecoveryStepReservedEvent
+	switch command.Kind {
+	case RecoveryResumeWorker:
+		eventKind = RecoveryResumeWorkerEvent
+	case RecoveryAskCaptain:
+		eventKind = RecoveryAskCaptainEvent
+	case RecoveryRetryOperationally:
+		eventKind = RecoveryRetryOperationalEvent
+	case RecoveryParkTrack:
+		eventKind = RecoveryParkedEvent
+	}
+	if err := appendSucceededTransition(
+		ctx,
+		conn,
+		succeededTransition{
+			runID:        command.RunID,
+			replayKey:    replayKey,
+			commandKind:  "turn_recovery.step",
+			effectKind:   "runtime.turn_recovery",
+			body:         body,
+			beforeDigest: digest([]byte(strconv.FormatInt(command.Ordinal-1, 10))),
+			result:       result,
+			eventKind:    eventKind,
+			eventBody:    result,
+			at:           atValue,
+		},
+	); err != nil {
+		return RecoveryStepReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func (s *Store) ReserveRecoveryStep(
 	ctx context.Context,
 	owner OwnerLease,
@@ -348,96 +605,22 @@ func (s *Store) ReserveRecoveryStep(
 	if err := validateRecoveryStep(command); err != nil {
 		return RecoveryStepReceipt{}, err
 	}
-	record := recoveryStepRecord{
-		SchemaVersion: recoveryStepVersion,
-		Step:          command,
-	}
-	body := marshalRecoveryStep(record)
-	replayKey := recoveryReplayKey(command.ID)
 	atValue, err := canonicalTime(at)
 	if err != nil {
 		return RecoveryStepReceipt{}, err
 	}
 	var receipt RecoveryStepReceipt
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
-		result, replayed, err := replayedTransition(
+		var reserveErr error
+		receipt, reserveErr = reserveRecoveryStepOnConnection(
 			ctx,
 			conn,
-			command.RunID,
-			replayKey,
-			"turn_recovery.step",
-			"runtime.turn_recovery",
-			body,
+			owner,
+			command,
+			at,
+			atValue,
 		)
-		if err != nil {
-			return err
-		}
-		if replayed {
-			if json.Unmarshal(result, &receipt) != nil ||
-				receipt.Step != command {
-				return fail("CORRUPT_JOURNAL", nil)
-			}
-			return nil
-		}
-		if err := checkOwner(ctx, conn, owner, at); err != nil {
-			return err
-		}
-		control, err := projectionOnConnection(ctx, conn, command.RunID)
-		if err != nil {
-			return err
-		}
-		if control.Desired != "running" {
-			return fail("CONTROL_STOPPED", nil)
-		}
-		projection, err := recoveryBudgetOnConnection(
-			ctx,
-			conn,
-			command.RunID,
-			command.Binding,
-		)
-		if err != nil {
-			return err
-		}
-		if command.Ordinal != projection.NextOrdinal {
-			return fail("STALE_RECOVERY_ORDINAL", nil)
-		}
-		if err := recoveryBudgetAllows(projection, command.Kind); err != nil {
-			return err
-		}
-		applyRecoveryCount(&projection, command.Kind)
-		projection.NextOrdinal++
-		projection.LastStepID = command.ID
-		receipt = RecoveryStepReceipt{
-			Step:             command,
-			AutomaticActions: projection.AutomaticActions,
-			Corrections:      projection.Corrections,
-			Nudges:           projection.Nudges,
-			Advisories:       projection.Advisories,
-			SameProgress:     projection.SameProgress,
-			Parked:           projection.Parked,
-		}
-		result, _ = json.Marshal(receipt)
-		result = append(result, '\n')
-		eventKind := RecoveryStepReservedEvent
-		if command.Kind == RecoveryParkTrack {
-			eventKind = RecoveryParkedEvent
-		}
-		return appendSucceededTransition(
-			ctx,
-			conn,
-			succeededTransition{
-				runID:        command.RunID,
-				replayKey:    replayKey,
-				commandKind:  "turn_recovery.step",
-				effectKind:   "runtime.turn_recovery",
-				body:         body,
-				beforeDigest: digest([]byte(strconv.FormatInt(command.Ordinal-1, 10))),
-				result:       result,
-				eventKind:    eventKind,
-				eventBody:    result,
-				at:           atValue,
-			},
-		)
+		return reserveErr
 	})
 	return receipt, err
 }

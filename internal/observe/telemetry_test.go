@@ -195,6 +195,15 @@ func testTelemetryRecord(sentinel string) Record {
 				},
 			},
 		},
+		TurnRecovery: TurnRecoverySummary{
+			Recovered:        1,
+			HumanEscalations: 1,
+			Actions: []TurnRecoveryCount{
+				{Action: turnRecoveryAskCaptain, Count: 1},
+				{Action: turnRecoveryPauseForHuman, Count: 1},
+				{Action: turnRecoveryResumeWorker, Count: 1},
+			},
+		},
 		DurationNS: knownRatio(30, 2),
 		Usage:      usage,
 		Groups: []AttemptGroup{{
@@ -329,6 +338,8 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 		"sworn.eval.events":                     stringSet("sworn.outcome"),
 		"sworn.eval.continuations":              stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
 		"sworn.eval.continuation.outcomes":      stringSet("sworn.continuation.outcome"),
+		"sworn.eval.turn_recovery.actions":      stringSet("sworn.turn_recovery.action"),
+		"sworn.eval.turn_recovery.outcomes":     stringSet("sworn.turn_recovery.outcome"),
 		"sworn.eval.attempts":                   groupLabels,
 		"sworn.eval.retries":                    groupLabels,
 		"sworn.eval.recoveries":                 stringSet("sworn.recovery", "sworn.outcome"),

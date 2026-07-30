@@ -25,6 +25,14 @@ type implementationDispatchAuthority struct {
 	outer journal.Effect
 }
 
+type activeImplementationCycle struct {
+	command   journal.Command
+	cycle     implementationCycle
+	outer     journal.Effect
+	dispatch  journal.Effect
+	attention journal.AttentionProjection
+}
+
 func validateImplementationCyclePlanAuthority(
 	state baton.State,
 	cycle implementationCycle,
@@ -227,11 +235,10 @@ func validateImplementationDispatchBinding(
 	effect journal.Effect,
 	dispatch driverRecoveryCommand,
 ) error {
-	work, epoch, err := attemptIdentity(effect.ID)
+	work, _, _, err := attemptCoordinates(effect.ID)
 	if err != nil ||
 		work != cycle.DispatchWork ||
-		epoch != 1 ||
-		effect.ID != journal.AttemptEffectID(cycle.DispatchWork, 1, 1) {
+		effect.ID != cycle.DispatchEffect {
 		return runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	if dispatch.production != nil {
@@ -343,18 +350,160 @@ func validateImplementationCycleEnvelope(
 		return implementationCycle{},
 			runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	if cycle.DispatchWork !=
-		workIdentity(outer.ID, "driver.dispatch") ||
-		cycle.DispatchEffect !=
-			journal.AttemptEffectID(cycle.DispatchWork, 1, 1) ||
-		cycle.PreparedWork !=
-			workIdentity(outer.ID, "git.seal.prepared") ||
-		cycle.PreparedEffect !=
-			journal.AttemptEffectID(cycle.PreparedWork, 1, 1) {
+	_, epoch, try, err := attemptCoordinates(outer.ID)
+	if err != nil {
+		return implementationCycle{},
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	stableChildren :=
+		cycle.DispatchWork ==
+			workIdentity(outerWork, "driver.dispatch") &&
+			cycle.DispatchEffect ==
+				journal.AttemptEffectID(
+					cycle.DispatchWork,
+					epoch,
+					try,
+				) &&
+			cycle.PreparedWork ==
+				workIdentity(outerWork, "git.seal.prepared") &&
+			cycle.PreparedEffect ==
+				journal.AttemptEffectID(
+					cycle.PreparedWork,
+					epoch,
+					try,
+				)
+	legacyChildren :=
+		cycle.DispatchWork ==
+			workIdentity(outer.ID, "driver.dispatch") &&
+			cycle.DispatchEffect ==
+				journal.AttemptEffectID(cycle.DispatchWork, 1, 1) &&
+			cycle.PreparedWork ==
+				workIdentity(outer.ID, "git.seal.prepared") &&
+			cycle.PreparedEffect ==
+				journal.AttemptEffectID(cycle.PreparedWork, 1, 1)
+	if !stableChildren && !legacyChildren {
 		return implementationCycle{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return cycle, nil
+}
+
+// selectActiveImplementationCycles binds each active implementation attention
+// to one exact persisted outer/dispatch pair. Operationally-failed outer tries
+// are retry history. Any other sibling would represent competing authority and
+// is rejected independently of command iteration order.
+func selectActiveImplementationCycles(
+	manifest admittedManifest,
+	commands []journal.Command,
+	effects map[string]journal.Effect,
+	activeWork map[string]journal.AttentionProjection,
+) (map[string]activeImplementationCycle, error) {
+	grouped := make(map[string][]activeImplementationCycle)
+	commandsByReplay := make(map[string]journal.Command, len(commands))
+	for _, command := range commands {
+		if _, duplicate := commandsByReplay[command.ReplayKey]; duplicate {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commandsByReplay[command.ReplayKey] = command
+		if command.Kind != "git.seal" {
+			continue
+		}
+		var probe struct {
+			DispatchWork string `json:"dispatch_work"`
+		}
+		if json.Unmarshal(command.Payload, &probe) != nil {
+			continue
+		}
+		attention, active := activeWork[probe.DispatchWork]
+		if !active {
+			continue
+		}
+		outer, found := effects[command.ReplayKey]
+		if !found {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		cycle, err := validateImplementationCycleEnvelope(
+			manifest,
+			command,
+			outer,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if cycle.DispatchWork != probe.DispatchWork {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		grouped[cycle.DispatchWork] = append(
+			grouped[cycle.DispatchWork],
+			activeImplementationCycle{
+				command:   command,
+				cycle:     cycle,
+				outer:     outer,
+				attention: attention,
+			},
+		)
+	}
+
+	result := make(map[string]activeImplementationCycle)
+	for work, candidates := range grouped {
+		var selected *activeImplementationCycle
+		for index := range candidates {
+			candidate := &candidates[index]
+			switch candidate.outer.State {
+			case journal.OperationalFailed:
+				continue
+			case journal.Claimed:
+				if selected != nil {
+					return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				selected = candidate
+			case journal.Pending, journal.Succeeded, journal.Uncertain:
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			default:
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		}
+		if selected == nil || selected.cycle.DispatchWork != work {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		dispatch, found := effects[selected.cycle.DispatchEffect]
+		if !found ||
+			dispatch.ID != selected.cycle.DispatchEffect ||
+			dispatch.ReplayKey != dispatch.ID ||
+			dispatch.Kind != "driver.dispatch" {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		switch dispatch.State {
+		case journal.Claimed:
+			// Both Open and Answered attention retain the exact claim.
+		case journal.Succeeded:
+			if selected.attention.State != journal.AttentionAnswered {
+				return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		case journal.OperationalFailed:
+			// The exact cycle is terminalized with its attention below.
+		case journal.Pending, journal.Uncertain:
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		default:
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		dispatchCommand, found := commandsByReplay[dispatch.ReplayKey]
+		if !found {
+			return nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if err := validateAttentionDispatchBinding(
+			manifest,
+			dispatchCommand,
+			dispatch,
+			selected.attention,
+			&selected.cycle,
+		); err != nil {
+			return nil, err
+		}
+		selected.dispatch = dispatch
+		result[selected.outer.ID] = *selected
+	}
+	return result, nil
 }
 
 func validatePreparedSealEnvelope(
@@ -462,14 +611,41 @@ func (s *Service) driverRecoveryPending(
 	if err != nil {
 		return false, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
-	return snapshotHasPendingDriverRecovery(snapshot), nil
+	attentions, err := s.journal.Attentions(ctx, runID)
+	if err != nil {
+		return false, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	parked, err := activeAttentionWork(attentions)
+	if err != nil {
+		return false, err
+	}
+	return snapshotHasPendingDriverRecoveryExcept(
+		snapshot,
+		parked,
+	), nil
 }
 
 func snapshotHasPendingDriverRecovery(snapshot journal.Snapshot) bool {
+	return snapshotHasPendingDriverRecoveryExcept(snapshot, nil)
+}
+
+func snapshotHasPendingDriverRecoveryExcept(
+	snapshot journal.Snapshot,
+	parked map[string]journal.AttentionProjection,
+) bool {
 	for _, effect := range snapshot.Effects {
-		if effect.Kind == "driver.dispatch" &&
-			(effect.State == journal.Claimed ||
-				effect.State == journal.Uncertain) {
+		if effect.Kind != "driver.dispatch" {
+			continue
+		}
+		if effect.State == journal.Claimed {
+			if work, err := attemptWorkIdentity(effect.ID); err == nil {
+				if _, laneParked := parked[work]; laneParked {
+					continue
+				}
+			}
+			return true
+		}
+		if effect.State == journal.Uncertain {
 			return true
 		}
 	}
@@ -491,6 +667,14 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 	control, err := s.journal.ControlProjection(ctx, owner.RunID)
 	if err != nil {
 		return true, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	attentions, err := s.journal.Attentions(ctx, owner.RunID)
+	if err != nil {
+		return true, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	parked, err := activeAttentionWork(attentions)
+	if err != nil {
+		return true, err
 	}
 	commands := make(map[string]journal.Command, len(snapshot.Commands))
 	for _, command := range snapshot.Commands {
@@ -517,7 +701,8 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 	for _, effect := range snapshot.Effects {
 		if effect.Kind != "driver.dispatch" ||
 			(effect.State != journal.Claimed &&
-				effect.State != journal.Uncertain) {
+				effect.State != journal.Uncertain &&
+				effect.State != journal.Succeeded) {
 			continue
 		}
 		command, ok := commands[effect.ReplayKey]
@@ -532,11 +717,39 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 		if err != nil {
 			return true, err
 		}
-		work, epoch, err := driverRecoveryWorkIdentity(effect)
-		if err != nil {
-			return true, err
+		var work string
+		var epoch int64
+		if effect.State == journal.Succeeded {
+			work, epoch, err = attemptIdentity(effect.ID)
+			if err != nil {
+				return true, err
+			}
+			if _, found := parked[work]; !found {
+				continue
+			}
+		} else {
+			work, epoch, err = driverRecoveryWorkIdentity(effect)
+			if err != nil {
+				return true, err
+			}
 		}
-		if governed, ok := implementation[effect.ID]; ok {
+		governed, implementationGoverned := implementation[effect.ID]
+		if attention, found := parked[work]; found {
+			var cycle *implementationCycle
+			if implementationGoverned {
+				cycle = &governed.cycle
+			}
+			if err := validateAttentionDispatchBinding(
+				engine.manifest,
+				command,
+				effect,
+				attention,
+				cycle,
+			); err != nil {
+				return true, err
+			}
+		}
+		if implementationGoverned {
 			if dispatch.production != nil {
 				context := dispatch.production.Context
 				outerWork, _, identityErr := attemptIdentity(
@@ -662,12 +875,24 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 				currentEpoch = 1
 			}
 			if epoch != currentEpoch {
-				if err := s.resolveStaleDriverEffect(
-					ctx,
-					owner,
-					effect,
-					"stale_authority",
-				); err != nil {
+				var err error
+				if attention, found := parked[work]; found {
+					err = s.retireStaleDriverAttention(
+						ctx,
+						owner,
+						effect,
+						attention,
+						"stale_authority",
+					)
+				} else {
+					err = s.resolveStaleDriverEffect(
+						ctx,
+						owner,
+						effect,
+						"stale_authority",
+					)
+				}
+				if err != nil {
 					return true, err
 				}
 				return true, nil
@@ -680,9 +905,34 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 				engine,
 				dispatch,
 			); err != nil {
-				return true, err
+				if !IsCode(err, "STALE_DISPATCH") {
+					return true, err
+				}
+				if attention, found := parked[work]; found {
+					err = s.retireStaleDriverAttention(
+						ctx,
+						owner,
+						effect,
+						attention,
+						"stale_authority",
+					)
+				} else {
+					err = s.resolveStaleDriverEffect(
+						ctx,
+						owner,
+						effect,
+						"stale_authority",
+					)
+				}
+				if err != nil {
+					return true, err
+				}
+				return true, nil
 			}
 			if effect.State == journal.Claimed {
+				if _, laneParked := parked[work]; laneParked {
+					continue
+				}
 				if err := s.journal.ReconcileOwned(
 					context.WithoutCancel(ctx),
 					owner,
@@ -703,13 +953,25 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			}
 			continue
 		}
-		if err := s.resolveStaleDriverEffect(
-			ctx,
-			owner,
-			effect,
-			"stale_authority",
-		); err != nil {
-			return true, err
+		var resolveErr error
+		if attention, found := parked[work]; found {
+			resolveErr = s.retireStaleDriverAttention(
+				ctx,
+				owner,
+				effect,
+				attention,
+				"stale_authority",
+			)
+		} else {
+			resolveErr = s.resolveStaleDriverEffect(
+				ctx,
+				owner,
+				effect,
+				"stale_authority",
+			)
+		}
+		if resolveErr != nil {
+			return true, resolveErr
 		}
 		return true, nil
 	}
@@ -725,7 +987,14 @@ func validateCurrentProductionDispatchContext(
 		return nil
 	}
 	persisted := dispatch.production.Context
-	_, currentBody, err := captureProductionWorkContext(
+	request, err := productionRequestForContext(
+		engine.manifest,
+		persisted,
+	)
+	if err != nil {
+		return err
+	}
+	currentBody, err := currentPreparedProductionBody(
 		ctx,
 		engine,
 		dispatchCoordinates{
@@ -736,13 +1005,16 @@ func validateCurrentProductionDispatchContext(
 			Try:            persisted.Try,
 		},
 		persisted.Before,
-		persisted.WorkspaceAccess,
+		preparedDriverDispatch{
+			request:           request,
+			productionContext: &persisted,
+		},
 	)
 	if err != nil {
 		return err
 	}
 	if !bytes.Equal(currentBody, mustJSON(persisted)) {
-		return runtimeFail("CORRUPT_JOURNAL", nil)
+		return runtimeFail("STALE_DISPATCH", nil)
 	}
 	return nil
 }
@@ -767,6 +1039,48 @@ func (s *Service) resolveStaleDriverEffect(
 		return nil
 	}
 	return s.terminalizeEffect(ctx, owner, effect, code)
+}
+
+func (s *Service) retireStaleDriverAttention(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	effect journal.Effect,
+	attention journal.AttentionProjection,
+	code string,
+) error {
+	if (effect.State != journal.Claimed &&
+		effect.State != journal.Succeeded) ||
+		(effect.State == journal.Claimed &&
+			effect.CurrentClaim == "") ||
+		(effect.State == journal.Succeeded &&
+			effect.CurrentClaim != "") {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := s.discardRecoverableContinuation(
+		owner.RunID,
+		effect.ID,
+	); err != nil {
+		return runtimeFail("CONTINUATION_CLEANUP_FAILED", err)
+	}
+	if _, err := s.journal.RetireRecoveryAttentionOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.RetireRecoveryAttentionCommand{
+			RunID:              owner.RunID,
+			Attention:          attention.Attention,
+			ExpectedGeneration: attention.Generation,
+			Effects: []journal.RetireRecoveryEffect{{
+				EffectID:      effect.ID,
+				ExpectedState: effect.State,
+				ClaimToken:    effect.CurrentClaim,
+			}},
+			ErrorCode: code,
+		},
+		s.now().UTC(),
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
 }
 
 func currentDriverAuthorities(
@@ -1110,15 +1424,22 @@ func attemptWorkIdentity(effectID string) (string, error) {
 }
 
 func attemptIdentity(effectID string) (string, int64, error) {
+	work, epoch, _, err := attemptCoordinates(effectID)
+	return work, epoch, err
+}
+
+func attemptCoordinates(
+	effectID string,
+) (string, int64, int64, error) {
 	parts := strings.Split(effectID, "/")
 	if len(parts) != 4 ||
 		parts[0] != "attempt" ||
 		len(parts[1]) != 64 ||
 		parts[1] != strings.ToLower(parts[1]) {
-		return "", 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return "", 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if _, err := hex.DecodeString(parts[1]); err != nil {
-		return "", 0, runtimeFail("CORRUPT_JOURNAL", err)
+		return "", 0, 0, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	epoch, epochErr := strconv.ParseInt(
 		strings.TrimPrefix(parts[2], "e"),
@@ -1136,9 +1457,9 @@ func attemptIdentity(effectID string) (string, int64, error) {
 		try < 1 ||
 		try > 3 ||
 		effectID != journal.AttemptEffectID(work, epoch, try) {
-		return "", 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return "", 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	return work, epoch, nil
+	return work, epoch, try, nil
 }
 
 func bytesEqualCanonicalJSON(body []byte, value any) bool {
