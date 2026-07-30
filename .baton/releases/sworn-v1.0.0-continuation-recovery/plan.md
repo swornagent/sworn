@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v1.0.0-continuation-recovery",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "132ef2466da0dbc44e29e85ff0b4add17cb7608d",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "github://swornagent/sworn/issues/157#baton-plan-approval-sworn-v1.0.0-continuation-recovery-v1",
+  "approval_ref": "https://github.com/swornagent/sworn/issues/157#issuecomment-5128515025",
   "tracks": [
     {
       "id": "T0-contract",
@@ -178,7 +178,7 @@
             },
             {
               "id": "A-RUN-observe",
-              "text": "Local eval and opt-in OTel report only continuation mode, reuse, fallback, expiry, replay-size buckets, tokens, and elapsed time, with no content or session identifiers."
+              "text": "Local eval and opt-in OTel report only continuation mode, reuse, fallback, expiry, tokens, and elapsed time, with no content or session identifiers."
             }
           ],
           "checks": [
