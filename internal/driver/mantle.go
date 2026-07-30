@@ -129,7 +129,7 @@ func NewBedrockMantleAdapter(
 			model,
 			tools,
 			prompt,
-			false,
+			providerDialectMantleChat,
 			"",
 		)
 	}
@@ -139,6 +139,7 @@ func NewBedrockMantleAdapter(
 		config.Version,
 		ProfileBedrock,
 		ProfileSurfaceBedrockMantleChat,
+		providerDialectMantleChat,
 		config,
 		factory,
 		transport,

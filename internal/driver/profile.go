@@ -38,6 +38,7 @@ type ProfileSurface string
 const (
 	ProfileSurfaceOpenAIResponses        ProfileSurface = "openai_responses"
 	ProfileSurfaceOpenAIChat             ProfileSurface = "openai_chat_completions"
+	ProfileSurfaceOpenRouterChat         ProfileSurface = "openrouter_chat_completions"
 	ProfileSurfaceBedrockRuntimeConverse ProfileSurface = "bedrock_runtime_converse"
 	ProfileSurfaceBedrockMantleChat      ProfileSurface = "bedrock_mantle_chat_completions"
 )
@@ -45,7 +46,8 @@ const (
 func (surface ProfileSurface) validFor(family ProfileFamily) bool {
 	if family == ProfileOpenAIHTTP {
 		return surface == ProfileSurfaceOpenAIResponses ||
-			surface == ProfileSurfaceOpenAIChat
+			surface == ProfileSurfaceOpenAIChat ||
+			surface == ProfileSurfaceOpenRouterChat
 	}
 	if family == ProfileBedrock {
 		return surface == ProfileSurfaceBedrockRuntimeConverse ||

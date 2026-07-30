@@ -30,6 +30,7 @@ type providerConversation interface {
 	request() (providerRequest, error)
 	accept([]byte) (providerTurn, error)
 	appendResults([]providerToolResult) error
+	resume([]byte, []providerToolDefinition) error
 	close()
 }
 
@@ -44,10 +45,38 @@ type providerTransport interface {
 	check(context.Context, profileCheckKind, *string, string) (ReadinessState, string)
 }
 
+type providerDialect string
+
+const (
+	providerDialectOpenAIResponses providerDialect = "openai_responses"
+	providerDialectOpenAIChat      providerDialect = "openai_chat"
+	providerDialectOpenRouterChat  providerDialect = "openrouter_chat"
+	providerDialectDeepSeekChat    providerDialect = "deepseek_chat"
+	providerDialectGemini          providerDialect = "gemini"
+	providerDialectBedrockConverse providerDialect = "bedrock_converse"
+	providerDialectMantleChat      providerDialect = "mantle_chat"
+)
+
+func (dialect providerDialect) continuationMode() ContinuationMode {
+	switch dialect {
+	case providerDialectOpenAIChat, providerDialectMantleChat:
+		return ContinuationModeTranscriptReplay
+	case providerDialectOpenAIResponses,
+		providerDialectOpenRouterChat,
+		providerDialectDeepSeekChat,
+		providerDialectGemini,
+		providerDialectBedrockConverse:
+		return ContinuationModeOpaqueReplay
+	default:
+		return ""
+	}
+}
+
 type loopAdapter struct {
 	identity  AdapterIdentity
 	family    ProfileFamily
 	surface   ProfileSurface
+	dialect   providerDialect
 	new       providerConversationFactory
 	transport providerTransport
 }
@@ -56,6 +85,7 @@ func newLoopAdapter(
 	key, id, version string,
 	family ProfileFamily,
 	surface ProfileSurface,
+	dialect providerDialect,
 	configuration any,
 	factory providerConversationFactory,
 	transport providerTransport,
@@ -65,6 +95,7 @@ func newLoopAdapter(
 		!versionPattern.MatchString(version) ||
 		!family.valid() || family == ProfileFake ||
 		!surface.validFor(family) ||
+		dialect.continuationMode() == "" ||
 		factory == nil || transport == nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
@@ -81,6 +112,7 @@ func newLoopAdapter(
 		},
 		family:    family,
 		surface:   surface,
+		dialect:   dialect,
 		new:       factory,
 		transport: transport,
 	}, nil
@@ -144,13 +176,160 @@ func (adapter *loopAdapter) invoke(
 		return Observation{}, err
 	}
 	defer conversation.close()
+	observation, _, resultErr = adapter.runConversation(
+		ctx,
+		started,
+		invocation,
+		conversation,
+		nil,
+		false,
+	)
+	return observation, resultErr
+}
+
+type apiContinuationState struct {
+	conversation providerConversation
+	dialect      providerDialect
+	mode         ContinuationMode
+	bytes        int64
+	closed       bool
+}
+
+func (state *apiContinuationState) continuationMode() ContinuationMode {
+	if state == nil || state.closed {
+		return ""
+	}
+	return state.mode
+}
+
+func (state *apiContinuationState) continuationBytes() int64 {
+	if state == nil || state.closed {
+		return 0
+	}
+	return state.bytes
+}
+
+func (state *apiContinuationState) closeContinuation() error {
+	if state == nil || state.closed {
+		return nil
+	}
+	state.closed = true
+	if state.conversation != nil {
+		state.conversation.close()
+	}
+	state.conversation = nil
+	state.dialect = ""
+	state.mode = ""
+	state.bytes = 0
+	return nil
+}
+
+func (adapter *loopAdapter) invokeContinuation(
+	ctx context.Context,
+	invocation Invocation,
+) (Observation, continuationState, error) {
+	started := time.Now()
+	if adapter == nil || invocation.Selected.Adapter != adapter.identity ||
+		invocation.Selected.Profile.Network != NetworkRequired {
+		return Observation{}, nil, fail("INVALID_ADAPTER")
+	}
+	prompt, err := modelPrompt(invocation)
+	if err != nil {
+		return Observation{}, nil, err
+	}
+	conversation, err := adapter.new(
+		prompt,
+		invocation.Selected.Model,
+		toolDefinitions(invocation.Request.Workspace.Access),
+	)
+	clearBytes(prompt)
+	if err != nil {
+		return Observation{}, nil, err
+	}
+	observation, state, resultErr := adapter.runConversation(
+		ctx,
+		started,
+		invocation,
+		conversation,
+		nil,
+		true,
+	)
+	if state == nil {
+		conversation.close()
+	}
+	return observation, state, resultErr
+}
+
+func (adapter *loopAdapter) resumeContinuation(
+	ctx context.Context,
+	invocation Invocation,
+	prior continuationState,
+) (Observation, error) {
+	started := time.Now()
+	state, ok := prior.(*apiContinuationState)
+	if adapter == nil || !ok || state == nil || state.closed ||
+		state.conversation == nil ||
+		state.dialect != adapter.dialect ||
+		state.mode != adapter.dialect.continuationMode() ||
+		state.bytes < 1 || state.bytes > MaxProviderRequestBytes ||
+		invocation.Selected.Adapter != adapter.identity ||
+		invocation.Selected.Profile.Network != NetworkRequired {
+		return Observation{}, fail("CONTINUATION_INVALID")
+	}
+	prompt, err := modelPrompt(invocation)
+	if err != nil {
+		return Observation{}, fail("CONTINUATION_INVALID")
+	}
+	err = state.conversation.resume(
+		prompt,
+		toolDefinitions(invocation.Request.Workspace.Access),
+	)
+	clearBytes(prompt)
+	if err != nil {
+		return Observation{}, fail("CONTINUATION_INVALID")
+	}
+	request, err := state.conversation.request()
+	if err != nil || len(request.Body) < 1 ||
+		len(request.Body) > MaxProviderRequestBytes {
+		clearBytes(request.Body)
+		return Observation{}, fail("CONTINUATION_INVALID")
+	}
+	defer clearBytes(request.Body)
+	observation, _, resultErr := adapter.runConversation(
+		ctx,
+		started,
+		invocation,
+		state.conversation,
+		&request,
+		false,
+	)
+	// CONTINUATION_INVALID is reserved for rejection before provider or tool
+	// effects so the dispatcher can safely request one fresh rehydration.
+	if IsCode(resultErr, "CONTINUATION_INVALID") {
+		resultErr = fail("PROTOCOL_FAILURE")
+	}
+	return observation, resultErr
+}
+
+func (adapter *loopAdapter) runConversation(
+	ctx context.Context,
+	started time.Time,
+	invocation Invocation,
+	conversation providerConversation,
+	initialRequest *providerRequest,
+	retain bool,
+) (observation Observation, state continuationState, resultErr error) {
 	session, err := newToolSession(invocation)
 	if err != nil {
-		return Observation{}, err
+		return Observation{}, nil, err
 	}
 	defer func() {
 		if closeErr := session.Close(); closeErr != nil {
 			observation.Handoff = nil
+			if state != nil {
+				_ = closeContinuationState(state)
+				state = nil
+			}
 			resultErr = joinErrors(resultErr, closeErr)
 		}
 	}()
@@ -159,11 +338,18 @@ func (adapter *loopAdapter) invoke(
 	seenIDs := make(map[string]struct{})
 	for turn := 0; turn < MaxProviderTurns; turn++ {
 		if err := ctx.Err(); err != nil {
-			return Observation{}, err
+			return Observation{}, nil, err
 		}
-		request, err := conversation.request()
+		var request providerRequest
+		if initialRequest != nil {
+			request = *initialRequest
+			initialRequest = nil
+		} else {
+			request, err = conversation.request()
+		}
 		if err != nil || len(request.Body) > MaxProviderRequestBytes {
-			return Observation{}, fail("CONTINUATION_INVALID")
+			clearBytes(request.Body)
+			return Observation{}, nil, fail("CONTINUATION_INVALID")
 		}
 		response, err := adapter.transport.roundTrip(
 			ctx,
@@ -172,28 +358,28 @@ func (adapter *loopAdapter) invoke(
 		)
 		clearBytes(request.Body)
 		if err != nil {
-			return Observation{}, err
+			return Observation{}, nil, err
 		}
 		providerTurn, err := conversation.accept(response)
 		clearBytes(response)
 		if err != nil {
-			return Observation{}, err
+			return Observation{}, nil, err
 		}
 		if providerTurn.Usage != nil {
 			if providerTurn.Usage.InputTokens < 0 || providerTurn.Usage.OutputTokens < 0 ||
 				total.InputTokens > math.MaxInt64-providerTurn.Usage.InputTokens ||
 				total.OutputTokens > math.MaxInt64-providerTurn.Usage.OutputTokens {
-				return Observation{}, fail("INVALID_USAGE")
+				return Observation{}, nil, fail("INVALID_USAGE")
 			}
 			total.InputTokens += providerTurn.Usage.InputTokens
 			total.OutputTokens += providerTurn.Usage.OutputTokens
 			usageAvailable = true
 		}
 		if len(providerTurn.Calls) == 0 {
-			return Observation{}, fail("MISSING_SUBMISSION")
+			return Observation{}, nil, fail("MISSING_SUBMISSION")
 		}
 		if len(providerTurn.Calls) > MaxToolCalls {
-			return Observation{}, fail("RESOURCE_LIMIT")
+			return Observation{}, nil, fail("RESOURCE_LIMIT")
 		}
 		submitCalls := 0
 		for _, call := range providerTurn.Calls {
@@ -202,36 +388,63 @@ func (adapter *loopAdapter) invoke(
 			}
 		}
 		if submitCalls > 0 && (submitCalls != 1 || len(providerTurn.Calls) != 1) {
-			return Observation{}, fail("SUBMISSION_PROTOCOL_FAILED")
+			return Observation{}, nil, fail("SUBMISSION_PROTOCOL_FAILED")
 		}
 		results := make([]providerToolResult, 0, len(providerTurn.Calls))
 		for _, call := range providerTurn.Calls {
 			if validateProviderToolCall(call, seenIDs) != nil {
-				return Observation{}, fail("CONTINUATION_INVALID")
+				return Observation{}, nil, fail("CONTINUATION_INVALID")
 			}
 			results = append(results, session.execute(ctx, call))
 		}
 		if submitted, submitErr := session.submitted(); submitted || submitErr != nil {
 			if submitErr != nil {
-				return Observation{}, submitErr
+				return Observation{}, nil, submitErr
+			}
+			if retain {
+				if err := conversation.appendResults(results); err != nil {
+					return Observation{}, nil, err
+				}
 			}
 			if closeErr := session.Close(); closeErr != nil {
-				return Observation{}, closeErr
+				return Observation{}, nil, closeErr
 			}
 			usage, err := NormalizeUsage(nil, nil)
 			if usageAvailable {
 				usage, err = NormalizeUsage(&total, nil)
 			}
 			if err != nil {
-				return Observation{}, err
+				return Observation{}, nil, err
 			}
-			return completedToolObservation(started, usage, session.handoff()), nil
+			observation := completedToolObservation(
+				started,
+				usage,
+				session.handoff(),
+			)
+			if !retain {
+				return observation, nil, nil
+			}
+			replay, replayErr := conversation.request()
+			if replayErr != nil || len(replay.Body) < 1 ||
+				len(replay.Body) > MaxProviderRequestBytes {
+				clearBytes(replay.Body)
+				return observation, nil, nil
+			}
+			replayBytes := int64(len(replay.Body))
+			clearBytes(replay.Body)
+			mode := adapter.dialect.continuationMode()
+			return observation, &apiContinuationState{
+				conversation: conversation,
+				dialect:      adapter.dialect,
+				mode:         mode,
+				bytes:        replayBytes,
+			}, nil
 		}
 		if err := conversation.appendResults(results); err != nil {
-			return Observation{}, err
+			return Observation{}, nil, err
 		}
 	}
-	return Observation{}, fail("RESOURCE_LIMIT")
+	return Observation{}, nil, fail("RESOURCE_LIMIT")
 }
 
 func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) error {
