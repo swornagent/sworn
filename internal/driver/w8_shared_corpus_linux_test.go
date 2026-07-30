@@ -1159,38 +1159,18 @@ func w8NewNativeTarget(
 		Key: "w8-profile-" + name, Adapter: identity.Key,
 		Network: NetworkRequired, CredentialRef: &ref,
 	}
-	initialize := map[string]any{
-		"protocolVersion": "2025-06-18",
-		"capabilities":    map[string]any{},
-		"clientInfo": map[string]any{
-			"name": "w8-native", "version": "1.0.0",
-		},
-	}
-	initializeBody, err := canonicalJSON(initialize)
-	if err != nil {
-		t.Fatal(err)
-	}
-	emptyBody, err := canonicalJSON(map[string]any{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	native.certified[nativeCertificationKey(profile, w8CorpusModel)] =
-		nativeSurfaceCertificate{
-			Family:                family,
-			ProfileDigest:         nativeProfileDigest(profile),
-			Model:                 w8CorpusModel,
-			AdapterConfigDigest:   identity.ConfigurationDigest,
-			ExecutableDigest:      digest,
-			CLIVersion:            config.CLIVersion,
-			ToolDigest:            nativeToolSurfaceDigest(ReadWrite),
-			CaptureEvidenceDigest: Digest([]byte("w8-native-capture")),
-			Protocol:              "2025-06-18",
-			ClientName:            "w8-native",
-			ClientVersion:         "1.0.0",
-			InitializeDigest:      Digest(initializeBody),
-			NotificationDigest:    Digest(emptyBody),
-			ListDigest:            Digest(emptyBody),
-		}
+		nativeSurfaceCertificateFixture(
+			Invocation{Selected: SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   w8CorpusModel,
+			}},
+			config,
+			"w8-native",
+			"1.0.0",
+			Digest([]byte("w8-native-capture")),
+		)
 	return &w8CorpusTarget{
 		name: name, family: family, profile: profile,
 		adapter:    &w8CountedAdapter{delegate: native},
