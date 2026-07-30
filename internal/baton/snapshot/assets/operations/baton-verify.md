@@ -27,6 +27,10 @@ Ancillary support paths and additional checks are evidence, not scope failures
 by themselves. They cannot excuse a material behavior, consumed-product,
 contract, or authority change.
 
+Product code, build, test, package, deploy, hooks, and runtime MUST NOT read or
+depend on reserved `.baton/releases`; verify the candidate preserves it from
+its exact implementation base.
+
 ## Actions
 
 1. Re-establish every trust-critical binding from immutable facts.

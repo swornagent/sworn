@@ -1,6 +1,7 @@
 import {
-  GitRecordError, captureHeadRefs, commitParents, firstParentPathChange,
-  isAncestor, productTreeIdentity, readFilesAtOID, readFirstParentHistory,
+  GitRecordError, assertCandidateRecordRootUnchanged, captureHeadRefs,
+  commitParents, firstParentPathChange, isAncestor, productTreeIdentity,
+  readFilesAtOID, readFirstParentHistory,
   verifyReleaseIntegration,
   unsafePrepareApprovedTargetBase,
   unsafePrepareExactComposition,
@@ -520,10 +521,10 @@ function exactInputs(receipt, keys, label) {
   }
 }
 
-function productTree(repo, candidate, admission, cache) {
+function productTree(repo, candidate, cache) {
   if (cache.has(candidate)) return cache.get(candidate);
   try {
-    const digest = productTreeIdentity(repo, candidate, admission).productTree;
+    const digest = productTreeIdentity(repo, candidate).productTree;
     cache.set(candidate, digest);
     return digest;
   } catch (error) {
@@ -596,7 +597,6 @@ function validateSlice(
   entries,
   planByOID,
   approvals,
-  admission,
   productCache,
 ) {
   const byOID = new Map([...approvals.values()].map((entry) => [entry.oid, entry]));
@@ -697,7 +697,6 @@ function validateSlice(
           receipt.binds,
           [],
           approvals,
-          admission,
         )
         : null;
       if (preparedBase && !isAncestor(repo, preparedBase, receipt.candidate)) {
@@ -706,6 +705,12 @@ function validateSlice(
           `candidate ${entry.oid} omits its exact prepared base`,
         );
       }
+      const implementationBase = preparedBase ?? receipt.base ?? receipt.binds;
+      assertCandidateRecordRootUnchanged(
+        repo,
+        implementationBase,
+        receipt.candidate,
+      );
       if (
         !approval
         || (
@@ -716,7 +721,7 @@ function validateSlice(
         || receipt.candidate === receipt.binds
         || !isAncestor(repo, receipt.binds, receipt.candidate)
         || (receipt.base && !isAncestor(repo, receipt.base, receipt.candidate))
-        || productTree(repo, receipt.candidate, admission, productCache) !== receipt.product_tree
+        || productTree(repo, receipt.candidate, productCache) !== receipt.product_tree
       ) fail('CHANGED_CANDIDATE', `candidate ${entry.oid} has invalid Git evidence`);
     } else if (receipt.role === 'verifier') {
       if (
@@ -754,7 +759,7 @@ function governingDesign(history, current) {
   return null;
 }
 
-function consumedInputForPass(repo, sliceID, history, pass, admission, productCache) {
+function consumedInputForPass(repo, sliceID, history, pass, productCache) {
   const receipt = pass.receipt;
   if (
     receipt.role !== 'verifier'
@@ -772,7 +777,7 @@ function consumedInputForPass(repo, sliceID, history, pass, admission, productCa
   ) fail('STALE_BINDING', `consumed PASS ${pass.oid} has no exact candidate chain`);
   for (const commit of [candidate.receipt.candidate, candidate.oid, pass.oid]) {
     if (
-      productTree(repo, commit, admission, productCache) !== receipt.product_tree
+      productTree(repo, commit, productCache) !== receipt.product_tree
     ) fail('CHANGED_CANDIDATE', `consumed PASS ${pass.oid} changed product identity`);
   }
   return frozen({
@@ -791,7 +796,6 @@ function consumedInputsAtBase(
   consumes,
   histories,
   planByOID,
-  admission,
   productCache,
 ) {
   const result = [];
@@ -822,7 +826,6 @@ function consumedInputsAtBase(
       dependency,
       histories.get(dependency),
       selected,
-      admission,
       productCache,
     ));
   }
@@ -835,7 +838,6 @@ function createPassProductBaseResolver(
   histories,
   planByOID,
   approvals,
-  admission,
   productCache,
 ) {
   const memo = new Map();
@@ -892,7 +894,6 @@ function createPassProductBaseResolver(
         dependency,
         histories.get(dependency),
         selected,
-        admission,
         productCache,
       ));
     }
@@ -931,7 +932,6 @@ function createPassProductBaseResolver(
         priorIDs,
         histories,
         planByOID,
-        admission,
         productCache,
       );
       if (priorInputs === null) {
@@ -947,7 +947,6 @@ function createPassProductBaseResolver(
             location.slice.consumes,
             histories,
             planByOID,
-            admission,
             productCache,
           )
           : legacyConsumedInputs(plan, candidate, location.slice.consumes);
@@ -971,7 +970,6 @@ function createPassProductBaseResolver(
           expectedHead: baseline,
           candidate: input.candidate,
           productBase: () => baselineFor(input.slice, dependencyPass),
-          productExclusionAdmission: admission,
         }).result;
       }
       memo.set(key, baseline);
@@ -990,7 +988,6 @@ function reviewedConsumedInputs(
   consumes,
   histories,
   planByOID,
-  admission,
   productCache,
 ) {
   const plan = planByOID.get(design.receipt.plan);
@@ -1004,7 +1001,6 @@ function reviewedConsumedInputs(
     consumes,
     histories,
     planByOID,
-    admission,
     productCache,
   );
 }
@@ -1013,7 +1009,7 @@ function pinsForConsumedInputs(inputs) {
   return Object.fromEntries(inputs.map((input) => [input.slice, input.product_tree]));
 }
 
-function prepareConsumedBase(repo, ref, seed, inputs, admission) {
+function prepareConsumedBase(repo, ref, seed, inputs) {
   let candidate = seed;
   for (const input of inputs) {
     if (
@@ -1028,7 +1024,6 @@ function prepareConsumedBase(repo, ref, seed, inputs, admission) {
       expectedHead: candidate,
       candidate: input.pass_receipt,
       ...(input.product_base ? { productBase: input.product_base } : {}),
-      productExclusionAdmission: admission,
     }).result;
   }
   return candidate;
@@ -1060,7 +1055,6 @@ function preparePlanBoundBase(
   authority,
   inputs,
   approvals,
-  admission,
 ) {
   const approval = approvals.get(plan.oid);
   if (!approval) fail('APPROVAL_MISSING', `plan ${plan.oid} has no approval`);
@@ -1069,9 +1063,8 @@ function preparePlanBoundBase(
     targetRef: ref,
     expectedHead: authority,
     approvedTarget: approval.receipt.target,
-    productExclusionAdmission: admission,
   });
-  return prepareConsumedBase(repo, ref, targetBase, inputs, admission);
+  return prepareConsumedBase(repo, ref, targetBase, inputs);
 }
 
 function linearOneParentAncestry(repo, base, candidate) {
@@ -1095,7 +1088,6 @@ function exactPreparedDesignInputs(
   approvals,
   releaseReceipts,
   productBaseForPass,
-  admission,
   productCache,
   preparedDesignCache,
 ) {
@@ -1128,7 +1120,6 @@ function exactPreparedDesignInputs(
     seed,
     [],
     approvals,
-    admission,
   );
   if (location.slice.consumes.length === 0) {
     if (targetBase !== design.parent) {
@@ -1152,7 +1143,6 @@ function exactPreparedDesignInputs(
     location.slice.consumes,
     histories,
     planByOID,
-    admission,
     productCache,
   );
   const inputs = selectedInputs === null
@@ -1170,7 +1160,6 @@ function exactPreparedDesignInputs(
     seed,
     inputs,
     approvals,
-    admission,
   );
   if (expected !== design.parent) {
     fail('STALE_BINDING', `design ${design.oid} has an inexact reviewed base`);
@@ -1187,7 +1176,6 @@ function validateConsumedHistories(
   approvals,
   releaseReceipts,
   productBaseForPass,
-  admission,
   productCache,
 ) {
   const preparedDesignCache = new Map();
@@ -1212,7 +1200,6 @@ function validateConsumedHistories(
           approvals,
           releaseReceipts,
           productBaseForPass,
-          admission,
           productCache,
           preparedDesignCache,
         );
@@ -1244,7 +1231,6 @@ function validateConsumedHistories(
             location.slice.consumes,
             histories,
             planByOID,
-            admission,
             productCache,
           );
           if (
@@ -1276,7 +1262,6 @@ function validateConsumedHistories(
           approvals,
           releaseReceipts,
           productBaseForPass,
-          admission,
           productCache,
           preparedDesignCache,
         );
@@ -1287,7 +1272,6 @@ function validateConsumedHistories(
           location.slice.consumes,
           histories,
           planByOID,
-          admission,
           productCache,
         );
       }
@@ -1314,7 +1298,6 @@ function validateConsumedHistories(
         location.slice.consumes,
         histories,
         planByOID,
-        admission,
         productCache,
       );
       const inputs = selectedInputs === null
@@ -1332,11 +1315,11 @@ function validateConsumedHistories(
         receipt.binds,
         inputs,
         approvals,
-        admission,
       );
       if (expected !== receipt.base) {
         fail('CHANGED_CANDIDATE', `candidate ${entry.oid} has an inexact prepared base`);
       }
+      assertCandidateRecordRootUnchanged(repo, expected, receipt.candidate);
       for (const input of inputs) {
         for (const ancestor of [
           input.candidate,
@@ -1430,7 +1413,6 @@ function deriveSlices(
   histories,
   approvals,
   planByOID,
-  admission,
   productCache,
 ) {
   const states = new Map();
@@ -1468,7 +1450,6 @@ function deriveSlices(
           dependency,
           histories.get(dependency),
           dependencyState.pass,
-          admission,
           productCache,
         ));
       } else {
@@ -1489,7 +1470,6 @@ function deriveSlices(
         slice.consumes,
         histories,
         planByOID,
-        admission,
         productCache,
       );
       if (reviewed) state.reviewed_pins = pinsForConsumedInputs(reviewed);
@@ -1602,7 +1582,6 @@ function validateAssembly(
   currentPlanOID,
   tracks,
   trackProductBaseFor,
-  admission,
   productCache,
 ) {
   const byOID = new Map([...approvals.values()].map((entry) => [entry.oid, entry]));
@@ -1625,7 +1604,7 @@ function validateAssembly(
         || !isAncestor(repo, receipt.base, receipt.candidate)
         || !isAncestor(repo, receipt.binds, receipt.candidate)
         || receipt.target !== approval.receipt.target
-        || productTree(repo, receipt.candidate, admission, productCache) !== receipt.product_tree
+        || productTree(repo, receipt.candidate, productCache) !== receipt.product_tree
       ) fail('STALE_BINDING', `assembly candidate ${entry.oid} has invalid evidence`);
       const currentPins = Object.fromEntries(tracks.map((track) => [
         track.id,
@@ -1652,14 +1631,12 @@ function validateAssembly(
               targetRef: plan.parsed.metadata.target_ref,
               expectedHead: expectedCandidate,
               candidate: component.authority,
-              productExclusionAdmission: admission,
             })
             : unsafePrepareProductComposition(repo, {
               targetRef: plan.parsed.metadata.target_ref,
               expectedHead: expectedCandidate,
               candidate: component.authority,
               productBase: component.product_base,
-              productExclusionAdmission: admission,
             });
           expectedCandidate = prepared.result;
         }
@@ -1801,7 +1778,6 @@ export function readBatonState(
   {
     expectedReleaseHead = null,
     captureRefs = captureHeadRefs,
-    productExclusionAdmission = null,
   } = {},
 ) {
   if (typeof release !== 'string' || typeof captureRefs !== 'function') {
@@ -1873,7 +1849,6 @@ export function readBatonState(
       entries,
       planByOID,
       plans.approvals,
-      productExclusionAdmission,
       productCache,
     ));
   }
@@ -1883,7 +1858,6 @@ export function readBatonState(
     histories,
     planByOID,
     plans.approvals,
-    productExclusionAdmission,
     productCache,
   );
   validateConsumedHistories(
@@ -1895,7 +1869,6 @@ export function readBatonState(
     plans.approvals,
     releaseHistory.receipts,
     productBaseForPass,
-    productExclusionAdmission,
     productCache,
   );
   const states = deriveSlices(
@@ -1904,7 +1877,6 @@ export function readBatonState(
     histories,
     plans.approvals,
     planByOID,
-    productExclusionAdmission,
     productCache,
   );
   const approval = plans.approvals.get(current.oid);
@@ -1961,7 +1933,7 @@ export function readBatonState(
       : track.slices.at(-1);
     if (
       track.head && active?.candidate
-      && productTree(repo, track.head, productExclusionAdmission, productCache)
+      && productTree(repo, track.head, productCache)
         !== active.candidate.receipt.product_tree
     ) fail('CHANGED_CANDIDATE', `track ${track.id} moved after its current candidate`);
   }
@@ -1991,7 +1963,6 @@ export function readBatonState(
     current.oid,
     tracks,
     trackProductBaseFor,
-    productExclusionAdmission,
     productCache,
   );
   const assembly = deriveAssembly(

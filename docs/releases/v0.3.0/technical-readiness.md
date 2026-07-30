@@ -6,6 +6,13 @@ deploy, or publish. The final Baton candidate receipt binds the exact commit
 and tree externally because a file cannot contain the identity of the Git tree
 that contains itself.
 
+The later RC11 compatibility slice replaces only the embedded Baton identity,
+exact 24-asset snapshot, generated reference corpus, and structural reserved
+record-root admission guards. Its focused package, CLI identity, race, vet,
+tidy, and diff gates are new evidence. The full real-binary E2E and external
+driver certification measurements below remain the W4 evidence and were not
+rerun because this slice does not change runtime or driver behavior.
+
 ## Measurement environment
 
 - captured: 2026-07-30

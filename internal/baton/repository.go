@@ -288,6 +288,21 @@ func (r *repository) changedPaths(base, candidate string) ([]string, error) {
 	return value, nil
 }
 
+func (r *repository) assertCandidateRecordRootUnchanged(base, candidate string) error {
+	left, err := r.oid(base)
+	if err != nil {
+		return err
+	}
+	right, err := r.oid(candidate)
+	if err != nil {
+		return err
+	}
+	if err := r.git.AssertCandidateRecordRootUnchanged(left, right); err != nil {
+		return translateGitError("compare candidate reserved record root", err)
+	}
+	return nil
+}
+
 func (r *repository) prepareRecord(parent, message string, changes map[string][]byte) (preparedCommit, error) {
 	expected, err := r.oid(parent)
 	if err != nil {

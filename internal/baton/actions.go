@@ -622,10 +622,6 @@ func (a *Actions) appendReceipt(
 			if input.Candidate == "" || ownerHead != input.Candidate {
 				return ActionResult{}, recordFail("CHANGED_CANDIDATE", "candidate must be the exact captured track head")
 			}
-			productTree, err := a.repository.productTree(input.Candidate)
-			if err != nil {
-				return ActionResult{}, err
-			}
 			exactBase, err := preparedStateTrackBase(
 				a.repository,
 				state,
@@ -697,6 +693,16 @@ func (a *Actions) appendReceipt(
 					)
 				}
 			}
+			if err := a.repository.assertCandidateRecordRootUnchanged(
+				exactBase,
+				input.Candidate,
+			); err != nil {
+				return ActionResult{}, err
+			}
+			productTree, err := a.repository.productTree(input.Candidate)
+			if err != nil {
+				return ActionResult{}, err
+			}
 			attempt, binds, candidate, checksDigest := slice.Attempt, current.OID, input.Candidate, checks
 			common.Role, common.Result, common.Attempt, common.Binds = role, resultName, &attempt, binds
 			common.Candidate, common.ProductTree, common.Inputs, common.Checks =
@@ -713,6 +719,20 @@ func (a *Actions) appendReceipt(
 			evidence := current.Receipt
 			if evidence.Candidate == nil || input.Candidate == "" || input.Candidate != *evidence.Candidate {
 				return ActionResult{}, recordFail("CHANGED_CANDIDATE", "Verifier must bind the exact current candidate")
+			}
+			exactBase, err := preparedStateTrackBase(
+				a.repository,
+				state,
+				slice,
+			)
+			if err != nil {
+				return ActionResult{}, err
+			}
+			if err := a.repository.assertCandidateRecordRootUnchanged(
+				exactBase,
+				*evidence.Candidate,
+			); err != nil {
+				return ActionResult{}, err
 			}
 			attempt, binds, candidate, productTree, checksDigest :=
 				*evidence.Attempt, current.OID, *evidence.Candidate, *evidence.ProductTree, checks

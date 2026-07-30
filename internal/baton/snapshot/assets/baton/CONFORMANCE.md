@@ -32,6 +32,12 @@ Every implementation MUST:
     ancillary path discovery, additional checks, evidence correction, and
     procedural recovery as candidate or engine facts.
 
+`.baton/releases` is structurally reserved for Baton metadata: product code,
+build, test, package, deploy, hooks, and runtime MUST NOT read or depend on it;
+only Baton's record writer may modify it; product identity ignores exactly this
+directory; plan product scope cannot include it; and candidates preserve it from
+their exact implementation base.
+
 A consuming design MUST be reviewed against an exact base containing the
 applicable producer `PASS` authorities. Before design and again before
 implementation, the engine MUST prepare those current authorities in plan
@@ -103,8 +109,8 @@ Negative cases cover missing or substituted approval; self-review; changed
 plan, design, candidate, proof, product tree, or target; ambiguous authority;
 runtime events presented as role outcomes; missing, stale, or ambiguous
 consumed authority; unsafe dependency reuse; composition conflict; and forged
-Merge results. A material behavioral, consumed-product, contract, authority, or
-external-decision change still crosses the applicable decision boundary.
+Merge results. A material behavioral, consumed-product, contract, authority,
+or external-decision change still crosses the applicable decision boundary.
 
 ## Board and engine handoff
 

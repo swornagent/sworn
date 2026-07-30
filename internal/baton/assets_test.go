@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 )
 
-func TestLoadAdmitsExactRC9(t *testing.T) {
+func TestLoadAdmitsExactRC11(t *testing.T) {
 	t.Parallel()
 
 	pkg, err := Load()
@@ -50,28 +50,28 @@ func TestReleaseTagAndSnapshotSourceAreExactlyAndIndependentlyBound(t *testing.T
 	t.Parallel()
 
 	if ReleaseCommit != Commit || ReleaseTree != Tree {
-		t.Fatal("RC9 tag and snapshot do not bind the published merge tree")
+		t.Fatal("RC11 tag and snapshot do not bind the published merge tree")
 	}
 
 	release := readReleaseFile(t)
 	if release.Tag.PeeledCommit != ReleaseCommit ||
 		release.Tag.PeeledTree != ReleaseTree ||
 		release.Archive.EmbeddedCommit != ReleaseCommit {
-		t.Fatal("release metadata does not preserve the RC9 tag and archive identity")
+		t.Fatal("release metadata does not preserve the RC11 tag and archive identity")
 	}
 	if release.Snapshot.SourceCommit != Commit || release.Snapshot.SourceTree != Tree {
-		t.Fatal("release metadata does not bind the RC9 snapshot source")
+		t.Fatal("release metadata does not bind the RC11 snapshot source")
 	}
 
 	release.Tag.PeeledCommit = "other"
 	if err := validateReleaseIdentity(release); err == nil {
-		t.Fatal("release identity accepted a changed RC9 tag commit")
+		t.Fatal("release identity accepted a changed RC11 tag commit")
 	}
 
 	manifest := readAssetManifest(t)
 	manifest.Commit = "other"
 	if err := validateManifestIdentity(manifest); err == nil {
-		t.Fatal("manifest identity accepted a changed RC9 snapshot commit")
+		t.Fatal("manifest identity accepted a changed RC11 snapshot commit")
 	}
 }
 

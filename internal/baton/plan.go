@@ -456,6 +456,14 @@ func validateSlice(value any, trackID, label string) (Slice, string, error) {
 	if len(includes) == 0 {
 		return Slice{}, "", recordFail("INVALID_FIELD", label+".scope.include cannot be empty")
 	}
+	for _, scopedPath := range includes {
+		if scopedPath == RecordRoot || strings.HasPrefix(scopedPath, RecordRoot+"/") {
+			return Slice{}, "", recordFail(
+				"RESERVED_RECORD_ROOT",
+				label+".scope.include cannot name reserved Baton records at "+scopedPath,
+			)
+		}
+	}
 	excludes, err := uniqueStringList(scopeObject["exclude"], label+".scope.exclude", repositoryPath)
 	if err != nil {
 		return Slice{}, "", err

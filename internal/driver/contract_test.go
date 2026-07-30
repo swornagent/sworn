@@ -40,21 +40,21 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC9PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindExactRC11PackageAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.9",
-		TagName:              "v1.0.0-rc.9",
-		TagObject:            "3fa8fcdcddc1f88479a29f103a373acf60818beb",
-		Commit:               "04e828d946f710b46bc7ed9fb7a08d593987272a",
-		Tree:                 "83a7a0fdfdc427aaad8feceb82a70197007c7758",
-		ArchiveSHA256:        "sha256:5d52b5334dae60642f6557f5a051bcd9eba4f3730f46aea9dd153bbc7f5b5ad6",
-		SupportPackageSHA256: "sha256:792a1a558c8b228801f4c7fcb55b89a1272d00651baa2e24e240b46ba0a5519c",
-		ManifestSHA256:       "sha256:703fe60ddc7a1b50b53d95be22d5fe2a07160b65ad4a673646ee3b6911828276",
+		Version:              "1.0.0-rc.11",
+		TagName:              "v1.0.0-rc.11",
+		TagObject:            "427eb665f7ab32ec1b86f4efe4ae76e0627be588",
+		Commit:               "5807eb8c88cd85bdbad9a7ac3343ae8e1a69a19d",
+		Tree:                 "5900a2d5ab311184cd2a9d9b048da72fff220aef",
+		ArchiveSHA256:        "sha256:524a1e4a7ddfa579fec34ca02fc1bb9c630cd018f3575eebfeb7ae7c4febd550",
+		SupportPackageSHA256: "sha256:f3125e25d85f13cbab5437cb52a61627be33775d4f46b5665d4976b94cba12cc",
+		ManifestSHA256:       "sha256:be9ff79fbbd375ca93675410be88376e7928c4a851adec92fc7d29c6f785142b",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -68,7 +68,7 @@ func TestCanonicalOperationsBindExactRC9PackageAndExcludeMerge(t *testing.T) {
 		},
 		RoleImplementer: {
 			"baton-implement",
-			"sha256:30061e6ea64004237f17c1bf51a279a76bd7efff5d1cd39b12016bab942d5efc",
+			"sha256:52bd75efb49252cfe15b9a9711c8b816e40e559084aa200d1b881e135df50398",
 		},
 		RoleCaptain: {
 			"baton-design-review",
@@ -76,7 +76,7 @@ func TestCanonicalOperationsBindExactRC9PackageAndExcludeMerge(t *testing.T) {
 		},
 		RoleVerifier: {
 			"baton-verify",
-			"sha256:2a6b14e214b6aea9c7d2c27072289735085626d3f4fc81f3a0fe76af3d2353d4",
+			"sha256:859d18353177b8f7692ae2e8fdb7b763020d7d0ab312d492e055565043b0bc4f",
 		},
 	}
 	for role, want := range expected {

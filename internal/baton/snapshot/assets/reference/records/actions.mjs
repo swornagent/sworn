@@ -1,13 +1,13 @@
 import { types as utilTypes } from 'node:util';
 
 import {
+  assertCandidateRecordRootUnchanged,
   captureHeadRefs,
   commitParents,
   isAncestor,
   productTreeIdentity,
   readFilesAtOID,
   repositoryRoot,
-  resolveProductExclusionAdmission,
   resolveRecordPathAdmission,
   unsafeAtomicUpdateRefs,
   unsafePrepareApprovedTargetBase,
@@ -333,7 +333,7 @@ function currentConsumedInputs(state, slice) {
   }));
 }
 
-function prepareConsumedTrackBase(repo, consumerRef, seed, inputs, admission) {
+function prepareConsumedTrackBase(repo, consumerRef, seed, inputs) {
   let candidate = seed;
   for (const input of inputs) {
     if (
@@ -345,14 +345,13 @@ function prepareConsumedTrackBase(repo, consumerRef, seed, inputs, admission) {
       expectedHead: candidate,
       candidate: input.pass_receipt,
       productBase: input.product_base,
-      productExclusionAdmission: admission,
     });
     candidate = prepared.result;
   }
   return candidate;
 }
 
-function preparedTrackBase(repo, state, slice, admission) {
+function preparedTrackBase(repo, state, slice) {
   const track = currentTrack(state, slice.location.track.id);
   const inputs = currentConsumedInputs(state, slice);
   const seed = track.authority_head;
@@ -360,7 +359,6 @@ function preparedTrackBase(repo, state, slice, admission) {
     targetRef: track.ref,
     expectedHead: seed,
     approvedTarget: state.plan.approval.receipt.target,
-    productExclusionAdmission: admission,
   });
   return Object.freeze({
     track,
@@ -371,7 +369,6 @@ function preparedTrackBase(repo, state, slice, admission) {
       track.ref,
       targetBase,
       inputs,
-      admission,
     ),
   });
 }
@@ -457,35 +454,21 @@ function actionEntry(oid, parent, message) {
   });
 }
 
-function createAdmissions(repo, resolveBehavioralInertness) {
-  const recordPathAdmission = resolveRecordPathAdmission(repo);
-  const productExclusionAdmission = resolveProductExclusionAdmission(repo, {
-    recordPathAdmission,
-    resolveBehavioralInertness,
-  });
-  return Object.freeze({ recordPathAdmission, productExclusionAdmission });
-}
-
 export function createBatonActions(options) {
   const admitted = exactOptions(
     options,
-    ['repo', 'resolveBehavioralInertness'],
+    ['repo'],
     [],
     'createBatonActions',
   );
   if (typeof admitted.repo !== 'string' || admitted.repo.length === 0) {
     fail('INVALID_ACTION_INPUT', 'repo must be a non-empty path');
   }
-  if (typeof admitted.resolveBehavioralInertness !== 'function') {
-    fail('INVALID_ACTION_INPUT', 'resolveBehavioralInertness must be a function');
-  }
   const repo = repositoryRoot(admitted.repo);
-  const admissions = createAdmissions(repo, admitted.resolveBehavioralInertness);
+  const recordPathAdmission = resolveRecordPathAdmission(repo);
 
   function stateFor(release) {
-    return readBatonState(repo, release, {
-      productExclusionAdmission: admissions.productExclusionAdmission,
-    });
+    return readBatonState(repo, release);
   }
 
   function recordPlanRevision(rawOptions) {
@@ -559,7 +542,7 @@ export function createBatonActions(options) {
     const preparedPlan = unsafePrepareRecordTransition(repo, {
       expectedHead: parent,
       message: `baton(${release}): plan revision ${parsed.metadata.revision}`,
-      ...admissions,
+      recordPathAdmission,
       changes: {
         [planPath(release)]: parsed.bytes,
       },
@@ -757,7 +740,6 @@ export function createBatonActions(options) {
           repo,
           state,
           slice,
-          admissions.productExclusionAdmission,
         );
         if (parent !== prepared.base) {
           fail(
@@ -798,18 +780,12 @@ export function createBatonActions(options) {
         if (candidate === null || ownerHead !== candidate) {
           fail('CHANGED_CANDIDATE', 'candidate must be the exact captured track head');
         }
-        const identity = productTreeIdentity(
-          repo,
-          candidate,
-          admissions.productExclusionAdmission,
-        );
         attempt = slice.attempt;
         binds = current.oid;
         const prepared = preparedTrackBase(
           repo,
           state,
           slice,
-          admissions.productExclusionAdmission,
         );
         if (location.slice.consumes.length > 0 && base !== prepared.base) {
           fail(
@@ -852,6 +828,8 @@ export function createBatonActions(options) {
             }
           }
         }
+        assertCandidateRecordRootUnchanged(repo, prepared.base, candidate);
+        const identity = productTreeIdentity(repo, candidate);
         receipt = {
           ...common,
           role,
@@ -1011,7 +989,6 @@ export function createBatonActions(options) {
       repo,
       state,
       slice,
-      admissions.productExclusionAdmission,
     );
     const pins = Object.fromEntries(
       prepared.inputs.map((item) => [item.slice, item.product_tree]),
@@ -1205,15 +1182,10 @@ export function createBatonActions(options) {
         ...(component.product_base === null
           ? {}
           : { productBase: component.product_base }),
-        productExclusionAdmission: admissions.productExclusionAdmission,
       });
       candidate = prepared.result;
     }
-    const productIdentity = productTreeIdentity(
-      repo,
-      candidate,
-      admissions.productExclusionAdmission,
-    );
+    const productIdentity = productTreeIdentity(repo, candidate);
     const checks = Object.hasOwn(input, 'checkResults')
       ? digestBytes(evidenceBytes(input.checkResults, 'checkResults'))
       : digestBytes(Buffer.from(canonicalJSON(inputs)));
@@ -1316,13 +1288,8 @@ export function createBatonActions(options) {
       targetRef: state.refs.target.ref,
       expectedHead: state.refs.target.head,
       candidate,
-      productExclusionAdmission: admissions.productExclusionAdmission,
     });
-    const productIdentity = productTreeIdentity(
-      repo,
-      prepared.result,
-      admissions.productExclusionAdmission,
-    );
+    const productIdentity = productTreeIdentity(repo, prepared.result);
     const receipt = {
       version: 1,
       release,

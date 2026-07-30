@@ -854,3 +854,59 @@ func TestRecordAndMetadataTransitionsAreProductInert(t *testing.T) {
 		requireGitxErrorCode(t, err, "NON_RECORD_CHANGE")
 	}
 }
+
+func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
+	for _, format := range []ObjectFormat{SHA1, SHA256} {
+		format := format
+		t.Run(string(format), func(t *testing.T) {
+			repository, base := newRepository(t, format)
+			root := repository.Root()
+
+			if err := os.WriteFile(filepath.Join(root, "product.txt"), []byte("candidate\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runTestGit(t, root, nil, "add", "--", "product.txt")
+			runTestGit(t, root, nil, "commit", "--quiet", "-m", "product candidate")
+			productCandidate, err := ParseOID(
+				format,
+				runTestGit(t, root, nil, "rev-parse", "HEAD"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.AssertCandidateRecordRootUnchanged(base, productCandidate); err != nil {
+				t.Fatalf("product-only candidate was rejected: %v", err)
+			}
+
+			recordPath := filepath.Join(root, ".baton", "releases", "demo", "plan.md")
+			if err := os.MkdirAll(filepath.Dir(recordPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(recordPath, []byte("reserved\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runTestGit(t, root, nil, "add", "--", ".baton/releases/demo/plan.md")
+			runTestGit(t, root, nil, "commit", "--quiet", "-m", "reserved root change")
+			recordCandidate, err := ParseOID(
+				format,
+				runTestGit(t, root, nil, "rev-parse", "HEAD"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = repository.AssertCandidateRecordRootUnchanged(base, recordCandidate)
+			requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
+		})
+	}
+}
+
+func TestRecordRootDiffOutputHasPrivateEightMiBBound(t *testing.T) {
+	if err := validateRecordRootDiffOutput(make([]byte, maxRecordRootDiffBytes)); err != nil {
+		t.Fatalf("exact private bound was rejected: %v", err)
+	}
+	err := validateRecordRootDiffOutput(make([]byte, maxRecordRootDiffBytes+1))
+	requireGitxErrorCode(t, err, "RECORD_TREE_INVENTORY_LIMIT")
+	if MaxTreeBytes != 64*1024*1024 {
+		t.Fatalf("whole-tree bound changed to %d", MaxTreeBytes)
+	}
+}
