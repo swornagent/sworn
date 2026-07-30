@@ -67,6 +67,7 @@ type continuationContractAdapter struct {
 	stateMode     ContinuationMode
 	stateBytes    int64
 	stateCloseErr error
+	resumeErr     error
 	created       *continuationContractState
 }
 
@@ -131,6 +132,9 @@ func (adapter *continuationContractAdapter) resumeContinuation(
 		return Observation{}, fail("CONTINUATION_INVALID")
 	}
 	adapter.resumes++
+	if adapter.resumeErr != nil {
+		return Observation{}, adapter.resumeErr
+	}
 	return continuationContractObservation(invocation)
 }
 
@@ -582,6 +586,60 @@ func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 				result,
 				closes,
 				err,
+			)
+		}
+	})
+
+	t.Run("adapter rejects replay", func(t *testing.T) {
+		adapter := newContinuationContractAdapter(
+			"invalid-replay-adapter",
+			"configuration-a",
+		)
+		adapter.resumeErr = fail("CONTINUATION_INVALID")
+		handle, state := startContinuationFixture(t, adapter)
+		implementation := continuationContractInvocation(
+			t,
+			adapter,
+			"invalid-replay-implementation",
+			RoleImplementer,
+			ImplementerImplementation,
+			ReadWrite,
+			false,
+		)
+		observation, next, result, err := (Dispatcher{}).InvokeTurn(
+			context.Background(),
+			implementation,
+			continuationContractBinding(),
+			handle,
+		)
+		if err != nil || !reflect.DeepEqual(observation, Observation{}) ||
+			next != nil ||
+			result.Mode != ContinuationModeFreshRehydrate ||
+			result.Status != ContinuationStatusMismatch {
+			t.Fatalf(
+				"invalid replay = observation %#v, next %p, result %#v, error %v",
+				observation,
+				next,
+				result,
+				err,
+			)
+		}
+		body, reported, closes := state.snapshot()
+		if !bytes.Equal(body, make([]byte, len(body))) ||
+			reported != 0 || closes != 1 {
+			t.Fatalf(
+				"invalid replay state = body %q, bytes %d, closes %d",
+				body,
+				reported,
+				closes,
+			)
+		}
+		_, turns, resumes := adapter.counts()
+		if turns != 2 || resumes != 1 {
+			t.Fatalf(
+				"invalid replay calls = turns %d, resumes %d",
+				turns,
+				resumes,
 			)
 		}
 	})

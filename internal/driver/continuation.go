@@ -300,6 +300,10 @@ func resumeContinuation(
 			Mode: mode, Status: resultStatus,
 		}, stateCloseErr
 	}
+	if IsCode(invokeErr, "CONTINUATION_INVALID") {
+		return Observation{}, nil,
+			freshContinuation(ContinuationStatusMismatch), nil
+	}
 	return observation, nil, ContinuationResult{
 		Mode:   mode,
 		Status: resultStatus,

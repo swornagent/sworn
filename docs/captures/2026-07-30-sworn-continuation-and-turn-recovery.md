@@ -1,7 +1,9 @@
 # Sworn continuation and turn recovery
 
-Date: 2026-07-30  
-Status: agreed direction; implementation pending approved Baton plan  
+Date: 2026-07-30
+
+Status: agreed direction; implementation pending approved Baton plan
+
 Target: Sworn v1.0.0 release candidate
 
 ## Outcome
