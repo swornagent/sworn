@@ -24,6 +24,21 @@ type Driver interface {
 
 var _ Driver = Dispatcher{}
 
+// ContinuationDriver is the additive, opt-in turn contract. Driver.Invoke
+// remains the complete one-shot contract for every existing caller and
+// adapter.
+type ContinuationDriver interface {
+	Driver
+	InvokeTurn(
+		context.Context,
+		Invocation,
+		ContinuationBinding,
+		*Continuation,
+	) (Observation, *Continuation, ContinuationResult, error)
+}
+
+var _ ContinuationDriver = Dispatcher{}
+
 // Invoker is retained as the role-neutral dispatcher name used by early W2
 // callers; it does not imply a process-only adapter.
 type Invoker = Dispatcher
@@ -71,6 +86,14 @@ func (Dispatcher) Invoke(ctx context.Context, invocation Invocation) (Observatio
 		return Observation{}, err
 	}
 	observation, err := invocation.Selected.adapter.invoke(ctx, invocation)
+	return finishAdapterInvocation(invocation, observation, err)
+}
+
+func finishAdapterInvocation(
+	invocation Invocation,
+	observation Observation,
+	err error,
+) (Observation, error) {
 	if err != nil {
 		// A transport or adapter failure can never carry a model decision.
 		return sanitizeFailedObservation(observation), normalizeAdapterError(err)

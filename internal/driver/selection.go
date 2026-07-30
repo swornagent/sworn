@@ -42,6 +42,22 @@ type Adapter interface {
 	invoke(context.Context, Invocation) (Observation, error)
 }
 
+// continuationAdapter is deliberately opt-in. Existing adapters continue to
+// satisfy Adapter without implementing or changing any continuation behavior.
+// The state is opaque to the dispatcher, immutable while suspended, and owns
+// no permission, workspace lease, Baton decision, or active tool session.
+type continuationAdapter interface {
+	invokeContinuation(
+		context.Context,
+		Invocation,
+	) (Observation, continuationState, error)
+	resumeContinuation(
+		context.Context,
+		Invocation,
+		continuationState,
+	) (Observation, error)
+}
+
 // ProcessAdapter is the contained process implementation retained for CLI
 // adapters and the deterministic fake. Its executable is not part of the
 // provider-neutral profile schema.
