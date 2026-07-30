@@ -15,7 +15,10 @@ The correction is deliberately narrow:
 - golden Baton checks receive one canonical Git and temporary root; and
 - journal, operator-config, and external workspace admission remain unchanged.
 
-A synthetic symlinked `TMPDIR` reproduces the macOS layout on Linux. The
-portable macOS CI lane runs the complete package surface serially, then vet and
-a CGO-free build; serial packages keep subprocess-heavy Git suites independent.
-Autonomous execution and full live certification remain Linux-only.
+A synthetic symlinked `TMPDIR` reproduces the macOS layout on Linux. Linux
+remains the exhaustive test, race, and end-to-end lane. The macOS lane checks
+the OS-sensitive host-path packages, the complete Git and golden-oracle
+packages, and the Baton composition contracts that cross those seams, then vet
+and a CGO-free build. This keeps the portability signal independent of the
+exhaustive Baton suite's thousands of Git subprocesses. Autonomous execution
+and full live certification remain Linux-only.

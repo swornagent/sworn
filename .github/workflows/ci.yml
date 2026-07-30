@@ -24,8 +24,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Portable tests
-        run: go test -count=1 -p=1 -timeout=20m ./cmd/sworn ./internal/... ./tools/...
+      - name: Host-path portability
+        run: |
+          go test -count=1 -p=1 -timeout=10m \
+            ./cmd/sworn \
+            ./internal/cockpit \
+            ./internal/driver \
+            ./internal/journal \
+            ./internal/runtime
+      - name: Git portability
+        run: |
+          go test -count=1 -p=1 -timeout=10m \
+            ./internal/gitx \
+            ./tools/batongolden
+      - name: Baton composition contracts
+        run: |
+          go test -count=1 -timeout=10m \
+            -run '^(TestAssemblyTransactionsFencePostClassificationTrackDrift|TestActionsMatchExactReferenceForSHA1AndSHA256|TestPlanRevisionRetentionSelectiveInvalidationAndRetirement|TestPlanRevisionReconcilesOnlyExactPreparedBase|TestAssemblyDirectReuseRequiresExactComposition|TestPlanAdmissionMatchesExactBatonGolden)$' \
+            ./internal/baton
       - name: Vet
         run: go vet ./...
       - name: Portable binary
