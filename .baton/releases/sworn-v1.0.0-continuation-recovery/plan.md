@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "sworn-v1.0.0-continuation-recovery",
-  "revision": 2,
-  "previous_plan": "132ef2466da0dbc44e29e85ff0b4add17cb7608d",
+  "revision": 3,
+  "previous_plan": "bd59b751c875e5847231ca79721a3c5cd5861307",
   "repository": "swornagent/sworn",
   "target_ref": "refs/heads/release/v0.3.0",
-  "approval_ref": "https://github.com/swornagent/sworn/issues/157#issuecomment-5128515025",
+  "approval_ref": "https://github.com/swornagent/sworn/issues/157#issuecomment-5135644188",
   "tracks": [
     {
       "id": "T0-contract",
@@ -248,6 +248,68 @@
           "consumes": []
         }
       ]
+    },
+    {
+      "id": "T4-rc11-compat",
+      "depends_on": [
+        "T3-runtime"
+      ],
+      "slices": [
+        {
+          "id": "W5-baton-rc11-compat",
+          "outcome": "Adopt public Baton v1.0.0-rc.11's exact embedded reference package and structural reserved-record-root guards without changing Sworn orchestration or certified drivers.",
+          "scope": {
+            "include": [
+              "README.md",
+              "cmd/sworn",
+              "docs/releases/v0.3.0",
+              "internal/baton",
+              "internal/driver",
+              "internal/gitx",
+              "test/e2e",
+              "tools/batonassets",
+              "tools/batongolden"
+            ],
+            "exclude": [
+              ".baton/releases"
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A-RC11-assets",
+              "text": "Sworn's closed 24-asset Baton package is byte-identical to public v1.0.0-rc.11 commit 5807eb8c88cd85bdbad9a7ac3343ae8e1a69a19d, carries snapshot-manifest digest sha256:be9ff79fbbd375ca93675410be88376e7928c4a851adec92fc7d29c6f785142b, and reports RC11 through the existing package and conformance surfaces."
+            },
+            {
+              "id": "A-RC11-plan-root",
+              "text": "Plan admission rejects every scope.include entry equal to .baton/releases or below it while retaining a canonical scope.exclude for that reserved root."
+            },
+            {
+              "id": "A-RC11-candidate-root",
+              "text": "Candidate admission rejects any .baton/releases change from the exact prepared implementation base before a candidate receipt or PASS can be recorded."
+            }
+          ],
+          "checks": [
+            "GOFLAGS=-buildvcs=false GOWORK=off go test -count=1 ./internal/baton ./internal/driver ./internal/gitx ./tools/batonassets ./tools/batongolden",
+            "GOFLAGS=-buildvcs=false GOWORK=off go test -count=1 ./cmd/sworn -run '^(TestVersionJSONReportsExactBatonAdmission|TestVersionTextIsSmallAndExplicit)$'",
+            "GOFLAGS=-buildvcs=false GOWORK=off go test -count=1 -race ./internal/baton ./internal/gitx",
+            "go vet ./cmd/sworn ./internal/baton ./internal/driver ./internal/gitx ./tools/batonassets ./tools/batongolden",
+            "go mod tidy -diff",
+            "git diff --check"
+          ],
+          "constraints": [
+            "The fixed reserved-root rules are structural and cannot depend on a behavioral-inertness callback, model judgment, or policy bypass.",
+            "Do not add a Baton role, lifecycle, receipt, schema, scheduler, driver behavior, managed inference path, dependency, or artifact family.",
+            "Embed only the existing 24-asset set; do not vendor installers, skills, wrappers, or client paths.",
+            "W0-W4 keep their exact contracts, attempts, candidates, products, and PASS. Unchanged driver, profile, and model evidence remains current and no driver certification reruns."
+          ],
+          "depends_on": [
+            "W4-turn-recovery"
+          ],
+          "consumes": [
+            "W4-turn-recovery"
+          ]
+        }
+      ]
     }
   ]
 }
@@ -273,3 +335,11 @@ changes.
 Continuation never becomes durable authority. The plan excludes managed
 inference, role-specific drivers, raw telemetry, model-generated shell
 remediation, server-state dependency, and a second orchestration framework.
+
+# Revision 3
+
+Revision 3 retains W0-W4 byte-for-byte with their attempts, candidates,
+products, and PASS. It adds one final W5 consumer of W4 to adopt public Baton
+v1.0.0-rc.11's exact 24-asset package and deterministic reserved-record-root
+guards. Because W4's PASS product already contains the composed W0-W3 product,
+W5 consumes only W4. No earlier slice or unchanged driver is recertified.
