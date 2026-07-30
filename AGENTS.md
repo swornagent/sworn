@@ -42,9 +42,17 @@ it while preserving exact Git provenance separately.
 Before committing, run:
 
 ```sh
-GOFLAGS=-buildvcs=false go test ./...
-GOFLAGS=-buildvcs=false go test -race ./...
+GOFLAGS=-buildvcs=false go test -count=1 \
+  ./cmd/sworn ./internal/... ./tools/...
+GOFLAGS=-buildvcs=false go test -count=1 \
+  -parallel=1 -timeout=20m ./test/e2e
+GOFLAGS=-buildvcs=false go test -count=1 -race \
+  ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
 ```
+
+Run the long process tests once and in order. Use the race detector on the
+product packages, not on the timing-sensitive end-to-end suite. These are the
+same boundaries used by CI.
 
 Official binaries use `CGO_ENABLED=0`, `-buildvcs=false` and `-trimpath`.

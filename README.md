@@ -1,6 +1,7 @@
 # Sworn
 
-[Baton](https://github.com/sawy3r/baton) is how the work is handed off. Sworn is the team that carries it.
+> [Baton](https://github.com/sawy3r/baton) is how the work is handed off.
+> Sworn is the team that carries it.
 
 Together they carry software work from a proposed plan through to a checked
 merge.
@@ -108,8 +109,12 @@ enabled.
 The local code checks are:
 
 ```sh
-GOFLAGS=-buildvcs=false go test ./...
-GOFLAGS=-buildvcs=false go test -race ./...
+GOFLAGS=-buildvcs=false go test -count=1 \
+  ./cmd/sworn ./internal/... ./tools/...
+GOFLAGS=-buildvcs=false go test -count=1 \
+  -parallel=1 -timeout=20m ./test/e2e
+GOFLAGS=-buildvcs=false go test -count=1 -race \
+  ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
 test -z "$(git ls-files -z -- '*.go' \
   ':(exclude,top).baton/releases/**' | xargs -0 -r gofmt -l)"
