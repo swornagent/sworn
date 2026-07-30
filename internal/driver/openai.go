@@ -498,7 +498,9 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 		case "unknown",
 			"openai-responses-v1",
 			"azure-openai-responses-v1",
+			"bedrock-openai-responses-v1",
 			"xai-responses-v1",
+			"meta-responses-v1",
 			"anthropic-claude-v1",
 			"google-gemini-v1":
 		default:

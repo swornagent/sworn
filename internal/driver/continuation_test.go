@@ -462,6 +462,55 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 		t.Fatalf("OpenRouter resume tools = %s", request.Body)
 	}
 
+	for _, format := range []string{
+		"bedrock-openai-responses-v1",
+		"meta-responses-v1",
+	} {
+		formatDetails := bytes.Replace(
+			details,
+			[]byte("anthropic-claude-v1"),
+			[]byte(format),
+			1,
+		)
+		formatResponse := bytes.Replace(response, details, formatDetails, 1)
+		formatConversation, formatErr := newOpenAIConversation(
+			base.Endpoint,
+			"openrouter/model",
+			toolDefinitions(ReadOnly),
+			[]byte(`{}`),
+			providerDialectOpenRouterChat,
+			"",
+		)
+		if formatErr != nil {
+			t.Fatal(formatErr)
+		}
+		formatTurn, formatErr := formatConversation.accept(formatResponse)
+		if formatErr != nil || len(formatTurn.Calls) != 1 {
+			formatConversation.close()
+			t.Fatalf("%s OpenRouter turn = %#v, %v", format, formatTurn, formatErr)
+		}
+		if formatErr = formatConversation.appendResults([]providerToolResult{{
+			ID: "router-call", Name: "Read", Content: []byte("accepted"),
+		}}); formatErr != nil {
+			formatConversation.close()
+			t.Fatal(formatErr)
+		}
+		formatRequest, formatErr := formatConversation.request()
+		formatConversation.close()
+		var formatReplay struct {
+			Messages []openAIMessage `json:"messages"`
+		}
+		if formatErr != nil ||
+			json.Unmarshal(formatRequest.Body, &formatReplay) != nil ||
+			len(formatReplay.Messages) != 3 ||
+			!bytes.Equal(
+				formatReplay.Messages[1].ReasoningDetails,
+				formatDetails,
+			) {
+			t.Fatalf("%s OpenRouter replay = %s, %v", format, formatRequest.Body, formatErr)
+		}
+	}
+
 	for _, dialect := range []providerDialect{
 		providerDialectOpenAIChat,
 		providerDialectDeepSeekChat,
@@ -521,12 +570,11 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 	}
 	defer conversation.close()
 	signatureA := base64.StdEncoding.EncodeToString([]byte("thought-a"))
-	signatureB := base64.StdEncoding.EncodeToString([]byte("thought-b"))
 	response := []byte(`{
 	  "candidates":[{
 	    "content":{"role":"model","parts":[
 	      {"functionCall":{"id":"provider-a","name":"Read","args":{"path":"/workspace/a"}},"thoughtSignature":"` + signatureA + `"},
-	      {"functionCall":{"name":"Read","args":{"path":"/workspace/b"}},"thoughtSignature":"` + signatureB + `"}
+	      {"functionCall":{"name":"Read","args":{"path":"/workspace/b"}}}
 	    ]},
 	    "finishReason":"STOP"
 	  }],
@@ -564,7 +612,7 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 	if json.Unmarshal(request.Body, &replay) != nil || len(replay.Contents) != 3 ||
 		replay.Contents[1].Role != "model" ||
 		replay.Contents[1].Parts[0].ThoughtSignature != signatureA ||
-		replay.Contents[1].Parts[1].ThoughtSignature != signatureB ||
+		replay.Contents[1].Parts[1].ThoughtSignature != "" ||
 		replay.Contents[2].Role != "user" ||
 		replay.Contents[2].Parts[0].FunctionResponse.ID != "provider-a" ||
 		replay.Contents[2].Parts[1].FunctionResponse.ID != "" {

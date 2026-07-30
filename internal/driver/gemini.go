@@ -267,7 +267,8 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 			opaque = append(opaque, opaqueField{kind: opaqueBase64, body: []byte(signature)})
 			decoded.ThoughtSignature = signature
 		}
-		if hasCall && geminiThoughtSignatureRequired(conversation.model) &&
+		if hasCall && len(calls) == 1 &&
+			geminiThoughtSignatureRequired(conversation.model) &&
 			decoded.ThoughtSignature == "" {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
