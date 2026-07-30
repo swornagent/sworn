@@ -11,8 +11,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -23,9 +26,12 @@ const (
 )
 
 var (
-	nativeProbeOnce   sync.Once
-	nativeProbeBinary string
-	nativeProbeError  error
+	nativeProbeOnce          sync.Once
+	nativeProbeBinary        string
+	nativeProbeError         error
+	nativeContinuationOnce   sync.Once
+	nativeContinuationBinary string
+	nativeContinuationError  error
 )
 
 func TestExactNativeProfilesRejectUnboundCertificationCallbacks(t *testing.T) {
@@ -43,9 +49,9 @@ func TestExactNativeProfilesRejectUnboundCertificationCallbacks(t *testing.T) {
 				func(
 					_ context.Context,
 					selected SelectedProfile,
-				) (Invocation, error) {
+				) (NativeSmokeInvocations, error) {
 					probed = selected
-					return Invocation{}, nil
+					return NativeSmokeInvocations{}, nil
 				},
 			)
 			if err != nil {
@@ -175,6 +181,7 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 				closure,
 				configFiles,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -215,6 +222,7 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 					!containsArgumentSequence(arguments, codexArguments(
 						invocation.Selected.Model,
 						true,
+						nil,
 					)) ||
 					!bytes.Contains(catalogBody, []byte(`"shell_type":"disabled"`)) ||
 					!bytes.Contains(catalogBody, []byte(`"input_modalities":["text"]`)) ||
@@ -237,6 +245,7 @@ func TestNativeCommandSurfacesAreExactAndCapabilityIsSingleSeam(t *testing.T) {
 						claudeArguments(
 							invocation.Selected.Model,
 							invocation.Request.Workspace.Access,
+							nil,
 						),
 					) {
 					t.Fatalf(
@@ -294,7 +303,7 @@ func TestNativeRuntimeCertificationInspectsLiveNamespaceAndDescriptors(t *testin
 	}
 }
 
-func TestExactNativeCLIsEmitClosedFirstProviderRequest(t *testing.T) {
+func TestExactNativeCLIsCertifyDesignAndResumeProviderRequests(t *testing.T) {
 	models := map[ProfileFamily]string{
 		ProfileCodex:  "sworn-capture-model",
 		ProfileClaude: "claude-sonnet-4-20250514",
@@ -319,7 +328,7 @@ func TestExactNativeCLIsEmitClosedFirstProviderRequest(t *testing.T) {
 			invocation.Permission = permission
 			certificate, err := platformCaptureNativeSurface(
 				context.Background(),
-				invocation,
+				nativeSmokePairFixture(t, invocation),
 				config,
 			)
 			if err != nil {
@@ -330,8 +339,10 @@ func TestExactNativeCLIsEmitClosedFirstProviderRequest(t *testing.T) {
 				invocation,
 				config,
 			); err != nil ||
-				certificate.CaptureEvidenceDigest == "" ||
-				certificate.ToolDigest != nativeToolSurfaceDigest(ReadWrite) {
+				certificate.Design.CaptureEvidenceDigest == "" ||
+				certificate.Resume.CaptureEvidenceDigest == "" ||
+				certificate.Design.ToolDigest != nativeToolSurfaceDigest(ReadOnly) ||
+				certificate.Resume.ToolDigest != nativeToolSurfaceDigest(ReadWrite) {
 				t.Fatalf("certificate = %#v, error=%v", certificate, err)
 			}
 		})
@@ -582,21 +593,96 @@ func nativeCertificateFixture(
 	config NativeAdapterConfig,
 ) nativeSurfaceCertificate {
 	digest := "sha256:" + strings.Repeat("a", 64)
+	stage := func(
+		access WorkspaceAccess,
+		resume bool,
+	) nativeSurfaceStageCertificate {
+		return nativeSurfaceStageCertificate{
+			Access:                access,
+			Resume:                resume,
+			ToolDigest:            nativeToolSurfaceDigest(access),
+			CaptureEvidenceDigest: digest,
+			ArgumentDigest: nativeCLIArgumentDigest(
+				config.Family,
+				invocation.Selected.Model,
+				access,
+				resume,
+			),
+			Protocol:           "2025-06-18",
+			ClientName:         "codex",
+			ClientVersion:      CodexCLIVersion,
+			InitializeDigest:   digest,
+			NotificationDigest: digest,
+			ListDigest:         digest,
+		}
+	}
 	return nativeSurfaceCertificate{
-		Family:                config.Family,
-		ProfileDigest:         nativeProfileDigest(invocation.Selected.Profile),
-		Model:                 invocation.Selected.Model,
-		AdapterConfigDigest:   invocation.Selected.Adapter.ConfigurationDigest,
-		ExecutableDigest:      config.CLI.Digest,
-		CLIVersion:            config.CLIVersion,
-		ToolDigest:            nativeToolSurfaceDigest(ReadWrite),
-		CaptureEvidenceDigest: digest,
-		Protocol:              "2025-06-18",
-		ClientName:            "codex",
-		ClientVersion:         CodexCLIVersion,
-		InitializeDigest:      digest,
-		NotificationDigest:    digest,
-		ListDigest:            digest,
+		Family:              config.Family,
+		ProfileDigest:       nativeProfileDigest(invocation.Selected.Profile),
+		Model:               invocation.Selected.Model,
+		AdapterConfigDigest: invocation.Selected.Adapter.ConfigurationDigest,
+		ExecutableDigest:    config.CLI.Digest,
+		CLIVersion:          config.CLIVersion,
+		Design:              stage(ReadOnly, false),
+		Resume:              stage(ReadWrite, true),
+	}
+}
+
+func nativeSmokePairFixture(
+	t *testing.T,
+	base Invocation,
+) NativeSmokeInvocations {
+	t.Helper()
+	build := func(
+		suffix string,
+		responsibility Responsibility,
+		access WorkspaceAccess,
+		fresh bool,
+	) Invocation {
+		request, err := NewRequest(
+			base.Request.InvocationID+"-"+suffix,
+			RoleImplementer,
+			base.Selected.Profile.Key,
+			base.Selected.Model,
+			Workspace{Path: GuestWorkspacePath, Access: access},
+			base.Request.Inputs,
+			fresh,
+			base.Request.Limits,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		containment := ContainmentReadOnly
+		if access == ReadWrite {
+			containment = ContainmentReadWrite
+		}
+		permission, err := NewSubmissionPermission(
+			request,
+			base.Selected,
+			containment,
+			responsibility,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value := base
+		value.Request = request
+		value.Permission = permission
+		return value
+	}
+	return NativeSmokeInvocations{
+		Design: build(
+			"design",
+			ImplementerDesign,
+			ReadOnly,
+			true,
+		),
+		Implementation: build(
+			"implementation",
+			ImplementerImplementation,
+			ReadWrite,
+			false,
+		),
 	}
 }
 
@@ -667,6 +753,364 @@ func TestSecretGuardFindsCapabilityAcrossWriteBoundaries(t *testing.T) {
 	}
 }
 
+func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
+	t *testing.T,
+) {
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+		family := family
+		t.Run(string(family), func(t *testing.T) {
+			binary := buildNativeContinuation(t)
+			digest, err := executableDigest(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := nativeContinuationConfigFixture(
+				t,
+				family,
+				binary,
+				digest,
+			)
+			configBody, err := canonicalJSON(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := AdapterIdentity{
+				Key: config.Key, ID: config.ID, Version: config.Version,
+				ConfigurationDigest: Digest(configBody),
+			}
+			ref := config.CredentialRefs[0]
+			credential := filepath.Join(t.TempDir(), "credential")
+			const credentialCanary = "native-continuation-credential-canary"
+			if err := os.WriteFile(
+				credential,
+				[]byte(`{"token":"`+credentialCanary+`"}`),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			adapter := &nativeAdapter{
+				identity: identity,
+				config:   config,
+				resolve: func(context.Context, string) (string, error) {
+					return credential, nil
+				},
+				refs:      map[string]struct{}{ref: {}},
+				certified: map[string]nativeSurfaceCertificate{},
+			}
+			profile := ProfileConfig{
+				Key:     "native-continuation-profile-" + string(family),
+				Adapter: identity.Key, Network: NetworkRequired,
+				CredentialRef: &ref,
+			}
+			selected := SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   "native-continuation-model",
+				adapter: adapter,
+			}
+			base, _, _ := memoryInvocationFixture(t)
+			base.Selected = selected
+			pair := nativeSmokePairFixture(t, base)
+			adapter.certified[nativeCertificationKey(
+				profile,
+				selected.Model,
+			)] = nativeContinuationCertificateFixture(
+				pair.Design,
+				config,
+			)
+
+			binding := continuationContractBinding()
+			observation, handle, result, err := (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				pair.Design,
+				binding,
+				nil,
+			)
+			if err != nil || observation.Handoff == nil || handle == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"design = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			cell := continuationCellFor(handle)
+			cell.mu.Lock()
+			nativeState, ok := cell.state.(*nativeContinuationState)
+			cell.mu.Unlock()
+			if !ok || nativeState.continuationBytes() < 1 {
+				t.Fatal("design did not retain bounded native state")
+			}
+			nativeState.mu.Lock()
+			root := nativeState.root
+			sessionID := append([]byte(nil), nativeState.sessionID...)
+			nativeState.mu.Unlock()
+			if !validNativeSessionID(sessionID) ||
+				!validNativeSessionRoot(root) {
+				clearBytes(sessionID)
+				t.Fatal("native state identity or root invalid")
+			}
+			clearBytes(sessionID)
+
+			observation, next, result, err := (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				pair.Implementation,
+				binding,
+				handle,
+			)
+			if err != nil || observation.Handoff == nil || next != nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusResumed {
+				t.Fatalf(
+					"resume = observation %#v, next %p, result %#v, error %v",
+					observation,
+					next,
+					result,
+					err,
+				)
+			}
+			if _, err := os.Lstat(root); !os.IsNotExist(err) {
+				t.Fatal("consumed native session root still exists")
+			}
+
+			plain, err := (Dispatcher{}).Invoke(
+				context.Background(),
+				pair.Design,
+			)
+			if err != nil || plain.Handoff == nil {
+				t.Fatalf("plain ephemeral invocation = %#v, %v", plain, err)
+			}
+
+			_, failedHandle, _, err := (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				pair.Design,
+				binding,
+				nil,
+			)
+			if err != nil || failedHandle == nil {
+				t.Fatalf("failed-resume setup = %p, %v", failedHandle, err)
+			}
+			failedCell := continuationCellFor(failedHandle)
+			failedCell.mu.Lock()
+			failedState, ok := failedCell.state.(*nativeContinuationState)
+			failedCell.mu.Unlock()
+			if !ok {
+				t.Fatal("failed-resume setup did not retain native state")
+			}
+			failedState.mu.Lock()
+			failedRoot := failedState.root
+			failedState.mu.Unlock()
+			if err := os.Remove(
+				filepath.Join(failedRoot, "home", ".native-session-id"),
+			); err != nil {
+				t.Fatal(err)
+			}
+			observation, next, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				pair.Implementation,
+				binding,
+				failedHandle,
+			)
+			if err != nil || !reflect.DeepEqual(observation, Observation{}) ||
+				next != nil ||
+				result.Mode != ContinuationModeFreshRehydrate ||
+				result.Status != ContinuationStatusMismatch {
+				t.Fatalf(
+					"failed resume = observation %#v, next %p, result %#v, error %v",
+					observation,
+					next,
+					result,
+					err,
+				)
+			}
+			if _, err := os.Lstat(failedRoot); !os.IsNotExist(err) {
+				t.Fatal("failed native session root still exists")
+			}
+		})
+	}
+}
+
+func TestNativeContinuationArgumentsAreExplicitAndNonInteractive(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	resume := &nativeContinuationLaunch{
+		resume:     true,
+		expectedID: []byte(id),
+	}
+	design := &nativeContinuationLaunch{}
+	codexResume := codexArguments(
+		"native-continuation-model",
+		false,
+		resume,
+	)
+	if !slices.Equal(
+		codexResume[:4],
+		[]string{"exec", "-C", GuestWorkspacePath, "resume"},
+	) ||
+		!containsArgumentSequence(codexResume, []string{id, "-"}) ||
+		slicesContain(codexResume, "--ephemeral") ||
+		slicesContain(codexResume, "--last") ||
+		slicesContain(codexResume, "--all") {
+		t.Fatalf("Codex resume argv = %q", codexResume)
+	}
+	codexDesign := codexArguments(
+		"native-continuation-model",
+		true,
+		design,
+	)
+	if slicesContain(codexDesign, "--ephemeral") ||
+		slicesContain(codexDesign, "resume") {
+		t.Fatalf("Codex design argv = %q", codexDesign)
+	}
+	if !slicesContain(
+		codexArguments("native-continuation-model", true, nil),
+		"--ephemeral",
+	) {
+		t.Fatal("plain Codex invocation is not ephemeral")
+	}
+
+	claudeResume := claudeArguments(
+		"native-continuation-model",
+		ReadWrite,
+		resume,
+	)
+	if !containsArgumentSequence(
+		claudeResume,
+		[]string{"--resume", id},
+	) ||
+		slicesContain(claudeResume, "--continue") ||
+		slicesContain(claudeResume, "--fork-session") ||
+		slicesContain(claudeResume, "--no-session-persistence") {
+		t.Fatalf("Claude resume argv = %q", claudeResume)
+	}
+	claudeDesign := claudeArguments(
+		"native-continuation-model",
+		ReadOnly,
+		design,
+	)
+	if slicesContain(claudeDesign, "--resume") ||
+		slicesContain(claudeDesign, "--no-session-persistence") {
+		t.Fatalf("Claude design argv = %q", claudeDesign)
+	}
+	if !slicesContain(
+		claudeArguments("native-continuation-model", ReadOnly, nil),
+		"--no-session-persistence",
+	) {
+		t.Fatal("plain Claude invocation is not ephemeral")
+	}
+}
+
+func TestNativeContinuationIdentityMismatchPrecedesBrokerArm(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	launch := &nativeContinuationLaunch{
+		resume: true,
+		expectedID: []byte(
+			"11111111-1111-4111-8111-111111111111",
+		),
+	}
+	state := &nativeEventState{
+		family: ProfileCodex,
+		model:  "native-continuation-model",
+		access: ReadWrite,
+		broker: broker,
+		launch: launch,
+	}
+	err = state.accept([]byte(
+		`{"type":"thread.started","thread_id":"22222222-2222-4222-8222-222222222222"}`,
+	))
+	if !IsCode(err, "NATIVE_SURFACE_INVALID") ||
+		broker.Ready() || state.nativeSeen || state.identityAccepted {
+		t.Fatalf("mismatch armed broker: state=%#v error=%v", state, err)
+	}
+}
+
+func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
+	config := NativeAdapterConfig{
+		Family:           ProfileCodex,
+		CredentialTarget: CodexCredentialTarget,
+	}
+	state, err := newNativeContinuationState(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.mu.Lock()
+	root := state.root
+	state.mu.Unlock()
+	if err := state.retainSessionID(
+		[]byte("11111111-1111-4111-8111-111111111111"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "home", ".codex", "session"),
+		[]byte("bounded"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := reapNativeSessionRoots(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatal("locked live root was reaped")
+	}
+	if err := state.closeContinuation(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(root); !os.IsNotExist(err) {
+		t.Fatal("closed root was not removed")
+	}
+
+	stale, err := newNativeContinuationState(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.mu.Lock()
+	staleRoot, home, lease := stale.root, stale.home, stale.lease
+	stale.home, stale.lease, stale.closed = nil, nil, true
+	stale.mu.Unlock()
+	_ = home.Close()
+	_ = syscall.Flock(int(lease.Fd()), syscall.LOCK_UN)
+	_ = lease.Close()
+	if err := reapNativeSessionRoots(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(staleRoot); !os.IsNotExist(err) {
+		t.Fatal("unlocked stale root was not recovered")
+	}
+
+	incomplete, err := os.MkdirTemp("", nativeSessionRootPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(incomplete) })
+	if err := os.Chmod(incomplete, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().Add(-maxContinuationLifetime - time.Minute)
+	if err := os.Chtimes(incomplete, expired, expired); err != nil {
+		t.Fatal(err)
+	}
+	if err := reapNativeSessionRoots(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(incomplete); !os.IsNotExist(err) {
+		t.Fatal("expired incomplete root was not recovered")
+	}
+}
+
 func exactNativeConfigFixture(
 	t *testing.T,
 	family ProfileFamily,
@@ -716,6 +1160,85 @@ func exactNativeConfigFixture(
 		CredentialTarget:   target,
 		CredentialRefs:     []string{string(family) + "-credential"},
 		MaxCredentialBytes: 1_048_576,
+	}
+}
+
+func nativeContinuationConfigFixture(
+	t *testing.T,
+	family ProfileFamily,
+	binary string,
+	digest string,
+) NativeAdapterConfig {
+	t.Helper()
+	target := CodexCredentialTarget
+	if family == ProfileClaude {
+		target = ClaudeCredentialTarget
+	}
+	runtimeFiles := systemRuntimeFiles(t)
+	required := make([]string, len(runtimeFiles))
+	for index := range runtimeFiles {
+		required[index] = runtimeFiles[index].Target
+	}
+	return NativeAdapterConfig{
+		Key:                    "native-continuation-" + string(family),
+		ID:                     "sworn.native-continuation-" + string(family),
+		Version:                "1.0.0",
+		Family:                 family,
+		CLI:                    ExecutableIdentity{Path: binary, Digest: digest},
+		CLIVersion:             "1.0.0",
+		VersionOutput:          "1.0.0",
+		RuntimeFiles:           runtimeFiles,
+		RequiredRuntimeTargets: required,
+		CredentialTarget:       target,
+		CredentialRefs:         []string{"native-continuation-credential"},
+		MaxCredentialBytes:     65_536,
+	}
+}
+
+func nativeContinuationCertificateFixture(
+	invocation Invocation,
+	config NativeAdapterConfig,
+) nativeSurfaceCertificate {
+	initializeBody, _ := canonicalJSON(map[string]any{
+		"protocolVersion": "2025-06-18",
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
+			"name": "native-continuation", "version": "1.0.0",
+		},
+	})
+	emptyBody, _ := canonicalJSON(map[string]any{})
+	stage := func(
+		access WorkspaceAccess,
+		resume bool,
+	) nativeSurfaceStageCertificate {
+		return nativeSurfaceStageCertificate{
+			Access:                access,
+			Resume:                resume,
+			ToolDigest:            nativeToolSurfaceDigest(access),
+			CaptureEvidenceDigest: Digest([]byte("native-continuation-capture")),
+			ArgumentDigest: nativeCLIArgumentDigest(
+				config.Family,
+				invocation.Selected.Model,
+				access,
+				resume,
+			),
+			Protocol:           "2025-06-18",
+			ClientName:         "native-continuation",
+			ClientVersion:      "1.0.0",
+			InitializeDigest:   Digest(initializeBody),
+			NotificationDigest: Digest(emptyBody),
+			ListDigest:         Digest(emptyBody),
+		}
+	}
+	return nativeSurfaceCertificate{
+		Family:              config.Family,
+		ProfileDigest:       nativeProfileDigest(invocation.Selected.Profile),
+		Model:               invocation.Selected.Model,
+		AdapterConfigDigest: invocation.Selected.Adapter.ConfigurationDigest,
+		ExecutableDigest:    config.CLI.Digest,
+		CLIVersion:          config.CLIVersion,
+		Design:              stage(ReadOnly, false),
+		Resume:              stage(ReadWrite, true),
 	}
 }
 
@@ -807,4 +1330,39 @@ func buildNativeProbe(t *testing.T) string {
 		t.Fatal(nativeProbeError)
 	}
 	return nativeProbeBinary
+}
+
+func buildNativeContinuation(t *testing.T) string {
+	t.Helper()
+	nativeContinuationOnce.Do(func() {
+		directory, err := os.MkdirTemp("", "sworn-native-continuation-")
+		if err != nil {
+			nativeContinuationError = err
+			return
+		}
+		nativeContinuationBinary = filepath.Join(
+			directory,
+			"native-continuation",
+		)
+		command := exec.Command(
+			"go",
+			"build",
+			"-o",
+			nativeContinuationBinary,
+			"./testdata/nativecontinuation",
+		)
+		command.Env = append(
+			os.Environ(),
+			"GOFLAGS=-buildvcs=false",
+			"CGO_ENABLED=0",
+		)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			nativeContinuationError = &buildFailure{output: string(output)}
+		}
+	})
+	if nativeContinuationError != nil {
+		t.Fatal(nativeContinuationError)
+	}
+	return nativeContinuationBinary
 }

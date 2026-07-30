@@ -506,17 +506,62 @@ func validateNativeSurfaceCertificate(
 			invocation.Selected.Adapter.ConfigurationDigest ||
 		certificate.ExecutableDigest != config.CLI.Digest ||
 		certificate.CLIVersion != config.CLIVersion ||
-		certificate.ToolDigest != nativeToolSurfaceDigest(ReadWrite) ||
-		!digestPattern.MatchString(certificate.CaptureEvidenceDigest) ||
-		certificate.Protocol == "" ||
-		certificate.ClientName == "" ||
-		certificate.ClientVersion == "" ||
-		!digestPattern.MatchString(certificate.InitializeDigest) ||
-		!digestPattern.MatchString(certificate.NotificationDigest) ||
-		!digestPattern.MatchString(certificate.ListDigest) {
+		!validNativeSurfaceStage(
+			certificate.Design,
+			config.Family,
+			invocation.Selected.Model,
+			ReadOnly,
+			false,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.Resume,
+			config.Family,
+			invocation.Selected.Model,
+			ReadWrite,
+			true,
+		) {
 		return fail("NATIVE_NOT_CERTIFIED")
 	}
 	return nil
+}
+
+func validNativeSurfaceStage(
+	stage nativeSurfaceStageCertificate,
+	family ProfileFamily,
+	model string,
+	access WorkspaceAccess,
+	resume bool,
+) bool {
+	return stage.Access == access &&
+		stage.Resume == resume &&
+		stage.ToolDigest == nativeToolSurfaceDigest(access) &&
+		digestPattern.MatchString(stage.CaptureEvidenceDigest) &&
+		stage.ArgumentDigest == nativeCLIArgumentDigest(
+			family,
+			model,
+			access,
+			resume,
+		) &&
+		stage.Protocol != "" &&
+		stage.ClientName != "" &&
+		stage.ClientVersion != "" &&
+		digestPattern.MatchString(stage.InitializeDigest) &&
+		digestPattern.MatchString(stage.NotificationDigest) &&
+		digestPattern.MatchString(stage.ListDigest)
+}
+
+func nativeCertificateStage(
+	certificate nativeSurfaceCertificate,
+	access WorkspaceAccess,
+) (nativeSurfaceStageCertificate, error) {
+	switch access {
+	case ReadOnly:
+		return certificate.Design, nil
+	case ReadWrite:
+		return certificate.Resume, nil
+	default:
+		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
 }
 
 func nativeCaptureCredentialBody(

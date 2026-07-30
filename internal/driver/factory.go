@@ -76,7 +76,7 @@ func NewProductionDriverFactory(
 		switch descriptor.kind {
 		case driverAdapterNative:
 			factory.options.NativeSmokeBuilders[descriptor.key] =
-				factory.certificationInvocation
+				factory.nativeCertificationInvocations
 		case driverAdapterOpenAI, driverAdapterDeepSeek, driverAdapterGemini,
 			driverAdapterBedrock, driverAdapterMantle:
 			config := cloneDriverAdapterConfig(adapterConfig)
@@ -230,6 +230,101 @@ func (factory *ProductionDriverFactory) certificationInvocation(
 			Input: input,
 			Bytes: instruction,
 		}},
+	}, nil
+}
+
+func (factory *ProductionDriverFactory) nativeCertificationInvocations(
+	ctx context.Context,
+	selected SelectedProfile,
+) (NativeSmokeInvocations, error) {
+	if factory == nil || factory.root == "" || ctx == nil ||
+		ctx.Err() != nil {
+		return NativeSmokeInvocations{}, fail("LIVE_PROBE_FAILED")
+	}
+	workspace, err := os.MkdirTemp(factory.root, "native-workspace-")
+	if err != nil {
+		return NativeSmokeInvocations{}, fail("LIVE_PROBE_FAILED")
+	}
+	build := func(
+		suffix string,
+		responsibility Responsibility,
+		access WorkspaceAccess,
+		fresh bool,
+	) (Invocation, error) {
+		instruction := []byte(
+			`{"instruction":"Exercise only the deterministic native certification transport.","schema_version":"` +
+				driverCertificationSchemaVersion + `","stage":"` + suffix + `"}`,
+		)
+		input := Input{
+			Name:   "native-certification-" + suffix,
+			Path:   "certification/" + suffix + ".json",
+			Digest: Digest(instruction),
+		}
+		sum := sha256.Sum256([]byte(
+			selected.Profile.Key + "\x00" + selected.Model + "\x00" +
+				workspace + "\x00" + suffix,
+		))
+		request, requestErr := NewRequest(
+			"native-certify-"+suffix+"-"+hex.EncodeToString(sum[:8]),
+			RoleImplementer,
+			selected.Profile.Key,
+			selected.Model,
+			Workspace{Path: GuestWorkspacePath, Access: access},
+			[]Input{input},
+			fresh,
+			Limits{
+				TimeoutMillis: 120_000,
+				OutputBytes:   MaxProviderOutputBytes,
+			},
+		)
+		if requestErr != nil {
+			return Invocation{}, requestErr
+		}
+		containment := ContainmentReadOnly
+		if access == ReadWrite {
+			containment = ContainmentReadWrite
+		}
+		permission, permissionErr := NewSubmissionPermission(
+			request,
+			selected,
+			containment,
+			responsibility,
+		)
+		if permissionErr != nil {
+			return Invocation{}, permissionErr
+		}
+		return Invocation{
+			Request:       request,
+			HostWorkspace: workspace,
+			Selected:      selected,
+			Permission:    permission,
+			Inputs: []InputContent{{
+				Input: input,
+				Bytes: instruction,
+			}},
+		}, nil
+	}
+	design, err := build(
+		"design",
+		ImplementerDesign,
+		ReadOnly,
+		true,
+	)
+	if err != nil {
+		return NativeSmokeInvocations{}, err
+	}
+	implementation, err := build(
+		"implementation",
+		ImplementerImplementation,
+		ReadWrite,
+		false,
+	)
+	if err != nil {
+		return NativeSmokeInvocations{}, err
+	}
+	return NativeSmokeInvocations{
+		Design:         design,
+		Implementation: implementation,
 	}, nil
 }
 
