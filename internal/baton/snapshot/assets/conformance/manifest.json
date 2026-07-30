@@ -1,6 +1,6 @@
 {
   "schema_version": "baton.conformance-manifest/v2",
-  "baton_version": "1.0.0-rc.9",
+  "baton_version": "1.0.0-rc.11",
   "profiles": {
     "portable_kit": {
       "status": "EXECUTABLE",

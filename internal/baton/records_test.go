@@ -255,6 +255,15 @@ func TestPlanRejectsDependencyCyclesParallelOverlapAndForeignFields(t *testing.T
 		_, err = ParsePlan(append(append([]byte(planOpen), metadata...), []byte(planClose+"body\n")...))
 		return err
 	}
+	t.Run("canonical reserved exclusion", func(t *testing.T) {
+		value := base()
+		tracks := value["tracks"].([]any)
+		scope := tracks[0].(map[string]any)["slices"].([]any)[0].(map[string]any)["scope"].(map[string]any)
+		scope["exclude"] = []any{RecordRoot}
+		if err := parse(value); err != nil {
+			t.Fatalf("canonical reserved exclusion was rejected: %v", err)
+		}
+	})
 	cases := map[string]struct {
 		mutate func(map[string]any)
 		code   string
@@ -274,6 +283,28 @@ func TestPlanRejectsDependencyCyclesParallelOverlapAndForeignFields(t *testing.T
 					map[string]any{"include": []any{"one/sub"}, "exclude": []any{}}
 			},
 			code: "PARALLEL_TOUCH_CONFLICT",
+		},
+		"reserved record root": {
+			mutate: func(value map[string]any) {
+				tracks := value["tracks"].([]any)
+				tracks[0].(map[string]any)["slices"].([]any)[0].(map[string]any)["scope"] =
+					map[string]any{
+						"include": []any{RecordRoot},
+						"exclude": []any{RecordRoot},
+					}
+			},
+			code: "RESERVED_RECORD_ROOT",
+		},
+		"below reserved record root": {
+			mutate: func(value map[string]any) {
+				tracks := value["tracks"].([]any)
+				tracks[0].(map[string]any)["slices"].([]any)[0].(map[string]any)["scope"] =
+					map[string]any{
+						"include": []any{RecordRoot + "/demo"},
+						"exclude": []any{RecordRoot},
+					}
+			},
+			code: "RESERVED_RECORD_ROOT",
 		},
 		"unknown field": {
 			mutate: func(value map[string]any) { value["foreign"] = true },

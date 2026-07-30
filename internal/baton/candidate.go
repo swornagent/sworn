@@ -147,13 +147,19 @@ func ValidateSliceCandidateScope(
 	if !ancestor {
 		return recordFail("INVALID_CANDIDATE_ANCESTRY", "candidate does not descend from its bound base")
 	}
+	if err := repository.assertCandidateRecordRootUnchanged(base, candidate); err != nil {
+		return err
+	}
 	paths, err := repository.changedPaths(base, candidate)
 	if err != nil {
 		return err
 	}
 	for _, changedPath := range paths {
 		if changedPath == RecordRoot || strings.HasPrefix(changedPath, RecordRoot+"/") {
-			continue
+			return recordFail(
+				"RESERVED_RECORD_ROOT_CHANGED",
+				"candidate changes reserved Baton records at "+changedPath,
+			)
 		}
 		if !pathInScope(slice.Scope, changedPath) {
 			return recordFail("SLICE_OUTSIDE_SCOPE", "candidate changes out-of-scope path "+changedPath)

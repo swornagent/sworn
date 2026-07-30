@@ -89,6 +89,11 @@ expected in advance:
 - `depends_on` and `consumes` record actual delivery or product relationships,
   not test co-touch, scheduling convenience, or likely support work.
 
+`.baton/releases` is reserved Baton metadata. Product code MUST NOT read or
+depend on it, including from build, test, package, deploy, hooks, or runtime.
+Only Baton's record writer may modify it. Product identity ignores exactly
+this directory.
+
 An Implementer may discover ancillary tests, oracles, support files, extra
 checks, or evidence corrections and repair them under the current approved
 plan. A Captain may carry bounded corrections with `PROCEED` when they do not
@@ -129,7 +134,8 @@ make discovered support work observable without copying it into a revised plan.
   by Captain.
 - Candidate evidence binds the plan revision, slice, attempt, repository,
   exact prepared base, candidate, product tree, consumed product pins, checks,
-  and relevant Captain decision.
+  and relevant Captain decision. The candidate preserves the reserved record
+  root exactly from its implementation base.
 - Verifier differs from the Implementer and Captain, is fresh and read-only,
   and binds the exact candidate and evidence.
 - Work `PASS` covers one slice candidate. Assembly `PASS` separately covers the

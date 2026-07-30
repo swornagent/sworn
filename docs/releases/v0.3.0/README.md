@@ -1,23 +1,23 @@
 # Sworn v0.3 technical-readiness evidence
 
 Sworn `1.0.0-rc.1` is the public release-candidate label for the v0.3 product
-line. It embeds Baton `1.0.0-rc.9` and proves technical readiness only; it does
+line. It embeds Baton `1.0.0-rc.11` and proves technical readiness only; it does
 not authorize a tag, target merge, hosted deployment, or publication.
 
 ## Bound protocol and conformance input
 
-- Baton tag: `v1.0.0-rc.9`
-- tag object: `3fa8fcdcddc1f88479a29f103a373acf60818beb`
-- peeled commit: `04e828d946f710b46bc7ed9fb7a08d593987272a`
-- tree: `83a7a0fdfdc427aaad8feceb82a70197007c7758`
+- Baton tag: `v1.0.0-rc.11`
+- tag object: `427eb665f7ab32ec1b86f4efe4ae76e0627be588`
+- peeled commit: `5807eb8c88cd85bdbad9a7ac3343ae8e1a69a19d`
+- tree: `5900a2d5ab311184cd2a9d9b048da72fff220aef`
 - release archive SHA-256:
-  `5d52b5334dae60642f6557f5a051bcd9eba4f3730f46aea9dd153bbc7f5b5ad6`
+  `524a1e4a7ddfa579fec34ca02fc1bb9c630cd018f3575eebfeb7ae7c4febd550`
 - published skills payload SHA-256:
-  `792a1a558c8b228801f4c7fcb55b89a1272d00651baa2e24e240b46ba0a5519c`
+  `f3125e25d85f13cbab5437cb52a61627be33775d4f46b5665d4976b94cba12cc`
 - autonomous conformance manifest Git blob:
-  `859ec28547a2cce4f70571d795954ba0fd80ba7b`
+  `75906b2f6584880db498a9a717b2699877551170`
 - autonomous conformance manifest SHA-256:
-  `cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c`
+  `f375cc87083ad397689493ef5855f42bbaa34723a5dae515b1fcd846d00e72e9`
 
 The existing `support_package_sha256` version field retains its wire name and
 reports that published payload digest. Sworn does not embed, install, or

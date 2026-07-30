@@ -440,7 +440,6 @@ export function createBoardOracle({ readState = readBatonState } = {}) {
             return projectState(readState(root, current.release, {
               expectedReleaseHead: current.head,
               captureRefs: options.captureRefs,
-              productExclusionAdmission: options.productExclusionAdmission,
             }));
           } catch (error) {
             if (

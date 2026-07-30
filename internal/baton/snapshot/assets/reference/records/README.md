@@ -25,6 +25,13 @@ therefore bind immutable Git objects without mixing metadata into the product
 tree, and merge can advance the target only to the exact candidate covered by
 the current PASS.
 
+`.baton/releases` is reserved Baton metadata. Product code MUST NOT read or
+depend on it, including from build, test, package, deploy, hooks, or runtime.
+Product identity structurally ignores exactly this fixed non-symlinked
+directory. Plan product scope cannot include it, candidates must preserve it from
+their exact implementation base, and only the confined record writer may
+modify it. The reference layer does not pretend to detect semantic reads.
+
 Plan scope is a commitment to owned behavioral and product surfaces, not a
 candidate-path allowlist. The action layer derives the complete candidate diff
 from Git and binds the product tree. It accepts ancillary support paths that

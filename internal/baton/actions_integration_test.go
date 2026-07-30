@@ -845,6 +845,255 @@ func TestActionsMatchExactReferenceForSHA1AndSHA256(t *testing.T) {
 	}
 }
 
+func TestCandidateReceiptRejectsReservedRecordRootChangeFromPreparedBase(t *testing.T) {
+	repoPath, _, actions := createActionHarness(t)
+	release := "reserved-candidate"
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanBytes(release),
+		Summary:   "Approve reserved-root fixture.",
+		Detail:    []byte("protected approval"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prepareActionSliceBase(t, actions, release, "S1")
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design S1.", Detail: []byte("design"),
+	})
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "captain", Result: "proceed",
+		Summary: "Proceed S1.", Detail: []byte("review"),
+	})
+
+	ref := "refs/heads/track/" + release + "/T1"
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", ref)
+	candidate := commitActionProduct(
+		t,
+		repoPath,
+		parent,
+		ref,
+		".baton/releases/foreign/plan.md",
+		"reserved\n",
+		1000000500,
+	)
+	_, err := actions.AppendReceipt(AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "candidate",
+		Summary: "Candidate S1.", Detail: []byte("implementation"),
+		Candidate: candidate, CheckResults: []byte("checks\n"),
+	})
+	if code := ErrorCode(err); code != "RESERVED_RECORD_ROOT_CHANGED" {
+		t.Fatalf("code = %q (%v), want RESERVED_RECORD_ROOT_CHANGED", code, err)
+	}
+}
+
+func TestReplayRejectsForgedCandidateRecordRootBeforeProductPolicy(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "reserved-replay"
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanBytes(release),
+		Summary:   "Approve replay fixture.",
+		Detail:    []byte("protected approval"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prepareActionSliceBase(t, actions, release, "S1")
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design S1.", Detail: []byte("design"),
+	})
+	proceed := appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "captain", Result: "proceed",
+		Summary: "Proceed S1.", Detail: []byte("review"),
+	})
+	state := readActionState(t, repository, release)
+	contract := state.Plan.Metadata.Contracts["S1"]
+	sliceID, attempt := "S1", int64(1)
+	ownerRef := trackRef(release, "T1")
+	candidate := commitActionProduct(
+		t,
+		repoPath,
+		proceed.ReceiptCommit,
+		ownerRef,
+		".baton/releases/foreign/plan.md",
+		"reserved\n",
+		1000000501,
+	)
+	productTree, err := actions.repository.productTree(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := DigestBytes([]byte("forged checks\n"))
+	appendRawActionReceipt(
+		t,
+		actions,
+		repoPath,
+		ownerRef,
+		candidate,
+		candidate,
+		Receipt{
+			Version: ReceiptVersion, Release: release,
+			Slice: &sliceID, Role: "implementer",
+			Result: "candidate", Attempt: &attempt,
+			Plan: state.Plan.OID, Contract: &contract,
+			Binds: proceed.ReceiptCommit, Detail: DigestBytes(nil),
+			Summary:   "Forged candidate hides a reserved-root change.",
+			Candidate: &candidate, ProductTree: &productTree,
+			Inputs: map[string]string{}, Checks: &checks,
+		},
+		nil,
+	)
+
+	candidatePolicyCalls := 0
+	_, err = ReadState(
+		UseGitRepository(repository),
+		release,
+		func(request InertnessRequest) (InertnessDecision, error) {
+			if request.Commit == candidate {
+				candidatePolicyCalls++
+				return InertnessDecision{}, fmt.Errorf(
+					"unexpected candidate product-tree policy for %s",
+					request.Commit,
+				)
+			}
+			return InertnessDecision{
+				Kind: request.Kind, Repository: request.Repository,
+				RecordRoot: request.RecordRoot, Commit: request.Commit,
+				Decision: "inert",
+			}, nil
+		},
+	)
+	if code := ErrorCode(err); code != "RESERVED_RECORD_ROOT_CHANGED" {
+		t.Fatalf("code = %q (%v), want RESERVED_RECORD_ROOT_CHANGED", code, err)
+	}
+	if candidatePolicyCalls != 0 {
+		t.Fatalf(
+			"candidate product-tree policy ran %d times before replay rejection",
+			candidatePolicyCalls,
+		)
+	}
+}
+
+func TestConsumingReplayRejectsForgedBaseBeforeCandidateProductPolicy(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "reserved-consuming-replay"
+	s1 := actionSlice("S1", "one.txt")
+	s2 := actionSlice("S2", "two.txt")
+	s2.DependsOn = []string{"S1"}
+	s2.Consumes = []string{"S1"}
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, []Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []Slice{s1}},
+			{ID: "T2", DependsOn: []string{"T1"}, Slices: []Slice{s2}},
+		}),
+		Summary: "Approve consuming replay fixture.",
+		Detail:  []byte("protected approval"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	advanceActionSlice(
+		t,
+		actions,
+		repoPath,
+		release,
+		"T1",
+		"S1",
+		"one.txt",
+		1000000510,
+		"pass",
+	)
+	prepareActionSliceBase(t, actions, release, "S2")
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S2", Role: "implementer", Result: "designed",
+		Summary: "Design S2.", Detail: []byte("design"),
+	})
+	proceed := appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S2", Role: "captain", Result: "proceed",
+		Summary: "Proceed S2.", Detail: []byte("review"),
+	})
+	prepareActionSliceBase(t, actions, release, "S2")
+	state := readActionState(t, repository, release)
+	consumer, ok := state.Slice("S2")
+	if !ok {
+		t.Fatal("missing consuming slice S2")
+	}
+	contract := state.Plan.Metadata.Contracts["S2"]
+	sliceID, attempt := "S2", int64(1)
+	ownerRef := trackRef(release, "T2")
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", ownerRef)
+	forgedBase := commitActionProduct(
+		t,
+		repoPath,
+		parent,
+		ownerRef,
+		".baton/releases/foreign/plan.md",
+		"reserved\n",
+		1000000520,
+	)
+	candidate := commitActionProduct(
+		t,
+		repoPath,
+		forgedBase,
+		ownerRef,
+		"two.txt",
+		"candidate\n",
+		1000000521,
+	)
+	productTree, err := actions.repository.productTree(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := DigestBytes([]byte("forged consuming checks\n"))
+	appendRawActionReceipt(
+		t,
+		actions,
+		repoPath,
+		ownerRef,
+		candidate,
+		candidate,
+		Receipt{
+			Version: ReceiptVersion, Release: release,
+			Slice: &sliceID, Role: "implementer",
+			Result: "candidate", Attempt: &attempt,
+			Plan: state.Plan.OID, Contract: &contract,
+			Binds: proceed.ReceiptCommit, Detail: DigestBytes(nil),
+			Summary:   "Forged consuming candidate self-declares a mutated base.",
+			Base:      &forgedBase,
+			Candidate: &candidate, ProductTree: &productTree,
+			Inputs: cloneInputs(consumer.InputPins), Checks: &checks,
+		},
+		nil,
+	)
+
+	candidatePolicyCalls := 0
+	_, err = ReadState(
+		UseGitRepository(repository),
+		release,
+		func(request InertnessRequest) (InertnessDecision, error) {
+			if request.Commit == candidate {
+				candidatePolicyCalls++
+				return InertnessDecision{}, fmt.Errorf(
+					"unexpected candidate product-tree policy for %s",
+					request.Commit,
+				)
+			}
+			return InertnessDecision{
+				Kind: request.Kind, Repository: request.Repository,
+				RecordRoot: request.RecordRoot, Commit: request.Commit,
+				Decision: "inert",
+			}, nil
+		},
+	)
+	if code := ErrorCode(err); code != "RESERVED_RECORD_ROOT_CHANGED" {
+		t.Fatalf("code = %q (%v), want RESERVED_RECORD_ROOT_CHANGED", code, err)
+	}
+	if candidatePolicyCalls != 0 {
+		t.Fatalf(
+			"candidate product-tree policy ran %d times before replay rejection",
+			candidatePolicyCalls,
+		)
+	}
+}
+
 func TestActionsFailClosedBeforeMutation(t *testing.T) {
 	repoPath := createActionRepository(t, "sha1")
 	gitRepository, err := gitx.Open(repoPath, actionTestGit)

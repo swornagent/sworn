@@ -1553,6 +1553,46 @@ func validateSliceHistory(
 				entry.Parent != *receipt.Candidate || *receipt.Candidate == receipt.Binds {
 				return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
 			}
+			deferConsumingEvidence := len(planned.Slice.Consumes) > 0 &&
+				receipt.Base != nil
+			implementationBase := receipt.Binds
+			if len(planned.Slice.Consumes) == 0 {
+				preparedBase, err := preparePlanBoundBase(
+					repository,
+					receipt.Release,
+					plan,
+					planned,
+					receipt.Binds,
+					nil,
+					approvals,
+					nil,
+				)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				preparedAncestor, err := repository.isAncestor(
+					preparedBase,
+					*receipt.Candidate,
+				)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				if !preparedAncestor {
+					return SliceHistory{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"candidate "+entry.OID+" omits its exact prepared base",
+					)
+				}
+				implementationBase = preparedBase
+			}
+			if !deferConsumingEvidence {
+				if err := repository.assertCandidateRecordRootUnchanged(
+					implementationBase,
+					*receipt.Candidate,
+				); err != nil {
+					return SliceHistory{}, err
+				}
+			}
 			ancestor, err := repository.isAncestor(receipt.Binds, *receipt.Candidate)
 			if err != nil {
 				return SliceHistory{}, err
@@ -1564,12 +1604,17 @@ func validateSliceHistory(
 					return SliceHistory{}, err
 				}
 			}
-			product, err := productTreeFor(repository, *receipt.Candidate, productCache)
-			if err != nil {
-				return SliceHistory{}, err
-			}
-			if !ancestor || !baseAncestor || product != *receipt.ProductTree {
+			if !ancestor || !baseAncestor {
 				return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
+			}
+			if !deferConsumingEvidence {
+				product, err := productTreeFor(repository, *receipt.Candidate, productCache)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				if product != *receipt.ProductTree {
+					return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
+				}
 			}
 		case receipt.Role == "verifier":
 			if !sameLineage || bound.Receipt.Role != "implementer" ||
@@ -2454,10 +2499,30 @@ func validateConsumedHistories(
 			if err != nil {
 				return err
 			}
+			if err := repository.assertCandidateRecordRootUnchanged(
+				expected,
+				*receipt.Candidate,
+			); err != nil {
+				return err
+			}
 			if expected != *receipt.Base {
 				return recordFail(
 					"CHANGED_CANDIDATE",
 					"candidate "+entry.OID+" has an inexact prepared base",
+				)
+			}
+			product, err := productTreeFor(
+				repository,
+				*receipt.Candidate,
+				productCache,
+			)
+			if err != nil {
+				return err
+			}
+			if product != *receipt.ProductTree {
+				return recordFail(
+					"CHANGED_CANDIDATE",
+					"candidate "+entry.OID+" has invalid Git evidence",
 				)
 			}
 			for _, input := range inputs {
