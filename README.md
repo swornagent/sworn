@@ -74,7 +74,9 @@ guesses a dialect or falls back between them.
 
 ## Build and verify
 
-Go 1.26.5 or newer is required. The release gates are:
+Go 1.26.5 or newer is required. Linux also requires root-owned
+`/usr/bin/bwrap` with unprivileged user namespaces enabled. The release gates
+are:
 
 ```sh
 GOFLAGS=-buildvcs=false go test ./...

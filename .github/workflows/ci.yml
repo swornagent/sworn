@@ -4,22 +4,15 @@ on:
   push:
     branches:
       - main
-      - "release/**"
-      - "release-wt/**"
-      - "track/**"
-  pull_request:
-    branches:
-      - main
-      - "release/**"
-      - "release-wt/**"
+  pull_request: {}
 
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       GOFLAGS: -buildvcs=false
       GOWORK: "off"
@@ -31,6 +24,31 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Provision Linux sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]]; then
+            echo 1 | sudo tee \
+              /proc/sys/kernel/unprivileged_userns_clone >/dev/null
+          fi
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            echo 0 | sudo tee \
+              /proc/sys/kernel/apparmor_restrict_unprivileged_userns >/dev/null
+          fi
+          /usr/bin/bwrap --version
+          /usr/bin/bwrap \
+            --die-with-parent \
+            --new-session \
+            --unshare-all \
+            --unshare-user \
+            --disable-userns \
+            --cap-drop ALL \
+            --clearenv \
+            --ro-bind / / \
+            /usr/bin/true
       - name: Product formatting
         shell: bash
         run: |
@@ -62,8 +80,6 @@ jobs:
           fi
       - name: Module is tidy
         run: go mod tidy -diff
-      - name: W0 admission contract
-        run: go test -count=1 ./tools/batonassets/... ./tools/batongolden/... ./cmd/sworn/...
       - name: Test
         run: go test -count=1 ./...
       - name: Race test

@@ -983,7 +983,10 @@ func w8NewProviderTarget(
 			transport,
 		)
 	case "bedrock-runtime":
-		const awsPath = "/usr/local/aws-cli/v2/2.35.9/dist/aws"
+		awsPath := filepath.Join(t.TempDir(), "aws-never-called")
+		if err := os.WriteFile(awsPath, nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
 		spec := w8AWSChain(t, awsPath)
 		adapter, err = NewBedrockAdapter(
 			BedrockProfileConfig{
@@ -998,8 +1001,24 @@ func w8NewProviderTarget(
 			transport,
 		)
 		if err == nil {
-			adapter.(*loopAdapter).transport.(*bedrockTransport).runAWS =
-				w8AWSCommand
+			var runAWSCalls atomic.Int64
+			bedrock := adapter.(*loopAdapter).transport.(*bedrockTransport)
+			bedrock.runAWS = func(
+				context.Context,
+				AWSChainSpec,
+				[][]byte,
+				...string,
+			) ([]byte, error) {
+				runAWSCalls.Add(1)
+				return nil, fmt.Errorf(
+					"AWS CLI must not run for direct environment credentials",
+				)
+			}
+			t.Cleanup(func() {
+				if got := runAWSCalls.Load(); got != 0 {
+					t.Errorf("AWS CLI runner calls = %d, want 0", got)
+				}
+			})
 		}
 	case "mantle":
 		adapter, err = NewBedrockMantleAdapter(
@@ -1070,23 +1089,6 @@ func w8AWSChain(t *testing.T, pathValue string) AWSChainSpec {
 		RuntimeFiles:           runtimeFiles,
 		RequiredRuntimeTargets: required,
 	}
-}
-
-func w8AWSCommand(
-	_ context.Context,
-	_ AWSChainSpec,
-	_ [][]byte,
-	arguments ...string,
-) ([]byte, error) {
-	if strings.Join(arguments, " ") ==
-		"configure export-credentials --format process" {
-		return []byte(
-			`{"Version":1,"AccessKeyId":"AKIAEXAMPLE1234",` +
-				`"SecretAccessKey":"secret-example-value","Expiration":"` +
-				time.Now().UTC().Add(time.Hour).Format(time.RFC3339) + `"}`,
-		), nil
-	}
-	return []byte(awsEnvironmentTable), nil
 }
 
 func w8NewNativeTarget(
