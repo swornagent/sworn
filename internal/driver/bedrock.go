@@ -155,6 +155,10 @@ func newBedrockConversation(
 	if err != nil {
 		return nil, err
 	}
+	system, err := bedrockTerminalInstruction(definitions)
+	if err != nil {
+		return nil, err
+	}
 	initialMessage, err := json.Marshal(map[string]any{
 		"role": "user",
 		"content": []map[string]string{{
@@ -167,12 +171,37 @@ func newBedrockConversation(
 	return &bedrockConversation{
 		endpoint: strings.TrimSuffix(config.Endpoint, "/"),
 		model:    model,
-		system:   "Use only the supplied Sworn workspace tools and terminate with sworn_submit.",
+		system:   system,
 		tools:    tools, messages: []json.RawMessage{initialMessage},
 		allowCachePoint:   config.AllowCachePoint,
 		allowGuardContent: config.AllowGuardContent,
 		ledger:            newContinuationLedger(),
 	}, nil
+}
+
+func bedrockTerminalInstruction(
+	definitions []providerToolDefinition,
+) (string, error) {
+	var terminals []string
+	for _, definition := range definitions {
+		switch definition.Name {
+		case "sworn_submit", "sworn_yield",
+			"sworn_recovery_decide", "sworn_advisory_respond":
+			terminals = append(terminals, definition.Name)
+		}
+	}
+	sort.Strings(terminals)
+	valid := len(terminals) == 1 &&
+		(terminals[0] == "sworn_recovery_decide" ||
+			terminals[0] == "sworn_advisory_respond")
+	valid = valid || len(terminals) == 2 &&
+		terminals[0] == "sworn_submit" &&
+		terminals[1] == "sworn_yield"
+	if !valid {
+		return "", fail("CONTINUATION_INVALID")
+	}
+	return "Use only the supplied Sworn tools and terminate with exactly one call to " +
+		strings.Join(terminals, " or ") + ".", nil
 }
 
 func bedrockTools(

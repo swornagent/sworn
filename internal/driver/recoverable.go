@@ -95,11 +95,38 @@ func (Dispatcher) InvokeRecoverableTurn(
 ) (Observation, *Continuation, ContinuationResult, error) {
 	if continuation != nil {
 		return resumeRecoverableTurn(
-			ctx, invocation, binding, continuation, input,
+			ctx, invocation, binding, continuation, input, nil,
 		)
 	}
 	return startRecoverableTurn(
 		ctx, invocation, binding, input, input != nil,
+	)
+}
+
+// InvokeRecoverableTurnPromotingDesign consumes one yielded design handle.
+// Another yield remains in the same recoverable flow. Only an exact accepted
+// ImplementerDesign handoff may retain adapter state under the separate target
+// W3 binding for a later implementation resume.
+func (Dispatcher) InvokeRecoverableTurnPromotingDesign(
+	ctx context.Context,
+	invocation Invocation,
+	recoveryBinding ContinuationBinding,
+	targetBinding ContinuationBinding,
+	continuation *Continuation,
+	input *RecoverableTurnInput,
+) (Observation, *Continuation, ContinuationResult, error) {
+	if continuation == nil {
+		return Observation{}, nil,
+			freshContinuation(ContinuationStatusMismatch),
+			fail("CONTINUATION_INVALID")
+	}
+	return resumeRecoverableTurn(
+		ctx,
+		invocation,
+		recoveryBinding,
+		continuation,
+		input,
+		&targetBinding,
 	)
 }
 
@@ -183,6 +210,7 @@ func resumeRecoverableTurn(
 	binding ContinuationBinding,
 	continuation *Continuation,
 	input *RecoverableTurnInput,
+	promotionBinding *ContinuationBinding,
 ) (Observation, *Continuation, ContinuationResult, error) {
 	fresh := freshContinuation(ContinuationStatusClosed)
 	cell := continuationCellFor(continuation)
@@ -211,6 +239,23 @@ func resumeRecoverableTurn(
 			cell, ContinuationStatusMismatch, err,
 		)
 	}
+	var promotionFingerprint [sha256.Size]byte
+	if promotionBinding != nil {
+		if validateContinuationSource(invocation) != nil ||
+			!sameContinuationScope(binding, *promotionBinding) {
+			return discardContinuation(
+				cell, ContinuationStatusMismatch, nil,
+			)
+		}
+		var promotionErr error
+		promotionFingerprint, promotionErr =
+			continuationFingerprint(*promotionBinding, invocation)
+		if promotionErr != nil {
+			return discardContinuation(
+				cell, ContinuationStatusMismatch, nil,
+			)
+		}
+	}
 	fingerprint, err := continuationFingerprint(binding, invocation)
 	if err != nil {
 		return discardContinuation(
@@ -231,9 +276,6 @@ func resumeRecoverableTurn(
 		)
 	}
 
-	targetInvocation := sha256.Sum256(
-		[]byte(invocation.Request.InvocationID),
-	)
 	cell.mu.Lock()
 	stateBytes := int64(0)
 	if cell.state != nil {
@@ -252,8 +294,7 @@ func resumeRecoverableTurn(
 		discardStatus = ContinuationStatusMismatch
 	case time.Now().UnixNano() >= cell.expiresNano:
 		discardStatus = ContinuationStatusExpired
-	case cell.binding != fingerprint ||
-		cell.sourceInvocation == targetInvocation:
+	case cell.binding != fingerprint:
 		discardStatus = ContinuationStatusMismatch
 	case !cell.mode.validRetained() ||
 		stateBytes < 1 ||
@@ -274,6 +315,7 @@ func resumeRecoverableTurn(
 			ctx,
 			invocation,
 			state,
+			promotionBinding != nil,
 		)
 	observation, invokeErr = finishAdapterInvocation(
 		invocation,
@@ -309,6 +351,16 @@ func resumeRecoverableTurn(
 		)
 		return observation, handle, result, retainErr
 	}
+	if invokeErr == nil && observation.Handoff != nil &&
+		promotionBinding != nil {
+		handle, result, retainErr := retainedContinuation(
+			promotionFingerprint,
+			invocation,
+			nextState,
+			continuationFlowW3,
+		)
+		return observation, handle, result, retainErr
+	}
 	if closeErr := closeContinuationState(nextState); closeErr != nil {
 		return failureObservation("adapter_failed"), nil, ContinuationResult{
 			Mode: mode, Status: status,
@@ -317,6 +369,16 @@ func resumeRecoverableTurn(
 	return observation, nil, ContinuationResult{
 		Mode: mode, Status: status,
 	}, invokeErr
+}
+
+func sameContinuationScope(
+	source ContinuationBinding,
+	target ContinuationBinding,
+) bool {
+	return source.RunID == target.RunID &&
+		source.Release == target.Release &&
+		source.Slice == target.Slice &&
+		source.Attempt == target.Attempt
 }
 
 func invokeWithoutRecoverableContinuation(

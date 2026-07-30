@@ -78,6 +78,7 @@ func platformResumeNativeRecoverableContinuation(
 	string,
 	nativeSurfaceCertificate,
 	continuationState,
+	bool,
 ) (Observation, continuationState, error) {
 	return Observation{}, nil, fail("UNSUPPORTED_HOST")
 }

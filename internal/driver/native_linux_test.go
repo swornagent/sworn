@@ -1136,6 +1136,95 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 				t.Fatal("consumed native session root still exists")
 			}
 
+			promotionStart := nativeSameDutyInvocationFixture(
+				t,
+				pair.ContinuationStart,
+				"native-recoverable-promote-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				promotionStart,
+				binding,
+				nil,
+			)
+			if err != nil || observation.Yield == nil || handle == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"promotion start = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			promotionBinding := binding
+			promotionBinding.ToolContractDigest =
+				Digest([]byte("native-promoted-design-contract"))
+			promotionInput := &RecoverableTurnInput{
+				SchemaVersion: RecoverableTurnInputSchemaVersion,
+				Kind:          RecoverableInputAnswer,
+				Answer:        "Use the exact admitted design evidence.",
+			}
+			observation, next, result, err =
+				(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+					context.Background(),
+					promotionStart,
+					binding,
+					promotionBinding,
+					handle,
+					promotionInput,
+				)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || next == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended {
+				t.Fatalf(
+					"native design promotion = observation %#v, next %p, result %#v, error %v",
+					observation,
+					next,
+					result,
+					err,
+				)
+			}
+			promotedCell := continuationCellFor(next)
+			promotedCell.mu.Lock()
+			promotedState, ok :=
+				promotedCell.state.(*nativeContinuationState)
+			promotedCell.mu.Unlock()
+			if !ok {
+				t.Fatal("promotion did not retain native state")
+			}
+			promotedState.mu.Lock()
+			promotedRoot := promotedState.root
+			promotedState.mu.Unlock()
+			promotionResume := nativeSameDutyInvocationFixture(
+				t,
+				pair.Resume,
+				"native-promoted-implementation-"+string(family),
+			)
+			observation, handle, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(),
+				promotionResume,
+				promotionBinding,
+				next,
+			)
+			if err != nil || observation.Handoff == nil ||
+				observation.Yield != nil || handle != nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusResumed {
+				t.Fatalf(
+					"promoted native resume = observation %#v, handle %p, result %#v, error %v",
+					observation,
+					handle,
+					result,
+					err,
+				)
+			}
+			if _, err := os.Lstat(promotedRoot); !os.IsNotExist(err) {
+				t.Fatal("promoted native session root still exists")
+			}
+
 			plain, err := (Dispatcher{}).Invoke(
 				context.Background(),
 				pair.FreshReadOnly,
@@ -1213,8 +1302,9 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 				nil,
 			)
 			if err != nil || observation.Handoff == nil ||
-				observation.Yield != nil || next != nil ||
-				result.Status != ContinuationStatusCompleted ||
+				observation.Yield != nil || next == nil ||
+				result.Mode != ContinuationModeNativeSession ||
+				result.Status != ContinuationStatusSuspended ||
 				reservations != 1 {
 				t.Fatalf(
 					"native prose nudge = observation %#v, next %p, result %#v, reservations %d, error %v",
@@ -1224,6 +1314,9 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 					reservations,
 					err,
 				)
+			}
+			if err := next.Close(); err != nil {
+				t.Fatal(err)
 			}
 
 			reservations = 0

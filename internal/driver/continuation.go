@@ -297,6 +297,7 @@ func resumeContinuation(
 				ctx,
 				invocation,
 				state,
+				false,
 			)
 	} else {
 		observation, invokeErr = adapter.resumeContinuation(

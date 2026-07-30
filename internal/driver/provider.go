@@ -275,7 +275,7 @@ func (adapter *loopAdapter) resumeContinuation(
 	prior continuationState,
 ) (Observation, error) {
 	observation, _, err := adapter.resumeProviderContinuation(
-		ctx, invocation, prior, false,
+		ctx, invocation, prior, false, false,
 	)
 	return observation, err
 }
@@ -284,9 +284,10 @@ func (adapter *loopAdapter) resumeRecoverableContinuation(
 	ctx context.Context,
 	invocation Invocation,
 	prior continuationState,
+	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	return adapter.resumeProviderContinuation(
-		ctx, invocation, prior, true,
+		ctx, invocation, prior, true, retainDesignTerminal,
 	)
 }
 
@@ -295,6 +296,7 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 	invocation Invocation,
 	prior continuationState,
 	retainYield bool,
+	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	started := time.Now()
 	state, ok := prior.(*apiContinuationState)
@@ -346,7 +348,9 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 		state.bytes = 0
 		state.closed = true
 	}
-	if observation.Yield == nil && retained != nil {
+	if retained != nil &&
+		(observation.Yield == nil || !retainYield) &&
+		(observation.Handoff == nil || !retainDesignTerminal) {
 		_ = closeContinuationState(retained)
 		retained = nil
 	}

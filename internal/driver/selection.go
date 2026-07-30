@@ -70,6 +70,7 @@ type recoverableContinuationAdapter interface {
 		context.Context,
 		Invocation,
 		continuationState,
+		bool,
 	) (Observation, continuationState, error)
 }
 

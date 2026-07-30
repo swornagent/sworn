@@ -1142,6 +1142,7 @@ func platformStartNativeContinuationMode(
 			nativeState,
 			true,
 			false,
+			!recoverable,
 		)
 	}
 	if !launch.accepted || !validNativeSessionID(launch.capturedID) {
@@ -1177,6 +1178,7 @@ func platformResumeNativeContinuation(
 		prior,
 		false,
 		true,
+		false,
 	)
 	if closeErr := closeContinuationState(next); closeErr != nil {
 		return Observation{}, closeErr
@@ -1191,6 +1193,7 @@ func platformResumeNativeRecoverableContinuation(
 	credentialPath string,
 	certificate nativeSurfaceCertificate,
 	prior continuationState,
+	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	if validateNativeSurfaceCertificate(
 		certificate,
@@ -1208,6 +1211,7 @@ func platformResumeNativeRecoverableContinuation(
 		prior,
 		true,
 		true,
+		retainDesignTerminal,
 	)
 }
 
@@ -1220,6 +1224,7 @@ func platformResumeNativeContinuationMode(
 	prior continuationState,
 	recoverable bool,
 	allowProseNudge bool,
+	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	nativeState, ok := prior.(*nativeContinuationState)
 	if !ok || nativeState == nil {
@@ -1274,6 +1279,7 @@ func platformResumeNativeContinuationMode(
 			retryState,
 			recoverable,
 			false,
+			retainDesignTerminal,
 		)
 		if closeErr := retryState.closeContinuation(); closeErr != nil {
 			_ = closeContinuationState(next)
@@ -1281,7 +1287,10 @@ func platformResumeNativeContinuationMode(
 		}
 		return observation, next, retryErr
 	}
-	if err != nil || observation.Yield == nil || !recoverable {
+	retain := observation.Yield != nil && recoverable
+	retain = retain ||
+		observation.Handoff != nil && retainDesignTerminal
+	if err != nil || !retain {
 		return observation, nil, err
 	}
 	next, transferErr := nativeState.transfer()

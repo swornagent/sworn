@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 )
@@ -15,12 +16,7 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 	t *testing.T,
 ) {
 	t.Parallel()
-	const (
-		startID     = "recoverable-start"
-		answerID    = "recoverable-answer"
-		nudgeID     = "recoverable-nudge"
-		rehydrateID = "recoverable-rehydrate"
-	)
+	const invocationID = "recoverable-same-invocation"
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(
 		writer http.ResponseWriter,
@@ -51,38 +47,48 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 		}
 		switch turn {
 		case 1:
-			if prompt.InvocationID != startID || prompt.Recovery != nil {
+			if prompt.InvocationID != invocationID || prompt.Recovery != nil {
 				t.Errorf("start prompt = %#v", prompt)
 			}
 			writeRecoverableYield(
-				t, writer, startID, "Which base should I use?",
+				t, writer, invocationID, "Which base should I use?",
 			)
 		case 2:
-			if prompt.InvocationID != answerID ||
+			if prompt.InvocationID != invocationID ||
 				prompt.Recovery == nil ||
 				prompt.Recovery.Kind != RecoverableInputAnswer ||
 				prompt.Recovery.Content != "Use the pinned prepared base." {
 				t.Errorf("answer prompt = %#v", prompt)
 			}
-			writeRecoverableYield(
-				t, writer, answerID, "May I proceed with the bounded fix?",
+			writeRecoverableYieldCall(
+				t,
+				writer,
+				invocationID,
+				"May I proceed with the bounded fix?",
+				"recoverable-answer-call",
 			)
 		case 3:
-			if prompt.InvocationID != nudgeID ||
+			if prompt.InvocationID != invocationID ||
 				prompt.Recovery == nil ||
 				prompt.Recovery.Kind != RecoverableInputNudge ||
 				prompt.Recovery.Content != recoverableTurnNudge {
 				t.Errorf("nudge prompt = %#v", prompt)
 			}
-			writeRecoverableSubmit(t, writer, nudgeID)
+			writeRecoverableSubmissionCall(
+				t,
+				writer,
+				invocationID,
+				ImplementerImplementation,
+				"recoverable-submit-call",
+			)
 		case 4:
-			if prompt.InvocationID != rehydrateID ||
+			if prompt.InvocationID != invocationID ||
 				prompt.Recovery == nil ||
 				prompt.Recovery.Kind != RecoverableInputAnswer ||
 				prompt.Recovery.Content != "Resume from durable evidence." {
 				t.Errorf("rehydrate prompt = %#v", prompt)
 			}
-			writeRecoverableSubmit(t, writer, rehydrateID)
+			writeRecoverableSubmit(t, writer, invocationID)
 		default:
 			t.Errorf("unexpected request %d", turn)
 		}
@@ -95,7 +101,7 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 		t,
 		adapter,
 		ProfileOpenAIHTTP,
-		startID,
+		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
 		ReadWrite,
@@ -116,7 +122,7 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 		t,
 		adapter,
 		ProfileOpenAIHTTP,
-		answerID,
+		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
 		ReadWrite,
@@ -142,7 +148,7 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 		t,
 		adapter,
 		ProfileOpenAIHTTP,
-		nudgeID,
+		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
 		ReadWrite,
@@ -167,7 +173,7 @@ func TestRecoverableProviderTurnRetainsYieldAndRehydratesWithInput(
 		t,
 		adapter,
 		ProfileOpenAIHTTP,
-		rehydrateID,
+		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
 		ReadWrite,
@@ -389,6 +395,427 @@ func TestW3YieldHandleIsAdoptedOnlyBySameDutyRecovery(t *testing.T) {
 	}
 }
 
+func TestRecoverableDesignTerminalPromotesAtomicallyToW3(t *testing.T) {
+	t.Parallel()
+	const (
+		designID         = "recoverable-promoted-design"
+		implementationID = "recoverable-promoted-implementation"
+	)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		switch requests.Add(1) {
+		case 1:
+			writeRecoverableYield(
+				t,
+				writer,
+				designID,
+				"Which exact design constraint controls?",
+			)
+		case 2:
+			writeRecoverableSubmissionCall(
+				t,
+				writer,
+				designID,
+				ImplementerDesign,
+				"promoted-design-terminal",
+			)
+		case 3:
+			writeRecoverableSubmission(
+				t,
+				writer,
+				implementationID,
+				ImplementerImplementation,
+			)
+		default:
+			t.Errorf("unexpected provider request %d", requests.Load())
+		}
+	}))
+	defer server.Close()
+
+	adapter := recoverableProviderAdapter(t, server.URL)
+	recoveryBinding := continuationContractBinding()
+	targetBinding := recoveryBinding
+	targetBinding.ToolContractDigest =
+		Digest([]byte("promoted-design-to-implementation"))
+	design := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		designID,
+		RoleImplementer,
+		ImplementerDesign,
+		ReadOnly,
+	)
+	observation, source, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		design,
+		recoveryBinding,
+		nil,
+	)
+	if err != nil || observation.Yield == nil || source == nil ||
+		result.Status != ContinuationStatusSuspended {
+		t.Fatalf(
+			"design yield = observation %#v, source %p, result %#v, error %v",
+			observation,
+			source,
+			result,
+			err,
+		)
+	}
+	sourceAlias := *source
+	input := &RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputAnswer,
+		Answer:        "Use the exact current design constraint.",
+	}
+	observation, promoted, result, err :=
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			design,
+			recoveryBinding,
+			targetBinding,
+			source,
+			input,
+		)
+	if err != nil || observation.Handoff == nil ||
+		observation.Yield != nil || promoted == nil ||
+		result.Mode != ContinuationModeOpaqueReplay ||
+		result.Status != ContinuationStatusSuspended ||
+		requests.Load() != 2 {
+		t.Fatalf(
+			"design promotion = observation %#v, promoted %p, result %#v, requests %d, error %v",
+			observation,
+			promoted,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+	promotedAlias := *promoted
+
+	replayObservation, replay, replayResult, replayErr :=
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			design,
+			recoveryBinding,
+			targetBinding,
+			&sourceAlias,
+			input,
+		)
+	if replayErr != nil ||
+		!reflect.DeepEqual(replayObservation, Observation{}) ||
+		replay != nil ||
+		replayResult.Mode != ContinuationModeFreshRehydrate ||
+		replayResult.Status != ContinuationStatusClosed ||
+		requests.Load() != 2 {
+		t.Fatalf(
+			"source replay = observation %#v, next %p, result %#v, requests %d, error %v",
+			replayObservation,
+			replay,
+			replayResult,
+			requests.Load(),
+			replayErr,
+		)
+	}
+
+	implementation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		implementationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	setRecoverableInvocationFreshContext(
+		t,
+		&implementation,
+		false,
+		ContainmentReadWrite,
+		ImplementerImplementation,
+	)
+	observation, next, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		implementation,
+		targetBinding,
+		promoted,
+	)
+	if err != nil || observation.Handoff == nil ||
+		observation.Yield != nil || next != nil ||
+		result.Mode != ContinuationModeOpaqueReplay ||
+		result.Status != ContinuationStatusResumed ||
+		requests.Load() != 3 {
+		t.Fatalf(
+			"implementation resume = observation %#v, next %p, result %#v, requests %d, error %v",
+			observation,
+			next,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+	replayObservation, next, replayResult, replayErr =
+		(Dispatcher{}).InvokeTurn(
+			context.Background(),
+			implementation,
+			targetBinding,
+			&promotedAlias,
+		)
+	if replayErr != nil ||
+		!reflect.DeepEqual(replayObservation, Observation{}) ||
+		next != nil ||
+		replayResult.Mode != ContinuationModeFreshRehydrate ||
+		replayResult.Status != ContinuationStatusClosed ||
+		requests.Load() != 3 {
+		t.Fatalf(
+			"promoted replay = observation %#v, next %p, result %#v, requests %d, error %v",
+			replayObservation,
+			next,
+			replayResult,
+			requests.Load(),
+			replayErr,
+		)
+	}
+}
+
+func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
+	t.Parallel()
+	const (
+		mismatchID  = "recoverable-promotion-mismatch"
+		wrongDutyID = "recoverable-promotion-wrong-duty"
+		yieldID     = "recoverable-promotion-yield"
+	)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		switch requests.Add(1) {
+		case 1:
+			writeRecoverableYield(
+				t, writer, mismatchID, "Which constraint controls?",
+			)
+		case 2:
+			writeRecoverableYield(
+				t, writer, wrongDutyID, "Which implementation base?",
+			)
+		case 3:
+			writeRecoverableYield(
+				t, writer, yieldID, "Which constraint controls?",
+			)
+		case 4:
+			writeRecoverableYieldCall(
+				t,
+				writer,
+				yieldID,
+				"One bounded question remains.",
+				"promoted-design-yield-again",
+			)
+		default:
+			t.Errorf("unexpected provider request %d", requests.Load())
+		}
+	}))
+	defer server.Close()
+	adapter := recoverableProviderAdapter(t, server.URL)
+	recoveryBinding := continuationContractBinding()
+	targetBinding := recoveryBinding
+	targetBinding.ToolContractDigest =
+		Digest([]byte("exact-design-promotion"))
+	input := &RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputAnswer,
+		Answer:        "Use the exact admitted evidence.",
+	}
+
+	mismatch := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		mismatchID,
+		RoleImplementer,
+		ImplementerDesign,
+		ReadOnly,
+	)
+	_, mismatchHandle, _, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		mismatch,
+		recoveryBinding,
+		nil,
+	)
+	if err != nil || mismatchHandle == nil {
+		t.Fatalf("mismatch setup handle=%p error=%v", mismatchHandle, err)
+	}
+	mismatchAlias := *mismatchHandle
+	wrongTarget := targetBinding
+	wrongTarget.Slice = "different-slice"
+	observation, next, result, err :=
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			mismatch,
+			recoveryBinding,
+			wrongTarget,
+			mismatchHandle,
+			input,
+		)
+	if err != nil || !reflect.DeepEqual(observation, Observation{}) || next != nil ||
+		result.Status != ContinuationStatusMismatch ||
+		requests.Load() != 1 {
+		t.Fatalf(
+			"mismatched target = observation %#v, next %p, result %#v, requests %d, error %v",
+			observation,
+			next,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+	_, _, result, err =
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			mismatch,
+			recoveryBinding,
+			targetBinding,
+			&mismatchAlias,
+			input,
+		)
+	if err != nil || result.Status != ContinuationStatusClosed ||
+		requests.Load() != 1 {
+		t.Fatalf(
+			"mismatched alias result=%#v requests=%d error=%v",
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+
+	wrongDuty := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		wrongDutyID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	_, wrongDutyHandle, _, err :=
+		(Dispatcher{}).InvokeRecoverableTurn(
+			context.Background(),
+			wrongDuty,
+			recoveryBinding,
+			nil,
+			nil,
+		)
+	if err != nil || wrongDutyHandle == nil || requests.Load() != 2 {
+		t.Fatalf(
+			"wrong-duty setup handle=%p requests=%d error=%v",
+			wrongDutyHandle,
+			requests.Load(),
+			err,
+		)
+	}
+	observation, next, result, err =
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			wrongDuty,
+			recoveryBinding,
+			targetBinding,
+			wrongDutyHandle,
+			input,
+		)
+	if err != nil || !reflect.DeepEqual(observation, Observation{}) || next != nil ||
+		result.Status != ContinuationStatusMismatch ||
+		requests.Load() != 2 {
+		t.Fatalf(
+			"wrong-duty promotion = observation %#v, next %p, result %#v, requests %d, error %v",
+			observation,
+			next,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+
+	yielding := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		yieldID,
+		RoleImplementer,
+		ImplementerDesign,
+		ReadOnly,
+	)
+	_, yieldingHandle, _, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		yielding,
+		recoveryBinding,
+		nil,
+	)
+	if err != nil || yieldingHandle == nil || requests.Load() != 3 {
+		t.Fatalf(
+			"yield setup handle=%p requests=%d error=%v",
+			yieldingHandle,
+			requests.Load(),
+			err,
+		)
+	}
+	observation, next, result, err =
+		(Dispatcher{}).InvokeRecoverableTurnPromotingDesign(
+			context.Background(),
+			yielding,
+			recoveryBinding,
+			targetBinding,
+			yieldingHandle,
+			input,
+		)
+	if err != nil || observation.Yield == nil ||
+		observation.Handoff != nil || next == nil ||
+		result.Status != ContinuationStatusSuspended ||
+		requests.Load() != 4 {
+		t.Fatalf(
+			"yielded promotion = observation %#v, next %p, result %#v, requests %d, error %v",
+			observation,
+			next,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+	cell := continuationCellFor(next)
+	cell.mu.Lock()
+	flow := cell.flow
+	cell.mu.Unlock()
+	if flow != continuationFlowRecoverable {
+		t.Fatalf("yielded promotion flow = %d", flow)
+	}
+	if err := next.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setRecoverableInvocationFreshContext(
+	t *testing.T,
+	invocation *Invocation,
+	fresh bool,
+	containment ContainmentProfile,
+	responsibility Responsibility,
+) {
+	t.Helper()
+	invocation.Request.FreshContext = fresh
+	permission, err := NewSubmissionPermission(
+		invocation.Request,
+		invocation.Selected,
+		containment,
+		responsibility,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation.Permission = permission
+}
+
 func recoverableProviderAdapter(t *testing.T, endpoint string) Adapter {
 	t.Helper()
 	adapter, err := NewOpenAIAdapter(
@@ -422,6 +849,23 @@ func writeRecoverableYield(
 	message string,
 ) {
 	t.Helper()
+	writeRecoverableYieldCall(
+		t,
+		writer,
+		invocationID,
+		message,
+		invocationID,
+	)
+}
+
+func writeRecoverableYieldCall(
+	t *testing.T,
+	writer http.ResponseWriter,
+	invocationID string,
+	message string,
+	correlation string,
+) {
+	t.Helper()
 	arguments, err := json.Marshal(map[string]any{
 		"yield": Yield{
 			SchemaVersion: YieldSchemaVersion,
@@ -434,9 +878,9 @@ func writeRecoverableYield(
 		t.Fatal(err)
 	}
 	writeJSONResponse(t, writer, responsesToolCallResponse(
-		"yield-"+invocationID,
-		"function-"+invocationID,
-		"call-"+invocationID,
+		"yield-"+correlation,
+		"function-"+correlation,
+		"call-"+correlation,
 		"sworn_yield",
 		string(arguments),
 		1,
@@ -450,13 +894,45 @@ func writeRecoverableSubmit(
 	invocationID string,
 ) {
 	t.Helper()
+	writeRecoverableSubmission(
+		t,
+		writer,
+		invocationID,
+		ImplementerImplementation,
+	)
+}
+
+func writeRecoverableSubmission(
+	t *testing.T,
+	writer http.ResponseWriter,
+	invocationID string,
+	responsibility Responsibility,
+) {
+	t.Helper()
+	writeRecoverableSubmissionCall(
+		t,
+		writer,
+		invocationID,
+		responsibility,
+		invocationID,
+	)
+}
+
+func writeRecoverableSubmissionCall(
+	t *testing.T,
+	writer http.ResponseWriter,
+	invocationID string,
+	responsibility Responsibility,
+	correlation string,
+) {
+	t.Helper()
 	submission := submissionFixture(
-		t, invocationID, ImplementerImplementation, "",
+		t, invocationID, responsibility, "",
 	)
 	writeJSONResponse(t, writer, responsesToolCallResponse(
-		"submit-"+invocationID,
-		"function-"+invocationID,
-		"call-"+invocationID,
+		"submit-"+correlation,
+		"function-"+correlation,
+		"call-"+correlation,
 		"sworn_submit",
 		submissionToolArguments(t, submission),
 		1,

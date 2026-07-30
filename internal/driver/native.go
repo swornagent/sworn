@@ -484,6 +484,7 @@ func (adapter *nativeAdapter) resumeRecoverableContinuation(
 	ctx context.Context,
 	invocation Invocation,
 	state continuationState,
+	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	if validateInvocation(invocation) != nil {
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
@@ -499,6 +500,7 @@ func (adapter *nativeAdapter) resumeRecoverableContinuation(
 		pathValue,
 		certificate,
 		state,
+		retainDesignTerminal,
 	)
 }
 
