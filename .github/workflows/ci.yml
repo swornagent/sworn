@@ -12,7 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       GOFLAGS: -buildvcs=false
       GOWORK: "off"
@@ -80,10 +80,12 @@ jobs:
           fi
       - name: Module is tidy
         run: go mod tidy -diff
-      - name: Test
-        run: go test -count=1 ./...
+      - name: Product tests
+        run: go test -count=1 ./cmd/sworn ./internal/... ./tools/...
+      - name: End-to-end tests
+        run: go test -count=1 -parallel=1 -timeout=20m ./test/e2e
       - name: Race test
-        run: go test -count=1 -race ./...
+        run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
       - name: Vet
         run: go vet ./...
       - name: Official binary

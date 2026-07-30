@@ -281,6 +281,8 @@ func copyProductTree(t *testing.T, sourceRoot string) string {
 func initProductRepository(t *testing.T, root string) {
 	t.Helper()
 	runGit(t, root, "init", "--quiet")
+	runGit(t, root, "config", "maintenance.auto", "false")
+	runGit(t, root, "config", "gc.auto", "0")
 	runGit(t, root, "add", "--all")
 	runGit(
 		t,
