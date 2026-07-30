@@ -11,6 +11,7 @@ The correction is deliberately narrow:
 - tests canonicalise only their process-owned temporary root;
 - the driver factory canonicalises only the root it just created; and
 - exact-source merge attributes use an isolated index on Apple Git;
+- explicit product bases use deterministic private merge heads;
 - golden Baton checks receive one canonical Git and temporary root; and
 - journal, operator-config, and external workspace admission remain unchanged.
 

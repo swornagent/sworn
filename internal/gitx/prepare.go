@@ -397,6 +397,37 @@ func renderMergeAttributes(attributes map[string]string) []byte {
 	}
 	return []byte(result.String())
 }
+
+func (r *Repository) explicitBaseMergeHead(
+	context *compositionContext,
+	source OID,
+	productBase OID,
+	side string,
+	timestamp int64,
+) (OID, error) {
+	tree, err := r.TreeOID(source)
+	if err != nil {
+		return OID{}, err
+	}
+	environment := append(
+		context.environment(),
+		commitEnvironment(
+			Identity{Name: "Baton Merge Base", Email: "merge-base@baton.invalid"},
+			timestamp,
+		)...,
+	)
+	raw, err := r.runWithAttributes(
+		[]byte("Baton explicit product base for "+side+"\n"),
+		environment,
+		"/dev/null",
+		"commit-tree", tree.String(), "-p", productBase.String(),
+	)
+	if err != nil {
+		return OID{}, fail("GIT_EXECUTION_FAILED", "prepare explicit merge base", err)
+	}
+	return r.parseOID(string(raw))
+}
+
 func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase *OID) (OID, error) {
 	context, err := r.newCompositionContext()
 	if err != nil {
@@ -438,10 +469,26 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase
 		return OID{}, err
 	}
 	args := []string{"merge-tree", "--write-tree", "--no-messages"}
+	mergeExpected, mergeCandidate := expected, candidate
 	if productBase != nil {
-		args = append(args, "--merge-base="+productBase.String())
+		baseTime, err := r.CommitTimestamp(*productBase)
+		if err != nil {
+			return OID{}, err
+		}
+		mergeExpected, err = r.explicitBaseMergeHead(
+			context, expected, *productBase, "expected", baseTime+1,
+		)
+		if err != nil {
+			return OID{}, err
+		}
+		mergeCandidate, err = r.explicitBaseMergeHead(
+			context, candidate, *productBase, "candidate", baseTime+2,
+		)
+		if err != nil {
+			return OID{}, err
+		}
 	}
-	args = append(args, expected.String(), candidate.String())
+	args = append(args, mergeExpected.String(), mergeCandidate.String())
 	rawTree, err := r.contextRun(context, nil, context.attributesFile, args...)
 	if err != nil {
 		return OID{}, fail("MERGE_CONFLICT", "prepare composition", err)
