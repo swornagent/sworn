@@ -16,5 +16,6 @@ The correction is deliberately narrow:
 - journal, operator-config, and external workspace admission remain unchanged.
 
 A synthetic symlinked `TMPDIR` reproduces the macOS layout on Linux. The
-portable macOS CI lane now runs source tests, vet, and a CGO-free build.
+portable macOS CI lane runs the complete package surface serially, then vet and
+a CGO-free build; serial packages keep subprocess-heavy Git suites independent.
 Autonomous execution and full live certification remain Linux-only.
