@@ -34,7 +34,7 @@ const {
   resolveRecordPathAdmission,
 } = await import(path.join(referenceRoot, 'git.mjs'));
 
-const git = '/usr/bin/git';
+const git = process.argv[3];
 configureEngineGitExecutable(git);
 
 const output = path.resolve(process.argv[2] ?? path.join(here, 'testdata/corpus'));

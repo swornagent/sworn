@@ -335,12 +335,18 @@ func (r *Repository) mergeAttributesAtSource(context *compositionContext, source
 	if len(paths) == 0 {
 		return map[string]string{}, nil
 	}
+	// Apple Git does not provide check-attr --source. The composition index is
+	// private, so loading the exact source tree and asking only that index is
+	// equivalent without consulting the worktree or ambient attributes.
+	if _, err := r.contextRun(context, nil, "/dev/null", "read-tree", source.String()); err != nil {
+		return nil, fail("UNTRUSTED_MERGE_ATTRIBUTES", "load merge attribute source", err)
+	}
 	var input bytes.Buffer
 	for _, name := range paths {
 		input.WriteString(name)
 		input.WriteByte(0)
 	}
-	raw, err := r.contextRun(context, input.Bytes(), "/dev/null", "check-attr", "-z", "--stdin", "--source="+source.String(), "merge")
+	raw, err := r.contextRun(context, input.Bytes(), "/dev/null", "check-attr", "-z", "--stdin", "--cached", "merge")
 	if err != nil {
 		return nil, fail("UNTRUSTED_MERGE_ATTRIBUTES", "inspect merge attributes", err)
 	}

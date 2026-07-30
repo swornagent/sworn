@@ -2,7 +2,7 @@
   "schema": "sworn.batongolden/v2",
   "baton": "1.0.0-rc.9",
   "generator": "exact embedded Baton JavaScript reference",
-  "oracle_sha256": "449db02b7aa34f00436ee6d4604f326e93037160ec9063fe4b3fb9a9fb98cf08",
+  "oracle_sha256": "9a42e3c629cbd765905e19b6c17db28d4eb27090a52169ce0a4f8b1ac8614b97",
   "references": [
     {
       "file": "actions.mjs",

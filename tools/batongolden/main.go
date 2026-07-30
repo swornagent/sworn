@@ -199,6 +199,22 @@ func generateCorpus(root, node, output string) error {
 	if err != nil {
 		return fmt.Errorf("admit Node: %w", err)
 	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return fmt.Errorf("resolve Git: %w", err)
+	}
+	git, err = filepath.Abs(git)
+	if err != nil {
+		return fmt.Errorf("resolve absolute Git: %w", err)
+	}
+	git, err = literalExecutable(git)
+	if err != nil {
+		return fmt.Errorf("admit Git: %w", err)
+	}
+	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil || !filepath.IsAbs(tempRoot) {
+		return errors.New("resolve canonical temporary root")
+	}
 	oracle := filepath.Join(root, "tools", "batongolden", "oracle.mjs")
 	if body, err := os.ReadFile(oracle); err != nil || !bytes.Equal(body, oracleScript) {
 		return errors.New("root does not contain this exact oracle")
@@ -217,11 +233,12 @@ func generateCorpus(root, node, output string) error {
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	command := exec.Command(node, oracle, output)
+	command := exec.Command(node, oracle, output, git)
 	command.Dir = root
 	command.Env = []string{
 		"HOME=/dev/null", "XDG_CONFIG_HOME=/dev/null", "LANG=C", "LC_ALL=C",
-		"PATH=/usr/bin", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		"PATH=/usr/bin", "TMPDIR=" + tempRoot,
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 	}
 	if body, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("run exact oracle: %w: %s", err, strings.TrimSpace(string(body)))
