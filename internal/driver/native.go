@@ -38,11 +38,15 @@ type NativeAdapterConfig struct {
 	MaxCredentialBytes     int64               `json:"max_credential_bytes"`
 }
 
-// NativeSmokeInvocations supplies the separately authorized design and
-// implementation invocations used by deterministic native certification.
+// NativeSmokeInvocations supplies the separately authorized invocations used
+// by native certification. Fresh read-only and read-write launches are
+// independent from the persistent continuation start and explicit resume
+// launches, even when they carry the same tool surface.
 type NativeSmokeInvocations struct {
-	Design         Invocation
-	Implementation Invocation
+	FreshReadOnly     Invocation
+	FreshReadWrite    Invocation
+	ContinuationStart Invocation
+	Resume            Invocation
 }
 
 // NativeSmokeBuilder supplies only the already-authorized invocations used by
@@ -55,7 +59,7 @@ type NativeSmokeBuilder func(
 
 type nativeSurfaceStageCertificate struct {
 	Access                WorkspaceAccess
-	Resume                bool
+	InvocationStage       nativeInvocationStage
 	ToolDigest            string
 	CaptureEvidenceDigest string
 	ArgumentDigest        string
@@ -67,6 +71,14 @@ type nativeSurfaceStageCertificate struct {
 	ListDigest            string
 }
 
+type nativeInvocationStage uint8
+
+const (
+	nativeInvocationStageFresh nativeInvocationStage = iota + 1
+	nativeInvocationStageContinuationStart
+	nativeInvocationStageResume
+)
+
 type nativeSurfaceCertificate struct {
 	Family              ProfileFamily
 	ProfileDigest       string
@@ -74,7 +86,9 @@ type nativeSurfaceCertificate struct {
 	AdapterConfigDigest string
 	ExecutableDigest    string
 	CLIVersion          string
-	Design              nativeSurfaceStageCertificate
+	FreshReadOnly       nativeSurfaceStageCertificate
+	FreshReadWrite      nativeSurfaceStageCertificate
+	ContinuationStart   nativeSurfaceStageCertificate
 	Resume              nativeSurfaceStageCertificate
 }
 
@@ -295,6 +309,19 @@ func (adapter *nativeAdapter) checkProfile(
 		if err != nil {
 			return ReadinessFail, "native_surface_failed"
 		}
+		credentialPath, err := adapter.resolve(ctx, *profile.CredentialRef)
+		if err != nil {
+			return ReadinessFail, certificationFailureCode(err)
+		}
+		if _, err := platformInvokeNative(
+			ctx,
+			invocations.FreshReadWrite,
+			adapter.config,
+			credentialPath,
+			certificate,
+		); err != nil {
+			return ReadinessFail, certificationFailureCode(err)
+		}
 		adapter.certMu.Lock()
 		adapter.certified[nativeCertificationKey(profile, model)] = certificate
 		adapter.certMu.Unlock()
@@ -396,35 +423,74 @@ func validateNativeSmokeInvocations(
 	selected SelectedProfile,
 	adapter *nativeAdapter,
 ) error {
-	design := invocations.Design
-	implementation := invocations.Implementation
-	if adapter == nil || design.Selected.adapter != adapter ||
-		implementation.Selected.adapter != adapter ||
-		design.Selected.Adapter != selected.Adapter ||
-		implementation.Selected.Adapter != selected.Adapter ||
-		design.Selected.Model != selected.Model ||
-		implementation.Selected.Model != selected.Model ||
-		design.Selected.Profile.Key != selected.Profile.Key ||
-		implementation.Selected.Profile.Key != selected.Profile.Key ||
-		design.Selected.Profile.Adapter != selected.Profile.Adapter ||
-		implementation.Selected.Profile.Adapter != selected.Profile.Adapter ||
-		design.Selected.Profile.Network != selected.Profile.Network ||
-		implementation.Selected.Profile.Network != selected.Profile.Network ||
-		!sameOptionalString(
-			design.Selected.Profile.CredentialRef,
-			selected.Profile.CredentialRef,
+	values := []Invocation{
+		invocations.FreshReadOnly,
+		invocations.FreshReadWrite,
+		invocations.ContinuationStart,
+		invocations.Resume,
+	}
+	if adapter == nil {
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
+	identities := make(map[string]struct{}, len(values))
+	for _, invocation := range values {
+		if invocation.Selected.adapter != adapter ||
+			invocation.Selected.Adapter != selected.Adapter ||
+			invocation.Selected.Model != selected.Model ||
+			invocation.Selected.Profile.Key != selected.Profile.Key ||
+			invocation.Selected.Profile.Adapter != selected.Profile.Adapter ||
+			invocation.Selected.Profile.Network != selected.Profile.Network ||
+			!sameOptionalString(
+				invocation.Selected.Profile.CredentialRef,
+				selected.Profile.CredentialRef,
+			) ||
+			invocation.HostWorkspace !=
+				invocations.ContinuationStart.HostWorkspace ||
+			invocation.Request.InvocationID == "" {
+			return fail("NATIVE_NOT_CERTIFIED")
+		}
+		if _, duplicate := identities[invocation.Request.InvocationID]; duplicate {
+			return fail("NATIVE_NOT_CERTIFIED")
+		}
+		identities[invocation.Request.InvocationID] = struct{}{}
+	}
+	if !nativeCertificationInvocationMatches(
+		invocations.FreshReadOnly,
+		ImplementerDesign,
+		ReadOnly,
+		true,
+	) ||
+		!nativeCertificationInvocationMatches(
+			invocations.FreshReadWrite,
+			ImplementerDesign,
+			ReadWrite,
+			true,
 		) ||
-		!sameOptionalString(
-			implementation.Selected.Profile.CredentialRef,
-			selected.Profile.CredentialRef,
-		) ||
-		design.HostWorkspace != implementation.HostWorkspace ||
-		design.Request.InvocationID == implementation.Request.InvocationID ||
-		validateContinuationSource(design) != nil ||
-		validateContinuationResume(implementation) != nil {
+		validateContinuationSource(invocations.ContinuationStart) != nil ||
+		validateContinuationResume(invocations.Resume) != nil {
 		return fail("NATIVE_NOT_CERTIFIED")
 	}
 	return nil
+}
+
+func nativeCertificationInvocationMatches(
+	invocation Invocation,
+	responsibility Responsibility,
+	access WorkspaceAccess,
+	fresh bool,
+) bool {
+	if validateInvocation(invocation) != nil {
+		return false
+	}
+	descriptor, err := invocation.Permission.Describe()
+	return err == nil &&
+		invocation.Request.Role == RoleImplementer &&
+		invocation.Request.Workspace.Access == access &&
+		invocation.Request.FreshContext == fresh &&
+		descriptor.Role == RoleImplementer &&
+		descriptor.Responsibility == responsibility &&
+		descriptor.WorkspaceAccess == access &&
+		descriptor.FreshContext == fresh
 }
 
 func sameOptionalString(left, right *string) bool {

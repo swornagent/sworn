@@ -84,6 +84,10 @@ func main() {
 	); status != http.StatusOK {
 		os.Exit(27)
 	}
+	if providerUnavailableFixture() {
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(29)
+	}
 	time.Sleep(100 * time.Millisecond)
 	submission := map[string]any{
 		"schema_version": "sworn.submission/v1",
@@ -116,6 +120,20 @@ func main() {
 		os.Exit(28)
 	}
 	select {}
+}
+
+func providerUnavailableFixture() bool {
+	for _, pathValue := range []string{
+		"/home/sworn/.codex/auth.json",
+		"/home/sworn/.claude.json",
+	} {
+		body, err := os.ReadFile(pathValue)
+		if err == nil &&
+			bytes.Contains(body, []byte(`"offline_provider":"unreachable"`)) {
+			return true
+		}
+	}
+	return false
 }
 
 func explicitResume(family string, arguments []string) (string, bool) {

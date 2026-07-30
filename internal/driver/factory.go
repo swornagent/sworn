@@ -252,7 +252,8 @@ func (factory *ProductionDriverFactory) nativeCertificationInvocations(
 		fresh bool,
 	) (Invocation, error) {
 		instruction := []byte(
-			`{"instruction":"Exercise only the deterministic native certification transport.","schema_version":"` +
+			`{"instruction":"Exercise the exact configured native model and terminate with one valid sworn_submit call for the named responsibility. Do not make product changes.","responsibility":"` +
+				string(responsibility) + `","schema_version":"` +
 				driverCertificationSchemaVersion + `","stage":"` + suffix + `"}`,
 		)
 		input := Input{
@@ -304,8 +305,8 @@ func (factory *ProductionDriverFactory) nativeCertificationInvocations(
 			}},
 		}, nil
 	}
-	design, err := build(
-		"design",
+	freshReadOnly, err := build(
+		"fresh-read-only",
 		ImplementerDesign,
 		ReadOnly,
 		true,
@@ -313,8 +314,26 @@ func (factory *ProductionDriverFactory) nativeCertificationInvocations(
 	if err != nil {
 		return NativeSmokeInvocations{}, err
 	}
-	implementation, err := build(
-		"implementation",
+	freshReadWrite, err := build(
+		"fresh-read-write",
+		ImplementerDesign,
+		ReadWrite,
+		true,
+	)
+	if err != nil {
+		return NativeSmokeInvocations{}, err
+	}
+	continuationStart, err := build(
+		"continuation-start",
+		ImplementerDesign,
+		ReadOnly,
+		true,
+	)
+	if err != nil {
+		return NativeSmokeInvocations{}, err
+	}
+	resume, err := build(
+		"resume",
 		ImplementerImplementation,
 		ReadWrite,
 		false,
@@ -323,8 +342,10 @@ func (factory *ProductionDriverFactory) nativeCertificationInvocations(
 		return NativeSmokeInvocations{}, err
 	}
 	return NativeSmokeInvocations{
-		Design:         design,
-		Implementation: implementation,
+		FreshReadOnly:     freshReadOnly,
+		FreshReadWrite:    freshReadWrite,
+		ContinuationStart: continuationStart,
+		Resume:            resume,
 	}, nil
 }
 

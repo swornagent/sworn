@@ -507,18 +507,32 @@ func validateNativeSurfaceCertificate(
 		certificate.ExecutableDigest != config.CLI.Digest ||
 		certificate.CLIVersion != config.CLIVersion ||
 		!validNativeSurfaceStage(
-			certificate.Design,
+			certificate.FreshReadOnly,
 			config.Family,
 			invocation.Selected.Model,
 			ReadOnly,
-			false,
+			nativeInvocationStageFresh,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.FreshReadWrite,
+			config.Family,
+			invocation.Selected.Model,
+			ReadWrite,
+			nativeInvocationStageFresh,
+		) ||
+		!validNativeSurfaceStage(
+			certificate.ContinuationStart,
+			config.Family,
+			invocation.Selected.Model,
+			ReadOnly,
+			nativeInvocationStageContinuationStart,
 		) ||
 		!validNativeSurfaceStage(
 			certificate.Resume,
 			config.Family,
 			invocation.Selected.Model,
 			ReadWrite,
-			true,
+			nativeInvocationStageResume,
 		) {
 		return fail("NATIVE_NOT_CERTIFIED")
 	}
@@ -530,17 +544,17 @@ func validNativeSurfaceStage(
 	family ProfileFamily,
 	model string,
 	access WorkspaceAccess,
-	resume bool,
+	invocationStage nativeInvocationStage,
 ) bool {
 	return stage.Access == access &&
-		stage.Resume == resume &&
+		stage.InvocationStage == invocationStage &&
 		stage.ToolDigest == nativeToolSurfaceDigest(access) &&
 		digestPattern.MatchString(stage.CaptureEvidenceDigest) &&
 		stage.ArgumentDigest == nativeCLIArgumentDigest(
 			family,
 			model,
 			access,
-			resume,
+			invocationStage,
 		) &&
 		stage.Protocol != "" &&
 		stage.ClientName != "" &&
@@ -552,16 +566,35 @@ func validNativeSurfaceStage(
 
 func nativeCertificateStage(
 	certificate nativeSurfaceCertificate,
-	access WorkspaceAccess,
+	invocation Invocation,
+	launch *nativeContinuationLaunch,
 ) (nativeSurfaceStageCertificate, error) {
-	switch access {
-	case ReadOnly:
-		return certificate.Design, nil
-	case ReadWrite:
-		return certificate.Resume, nil
-	default:
+	access := invocation.Request.Workspace.Access
+	if launch == nil {
+		if !invocation.Request.FreshContext {
+			return nativeSurfaceStageCertificate{},
+				fail("NATIVE_NOT_CERTIFIED")
+		}
+		switch access {
+		case ReadOnly:
+			return certificate.FreshReadOnly, nil
+		case ReadWrite:
+			return certificate.FreshReadWrite, nil
+		default:
+			return nativeSurfaceStageCertificate{},
+				fail("NATIVE_NOT_CERTIFIED")
+		}
+	}
+	if launch.resume {
+		if access == ReadWrite && !invocation.Request.FreshContext {
+			return certificate.Resume, nil
+		}
 		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
+	if access == ReadOnly && invocation.Request.FreshContext {
+		return certificate.ContinuationStart, nil
+	}
+	return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 }
 
 func nativeCaptureCredentialBody(

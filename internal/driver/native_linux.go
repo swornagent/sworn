@@ -24,6 +24,8 @@ import (
 const (
 	nativeSessionRootPrefix   = "sworn-native-session-v1-"
 	nativeSessionParkedPrefix = "sworn-native-session-parked-v1-"
+	nativeSessionMemoryRoot   = "/dev/shm"
+	nativeTmpfsMagic          = 0x01021994
 	nativeSessionMaxEntries   = 4_096
 	nativeSessionMaxDepth     = 32
 )
@@ -49,7 +51,7 @@ type nativeEventState struct {
 type nativeCaptureRun struct {
 	provider    *nativeProviderCapture
 	certificate nativeSurfaceStageCertificate
-	resume      bool
+	stage       nativeInvocationStage
 }
 
 type nativeContinuationLaunch struct {
@@ -133,7 +135,10 @@ func newNativeContinuationState(
 	if reapNativeSessionRoots() != nil {
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
-	root, err := os.MkdirTemp("", nativeSessionRootPrefix)
+	root, err := os.MkdirTemp(
+		nativeSessionMemoryRoot,
+		nativeSessionRootPrefix,
+	)
 	if err != nil {
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
@@ -263,7 +268,9 @@ func (state *nativeContinuationState) claim(
 	return append([]byte(nil), state.sessionID...), nil
 }
 
-func (state *nativeContinuationState) scrub(
+// validateRetainedHome inspects Sworn's containment invariants without parsing
+// or rewriting opaque vendor session data.
+func (state *nativeContinuationState) validateRetainedHome(
 	config NativeAdapterConfig,
 ) error {
 	if state == nil {
@@ -275,24 +282,12 @@ func (state *nativeContinuationState) scrub(
 		return fail("CONTINUATION_INVALID")
 	}
 	home := filepath.Join(state.root, "home")
-	var transient []string
-	switch config.Family {
-	case ProfileCodex:
-		transient = []string{filepath.Join(home, ".codex", "tmp")}
-	case ProfileClaude:
-		transient = []string{
-			filepath.Join(home, ".claude", "cache"),
-			filepath.Join(home, ".claude", "debug"),
-			filepath.Join(home, ".claude", "logs"),
-			filepath.Join(home, ".claude", "telemetry"),
-		}
-	default:
+	if config.Family != ProfileCodex && config.Family != ProfileClaude {
 		return fail("CONTINUATION_INVALID")
 	}
-	for _, target := range transient {
-		if !pathBeneath(home, target) || os.RemoveAll(target) != nil {
-			return fail("CONTINUATION_CLEANUP_FAILED")
-		}
+	if size, err := boundedNativeSessionSize(home); err != nil ||
+		size > maxContinuationStateBytes {
+		return fail("CONTINUATION_INVALID")
 	}
 	relativeCredential := strings.TrimPrefix(
 		config.CredentialTarget,
@@ -489,7 +484,10 @@ func boundedNativeSessionSize(root string) (int64, error) {
 }
 
 func reapNativeSessionRoots() error {
-	entries, err := os.ReadDir(os.TempDir())
+	if !nativeMemoryBackedPath(nativeSessionMemoryRoot) {
+		return fail("CONTINUATION_INVALID")
+	}
+	entries, err := os.ReadDir(nativeSessionMemoryRoot)
 	if err != nil {
 		return err
 	}
@@ -499,7 +497,7 @@ func reapNativeSessionRoots() error {
 				!strings.HasPrefix(entry.Name(), nativeSessionParkedPrefix)) {
 			continue
 		}
-		root := filepath.Join(os.TempDir(), entry.Name())
+		root := filepath.Join(nativeSessionMemoryRoot, entry.Name())
 		if !validNativeSessionRoot(root) {
 			continue
 		}
@@ -555,7 +553,8 @@ func staleNativeSessionRoot(root string) bool {
 
 func validNativeSessionRoot(root string) bool {
 	if root == "" || !filepath.IsAbs(root) ||
-		filepath.Dir(root) != filepath.Clean(os.TempDir()) {
+		filepath.Dir(root) != nativeSessionMemoryRoot ||
+		!nativeMemoryBackedPath(root) {
 		return false
 	}
 	name := filepath.Base(root)
@@ -573,6 +572,20 @@ func validNativeSessionRoot(root string) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && stat.Uid == uint32(os.Getuid()) &&
 		(info.Mode().Perm() == 0o700 || info.Mode().Perm() == 0)
+}
+
+func nativeMemoryBackedPath(pathValue string) bool {
+	if pathValue == "" || !filepath.IsAbs(pathValue) ||
+		filepath.Clean(pathValue) != pathValue {
+		return false
+	}
+	info, err := os.Lstat(pathValue)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	var filesystem syscall.Statfs_t
+	return syscall.Statfs(pathValue, &filesystem) == nil &&
+		filesystem.Type == nativeTmpfsMagic
 }
 
 func validNativeSessionLease(file *os.File) bool {
@@ -608,7 +621,10 @@ func parkNativeSessionRoot(root string) {
 	if !validNativeSessionRoot(root) {
 		return
 	}
-	parked, err := os.MkdirTemp("", nativeSessionParkedPrefix)
+	parked, err := os.MkdirTemp(
+		nativeSessionMemoryRoot,
+		nativeSessionParkedPrefix,
+	)
 	if err == nil {
 		_ = os.Remove(parked)
 		if os.Rename(root, parked) == nil {
@@ -659,7 +675,16 @@ func platformStartNativeContinuation(
 	}
 	nativeState, err := newNativeContinuationState(config)
 	if err != nil {
-		return Observation{}, nil, err
+		observation, runErr := platformRunNative(
+			parent,
+			invocation,
+			config,
+			credentialPath,
+			nil,
+			&certificate,
+			nil,
+		)
+		return observation, nil, runErr
 	}
 	defer func() {
 		if resultErr != nil || state == nil {
@@ -753,19 +778,37 @@ func platformCaptureNativeSurface(
 			resultErr = closeErr
 		}
 	}()
-	designLaunch := &nativeContinuationLaunch{state: state}
-	defer clearBytes(designLaunch.capturedID)
-	design, err := platformCaptureNativeStage(
+	freshReadOnly, err := platformCaptureNativeStage(
 		parent,
-		invocations.Design,
+		invocations.FreshReadOnly,
 		config,
-		designLaunch,
+		nil,
 	)
-	if err != nil || !designLaunch.accepted ||
-		!validNativeSessionID(designLaunch.capturedID) {
+	if err != nil {
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
-	if err := state.retainSessionID(designLaunch.capturedID); err != nil {
+	freshReadWrite, err := platformCaptureNativeStage(
+		parent,
+		invocations.FreshReadWrite,
+		config,
+		nil,
+	)
+	if err != nil {
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	startLaunch := &nativeContinuationLaunch{state: state}
+	defer clearBytes(startLaunch.capturedID)
+	continuationStart, err := platformCaptureNativeStage(
+		parent,
+		invocations.ContinuationStart,
+		config,
+		startLaunch,
+	)
+	if err != nil || !startLaunch.accepted ||
+		!validNativeSessionID(startLaunch.capturedID) {
+		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	if err := state.retainSessionID(startLaunch.capturedID); err != nil {
 		return nativeSurfaceCertificate{}, err
 	}
 	sessionID, err := state.claim(config.Family)
@@ -781,7 +824,7 @@ func platformCaptureNativeSurface(
 	defer clearBytes(resumeLaunch.capturedID)
 	resume, err := platformCaptureNativeStage(
 		parent,
-		invocations.Implementation,
+		invocations.Resume,
 		config,
 		resumeLaunch,
 	)
@@ -789,18 +832,23 @@ func platformCaptureNativeSurface(
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	certificate = nativeSurfaceCertificate{
-		Family:              config.Family,
-		ProfileDigest:       nativeProfileDigest(invocations.Design.Selected.Profile),
-		Model:               invocations.Design.Selected.Model,
-		AdapterConfigDigest: invocations.Design.Selected.Adapter.ConfigurationDigest,
-		ExecutableDigest:    config.CLI.Digest,
-		CLIVersion:          config.CLIVersion,
-		Design:              design,
-		Resume:              resume,
+		Family: config.Family,
+		ProfileDigest: nativeProfileDigest(
+			invocations.ContinuationStart.Selected.Profile,
+		),
+		Model: invocations.ContinuationStart.Selected.Model,
+		AdapterConfigDigest: invocations.ContinuationStart.
+			Selected.Adapter.ConfigurationDigest,
+		ExecutableDigest:  config.CLI.Digest,
+		CLIVersion:        config.CLIVersion,
+		FreshReadOnly:     freshReadOnly,
+		FreshReadWrite:    freshReadWrite,
+		ContinuationStart: continuationStart,
+		Resume:            resume,
 	}
 	if validateNativeSurfaceCertificate(
 		certificate,
-		invocations.Implementation,
+		invocations.Resume,
 		config,
 	) != nil {
 		return nativeSurfaceCertificate{}, fail("NATIVE_NOT_CERTIFIED")
@@ -815,8 +863,15 @@ func platformCaptureNativeStage(
 	launch *nativeContinuationLaunch,
 ) (nativeSurfaceStageCertificate, error) {
 	if parent == nil || parent.Err() != nil ||
-		validateInvocation(invocation) != nil || launch == nil {
+		validateInvocation(invocation) != nil {
 		return nativeSurfaceStageCertificate{}, fail("NATIVE_NOT_CERTIFIED")
+	}
+	stage := nativeInvocationStageFresh
+	if launch != nil {
+		stage = nativeInvocationStageContinuationStart
+		if launch.resume {
+			stage = nativeInvocationStageResume
+		}
 	}
 	provider, err := newNativeProviderCapture(
 		config.Family,
@@ -845,7 +900,7 @@ func platformCaptureNativeStage(
 	clearBytes(credentialBody)
 	run := &nativeCaptureRun{
 		provider: provider,
-		resume:   launch.resume,
+		stage:    stage,
 	}
 	if _, err := platformRunNative(
 		parent,
@@ -879,7 +934,8 @@ func platformRunNative(
 		var stageErr error
 		certifiedStage, stageErr = nativeCertificateStage(
 			*certificate,
-			invocation.Request.Workspace.Access,
+			invocation,
+			launch,
 		)
 		if stageErr != nil {
 			return Observation{}, stageErr
@@ -1149,7 +1205,7 @@ func platformRunNative(
 	credentialClosed = true
 	if launch != nil {
 		if launch.state == nil ||
-			launch.state.scrub(config) != nil ||
+			launch.state.validateRetainedHome(config) != nil ||
 			launch.state.containsAny(
 				capability,
 				captureToken,
@@ -1217,14 +1273,14 @@ func platformRunNative(
 		}
 		captureRun.certificate = nativeSurfaceStageCertificate{
 			Access:                invocation.Request.Workspace.Access,
-			Resume:                captureRun.resume,
+			InvocationStage:       captureRun.stage,
 			ToolDigest:            providerEvidence.ToolDigest,
 			CaptureEvidenceDigest: Digest(evidenceBody),
 			ArgumentDigest: nativeCLIArgumentDigest(
 				config.Family,
 				invocation.Selected.Model,
 				invocation.Request.Workspace.Access,
-				captureRun.resume,
+				captureRun.stage,
 			),
 			Protocol:           handshake.Protocol,
 			ClientName:         handshake.ClientName,
@@ -1744,6 +1800,13 @@ func nativeCommand(
 			arguments,
 			"--bind-fd", itoa(homeFD), "/home/sworn",
 		)
+		if config.Family == ProfileCodex {
+			arguments = append(
+				arguments,
+				"--dir", "/home/sworn/.codex/tmp",
+				"--tmpfs", "/home/sworn/.codex/tmp",
+			)
+		}
 	}
 	arguments = append(arguments,
 		"--ro-bind-fd", "3", "/sworn/bin/agent",
@@ -1904,16 +1967,25 @@ func nativeCLIArgumentDigest(
 	family ProfileFamily,
 	model string,
 	access WorkspaceAccess,
-	resume bool,
+	stage nativeInvocationStage,
 ) string {
-	launch := &nativeContinuationLaunch{resume: resume}
-	if resume {
+	var launch *nativeContinuationLaunch
+	fresh := true
+	switch stage {
+	case nativeInvocationStageFresh:
+	case nativeInvocationStageContinuationStart:
+		launch = &nativeContinuationLaunch{}
+	case nativeInvocationStageResume:
+		fresh = false
+		launch = &nativeContinuationLaunch{resume: true}
 		launch.expectedID = []byte("00000000-0000-4000-8000-000000000000")
+	default:
+		return ""
 	}
 	var arguments []string
 	switch family {
 	case ProfileCodex:
-		arguments = codexArguments(model, !resume, launch)
+		arguments = codexArguments(model, fresh, launch)
 	case ProfileClaude:
 		arguments = claudeArguments(model, access, launch)
 	default:
