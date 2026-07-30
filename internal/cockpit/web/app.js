@@ -1,6 +1,7 @@
 "use strict";
 
 const SCHEMA = "sworn.cockpit/v2";
+const API = "/api/v2";
 const SNAPSHOT_POLL_MILLIS = 5_000;
 const MAX_ATTENTION_ANSWER_BYTES = 16 * 1024;
 const state = {
@@ -155,7 +156,7 @@ async function refresh(reason, reconnectEvents = true) {
   }
   state.refreshing = true;
   try {
-    const response = await fetch(`/api/v1/runs/${state.runID}/snapshot`, {
+    const response = await fetch(`${API}/runs/${state.runID}/snapshot`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
       credentials: "same-origin",
@@ -190,7 +191,7 @@ function connectEvents(after) {
     state.source.close();
   }
   const source = new EventSource(
-    `/api/v1/runs/${state.runID}/events?after=${after}&limit=128`,
+    `${API}/runs/${state.runID}/events?after=${after}&limit=128`,
     { withCredentials: true },
   );
   state.source = source;
@@ -613,7 +614,7 @@ async function submitAttention(attention, input, button) {
   button.disabled = true;
   try {
     const response = await fetch(
-      `/api/v1/runs/${state.runID}/attentions/${attention.id}/answer`,
+      `${API}/runs/${state.runID}/attentions/${attention.id}/answer`,
       {
         method: "POST",
         headers: {
@@ -663,8 +664,8 @@ async function submitAction(action, button) {
   }
   try {
     const path = redelivery
-      ? `/api/v1/runs/${state.runID}/notifications/redeliver`
-      : `/api/v1/runs/${state.runID}/commands`;
+      ? `${API}/runs/${state.runID}/notifications/redeliver`
+      : `${API}/runs/${state.runID}/commands`;
     const response = await fetch(path, {
       method: "POST",
       headers: {

@@ -587,13 +587,39 @@ func (s *Service) invokeRecoveryAutomation(
 			},
 		},
 	}
-	return automation.InvokeAutomation(
-		ctx,
+	snapshot := invocation
+	snapshot.Facts = append(
+		[]driver.AutomationFact(nil),
+		invocation.Facts...,
+	)
+	automationInvocation := driver.AutomationInvocation{
+		Selected: selected,
+		Recovery: &invocation,
+	}
+	observation, err := automation.InvokeAutomation(ctx, automationInvocation)
+	if err != nil {
+		return driver.AutomationObservation{}, err
+	}
+	if err := driver.ValidateAutomationObservation(
 		driver.AutomationInvocation{
 			Selected: selected,
-			Recovery: &invocation,
+			Recovery: &snapshot,
 		},
-	)
+		observation,
+	); err != nil {
+		return driver.AutomationObservation{}, err
+	}
+	if observation.Recovery.Action == driver.RecoveryResumeWorker {
+		answer, err := driver.RecoveryAnswerForInvocation(
+			snapshot,
+			*observation.Recovery,
+		)
+		if err != nil {
+			return driver.AutomationObservation{}, err
+		}
+		observation.Recovery.Answer = &answer
+	}
+	return observation, nil
 }
 
 func (s *Service) invokeCaptainAdvisory(
@@ -642,13 +668,29 @@ func (s *Service) invokeCaptainAdvisory(
 			},
 		},
 	}
-	return automation.InvokeAutomation(
-		ctx,
+	snapshot := invocation
+	snapshot.Facts = append(
+		[]driver.AutomationFact(nil),
+		invocation.Facts...,
+	)
+	automationInvocation := driver.AutomationInvocation{
+		Selected: selected,
+		Advisory: &invocation,
+	}
+	observation, err := automation.InvokeAutomation(ctx, automationInvocation)
+	if err != nil {
+		return driver.AutomationObservation{}, err
+	}
+	if err := driver.ValidateAutomationObservation(
 		driver.AutomationInvocation{
 			Selected: selected,
-			Advisory: &invocation,
+			Advisory: &snapshot,
 		},
-	)
+		observation,
+	); err != nil {
+		return driver.AutomationObservation{}, err
+	}
+	return observation, nil
 }
 
 func recoverableAuthorityMatches(

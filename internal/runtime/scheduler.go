@@ -2124,8 +2124,14 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 	}
 	for try := int64(1); try <= 3; try++ {
 		effectID := journal.AttemptEffectID(workID, epoch, try)
-		dispatchWork := workIdentity(workID, "driver.dispatch")
-		preparedWork := workIdentity(workID, "git.seal.prepared")
+		dispatchWork := workIdentity(effectID, "driver.dispatch")
+		preparedWork := workIdentity(effectID, "git.seal.prepared")
+		childEpoch, childTry := int64(1), int64(1)
+		if _, enabled := engine.manifest.value.recoverySelection(); enabled {
+			dispatchWork = workIdentity(workID, "driver.dispatch")
+			preparedWork = workIdentity(workID, "git.seal.prepared")
+			childEpoch, childTry = epoch, try
+		}
 		cycle := implementationCycle{
 			Release: state.Release, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
@@ -2134,14 +2140,14 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			TrackHead: track.Head, DispatchWork: dispatchWork,
 			DispatchEffect: journal.AttemptEffectID(
 				dispatchWork,
-				epoch,
-				try,
+				childEpoch,
+				childTry,
 			),
 			PreparedWork: preparedWork,
 			PreparedEffect: journal.AttemptEffectID(
 				preparedWork,
-				epoch,
-				try,
+				childEpoch,
+				childTry,
 			),
 		}
 		if len(slice.Location.Slice.Consumes) > 0 {
@@ -2939,9 +2945,15 @@ func (s *Service) runProductionImplementationDispatch(
 	cycle implementationCycle,
 	coordinates dispatchCoordinates,
 ) (sealedRecord, journal.Claim, error) {
+	dispatchWork, dispatchEpoch, dispatchTry, err :=
+		attemptCoordinates(cycle.DispatchEffect)
+	if err != nil || dispatchWork != cycle.DispatchWork {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
 	var record sealedRecord
 	var preparedClaim journal.Claim
-	_, err := s.runDriverEffectWithPreparation(
+	_, err = s.runDriverEffectWithPreparation(
 		ctx,
 		engine,
 		workspace,
@@ -2949,8 +2961,8 @@ func (s *Service) runProductionImplementationDispatch(
 		coordinates,
 		journal.EffectAttempt{
 			WorkID: cycle.DispatchWork,
-			Epoch:  coordinates.Epoch,
-			Try:    coordinates.Try,
+			Epoch:  dispatchEpoch,
+			Try:    dispatchTry,
 		},
 		cycle.Before,
 		owner,
@@ -3078,6 +3090,13 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 			outer,
 		)
 	}
+	dispatchWork, dispatchEpoch, dispatchTry, dispatchErr :=
+		attemptCoordinates(cycle.DispatchEffect)
+	if dispatchErr != nil || dispatchWork != cycle.DispatchWork {
+		_ = workspace.Close()
+		return sealedRecord{},
+			runtimeFail("CORRUPT_JOURNAL", dispatchErr)
+	}
 	submission, err := s.runDriverEffect(
 		ctx,
 		engine,
@@ -3086,8 +3105,8 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		coordinates,
 		journal.EffectAttempt{
 			WorkID: cycle.DispatchWork,
-			Epoch:  coordinates.Epoch,
-			Try:    coordinates.Try,
+			Epoch:  dispatchEpoch,
+			Try:    dispatchTry,
 		},
 		cycle.Before,
 		owner,

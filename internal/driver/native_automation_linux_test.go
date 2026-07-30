@@ -151,7 +151,7 @@ func TestNativeAutomationSessionExposesOnlyItsOneTerminal(t *testing.T) {
 		definitions[0].Name != "sworn_recovery_decide" {
 		t.Fatalf("definitions = %#v", definitions)
 	}
-	answer := "Use the exact admitted base."
+	answer := invocation.Recovery.Facts[3].Value
 	arguments, err := json.Marshal(map[string]any{
 		"decision": RecoveryDecision{
 			SchemaVersion: RecoveryDecisionSchemaVersion,

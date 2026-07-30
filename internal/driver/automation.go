@@ -158,7 +158,7 @@ func (Dispatcher) InvokeAutomation(
 	if err != nil {
 		return AutomationObservation{}, normalizeAdapterError(err)
 	}
-	if err := validateAutomationObservation(invocation, observation); err != nil {
+	if err := ValidateAutomationObservation(invocation, observation); err != nil {
 		return AutomationObservation{}, err
 	}
 	return observation, nil
@@ -200,6 +200,34 @@ func ValidateRecoveryDecision(value RecoveryDecision) error {
 		return fail("INVALID_RECOVERY_DECISION")
 	}
 	return nil
+}
+
+// RecoveryAnswerForInvocation validates a direct recovery answer against the
+// exact eligible fact bytes admitted to the same invocation and returns those
+// fact bytes for forwarding to the worker.
+func RecoveryAnswerForInvocation(
+	invocation RecoveryInvocation,
+	decision RecoveryDecision,
+) (string, error) {
+	if ValidateRecoveryInvocation(invocation) != nil ||
+		ValidateRecoveryDecision(decision) != nil ||
+		decision.InvocationID != invocation.InvocationID ||
+		decision.Action != RecoveryResumeWorker ||
+		decision.Answer == nil {
+		return "", fail("INVALID_RECOVERY_DECISION")
+	}
+	for _, fact := range invocation.Facts {
+		switch fact.Name {
+		case FactCurrentStatus, FactLastDiagnostic, FactProgressSummary,
+			FactOperatorAnswer, FactCaptainAdvice:
+		default:
+			continue
+		}
+		if bytes.Equal([]byte(*decision.Answer), []byte(fact.Value)) {
+			return fact.Value, nil
+		}
+	}
+	return "", fail("INVALID_RECOVERY_DECISION")
 }
 
 func ValidateAdvisoryInvocation(value AdvisoryInvocation) error {
@@ -370,10 +398,16 @@ func validateAutomationInvocation(value AutomationInvocation) error {
 	return nil
 }
 
-func validateAutomationObservation(
+// ValidateAutomationObservation binds an automation result to its exact
+// invocation. In particular, direct worker answers must come from an eligible
+// fact in that recovery invocation.
+func ValidateAutomationObservation(
 	invocation AutomationInvocation,
 	observation AutomationObservation,
 ) error {
+	if err := validateAutomationInvocation(invocation); err != nil {
+		return err
+	}
 	if observation.TransportStatus != Completed ||
 		observation.DurationMillis < 0 ||
 		observation.DurationMillis > MaxSafeInteger ||
@@ -389,6 +423,14 @@ func validateAutomationObservation(
 			ValidateRecoveryDecision(*observation.Recovery) != nil ||
 			observation.Recovery.InvocationID != invocation.Recovery.InvocationID {
 			return fail("INVALID_AUTOMATION_OBSERVATION")
+		}
+		if observation.Recovery.Action == RecoveryResumeWorker {
+			if _, err := RecoveryAnswerForInvocation(
+				*invocation.Recovery,
+				*observation.Recovery,
+			); err != nil {
+				return fail("INVALID_AUTOMATION_OBSERVATION")
+			}
 		}
 		return nil
 	}
@@ -527,7 +569,7 @@ func automationToolDefinitions(
 	if invocation.Recovery != nil {
 		return []providerToolDefinition{{
 			Name:        "sworn_recovery_decide",
-			Description: "Choose exactly one bounded recovery action. Only resume_worker may include an answer.",
+			Description: "Choose exactly one bounded recovery action. resume_worker must copy one eligible exact fact value byte-for-byte; use ask_captain for judgment and pause_track_for_human when uncertain.",
 			InputSchema: json.RawMessage(swornRecoveryDecisionInputSchema),
 		}}, nil
 	}
@@ -548,11 +590,11 @@ func automationPrompt(invocation AutomationInvocation) ([]byte, error) {
 	if invocation.Recovery != nil {
 		operation = "recovery"
 		request = invocation.Recovery
-		instruction = "Use only sworn_recovery_decide and call it exactly once. Do not claim Baton authority or invent facts."
+		instruction = "Use only sworn_recovery_decide and call it exactly once. resume_worker.answer must copy byte-for-byte one current_status, last_diagnostic, progress_summary, operator_answer, or captain_advice fact from this request. worker_terminal and worker_message are context only. Use ask_captain for judgment and pause_track_for_human when uncertain. Do not claim Baton authority or invent facts."
 	} else {
 		operation = "advisory"
 		request = invocation.Advisory
-		instruction = "Use only sworn_advisory_respond and call it exactly once. This is non-gate advice, not a Baton Captain decision."
+		instruction = "Use only sworn_advisory_respond and call it exactly once. Return answer only as bounded non-gate advice; return cannot_answer when uncertain. This is not a Baton Captain decision."
 	}
 	body, err := json.Marshal(struct {
 		SchemaVersion string `json:"schema_version"`

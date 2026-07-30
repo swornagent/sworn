@@ -55,10 +55,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
-	parked, answeredWithoutOwner := false, false
+	attentionParked, answeredWithoutOwner := false, false
 	for _, attention := range attentionWork {
 		if attention.State == journal.AttentionOpen {
-			parked = true
+			attentionParked = true
 		}
 		if attention.State == journal.AttentionAnswered &&
 			!ownerActive {
@@ -94,7 +94,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 		}
 	}
-	parked = parked || len(exhausted) != 0
+	// Raw exhaustion is fail-closed until Baton state can tell us whether the
+	// exhausted work is still applicable. Recovery attention is independent.
+	parked := attentionParked || len(exhausted) != 0
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -123,7 +125,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalInstalled {
 			result.TargetHead = proposal.authority.TargetHead
-			parked = parked || intersectsWork(exhausted, map[string]struct{}{
+			parked = attentionParked || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
 		}
@@ -163,7 +165,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = parked || exhaustedWorkApplies(
+	parked = attentionParked || exhaustedWorkApplies(
 		manifest, selected, proposalInstalled, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {

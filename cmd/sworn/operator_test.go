@@ -894,7 +894,7 @@ func TestServeWiresExistingRunAndStopsOnContext(t *testing.T) {
 		Timeout:   2 * time.Second,
 	}
 	response, err := client.Get(
-		"http://" + address + "/api/v1/operator/telemetry",
+		"http://" + address + "/api/v2/operator/telemetry",
 	)
 	if err != nil {
 		cancel()
@@ -1003,7 +1003,7 @@ func TestServeManifestCreatesRunOnlyAtStart(t *testing.T) {
 	}
 	request, err := http.NewRequest(
 		http.MethodPost,
-		"http://"+address+"/api/v1/start",
+		"http://"+address+"/api/v2/start",
 		bytes.NewReader(requestBody),
 	)
 	if err != nil {

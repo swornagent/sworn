@@ -219,7 +219,7 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 	)
 	localMutation := httpRequest(
 		http.MethodPost,
-		testLocalOrigin+"/api/v1/start",
+		testLocalOrigin+"/api/v2/start",
 		"127.0.0.1:41000",
 		[]byte(`{"manifest_digest":"admitted"}`),
 	)
@@ -240,7 +240,7 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 	)
 	proxiedMutation := httpRequest(
 		http.MethodPost,
-		testPublicURL+"/api/v1/start",
+		testPublicURL+"/api/v2/start",
 		"127.0.0.1:42000",
 		[]byte(`{"manifest_digest":"admitted"}`),
 	)
@@ -255,7 +255,7 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 
 	noTLS := httpRequest(
 		http.MethodGet,
-		testPublicURL+"/api/v1/runs/run-1/snapshot",
+		testPublicURL+"/api/v2/runs/run-1/snapshot",
 		"203.0.113.10:43000",
 		nil,
 	)
@@ -267,7 +267,7 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 
 	noAuth := httpRequest(
 		http.MethodGet,
-		testPublicURL+"/api/v1/runs/run-1/snapshot",
+		testPublicURL+"/api/v2/runs/run-1/snapshot",
 		"203.0.113.10:43001",
 		nil,
 	)
@@ -291,7 +291,7 @@ func TestHTTPAuthorityUsesPeerAndConfiguredHost(t *testing.T) {
 	} {
 		request := httpRequest(
 			http.MethodGet,
-			testPublicURL+"/api/v1/runs/run-1/snapshot",
+			testPublicURL+"/api/v2/runs/run-1/snapshot",
 			"203.0.113.10:43002",
 			nil,
 		)
@@ -318,7 +318,7 @@ func TestHTTPAttentionAnswerIsTypedAndLoopbackOnly(t *testing.T) {
 	)
 	request := httpRequest(
 		http.MethodPost,
-		testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+		testLocalOrigin+"/api/v2/runs/run-1/attentions/"+
 			attentionID+"/answer",
 		"127.0.0.1:41100",
 		[]byte(
@@ -341,7 +341,7 @@ func TestHTTPAttentionAnswerIsTypedAndLoopbackOnly(t *testing.T) {
 
 	mismatch := httpRequest(
 		http.MethodPost,
-		testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+		testLocalOrigin+"/api/v2/runs/run-1/attentions/"+
 			attentionID+"/answer",
 		"127.0.0.1:41101",
 		[]byte(
@@ -366,7 +366,7 @@ func TestHTTPAttentionAnswerIsTypedAndLoopbackOnly(t *testing.T) {
 	)
 	remote := httpRequest(
 		http.MethodPost,
-		testPublicURL+"/api/v1/runs/run-1/attentions/"+
+		testPublicURL+"/api/v2/runs/run-1/attentions/"+
 			attentionID+"/answer",
 		"203.0.113.10:41102",
 		[]byte(`{}`),
@@ -432,7 +432,7 @@ func TestHTTPAttentionAnswerTransportAndDecodedBoundaries(t *testing.T) {
 			}
 			request := httpRequest(
 				http.MethodPost,
-				testLocalOrigin+"/api/v1/runs/run-1/attentions/"+
+				testLocalOrigin+"/api/v2/runs/run-1/attentions/"+
 					attentionID+"/answer",
 				"127.0.0.1:41103",
 				body,
@@ -573,14 +573,19 @@ func TestHTTPRejectsNonCanonicalAndCrossOriginRequests(t *testing.T) {
 		{name: "other run page", target: "/runs/run-2", status: http.StatusNotFound},
 		{
 			name:   "other run snapshot",
-			target: "/api/v1/runs/run-2/snapshot",
+			target: "/api/v2/runs/run-2/snapshot",
+			status: http.StatusNotFound,
+		},
+		{
+			name:   "legacy v1 has no alias",
+			target: "/api/v1/runs/run-1/snapshot",
 			status: http.StatusNotFound,
 		},
 		{name: "double slash", target: "//runs/run-1", status: http.StatusNotFound},
 		{name: "trailing slash", target: "/runs/run-1/", status: http.StatusNotFound},
 		{
 			name:   "api trailing slash",
-			target: "/api/v1/runs/run-1/snapshot/",
+			target: "/api/v2/runs/run-1/snapshot/",
 			status: http.StatusNotFound,
 		},
 		{name: "extra segment", target: "/runs/run-1/extra", status: http.StatusNotFound},
@@ -588,7 +593,7 @@ func TestHTTPRejectsNonCanonicalAndCrossOriginRequests(t *testing.T) {
 		{name: "asset query", target: "/assets/app.css?v=1", status: http.StatusMethodNotAllowed},
 		{
 			name:   "snapshot query",
-			target: "/api/v1/runs/run-1/snapshot?extra=1",
+			target: "/api/v2/runs/run-1/snapshot?extra=1",
 			status: http.StatusMethodNotAllowed,
 		},
 	}
@@ -669,7 +674,7 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 	projector.onEvents = cancel
 	request := httpRequest(
 		http.MethodGet,
-		testLocalOrigin+"/api/v1/runs/run-1/events?after=5&limit=2",
+		testLocalOrigin+"/api/v2/runs/run-1/events?after=5&limit=2",
 		"127.0.0.1:45000",
 		nil,
 	).WithContext(ctx)
@@ -702,7 +707,7 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 
 	invalidResume := httpRequest(
 		http.MethodGet,
-		testLocalOrigin+"/api/v1/runs/run-1/events?after=7",
+		testLocalOrigin+"/api/v2/runs/run-1/events?after=7",
 		"127.0.0.1:45001",
 		nil,
 	)
@@ -713,7 +718,7 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 
 	head := httpRequest(
 		http.MethodHead,
-		testLocalOrigin+"/api/v1/runs/run-1/events?after=0",
+		testLocalOrigin+"/api/v2/runs/run-1/events?after=0",
 		"127.0.0.1:45002",
 		nil,
 	)
@@ -854,7 +859,7 @@ func TestHTTPJSONAdmissionIsBoundedAndClosed(t *testing.T) {
 	for _, test := range tests {
 		request := httpRequest(
 			http.MethodPost,
-			testLocalOrigin+"/api/v1/start",
+			testLocalOrigin+"/api/v2/start",
 			"127.0.0.1:47000",
 			[]byte(test.body),
 		)

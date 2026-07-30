@@ -126,7 +126,7 @@ func parallelSameRoleSnapshotJSON(t *testing.T) json.RawMessage {
 	projector.snapshot = parallelSameRoleSnapshot()
 	request := httpRequest(
 		http.MethodGet,
-		testLocalOrigin+"/api/v1/runs/run-1/snapshot",
+		testLocalOrigin+"/api/v2/runs/run-1/snapshot",
 		"127.0.0.1:48000",
 		nil,
 	)

@@ -409,31 +409,42 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 			invocation driver.AutomationInvocation,
 		) (driver.AutomationObservation, error) {
 			automationCalls++
-			if invocation.Recovery == nil ||
-				invocation.Advisory != nil {
+			if (invocation.Recovery == nil) ==
+				(invocation.Advisory == nil) {
 				t.Fatalf(
-					"recovery automation = %#v",
+					"automation invocation = %#v",
 					invocation,
 				)
 			}
-			answer :=
-				"Use the exact approved design constraint."
-			return driver.AutomationObservation{
+			observation := driver.AutomationObservation{
 				TransportStatus: driver.Completed,
 				Usage: driver.UsageReceipt{
 					TokenStatus: driver.UsageUnavailable,
 					CostStatus:  driver.UsageUnavailable,
 				},
 				Diagnostic: driver.Diagnostic{Code: "none"},
-				Recovery: &driver.RecoveryDecision{
+			}
+			if invocation.Recovery != nil {
+				observation.Recovery = &driver.RecoveryDecision{
 					SchemaVersion: driver.
 						RecoveryDecisionSchemaVersion,
 					InvocationID: invocation.Recovery.
 						InvocationID,
-					Action: driver.RecoveryResumeWorker,
-					Answer: &answer,
-				},
-			}, nil
+					Action: driver.RecoveryAskCaptain,
+				}
+			} else {
+				answer :=
+					"Use the exact approved design constraint."
+				observation.Advisory = &driver.AdvisoryResult{
+					SchemaVersion: driver.
+						AdvisoryResultSchemaVersion,
+					InvocationID: invocation.Advisory.
+						InvocationID,
+					Outcome: driver.AdvisoryAnswer,
+					Answer:  &answer,
+				}
+			}
+			return observation, nil
 		},
 	}
 	service := &Service{
@@ -477,7 +488,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 	if entry == nil || entry.handle == nil ||
 		entry.designReceipt == "" || turnCalls != 1 ||
 		freshCalls != 0 || recoveryCalls != 1 ||
-		automationCalls != 1 {
+		automationCalls != 2 {
 		t.Fatalf(
 			"promoted design continuation = %#v, turns=%d recovery=%d automation=%d fresh=%d",
 			entry,
@@ -522,7 +533,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 		slice.CurrentReceipt.Receipt.Result != "proceed" ||
 		slice.CurrentReceipt.Receipt.Binds != entry.designReceipt ||
 		turnCalls != 1 || recoveryCalls != 1 ||
-		automationCalls != 1 || freshCalls != 1 {
+		automationCalls != 2 || freshCalls != 1 {
 		t.Fatalf(
 			"post-Captain state=%#v entry=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
@@ -566,7 +577,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 	if !ok || slice.Candidate == nil ||
 		slice.NextRole != "verifier" ||
 		turnCalls != 2 || recoveryCalls != 1 ||
-		automationCalls != 1 || freshCalls != 1 {
+		automationCalls != 2 || freshCalls != 1 {
 		t.Fatalf(
 			"post-implementation state=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,

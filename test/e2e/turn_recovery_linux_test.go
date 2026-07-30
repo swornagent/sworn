@@ -25,13 +25,15 @@ import (
 )
 
 const (
-	recoveryE2ESecret = "turn-recovery-e2e-secret"
-	recoveryE2EAnswer = "Use the exact approved recovery fixture value."
+	recoveryE2ESecret  = "turn-recovery-e2e-secret"
+	recoveryE2EAnswer  = "Use the exact approved recovery fixture value."
+	recoveryE2EContent = "matched production outcome\n"
 )
 
 type recoveryE2EProvider struct {
 	t         *testing.T
 	planBytes []byte
+	recover   bool
 
 	mu    sync.Mutex
 	turns map[string]int
@@ -204,6 +206,24 @@ func (provider *recoveryE2EProvider) workerResponse(
 		arguments, err := provider.submissionArguments(prompt)
 		return "sworn_submit", arguments, err
 	}
+	if !provider.recover {
+		switch {
+		case turn == 1 && prompt.Recovery == nil:
+			return "Write", map[string]any{
+				"path":    "/workspace/one.txt",
+				"content": recoveryE2EContent,
+			}, nil
+		case turn == 2 && prompt.Recovery == nil:
+			arguments, err := provider.submissionArguments(prompt)
+			return "sworn_submit", arguments, err
+		default:
+			return "", nil, fmt.Errorf(
+				"direct implementation turn=%d recovery=%t",
+				turn,
+				prompt.Recovery != nil,
+			)
+		}
+	}
 	switch {
 	case turn == 1 && prompt.Recovery == nil:
 		return "sworn_yield", map[string]any{"yield": map[string]any{
@@ -223,7 +243,7 @@ func (provider *recoveryE2EProvider) workerResponse(
 	case turn == 2:
 		return "Write", map[string]any{
 			"path":    "/workspace/one.txt",
-			"content": "resumed production recovery\n",
+			"content": recoveryE2EContent,
 		}, nil
 	case turn == 3:
 		arguments, err := provider.submissionArguments(prompt)
@@ -252,7 +272,7 @@ func (provider *recoveryE2EProvider) submissionArguments(
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
 	case driver.ImplementerImplementation:
 		submission.Checks, err = driver.NewCheckBytes(
-			[]byte("resumed implementation checks\n"),
+			[]byte("matched implementation checks\n"),
 		)
 	case driver.WorkVerification:
 		submission.Checks, err = driver.NewCheckBytes(
@@ -289,10 +309,7 @@ func (provider *recoveryE2EProvider) submissionArguments(
 	return map[string]any{"submission": value}, nil
 }
 
-func recoveryE2EPlan(
-	t *testing.T,
-	repository string,
-) ([]byte, baton.Plan) {
+func recoveryE2EPlan(t *testing.T) ([]byte, baton.Plan) {
 	t.Helper()
 	metadata := baton.Metadata{
 		SchemaVersion: baton.PlanVersion,
@@ -307,14 +324,14 @@ func recoveryE2EPlan(
 			DependsOn: []string{},
 			Slices: []baton.Slice{{
 				ID:      "S1",
-				Outcome: "Deliver the resumed production recovery fixture.",
+				Outcome: "Deliver the matched production fixture.",
 				Scope: baton.Scope{
 					Include: []string{"one.txt"},
 					Exclude: []string{},
 				},
 				Acceptance: []baton.Criterion{{
 					ID:   "A-S1",
-					Text: "The resumed value is present in the exact product tree.",
+					Text: "The matched value is present in the exact product tree.",
 				}},
 				Checks:      []string{"check one.txt"},
 				Constraints: []string{"deterministic local provider"},
@@ -329,7 +346,7 @@ func recoveryE2EPlan(
 	}
 	body := []byte(
 		"```baton-plan-v2\n" + string(metadataBody) +
-			"\n```\n\nDeterministic recovery E2E for " + repository + ".\n",
+			"\n```\n\nDeterministic paired turn-recovery E2E.\n",
 	)
 	plan, err := baton.ParsePlan(body)
 	if err != nil {
@@ -386,6 +403,7 @@ func recoveryE2EConfig(
 
 func recoveryE2EManifest(
 	t *testing.T,
+	runID string,
 	repository string,
 	config driver.LoadedDriverConfig,
 ) []byte {
@@ -396,7 +414,7 @@ func recoveryE2EManifest(
 	}
 	manifest := swornruntime.Manifest{
 		SchemaVersion:     swornruntime.ManifestVersion,
-		RunID:             "turn-recovery",
+		RunID:             runID,
 		Repository:        repository,
 		Release:           "turn-recovery-release",
 		TargetRef:         "refs/heads/main",
@@ -434,17 +452,27 @@ func recoveryE2EManifest(
 	return body
 }
 
-func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
+type recoveryE2EPairedResult struct {
+	record         observe.Record
+	implementation observe.AttemptGroup
+	productTree    string
+	productContent string
+}
+
+func runDirectTurnRecoveryBaseline(
 	t *testing.T,
-) {
-	approvals := &approvalServer{
-		comments: make(map[int64][]approvalComment),
-	}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
+	approvals *approvalServer,
+	swornBinary string,
+	planBytes []byte,
+	plan baton.Plan,
+) recoveryE2EPairedResult {
+	t.Helper()
+
+	approvals.mu.Lock()
+	delete(approvals.comments, int64(64))
+	approvals.mu.Unlock()
 
 	repository := newProductRepository(t)
-	planBytes, plan := recoveryE2EPlan(t, repository)
 	provider := &recoveryE2EProvider{
 		t: t, planBytes: planBytes, turns: make(map[string]int),
 	}
@@ -460,7 +488,156 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	manifestPath := writeManifest(
 		t,
 		root,
-		recoveryE2EManifest(t, repository, loaded),
+		recoveryE2EManifest(
+			t,
+			"turn-recovery-direct",
+			repository,
+			loaded,
+		),
+	)
+	journalPath := filepath.Join(root, "run.sqlite")
+	environment := map[string]string{
+		"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret,
+	}
+	targetBefore := runGit(t, repository, "rev-parse", "main")
+	stdout, stderr := runBinaryWithEnvironment(
+		t,
+		swornBinary,
+		0,
+		environment,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+		"--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") {
+		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
+	}
+	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
+	installApprovedPlan(t, repository, planBytes)
+	stdout, stderr = runBinaryWithEnvironment(
+		t,
+		swornBinary,
+		0,
+		environment,
+		"resume",
+		"--run", "turn-recovery-direct",
+		"--journal", journalPath,
+		"--command", "direct-resume-1",
+		"--generation", "0",
+		"--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "state complete") {
+		t.Fatalf("direct resume stdout=%q stderr=%q", stdout, stderr)
+	}
+	finalState := readBatonState(
+		t,
+		repository,
+		"turn-recovery-release",
+	)
+	productContent := runGit(t, repository, "show", "main:one.txt")
+	if finalState.Assembly.Outcome != "merged" ||
+		runGit(t, repository, "rev-parse", "main") == targetBefore ||
+		productContent != strings.TrimSuffix(recoveryE2EContent, "\n") {
+		t.Fatalf("final direct state=%#v content=%q",
+			finalState.Assembly, productContent)
+	}
+
+	ctx := context.Background()
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	statusReader, err := swornruntime.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(e2eGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector, err := cockpit.NewProjector(
+		store,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := observe.NewEvaluator(
+		store,
+		projector,
+		"1.0.0-rc.1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(ctx, "turn-recovery-direct")
+	if err != nil || !changed {
+		t.Fatalf("direct eval changed=%t error=%v record=%#v",
+			changed, err, record)
+	}
+	var implementationGroups []observe.AttemptGroup
+	for _, group := range record.Groups {
+		if group.Responsibility ==
+			string(driver.ImplementerImplementation) {
+			implementationGroups = append(implementationGroups, group)
+		}
+	}
+	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
+		record.TurnRecovery.Recovered != 0 ||
+		record.TurnRecovery.HumanEscalations != 0 ||
+		record.TurnRecovery.FalseAcceptances != 0 ||
+		len(implementationGroups) != 1 ||
+		implementationGroups[0].Attempts != 1 ||
+		implementationGroups[0].Usage.InputTokens == nil ||
+		*implementationGroups[0].Usage.InputTokens != 14 ||
+		implementationGroups[0].Usage.OutputTokens == nil ||
+		*implementationGroups[0].Usage.OutputTokens != 10 {
+		t.Fatalf(
+			"direct eval=%#v implementation=%#v",
+			record.TurnRecovery,
+			implementationGroups,
+		)
+	}
+	return recoveryE2EPairedResult{
+		record:         record,
+		implementation: implementationGroups[0],
+		productTree:    runGit(t, repository, "rev-parse", "main^{tree}"),
+		productContent: productContent,
+	}
+}
+
+func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
+	t *testing.T,
+) {
+	approvals := &approvalServer{
+		comments: make(map[int64][]approvalComment),
+	}
+	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
+	defer approvalHTTP.Close()
+
+	repository := newProductRepository(t)
+	planBytes, plan := recoveryE2EPlan(t)
+	provider := &recoveryE2EProvider{
+		t: t, planBytes: planBytes, recover: true,
+		turns: make(map[string]int),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := recoveryE2EConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeManifest(
+		t,
+		root,
+		recoveryE2EManifest(t, "turn-recovery", repository, loaded),
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
@@ -621,7 +798,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		runGit(t, repository, "rev-parse", "main") ==
 			targetBefore ||
 		runGit(t, repository, "show", "main:one.txt") !=
-			"resumed production recovery" {
+			strings.TrimSuffix(recoveryE2EContent, "\n") {
 		t.Fatalf("final recovery state=%#v", finalState.Assembly)
 	}
 
@@ -753,7 +930,8 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	wantDuration := targetFacts[0].FinishedAt.Sub(
 		targetFacts[0].StartedAt,
 	).Nanoseconds()
-	if record.TurnRecovery.Recovered != 1 ||
+	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
+		record.TurnRecovery.Recovered != 1 ||
 		record.TurnRecovery.HumanEscalations != 1 ||
 		record.TurnRecovery.FalseAcceptances != 0 ||
 		len(implementationGroups) != 1 ||
@@ -777,4 +955,60 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 			wantDuration,
 		)
 	}
+
+	direct := runDirectTurnRecoveryBaseline(
+		t,
+		approvals,
+		swornBinary,
+		planBytes,
+		plan,
+	)
+	recoveryProductTree := runGit(
+		t,
+		repository,
+		"rev-parse",
+		"main^{tree}",
+	)
+	directInput := *direct.implementation.Usage.InputTokens
+	directOutput := *direct.implementation.Usage.OutputTokens
+	recoveryInput := *implementationGroups[0].Usage.InputTokens
+	recoveryOutput := *implementationGroups[0].Usage.OutputTokens
+	inputDelta := recoveryInput - directInput
+	outputDelta := recoveryOutput - directOutput
+	elapsedDelta := record.ElapsedNS - direct.record.ElapsedNS
+	if direct.implementation.DurationNS.Numerator == nil ||
+		direct.implementation.DurationNS.Denominator == nil ||
+		*direct.implementation.DurationNS.Denominator != 1 ||
+		direct.record.RunState != record.RunState ||
+		direct.record.Outcome != record.Outcome ||
+		direct.productTree != recoveryProductTree ||
+		direct.productContent != strings.TrimSuffix(recoveryE2EContent, "\n") ||
+		inputDelta != 14 || outputDelta != 10 {
+		t.Fatalf(
+			"paired eval direct=%#v recovery=%#v input_delta=%+d output_delta=%+d direct_tree=%s recovery_tree=%s",
+			direct.record,
+			record,
+			inputDelta,
+			outputDelta,
+			direct.productTree,
+			recoveryProductTree,
+		)
+	}
+	durationDelta := *implementationGroups[0].DurationNS.Numerator -
+		*direct.implementation.DurationNS.Numerator
+	t.Logf(
+		"paired eval v2 direct elapsed_ns=%d recovery elapsed_ns=%d signed_delta=%+d; implementation duration_ns direct=%d recovery=%d signed_delta=%+d; tokens direct=%d/%d recovery=%d/%d signed_delta=%+d/%+d",
+		direct.record.ElapsedNS,
+		record.ElapsedNS,
+		elapsedDelta,
+		*direct.implementation.DurationNS.Numerator,
+		*implementationGroups[0].DurationNS.Numerator,
+		durationDelta,
+		directInput,
+		directOutput,
+		recoveryInput,
+		recoveryOutput,
+		inputDelta,
+		outputDelta,
+	)
 }

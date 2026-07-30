@@ -587,7 +587,7 @@ func productionJourneyManifest(
 ) []byte {
 	t.Helper()
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersion,
+		SchemaVersion:     swornruntime.ManifestVersionV2,
 		RunID:             "production-journey",
 		Repository:        repository,
 		Release:           "production-journey-release",

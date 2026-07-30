@@ -19,15 +19,19 @@ import (
 )
 
 type turnRecoveryFixtureDriver struct {
-	mu              sync.Mutex
-	parkS1          bool
-	failAnswer      bool
-	successor       string
-	automaticAnswer bool
-	measured        bool
-	onAnswer        func(driver.Invocation) error
-	automationCalls int
-	answerCalls     int
+	mu                    sync.Mutex
+	parkS1                bool
+	failAnswer            bool
+	successor             string
+	recoveryAction        driver.RecoveryAction
+	directAnswer          string
+	mutateRecoveryFacts   bool
+	mutateAdvisoryBinding bool
+	cannotAdvise          bool
+	measured              bool
+	onAnswer              func(driver.Invocation) error
+	automationCalls       int
+	answerCalls           int
 }
 
 func completedTurnRecoveryObservation() driver.Observation {
@@ -321,13 +325,17 @@ func (fixture *turnRecoveryFixtureDriver) InvokeAutomation(
 	_ context.Context,
 	invocation driver.AutomationInvocation,
 ) (driver.AutomationObservation, error) {
-	if invocation.Recovery == nil || invocation.Advisory != nil {
+	if (invocation.Recovery == nil) == (invocation.Advisory == nil) {
 		return driver.AutomationObservation{},
 			fmt.Errorf("unexpected automation invocation")
 	}
 	fixture.mu.Lock()
 	fixture.automationCalls++
-	automaticAnswer := fixture.automaticAnswer
+	recoveryAction := fixture.recoveryAction
+	directAnswer := fixture.directAnswer
+	mutateRecoveryFacts := fixture.mutateRecoveryFacts
+	mutateAdvisoryBinding := fixture.mutateAdvisoryBinding
+	cannotAdvise := fixture.cannotAdvise
 	measured := fixture.measured
 	fixture.mu.Unlock()
 	observation := driver.AutomationObservation{
@@ -337,16 +345,46 @@ func (fixture *turnRecoveryFixtureDriver) InvokeAutomation(
 			CostStatus:  driver.UsageUnavailable,
 		},
 		Diagnostic: driver.Diagnostic{Code: "none"},
-		Recovery: &driver.RecoveryDecision{
+	}
+	if invocation.Recovery != nil {
+		if mutateRecoveryFacts {
+			for index := range invocation.Recovery.Facts {
+				if invocation.Recovery.Facts[index].Name ==
+					driver.FactCurrentStatus {
+					invocation.Recovery.Facts[index].Value = directAnswer
+					break
+				}
+			}
+		}
+		if recoveryAction == "" {
+			recoveryAction = driver.RecoveryPauseForHuman
+		}
+		observation.Recovery = &driver.RecoveryDecision{
 			SchemaVersion: driver.RecoveryDecisionSchemaVersion,
 			InvocationID:  invocation.Recovery.InvocationID,
-			Action:        driver.RecoveryPauseForHuman,
-		},
-	}
-	if automaticAnswer {
-		answer := "Use the exact approved fixture value."
-		observation.Recovery.Action = driver.RecoveryResumeWorker
-		observation.Recovery.Answer = &answer
+			Action:        recoveryAction,
+		}
+		if recoveryAction == driver.RecoveryResumeWorker {
+			answer := directAnswer
+			observation.Recovery.Answer = &answer
+		}
+	} else {
+		if mutateAdvisoryBinding {
+			invocation.Advisory.InvocationID = "mutated-advisory-invocation"
+		}
+		outcome := driver.AdvisoryAnswer
+		if cannotAdvise {
+			outcome = driver.AdvisoryCannotAnswer
+		}
+		observation.Advisory = &driver.AdvisoryResult{
+			SchemaVersion: driver.AdvisoryResultSchemaVersion,
+			InvocationID:  invocation.Advisory.InvocationID,
+			Outcome:       outcome,
+		}
+		if outcome == driver.AdvisoryAnswer {
+			answer := "Use the exact approved fixture value."
+			observation.Advisory.Answer = &answer
+		}
 	}
 	if measured {
 		input, output := int64(23), int64(29)
@@ -935,13 +973,126 @@ func TestAnswerBetweenDriveDecisionAndOwnerReleaseIsConsumed(t *testing.T) {
 	}
 }
 
-func TestAutomaticTurnRecoveryPersistsAggregateUsage(
+func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		name            string
+		fixture         turnRecoveryFixtureDriver
+		wantAutomations int
+	}{
+		{
+			name: "arbitrary direct resume",
+			fixture: turnRecoveryFixtureDriver{
+				parkS1:         true,
+				recoveryAction: driver.RecoveryResumeWorker,
+				directAnswer:   "Use the exact approved fixture value.",
+			},
+			wantAutomations: 1,
+		},
+		{
+			name: "mutated fact alias cannot authorize direct resume",
+			fixture: turnRecoveryFixtureDriver{
+				parkS1:              true,
+				recoveryAction:      driver.RecoveryResumeWorker,
+				directAnswer:        "Use the exact approved fixture value.",
+				mutateRecoveryFacts: true,
+			},
+			wantAutomations: 1,
+		},
+		{
+			name: "captain cannot answer",
+			fixture: turnRecoveryFixtureDriver{
+				parkS1:         true,
+				recoveryAction: driver.RecoveryAskCaptain,
+				cannotAdvise:   true,
+			},
+			wantAutomations: 2,
+		},
+		{
+			name: "mutated advisory alias cannot authorize resume",
+			fixture: turnRecoveryFixtureDriver{
+				parkS1:                true,
+				recoveryAction:        driver.RecoveryAskCaptain,
+				mutateAdvisoryBinding: true,
+			},
+			wantAutomations: 2,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureDriver := &test.fixture
+			fixture := newProductionImplementationRecoveryFixture(
+				t,
+				fixtureDriver,
+			)
+			defer fixture.workspace.Close()
+			if _, _, err := fixture.service.
+				runProductionImplementationDispatch(
+					fixture.ctx,
+					fixture.engine,
+					fixture.owner,
+					fixture.workspace,
+					fixture.cycle,
+					fixture.coordinates,
+				); !IsCode(err, "EFFECT_PARKED") {
+				t.Fatalf("parked recovery = %v", err)
+			}
+
+			current, err := baton.ReadState(
+				fixture.engine.git,
+				fixture.manifest.value.Release,
+				fixture.engine.inertness,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeSlice, _ := fixture.state.Slice("S1")
+			afterSlice, _ := current.Slice("S1")
+			beforeTrack, _ := fixture.state.Track("T1")
+			afterTrack, _ := current.Track("T1")
+			if beforeSlice.CurrentReceipt.OID !=
+				afterSlice.CurrentReceipt.OID ||
+				beforeSlice.Stage != afterSlice.Stage ||
+				beforeSlice.NextRole != afterSlice.NextRole ||
+				beforeTrack.Head != afterTrack.Head ||
+				fixture.state.Refs.Release.Head !=
+					current.Refs.Release.Head {
+				t.Fatalf(
+					"parked automation moved Baton authority: %#v",
+					afterSlice,
+				)
+			}
+			fixtureDriver.mu.Lock()
+			automationCalls := fixtureDriver.automationCalls
+			answerCalls := fixtureDriver.answerCalls
+			fixtureDriver.mu.Unlock()
+			if automationCalls != test.wantAutomations ||
+				answerCalls != 0 {
+				t.Fatalf(
+					"parked automation=%d worker resumes=%d",
+					automationCalls,
+					answerCalls,
+				)
+			}
+			attentions, err := fixture.store.Attentions(
+				fixture.ctx,
+				fixture.owner.RunID,
+			)
+			if err != nil || len(attentions) != 1 ||
+				attentions[0].State != journal.AttentionOpen {
+				t.Fatalf("parked attention = %#v, %v", attentions, err)
+			}
+		})
+	}
+}
+
+func TestCaptainAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
 	t *testing.T,
 ) {
 	fixtureDriver := &turnRecoveryFixtureDriver{
-		parkS1:          true,
-		automaticAnswer: true,
-		measured:        true,
+		parkS1:         true,
+		recoveryAction: driver.RecoveryAskCaptain,
+		measured:       true,
 	}
 	fixture := newProductionImplementationRecoveryFixture(
 		t,
@@ -976,8 +1127,8 @@ func TestAutomaticTurnRecoveryPersistsAggregateUsage(
 			t.Fatal(err)
 		}
 	}
-	if usage.InputTokens == nil || *usage.InputTokens != 47 ||
-		usage.OutputTokens == nil || *usage.OutputTokens != 59 {
+	if usage.InputTokens == nil || *usage.InputTokens != 70 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 88 {
 		t.Fatalf("persisted aggregate usage = %#v", usage)
 	}
 	snapshot, err := fixture.store.Snapshot(
@@ -998,6 +1149,17 @@ func TestAutomaticTurnRecoveryPersistsAggregateUsage(
 	}
 	if recoveredEvents != 1 {
 		t.Fatalf("durable recovered events = %d, want 1", recoveredEvents)
+	}
+	fixtureDriver.mu.Lock()
+	automationCalls := fixtureDriver.automationCalls
+	answerCalls := fixtureDriver.answerCalls
+	fixtureDriver.mu.Unlock()
+	if automationCalls != 2 || answerCalls != 1 {
+		t.Fatalf(
+			"advisory recovery automation=%d worker resumes=%d",
+			automationCalls,
+			answerCalls,
+		)
 	}
 }
 

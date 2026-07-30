@@ -29,6 +29,11 @@ func recoveryInvocationFixture(selection ModelSelection) RecoveryInvocation {
 		Facts: []AutomationFact{
 			{Name: FactWorkerTerminal, Value: "question"},
 			{Name: FactWorkerMessage, Value: "Which admitted base should I use?"},
+			{Name: FactCurrentStatus, Value: "no sealed submission"},
+			{
+				Name:  FactProgressSummary,
+				Value: "Use the exact admitted prepared base.",
+			},
 		},
 	}
 }
@@ -159,6 +164,99 @@ func TestAutomationContractsAreClosedBoundedAndNonBaton(t *testing.T) {
 	}
 }
 
+func TestRecoveryResumeAnswerRequiresExactInvocationFact(t *testing.T) {
+	t.Parallel()
+	adapter := processAdapterFixture(
+		t,
+		"automation-adapter",
+		"sworn.automation.test",
+	)
+	selection := ModelSelection{Profile: "automation", Model: "small-model"}
+	registry, err := NewSelectionRegistry(
+		[]ProfileConfig{{
+			Key:     selection.Profile,
+			Adapter: adapter.Identity().Key,
+			Network: NetworkNone,
+		}},
+		[]Adapter{adapter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := registry.ResolveSelection(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := recoveryInvocationFixture(selection)
+	invocation := AutomationInvocation{
+		Selected: selected,
+		Recovery: &recovery,
+	}
+
+	observationFor := func(answer string) AutomationObservation {
+		return AutomationObservation{
+			TransportStatus: Completed,
+			Usage: UsageReceipt{
+				TokenStatus: UsageUnavailable,
+				CostStatus:  UsageUnavailable,
+			},
+			Diagnostic: Diagnostic{Code: "none"},
+			Recovery: &RecoveryDecision{
+				SchemaVersion: RecoveryDecisionSchemaVersion,
+				InvocationID:  recovery.InvocationID,
+				Action:        RecoveryResumeWorker,
+				Answer:        &answer,
+			},
+		}
+	}
+	exact := recovery.Facts[3].Value
+	observation := observationFor(exact)
+	if err := ValidateAutomationObservation(
+		invocation,
+		observation,
+	); err != nil {
+		t.Fatalf("exact fact observation = %v", err)
+	}
+	matched, err := RecoveryAnswerForInvocation(
+		recovery,
+		*observation.Recovery,
+	)
+	if err != nil || matched != recovery.Facts[3].Value {
+		t.Fatalf("matched answer = %q, %v", matched, err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		answer string
+	}{
+		{
+			name:   "transformed eligible fact",
+			answer: recovery.Facts[2].Value + ".",
+		},
+		{
+			name:   "invented answer",
+			answer: "Use a newly inferred prepared base.",
+		},
+		{
+			name:   "worker message is context only",
+			answer: recovery.Facts[1].Value,
+		},
+		{
+			name:   "worker terminal is context only",
+			answer: recovery.Facts[0].Value,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateAutomationObservation(
+				invocation,
+				observationFor(test.answer),
+			); !IsCode(err, "INVALID_AUTOMATION_OBSERVATION") {
+				t.Fatalf("provenance error = %v", err)
+			}
+		})
+	}
+}
+
 type automationTestConversation struct {
 	calls       [][]providerToolCall
 	index       int
@@ -221,7 +319,7 @@ func TestProviderAutomationUsesOneRoleNeutralTerminalWithoutSubmissionAuthority(
 	t *testing.T,
 ) {
 	t.Parallel()
-	answer := "Resume with the exact prepared base."
+	answer := "Use the exact admitted prepared base."
 	arguments, err := json.Marshal(map[string]any{
 		"decision": RecoveryDecision{
 			SchemaVersion: RecoveryDecisionSchemaVersion,
@@ -313,6 +411,16 @@ func TestProviderAutomationUsesOneRoleNeutralTerminalWithoutSubmissionAuthority(
 		strings.Contains(string(prompt), `"responsibility"`) ||
 		strings.Contains(string(prompt), `"workspace"`) {
 		t.Fatalf("automation prompt exposes Baton authority: %s", prompt)
+	}
+	for _, required := range []string{
+		"byte-for-byte",
+		"worker_terminal and worker_message are context only",
+		"Use ask_captain for judgment",
+		"pause_track_for_human when uncertain",
+	} {
+		if !strings.Contains(string(prompt), required) {
+			t.Fatalf("automation prompt omits %q: %s", required, prompt)
+		}
 	}
 }
 

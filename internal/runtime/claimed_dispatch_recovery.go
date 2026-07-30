@@ -705,18 +705,6 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 				effect.State != journal.Succeeded) {
 			continue
 		}
-		command, ok := commands[effect.ReplayKey]
-		if !ok {
-			return true, runtimeFail("CORRUPT_JOURNAL", nil)
-		}
-		dispatch, err := validateDriverRecoveryCommand(
-			engine.manifest,
-			command,
-			effect,
-		)
-		if err != nil {
-			return true, err
-		}
 		var work string
 		var epoch int64
 		if effect.State == journal.Succeeded {
@@ -732,6 +720,18 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 			if err != nil {
 				return true, err
 			}
+		}
+		command, ok := commands[effect.ReplayKey]
+		if !ok {
+			return true, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		dispatch, err := validateDriverRecoveryCommand(
+			engine.manifest,
+			command,
+			effect,
+		)
+		if err != nil {
+			return true, err
 		}
 		governed, implementationGoverned := implementation[effect.ID]
 		if attention, found := parked[work]; found {

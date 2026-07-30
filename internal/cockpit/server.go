@@ -28,7 +28,9 @@ const (
 	maxAttentionAnswerRequestBytes = maxRequestBytes +
 		6*journal.MaxAttentionAnswerBytes
 	defaultSSELimit     = 32
-	telemetryHealthPath = "/api/v1/operator/telemetry"
+	apiVersion          = "v2"
+	apiPathPrefix       = "/api/" + apiVersion
+	telemetryHealthPath = apiPathPrefix + "/operator/telemetry"
 )
 
 var (
@@ -312,7 +314,7 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case telemetryHealthPath:
 		h.serveTelemetryHealth(w, r)
 		return
-	case "/api/v1/start":
+	case apiPathPrefix + "/start":
 		h.serveStart(w, r)
 		return
 	}
@@ -322,7 +324,7 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return
 	}
-	if len(parts) < 5 || parts[0] != "api" || parts[1] != "v1" ||
+	if len(parts) < 5 || parts[0] != "api" || parts[1] != apiVersion ||
 		parts[2] != "runs" || parts[3] != h.runID {
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 		return
