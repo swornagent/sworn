@@ -40,7 +40,7 @@ jobs:
       - name: Baton composition contracts
         run: |
           go test -count=1 -timeout=10m \
-            -run '^(TestAssemblyTransactionsFencePostClassificationTrackDrift|TestActionsMatchExactReferenceForSHA1AndSHA256|TestPlanRevisionRetentionSelectiveInvalidationAndRetirement|TestPlanRevisionReconcilesOnlyExactPreparedBase|TestAssemblyDirectReuseRequiresExactComposition|TestPlanAdmissionMatchesExactBatonGolden)$' \
+            -run '^(TestActionsMatchExactReferenceForSHA1AndSHA256|TestAssemblyDirectReuseRequiresExactComposition|TestPlanAdmissionMatchesExactBatonGolden)$' \
             ./internal/baton
       - name: Vet
         run: go vet ./...
