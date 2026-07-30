@@ -200,6 +200,47 @@ func TestDriverConfigFactoryBuildsSubsetAndEveryFamilyWithoutResolvingSecrets(t 
 	}
 }
 
+func TestProductionDriverFactoryCanonicalizesItsOwnedTemporaryRoot(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	body, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	realRoot := filepath.Join(root, "real")
+	aliasRoot := filepath.Join(root, "alias")
+	if err := os.Mkdir(realRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", aliasRoot)
+
+	factory, err := NewProductionDriverFactory(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := factory.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	resolved, err := filepath.EvalSymlinks(factory.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if factory.root != resolved ||
+		!strings.HasPrefix(factory.root, realRoot+string(filepath.Separator)) {
+		t.Fatalf("factory root = %q, resolved = %q", factory.root, resolved)
+	}
+}
+
 func explicitSelections(profile string) RoleSelections {
 	return RoleSelections{
 		Planner:     RoleSelection{Profile: profile, Model: "planner"},

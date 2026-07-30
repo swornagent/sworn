@@ -87,6 +87,15 @@ func TestOracleTwinGenerationIsByteModeAndInventoryIdentical(t *testing.T) {
 	if err != nil {
 		t.Skip("node is not installed")
 	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	help := exec.Command(git, "check-attr", "-h")
+	helpBody, _ := help.CombinedOutput()
+	if !bytes.Contains(helpBody, []byte("--source")) {
+		t.Skip("the exact Baton RC9 JavaScript reference requires check-attr --source")
+	}
 	node, err = filepath.Abs(node)
 	if err != nil {
 		t.Fatal(err)
