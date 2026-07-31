@@ -61,8 +61,20 @@ This candidate can:
 - check connection configuration locally or perform an explicit live
   certification.
 
-This is a technical release candidate. Passing its checks does not itself
-authorize a tag, merge to `main`, deployment, or publication.
+This is a public release candidate for evaluation. Its command and file
+contracts may still change before `1.0.0`.
+
+## Install
+
+Sworn currently ships for Linux x86_64:
+
+```sh
+brew install --cask swornagent/tap/sworn
+```
+
+The GitHub release also provides a verified archive for direct installation.
+See the [installation guide](docs/install.md) for checksums, upgrades, and
+runtime requirements.
 
 ## Start here
 
