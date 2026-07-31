@@ -92,10 +92,13 @@ candidate receipts form a valid chain back to its recorded FAIL. Assembly
 verification always starts fresh. Planner and Captain remain separate
 invocations.
 
-Recovery uses an explicitly selected automation model with limited actions and
-budgets. It cannot create Baton approval or handoff records. When safe recovery
-needs human judgment, Sworn saves a question and pauses only the affected part
-of the work.
+Sworn's orchestrator is its bounded recovery layer, not a sixth Baton role.
+When a worker asks a question, reports a block, or returns something Sworn
+cannot safely use, the orchestrator can resume that worker with an answer from
+recorded facts, ask the Captain for advice, retry an operational failure, or
+pause only the affected track for a human answer. It uses an explicitly
+selected automation model with limited actions and budgets. It cannot approve
+a plan, invent a Captain decision or Verifier verdict, or merge code.
 
 ## Stable technical contracts
 
