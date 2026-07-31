@@ -40,6 +40,12 @@ type nativeHandshakeEvidence struct {
 	ToolDigest         string
 }
 
+type nativeBrokerSession interface {
+	brokerToolDefinitions() []providerToolDefinition
+	execute(context.Context, providerToolCall) providerToolResult
+	terminated() (bool, error)
+}
+
 type nativeBroker struct {
 	mu                 sync.Mutex
 	callMu             sync.Mutex
@@ -59,7 +65,7 @@ type nativeBroker struct {
 	calls              int
 	address            string
 	token              []byte
-	session            *toolSession
+	session            nativeBrokerSession
 	server             *http.Server
 	listener           net.Listener
 	terminal           chan struct{}
@@ -69,7 +75,7 @@ type nativeBroker struct {
 }
 
 func newNativeBroker(
-	session *toolSession,
+	session nativeBrokerSession,
 	expected ...nativeHandshakeEvidence,
 ) (*nativeBroker, error) {
 	if session == nil {
@@ -101,9 +107,7 @@ func newNativeBroker(
 			!digestPattern.MatchString(value.InitializeDigest) ||
 			!digestPattern.MatchString(value.NotificationDigest) ||
 			!digestPattern.MatchString(value.ListDigest) ||
-			value.ToolDigest != nativeToolSurfaceDigest(
-				session.invocation.Request.Workspace.Access,
-			) {
+			value.ToolDigest != nativeBrokerToolSurfaceDigest(session) {
 			_ = listener.Close()
 			clearBytes(token)
 			return nil, fail("INVALID_BROKER")
@@ -163,7 +167,7 @@ func (broker *nativeBroker) HandshakeEvidence() (nativeHandshakeEvidence, error)
 		InitializeDigest:   broker.initializeDigest,
 		NotificationDigest: broker.notificationDigest,
 		ListDigest:         broker.listDigest,
-		ToolDigest:         nativeToolSurfaceDigest(broker.session.invocation.Request.Workspace.Access),
+		ToolDigest:         nativeBrokerToolSurfaceDigest(broker.session),
 	}, nil
 }
 
@@ -184,9 +188,8 @@ func (broker *nativeBroker) matchesExpectedLocked() bool {
 			broker.initializeDigest == broker.expected.InitializeDigest &&
 			broker.notificationDigest == broker.expected.NotificationDigest &&
 			broker.listDigest == broker.expected.ListDigest &&
-			nativeToolSurfaceDigest(
-				broker.session.invocation.Request.Workspace.Access,
-			) == broker.expected.ToolDigest)
+			nativeBrokerToolSurfaceDigest(broker.session) ==
+				broker.expected.ToolDigest)
 }
 
 func (broker *nativeBroker) Cancel() {
@@ -426,7 +429,7 @@ func (broker *nativeBroker) listTools(
 		return
 	}
 	broker.mu.Unlock()
-	definitions := toolDefinitions(broker.session.invocation.Request.Workspace.Access)
+	definitions := broker.session.brokerToolDefinitions()
 	tools := make([]map[string]any, len(definitions))
 	for index, definition := range definitions {
 		var schema any
@@ -450,6 +453,20 @@ func (broker *nativeBroker) listTools(
 	broker.maybeOpenLocked()
 	broker.mu.Unlock()
 	writeBrokerResult(writer, id, map[string]any{"tools": tools})
+}
+
+func (session *toolSession) brokerToolDefinitions() []providerToolDefinition {
+	if session == nil {
+		return nil
+	}
+	return toolDefinitions(session.invocation.Request.Workspace.Access)
+}
+
+func nativeBrokerToolSurfaceDigest(session nativeBrokerSession) string {
+	if session == nil {
+		return ""
+	}
+	return nativeToolDefinitionsDigest(session.brokerToolDefinitions())
 }
 
 func (broker *nativeBroker) callTool(
@@ -497,13 +514,25 @@ func (broker *nativeBroker) callTool(
 	result := broker.session.execute(ctx, providerToolCall{
 		ID: "mcp-" + itoa(callNumber), Name: name, Arguments: arguments,
 	})
+	terminated, terminalErr := broker.session.terminated()
+	if terminated && IsCode(terminalErr, "RECOVERY_STEP_REFUSED") {
+		broker.finish(brokerTerminal)
+		writeBrokerError(
+			writer,
+			http.StatusConflict,
+			id,
+			-32000,
+			"closed",
+		)
+		return
+	}
 	writeBrokerResult(writer, id, map[string]any{
 		"content": []map[string]any{{
 			"type": "text", "text": string(result.Content),
 		}},
 		"isError": result.Failed,
 	})
-	if submitted, submitErr := broker.session.submitted(); submitted || submitErr != nil {
+	if terminated {
 		broker.finish(brokerTerminal)
 	}
 }

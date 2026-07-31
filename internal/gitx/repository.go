@@ -21,20 +21,21 @@ import (
 )
 
 const (
-	recordRoot        = ".baton/releases"
-	MaxHeadRefs       = 128
-	MaxBatchPaths     = 1025
-	MaxFileBytes      = 262_144
-	MaxBatchBytes     = MaxBatchPaths * MaxFileBytes
-	MaxTreeEntries    = 100_000
-	MaxTreeBytes      = 64 * 1024 * 1024
-	MaxChangedPaths   = 100_000
-	MaxHistory        = 4_096
-	MaxMessageBytes   = 12_288
-	MaxRepositoryPath = 1000
-	MaxCommandOutput  = 64 * 1024 * 1024
-	MaxDiagnostic     = 512 * 1024
-	CommandTimeout    = 30 * time.Second
+	recordRoot             = ".baton/releases"
+	MaxHeadRefs            = 128
+	MaxBatchPaths          = 1025
+	MaxFileBytes           = 262_144
+	MaxBatchBytes          = MaxBatchPaths * MaxFileBytes
+	MaxTreeEntries         = 100_000
+	MaxTreeBytes           = 64 * 1024 * 1024
+	MaxChangedPaths        = 100_000
+	MaxHistory             = 4_096
+	MaxMessageBytes        = 12_288
+	MaxRepositoryPath      = 1000
+	MaxCommandOutput       = 64 * 1024 * 1024
+	MaxDiagnostic          = 512 * 1024
+	maxRecordRootDiffBytes = 8 * 1024 * 1024
+	CommandTimeout         = 30 * time.Second
 )
 
 type Error struct {
@@ -814,6 +815,60 @@ func (r *Repository) ChangedPaths(base, candidate OID) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func validateRecordRootDiffOutput(raw []byte) error {
+	if len(raw) > maxRecordRootDiffBytes {
+		return fail(
+			"RECORD_TREE_INVENTORY_LIMIT",
+			"compare reserved record root",
+			fmt.Errorf(
+				"record-root comparison exceeds %d bytes",
+				maxRecordRootDiffBytes,
+			),
+		)
+	}
+	return nil
+}
+
+func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) error {
+	if err := r.validateOID(base); err != nil {
+		return err
+	}
+	if err := r.validateOID(candidate); err != nil {
+		return err
+	}
+	if err := r.assertRecordRootAt(base, true); err != nil {
+		return err
+	}
+	if err := r.assertRecordRootAt(candidate, true); err != nil {
+		return err
+	}
+	raw, err := r.run(
+		nil,
+		nil,
+		"diff-tree", "--no-commit-id", "--raw", "-z",
+		base.String(), candidate.String(), "--", recordRoot,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateRecordRootDiffOutput(raw); err != nil {
+		return err
+	}
+	if len(raw) != 0 {
+		return fail(
+			"RESERVED_RECORD_ROOT_CHANGED",
+			"compare reserved record root",
+			fmt.Errorf(
+				"candidate %s changes reserved record root %s from base %s",
+				candidate.String(),
+				recordRoot,
+				base.String(),
+			),
+		)
+	}
+	return nil
 }
 func (r *Repository) FirstParentRange(base, head OID) ([]OID, error) {
 	if err := r.validateOID(base); err != nil {

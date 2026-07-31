@@ -1,7 +1,77 @@
 "use strict";
 
-const SCHEMA = "sworn.cockpit/v1";
+const SCHEMA = "sworn.cockpit/v2";
+const API = "/api/v2";
 const SNAPSHOT_POLL_MILLIS = 5_000;
+const MAX_ATTENTION_ANSWER_BYTES = 16 * 1024;
+const RUN_PRESENTATIONS = {
+  new: {
+    status: "Ready to start",
+    doing: "Sworn has recorded the run and has not started delivery yet.",
+    next: "Start when the plan and AI connections are ready.",
+    needs: "Only if you want to start the run.",
+  },
+  running: {
+    status: "Sworn is working",
+    doing: "Sworn is carrying the next recorded Baton handoff.",
+    next: "Sworn will continue with the next ready handoff.",
+    needs: "No, unless Sworn asks a question.",
+  },
+  awaiting_approval: {
+    status: "Waiting for approval",
+    doing: "The proposed plan is ready, but delivery has not been approved.",
+    next: "Approve the plan through the configured approval source.",
+    needs: "Yes — approve or decline the plan.",
+  },
+  pausing: {
+    status: "Pausing safely",
+    doing: "Current work is reaching a safe stopping point.",
+    next: "The run will pause when in-flight work is settled.",
+    needs: "No.",
+  },
+  paused: {
+    status: "Paused",
+    doing: "Sworn has stopped starting new work.",
+    next: "Resume when you want delivery to continue.",
+    needs: "Only when you are ready to resume.",
+  },
+  cancelling: {
+    status: "Cancelling safely",
+    doing: "Sworn is stopping the run at a safe boundary.",
+    next: "The run will be cancelled when in-flight work is settled.",
+    needs: "No.",
+  },
+  cancelled: {
+    status: "Cancelled",
+    doing: "This run will not start any more delivery work.",
+    next: "No delivery work remains for this run.",
+    needs: "No.",
+  },
+  parked: {
+    status: "Stopped and needs your attention",
+    doing: "One work item needs an answer or has failed repeatedly.",
+    next: "Open the latest board to answer the question or review the retry action.",
+    needs: "Yes — review the stopped work.",
+  },
+  takeover_required: {
+    status: "Resume required",
+    doing: "The previous Sworn process stopped and no process owns the run.",
+    next: "Take over the run so Sworn can recheck it and continue.",
+    needs: "Yes — take over the run.",
+  },
+  uncertain: {
+    status: "Needs confirmation",
+    doing: "Sworn cannot confirm whether the last external action finished.",
+    next: "Recover the run before repeating that action.",
+    needs: "Yes — confirm or recover the last action.",
+  },
+  complete: {
+    status: "Complete",
+    doing: "Baton records show that the checked release was merged.",
+    next: "No delivery work remains.",
+    needs: "No.",
+  },
+};
 const state = {
   runID: runFromPath(),
   snapshot: null,
@@ -21,6 +91,8 @@ const elements = {
   handoffCount: document.querySelector("#handoff-count"),
   handoffCopy: document.querySelector("#handoff-copy"),
   statusNotice: document.querySelector("#status-notice"),
+  attentionPanel: document.querySelector("#attention-panel"),
+  attentions: document.querySelector("#attention-list"),
   offset: document.querySelector("#offset"),
   viewport: document.querySelector("#board-viewport"),
   boardTitle: document.querySelector("#board-title"),
@@ -68,6 +140,43 @@ function hasUnconfirmedState() {
   ));
 }
 
+function presentSnapshot(snapshot) {
+  let presentation = RUN_PRESENTATIONS[snapshot.run.state] ?? {
+    status: "Status unavailable",
+    doing: "Sworn does not have a plain-language explanation for this recorded state.",
+    next: "Review the technical state before continuing.",
+    needs: "Yes — review the run details.",
+  };
+  if (snapshot.diagnostics.some(
+    (diagnostic) => diagnostic.code === "BATON_UNAVAILABLE",
+  )) {
+    presentation = {
+      status: "Needs confirmation",
+      doing: "Sworn could not confirm the current Baton handoff records.",
+      next: "Restore repository access and refresh before continuing.",
+      needs: "Yes — controls are disabled until the facts can be confirmed.",
+    };
+  } else if (snapshot.runtime.attentions.some(
+    (attention) => attention.state === "open",
+  )) {
+    presentation = {
+      status: "Waiting for your answer",
+      doing: "One part of the work needs a judgment Sworn cannot make safely.",
+      next: "Answer the saved question; unrelated work may continue.",
+      needs: "Yes — answer the question shown below.",
+    };
+  } else if (snapshot.run.state === "parked" &&
+    snapshot.actions.some((action) => action.kind === "retry")) {
+    presentation = {
+      status: "Stopped after repeated failures",
+      doing: "Sworn stopped this work instead of retrying without a safe reason.",
+      next: "Review the failed item, then retry it from the current board.",
+      needs: "Yes — review the failure before retrying.",
+    };
+  }
+  return presentation;
+}
+
 function validSnapshot(value) {
   return value && value.schema_version === SCHEMA &&
     value.run && value.run.id === state.runID &&
@@ -78,12 +187,25 @@ function validSnapshot(value) {
     validGraphHandoff(value.graph, value.handoff) &&
     value.runtime && Array.isArray(value.runtime.effects) &&
     Array.isArray(value.runtime.attempts) &&
+    Array.isArray(value.runtime.attentions) &&
+    value.runtime.attentions.every(validAttention) &&
+    typeof value.runtime.attentions_truncated === "boolean" &&
     Array.isArray(value.runtime.notifications) &&
     Array.isArray(value.evidence) &&
     Array.isArray(value.actions) &&
     Array.isArray(value.diagnostics) &&
     Number.isSafeInteger(value.through_offset) &&
     value.through_offset >= 0;
+}
+
+function validAttention(value) {
+  return value && /^sha256:[0-9a-f]{64}$/.test(value.id) &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.lane_id) &&
+    ["open", "answered", "resolved", "cancelled"].includes(value.state) &&
+    Number.isSafeInteger(value.generation) &&
+    value.generation >= 1 && value.generation <= 3 &&
+    typeof value.question === "string" && value.question !== "" &&
+    (value.answer === undefined || typeof value.answer === "string");
 }
 
 function validGraphHandoff(graph, handoff) {
@@ -97,7 +219,9 @@ function validGraphHandoff(graph, handoff) {
   for (const node of graph.nodes) {
     if (!node || typeof node.id !== "string" || node.id === "" ||
       nodeIDs.has(node.id) ||
-      typeof node.has_baton !== "boolean") {
+      typeof node.has_baton !== "boolean" ||
+      (node.runtime_state !== undefined &&
+        !["parked"].includes(node.runtime_state))) {
       return false;
     }
     nodeIDs.add(node.id);
@@ -137,7 +261,7 @@ async function refresh(reason, reconnectEvents = true) {
   }
   state.refreshing = true;
   try {
-    const response = await fetch(`/api/v1/runs/${state.runID}/snapshot`, {
+    const response = await fetch(`${API}/runs/${state.runID}/snapshot`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
       credentials: "same-origin",
@@ -160,7 +284,10 @@ async function refresh(reason, reconnectEvents = true) {
       connectEvents(snapshot.through_offset);
     }
   } catch {
-    setConnection(state.snapshot ? "stale" : "offline", state.snapshot ? "Stale" : "Unavailable");
+    setConnection(
+      state.snapshot ? "stale" : "offline",
+      state.snapshot ? "Reconnecting" : "Cannot connect",
+    );
     renderFailure();
   } finally {
     state.refreshing = false;
@@ -172,13 +299,13 @@ function connectEvents(after) {
     state.source.close();
   }
   const source = new EventSource(
-    `/api/v1/runs/${state.runID}/events?after=${after}&limit=128`,
+    `${API}/runs/${state.runID}/events?after=${after}&limit=128`,
     { withCredentials: true },
   );
   state.source = source;
   source.addEventListener("open", () => {
     if (state.snapshot && state.connection !== "live") {
-      void refresh("Relay reconnected to a fresh snapshot.");
+      void refresh("The delivery board reconnected and checked the latest saved state.");
     }
   });
   source.addEventListener("invalidate", (event) => {
@@ -194,23 +321,23 @@ function connectEvents(after) {
       !Number.isSafeInteger(eventOffset) ||
       eventOffset !== value.through_offset ||
       !state.snapshot) {
-      void refresh("Relay rebuilt after an event gap.");
+      void refresh("The delivery board refreshed after missing an update.");
       return;
     }
     if (eventOffset <= state.snapshot.through_offset) {
       return;
     }
-    void refresh("Relay updated from durable engine facts.");
+    void refresh("The delivery board checked the latest saved run facts.");
   });
   source.addEventListener("unavailable", () => {
-    setConnection("stale", "Stale");
+    setConnection("stale", "Updates paused");
     renderFailure();
   });
   source.onerror = () => {
     if (state.snapshot) {
       setConnection("stale", "Reconnecting");
     } else {
-      setConnection("offline", "Unavailable");
+      setConnection("offline", "Cannot connect");
     }
     renderFailure();
   };
@@ -218,17 +345,19 @@ function connectEvents(after) {
 
 function render() {
   const snapshot = state.snapshot;
+  const presentation = presentSnapshot(snapshot);
   hideStatusNotice();
   elements.releaseTitle.textContent = snapshot.run.release;
   elements.releaseFacts.replaceChildren(
-    fact("Engine state", snapshot.run.state),
-    fact("Desired", snapshot.run.desired_state),
-    fact("Plan", short(snapshot.run.plan_digest)),
-    fact("Target", short(snapshot.run.target_head)),
+    fact("Status", presentation.status),
+    fact("What's happening", presentation.doing),
+    fact("Next", presentation.next),
+    fact("Needs you", presentation.needs),
   );
-  elements.offset.textContent = `Event ${snapshot.through_offset}`;
+  elements.offset.textContent = `Checked update ${snapshot.through_offset}`;
   renderHandoff(snapshot.handoff);
   renderDiagnosticStatus();
+  renderAttentions(snapshot.runtime.attentions, snapshot.actions);
   renderEvidence(snapshot.evidence);
   renderOutbox(
     snapshot.runtime.notifications,
@@ -244,9 +373,9 @@ function render() {
     }
     elements.viewport.hidden = true;
     showEmpty(
-      "Valid empty run",
-      "No admitted delivery graph is recorded yet.",
-      "This is a valid snapshot. No work has been inferred or invented.",
+      "No work recorded yet",
+      "This run does not have a delivery plan to show yet.",
+      "Sworn will show work here only after it has been recorded.",
     );
     elements.topology.replaceChildren();
     elements.edges.replaceChildren();
@@ -275,7 +404,7 @@ function render() {
     requestAnimationFrame(() => {
       elements.boardTitle.focus();
       elements.announcer.textContent =
-        "The selected carrier is no longer present. Focus returned to the relay.";
+        "The selected item is no longer present. Focus returned to the delivery board.";
     });
   } else if (selectedWasFocused) {
     requestAnimationFrame(() => {
@@ -289,8 +418,8 @@ function render() {
 function renderFailure() {
   if (state.snapshot) {
     showStatusNotice(
-      `Live updates paused. Showing the last confirmed snapshot from ${formatDateTime(state.confirmedAt)}. ` +
-      "Controls are disabled until a fresh snapshot arrives.",
+      `Live updates paused. Showing the last confirmed view from ${formatDateTime(state.confirmedAt)}. ` +
+      "Controls are disabled until Sworn can check the run again.",
     );
     return;
   }
@@ -302,17 +431,19 @@ function renderFailure() {
   elements.outbox.replaceChildren();
   elements.outboxWindow.textContent = "";
   elements.actions.replaceChildren();
+  elements.attentionPanel.hidden = true;
+  elements.attentions.replaceChildren();
   if (state.runID) {
     showEmpty(
-      "Snapshot unavailable",
-      "Cockpit unavailable.",
-      "The local service returned a snapshot this UI cannot safely display.",
+      "Run details unavailable",
+      "Sworn cannot show this run yet.",
+      "The local service did not provide a current saved view that the board could safely display.",
     );
   } else {
     showEmpty(
       "No run selected",
-      "Open a run to see its relay.",
-      "Use /runs/<run-id>. Nothing is inferred before the engine records it.",
+      "Open a run to see its work.",
+      "Use /runs/<run-id>. Sworn only shows work it has recorded.",
     );
   }
 }
@@ -327,7 +458,7 @@ function showEmpty(eyebrow, title, copy) {
 function renderDiagnosticStatus() {
   if (hasUnconfirmedState()) {
     showStatusNotice(
-      "State unavailable. Sworn could not confirm this item from durable facts. Controls are disabled.",
+      "Sworn could not confirm the current Baton handoff records. Controls are disabled until the facts can be checked.",
     );
   }
 }
@@ -349,10 +480,11 @@ function renderHandoff(handoff) {
   }
   elements.handoff.hidden = false;
   const count = handoff.nodes.length;
-  elements.handoffCount.textContent = count === 1 ? "1 exact exchange" : `${count} exact exchanges`;
+  elements.handoffCount.textContent =
+    count === 1 ? "1 handoff ready" : `${count} handoffs ready`;
   const roles = handoff.responsibilities.map(humanize).join(" + ");
   elements.handoffCopy.textContent =
-    `ready for ${roles} at ${handoff.nodes.join(" + ")}.`;
+    `for ${roles} at ${handoff.nodes.join(" + ")}.`;
 }
 
 function renderGraph(graph, handoff) {
@@ -407,6 +539,7 @@ function nodeButton(node, handoffNodes) {
   button.dataset.nodeId = node.id;
   button.dataset.kind = node.kind;
   button.dataset.state = node.state || "unknown";
+  button.dataset.runtimeState = node.runtime_state || "none";
   button.dataset.outcome = node.outcome || "none";
   button.dataset.hasBaton = String(node.has_baton);
   button.dataset.handoff = String(handoffNodes.has(node.id));
@@ -417,6 +550,9 @@ function nodeButton(node, handoffNodes) {
   const meta = document.createElement("span");
   meta.className = "node-meta";
   const parts = [humanize(node.state)];
+  if (node.runtime_state) {
+    parts.push(`runtime ${humanize(node.runtime_state)}`);
+  }
   if (node.next_responsibility && node.next_responsibility !== "none") {
     parts.push(`next ${humanize(node.next_responsibility)}`);
   }
@@ -456,11 +592,11 @@ function selectNode(nodeID, button) {
 function renderDetail() {
   const snapshot = state.snapshot;
   if (!snapshot || !state.selectedID) {
-    elements.detailTitle.textContent = "Select a carrier";
+    elements.detailTitle.textContent = "Select an item";
     elements.detail.replaceChildren(
-      textBlock("No relay node is available for detail."),
+      textBlock("No recorded work item is available for detail."),
     );
-    elements.sheetTitle.textContent = "Carrier";
+    elements.sheetTitle.textContent = "Item";
     elements.sheetContent.replaceChildren();
     elements.sheetActions.replaceChildren();
     return;
@@ -475,17 +611,18 @@ function renderDetail() {
   const details = document.createElement("dl");
   details.className = "detail-grid";
   [
-    ["State", humanize(node.state)],
-    ["Stage", reported(node.stage)],
-    ["Outcome", reported(node.outcome)],
-    ["Next responsibility", reported(humanize(node.next_responsibility))],
-    ["Baton", node.has_baton ? "Present" : "Not present"],
+    ["Status", humanize(node.state)],
+    ["Sworn status", reported(humanize(node.runtime_state))],
+    ["Step", reported(humanize(node.stage))],
+    ["Result", reported(humanize(node.outcome))],
+    ["Next owner", reported(humanize(node.next_responsibility))],
+    ["Handoff recorded", node.has_baton ? "Yes" : "No"],
     [
-      "Exact handoff",
+      "Ready for next owner",
       snapshot.handoff.nodes.includes(node.id) ? "Ready" : "Not ready",
     ],
-    ["Attempt", node.attempt ? String(node.attempt) : "Not reported"],
-    ["Node ID", node.id],
+    ["Try", node.attempt ? String(node.attempt) : "Not recorded"],
+    ["Technical ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
   elements.detail.replaceChildren(details.cloneNode(true));
   elements.sheetContent.replaceChildren(details);
@@ -493,7 +630,9 @@ function renderDetail() {
 }
 
 function renderActions(container, actions) {
-  const buttons = actions.map((action) => {
+  const buttons = actions
+    .filter((action) => action.kind !== "answer_attention")
+    .map((action) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "control";
@@ -504,6 +643,113 @@ function renderActions(container, actions) {
     return button;
   });
   container.replaceChildren(...buttons);
+}
+
+function admittedAnswerAction(attention, actions) {
+  if (attention.state !== "open") {
+    return undefined;
+  }
+  return actions.find((action) =>
+    action.kind === "answer_attention" &&
+    action.attention_id === attention.id &&
+    action.expected_generation === attention.generation
+  );
+}
+
+function renderAttentions(attentions, actions) {
+  if (attentions.length === 0) {
+    elements.attentionPanel.hidden = true;
+    elements.attentions.replaceChildren();
+    return;
+  }
+  elements.attentionPanel.hidden = false;
+  const items = attentions.map((attention) => {
+    const item = document.createElement("li");
+    const identity = document.createElement("p");
+    identity.className = "eyebrow";
+    identity.textContent =
+      `Work ${attention.lane_id} · ${humanize(attention.state)}`;
+    const question = document.createElement("p");
+    question.className = "attention-question";
+    question.textContent = attention.question;
+    item.append(identity, question);
+    const action = admittedAnswerAction(attention, actions);
+    if (action) {
+      const form = document.createElement("form");
+      form.className = "attention-form";
+      const label = document.createElement("label");
+      label.textContent = "Your answer";
+      const input = document.createElement("textarea");
+      input.name = "answer";
+      input.maxLength = 16_384;
+      input.required = true;
+      input.rows = 3;
+      const button = document.createElement("button");
+      button.type = "submit";
+      button.className = "control";
+      button.textContent = "Answer and continue";
+      button.disabled = !controlsAllowed();
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void submitAttention(attention, input, button);
+      });
+      label.append(input);
+      form.append(label, button);
+      item.append(form);
+    } else if (attention.answer) {
+      const answer = document.createElement("p");
+      answer.className = "quiet";
+      answer.textContent = `Answer: ${attention.answer}`;
+      item.append(answer);
+    }
+    return item;
+  });
+  elements.attentions.replaceChildren(...items);
+}
+
+async function submitAttention(attention, input, button) {
+  const answer = input.value.trim();
+  const action = state.snapshot &&
+    admittedAnswerAction(attention, state.snapshot.actions);
+  if (!action || !controlsAllowed() || answer === "") {
+    return;
+  }
+  input.setCustomValidity("");
+  if (new TextEncoder().encode(answer).byteLength >
+    MAX_ATTENTION_ANSWER_BYTES) {
+    input.setCustomValidity("Keep the answer under 16 KiB of UTF-8 text.");
+    input.reportValidity();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch(
+      `${API}/runs/${state.runID}/attentions/${attention.id}/answer`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          run_id: state.runID,
+          attention_id: attention.id,
+          expected_generation: action.expected_generation,
+          answer,
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("answer rejected");
+    }
+    await refresh("Answer recorded; the waiting work can continue again.");
+    requestAnimationFrame(() => elements.boardTitle.focus());
+  } catch {
+    setConnection("stale", "Refresh required");
+    elements.announcer.textContent =
+      "The answer was not accepted. Refresh before trying again.";
+  }
 }
 
 async function submitAction(action, button) {
@@ -528,8 +774,8 @@ async function submitAction(action, button) {
   }
   try {
     const path = redelivery
-      ? `/api/v1/runs/${state.runID}/notifications/redeliver`
-      : `/api/v1/runs/${state.runID}/commands`;
+      ? `${API}/runs/${state.runID}/notifications/redeliver`
+      : `${API}/runs/${state.runID}/commands`;
     const response = await fetch(path, {
       method: "POST",
       headers: {
@@ -554,10 +800,10 @@ function renderEvidence(events) {
     const item = document.createElement("li");
     item.className = "evidence-empty";
     const kind = document.createElement("strong");
-    kind.textContent = "No durable events yet.";
+    kind.textContent = "No saved activity yet.";
     const copy = document.createElement("span");
     copy.className = "quiet";
-    copy.textContent = "No durable evidence has been recorded for this snapshot.";
+    copy.textContent = "Sworn has not recorded any activity for this run yet.";
     item.append(kind, copy);
     elements.evidence.replaceChildren(item);
     return;
@@ -566,7 +812,7 @@ function renderEvidence(events) {
     const item = document.createElement("li");
     const offset = document.createElement("span");
     offset.className = "eyebrow";
-    offset.textContent = `Event ${event.offset}`;
+    offset.textContent = `Saved update ${event.offset}`;
     const kind = document.createElement("strong");
     kind.textContent = humanize(event.kind);
     const time = document.createElement("time");
@@ -580,7 +826,7 @@ function renderEvidence(events) {
 
 function renderOutbox(notifications, truncated) {
   elements.outboxWindow.textContent = truncated
-    ? "Showing the latest bounded window."
+    ? "Showing the latest delivery records."
     : `${notifications.length} recorded`;
   if (notifications.length === 0) {
     const item = document.createElement("li");
@@ -588,7 +834,7 @@ function renderOutbox(notifications, truncated) {
     kind.textContent = "No notification deliveries recorded.";
     const copy = document.createElement("span");
     copy.className = "quiet";
-    copy.textContent = "Signed webhook state will appear here.";
+    copy.textContent = "Webhook delivery attempts will appear here.";
     item.append(kind, copy);
     elements.outbox.replaceChildren(item);
     return;
@@ -602,7 +848,7 @@ function renderOutbox(notifications, truncated) {
       `${notification.destination_id} · Sequence ${notification.sequence}`;
     const stateCopy = document.createElement("strong");
     stateCopy.textContent =
-      `${humanize(notification.state)} · Attempt ${notification.attempts}`;
+      `${humanize(notification.state)} · Try ${notification.attempts}`;
     const message = document.createElement("span");
     message.className = "node-meta";
     message.textContent = notification.message_id;
@@ -669,13 +915,13 @@ function textBlock(value) {
 
 function reported(value) {
   return value === null || value === undefined || value === "" || value === "none"
-    ? "Not reported"
+    ? "Not recorded"
     : String(value);
 }
 
 function short(value) {
   if (!value) {
-    return "Not reported";
+    return "Not recorded";
   }
   return value.length > 14 ? `${value.slice(0, 10)}…` : value;
 }
@@ -689,10 +935,19 @@ function humanize(value) {
 
 function actionLabel(action) {
   if (action.kind === "redeliver") {
-    return `Redeliver ${short(action.message_id)}`;
+    return `Send ${short(action.message_id)} again`;
   }
   if (action.kind === "retry") {
-    return `Retry epoch ${action.expected_epoch}`;
+    return "Retry this work";
+  }
+  if (action.kind === "pause") {
+    return "Pause safely";
+  }
+  if (action.kind === "cancel") {
+    return "Cancel safely";
+  }
+  if (action.kind === "takeover") {
+    return "Take over";
   }
   return humanize(action.kind);
 }
@@ -707,7 +962,7 @@ function commandID() {
 function formatTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.valueOf())
-    ? "Not reported"
+    ? "Time unavailable"
     : new Intl.DateTimeFormat(undefined, {
       hour: "2-digit",
       minute: "2-digit",
@@ -718,7 +973,7 @@ function formatTime(value) {
 function formatDateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.valueOf())
-    ? "an unreported time"
+    ? "an unknown time"
     : new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
       timeStyle: "medium",

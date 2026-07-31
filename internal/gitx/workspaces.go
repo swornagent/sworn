@@ -111,6 +111,7 @@ type SealedCandidate struct {
 	Before       OID
 	Candidate    OID
 	Tree         OID
+	RefreshFrom  OID
 	ChangedPaths []string
 }
 
@@ -998,7 +999,7 @@ func (w *Workspaces) SealTrackWithClaim(
 	lease *WorkspaceLease,
 	beforeUpdate func(SealedCandidate) error,
 ) (SealedCandidate, error) {
-	return w.sealTrackWithClaim(lease, nil, beforeUpdate)
+	return w.sealTrackWithClaim(lease, nil, nil, beforeUpdate)
 }
 
 // SealTrackGuardedWithClaim is SealTrackWithClaim plus one atomic release,
@@ -1009,12 +1010,31 @@ func (w *Workspaces) SealTrackGuardedWithClaim(
 	authority SealAuthority,
 	beforeUpdate func(SealedCandidate) error,
 ) (SealedCandidate, error) {
-	return w.sealTrackWithClaim(lease, &authority, beforeUpdate)
+	return w.sealTrackWithClaim(lease, &authority, nil, beforeUpdate)
+}
+
+// SealTrackRefreshGuardedWithClaim seals a resumed implementation from its
+// physical workspace head while retaining the prior candidate receipt as the
+// evidence base. A clean recheck adopts the existing head without fabricating
+// a commit; a real edit creates one child and publishes it normally.
+func (w *Workspaces) SealTrackRefreshGuardedWithClaim(
+	lease *WorkspaceLease,
+	refreshFrom OID,
+	authority SealAuthority,
+	beforeUpdate func(SealedCandidate) error,
+) (SealedCandidate, error) {
+	return w.sealTrackWithClaim(
+		lease,
+		&authority,
+		&refreshFrom,
+		beforeUpdate,
+	)
 }
 
 func (w *Workspaces) sealTrackWithClaim(
 	lease *WorkspaceLease,
 	authority *SealAuthority,
+	refreshFrom *OID,
 	beforeUpdate func(SealedCandidate) error,
 ) (SealedCandidate, error) {
 	if w == nil || lease == nil || lease.owner != w || lease.closed ||
@@ -1026,6 +1046,34 @@ func (w *Workspaces) sealTrackWithClaim(
 	}
 	releaseRef := "refs/heads/release-wt/" + lease.key.Release
 	trackRef := trackHeadRef(lease.key)
+	if refreshFrom != nil {
+		if err := w.repository.validateOID(*refreshFrom); err != nil {
+			return SealedCandidate{}, err
+		}
+		cursor := lease.head
+		found := false
+		for steps := 0; steps < MaxHistory; steps++ {
+			if cursor == *refreshFrom {
+				found = true
+				break
+			}
+			parents, err := w.repository.Parents(cursor)
+			if err != nil {
+				return SealedCandidate{}, err
+			}
+			if len(parents) != 1 {
+				break
+			}
+			cursor = parents[0]
+		}
+		if !found || lease.head == *refreshFrom {
+			return SealedCandidate{}, fail(
+				"INVALID_REFRESH_HISTORY",
+				"seal refreshed candidate",
+				nil,
+			)
+		}
+	}
 	if authority != nil {
 		if w.repository.validateOID(authority.ReleaseHead) != nil ||
 			w.repository.validateOID(authority.TargetHead) != nil {
@@ -1065,7 +1113,7 @@ func (w *Workspaces) sealTrackWithClaim(
 	if err != nil {
 		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "inventory candidate", err)
 	}
-	var changed []string
+	var workspaceChanged []string
 	for _, raw := range bytes.Split(rawPaths, []byte{0}) {
 		if len(raw) == 0 {
 			continue
@@ -1077,46 +1125,92 @@ func (w *Workspaces) sealTrackWithClaim(
 		if name == recordRoot || strings.HasPrefix(name, recordRoot+"/") {
 			return SealedCandidate{}, fail("AUTHORITY_PATH_CHANGED", "seal candidate", nil)
 		}
-		changed = append(changed, name)
+		workspaceChanged = append(workspaceChanged, name)
 	}
-	if len(changed) == 0 {
+	if len(workspaceChanged) == 0 && refreshFrom == nil {
 		return SealedCandidate{}, fail("EMPTY_CANDIDATE", "seal candidate", nil)
 	}
-	sort.Strings(changed)
-	rawTree, err := w.repository.runAt(lease.path, nil, nil, "write-tree")
-	if err != nil {
-		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "write candidate tree", err)
-	}
-	tree, err := w.repository.parseOID(string(rawTree))
+	sort.Strings(workspaceChanged)
+	candidate := lease.head
+	tree, err := w.repository.TreeOID(lease.head)
 	if err != nil {
 		return SealedCandidate{}, err
 	}
-	timestamp, err := w.repository.CommitTimestamp(lease.head)
-	if err != nil {
-		return SealedCandidate{}, err
+	if len(workspaceChanged) != 0 {
+		rawTree, writeErr := w.repository.runAt(
+			lease.path,
+			nil,
+			nil,
+			"write-tree",
+		)
+		if writeErr != nil {
+			return SealedCandidate{}, fail(
+				"CANDIDATE_SEAL_FAILED",
+				"write candidate tree",
+				writeErr,
+			)
+		}
+		tree, err = w.repository.parseOID(string(rawTree))
+		if err != nil {
+			return SealedCandidate{}, err
+		}
+		timestamp, timestampErr := w.repository.CommitTimestamp(lease.head)
+		if timestampErr != nil {
+			return SealedCandidate{}, timestampErr
+		}
+		message := fmt.Sprintf(
+			"sworn(%s/%s): implementation candidate\n",
+			lease.key.Release,
+			lease.key.Track,
+		)
+		rawCommit, commitErr := w.repository.run(
+			[]byte(message),
+			commitEnvironment(
+				Identity{Name: "Sworn Runtime", Email: "runtime@sworn.invalid"},
+				timestamp+1,
+			),
+			"commit-tree",
+			tree.String(),
+			"-p",
+			lease.head.String(),
+		)
+		if commitErr != nil {
+			return SealedCandidate{}, fail(
+				"CANDIDATE_SEAL_FAILED",
+				"write candidate commit",
+				commitErr,
+			)
+		}
+		candidate, err = w.repository.parseOID(string(rawCommit))
+		if err != nil {
+			return SealedCandidate{}, err
+		}
 	}
-	message := fmt.Sprintf(
-		"sworn(%s/%s): implementation candidate\n",
-		lease.key.Release,
-		lease.key.Track,
-	)
-	rawCommit, err := w.repository.run(
-		[]byte(message),
-		commitEnvironment(
-			Identity{Name: "Sworn Runtime", Email: "runtime@sworn.invalid"},
-			timestamp+1,
-		),
-		"commit-tree",
-		tree.String(),
-		"-p",
-		lease.head.String(),
-	)
-	if err != nil {
-		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "write candidate commit", err)
-	}
-	candidate, err := w.repository.parseOID(string(rawCommit))
-	if err != nil {
-		return SealedCandidate{}, err
+	changed := workspaceChanged
+	if refreshFrom != nil {
+		changed, err = w.repository.ChangedPaths(*refreshFrom, candidate)
+		if err != nil {
+			return SealedCandidate{}, err
+		}
+		if len(changed) == 0 {
+			return SealedCandidate{}, fail(
+				"EMPTY_CANDIDATE",
+				"seal refreshed candidate",
+				nil,
+			)
+		}
+		for _, name := range changed {
+			if err := ValidatePath(name, false); err != nil {
+				return SealedCandidate{}, err
+			}
+			if name == recordRoot || strings.HasPrefix(name, recordRoot+"/") {
+				return SealedCandidate{}, fail(
+					"AUTHORITY_PATH_CHANGED",
+					"seal refreshed candidate",
+					nil,
+				)
+			}
+		}
 	}
 	sealed := SealedCandidate{
 		Before:       lease.head,
@@ -1124,15 +1218,25 @@ func (w *Workspaces) sealTrackWithClaim(
 		Tree:         tree,
 		ChangedPaths: append([]string(nil), changed...),
 	}
+	if refreshFrom != nil {
+		sealed.RefreshFrom = *refreshFrom
+	}
 	if beforeUpdate != nil {
 		if err := beforeUpdate(sealed); err != nil {
 			return SealedCandidate{}, err
 		}
 	}
 	refs := []string{trackRef}
-	operations := []RefOperation{{
-		Kind: UpdateRef, Ref: trackRef, NewHead: &candidate, Expected: &lease.head,
-	}}
+	trackOperation := RefOperation{
+		Kind:     VerifyRef,
+		Ref:      trackRef,
+		Expected: &lease.head,
+	}
+	if candidate != lease.head {
+		trackOperation.Kind = UpdateRef
+		trackOperation.NewHead = &candidate
+	}
+	operations := []RefOperation{trackOperation}
 	if authority != nil {
 		refs = append(refs, releaseRef, authority.TargetRef)
 		operations = append(operations,

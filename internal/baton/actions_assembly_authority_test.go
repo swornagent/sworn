@@ -3,7 +3,6 @@ package baton
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -21,21 +20,9 @@ func newAssemblyCASInterleavingHarness(
 	repoPath := createActionRepository(t, "sha1")
 	wrapperRoot := t.TempDir()
 	wrapperPath := filepath.Join(wrapperRoot, "git")
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	realGit, err = filepath.EvalSymlinks(realGit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(realGit, filepath.Join(wrapperRoot, "real-git")); err != nil {
-		t.Fatal(err)
-	}
 	const wrapper = `#!/bin/sh
 set -eu
 armed="${0%/*}/armed"
-real_git="${0%/*}/real-git"
 is_update_ref=false
 for argument in "$@"; do
 	if [ "$argument" = "update-ref" ]; then
@@ -49,10 +36,10 @@ if [ -f "$armed" ] && [ "$is_update_ref" = true ]; then
 		IFS= read -r before
 		IFS= read -r after
 	} < "$armed"
-	"$real_git" -C "$repository" update-ref "$ref" "$after" "$before"
+	/usr/bin/git -C "$repository" update-ref "$ref" "$after" "$before"
 	/usr/bin/rm -f "$armed"
 fi
-exec "$real_git" "$@"
+exec /usr/bin/git "$@"
 `
 	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
 		t.Fatal(err)

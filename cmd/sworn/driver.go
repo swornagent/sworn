@@ -39,12 +39,22 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 
 	loaded, err := driver.LoadDriverConfig(options.config)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn driver %s: unavailable\n", command)
+		writeCommandFailure(
+			stderr,
+			"driver "+command,
+			"Could not read the AI connection configuration.",
+			err,
+		)
 		return 1
 	}
 	factory, err := driver.NewProductionDriverFactory(loaded)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn driver %s: unavailable\n", command)
+		writeCommandFailure(
+			stderr,
+			"driver "+command,
+			"Could not prepare the configured AI connections.",
+			err,
+		)
 		return 1
 	}
 	defer factory.Close()
@@ -59,7 +69,12 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 		)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn driver %s: unavailable\n", command)
+		writeCommandFailure(
+			stderr,
+			"driver "+command,
+			"Could not find that profile and model in the AI connection configuration.",
+			err,
+		)
 		return 1
 	}
 

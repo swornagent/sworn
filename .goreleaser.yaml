@@ -1,0 +1,80 @@
+version: 2
+
+project_name: sworn
+
+builds:
+  - id: sworn-linux-amd64
+    main: ./cmd/sworn
+    binary: sworn
+    env:
+      - CGO_ENABLED=0
+      - GOFLAGS=-buildvcs=false
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -mod=readonly
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: sworn-linux-amd64
+    ids:
+      - sworn-linux-amd64
+    formats:
+      - tar.gz
+    name_template: "sworn-v{{ .Version }}-linux-amd64"
+    wrap_in_directory: true
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: 1970-01-01T00:00:00Z
+    files:
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: 1970-01-01T00:00:00Z
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: 1970-01-01T00:00:00Z
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: swornagent
+    name: sworn
+  prerelease: auto
+  make_latest: "{{ if .Prerelease }}false{{ else }}true{{ end }}"
+  mode: replace
+
+homebrew_casks:
+  - name: sworn
+    ids:
+      - sworn-linux-amd64
+    binaries:
+      - sworn
+    repository:
+      owner: swornagent
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://sworn.sh/
+    description: "Runs a trusted autonomous software delivery team"
+    skip_upload: false
+    custom_block: |
+      depends_on :linux
+      depends_on arch: :x86_64
+    caveats: |
+      Sworn currently runs on Linux x86_64. Production model execution also
+      needs Git, root-owned /usr/bin/bwrap, and unprivileged user namespaces.

@@ -51,6 +51,25 @@ type journeyPrompt struct {
 	Responsibility driver.Responsibility `json:"responsibility"`
 }
 
+type journeyGeminiContent struct {
+	Role  string `json:"role"`
+	Parts []struct {
+		Text         *string `json:"text"`
+		FunctionCall *struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"functionCall"`
+		FunctionResponse *struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Response struct {
+				Output string `json:"output"`
+				Failed *bool  `json:"failed"`
+			} `json:"response"`
+		} `json:"functionResponse"`
+	} `json:"parts"`
+}
+
 func (provider *journeyProvider) serve(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -236,15 +255,23 @@ func openAIJourneyPrompt(
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(body, &value); err != nil ||
-		len(value.Messages) == 0 ||
-		value.Messages[0].Role != "user" {
+		len(value.Messages) == 0 {
 		return "", "", fmt.Errorf("invalid OpenAI body")
 	}
-	var prompt string
-	if err := json.Unmarshal(value.Messages[0].Content, &prompt); err != nil {
-		return "", "", err
+	for index := len(value.Messages) - 1; index >= 0; index-- {
+		if value.Messages[index].Role != "user" {
+			continue
+		}
+		var prompt string
+		if err := json.Unmarshal(
+			value.Messages[index].Content,
+			&prompt,
+		); err != nil {
+			return "", "", err
+		}
+		return prompt, value.Model, nil
 	}
-	return prompt, value.Model, nil
+	return "", "", fmt.Errorf("OpenAI body omitted user prompt")
 }
 
 func geminiJourneyPrompt(
@@ -263,21 +290,66 @@ func geminiJourneyPrompt(
 		suffix,
 	)
 	var value struct {
-		Contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text *string `json:"text"`
-			} `json:"parts"`
-		} `json:"contents"`
+		Contents []journeyGeminiContent `json:"contents"`
 	}
 	if err := json.Unmarshal(body, &value); err != nil ||
-		len(value.Contents) == 0 ||
-		value.Contents[0].Role != "user" ||
-		len(value.Contents[0].Parts) == 0 ||
-		value.Contents[0].Parts[0].Text == nil {
+		len(value.Contents) == 0 {
 		return "", "", fmt.Errorf("invalid Gemini body")
 	}
-	return *value.Contents[0].Parts[0].Text, model, nil
+	for content := len(value.Contents) - 1; content >= 0; content-- {
+		if value.Contents[content].Role != "user" {
+			continue
+		}
+		for part := len(value.Contents[content].Parts) - 1; part >= 0; part-- {
+			if value.Contents[content].Parts[part].Text != nil {
+				if err := validateGeminiJourneyContinuation(
+					value.Contents,
+					content,
+					part,
+				); err != nil {
+					return "", "", err
+				}
+				return *value.Contents[content].Parts[part].Text, model, nil
+			}
+		}
+	}
+	return "", "", fmt.Errorf("Gemini body omitted user prompt")
+}
+
+func validateGeminiJourneyContinuation(
+	contents []journeyGeminiContent,
+	promptContent int,
+	promptPart int,
+) error {
+	resume := contents[promptContent]
+	if promptContent == 0 {
+		return nil
+	}
+	if promptContent != 2 || promptPart != 1 ||
+		len(contents) < 3 ||
+		contents[0].Role != "user" ||
+		len(contents[0].Parts) != 1 ||
+		contents[0].Parts[0].Text == nil ||
+		contents[1].Role != "model" ||
+		len(contents[1].Parts) != 1 ||
+		contents[1].Parts[0].FunctionCall == nil ||
+		contents[1].Parts[0].FunctionCall.Name != "sworn_submit" ||
+		resume.Role != "user" ||
+		len(resume.Parts) != 2 ||
+		resume.Parts[0].FunctionResponse == nil {
+		return fmt.Errorf("invalid Gemini continuation prefix")
+	}
+	call := contents[1].Parts[0].FunctionCall
+	result := resume.Parts[0].FunctionResponse
+	if call.ID == "" ||
+		result.ID != call.ID ||
+		result.Name != call.Name ||
+		result.Response.Output != "accepted" ||
+		result.Response.Failed == nil ||
+		*result.Response.Failed {
+		return fmt.Errorf("invalid Gemini accepted submission result")
+	}
+	return nil
 }
 
 func journeyRoleSelection(
@@ -515,7 +587,7 @@ func productionJourneyManifest(
 ) []byte {
 	t.Helper()
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersion,
+		SchemaVersion:     swornruntime.ManifestVersionV2,
 		RunID:             "production-journey",
 		Repository:        repository,
 		Release:           "production-journey-release",
@@ -628,7 +700,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") ||
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore {
 		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -658,7 +730,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--generation", "0",
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state complete") {
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 		snapshot, _ := store.Snapshot(context.Background(), "production-journey")
 		_ = store.Close()
@@ -811,14 +883,22 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 				continue
 			}
 			var payload struct {
-				SchemaVersion string `json:"schema_version"`
-				Context       struct {
+				SchemaVersion       string `json:"schema_version"`
+				ResumeRequestDigest string `json:"resume_request_digest"`
+				Context             struct {
+					SchemaVersion   string                 `json:"schema_version"`
 					InvocationID    string                 `json:"invocation_id"`
 					Responsibility  driver.Responsibility  `json:"responsibility"`
 					WorkspaceAccess driver.WorkspaceAccess `json:"workspace_access"`
-					Attempt         int64                  `json:"attempt"`
-					Epoch           int64                  `json:"epoch"`
-					Try             int64                  `json:"try"`
+					Track           string                 `json:"track"`
+					Slice           string                 `json:"slice"`
+					PreparedBase    string                 `json:"prepared_base"`
+					DesignReceipt   *struct {
+						OID string `json:"oid"`
+					} `json:"design_receipt"`
+					Attempt int64 `json:"attempt"`
+					Epoch   int64 `json:"epoch"`
+					Try     int64 `json:"try"`
 				} `json:"context"`
 			}
 			maxAttempt := int64(1)
@@ -826,13 +906,60 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 				maxAttempt = 2
 			}
 			if json.Unmarshal(command.Payload, &payload) != nil ||
-				payload.SchemaVersion != "sworn.production-dispatch/v1" ||
+				payload.SchemaVersion != "sworn.production-dispatch/v2" ||
+				payload.Context.SchemaVersion != "sworn.work-context/v2" ||
 				payload.Context.InvocationID == "" ||
 				payload.Context.Attempt < 1 ||
 				payload.Context.Attempt > maxAttempt ||
 				payload.Context.Epoch != 1 ||
 				payload.Context.Try != 1 {
 				t.Fatalf("production dispatch command = %s", command.Payload)
+			}
+			switch payload.Context.Responsibility {
+			case driver.ImplementerImplementation:
+				if payload.Context.Track == "" ||
+					payload.Context.WorkspaceAccess != driver.ReadWrite {
+					t.Fatalf(
+						"implementation continuation command = %s",
+						command.Payload,
+					)
+				}
+				freshRepair := repair &&
+					payload.Context.Slice == "A1" &&
+					payload.Context.Attempt == 2
+				if freshRepair &&
+					(payload.Context.DesignReceipt != nil ||
+						payload.ResumeRequestDigest != "") {
+					t.Fatalf(
+						"fresh repair command = %s",
+						command.Payload,
+					)
+				}
+				if !freshRepair &&
+					(payload.Context.DesignReceipt == nil ||
+						payload.Context.DesignReceipt.OID == "" ||
+						payload.ResumeRequestDigest == "") {
+					t.Fatalf(
+						"resumable implementation command = %s",
+						command.Payload,
+					)
+				}
+			case driver.WorkVerification:
+				if payload.ResumeRequestDigest == "" ||
+					payload.Context.DesignReceipt != nil {
+					t.Fatalf(
+						"work-verifier continuation command = %s",
+						command.Payload,
+					)
+				}
+			default:
+				if payload.ResumeRequestDigest != "" ||
+					payload.Context.DesignReceipt != nil {
+					t.Fatalf(
+						"one-shot dispatch command = %s",
+						command.Payload,
+					)
+				}
 			}
 			if _, duplicate := contexts[payload.Context.InvocationID]; duplicate {
 				t.Fatalf(

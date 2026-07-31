@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	rc9ConformanceManifestSHA256 = "cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c"
-	autonomousEngineProfile      = "autonomous_engine"
+	rc12ConformanceManifestSHA256 = "8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018"
+	autonomousEngineProfile       = "autonomous_engine"
 )
 
 type conformanceManifest struct {
@@ -36,7 +36,7 @@ type autonomousEngineResult struct {
 }
 
 // TestAutonomousEngineConformance is the single executable gate for the
-// autonomous-engine profile embedded in Baton RC9. Case identities are read
+// autonomous-engine profile embedded in Baton RC12. Case identities are read
 // from the admitted package at test time; the mapping below can neither omit
 // nor add a case without failing this test.
 func TestAutonomousEngineConformance(t *testing.T) {
@@ -51,8 +51,8 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != rc9ConformanceManifestSHA256 {
-		t.Fatalf("embedded RC9 conformance digest = %x", sum)
+	if hex.EncodeToString(sum[:]) != rc12ConformanceManifestSHA256 {
+		t.Fatalf("embedded RC12 conformance digest = %x", sum)
 	}
 	var manifest conformanceManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -78,7 +78,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		"role-instruction-credential-workspace-process-isolation": {
 			"walking-skeleton/driver-boundary",
 		},
-		"clean-read-only-fresh-verifier-dispatch": {
+		"fresh-verifier-thread-and-read-only-invocation-dispatch": {
 			"walking-skeleton/fresh-verifier",
 		},
 		"one-writer-per-track-with-independent-track-concurrency": {
@@ -174,7 +174,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 	}{
 		SchemaVersion:  "sworn.autonomous-conformance/v1",
 		BatonVersion:   manifest.BatonVersion,
-		ManifestSHA256: "sha256:" + rc9ConformanceManifestSHA256,
+		ManifestSHA256: "sha256:" + rc12ConformanceManifestSHA256,
 		Results:        results,
 	})
 	if err != nil {

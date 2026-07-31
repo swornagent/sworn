@@ -12,6 +12,7 @@ const (
 	MaxObservationAttempts      = 256
 	MaxObservationEvents        = 256
 	MaxObservationNotifications = 256
+	MaxObservationAttentions    = 64
 )
 
 // AttemptFact is the content-free part of one durable driver attempt.
@@ -55,6 +56,8 @@ type Observation struct {
 	Owner                  OwnerLease
 	OwnerPresent           bool
 	Attempts               []AttemptFact
+	Attentions             []AttentionProjection
+	AttentionsTruncated    bool
 	Events                 []EventFact
 	Notifications          []NotificationFact
 	NotificationsTruncated bool
@@ -349,6 +352,37 @@ func (s *Store) ReadObservation(
 		)
 		if err != nil {
 			return err
+		}
+		attentionMap, err := attentionProjectionsOnConnection(
+			ctx,
+			conn,
+			runID,
+			true,
+		)
+		if err != nil {
+			return err
+		}
+		for _, attention := range attentionMap {
+			if attention.State == AttentionOpen ||
+				attention.State == AttentionAnswered {
+				result.Attentions = append(
+					result.Attentions,
+					attention,
+				)
+			}
+		}
+		sort.Slice(result.Attentions, func(left, right int) bool {
+			if result.Attentions[left].Attention.Recovery.LaneID !=
+				result.Attentions[right].Attention.Recovery.LaneID {
+				return result.Attentions[left].Attention.Recovery.LaneID <
+					result.Attentions[right].Attention.Recovery.LaneID
+			}
+			return result.Attentions[left].Attention.ID <
+				result.Attentions[right].Attention.ID
+		})
+		if len(result.Attentions) > MaxObservationAttentions {
+			result.Attentions = result.Attentions[:MaxObservationAttentions]
+			result.AttentionsTruncated = true
 		}
 		result.Events, err = recentEventFacts(ctx, conn, runID, eventLimit)
 		if err != nil {

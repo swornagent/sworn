@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package and publish Linux amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check release identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "::error::expected a stable or RC tag such as v1.0.0 or v1.0.0-rc.1"
+            exit 1
+          fi
+
+          version="${tag#v}"
+          notes="docs/releases/${tag}.md"
+          test -s "${notes}" || {
+            echo "::error::release notes are missing: ${notes}"
+            exit 1
+          }
+
+          actual_version="$(go run ./cmd/sworn version --json | jq -r .version)"
+          if [[ "${actual_version}" != "${version}" ]]; then
+            echo "::error::tag ${version} does not match binary ${actual_version}"
+            exit 1
+          fi
+
+          commit="$(git rev-parse HEAD)"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          main_commit="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "${commit}" != "${main_commit}" ]]; then
+            echo "::error::tagged commit is not the current main commit"
+            exit 1
+          fi
+
+          successful_ci="$(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow CI \
+              --commit "${commit}" \
+              --event push \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq length
+          )"
+          if [[ "${successful_ci}" != "1" ]]; then
+            echo "::error::current main has no successful CI push run"
+            exit 1
+          fi
+
+      - name: Publish release and Homebrew cask
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --clean --release-notes=docs/releases/${{ github.ref_name }}.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

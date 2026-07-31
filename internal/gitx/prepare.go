@@ -335,18 +335,12 @@ func (r *Repository) mergeAttributesAtSource(context *compositionContext, source
 	if len(paths) == 0 {
 		return map[string]string{}, nil
 	}
-	// Apple Git does not provide check-attr --source. The composition index is
-	// private, so loading the exact source tree and asking only that index is
-	// equivalent without consulting the worktree or ambient attributes.
-	if _, err := r.contextRun(context, nil, "/dev/null", "read-tree", source.String()); err != nil {
-		return nil, fail("UNTRUSTED_MERGE_ATTRIBUTES", "load merge attribute source", err)
-	}
 	var input bytes.Buffer
 	for _, name := range paths {
 		input.WriteString(name)
 		input.WriteByte(0)
 	}
-	raw, err := r.contextRun(context, input.Bytes(), "/dev/null", "check-attr", "-z", "--stdin", "--cached", "merge")
+	raw, err := r.contextRun(context, input.Bytes(), "/dev/null", "check-attr", "-z", "--stdin", "--source="+source.String(), "merge")
 	if err != nil {
 		return nil, fail("UNTRUSTED_MERGE_ATTRIBUTES", "inspect merge attributes", err)
 	}
@@ -397,37 +391,6 @@ func renderMergeAttributes(attributes map[string]string) []byte {
 	}
 	return []byte(result.String())
 }
-
-func (r *Repository) explicitBaseMergeHead(
-	context *compositionContext,
-	source OID,
-	productBase OID,
-	side string,
-	timestamp int64,
-) (OID, error) {
-	tree, err := r.TreeOID(source)
-	if err != nil {
-		return OID{}, err
-	}
-	environment := append(
-		context.environment(),
-		commitEnvironment(
-			Identity{Name: "Baton Merge Base", Email: "merge-base@baton.invalid"},
-			timestamp,
-		)...,
-	)
-	raw, err := r.runWithAttributes(
-		[]byte("Baton explicit product base for "+side+"\n"),
-		environment,
-		"/dev/null",
-		"commit-tree", tree.String(), "-p", productBase.String(),
-	)
-	if err != nil {
-		return OID{}, fail("GIT_EXECUTION_FAILED", "prepare explicit merge base", err)
-	}
-	return r.parseOID(string(raw))
-}
-
 func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase *OID) (OID, error) {
 	context, err := r.newCompositionContext()
 	if err != nil {
@@ -469,26 +432,10 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase
 		return OID{}, err
 	}
 	args := []string{"merge-tree", "--write-tree", "--no-messages"}
-	mergeExpected, mergeCandidate := expected, candidate
 	if productBase != nil {
-		baseTime, err := r.CommitTimestamp(*productBase)
-		if err != nil {
-			return OID{}, err
-		}
-		mergeExpected, err = r.explicitBaseMergeHead(
-			context, expected, *productBase, "expected", baseTime+1,
-		)
-		if err != nil {
-			return OID{}, err
-		}
-		mergeCandidate, err = r.explicitBaseMergeHead(
-			context, candidate, *productBase, "candidate", baseTime+2,
-		)
-		if err != nil {
-			return OID{}, err
-		}
+		args = append(args, "--merge-base="+productBase.String())
 	}
-	args = append(args, mergeExpected.String(), mergeCandidate.String())
+	args = append(args, expected.String(), candidate.String())
 	rawTree, err := r.contextRun(context, nil, context.attributesFile, args...)
 	if err != nil {
 		return OID{}, fail("MERGE_CONFLICT", "prepare composition", err)

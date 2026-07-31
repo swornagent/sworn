@@ -498,6 +498,75 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 				break
 			}
 		}
+		var active *SliceState
+		if incomplete != nil {
+			if incomplete.NextRole == "verifier" ||
+				incomplete.NextRole == "merge" {
+				active = incomplete
+			}
+		} else if len(track.Slices) > 0 {
+			active = track.Slices[len(track.Slices)-1]
+		}
+		// Only product work beyond the last accepted receipt is a head refresh.
+		if track.Head != "" &&
+			track.Head != track.AuthorityHead &&
+			active != nil &&
+			active.Candidate != nil &&
+			(active.CurrentReceipt == nil ||
+				track.Head != active.CurrentReceipt.OID) {
+			awaitingCandidateVerdict := active.CurrentReceipt != nil &&
+				active.Stage == "verify" &&
+				active.NextRole == "verifier" &&
+				active.CurrentReceipt.OID == active.Candidate.OID
+			if !awaitingCandidateVerdict {
+				return State{}, recordFail(
+					"CHANGED_CANDIDATE",
+					"track "+track.ID+" moved after its current candidate",
+				)
+			}
+			linear, err := linearOneParentAncestry(
+				repository,
+				active.Candidate.OID,
+				track.Head,
+			)
+			if err != nil {
+				return State{}, err
+			}
+			if !linear {
+				return State{}, recordFail(
+					"CHANGED_CANDIDATE",
+					"track "+track.ID+" moved after its current candidate",
+				)
+			}
+			refreshHistory, err := historyAt(
+				repository,
+				track.Head,
+				active.Candidate.OID,
+			)
+			if err != nil {
+				return State{}, err
+			}
+			if len(refreshHistory.Receipts) > 0 {
+				return State{}, recordFail(
+					"CHANGED_CANDIDATE",
+					"track "+track.ID+" moved after its current candidate",
+				)
+			}
+			if err := repository.assertCandidateRecordRootUnchanged(
+				active.Candidate.OID,
+				track.Head,
+			); err != nil {
+				return State{}, err
+			}
+			active.Stage = "implement"
+			active.Status = "ready"
+			active.NextRole = "implementer"
+			active.Outcome = "stale"
+			active.Attempt = active.History.MaximumAttempt + 1
+			active.Retained = false
+			active.StaleReason =
+				"track head changed before verification was recorded"
+		}
 		if incomplete != nil {
 			currentApproval := approvals[current.OID]
 			if currentApproval.Receipt.Target == nil {
@@ -522,35 +591,6 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			if len(incomplete.ConsumedInputs) > 0 {
 				incomplete.PreparationSeed = track.AuthorityHead
 				incomplete.PreparedBase = preparedBase
-			}
-		}
-		var active *SliceState
-		if incomplete != nil {
-			if incomplete.NextRole == "verifier" ||
-				incomplete.NextRole == "merge" {
-				active = incomplete
-			}
-		} else if len(track.Slices) > 0 {
-			active = track.Slices[len(track.Slices)-1]
-		}
-		if track.Head != "" &&
-			track.Head != track.AuthorityHead &&
-			active != nil &&
-			active.Candidate != nil {
-			product, err := productTreeFor(
-				repository,
-				track.Head,
-				productCache,
-			)
-			if err != nil {
-				return State{}, err
-			}
-			expected := active.Candidate.Receipt.ProductTree
-			if expected == nil || product != *expected {
-				return State{}, recordFail(
-					"CHANGED_CANDIDATE",
-					"track "+track.ID+" moved after its current candidate",
-				)
 			}
 		}
 	}
@@ -1531,13 +1571,42 @@ func validateSliceHistory(
 				bound.Receipt.Result == "proceed" && *bound.Receipt.Attempt == attempt
 			retry := sameLineage && bound.Receipt.Role == "verifier" &&
 				bound.Receipt.Result == "fail" && *bound.Receipt.Attempt == attempt-1
+			candidateRefresh := false
+			if sameLineage &&
+				bound.Receipt.Role == "implementer" &&
+				bound.Receipt.Result == "candidate" &&
+				bound.Receipt.Attempt != nil &&
+				*bound.Receipt.Attempt == attempt-1 &&
+				receipt.Candidate != nil &&
+				inputsEqual(receipt.Inputs, bound.Receipt.Inputs) {
+				linear, err := linearOneParentAncestry(
+					repository,
+					receipt.Binds,
+					*receipt.Candidate,
+				)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				if linear {
+					refreshHistory, err := historyAt(
+						repository,
+						*receipt.Candidate,
+						receipt.Binds,
+					)
+					if err != nil {
+						return SliceHistory{}, err
+					}
+					candidateRefresh =
+						len(refreshHistory.Receipts) == 0
+				}
+			}
 			staleRetry := sameLineage && bound.Receipt.Attempt != nil &&
 				*bound.Receipt.Attempt == attempt-1 &&
 				((bound.Receipt.Role == "implementer" && bound.Receipt.Result == "candidate") ||
 					(bound.Receipt.Role == "verifier" &&
 						(bound.Receipt.Result == "pass" || bound.Receipt.Result == "fail"))) &&
 				!inputsEqual(receipt.Inputs, bound.Receipt.Inputs)
-			if !proceeded && !retry && !staleRetry {
+			if !proceeded && !retry && !candidateRefresh && !staleRetry {
 				return SliceHistory{}, recordFail("STALE_BINDING", "candidate "+entry.OID+" lacks PROCEED")
 			}
 			if err := exactInputs(receipt, planned.Slice.Consumes, "candidate "+entry.OID); err != nil {
@@ -1553,6 +1622,46 @@ func validateSliceHistory(
 				entry.Parent != *receipt.Candidate || *receipt.Candidate == receipt.Binds {
 				return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
 			}
+			deferConsumingEvidence := len(planned.Slice.Consumes) > 0 &&
+				receipt.Base != nil
+			implementationBase := receipt.Binds
+			if len(planned.Slice.Consumes) == 0 {
+				preparedBase, err := preparePlanBoundBase(
+					repository,
+					receipt.Release,
+					plan,
+					planned,
+					receipt.Binds,
+					nil,
+					approvals,
+					nil,
+				)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				preparedAncestor, err := repository.isAncestor(
+					preparedBase,
+					*receipt.Candidate,
+				)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				if !preparedAncestor {
+					return SliceHistory{}, recordFail(
+						"CHANGED_CANDIDATE",
+						"candidate "+entry.OID+" omits its exact prepared base",
+					)
+				}
+				implementationBase = preparedBase
+			}
+			if !deferConsumingEvidence {
+				if err := repository.assertCandidateRecordRootUnchanged(
+					implementationBase,
+					*receipt.Candidate,
+				); err != nil {
+					return SliceHistory{}, err
+				}
+			}
 			ancestor, err := repository.isAncestor(receipt.Binds, *receipt.Candidate)
 			if err != nil {
 				return SliceHistory{}, err
@@ -1564,12 +1673,17 @@ func validateSliceHistory(
 					return SliceHistory{}, err
 				}
 			}
-			product, err := productTreeFor(repository, *receipt.Candidate, productCache)
-			if err != nil {
-				return SliceHistory{}, err
-			}
-			if !ancestor || !baseAncestor || product != *receipt.ProductTree {
+			if !ancestor || !baseAncestor {
 				return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
+			}
+			if !deferConsumingEvidence {
+				product, err := productTreeFor(repository, *receipt.Candidate, productCache)
+				if err != nil {
+					return SliceHistory{}, err
+				}
+				if product != *receipt.ProductTree {
+					return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
+				}
 			}
 		case receipt.Role == "verifier":
 			if !sameLineage || bound.Receipt.Role != "implementer" ||
@@ -2454,10 +2568,30 @@ func validateConsumedHistories(
 			if err != nil {
 				return err
 			}
+			if err := repository.assertCandidateRecordRootUnchanged(
+				expected,
+				*receipt.Candidate,
+			); err != nil {
+				return err
+			}
 			if expected != *receipt.Base {
 				return recordFail(
 					"CHANGED_CANDIDATE",
 					"candidate "+entry.OID+" has an inexact prepared base",
+				)
+			}
+			product, err := productTreeFor(
+				repository,
+				*receipt.Candidate,
+				productCache,
+			)
+			if err != nil {
+				return err
+			}
+			if product != *receipt.ProductTree {
+				return recordFail(
+					"CHANGED_CANDIDATE",
+					"candidate "+entry.OID+" has invalid Git evidence",
 				)
 			}
 			for _, input := range inputs {

@@ -116,8 +116,10 @@ type Request struct {
 	Model         string    `json:"model"`
 	Workspace     Workspace `json:"workspace"`
 	Inputs        []Input   `json:"inputs"`
-	FreshContext  bool      `json:"fresh_context"`
-	Limits        Limits    `json:"limits"`
+	// FreshContext describes a well-formed request. Execution routes decide
+	// whether a nonfresh request has the continuation authority it requires.
+	FreshContext bool   `json:"fresh_context"`
+	Limits       Limits `json:"limits"`
 }
 type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
@@ -319,7 +321,7 @@ func ValidateRequest(request Request) error {
 		return err
 	}
 	if request.Role == RoleVerifier &&
-		(request.Workspace.Access != ReadOnly || !request.FreshContext) {
+		request.Workspace.Access != ReadOnly {
 		return fail("INVALID_VERIFIER")
 	}
 	if request.Inputs == nil {

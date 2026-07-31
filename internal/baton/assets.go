@@ -24,22 +24,22 @@ import (
 )
 
 const (
-	PackageVersion = "1.0.0-rc.9"
-	TagName        = "v1.0.0-rc.9"
-	TagObject      = "3fa8fcdcddc1f88479a29f103a373acf60818beb"
-	ReleaseCommit  = "04e828d946f710b46bc7ed9fb7a08d593987272a"
-	ReleaseTree    = "83a7a0fdfdc427aaad8feceb82a70197007c7758"
-	Commit         = "04e828d946f710b46bc7ed9fb7a08d593987272a"
-	Tree           = "83a7a0fdfdc427aaad8feceb82a70197007c7758"
-	ArchiveSHA256  = "sha256:5d52b5334dae60642f6557f5a051bcd9eba4f3730f46aea9dd153bbc7f5b5ad6"
-	// SupportPackageSHA256 retains the v1 wire name while binding RC9's
+	PackageVersion = "1.0.0-rc.12"
+	TagName        = "v1.0.0-rc.12"
+	TagObject      = "caac9f0ab32a596600874f911c7f2a5cd24b6552"
+	ReleaseCommit  = "5bc374451d0e31d74948ea63010f87d017a3abd5"
+	ReleaseTree    = "27297a37e7efd0154c487abfc5bae98fe711a8df"
+	Commit         = "5bc374451d0e31d74948ea63010f87d017a3abd5"
+	Tree           = "27297a37e7efd0154c487abfc5bae98fe711a8df"
+	ArchiveSHA256  = "sha256:620e0f04ddcfa10067a8519d23b169d5e3fcc2751f28652990c889b72e0e4afb"
+	// SupportPackageSHA256 retains the v1 wire name while binding RC12's
 	// published skills payload. Sworn neither embeds nor recomputes that payload.
-	SupportPackageSHA256 = "sha256:792a1a558c8b228801f4c7fcb55b89a1272d00651baa2e24e240b46ba0a5519c"
-	ManifestSHA256       = "sha256:703fe60ddc7a1b50b53d95be22d5fe2a07160b65ad4a673646ee3b6911828276"
-	AssetCount           = 24
-	AssetBytes           = int64(363023)
+	SupportPackageSHA256 = "sha256:f2db06b64a31403e7a864816a3b278a48578a5788eed3235d2be95cfbf093ef2"
+	ManifestSHA256       = "sha256:61e9760ce782c754cc766920937c0d7fd3ff592db157dea42ca9de0475b0d2ab"
+	AssetCount           = 25
+	AssetBytes           = int64(371555)
 
-	releaseDocumentSHA256 = "sha256:e13c7c5f143a04e10719715e2d478a88f2fecc0760bee60842ffc663b8524e56"
+	releaseDocumentSHA256 = "sha256:b0ed4b06d28f371f57c673bafc625c63b9d657d839f1e25354c27a2c7e04569d"
 	releaseSchema         = "sworn.baton-release/v1"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
@@ -64,6 +64,7 @@ var expectedAssetPaths = []string{
 	"operations/baton-plan.md",
 	"operations/baton-verify.md",
 	"reference/board/oracle.mjs",
+	"reference/board/presentation.mjs",
 	"reference/board/terminal.mjs",
 	"reference/board/web.mjs",
 	"reference/records/README.md",
@@ -296,7 +297,7 @@ func validatePackage(source fs.FS) (Identity, map[string]struct{}, error) {
 	}
 	versionBody, err := fs.ReadFile(source, "snapshot/assets/VERSION")
 	if err != nil || string(versionBody) != PackageVersion+"\n" {
-		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC9")
+		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC12")
 	}
 
 	return Identity{
@@ -318,7 +319,7 @@ func validateReleaseIdentity(release releaseFile) error {
 		release.PackageVersion != PackageVersion ||
 		release.SourceRepository != "https://github.com/sawy3r/baton" ||
 		release.ReleaseURL != "https://github.com/sawy3r/baton/releases/tag/"+TagName ||
-		release.PublishedAt != "2026-07-29T09:55:25Z" {
+		release.PublishedAt != "2026-07-31T04:32:53Z" {
 		return errors.New("release metadata has an unexpected publication identity")
 	}
 	if release.Tag.Name != TagName ||
@@ -328,7 +329,7 @@ func validateReleaseIdentity(release releaseFile) error {
 		release.Tag.PeeledTree != ReleaseTree {
 		return errors.New("release metadata has an unexpected annotated tag identity")
 	}
-	if release.Archive.Name != "baton-1.0.0-rc.9.tar.gz" ||
+	if release.Archive.Name != "baton-1.0.0-rc.12.tar.gz" ||
 		release.Archive.SHA256 != ArchiveSHA256 ||
 		release.Archive.EmbeddedCommit != ReleaseCommit {
 		return errors.New("release metadata has an unexpected archive identity")
@@ -366,18 +367,18 @@ func validateManifestIdentity(manifest assetManifest) error {
 
 func validateReleaseBindings(source fs.FS, release releaseFile, digests map[string]string) error {
 	expectedOperations := []releaseOperation{
-		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:3385b9bd62eee8cbe8b7e23e04abe872e133aa113d2c9ca0b7da3454a17bd413"},
-		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:30061e6ea64004237f17c1bf51a279a76bd7efff5d1cd39b12016bab942d5efc"},
-		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:71cf67af0b9f3089a58bd6dc9d4c4054a41643135b89bf5bc332a2861d68ea84"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:2a6b14e214b6aea9c7d2c27072289735085626d3f4fc81f3a0fe76af3d2353d4"},
-		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:d2c1b324ff251c3abe8e1e32a7651b9896b69271a6d7b37107efcd09e2da141d"},
+		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:443f8bbce2914f2586de8ae7796b346554097421742071e8494d459673b82760"},
+		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:c274017d47d9dd7bc86ff1188cab1b688f7df73500b3bacdb4244bf496c8c473"},
+		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:ecfecf92a1858db9a27de6105ccf647f5a15ec85ed76a346072182e22e99a6d5"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014"},
+		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:4056008e46a987a9c08cc69f297acfe08c1844eb1edcadf146096ea9bd23ada3"},
 	}
 	expectedTemplates := []releaseTemplate{
 		{"plan", "templates/plan.md", "sha256:ec9571a105445875c3b94f6303035c2dfc9985f39972790ea6473d39e96c9ba5"},
 	}
 	expectedContracts := []releaseContract{
-		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:8946bcb51b0ce8349617c5d7a65cb3835445c9fadb14d15e62e901c6a8b83629"},
-		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c"},
+		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"},
+		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018"},
 		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {

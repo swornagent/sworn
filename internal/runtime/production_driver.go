@@ -58,12 +58,15 @@ func newProductionDriverRuntime(
 	}, nil
 }
 
-func manifestProfiles(selections driver.RoleSelections) []string {
+func manifestProfiles(manifest Manifest) []string {
 	profiles := []string{
-		selections.Planner.Profile,
-		selections.Implementer.Profile,
-		selections.Captain.Profile,
-		selections.Verifier.Profile,
+		manifest.Roles.Planner.Profile,
+		manifest.Roles.Implementer.Profile,
+		manifest.Roles.Captain.Profile,
+		manifest.Roles.Verifier.Profile,
+	}
+	if recovery, enabled := manifest.recoverySelection(); enabled {
+		profiles = append(profiles, recovery.Profile)
 	}
 	sort.Strings(profiles)
 	return slices.Compact(profiles)
@@ -79,7 +82,7 @@ func (runtime *productionDriverRuntime) registryFor(
 		sha256Digest(runtime.body) != runtime.digest {
 		return nil, runtimeFail("DRIVER_CONFIG_DRIFT", nil)
 	}
-	profiles := manifestProfiles(manifest.value.Roles)
+	profiles := manifestProfiles(manifest.value)
 	key := strings.Join(profiles, "\x00")
 
 	runtime.mu.Lock()

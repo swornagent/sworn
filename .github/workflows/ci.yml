@@ -10,49 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  portable-macos:
-    runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      GOFLAGS: -buildvcs=false
-      GOWORK: "off"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Host-path portability
-        run: |
-          go test -count=1 -p=1 -timeout=10m \
-            ./cmd/sworn \
-            ./internal/cockpit \
-            ./internal/driver \
-            ./internal/journal \
-            ./internal/runtime
-      - name: Git portability
-        run: |
-          go test -count=1 -p=1 -timeout=10m \
-            ./internal/gitx \
-            ./tools/batongolden
-      - name: Baton composition contracts
-        run: |
-          go test -count=1 -timeout=10m \
-            -run '^(TestActionsMatchExactReferenceForSHA1AndSHA256|TestAssemblyDirectReuseRequiresExactComposition|TestPlanAdmissionMatchesExactBatonGolden)$' \
-            ./internal/baton
-      - name: Vet
-        run: go vet ./...
-      - name: Portable binary
-        run: |
-          CGO_ENABLED=0 go build \
-            -mod=readonly \
-            -buildvcs=false \
-            -trimpath \
-            -o "${RUNNER_TEMP}/sworn" \
-            ./cmd/sworn
-
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 45

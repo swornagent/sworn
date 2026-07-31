@@ -394,6 +394,28 @@ func TestOfficialMetricExporterBoundsMaximumClosedCardinality(
 			points: points,
 		})
 	}
+	continuationPoints := maximumClosedContinuationMetricPoints()
+	if len(continuationPoints) != 18 {
+		t.Fatalf(
+			"closed continuation metric points = %d",
+			len(continuationPoints),
+		)
+	}
+	payload.metrics = append(
+		payload.metrics,
+		telemetryMetric{
+			name:   "sworn.eval.continuations",
+			points: continuationPoints,
+		},
+		telemetryMetric{
+			name: "sworn.eval.continuation.outcomes",
+			points: []telemetryMetricPoint{
+				continuationOutcomeMetricPoint("reuse"),
+				continuationOutcomeMetricPoint("fallback"),
+				continuationOutcomeMetricPoint("fallback_expired"),
+			},
+		},
+	)
 	if err := metricAdapter.Export(context.Background(), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -401,8 +423,12 @@ func TestOfficialMetricExporterBoundsMaximumClosedCardinality(
 	transport.mu.Lock()
 	requests := append([]otlpRequest(nil), transport.requests...)
 	transport.mu.Unlock()
-	if len(requests) != len(names) {
-		t.Fatalf("metric requests = %d, want %d", len(requests), len(names))
+	if len(requests) != len(names)+1 {
+		t.Fatalf(
+			"metric requests = %d, want %d",
+			len(requests),
+			len(names)+1,
+		)
 	}
 	for _, request := range requests {
 		if request.path != "/v1/metrics" ||
@@ -493,6 +519,56 @@ func maximumClosedMetricPoints() []telemetryMetricPoint {
 		}
 	}
 	return points
+}
+
+func maximumClosedContinuationMetricPoints() []telemetryMetricPoint {
+	modes := []string{
+		"fresh_rehydrate",
+		"transcript_replay",
+		"opaque_replay",
+		"provider_cursor",
+		"native_session",
+		"compacted",
+	}
+	outcomes := []string{
+		"reuse",
+		"fallback",
+		"fallback_expired",
+	}
+	observedAt := time.Date(2026, 7, 29, 1, 2, 33, 0, time.UTC)
+	points := make([]telemetryMetricPoint, 0, len(modes)*len(outcomes))
+	for _, mode := range modes {
+		for _, outcome := range outcomes {
+			points = append(points, telemetryMetricPoint{
+				attributes: []telemetryAttribute{
+					stringTelemetryAttribute(
+						"sworn.continuation.mode",
+						mode,
+					),
+					stringTelemetryAttribute(
+						"sworn.continuation.outcome",
+						outcome,
+					),
+				},
+				observedAt: observedAt,
+				value:      1,
+			})
+		}
+	}
+	return points
+}
+
+func continuationOutcomeMetricPoint(outcome string) telemetryMetricPoint {
+	return telemetryMetricPoint{
+		attributes: []telemetryAttribute{
+			stringTelemetryAttribute(
+				"sworn.continuation.outcome",
+				outcome,
+			),
+		},
+		observedAt: time.Date(2026, 7, 29, 1, 2, 33, 0, time.UTC),
+		value:      1,
+	}
 }
 
 func assertTraceWirePayload(t *testing.T, body []byte) {
@@ -616,6 +692,10 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 	)
 	allowed := map[string]map[string]bool{
 		"sworn.eval.events":                     stringSet("sworn.outcome"),
+		"sworn.eval.continuations":              stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
+		"sworn.eval.continuation.outcomes":      stringSet("sworn.continuation.outcome"),
+		"sworn.eval.turn_recovery.actions":      stringSet("sworn.turn_recovery.action"),
+		"sworn.eval.turn_recovery.outcomes":     stringSet("sworn.turn_recovery.outcome"),
 		"sworn.eval.attempts":                   groupLabels,
 		"sworn.eval.retries":                    groupLabels,
 		"sworn.eval.recoveries":                 stringSet("sworn.recovery", "sworn.outcome"),
@@ -630,6 +710,10 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 	}
 	expectedValues := map[string][]int64{
 		"sworn.eval.events":                     {8},
+		"sworn.eval.continuations":              {1, 1, 1},
+		"sworn.eval.continuation.outcomes":      {1, 1, 2},
+		"sworn.eval.turn_recovery.actions":      {1, 1, 1},
+		"sworn.eval.turn_recovery.outcomes":     {0, 1, 1},
 		"sworn.eval.attempts":                   {2},
 		"sworn.eval.retries":                    {1},
 		"sworn.eval.recoveries":                 {0, 0, 1, 1},

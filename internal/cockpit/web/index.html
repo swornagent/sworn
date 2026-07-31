@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Sworn relay exchange</title>
+  <title>Sworn delivery board</title>
   <link rel="stylesheet" href="/assets/app.css">
   <script defer src="/assets/app.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#relay-board">Skip to the relay</a>
+  <a class="skip-link" href="#relay-board">Skip to the delivery board</a>
   <header class="masthead">
     <div>
-      <p class="eyebrow">Sworn local cockpit</p>
-      <h1>Baton relay exchange</h1>
+      <p class="eyebrow">Local delivery board</p>
+      <h1>Sworn delivery board</h1>
     </div>
     <p class="connection" id="connection" data-state="connecting">
       <span aria-hidden="true"></span>
@@ -41,14 +41,26 @@
 
     <p class="status-notice" id="status-notice" role="status" hidden></p>
 
+    <section class="attention-panel" id="attention-panel"
+      aria-labelledby="attention-title" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Human attention</p>
+          <h2 id="attention-title">Sworn needs an answer</h2>
+        </div>
+        <p class="quiet">Only the work waiting for this answer is paused.</p>
+      </div>
+      <ol id="attention-list"></ol>
+    </section>
+
     <div class="exchange">
       <section class="board" id="relay-board" aria-labelledby="board-title">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Plan order</p>
-            <h2 id="board-title" tabindex="-1">The relay</h2>
+            <p class="eyebrow">Delivery plan</p>
+            <h2 id="board-title" tabindex="-1">Work and handoffs</h2>
           </div>
-          <p class="offset" id="offset">Event —</p>
+          <p class="offset" id="offset">Checked update —</p>
         </div>
         <div class="board-viewport" id="board-viewport">
           <svg class="edges" id="edges" aria-hidden="true"></svg>
@@ -56,20 +68,20 @@
         </div>
         <div class="empty-state" id="empty-state" hidden>
           <p class="eyebrow" id="empty-eyebrow">No run selected</p>
-          <h3 id="empty-title">Open a run to see its relay.</h3>
-          <p id="empty-copy">Use <code>/runs/&lt;run-id&gt;</code>. Nothing is inferred before the engine records it.</p>
+          <h3 id="empty-title">Open a run to see its work.</h3>
+          <p id="empty-copy">Use <code>/runs/&lt;run-id&gt;</code>. Sworn only shows work it has recorded.</p>
         </div>
       </section>
 
       <aside class="detail-rail" id="detail-rail" aria-labelledby="detail-title">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Exchange detail</p>
-            <h2 id="detail-title">Select a carrier</h2>
+            <p class="eyebrow">Work detail</p>
+            <h2 id="detail-title">Select an item</h2>
           </div>
         </div>
         <div id="detail-content">
-          <p class="quiet">Choose a release, track, slice, or assembly node in topological order.</p>
+          <p class="quiet">Choose a release, track, work item, or final check.</p>
         </div>
         <div class="actions" id="actions" role="group" aria-label="Available local controls"></div>
       </aside>
@@ -78,32 +90,32 @@
     <section class="evidence" aria-labelledby="evidence-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Durable only</p>
-          <h2 id="evidence-title">Evidence tape</h2>
+          <p class="eyebrow">Saved record</p>
+          <h2 id="evidence-title">What Sworn checked</h2>
         </div>
-        <p class="quiet">No prompts, output, source, paths, or proof bodies.</p>
+        <p class="quiet">Event names and times only; no prompts, model output, source, paths, or proof contents.</p>
       </div>
-      <ol id="evidence-list" tabindex="0" aria-label="Durable evidence events"></ol>
+      <ol id="evidence-list" tabindex="0" aria-label="Saved run updates"></ol>
     </section>
 
     <section class="outbox" aria-labelledby="outbox-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Signed delivery</p>
-          <h2 id="outbox-title">Notification outbox</h2>
+          <p class="eyebrow">Optional integrations</p>
+          <h2 id="outbox-title">Notification deliveries</h2>
         </div>
         <p class="quiet" id="outbox-window"></p>
       </div>
-      <p class="quiet outbox-note">Delivery is at least once. Receivers must deduplicate by message ID.</p>
-      <ol id="outbox-list" tabindex="0" aria-label="Webhook delivery records"></ol>
+      <p class="quiet outbox-note">A notification may be delivered more than once. Receivers should use its message ID to ignore duplicates.</p>
+      <ol id="outbox-list" tabindex="0" aria-label="Notification delivery records"></ol>
     </section>
   </main>
 
   <dialog class="detail-sheet" id="detail-sheet" aria-labelledby="sheet-title">
     <div class="sheet-heading">
       <div>
-        <p class="eyebrow">Exchange detail</p>
-        <h2 id="sheet-title">Carrier</h2>
+        <p class="eyebrow">Work detail</p>
+        <h2 id="sheet-title">Item</h2>
       </div>
       <button class="quiet-button" id="close-sheet" type="button">Close</button>
     </div>

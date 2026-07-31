@@ -42,6 +42,38 @@ type Adapter interface {
 	invoke(context.Context, Invocation) (Observation, error)
 }
 
+// continuationAdapter is deliberately opt-in. Existing adapters continue to
+// satisfy Adapter without implementing or changing any continuation behavior.
+// The state is opaque to the dispatcher, immutable while suspended, and owns
+// no permission, workspace lease, Baton decision, or active tool session.
+type continuationAdapter interface {
+	invokeContinuation(
+		context.Context,
+		Invocation,
+	) (Observation, continuationState, error)
+	resumeContinuation(
+		context.Context,
+		Invocation,
+		continuationState,
+	) (Observation, error)
+}
+
+// recoverableContinuationAdapter is the same continuation substrate with
+// ownership transfer when a resumed worker yields again.
+type recoverableContinuationAdapter interface {
+	continuationAdapter
+	invokeRecoverableContinuation(
+		context.Context,
+		Invocation,
+	) (Observation, continuationState, error)
+	resumeRecoverableContinuation(
+		context.Context,
+		Invocation,
+		continuationState,
+		bool,
+	) (Observation, continuationState, error)
+}
+
 // ProcessAdapter is the contained process implementation retained for CLI
 // adapters and the deterministic fake. Its executable is not part of the
 // provider-neutral profile schema.
@@ -101,10 +133,16 @@ type ProfileConfig struct {
 	CredentialRef *string       `json:"credential_ref"`
 }
 
-type RoleSelection struct {
+// ModelSelection binds one explicit configured profile and model. It is
+// role-neutral so the same registry resolution is available to Sworn-owned
+// automation without inventing another driver or model fallback layer.
+type ModelSelection struct {
 	Profile string `json:"profile"`
 	Model   string `json:"model"`
 }
+
+// RoleSelection remains a source-compatible name for manifest v2 callers.
+type RoleSelection = ModelSelection
 
 // RoleSelections is closed to exactly the four model-facing roles.
 type RoleSelections struct {
@@ -242,6 +280,18 @@ func (registry SelectionRegistry) Resolve(
 		}
 		return SelectedProfile{}, fail("INVALID_ROLE")
 	}
+	return registry.ResolveSelection(selection)
+}
+
+// ResolveSelection resolves one exact profile/model pair through the same
+// provider-neutral registry used by role dispatch. There are no defaults or
+// fallback profiles.
+func (registry SelectionRegistry) ResolveSelection(
+	selection ModelSelection,
+) (SelectedProfile, error) {
+	if err := ValidateModelSelection(selection); err != nil {
+		return SelectedProfile{}, err
+	}
 	registered, ok := registry.profiles[selection.Profile]
 	if !ok {
 		return SelectedProfile{}, fail("UNKNOWN_PROFILE")
@@ -262,18 +312,25 @@ func (registry SelectionRegistry) Resolve(
 }
 
 func ValidateRoleSelections(selections RoleSelections) error {
-	for _, selection := range []RoleSelection{
+	for _, selection := range []ModelSelection{
 		selections.Planner,
 		selections.Implementer,
 		selections.Captain,
 		selections.Verifier,
 	} {
-		if !providerKeyPattern.MatchString(selection.Profile) {
-			return fail("INVALID_PROFILE")
+		if err := ValidateModelSelection(selection); err != nil {
+			return err
 		}
-		if err := validateText(selection.Model, 500, false); err != nil {
-			return fail("INVALID_MODEL")
-		}
+	}
+	return nil
+}
+
+func ValidateModelSelection(selection ModelSelection) error {
+	if !providerKeyPattern.MatchString(selection.Profile) {
+		return fail("INVALID_PROFILE")
+	}
+	if err := validateText(selection.Model, 500, false); err != nil {
+		return fail("INVALID_MODEL")
 	}
 	return nil
 }

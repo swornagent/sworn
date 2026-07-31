@@ -401,6 +401,37 @@ func TestWebhookSignsStoredBytesAndFinishesOutsideRequest(t *testing.T) {
 	}
 }
 
+func TestWebhookMapsAttentionAndTurnRecoveryToContentFreeRecovery(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{
+		journal.AttentionOpenedEvent,
+		journal.AttentionAnsweredEvent,
+		journal.AttentionResolvedEvent,
+		journal.RecoveryStepReservedEvent,
+		journal.RecoveryResumeWorkerEvent,
+		journal.RecoveryAskCaptainEvent,
+		journal.RecoveryRetryOperationalEvent,
+		journal.RecoveryParkedEvent,
+		"turn_recovery.outcome.recovered",
+		"turn_recovery.outcome.human_escalation",
+		"turn_recovery.outcome.false_acceptance",
+	} {
+		if got := safeWebhookEventKind(kind); got != webhookRecoveryUpdated {
+			t.Errorf("%q = %q", kind, got)
+		}
+	}
+	for _, kind := range []string{
+		"attention_private",
+		"turn_recovery.private",
+		"turn_recovery.action.private",
+	} {
+		if got := safeWebhookEventKind(kind); got != webhookRunUpdated {
+			t.Errorf("open vocabulary %q = %q", kind, got)
+		}
+	}
+}
+
 func TestWebhookRetriesWithFixedCodesAndNeverStoresResponses(t *testing.T) {
 	t.Parallel()
 

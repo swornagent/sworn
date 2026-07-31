@@ -1,274 +1,284 @@
-# Running the bounded builder-to-reviewable vertical
+# Start and operate Sworn
 
-`sworn run` is Sworn v0.2.0's sole mutating command:
+This guide covers a current Sworn `1.0.0-rc.1` production run. Baton defines
+the handoffs and approvals; Sworn carries the work, saves progress, and stops
+when it cannot continue safely.
 
-```text
-sworn run <run> [<work>] --config <clean-absolute-path> [--json]
-```
+## What you need
 
-It acquires exclusive ownership of one existing control Store, completes the
-Store-wide recovery barrier, and converges exactly one current work item through
-the pinned Codex builder, its complete ordered local-check batch, and atomic
-admission to `reviewable`. It exits after that bounded operation. It does not
-create or activate a delivery, poll for work, advance another item, obtain a
-verifier verdict, accept `PASS`, or update the target ref.
+Sworn does not yet create a delivery plan, run manifest, or AI connection file.
+The release or deployment process must provide:
 
-The run and work arguments are Sworn IDs. An active delivery has exactly one
-non-waiting work item; omitting `<work>` selects it. An explicit waiting or
-foreign work ID fails. `--config` and `--json` may each appear only once.
+- a repository with the required Baton release records;
+- an approved, canonical `sworn.runtime-manifest/v3` file;
+- a canonical, secret-free `sworn.driver-config/v1` file whose digest matches
+  the manifest; and
+- an absolute path for the private SQLite journal that will hold this run.
 
-## Deployment prerequisites
+All supplied paths must be absolute and clean. The manifest is a compact JSON
+document with a final newline. It binds the repository, release, target branch,
+intent, approval source, role/model choices, recovery model, limits, and driver
+configuration digest. It contains no credential values.
 
-This is a pre-alpha production vertical, not a bootstrap flow. Before invoking
-it, deployment tooling must have:
+The journal is the saved run record. Sworn creates it with mode `0600` if it
+does not exist; its parent directory must already exist and must not be reached
+through a symlink. Reuse the same journal path when viewing, controlling, or
+recovering that run.
 
-- created a private control database containing the exact planned and activated
-  delivery, authenticated historical approval, and current work item;
-- measured and persisted the repository binding and the content-runtime
-  manifest digest;
-- published the plan-selected signed authority bundle into a configured trusted
-  directory;
-- provisioned private executor, writable, builder, and check roots, with the
-  writable root on a finite executable tmpfs;
-- installed exact Bubblewrap, `systemd-run`, and `systemctl` executables; and
-- supplied the exact accepted Codex static binary; and
-- created a dedicated private Codex home and authenticated it through the Codex
-  CLI's file-backed ChatGPT login.
+## 1. Check the AI connection
 
-There is no public `init`, plan activation, repository-discovery, runtime-digest,
-config-generation, or authorizer command yet. These are deliberate adoption
-gaps, not operations which `sworn run` performs implicitly.
-
-The execution host must satisfy the Linux capability floor in [Contained
-executor](contained-executor.md): delegated cgroup v2 controllers, a systemd 255
-or newer user manager, Bubblewrap 0.9.0 or newer, unprivileged user namespaces,
-and finite resource backing. The host account, same-UID processes, kernel,
-systemd, Bubblewrap, host `/usr`, and outer Codex process remain in the trusted
-computing base.
-
-## Strict run configuration
-
-The configuration is a complete non-secret deployment binding. It must be a
-non-empty regular file no larger than 256 KiB, mode `0600` or otherwise without
-group or world permissions, reached by a clean absolute path with no symlink
-remap. JSON is strict: duplicate or unknown members, trailing values, invalid
-I-JSON, and an unknown schema version fail closed.
-
-The `v1` suffixes in this configuration and the command's JSON result identify
-their schema generations. They are intentionally independent of the v0.2.0
-package version and do not imply a Sworn 1.0 release.
-
-This example shows the complete shape. Every path, digest, public key, identity,
-and limit must be replaced with the deployment's measured value:
-
-```json
-{
-  "schema_version": "sworn-run-config-v1",
-  "control_database": "/srv/sworn/control.db",
-  "repository": {
-    "root": "/srv/project",
-    "binding": {
-      "schema_version": "sworn-repository-binding-v1",
-      "repository_id": "project",
-      "common_dir": "/srv/project/.git",
-      "object_dir": "/srv/project/.git/objects",
-      "object_format": "sha1"
-    }
-  },
-  "authority": {
-    "sources": [
-      {
-        "source_ref": "release-authority",
-        "authorizer_ref": "release-captain",
-        "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-        "bundle_directory": "/srv/sworn/authority"
-      }
-    ]
-  },
-  "executor": {
-    "runtime_root": "/srv/sworn/executor",
-    "writable_root": "/run/user/1000/sworn-writable",
-    "bubblewrap_path": "/usr/bin/bwrap",
-    "systemd_run_path": "/usr/bin/systemd-run",
-    "systemctl_path": "/usr/bin/systemctl"
-  },
-  "content_runtime": {
-    "source": "/srv/sworn/check-runtime",
-    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "maximum_bytes": 1073741824
-  },
-  "workspaces": {
-    "builder_root": "/srv/sworn/builder",
-    "check_root": "/srv/sworn/checks"
-  },
-  "codex": {
-    "binary": "/srv/sworn/bin/codex",
-    "chatgpt_auth_file": "/srv/sworn/codex-home/auth.json",
-    "model": "gpt-5.4",
-    "timeout_seconds": 300
-  }
-}
-```
-
-The repository binding includes the complete Git common directory, object
-directory, and object format; Sworn remeasures them on every open. A path or
-remote URL alone is not repository identity. Authority sources contain only an
-authorizer identity, canonical base64 Ed25519 public key, and trusted bundle
-directory. Private signing material is never accepted.
-
-All configured paths are clean and absolute. The control database and private
-roots must already exist. Repository and content-runtime sources may not be
-symlink remaps. The builder and check roots must be distinct. Executor program
-paths must name exact non-symlink executable files. See [Exact plan and
-authenticated authority](authenticated-authority.md) for bundle publication and
-[Exact local candidate](exact-candidate.md) for repository binding semantics.
-
-`executor.limits` may be omitted to select Sworn's versioned finite defaults. If
-present, it must be one complete object with all of these fields:
-
-```json
-{
-  "runtime_seconds": 300,
-  "memory_bytes": 2147483648,
-  "swap_bytes": 0,
-  "tasks": 256,
-  "cpu_percent": 100,
-  "file_bytes": 67108864,
-  "temp_bytes": 536870912,
-  "home_bytes": 134217728,
-  "input_bytes": 1073741824,
-  "workspace_bytes": 1073741824,
-  "stdout_bytes": 4194304,
-  "stderr_bytes": 4194304
-}
-```
-
-The Codex model and timeout are explicit; there is no provider or model default
-in the config. `codex.chatgpt_auth_file` names only the `auth.json` created in a
-dedicated Codex CLI home. Sworn does not accept the credential bytes in the
-configuration or environment, and it does not hash or copy them into the Store,
-profile digest, command output, or candidate workspace. The configured path is
-part of the executor configuration binding; the secret file contents are not.
-
-Optional top-level `owner_id` may be a valid Sworn ID. If omitted, Sworn derives
-a deterministic identity bound to the Store path, repository identity, and run.
-It identifies process ownership and audit attribution; it is not authority.
-
-The production adapter currently accepts only the 304,169,008-byte static-PIE
-`codex-cli 0.145.0-alpha.18` with SHA-256
-`16db86b6bf81cc426032fd42216dd97e60f97b149272f1f9963845a0675dae94`.
-Sworn does not yet download or install that alpha binary; a current or otherwise
-different Codex build is rejected.
-
-## Codex ChatGPT authentication
-
-Create a Codex home used only by Sworn, then run the accepted Codex binary's
-normal ChatGPT login with file storage forced explicitly:
+Check one profile and model before starting:
 
 ```sh
-install -d -m 0700 /srv/sworn/codex-home
-CODEX_HOME=/srv/sworn/codex-home \
-  /srv/sworn/bin/codex \
-  -c 'forced_login_method="chatgpt"' \
-  -c 'cli_auth_credentials_store="file"' \
-  login
-chmod 0600 /srv/sworn/codex-home/auth.json
+sworn driver inspect \
+  --config /absolute/path/drivers.json \
+  --profile openai \
+  --model YOUR_EXACT_MODEL \
+  --json
+
+sworn driver doctor \
+  --config /absolute/path/drivers.json \
+  --profile openai \
+  --model YOUR_EXACT_MODEL \
+  --json
 ```
 
-The directory and `auth.json` must be owned by the account which runs Sworn and
-must remain private. The file must be a non-empty, non-symlink regular file with
-exact mode `0600`, exactly one hard link, and no more than 64 KiB. Point
-`codex.chatgpt_auth_file` at that exact file. Do not point Sworn at the Codex
-home used for interactive work, copy a transient access token into the file, or
-place the file under a repository or its Git metadata, an authority bundle,
-executor runtime, writable root, content runtime, builder root, or check root.
-It must also not be the control database or Codex binary.
+The checks are deliberately different:
 
-The Codex CLI owns the authentication format and refresh lifecycle. Sworn opens
-and locks the configured file, retains its exact identity, and binds only that
-single file read-write at `/home/sworn/.codex/auth.json` for the trusted outer
-Codex process. Read-write access is required because the CLI may refresh and
-rotate its ChatGPT tokens during a run. The rest of the configured Codex home is
-not mounted. The outer process receives broad host networking; its named nested
-permission profile disables network and denies the whole
-`/home/sworn/.codex` tree to model-directed tools. `CODEX_HOME` is fixed by the
-executor and cannot be supplied by an invocation.
+- `inspect` confirms that the profile, model, adapter, and configuration fit
+  together. It does not contact the provider.
+- `doctor` checks the local executable or connection boundary. It does not make
+  a paid HTTP model request.
+- `certify` makes the separately authorized live check. It needs real
+  credentials and may consume provider usage.
 
-Sworn does not read `OPENAI_API_KEY`, `CODEX_API_KEY`, or another Platform API
-key, and the accepted profile has no API-key fallback. A missing, unsafe, busy,
-replaced, or Platform API-key-mode credential fails the run instead of
-selecting another authentication method. Sworn does not parse the CLI-owned
-file to reclassify other modes which the pinned CLI considers part of its
-ChatGPT login family; the dedicated-home provisioning procedure is therefore
-part of the operational boundary.
-
-Stop every Sworn process which uses this file before logging out, changing
-accounts, or reauthenticating. Then rerun the same pinned-CLI login command
-against the same dedicated `CODEX_HOME`, restore exact mode `0600`, and confirm
-the result before restarting Sworn:
+Run live certification only when that use is intended:
 
 ```sh
-CODEX_HOME=/srv/sworn/codex-home \
-  /srv/sworn/bin/codex \
-  -c 'forced_login_method="chatgpt"' \
-  -c 'cli_auth_credentials_store="file"' \
-  login status
+sworn driver certify \
+  --config /absolute/path/drivers.json \
+  --profile openai \
+  --model YOUR_EXACT_MODEL \
+  --json
 ```
 
-See [Codex authentication](https://developers.openai.com/codex/auth) for the
-upstream login flow and [ADR
-0009](adr/0009-codex-cli-managed-chatgpt-authentication.md) for Sworn's narrower
-credential boundary.
+Use `--all` instead of `--profile` and `--model` only with a release-wide
+configuration that includes every supported production connection family and
+both Bedrock surfaces.
 
-## Convergence and output
+Each JSON report has a `state` and a stable `code`:
 
-On startup the controller marks interrupted effects unknown, converges exact
-bound results, and requeues only unbound builder or check attempts with complete
-machine-proved cleanup. It activates only when no running or unknown effect
-remains. For the selected work attempt, stable domain-separated IDs identify
-build dispatch, check dispatch, and admission. Re-running the same command after
-an interruption therefore observes or completes the same durable work instead
-of creating a second workflow.
+- `PASS` means the selected check passed.
+- `FAIL` means the check ran and found a problem.
+- `NOT_CERTIFIED` means that exact model is not listed for certification in the
+  selected profile.
 
-Fresh current authority is resolved before builder scheduling, before pending
-builder execution, and before each pending local-check claim. Check dispatch and
-submission admission are deterministic historical transactions over exact
-Store truth and do not add redundant permits.
+Read the result in the context of the command: an `inspect` pass confirms
+configuration, while only a `certify` pass confirms the live provider path.
 
-Text output reports only the committed terminal projection:
+## 2. Start the run
+
+For a production manifest, supply the matching driver configuration:
+
+```sh
+sworn run \
+  --manifest /absolute/path/run.json \
+  --journal /absolute/path/run.sqlite \
+  --config /absolute/path/drivers.json
+```
+
+Sworn prints a readable summary first: the run status, what is happening, what
+comes next, whether a person is needed, and what it checked. Stable state names,
+digests, and generation numbers remain under `Technical details`.
+
+Scripted manifests are for deterministic tests and recovery compatibility.
+They contain their own scripted attempts and must not be combined with a
+production driver configuration.
+
+## 3. See what is happening
+
+The terminal board is the normal operator view:
+
+```sh
+sworn board \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite
+```
+
+It begins with the same readable summary and then shows the complete recorded
+facts under `TECHNICAL DETAILS`. Add `--json` when another program needs the
+stable `sworn.cockpit/v2` document:
+
+```sh
+sworn board \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --json
+```
+
+`sworn status` is machine-readable only:
+
+```sh
+sworn status \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --json
+```
+
+## 4. Use the local browser board
+
+For an existing run:
+
+```sh
+sworn serve \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --config /absolute/path/drivers.json
+```
+
+By default, Sworn listens only on `127.0.0.1:7337`. Open:
 
 ```text
-run run-1 work work-1: reviewable (revision 4)
+http://127.0.0.1:7337/runs/RUN_ID
 ```
 
-`--json` emits one `sworn-run-result-v1` object containing run, work, final
-state, revision, builder and check effect IDs, applied or replayed command IDs,
-and startup recovery counts. Command entries are absent when the work was
-already reviewable. Errors produce no success object. After interruption or
-failure, `sworn board <run> --store <database> --json` remains the read-only view
-of committed truth.
+Add `--manifest` only when the operator service must accept a start request for
+that exact manifest. Without an operator configuration, there is no public
+listener, webhook delivery, or telemetry export.
 
-## Deliberate limits
+## 5. Pause, resume, cancel, or recover
 
-`reviewable` means the exact local candidate and required local evidence were
-atomically admitted. It is not an independent verdict or `PASS`. v0.2.0 has
-no verifier adapter, verdict routing, bounded repair policy, scheduler,
-integration edge, or external authorizer transport.
+Controls include the generation from the latest board plus a new command ID.
+These values stop an old screen or script from changing a newer run. The board
+JSON `actions` list supplies the current generation and, for retries, the work
+digest and epoch.
 
-The outer Codex process has broad host-network access and read-write access to
-the single managed ChatGPT authentication file; its nested tool process has
-neither network nor read access to the Codex home. Production `sworn run` uses
-the built-in OpenAI provider through that ChatGPT login and consumes the
-account's Codex usage. It never uses a Platform API key. The automated
-real-Codex boundary proof mounts synthetic file-backed ChatGPT state while using
-a scripted local Responses endpoint, so it consumes no provider tokens. No
-live delivery runs in the ordinary suite. On 2026-07-21, the separate opt-in
-release smoke test passed at the built-process boundary using `gpt-5.4` and the
-exact pinned CLI: one live turn created the exact candidate, passed its local
-check, reached `reviewable` at revision 4, and left the target ref unchanged; a
-second built-process invocation converged with no commands, effects, or model
-turn. The scripted provider authenticates with a separate test-only bearer, so
-that proof does not claim that its model request used the mounted ChatGPT state.
+```sh
+sworn pause \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --command UNIQUE_COMMAND_ID \
+  --generation CURRENT_GENERATION
 
-See the [v0.2.0 release notes](releases/v0.2.0.md) for the packaged boundary and
-the [roadmap](roadmap.md) for the v0.3.0 verifier direction.
+sworn resume \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --command UNIQUE_COMMAND_ID \
+  --generation CURRENT_GENERATION \
+  --config /absolute/path/drivers.json
+```
+
+`cancel` stops the run after in-flight work reaches a safe boundary.
+`takeover` resumes a run whose previous Sworn process stopped. `retry` applies
+only to the exact stopped work item and epoch shown by the latest board:
+
+```sh
+sworn retry \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --command UNIQUE_COMMAND_ID \
+  --generation CURRENT_GENERATION \
+  --work SHA256_FROM_LATEST_ACTION \
+  --epoch EPOCH_FROM_LATEST_ACTION \
+  --config /absolute/path/drivers.json
+```
+
+Sworn's orchestrator handles a worker turn that ends with a question, reports a
+block, or does not return a usable handoff. It can resume the same worker with
+an answer grounded in saved facts, ask the Captain for advice, retry an
+operational failure, or park only that track for a human answer. Independent
+tracks can continue.
+
+The orchestrator is not a sixth Baton role. It cannot approve a plan, invent a
+Captain decision or Verifier verdict, or merge code. When it parks a track, the
+browser board provides an answer form. The equivalent command is:
+
+```sh
+sworn answer \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --attention ATTENTION_SHA256 \
+  --generation 1 \
+  --answer "YOUR ANSWER" \
+  --config /absolute/path/drivers.json
+```
+
+## What the run statuses mean
+
+| Status shown | Recorded state | What to do |
+| --- | --- | --- |
+| Sworn is working | `running` | No action unless Sworn asks a question. |
+| Waiting for approval | `awaiting_approval` | Approve the proposed plan through the configured approval source. |
+| Pausing safely | `pausing` | Wait for current work to reach a safe stopping point. |
+| Paused | `paused` | Resume when you want work to continue. |
+| Cancelling safely | `cancelling` | Wait for current work to stop safely. |
+| Cancelled | `cancelled` | No further delivery work will run. |
+| Stopped and needs your attention | `parked` | Answer the saved question or review the current retry action. |
+| Resume required | `takeover_required` | Use `takeover` with the latest generation and driver configuration. |
+| Needs confirmation | `uncertain` | Recover the run before repeating the last external action. |
+| Complete | `complete` | No delivery work remains. |
+
+`uncertain` means Sworn cannot confirm whether the last external action
+finished. It will not repeat that action until recovery can do so safely.
+
+## Configure one AI connection
+
+The driver file contains connection descriptions and credential references,
+not secrets. This is a complete canonical example for an OpenAI Responses
+profile; replace `YOUR_EXACT_MODEL` and choose the exact endpoint, API, and
+reasoning effort intended for the run:
+
+```json
+{"schema_version":"sworn.driver-config/v1","credentials":[{"key":"openai-env","kind":"environment","reference":"OPENAI_API_KEY"}],"adapters":[{"openai":{"key":"openai-responses","id":"sworn.openai","version":"1.0.0","endpoint":"https://api.openai.com/v1/responses","credential_header":"Authorization","credential_prefix":"Bearer ","credential_refs":["openai-env"],"response_bytes":1048576,"api":"responses","reasoning_effort":"medium"}}],"profiles":[{"key":"openai","adapter":"openai-responses","network":"required","credential_source":"openai-env","certification_models":["YOUR_EXACT_MODEL"]}]}
+```
+
+The driver file must match this compact JSON form exactly, with no trailing
+newline or whitespace. Provide `OPENAI_API_KEY` to the Sworn process through
+the host's secret manager or private service environment; do not place its
+value in the file or directly in a shell command.
+
+Credential references may select an environment variable, an owner-only file,
+or the AWS credential chain, depending on the adapter. Native Codex and Claude
+profiles additionally bind the exact CLI binary, version output, required
+runtime files, and owner-only credential file. Bedrock profiles explicitly
+choose Runtime Converse or Mantle Chat; Sworn never switches between them.
+
+Sworn does not currently include a driver-config generator. Production
+provisioning should create the canonical file and use the
+`configuration_digest` reported by `sworn driver inspect` in the run manifest.
+
+## Optional local operator settings
+
+The browser service needs no configuration for its local default. To choose a
+different loopback port, create an owner-only file such as:
+
+```json
+{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444"}}
+```
+
+```sh
+chmod 0600 /absolute/path/operator.json
+sworn serve \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --config /absolute/path/drivers.json \
+  --operator-config /absolute/path/operator.json
+```
+
+The file must be a regular, non-symlink file reached by a clean absolute path.
+Public listening is opt-in and requires an exact origin, TLS certificate,
+private key, and access token. Webhook destinations and OpenTelemetry export
+are also opt-in. Do not expose the operator service publicly until those
+settings have been provisioned and reviewed.
+
+## Current limits
+
+Sworn does not currently provide `init`, plan creation, manifest generation,
+driver-config generation, provider/model defaults, or credential hosting.
+Approval still comes from the source named in the manifest. Telemetry can
+report what happened but cannot approve, block, or advance work.
+
+Linux production execution requires root-owned `/usr/bin/bwrap` and
+unprivileged user namespaces. Live `driver certify` and production runs can
+consume provider usage; the ordinary Go test suite does not make live provider
+requests.

@@ -86,6 +86,7 @@ func NewBedrockAdapter(
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileBedrock,
 		ProfileSurfaceBedrockRuntimeConverse,
+		providerDialectBedrockConverse,
 		config, factory, transport,
 	)
 }
@@ -150,12 +151,13 @@ func newBedrockConversation(
 	if validateText(model, 500, false) != nil || validateEndpoint(config.Endpoint) != nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	tools := make([]bedrockTool, len(definitions))
-	for index, definition := range definitions {
-		tools[index].ToolSpec.Name = definition.Name
-		tools[index].ToolSpec.Description = definition.Description
-		tools[index].ToolSpec.InputSchema.JSON =
-			append([]byte(nil), definition.InputSchema...)
+	tools, err := bedrockTools(definitions)
+	if err != nil {
+		return nil, err
+	}
+	system, err := bedrockTerminalInstruction(definitions)
+	if err != nil {
+		return nil, err
 	}
 	initialMessage, err := json.Marshal(map[string]any{
 		"role": "user",
@@ -169,12 +171,58 @@ func newBedrockConversation(
 	return &bedrockConversation{
 		endpoint: strings.TrimSuffix(config.Endpoint, "/"),
 		model:    model,
-		system:   "Use only the supplied Sworn workspace tools and terminate with sworn_submit.",
+		system:   system,
 		tools:    tools, messages: []json.RawMessage{initialMessage},
 		allowCachePoint:   config.AllowCachePoint,
 		allowGuardContent: config.AllowGuardContent,
 		ledger:            newContinuationLedger(),
 	}, nil
+}
+
+func bedrockTerminalInstruction(
+	definitions []providerToolDefinition,
+) (string, error) {
+	var terminals []string
+	for _, definition := range definitions {
+		switch definition.Name {
+		case "sworn_submit", "sworn_yield",
+			"sworn_recovery_decide", "sworn_advisory_respond":
+			terminals = append(terminals, definition.Name)
+		}
+	}
+	sort.Strings(terminals)
+	valid := len(terminals) == 1 &&
+		(terminals[0] == "sworn_recovery_decide" ||
+			terminals[0] == "sworn_advisory_respond")
+	valid = valid || len(terminals) == 2 &&
+		terminals[0] == "sworn_submit" &&
+		terminals[1] == "sworn_yield"
+	if !valid {
+		return "", fail("CONTINUATION_INVALID")
+	}
+	return "Use only the supplied Sworn tools and terminate with exactly one call to " +
+		strings.Join(terminals, " or ") + ".", nil
+}
+
+func bedrockTools(
+	definitions []providerToolDefinition,
+) ([]bedrockTool, error) {
+	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	tools := make([]bedrockTool, len(definitions))
+	for index, definition := range definitions {
+		if !providerKeyPattern.MatchString(definition.Name) ||
+			len(definition.InputSchema) == 0 ||
+			len(definition.InputSchema) > MaxToolArgumentBytes {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		tools[index].ToolSpec.Name = definition.Name
+		tools[index].ToolSpec.Description = definition.Description
+		tools[index].ToolSpec.InputSchema.JSON =
+			append([]byte(nil), definition.InputSchema...)
+	}
+	return tools, nil
 }
 
 func (conversation *bedrockConversation) request() (providerRequest, error) {
@@ -199,6 +247,7 @@ func (conversation *bedrockConversation) request() (providerRequest, error) {
 		}{Tools: conversation.tools},
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
+		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
 	endpoint := conversation.endpoint + "/model/" +
@@ -228,7 +277,9 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 	if err != nil {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
-	if root["stopReason"] != "tool_use" {
+	stopReason, stopOK := root["stopReason"].(string)
+	if !stopOK ||
+		(stopReason != "tool_use" && stopReason != "end_turn") {
 		return providerTurn{}, fail("MISSING_SUBMISSION")
 	}
 	output, err := closedObject(root["output"], []string{"message"}, nil)
@@ -340,7 +391,7 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 			}
 		}
 	}
-	if len(calls) == 0 {
+	if (stopReason == "tool_use") != (len(calls) > 0) {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if len(opaque) > 0 {
@@ -365,7 +416,7 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 		append(json.RawMessage(nil), rawResponse.Output.Message...),
 	)
 	conversation.pending = append([]providerToolCall(nil), calls...)
-	turn := providerTurn{Calls: calls}
+	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usageValue, present := root["usage"]; present {
 		usage, usageErr := closedObject(
 			usageValue,
@@ -383,6 +434,26 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 		turn.Usage = &Usage{InputTokens: input, OutputTokens: outputTokens}
 	}
 	return turn, nil
+}
+
+func (conversation *bedrockConversation) appendInstruction(body []byte) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+		!validOpaqueText(body) {
+		return fail("CONTINUATION_INVALID")
+	}
+	message, err := json.Marshal(map[string]any{
+		"role": "user",
+		"content": []map[string]string{
+			{"text": string(body)},
+		},
+	})
+	if err != nil || len(message) > MaxOpaqueStepBytes {
+		clearBytes(message)
+		return fail("CONTINUATION_INVALID")
+	}
+	conversation.messages = append(conversation.messages, message)
+	return nil
 }
 
 func (conversation *bedrockConversation) appendResults(results []providerToolResult) error {
@@ -415,6 +486,130 @@ func (conversation *bedrockConversation) appendResults(results []providerToolRes
 	return nil
 }
 
+func (conversation *bedrockConversation) resume(
+	prompt []byte,
+	definitions []providerToolDefinition,
+) error {
+	if conversation == nil || len(conversation.pending) != 0 ||
+		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
+		len(conversation.messages) < 3 {
+		return fail("CONTINUATION_INVALID")
+	}
+	last := conversation.messages[len(conversation.messages)-1]
+	value, err := decodeStrict(last, MaxOpaqueStepBytes)
+	if err != nil {
+		return fail("CONTINUATION_INVALID")
+	}
+	message, err := closedObject(
+		value,
+		[]string{"role", "content"},
+		nil,
+	)
+	content, ok := message["content"].([]any)
+	if err != nil || message["role"] != "user" ||
+		!ok || len(content) == 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	toolUseIDs, err := bedrockToolUseIDs(
+		conversation.messages[len(conversation.messages)-2],
+	)
+	if err != nil || len(toolUseIDs) != len(content) {
+		return fail("CONTINUATION_INVALID")
+	}
+	for index, rawBlock := range content {
+		block, blockOK := rawBlock.(map[string]any)
+		if !blockOK || len(block) != 1 {
+			return fail("CONTINUATION_INVALID")
+		}
+		toolResult, present := block["toolResult"]
+		result, resultErr := closedObject(
+			toolResult,
+			[]string{"toolUseId", "content", "status"},
+			nil,
+		)
+		id, idOK := result["toolUseId"].(string)
+		status, statusOK := result["status"].(string)
+		resultContent, contentOK := result["content"].([]any)
+		if !present || resultErr != nil || !idOK ||
+			validateText(id, MaxCorrelationIDBytes, false) != nil ||
+			id != toolUseIDs[index] ||
+			!statusOK || (status != "success" && status != "error") ||
+			!contentOK || len(resultContent) != 1 {
+			return fail("CONTINUATION_INVALID")
+		}
+		textBlock, textErr := closedObject(
+			resultContent[0],
+			[]string{"text"},
+			nil,
+		)
+		text, textOK := textBlock["text"].(string)
+		if textErr != nil || !textOK ||
+			!validOpaqueText([]byte(text)) {
+			return fail("CONTINUATION_INVALID")
+		}
+	}
+	content = append(content, map[string]string{"text": string(prompt)})
+	resumed, err := json.Marshal(map[string]any{
+		"role": "user", "content": content,
+	})
+	if err != nil || len(resumed) > MaxOpaqueStepBytes {
+		clearBytes(resumed)
+		return fail("CONTINUATION_INVALID")
+	}
+	tools, err := bedrockTools(definitions)
+	if err != nil {
+		clearBytes(resumed)
+		return err
+	}
+	clearBytes(last)
+	clearBedrockTools(conversation.tools)
+	conversation.messages[len(conversation.messages)-1] = resumed
+	conversation.tools = tools
+	return nil
+}
+
+func bedrockToolUseIDs(messageBody json.RawMessage) ([]string, error) {
+	value, err := decodeStrict(messageBody, MaxOpaqueStepBytes)
+	if err != nil {
+		return nil, err
+	}
+	message, err := closedObject(
+		value,
+		[]string{"role", "content"},
+		nil,
+	)
+	content, ok := message["content"].([]any)
+	if err != nil || message["role"] != "assistant" || !ok {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	var ids []string
+	for _, rawBlock := range content {
+		block, blockOK := rawBlock.(map[string]any)
+		if !blockOK || len(block) != 1 {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		toolUseValue, present := block["toolUse"]
+		if !present {
+			continue
+		}
+		toolUse, toolUseErr := closedObject(
+			toolUseValue,
+			[]string{"toolUseId", "name", "input"},
+			nil,
+		)
+		id, idOK := toolUse["toolUseId"].(string)
+		if toolUseErr != nil || !idOK ||
+			validateText(id, MaxCorrelationIDBytes, false) != nil {
+			return nil, fail("CONTINUATION_INVALID")
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	return ids, nil
+}
+
 func (conversation *bedrockConversation) close() {
 	if conversation == nil {
 		return
@@ -424,9 +619,18 @@ func (conversation *bedrockConversation) close() {
 	for _, message := range conversation.messages {
 		clearBytes(message)
 	}
+	clearBedrockTools(conversation.tools)
+	conversation.endpoint = ""
+	conversation.model = ""
 	conversation.messages = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func clearBedrockTools(tools []bedrockTool) {
+	for index := range tools {
+		clearBytes(tools[index].ToolSpec.InputSchema.JSON)
+	}
 }
 
 func (transport *bedrockTransport) roundTrip(

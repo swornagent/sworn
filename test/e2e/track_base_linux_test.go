@@ -243,7 +243,7 @@ func prepareConsumedBaseRun(
 		"--journal",
 		journalPath,
 	)
-	if !strings.Contains(stdout, "state awaiting_approval") {
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("planner output = %q", stdout)
 	}
 	approvals.publish(issue, approvalFor(issue, marker, plan))
@@ -350,7 +350,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"--generation",
 				"1",
 			)
-			if !strings.Contains(stdout, "state complete") {
+			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("takeover output = %q", stdout)
 			}
 			assertConsumedBaseRun(
@@ -432,7 +432,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"--journal",
 				journalPath,
 			)
-			if !strings.Contains(stdout, "state awaiting_approval") {
+			if !strings.Contains(stdout, "  state: awaiting_approval") {
 				t.Fatalf("planner output = %q", stdout)
 			}
 			approvals.publish(
@@ -511,7 +511,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"--generation",
 				"1",
 			)
-			if !strings.Contains(stdout, "state awaiting_approval") {
+			if !strings.Contains(stdout, "  state: awaiting_approval") {
 				t.Fatalf("target-stale takeover = %q", stdout)
 			}
 			staleState := readBatonState(t, repository, release)
@@ -547,7 +547,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"--generation",
 				"2",
 			)
-			if !strings.Contains(stdout, "state complete") {
+			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("revised prepared-base completion = %q", stdout)
 			}
 			after := readBatonState(t, repository, release)

@@ -30,11 +30,9 @@ const {
   configureEngineGitExecutable,
   productTreeIdentity,
   readFirstParentHistory,
-  resolveProductExclusionAdmission,
-  resolveRecordPathAdmission,
 } = await import(path.join(referenceRoot, 'git.mjs'));
 
-const git = process.argv[3];
+const git = '/usr/bin/git';
 configureEngineGitExecutable(git);
 
 const output = path.resolve(process.argv[2] ?? path.join(here, 'testdata/corpus'));
@@ -159,10 +157,6 @@ function slice(id, include, dependsOn = [], consumes = []) {
   };
 }
 
-function inert(request) {
-  return { ...request, decision: 'inert' };
-}
-
 function projectReceipt(receipt) {
   return JSON.parse(canonicalJSON(receipt));
 }
@@ -262,10 +256,7 @@ function executeFlow(objectFormat) {
       },
     ];
     const plan = planBytes(release, tracks);
-    const actions = createBatonActions({
-      repo,
-      resolveBehavioralInertness: inert,
-    });
+    const actions = createBatonActions({ repo });
     const results = [];
     const states = [];
     results.push(projectResult(actions.recordPlanRevision({
@@ -273,12 +264,7 @@ function executeFlow(objectFormat) {
       summary: 'Approve the exact golden plan.',
       detail: Buffer.from('protected approval'),
     })));
-    states.push({ label: 'approved', state: projectState(readBatonState(repo, release, {
-      productExclusionAdmission: resolveProductExclusionAdmission(repo, {
-        recordPathAdmission: resolveRecordPathAdmission(repo),
-        resolveBehavioralInertness: inert,
-      }),
-    })) });
+    states.push({ label: 'approved', state: projectState(readBatonState(repo, release)) });
 
     for (const [track, sliceID, file, timestamp] of [
       ['T1', 'S1', 'one.txt', 1000000100],
@@ -323,12 +309,7 @@ function executeFlow(objectFormat) {
         candidate,
         checkResults: Buffer.from(`fresh checks ${sliceID}\n`),
       })));
-      states.push({ label: `passed-${sliceID}`, state: projectState(readBatonState(repo, release, {
-        productExclusionAdmission: resolveProductExclusionAdmission(repo, {
-          recordPathAdmission: resolveRecordPathAdmission(repo),
-          resolveBehavioralInertness: inert,
-        }),
-      })) });
+      states.push({ label: `passed-${sliceID}`, state: projectState(readBatonState(repo, release)) });
     }
 
     results.push(projectResult(actions.prepareAssembly({
@@ -336,12 +317,7 @@ function executeFlow(objectFormat) {
       summary: 'Prepare exact assembly.',
       detail: Buffer.from('ordered composition'),
     })));
-    let state = readBatonState(repo, release, {
-      productExclusionAdmission: resolveProductExclusionAdmission(repo, {
-        recordPathAdmission: resolveRecordPathAdmission(repo),
-        resolveBehavioralInertness: inert,
-      }),
-    });
+    let state = readBatonState(repo, release);
     states.push({ label: 'assembly-candidate', state: projectState(state) });
     const assemblyCandidate = state.assembly.candidate.receipt.candidate;
     results.push(projectResult(actions.appendReceipt({
@@ -353,33 +329,18 @@ function executeFlow(objectFormat) {
       candidate: assemblyCandidate,
       checkResults: Buffer.from('assembly checks\n'),
     })));
-    states.push({ label: 'assembly-pass', state: projectState(readBatonState(repo, release, {
-      productExclusionAdmission: resolveProductExclusionAdmission(repo, {
-        recordPathAdmission: resolveRecordPathAdmission(repo),
-        resolveBehavioralInertness: inert,
-      }),
-    })) });
+    states.push({ label: 'assembly-pass', state: projectState(readBatonState(repo, release)) });
     results.push(projectResult(actions.mergePassedCandidate({
       release,
       summary: 'Merge exact passed assembly.',
       detail: Buffer.from('deterministic merge'),
     })));
-    state = readBatonState(repo, release, {
-      productExclusionAdmission: resolveProductExclusionAdmission(repo, {
-        recordPathAdmission: resolveRecordPathAdmission(repo),
-        resolveBehavioralInertness: inert,
-      }),
-    });
+    state = readBatonState(repo, release);
     states.push({ label: 'merged', state: projectState(state) });
 
-    const recordAdmission = resolveRecordPathAdmission(repo);
-    const productAdmission = resolveProductExclusionAdmission(repo, {
-      recordPathAdmission: recordAdmission,
-      resolveBehavioralInertness: inert,
-    });
     const target = runGit(repo, ['rev-parse', '--verify', 'refs/heads/main']);
     const releaseHead = runGit(repo, ['rev-parse', '--verify', `refs/heads/release-wt/${release}`]);
-    const product = productTreeIdentity(repo, target, productAdmission);
+    const product = productTreeIdentity(repo, target);
     const history = readFirstParentHistory(repo, releaseHead).slice(0, 8).map((row) => ({
       oid: row.oid,
       parents: row.parents,
@@ -491,7 +452,7 @@ const references = ['actions.mjs', 'git.mjs', 'receipts.mjs', 'state.mjs'].map((
 });
 writeJSON('manifest.json', {
   schema: 'sworn.batongolden/v2',
-  baton: '1.0.0-rc.9',
+  baton: '1.0.0-rc.12',
   generator: 'exact embedded Baton JavaScript reference',
   oracle_sha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
   references,

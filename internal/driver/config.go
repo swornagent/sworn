@@ -522,8 +522,11 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 	}
 	if config.OpenAI != nil {
 		surface := ProfileSurfaceOpenAIChat
-		if config.OpenAI.API == OpenAIResponsesAPI {
+		switch config.OpenAI.API {
+		case OpenAIResponsesAPI:
 			surface = ProfileSurfaceOpenAIResponses
+		case OpenRouterChatCompletionsAPI:
+			surface = ProfileSurfaceOpenRouterChat
 		}
 		descriptors = append(descriptors, driverAdapterDescriptor{
 			kind: driverAdapterOpenAI, key: config.OpenAI.Key,

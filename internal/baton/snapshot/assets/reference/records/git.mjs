@@ -45,7 +45,6 @@ const MAX_REF_HELPER_OUTPUT_BYTES = 512 * 1024;
 const REF_HELPER_TIMEOUT_MS = 10_000;
 const REF_HELPER_MARKER = '--baton-exact-ref-helper-v1';
 const recordPathAdmissions = new WeakMap();
-const productExclusionAdmissions = new WeakMap();
 let configuredGitExecutable;
 
 function defaultGitCandidates() {
@@ -569,7 +568,9 @@ export function unsafeAtomicUpdateRefs(repo, operations) {
     label: 'resolve ref transaction object format',
   }).trim();
   const prepared = validateRefTransactionOperations(operations, objectFormat);
-  const hooksDirectory = mkdtempSync(path.join(tmpdir(), 'baton-ref-hooks-'));
+  const hooksDirectory = realpathSync(
+    mkdtempSync(path.join(tmpdir(), 'baton-ref-hooks-')),
+  );
   const request = Buffer.from(JSON.stringify({
     gitExecutable: gitExecutablePath(),
     hooksDirectory,
@@ -1214,18 +1215,11 @@ export function resolveCapturedRecordPathAdmission(repo) {
 }
 
 function recordPathAdmissionData(admission) {
-  const direct = (
+  return (
     admission !== null
     && typeof admission === 'object'
     && recordPathAdmissions.get(admission)
   );
-  if (direct) return direct;
-  const product = (
-    admission !== null
-    && typeof admission === 'object'
-    && productExclusionAdmissions.get(admission)
-  );
-  return product?.recordPath ?? null;
 }
 
 function requireRecordPathAdmission(repo, admission) {
@@ -1241,108 +1235,6 @@ function requireRecordPathAdmission(repo, admission) {
     throw new GitRecordError(
       'RECORD_ROOT_ADMISSION_MISMATCH',
       'the record-path admission belongs to a different repository',
-    );
-  }
-  return admitted.root;
-}
-
-/**
- * Bind product-tree exclusion to one trusted host policy resolver. The
- * resolver is evaluated independently for each exact immutable commit OID.
- */
-export function resolveProductExclusionAdmission(
-  repo,
-  {
-    recordPathAdmission,
-    resolveBehavioralInertness,
-  } = {},
-) {
-  const root = requireRecordPathAdmission(repo, recordPathAdmission);
-  if (typeof resolveBehavioralInertness !== 'function') {
-    throw new GitRecordError(
-      'RECORD_ROOT_POLICY_REQUIRED',
-      'product-tree exclusion requires a trusted behavioral-inertness resolver',
-    );
-  }
-  const repository = realpathSync(repositoryRoot(repo));
-  const admission = Object.freeze(Object.create(null));
-  productExclusionAdmissions.set(admission, {
-    repository,
-    root,
-    recordPath: recordPathAdmissionData(recordPathAdmission),
-    resolveBehavioralInertness,
-    decisions: new Map(),
-  });
-  return admission;
-}
-
-function requireProductExclusionAdmission(repo, admission, commit) {
-  const admitted = (
-    admission !== null
-    && typeof admission === 'object'
-    && productExclusionAdmissions.get(admission)
-  );
-  if (!admitted) {
-    throw new GitRecordError(
-      'PRODUCT_EXCLUSION_ADMISSION_REQUIRED',
-      'product-tree exclusion requires a policy-bound admission',
-    );
-  }
-  const repository = realpathSync(repositoryRoot(repo));
-  if (repository !== admitted.repository) {
-    throw new GitRecordError(
-      'RECORD_ROOT_ADMISSION_MISMATCH',
-      'the product-exclusion admission belongs to a different repository',
-    );
-  }
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) {
-    throw new GitRecordError(
-      'INVALID_REF_OID',
-      'product exclusion requires one exact commit OID',
-    );
-  }
-  let decision = admitted.decisions.get(commit);
-  if (!decision) {
-    const request = Object.freeze({
-      kind: 'baton.record-root-inertness/v1',
-      repository,
-      record_root: admitted.root,
-      commit,
-    });
-    try {
-      decision = admitted.resolveBehavioralInertness(request);
-    } catch (error) {
-      throw new GitRecordError(
-        'RECORD_ROOT_POLICY_UNAVAILABLE',
-        `behavioral-inertness policy failed for ${commit}`,
-        error,
-      );
-    }
-    const expectedKeys = ['commit', 'decision', 'kind', 'record_root', 'repository'];
-    if (
-      !decision
-      || typeof decision !== 'object'
-      || Array.isArray(decision)
-      || typeof decision.then === 'function'
-      || JSON.stringify(Object.keys(decision).sort()) !== JSON.stringify(expectedKeys)
-      || decision.kind !== request.kind
-      || decision.repository !== repository
-      || decision.record_root !== admitted.root
-      || decision.commit !== commit
-      || !['inert', 'consumed'].includes(decision.decision)
-    ) {
-      throw new GitRecordError(
-        'UNTRUSTED_RECORD_ROOT_POLICY',
-        `behavioral-inertness policy did not bind ${commit} exactly`,
-      );
-    }
-    decision = Object.freeze({ ...decision });
-    admitted.decisions.set(commit, decision);
-  }
-  if (decision.decision !== 'inert') {
-    throw new GitRecordError(
-      'RECORD_ROOT_CONSUMED',
-      `record root ${admitted.root} affects product behavior at ${commit}`,
     );
   }
   return admitted.root;
@@ -1453,9 +1345,9 @@ export function readRecordTreeAtOID(repo, refOID, admission, subtree) {
   return Object.freeze(entries);
 }
 
-export function productTreeIdentity(repo, commit, admission) {
+export function productTreeIdentity(repo, commit) {
   const candidate = resolveRef(repo, commit);
-  const root = requireProductExclusionAdmission(repo, admission, candidate);
+  const root = RECORD_ROOT_V1;
   assertRecordRootAtRef(repo, candidate, root, { allowMissing: true });
   const candidateTree = runGit(repo, ['rev-parse', `${candidate}^{tree}`], {
     label: `resolve candidate tree ${candidate}`,
@@ -1494,6 +1386,40 @@ export function productTreeIdentity(repo, commit, admission) {
     productTree: `sha256:${hash.digest('hex')}`,
     entries: productEntries,
   };
+}
+
+export function assertCandidateRecordRootUnchanged(repo, base, candidate) {
+  const exactBase = resolveRef(repo, base);
+  const exactCandidate = resolveRef(repo, candidate);
+  const root = RECORD_ROOT_V1;
+  assertRecordRootAtRef(repo, exactBase, root, { allowMissing: true });
+  assertRecordRootAtRef(repo, exactCandidate, root, { allowMissing: true });
+  const raw = runGit(repo, [
+    'diff-tree',
+    '--no-commit-id',
+    '--raw',
+    '-z',
+    exactBase,
+    exactCandidate,
+    '--',
+    root,
+  ], {
+    encoding: null,
+    label: `compare reserved record root between ${exactBase} and ${exactCandidate}`,
+  });
+  if (raw.length > MAX_RECORD_TREE_BYTES) {
+    throw new GitRecordError(
+      'RECORD_TREE_INVENTORY_LIMIT',
+      `record-root comparison exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
+    );
+  }
+  if (raw.length !== 0) {
+    throw new GitRecordError(
+      'RESERVED_RECORD_ROOT_CHANGED',
+      `candidate ${exactCandidate} changes reserved record root ${root} from base ${exactBase}`,
+    );
+  }
+  return Object.freeze({ base: exactBase, candidate: exactCandidate, root });
 }
 
 export function assertCandidate(repo, base, candidate) {
@@ -1708,9 +1634,14 @@ function treePaths(context, commit) {
 function mergeAttributesAtSource(context, source, paths) {
   if (paths.length === 0) return [];
   const input = Buffer.concat(paths.flatMap((entry) => [entry, Buffer.from([0])]));
+  runEngineGit(
+    context,
+    ['read-tree', source],
+    { label: `seed exact merge attributes at ${source}` },
+  );
   const raw = runEngineGit(
     context,
-    ['check-attr', '-z', '--stdin', `--source=${source}`, 'merge'],
+    ['check-attr', '-z', '--stdin', '--cached', 'merge'],
     {
       encoding: null,
       input,
@@ -1940,6 +1871,31 @@ function sameRecordRootEntry(context, expected, candidate, recordRoot) {
   return raw.length === 0;
 }
 
+function exactBaseMergeSide(context, source, productBase, side) {
+  const tree = runEngineGit(
+    context,
+    ['rev-parse', '--verify', `${source}^{tree}`],
+    { label: `resolve exact-base ${side} tree` },
+  ).trim();
+  const date = `@${commitTimestamp(context.cwd, productBase) + 1} +0000`;
+  return runEngineGit(
+    context,
+    ['commit-tree', tree, '-p', productBase],
+    {
+      input: `Baton exact-base ${side} for ${source}\n`,
+      env: {
+        GIT_AUTHOR_NAME: 'Baton Merge',
+        GIT_AUTHOR_EMAIL: 'merge@baton.invalid',
+        GIT_AUTHOR_DATE: date,
+        GIT_COMMITTER_NAME: 'Baton Merge',
+        GIT_COMMITTER_EMAIL: 'merge@baton.invalid',
+        GIT_COMMITTER_DATE: date,
+      },
+      label: `create exact-base ${side}`,
+    },
+  ).trim();
+}
+
 function deterministicMergeTreeInContext(
   context,
   expected,
@@ -1954,9 +1910,6 @@ function deterministicMergeTreeInContext(
     { label: `seed engine-owned merge index at ${expected}` },
   );
   installBuiltInMergeAttributes(context, expected, candidate, productBase);
-  const baseArguments = productBase === null
-    ? []
-    : ['--merge-base', productBase];
   const recordRootsMatch = recordRoot !== null
     && sameRecordRootEntry(context, expected, candidate, recordRoot);
   const mergeCandidate = recordRoot === null || recordRootsMatch
@@ -1968,15 +1921,20 @@ function deterministicMergeTreeInContext(
       recordRoot,
       label,
     );
+  const mergeExpected = productBase === null
+    ? expected
+    : exactBaseMergeSide(context, expected, productBase, 'expected');
+  const mergePassed = productBase === null
+    ? mergeCandidate
+    : exactBaseMergeSide(context, mergeCandidate, productBase, 'candidate');
   const mergedTree = runEngineMergeTree(
     context,
     [
       'merge-tree',
       '--write-tree',
       '--no-messages',
-      ...baseArguments,
-      expected,
-      mergeCandidate,
+      mergeExpected,
+      mergePassed,
     ],
     `compute deterministic ${label} tree`,
   ).trim();
@@ -2348,18 +2306,13 @@ export function unsafePrepareExactComposition(repo, {
   targetRef,
   expectedHead,
   candidate,
-  productExclusionAdmission,
 }) {
   validateCompositionTargetRef(repo, targetRef);
   const expected = resolveRef(repo, expectedHead);
   const passed = resolveRef(repo, candidate);
-  productTreeIdentity(repo, expected, productExclusionAdmission);
-  productTreeIdentity(repo, passed, productExclusionAdmission);
-  const recordRoot = requireProductExclusionAdmission(
-    repo,
-    productExclusionAdmission,
-    expected,
-  );
+  productTreeIdentity(repo, expected);
+  productTreeIdentity(repo, passed);
+  const recordRoot = RECORD_ROOT_V1;
   let mode;
   let result;
   if (isAncestor(repo, expected, passed)) {
@@ -2383,7 +2336,7 @@ export function unsafePrepareExactComposition(repo, {
     verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
     result = prepared.result;
   }
-  productTreeIdentity(repo, result, productExclusionAdmission);
+  productTreeIdentity(repo, result);
   return Object.freeze({
     mode,
     expected,
@@ -2404,7 +2357,6 @@ export function unsafePrepareProductComposition(repo, {
   expectedHead,
   candidate,
   productBase,
-  productExclusionAdmission,
 }) {
   if (typeof productBase !== 'function') {
     throw new GitRecordError(
@@ -2417,7 +2369,6 @@ export function unsafePrepareProductComposition(repo, {
       targetRef,
       expectedHead,
       candidate,
-      productExclusionAdmission,
     });
     return prepared;
   } catch (error) {
@@ -2429,20 +2380,16 @@ export function unsafePrepareProductComposition(repo, {
   validateCompositionTargetRef(repo, targetRef);
   const expected = resolveRef(repo, expectedHead);
   const passed = resolveRef(repo, candidate);
-  productTreeIdentity(repo, expected, productExclusionAdmission);
-  productTreeIdentity(repo, passed, productExclusionAdmission);
+  productTreeIdentity(repo, expected);
+  productTreeIdentity(repo, passed);
   const suppliedBase = assertObjectIdForFormat(
     productBase(),
     'product base',
     expected.length === 64 ? 'sha256' : 'sha1',
   );
   const base = resolveRef(repo, suppliedBase);
-  productTreeIdentity(repo, base, productExclusionAdmission);
-  const recordRoot = requireProductExclusionAdmission(
-    repo,
-    productExclusionAdmission,
-    expected,
-  );
+  productTreeIdentity(repo, base);
+  const recordRoot = RECORD_ROOT_V1;
   const prepared = prepareTwoParentComposition(
     repo,
     targetRef,
@@ -2453,7 +2400,7 @@ export function unsafePrepareProductComposition(repo, {
   );
   verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
   const { result } = prepared;
-  productTreeIdentity(repo, result, productExclusionAdmission);
+  productTreeIdentity(repo, result);
   return Object.freeze({
     mode: 'two-parent',
     expected,
@@ -2469,7 +2416,6 @@ export function unsafePrepareApprovedTargetBase(repo, {
   targetRef,
   expectedHead,
   approvedTarget,
-  productExclusionAdmission,
 }) {
   const expected = resolveRef(repo, expectedHead);
   const target = resolveRef(repo, approvedTarget);
@@ -2480,17 +2426,12 @@ export function unsafePrepareApprovedTargetBase(repo, {
         targetRef,
         expectedHead: expected,
         candidate: target,
-        productExclusionAdmission,
       }).result;
     }
     validateCompositionTargetRef(repo, targetRef);
-    productTreeIdentity(repo, expected, productExclusionAdmission);
-    productTreeIdentity(repo, target, productExclusionAdmission);
-    const recordRoot = requireProductExclusionAdmission(
-      repo,
-      productExclusionAdmission,
-      expected,
-    );
+    productTreeIdentity(repo, expected);
+    productTreeIdentity(repo, target);
+    const recordRoot = RECORD_ROOT_V1;
     const prepared = prepareTwoParentComposition(
       repo,
       targetRef,
@@ -2501,14 +2442,13 @@ export function unsafePrepareApprovedTargetBase(repo, {
     );
     verifyPreparedComposition(repo, expected, target, prepared, 'composition');
     const { result } = prepared;
-    productTreeIdentity(repo, result, productExclusionAdmission);
+    productTreeIdentity(repo, result);
     return result;
   }
   return unsafePrepareExactComposition(repo, {
     targetRef,
     expectedHead: expected,
     candidate: target,
-    productExclusionAdmission,
   }).result;
 }
 
@@ -2645,12 +2585,11 @@ export function unsafePrepareRecordTransition(repo, {
   expectedHead,
   message,
   recordPathAdmission,
-  productExclusionAdmission,
   changes,
 }) {
   const root = requireRecordPathAdmission(repo, recordPathAdmission);
   const expected = resolveRef(repo, expectedHead);
-  const expectedProduct = productTreeIdentity(repo, expected, productExclusionAdmission);
+  const expectedProduct = productTreeIdentity(repo, expected);
   assertRecordRootAtRef(repo, expected, root, { allowMissing: true });
   if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
     throw new GitRecordError('EMPTY_RECORD_TRANSITION', 'a record transition requires at least one path change');
@@ -2758,7 +2697,7 @@ export function unsafePrepareRecordTransition(repo, {
       },
       label: 'create record transition commit',
     }).trim();
-    const nextProduct = productTreeIdentity(repo, commit, productExclusionAdmission);
+    const nextProduct = productTreeIdentity(repo, commit);
     if (nextProduct.productTree !== expectedProduct.productTree) {
       throw new GitRecordError(
         'PRODUCT_CHANGED_DURING_RECORD_TRANSITION',
@@ -2780,7 +2719,6 @@ export function unsafeCommitRecordTransition(repo, {
   expectedHead,
   message,
   recordPathAdmission,
-  productExclusionAdmission,
   changes,
   createRef,
 }) {
@@ -2819,7 +2757,6 @@ export function unsafeCommitRecordTransition(repo, {
     expectedHead: expected,
     message,
     recordPathAdmission,
-    productExclusionAdmission,
     changes,
   });
   const operations = [{

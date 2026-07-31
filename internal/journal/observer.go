@@ -12,7 +12,9 @@ import (
 )
 
 const (
-	EvalSchemaVersion    = "sworn.eval/v1"
+	EvalSchemaVersionV1  = "sworn.eval/v1"
+	EvalSchemaVersionV2  = "sworn.eval/v2"
+	EvalSchemaVersion    = EvalSchemaVersionV2
 	MaxObserverItems     = 256
 	MaxObserverBodyBytes = 64 * 1024
 )
@@ -71,6 +73,25 @@ type observerBatchNotification struct {
 	SourceEventOffset int64  `json:"source_event_offset"`
 	MessageID         string `json:"message_id"`
 	BodyDigest        string `json:"body_digest"`
+}
+
+func evalSchemaVersion(body []byte) (string, error) {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return "", fail("INVALID_EVAL_RECORD", nil)
+	}
+	switch envelope.SchemaVersion {
+	case EvalSchemaVersionV1, EvalSchemaVersionV2:
+		return envelope.SchemaVersion, nil
+	default:
+		return "", fail("INVALID_EVAL_RECORD", nil)
+	}
+}
+
+func supportedEvalSchemaVersion(value string) bool {
+	return value == EvalSchemaVersionV1 || value == EvalSchemaVersionV2
 }
 
 func observerBatchDigest(value ObserverAdvance) string {
@@ -253,6 +274,7 @@ func verifyObserverReplay(
 	for _, expected := range value.Eval {
 		var recordID, schemaVersion, bodyDigest string
 		var body []byte
+		expectedSchemaVersion, schemaErr := evalSchemaVersion(expected.Body)
 		err := conn.QueryRowContext(
 			ctx,
 			`SELECT record_id, schema_version, body_digest, body
@@ -262,8 +284,8 @@ func verifyObserverReplay(
 			value.Observer,
 			expected.SourceEventOffset,
 		).Scan(&recordID, &schemaVersion, &bodyDigest, &body)
-		if err != nil || recordID != expected.ID ||
-			schemaVersion != EvalSchemaVersion ||
+		if err != nil || schemaErr != nil || recordID != expected.ID ||
+			schemaVersion != expectedSchemaVersion ||
 			bodyDigest != digest(expected.Body) ||
 			!bytes.Equal(body, expected.Body) {
 			return fail("REPLAY_CONFLICT", nil)
@@ -334,6 +356,10 @@ func (s *Store) AdvanceObserver(ctx context.Context, value ObserverAdvance) erro
 			}
 		}
 		for _, record := range value.Eval {
+			schemaVersion, err := evalSchemaVersion(record.Body)
+			if err != nil {
+				return err
+			}
 			if _, err := conn.ExecContext(
 				ctx,
 				`INSERT INTO eval_records(
@@ -344,7 +370,7 @@ func (s *Store) AdvanceObserver(ctx context.Context, value ObserverAdvance) erro
 				value.Observer,
 				record.SourceEventOffset,
 				record.ID,
-				EvalSchemaVersion,
+				schemaVersion,
 				digest(record.Body),
 				append([]byte(nil), record.Body...),
 				at,
@@ -490,7 +516,10 @@ func (s *Store) EvalRecords(
 				return dbError(err)
 			}
 			item.CreatedAt, err = parseTime(createdAt)
-			if err != nil || item.SchemaVersion != EvalSchemaVersion ||
+			bodySchemaVersion, schemaErr := evalSchemaVersion(item.Body)
+			if err != nil || schemaErr != nil ||
+				!supportedEvalSchemaVersion(item.SchemaVersion) ||
+				item.SchemaVersion != bodySchemaVersion ||
 				item.BodyDigest != digest(item.Body) {
 				return fail("CORRUPT_JOURNAL", nil)
 			}

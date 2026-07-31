@@ -269,6 +269,52 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 		observedAt,
 		outcome,
 	)
+	for _, count := range record.Continuation.Counts {
+		r.metrics.record(
+			"sworn.eval.continuations",
+			count.Count,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.continuation.mode",
+					count.Mode,
+				),
+				stringTelemetryAttribute(
+					"sworn.continuation.outcome",
+					count.Outcome,
+				),
+			},
+		)
+	}
+	for _, continuationOutcome := range []struct {
+		outcome string
+		value   int64
+	}{
+		{
+			outcome: continuationOutcomeReuse,
+			value:   record.Continuation.Reused,
+		},
+		{
+			outcome: continuationOutcomeFallback,
+			value:   record.Continuation.Fallback,
+		},
+		{
+			outcome: continuationOutcomeFallbackExpired,
+			value:   record.Continuation.Expired,
+		},
+	} {
+		r.metrics.record(
+			"sworn.eval.continuation.outcomes",
+			continuationOutcome.value,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.continuation.outcome",
+					continuationOutcome.outcome,
+				),
+			},
+		)
+	}
 	for _, recovery := range []struct {
 		category string
 		value    int64
@@ -288,6 +334,45 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 					recovery.category,
 				),
 				stringTelemetryAttribute("sworn.outcome", record.Outcome),
+			},
+		)
+	}
+	for _, count := range record.TurnRecovery.Actions {
+		r.metrics.record(
+			"sworn.eval.turn_recovery.actions",
+			count.Count,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.turn_recovery.action",
+					count.Action,
+				),
+			},
+		)
+	}
+	for _, outcome := range []struct {
+		name  string
+		value int64
+	}{
+		{name: "recovered", value: record.TurnRecovery.Recovered},
+		{
+			name:  "human_escalation",
+			value: record.TurnRecovery.HumanEscalations,
+		},
+		{
+			name:  "false_acceptance",
+			value: record.TurnRecovery.FalseAcceptances,
+		},
+	} {
+		r.metrics.record(
+			"sworn.eval.turn_recovery.outcomes",
+			outcome.value,
+			observedAt,
+			[]telemetryAttribute{
+				stringTelemetryAttribute(
+					"sworn.turn_recovery.outcome",
+					outcome.name,
+				),
 			},
 		)
 	}

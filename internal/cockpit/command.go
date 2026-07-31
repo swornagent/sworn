@@ -16,6 +16,10 @@ type CommandRuntime interface {
 		context.Context,
 		runtimepkg.ControlCommand,
 	) (runtimepkg.RunStatus, error)
+	AnswerAttention(
+		context.Context,
+		runtimepkg.AnswerAttentionCommand,
+	) (runtimepkg.RunStatus, error)
 }
 
 type NotificationRedeliverer interface {
@@ -68,6 +72,13 @@ type RedeliveryCommand struct {
 	RunID         string `json:"run_id"`
 	DestinationID string `json:"destination_id"`
 	MessageID     string `json:"message_id"`
+}
+
+type AnswerAttentionCommand struct {
+	RunID              string `json:"run_id"`
+	AttentionID        string `json:"attention_id"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	Answer             string `json:"answer"`
 }
 
 type CommandFacade struct {
@@ -176,4 +187,28 @@ func (f *CommandFacade) Redeliver(
 		return fail("COMMAND_REJECTED")
 	}
 	return nil
+}
+
+func (f *CommandFacade) AnswerAttention(
+	ctx context.Context,
+	command AnswerAttentionCommand,
+) (runtimepkg.RunStatus, error) {
+	if f == nil || ctx == nil || command.RunID == "" ||
+		command.AttentionID == "" ||
+		command.ExpectedGeneration != 1 || command.Answer == "" {
+		return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
+	}
+	status, err := f.runtime.AnswerAttention(
+		ctx,
+		runtimepkg.AnswerAttentionCommand{
+			RunID:              command.RunID,
+			AttentionID:        command.AttentionID,
+			ExpectedGeneration: command.ExpectedGeneration,
+			Answer:             command.Answer,
+		},
+	)
+	if err != nil {
+		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
+	}
+	return status, nil
 }

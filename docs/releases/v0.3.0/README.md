@@ -1,70 +1,136 @@
-# Sworn v0.3 technical-readiness evidence
+# Sworn 1.0.0-rc.1 release-candidate overview
 
-Sworn `1.0.0-rc.1` is the public release-candidate label for the v0.3 product
-line. It embeds Baton `1.0.0-rc.9` and proves technical readiness only; it does
-not authorize a tag, target merge, hosted deployment, or publication.
+Sworn `1.0.0-rc.1` carries Baton handoffs through planning, design review,
+implementation, fresh verification, and a checked Git merge. It includes Baton
+`1.0.0-rc.12`.
 
-## Bound protocol and conformance input
+Current status: ready for technical evaluation, but not yet approved for a tag,
+merge to `main`, hosted deployment, or publication.
 
-- Baton tag: `v1.0.0-rc.9`
-- tag object: `3fa8fcdcddc1f88479a29f103a373acf60818beb`
-- peeled commit: `04e828d946f710b46bc7ed9fb7a08d593987272a`
-- tree: `83a7a0fdfdc427aaad8feceb82a70197007c7758`
+## What can be evaluated
+
+- A complete run can be started, paused, resumed, cancelled, taken over, and
+  recovered from one private journal.
+- Independent tracks can proceed together while each track keeps a single,
+  ordered writer.
+- The terminal, JSON API, and local browser board show the same saved run
+  facts.
+- Codex CLI, Claude Code CLI, OpenAI Responses, OpenAI-compatible Chat
+  Completions, DeepSeek, Gemini, Bedrock Runtime Converse, and Bedrock Mantle
+  Chat are available as explicit connection choices.
+- Connection configuration can be inspected, checked locally, or certified
+  with an explicitly authorized live provider call.
+- All 12 autonomous-engine cases supplied by Baton RC12 run against the built
+  Sworn product.
+
+The [run guide](../../run.md) explains the current operator journey and its
+deliberate limits.
+
+## What an operator still supplies
+
+Sworn does not create the delivery plan, manifest, AI connection
+configuration, credentials, or approval. Those inputs are provisioned outside
+the product and bound to the run. Sworn does not choose a provider or model,
+switch API types, or fall back to another connection.
+
+## Bound Baton identity
+
+- Baton tag: `v1.0.0-rc.12`
+- tag object: `caac9f0ab32a596600874f911c7f2a5cd24b6552`
+- peeled commit: `5bc374451d0e31d74948ea63010f87d017a3abd5`
+- tree: `27297a37e7efd0154c487abfc5bae98fe711a8df`
 - release archive SHA-256:
-  `5d52b5334dae60642f6557f5a051bcd9eba4f3730f46aea9dd153bbc7f5b5ad6`
+  `620e0f04ddcfa10067a8519d23b169d5e3fcc2751f28652990c889b72e0e4afb`
 - published skills payload SHA-256:
-  `792a1a558c8b228801f4c7fcb55b89a1272d00651baa2e24e240b46ba0a5519c`
+  `f2db06b64a31403e7a864816a3b278a48578a5788eed3235d2be95cfbf093ef2`
 - autonomous conformance manifest Git blob:
-  `859ec28547a2cce4f70571d795954ba0fd80ba7b`
+  `80a9666f0fb214bc0f11f4bb36db5e1ef40c6522`
 - autonomous conformance manifest SHA-256:
-  `cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c`
+  `8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018`
 
-The existing `support_package_sha256` version field retains its wire name and
-reports that published payload digest. Sworn does not embed, install, or
+The existing `support_package_sha256` JSON field keeps its stable wire name and
+reports the published skills payload digest. Sworn does not embed, install, or
 recompute the six skill files.
 
-`TestAutonomousEngineConformance` reads the manifest from the embedded package
-at runtime, rejects missing, duplicate, extra, or unanchored case identities,
-runs the real-binary walking-skeleton, dependency-base, and topology/recovery
-scenarios, and emits a separate Sworn PASS result for each of the 12 cases. It
-does not modify Baton's immutable `NOT RUN` source manifest.
+`TestAutonomousEngineConformance` reads the manifest from the included Baton
+package, rejects missing, duplicate, extra, or unanchored case identities, and
+runs the built-product planning, dependency, topology, and recovery journeys.
+It records a separate Sworn PASS result for each of the 12 cases and does not
+change Baton's immutable `NOT RUN` source manifest.
 
-## Driver and journey boundary
+## AI connection and run evidence
 
-The runtime and readiness CLI share one canonical
-`sworn.driver-config/v1` loader and host factory. Production manifests bind the
-configuration digest and four explicit role/model selections; scripted
-manifests and production configuration are mutually exclusive. Native OpenAI
-uses Responses; Chat Completions remains the OpenAI-compatible surface for
-providers that speak that dialect. The all-driver gate requires Codex CLI,
-Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, Bedrock Runtime
-Converse, and Bedrock Mantle to pass with their exact configured models. There
-is no skip, fake, fallback, or substitution path.
+The runtime and readiness command use the same canonical
+`sworn.driver-config/v1` loader. Production manifests bind its digest and the
+explicit profile/model choice for each role; scripted manifests and production
+configuration cannot be mixed.
 
-The deterministic production journey uses a disposable repository, three
-tracks, a dependency, and two serial slices on one track. It reopens the same
-journal with byte-identical configuration, performs fresh read-only work and
-assembly verification, and requires the final target tree to equal the passed
-assembly tree. Credential-backed provider certification is an additional
-explicit gate and is never replaced by deterministic local servers.
+Native OpenAI uses Responses. Chat Completions is a separate compatibility
+choice for providers that speak that API. The complete connection gate requires
+Codex CLI, Claude Code CLI, OpenAI-compatible HTTP, DeepSeek, Gemini, Bedrock
+Runtime Converse, and Bedrock Mantle to pass with their configured models.
+There is no skip, fake, fallback, or substitution path.
+
+The deterministic product journey uses a disposable repository, three tracks,
+one dependency, and two ordered slices on one track. It reopens the same
+journal with byte-identical configuration, performs fresh work and assembly
+verification, and requires the final target tree to equal the assembly tree
+that passed. Credential-backed live certification is a separate explicit gate;
+local deterministic servers do not replace it.
+
+An Implementer conversation may continue across an independent Captain review
+inside one process. A changed authority record or process restart discards that
+conversation and starts fresh. The first work Verifier starts fresh, read-only,
+and independent of the delivery roles. After that Verifier records an exact
+FAIL, Sworn may keep its thread for the direct repair. Each repaired candidate
+gets a new read-only invocation and a full contract check. Missing or stale
+context falls back to a fresh Verifier. If an exact head changed after a
+candidate receipt, the Implementer can recheck and record that head without an
+empty commit; evidence still covers the whole change from the prior candidate.
+A retained Verifier thread can cross that refresh only when Baton's accepted
+candidate receipts form a valid chain back to its recorded FAIL. Assembly
+verification always starts fresh. Planner and Captain remain separate
+invocations.
+
+Sworn's orchestrator is its bounded recovery layer, not a sixth Baton role.
+When a worker asks a question, reports a block, or returns something Sworn
+cannot safely use, the orchestrator can resume that worker with an answer from
+recorded facts, ask the Captain for advice, retry an operational failure, or
+pause only the affected track for a human answer. It uses an explicitly
+selected automation model with limited actions and budgets. It cannot approve
+a plan, invent a Captain decision or Verifier verdict, or merge code.
+
+## Stable technical contracts
+
+- Runtime manifests accept canonical v3 with an explicit recovery selection
+  and legacy v2 without it.
+- Browser-board JSON and HTTP routes are v2; there is no HTTP v1 alias.
+- New evaluation records are `sworn.eval/v2`.
+- The SQLite journal schema is v2.
+- Webhook events remain `sworn.webhook-event/v1`.
+
+These schema names, JSON fields, error codes, state values, and identifiers
+remain machine-facing contracts even where the product now presents a clearer
+human explanation first.
 
 ## Release checks and measurements
 
-The candidate is frozen only after fresh product copies pass full tests, the
-race detector, vet, formatting, module-tidy, diff checks, and two independent
-non-CGO stripped builds with identical bytes and SHA-256. Exact candidate,
-binary, package-count, direct-dependency, source-size, retry, timing, usage, and
-quality facts are recorded with the final candidate evidence and Baton
-verification receipt.
+Before the candidate is frozen, fresh product copies must pass the full Go test
+suite, race detector, vet, formatting, module-tidy, and diff checks. Two
+independent non-CGO stripped builds must also produce identical bytes and
+SHA-256 hashes.
+
+Exact candidate identity, binary hash, package and dependency counts, source
+size, retry behavior, timings, model usage, and quality results are recorded
+with the final candidate evidence and Baton verification receipt.
 
 See [technical-readiness.md](technical-readiness.md) for the measured facts,
-executable parity results, and current fail-closed readiness verdict.
+executable parity results, and current conservative readiness verdict.
 
 ## Deliberate limits
 
-Sworn does not host credentials, choose provider/model defaults, retry inside a
-provider adapter, treat telemetry as delivery authority, or infer a Baton
-verdict from runtime success. Configuration and credentials are operator
-provisioned. Older internal v0.3 identifiers and prior release documents remain
-historical wire and development context; the public identity is
+Sworn does not host credentials, select provider/model defaults, retry inside a
+provider adapter, let telemetry control delivery, or turn a successful runtime
+call into a Baton verdict. Older v0.3 identifiers and earlier release documents
+remain historical development context; the public candidate identity is
 `1.0.0-rc.1`.

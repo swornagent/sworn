@@ -59,10 +59,10 @@ type corpusManifest struct {
 }
 
 var pinnedReferences = []manifestEntry{
-	{File: "actions.mjs", SHA256: "25c40728241580b3300ffac8d341541cc05c58f11e1d173d9e84e03b9e773ce8", Bytes: 41798},
-	{File: "git.mjs", SHA256: "441bb55f91b521f68edfb40f711d2ed115421f32bd9b048c069df45c55304908", Bytes: 86433},
-	{File: "receipts.mjs", SHA256: "205489602318f100ddd8bb536c8d25640bdff1df81c2e4c54d31ca1ca0bc2943", Bytes: 30352},
-	{File: "state.mjs", SHA256: "7493e146a090b800fb686a4496843a5aa2e2dcb38c0f9177bf82d6035e7e89bf", Bytes: 70666},
+	{File: "actions.mjs", SHA256: "b86205eca04bf0481ff56499ec597cb763def521baa1c11f3b508490c51708a0", Bytes: 41048},
+	{File: "git.mjs", SHA256: "b21e1ce269f41795c2344aa50f5d62ad7b562416201c0bd0d4152c97df0c7afc", Bytes: 84214},
+	{File: "receipts.mjs", SHA256: "6f2eb4b27459b5a403493e79c990631024ac6c7e7e5c29eed112467571bf510f", Bytes: 30706},
+	{File: "state.mjs", SHA256: "b4fca2f571364fbd45777e022acec920f8a27e043d15211738005f12692ab1e0", Bytes: 71252},
 }
 
 func main() {
@@ -199,22 +199,6 @@ func generateCorpus(root, node, output string) error {
 	if err != nil {
 		return fmt.Errorf("admit Node: %w", err)
 	}
-	git, err := exec.LookPath("git")
-	if err != nil {
-		return fmt.Errorf("resolve Git: %w", err)
-	}
-	git, err = filepath.Abs(git)
-	if err != nil {
-		return fmt.Errorf("resolve absolute Git: %w", err)
-	}
-	git, err = literalExecutable(git)
-	if err != nil {
-		return fmt.Errorf("admit Git: %w", err)
-	}
-	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil || !filepath.IsAbs(tempRoot) {
-		return errors.New("resolve canonical temporary root")
-	}
 	oracle := filepath.Join(root, "tools", "batongolden", "oracle.mjs")
 	if body, err := os.ReadFile(oracle); err != nil || !bytes.Equal(body, oracleScript) {
 		return errors.New("root does not contain this exact oracle")
@@ -233,12 +217,11 @@ func generateCorpus(root, node, output string) error {
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	command := exec.Command(node, oracle, output, git)
+	command := exec.Command(node, oracle, output)
 	command.Dir = root
 	command.Env = []string{
 		"HOME=/dev/null", "XDG_CONFIG_HOME=/dev/null", "LANG=C", "LC_ALL=C",
-		"PATH=/usr/bin", "TMPDIR=" + tempRoot,
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		"PATH=/usr/bin", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 	}
 	if body, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("run exact oracle: %w: %s", err, strings.TrimSpace(string(body)))

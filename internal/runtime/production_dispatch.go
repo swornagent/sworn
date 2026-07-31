@@ -12,12 +12,16 @@ import (
 )
 
 const (
-	productionWorkContextVersion = "sworn.work-context/v1"
-	productionDispatchVersion    = "sworn.production-dispatch/v1"
-	productionWorkContextPath    = "work-context.json"
-	productionPlanPath           = "baton/plan.md"
-	productionReceiptPath        = "baton/current-receipt.json"
-	productionReceiptDetailPath  = "baton/current-receipt-detail.md"
+	productionWorkContextVersionV1 = "sworn.work-context/v1"
+	productionWorkContextVersion   = "sworn.work-context/v2"
+	productionDispatchVersionV1    = "sworn.production-dispatch/v1"
+	productionDispatchVersion      = "sworn.production-dispatch/v2"
+	productionWorkContextPath      = "work-context.json"
+	productionPlanPath             = "baton/plan.md"
+	productionReceiptPath          = "baton/current-receipt.json"
+	productionReceiptDetailPath    = "baton/current-receipt-detail.md"
+	productionDesignReceiptPath    = "baton/design-receipt.json"
+	productionDesignDetailPath     = "baton/design-receipt-detail.md"
 )
 
 var productionOutputExpectation = sha256Digest(
@@ -83,6 +87,7 @@ type productionWorkContext struct {
 	Intent             string                      `json:"intent"`
 	InvocationID       string                      `json:"invocation_id"`
 	Role               driver.Role                 `json:"role"`
+	Track              string                      `json:"track,omitempty"`
 	Slice              string                      `json:"slice,omitempty"`
 	Responsibility     driver.Responsibility       `json:"responsibility"`
 	Attempt            int64                       `json:"attempt"`
@@ -91,16 +96,25 @@ type productionWorkContext struct {
 	Before             string                      `json:"before"`
 	WorkspaceAccess    driver.WorkspaceAccess      `json:"workspace_access"`
 	Authority          productionAuthorityBinding  `json:"authority"`
+	PreparedBase       string                      `json:"prepared_base,omitempty"`
 	Plan               *productionPlanBinding      `json:"plan,omitempty"`
 	Receipt            *productionReceiptBinding   `json:"receipt,omitempty"`
+	DesignReceipt      *productionReceiptBinding   `json:"design_receipt,omitempty"`
 	Candidate          *productionCandidateBinding `json:"candidate,omitempty"`
 	Evidence           []productionEvidenceBinding `json:"evidence"`
 }
 
 type productionDispatchCommand struct {
-	SchemaVersion string                `json:"schema_version"`
-	RequestDigest string                `json:"request_digest"`
-	Context       productionWorkContext `json:"context"`
+	SchemaVersion       string                `json:"schema_version"`
+	RequestDigest       string                `json:"request_digest"`
+	ResumeRequestDigest string                `json:"resume_request_digest,omitempty"`
+	Context             productionWorkContext `json:"context"`
+}
+
+func hasContinuationResumeRequest(work productionWorkContext) bool {
+	return work.Responsibility == driver.WorkVerification ||
+		(work.Responsibility == driver.ImplementerImplementation &&
+			work.DesignReceipt != nil)
 }
 
 func roleForResponsibility(
@@ -180,6 +194,34 @@ func currentPlanBinding(state baton.State) (*productionPlanBinding, error) {
 func receiptBinding(
 	entry *baton.ReceiptEntry,
 ) (*productionReceiptBinding, error) {
+	return namedReceiptBinding(
+		entry,
+		"receipt",
+		productionReceiptPath,
+		"receipt-detail",
+		productionReceiptDetailPath,
+	)
+}
+
+func designReceiptBinding(
+	entry *baton.ReceiptEntry,
+) (*productionReceiptBinding, error) {
+	return namedReceiptBinding(
+		entry,
+		"design-receipt",
+		productionDesignReceiptPath,
+		"design-receipt-detail",
+		productionDesignDetailPath,
+	)
+}
+
+func namedReceiptBinding(
+	entry *baton.ReceiptEntry,
+	bodyName string,
+	bodyPath string,
+	detailName string,
+	detailPath string,
+) (*productionReceiptBinding, error) {
 	if entry == nil {
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
@@ -190,13 +232,13 @@ func receiptBinding(
 	return &productionReceiptBinding{
 		OID: entry.OID,
 		BodyInput: driver.Input{
-			Name:   "receipt",
-			Path:   productionReceiptPath,
+			Name:   bodyName,
+			Path:   bodyPath,
 			Digest: driver.Digest(body),
 		},
 		DetailInput: driver.Input{
-			Name:   "receipt-detail",
-			Path:   productionReceiptDetailPath,
+			Name:   detailName,
+			Path:   detailPath,
 			Digest: driver.Digest(entry.Detail),
 		},
 		body:   body,
@@ -360,6 +402,7 @@ func captureProductionWorkContext(
 		Intent:             engine.manifest.value.Intent,
 		InvocationID:       dispatchInvocationID(engine.manifest.value.RunID, coordinates),
 		Role:               role,
+		Track:              "",
 		Slice:              coordinates.Slice,
 		Responsibility:     coordinates.Responsibility,
 		Attempt:            coordinates.BatonAttempt,
@@ -535,9 +578,28 @@ func captureBatonWorkContext(
 	}
 	workContext.Authority.TrackRef = track.Ref
 	workContext.Authority.TrackHead = track.Head
+	workContext.Track = slice.Location.Track.ID
+	workContext.PreparedBase = slice.PreparedBase
 	workContext.Receipt, err = receiptBinding(slice.CurrentReceipt)
 	if err != nil {
 		return err
+	}
+	if coordinates.Responsibility == driver.ImplementerImplementation {
+		design, designErr := currentImplementationDesignReceipt(
+			state,
+			slice,
+			track,
+		)
+		if designErr != nil {
+			return designErr
+		}
+		if design != nil {
+			workContext.DesignReceipt, err =
+				designReceiptBinding(design)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	workContext.Evidence = sliceEvidence(slice.ConsumedInputs)
 	if coordinates.Responsibility == driver.WorkVerification {
@@ -549,13 +611,59 @@ func captureBatonWorkContext(
 	return nil
 }
 
+func currentImplementationDesignReceipt(
+	state baton.State,
+	slice *baton.SliceState,
+	track *baton.TrackState,
+) (*baton.ReceiptEntry, error) {
+	if slice == nil || track == nil || slice.CurrentReceipt == nil ||
+		slice.CurrentReceipt.Receipt.SliceID() != slice.Location.Slice.ID {
+		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	if slice.CurrentReceipt.Receipt.Role != "captain" ||
+		slice.CurrentReceipt.Receipt.Result != "proceed" {
+		return nil, nil
+	}
+	if track.Head != slice.CurrentReceipt.OID ||
+		slice.CurrentReceipt.Receipt.Attempt == nil ||
+		*slice.CurrentReceipt.Receipt.Attempt != slice.Attempt ||
+		slice.CurrentReceipt.Receipt.Plan != state.Plan.OID ||
+		slice.CurrentReceipt.Parent == "" {
+		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	designOID := slice.CurrentReceipt.Receipt.Binds
+	var design *baton.ReceiptEntry
+	for index := range slice.History.Entries {
+		entry := &slice.History.Entries[index]
+		if entry.OID != designOID {
+			continue
+		}
+		if design != nil {
+			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		design = entry
+	}
+	if design == nil ||
+		slice.CurrentReceipt.Parent != design.OID ||
+		design.Receipt.Role != "implementer" ||
+		design.Receipt.Result != "designed" ||
+		design.Receipt.Attempt == nil ||
+		*design.Receipt.Attempt != slice.Attempt ||
+		design.Receipt.Plan != state.Plan.OID ||
+		design.Receipt.SliceID() != slice.Location.Slice.ID {
+		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	return design, nil
+}
+
 func validateProductionWorkContext(
 	manifest admittedManifest,
 	workContext productionWorkContext,
 ) error {
 	role, ok := roleForResponsibility(workContext.Responsibility)
 	if !ok ||
-		workContext.SchemaVersion != productionWorkContextVersion ||
+		(workContext.SchemaVersion != productionWorkContextVersion &&
+			workContext.SchemaVersion != productionWorkContextVersionV1) ||
 		workContext.ManifestDigest != manifest.digest ||
 		workContext.DriverConfigDigest != manifest.value.DriverConfigDigest ||
 		workContext.RunID != manifest.value.RunID ||
@@ -584,6 +692,12 @@ func validateProductionWorkContext(
 		workContext.Authority.TargetHead == "" {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
+	if workContext.SchemaVersion == productionWorkContextVersionV1 &&
+		(workContext.Track != "" ||
+			workContext.PreparedBase != "" ||
+			workContext.DesignReceipt != nil) {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
 	expectedAccess := driver.ReadOnly
 	if workContext.Responsibility == driver.ImplementerImplementation {
 		expectedAccess = driver.ReadWrite
@@ -602,20 +716,25 @@ func validateProductionWorkContext(
 		}
 	}
 	if workContext.Receipt != nil {
-		if workContext.Receipt.OID == "" ||
-			workContext.Receipt.BodyInput.Name != "receipt" ||
-			workContext.Receipt.BodyInput.Path != productionReceiptPath ||
-			!runtimeDigestPattern.MatchString(
-				workContext.Receipt.BodyInput.Digest,
-			) ||
-			workContext.Receipt.DetailInput.Name != "receipt-detail" ||
-			workContext.Receipt.DetailInput.Path !=
-				productionReceiptDetailPath ||
-			!runtimeDigestPattern.MatchString(
-				workContext.Receipt.DetailInput.Digest,
-			) {
+		if !validProductionReceiptBinding(
+			workContext.Receipt,
+			"receipt",
+			productionReceiptPath,
+			"receipt-detail",
+			productionReceiptDetailPath,
+		) {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
+	}
+	if workContext.DesignReceipt != nil &&
+		!validProductionReceiptBinding(
+			workContext.DesignReceipt,
+			"design-receipt",
+			productionDesignReceiptPath,
+			"design-receipt-detail",
+			productionDesignDetailPath,
+		) {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	seenEvidence := make(map[string]struct{}, len(workContext.Evidence))
 	for _, evidence := range workContext.Evidence {
@@ -640,7 +759,10 @@ func validateProductionWorkContext(
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if workContext.Responsibility == driver.PlannerProposal {
-		if workContext.Slice != "" || workContext.Candidate != nil ||
+		if workContext.Track != "" ||
+			workContext.Slice != "" || workContext.Candidate != nil ||
+			workContext.PreparedBase != "" ||
+			workContext.DesignReceipt != nil ||
 			len(workContext.Evidence) != 0 {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
@@ -675,18 +797,41 @@ func validateProductionWorkContext(
 	}
 	switch workContext.Responsibility {
 	case driver.ImplementerDesign,
-		driver.CaptainReview,
-		driver.ImplementerImplementation:
-		if workContext.Slice == "" ||
+		driver.CaptainReview:
+		if (workContext.SchemaVersion == productionWorkContextVersion &&
+			(workContext.Track == "" ||
+				workContext.Authority.TrackRef !=
+					"refs/heads/track/"+workContext.Release+"/"+
+						workContext.Track)) ||
+			workContext.Slice == "" ||
+			workContext.Authority.TrackRef == "" ||
+			workContext.Authority.TrackHead == "" ||
+			workContext.DesignReceipt != nil ||
+			workContext.Candidate != nil {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+	case driver.ImplementerImplementation:
+		if (workContext.SchemaVersion == productionWorkContextVersion &&
+			(workContext.Track == "" ||
+				workContext.Authority.TrackRef !=
+					"refs/heads/track/"+workContext.Release+"/"+
+						workContext.Track)) ||
+			workContext.Slice == "" ||
 			workContext.Authority.TrackRef == "" ||
 			workContext.Authority.TrackHead == "" ||
 			workContext.Candidate != nil {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	case driver.WorkVerification:
-		if workContext.Slice == "" ||
+		if (workContext.SchemaVersion == productionWorkContextVersion &&
+			(workContext.Track == "" ||
+				workContext.Authority.TrackRef !=
+					"refs/heads/track/"+workContext.Release+"/"+
+						workContext.Track)) ||
+			workContext.Slice == "" ||
 			workContext.Authority.TrackRef == "" ||
 			workContext.Authority.TrackHead == "" ||
+			workContext.DesignReceipt != nil ||
 			workContext.Candidate == nil ||
 			!runtimeDigestPattern.MatchString(
 				workContext.Candidate.ProductTree,
@@ -694,9 +839,12 @@ func validateProductionWorkContext(
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	case driver.AssemblyVerification:
-		if workContext.Slice != "" ||
+		if workContext.Track != "" ||
+			workContext.Slice != "" ||
 			workContext.Authority.TrackRef != "" ||
 			workContext.Authority.TrackHead != "" ||
+			workContext.PreparedBase != "" ||
+			workContext.DesignReceipt != nil ||
 			workContext.Candidate == nil ||
 			!runtimeDigestPattern.MatchString(
 				workContext.Candidate.ProductTree,
@@ -707,6 +855,44 @@ func validateProductionWorkContext(
 	return nil
 }
 
+func productionWorkContextV1(
+	manifest admittedManifest,
+	workContext productionWorkContext,
+) (productionWorkContext, error) {
+	if workContext.SchemaVersion != productionWorkContextVersion {
+		return productionWorkContext{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	workContext.SchemaVersion = productionWorkContextVersionV1
+	workContext.Track = ""
+	workContext.PreparedBase = ""
+	workContext.DesignReceipt = nil
+	if err := validateProductionWorkContext(
+		manifest,
+		workContext,
+	); err != nil {
+		return productionWorkContext{}, err
+	}
+	return workContext, nil
+}
+
+func validProductionReceiptBinding(
+	binding *productionReceiptBinding,
+	bodyName string,
+	bodyPath string,
+	detailName string,
+	detailPath string,
+) bool {
+	return binding != nil &&
+		binding.OID != "" &&
+		binding.BodyInput.Name == bodyName &&
+		binding.BodyInput.Path == bodyPath &&
+		runtimeDigestPattern.MatchString(binding.BodyInput.Digest) &&
+		binding.DetailInput.Name == detailName &&
+		binding.DetailInput.Path == detailPath &&
+		runtimeDigestPattern.MatchString(binding.DetailInput.Digest)
+}
+
 func parseProductionDispatchCommand(
 	manifest admittedManifest,
 	body []byte,
@@ -714,7 +900,14 @@ func parseProductionDispatchCommand(
 	var command productionDispatchCommand
 	if json.Unmarshal(body, &command) != nil ||
 		!bytes.Equal(body, mustJSON(command)) ||
-		command.SchemaVersion != productionDispatchVersion ||
+		(command.SchemaVersion != productionDispatchVersion &&
+			command.SchemaVersion != productionDispatchVersionV1) ||
+		(command.SchemaVersion == productionDispatchVersion &&
+			command.Context.SchemaVersion !=
+				productionWorkContextVersion) ||
+		(command.SchemaVersion == productionDispatchVersionV1 &&
+			command.Context.SchemaVersion !=
+				productionWorkContextVersionV1) ||
 		!runtimeDigestPattern.MatchString(command.RequestDigest) {
 		return productionDispatchCommand{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
@@ -730,6 +923,32 @@ func parseProductionDispatchCommand(
 	if err != nil || driver.Digest(requestBody) != command.RequestDigest {
 		return productionDispatchCommand{},
 			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if command.SchemaVersion == productionDispatchVersionV1 {
+		if command.ResumeRequestDigest != "" {
+			return productionDispatchCommand{},
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		return command, nil
+	}
+	if hasContinuationResumeRequest(command.Context) {
+		resume, err := productionRequestForContextFreshness(
+			manifest,
+			command.Context,
+			false,
+		)
+		if err != nil {
+			return productionDispatchCommand{}, err
+		}
+		resumeBody, err := driver.EncodeRequest(resume)
+		if err != nil ||
+			driver.Digest(resumeBody) != command.ResumeRequestDigest {
+			return productionDispatchCommand{},
+				runtimeFail("CORRUPT_JOURNAL", err)
+		}
+	} else if command.ResumeRequestDigest != "" {
+		return productionDispatchCommand{},
+			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return command, nil
 }
@@ -755,6 +974,18 @@ func selectionForRole(
 func productionRequestForContext(
 	manifest admittedManifest,
 	workContext productionWorkContext,
+) (driver.Request, error) {
+	return productionRequestForContextFreshness(
+		manifest,
+		workContext,
+		true,
+	)
+}
+
+func productionRequestForContextFreshness(
+	manifest admittedManifest,
+	workContext productionWorkContext,
+	fresh bool,
 ) (driver.Request, error) {
 	selection, ok := selectionForRole(
 		manifest.value.Roles,
@@ -783,6 +1014,13 @@ func productionRequestForContext(
 			workContext.Receipt.DetailInput,
 		)
 	}
+	if workContext.DesignReceipt != nil {
+		inputs = append(
+			inputs,
+			workContext.DesignReceipt.BodyInput,
+			workContext.DesignReceipt.DetailInput,
+		)
+	}
 	request, err := driver.NewRequest(
 		workContext.InvocationID,
 		workContext.Role,
@@ -793,7 +1031,7 @@ func productionRequestForContext(
 			Access: workContext.WorkspaceAccess,
 		},
 		inputs,
-		true,
+		fresh,
 		manifest.value.Limits,
 	)
 	if err != nil {
@@ -841,6 +1079,31 @@ func productionInputContents(
 			driver.InputContent{
 				Input: workContext.Receipt.DetailInput,
 				Bytes: append([]byte(nil), workContext.Receipt.detail...),
+			},
+		)
+	}
+	if workContext.DesignReceipt != nil {
+		if driver.Digest(workContext.DesignReceipt.body) !=
+			workContext.DesignReceipt.BodyInput.Digest ||
+			driver.Digest(workContext.DesignReceipt.detail) !=
+				workContext.DesignReceipt.DetailInput.Digest {
+			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		contents = append(
+			contents,
+			driver.InputContent{
+				Input: workContext.DesignReceipt.BodyInput,
+				Bytes: append(
+					[]byte(nil),
+					workContext.DesignReceipt.body...,
+				),
+			},
+			driver.InputContent{
+				Input: workContext.DesignReceipt.DetailInput,
+				Bytes: append(
+					[]byte(nil),
+					workContext.DesignReceipt.detail...,
+				),
 			},
 		)
 	}

@@ -2,9 +2,10 @@
 
 Version: `baton.engine-conformance/v1`
 
-This is the process boundary for running Baton's autonomous cases through a
-real engine. It does not turn portable fixtures into engine evidence. Until a
-case is run through this boundary, its manifest result is `NOT RUN`.
+This small command-line contract lets Baton ask a real engine to run one
+autonomous test and report what actually happened. Test fixtures alone cannot
+prove that scheduling, isolation, retries, and recovery work in the real
+product. Until a case runs through this boundary, its result stays `NOT RUN`.
 
 ## Commands
 

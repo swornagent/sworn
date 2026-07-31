@@ -47,7 +47,6 @@ func TestModuleHasOnlyTheAdmittedPackageSet(t *testing.T) {
 		"github.com/swornagent/sworn/internal/journal",
 		"github.com/swornagent/sworn/internal/observe",
 		"github.com/swornagent/sworn/internal/runtime",
-		"github.com/swornagent/sworn/internal/testpath",
 		"github.com/swornagent/sworn/tools/batonassets",
 		"github.com/swornagent/sworn/tools/batongolden",
 	}

@@ -56,7 +56,10 @@ func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	want := "sworn 1.0.0-rc.1\nstate baton-rc9-admitted\nbaton 1.0.0-rc.9 (" + baton.Commit + ")\n"
+	want := "Sworn 1.0.0-rc.1\nBaton 1.0.0-rc.12\n\n" +
+		"Technical details:\n" +
+		"  state: baton-rc12-admitted\n" +
+		"  baton commit: " + baton.Commit + "\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -90,7 +93,8 @@ func TestRetiredAndUnknownCommandsShareOneClosedPath(t *testing.T) {
 		if stdout.Len() != 0 {
 			t.Fatalf("run(%v) stdout = %q", args, stdout.String())
 		}
-		if !strings.Contains(stderr.String(), "is not implemented in the v0.3 walking skeleton") {
+		if !strings.Contains(stderr.String(), "unknown command") ||
+			!strings.Contains(stderr.String(), `Run "sworn help"`) {
 			t.Fatalf("run(%v) stderr = %q", args, stderr.String())
 		}
 		if strings.Contains(stderr.String(), "/unreadable") || strings.Contains(stderr.String(), "/unwritable") {
@@ -202,32 +206,40 @@ func TestBoardRejectsInvalidArgumentsPathsAndRunsWithoutExposure(t *testing.T) {
 			args: []string{
 				"board", "--run", "run-1", "--journal", "TOP-SECRET.sqlite",
 			},
-			code:   1,
-			stderr: "sworn board: journal is unavailable\n",
+			code: 1,
+			stderr: "sworn board: Could not open the saved run record. " +
+				"Check the journal path and file permissions.\n" +
+				"Technical code: JOURNAL_UNAVAILABLE\n",
 		},
 		{
 			name: "missing journal",
 			args: []string{
 				"board", "--run", "run-1", "--journal", unavailable,
 			},
-			code:   1,
-			stderr: "sworn board: journal is unavailable\n",
+			code: 1,
+			stderr: "sworn board: Could not open the saved run record. " +
+				"Check the journal path and file permissions.\n" +
+				"Technical code: JOURNAL_UNAVAILABLE\n",
 		},
 		{
 			name: "unknown run",
 			args: []string{
 				"board", "--run", "TOP-SECRET", "--journal", journalPath,
 			},
-			code:   1,
-			stderr: "sworn board: snapshot is unavailable\n",
+			code: 1,
+			stderr: "sworn board: Could not build the delivery board " +
+				"from the saved run and Git state.\n" +
+				"Technical code: JOURNAL_UNAVAILABLE\n",
 		},
 		{
 			name: "malformed run",
 			args: []string{
 				"board", "--run", "TOP SECRET", "--journal", journalPath,
 			},
-			code:   1,
-			stderr: "sworn board: snapshot is unavailable\n",
+			code: 1,
+			stderr: "sworn board: Could not build the delivery board " +
+				"from the saved run and Git state.\n" +
+				"Technical code: JOURNAL_UNAVAILABLE\n",
 		},
 	}
 	for _, test := range tests {
@@ -278,7 +290,9 @@ func TestBoardFailsClosedWhenGitIsUnavailable(t *testing.T) {
 	); code != 1 {
 		t.Fatalf("run() = %d, want 1", code)
 	}
-	if stdout.Len() != 0 || stderr.String() != "sworn board: git is unavailable\n" {
+	want := "sworn board: Could not find Git. Install Git or make it " +
+		"available on PATH.\nTechnical code: GIT_UNAVAILABLE\n"
+	if stdout.Len() != 0 || stderr.String() != want {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -359,6 +373,9 @@ func boardJournalFixture(t *testing.T) string {
 			Implementer: profile,
 			Captain:     profile,
 			Verifier:    profile,
+		},
+		Automation: &runtimepkg.AutomationSelections{
+			Recovery: profile,
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 1,
