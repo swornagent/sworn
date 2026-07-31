@@ -45,9 +45,9 @@ handoffs decide what advances.
 
 ## Current release candidate
 
-The binary identifies as Sworn `1.0.0-rc.1` and includes Baton
-`1.0.0-rc.12`. Run `sworn version` for the readable identity or
-`sworn version --json` for the complete machine-readable identity.
+Sworn `1.0.0-rc.1` includes Baton `1.0.0-rc.12`. Check the installed
+versions with `sworn version`, or use `sworn version --json` when another
+tool needs to read them.
 
 This candidate can:
 
