@@ -150,7 +150,8 @@ func main() {
 		"summary":        "Deterministic native continuation fixture.",
 		"detail":         "Bounded fixture detail.\n",
 	}
-	if prompt.Responsibility == "implementer_implementation" {
+	if prompt.Responsibility == "implementer_implementation" ||
+		prompt.Responsibility == "work_verification" {
 		checks := []byte("checks\n")
 		sum := sha256.Sum256(checks)
 		submission["checks"] = map[string]any{
@@ -158,6 +159,9 @@ func main() {
 			"digest":     "sha256:" + hex.EncodeToString(sum[:]),
 			"bytes":      base64.StdEncoding.EncodeToString(checks),
 		}
+	}
+	if prompt.Responsibility == "work_verification" {
+		submission["decision"] = map[string]any{"outcome": "fail"}
 	}
 	status, response := rpc(
 		brokerURL,

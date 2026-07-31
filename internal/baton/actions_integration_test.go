@@ -557,6 +557,94 @@ func readActionState(t *testing.T, repository *gitx.Repository, release string) 
 	return state
 }
 
+func TestUnverifiedCandidateHeadRefreshReturnsToImplementerWithoutVerdict(t *testing.T) {
+	repoPath, repository, actions := createActionHarness(t)
+	release := "candidate-head-refresh"
+	_, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, []Track{{
+			ID:        "T1",
+			DependsOn: []string{},
+			Slices:    []Slice{actionSlice("S1", "one.txt")},
+		}}),
+		Summary: "Approve exact candidate refresh.",
+		Detail:  []byte("approval"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design S1.", Detail: []byte("design"),
+	})
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "captain", Result: "proceed",
+		Summary: "Proceed S1.", Detail: []byte("review"),
+	})
+	track := trackRef(release, "T1")
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", track)
+	firstCandidate := commitActionProduct(
+		t, repoPath, parent, track, "one.txt", "candidate one\n", 1000001900,
+	)
+	firstReceipt := appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "candidate",
+		Summary: "Candidate S1.", Detail: []byte("implementation one"),
+		Candidate: firstCandidate, CheckResults: []byte("checks one\n"),
+	})
+	if firstReceipt.Receipt == nil {
+		t.Fatal("first candidate receipt is absent")
+	}
+	refreshedHead := commitActionProduct(
+		t,
+		repoPath,
+		firstReceipt.ReceiptCommit,
+		track,
+		"one.txt",
+		"candidate two\n",
+		1000001901,
+	)
+
+	refreshed := readActionState(t, repository, release)
+	slice, ok := refreshed.Slice("S1")
+	trackState, trackOK := refreshed.Track("T1")
+	if !ok || !trackOK ||
+		trackState.Head != refreshedHead ||
+		trackState.AuthorityHead != firstReceipt.ReceiptCommit ||
+		slice.Stage != "implement" ||
+		slice.Status != "ready" ||
+		slice.NextRole != "implementer" ||
+		slice.Outcome != "stale" ||
+		slice.Attempt != 2 ||
+		slice.Retained ||
+		slice.CurrentReceipt == nil ||
+		slice.CurrentReceipt.OID != firstReceipt.ReceiptCommit ||
+		slice.Candidate == nil ||
+		slice.Candidate.OID != firstReceipt.ReceiptCommit ||
+		slice.StaleReason != "track head changed before verification was recorded" {
+		t.Fatalf("refreshed state: track=%#v slice=%#v", trackState, slice)
+	}
+
+	secondReceipt := appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "candidate",
+		Summary: "Refresh exact S1 candidate.", Detail: []byte("implementation two"),
+		Candidate: refreshedHead, CheckResults: []byte("checks two\n"),
+	})
+	if secondReceipt.Receipt == nil ||
+		secondReceipt.Receipt.Binds != firstReceipt.ReceiptCommit ||
+		secondReceipt.Receipt.Attempt == nil ||
+		*secondReceipt.Receipt.Attempt != 2 {
+		t.Fatalf("second candidate receipt = %#v", secondReceipt)
+	}
+	ready := readActionState(t, repository, release)
+	slice, _ = ready.Slice("S1")
+	if slice.Stage != "verify" ||
+		slice.NextRole != "verifier" ||
+		slice.Attempt != 2 ||
+		slice.CurrentReceipt == nil ||
+		slice.CurrentReceipt.OID != secondReceipt.ReceiptCommit {
+		t.Fatalf("recorded refresh state = %#v", slice)
+	}
+}
+
 func TestActionsMatchExactReferenceForSHA1AndSHA256(t *testing.T) {
 	golden := loadActionGolden(t)
 	stateGolden := loadStateGolden(t)

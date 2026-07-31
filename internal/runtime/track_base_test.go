@@ -64,6 +64,75 @@ func TestTrackBaseBeforeBindsCASStateAndConsumedAuthority(
 	}
 }
 
+func TestCandidateHeadRefreshNeedsNoBaseMutation(t *testing.T) {
+	state := baton.State{Tracks: []baton.TrackState{{
+		ID:            "T1",
+		Head:          "unreceipted-head",
+		AuthorityHead: "candidate-receipt",
+	}}}
+	slice := &baton.SliceState{
+		Location: baton.SliceLocation{
+			Track: baton.Track{ID: "T1"},
+			Slice: baton.Slice{ID: "S1"},
+		},
+		History:        baton.SliceHistory{MaximumAttempt: 1},
+		Stage:          "implement",
+		Status:         "ready",
+		NextRole:       "implementer",
+		Outcome:        "stale",
+		Attempt:        2,
+		Retained:       false,
+		StaleReason:    "track head changed before verification was recorded",
+		CurrentReceipt: &baton.ReceiptEntry{OID: "candidate-receipt"},
+		Candidate:      &baton.ReceiptEntry{OID: "candidate-receipt"},
+	}
+	if !candidateHeadRefresh(state, slice) {
+		t.Fatal("exact candidate-head refresh was not recognized")
+	}
+	slice.Candidate = &baton.ReceiptEntry{OID: "other-receipt"}
+	if candidateHeadRefresh(state, slice) {
+		t.Fatal("mismatched candidate authority was recognized as a refresh")
+	}
+}
+
+func TestSealedRefreshRecordMustMatchItsExplicitCycleAuthority(t *testing.T) {
+	cycle := implementationCycle{
+		Release:     "release-1",
+		Slice:       "S1",
+		Binds:       "candidate-receipt",
+		TrackHead:   "physical-head",
+		RefreshFrom: "candidate-receipt",
+	}
+	record := sealedRecord{
+		Slice:       cycle.Slice,
+		Binds:       cycle.Binds,
+		Before:      cycle.TrackHead,
+		RefreshFrom: cycle.RefreshFrom,
+		Candidate:   "next-candidate",
+		ProductTree: "sha256:product",
+		Receipt: baton.AppendReceiptInput{
+			Release:   cycle.Release,
+			Slice:     cycle.Slice,
+			Role:      "implementer",
+			Result:    "candidate",
+			Candidate: "next-candidate",
+		},
+	}
+	if !sealedRecordMatchesCycle(record, cycle) {
+		t.Fatal("exact refresh record did not match its cycle")
+	}
+	corrupt := cycle
+	corrupt.RefreshFrom = "other-ancestor"
+	record.RefreshFrom = corrupt.RefreshFrom
+	if sealedRecordMatchesCycle(record, corrupt) {
+		t.Fatal("cycle admitted a refresh base other than its bound receipt")
+	}
+	record.RefreshFrom = cycle.RefreshFrom
+	if sealedRecordMatchesCycle(record, corrupt) {
+		t.Fatal("record refresh authority drift matched its cycle")
+	}
+}
+
 func TestStableErrorCodePreservesTrackBaseAuthorityMovement(t *testing.T) {
 	err := &gitx.Error{
 		Code: "AUTHORITY_MOVED",

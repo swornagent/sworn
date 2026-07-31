@@ -5,51 +5,49 @@ version: baton.operation/v2
 
 ## Purpose
 
-Mechanically compose passed track candidates or integrate the exact assembled
-candidate covered by current `PASS`.
+Combine passed work or merge the exact complete release covered by current
+`PASS`.
 
 ## Inputs
 
-- The applicable approved plan revision and one captured Git snapshot.
-- For track composition, the ordered passed slice candidates.
-- For release integration, the exact assembled candidate and fresh assembly
-  `PASS`.
+- The approved plan revision and one saved Git snapshot.
+- For a track, the passed slices in approved order.
+- For the release, the exact assembled candidate and fresh assembly `PASS`.
 
 ## Authority
 
-Merge never invents a verdict or resolves a product conflict. Derive candidates,
-topology, and expected targets from approved facts. Refuse unsafe mutation, then
-allow the surrounding system to rescan and reconcile operational outcomes.
-Merge acts on the exact passed candidate, including its verified support work;
-it does not compare that candidate with a predicted path inventory.
+Merge never invents a verdict or resolves a product conflict. Get candidates,
+order, and expected targets from approved facts. Stop before an unsafe change;
+the surrounding system may then rescan and recover.
+Merge acts on the exact passed candidate, including verified support work, not
+a predicted file list.
 
 ## Actions
 
-1. For a track, prove every required slice has applicable `PASS`, freeze the
-   exact candidate, and compose it through the approved topology.
+1. For a track, prove every required slice has an applicable `PASS`, hold the
+   exact candidate still, and combine it in the approved order.
 2. After all tracks are present, identify the exact assembled candidate and
    stop for fresh `baton-verify` assembly.
 3. For release Merge, recheck the assembly `PASS`, candidate, authority, and
    expected target immediately before integration.
-4. Perform the exact Git effect and observe the resulting target.
+4. Perform the exact Git change and read the resulting target.
 5. On an exact retry, return the already observed canonical result without
    duplicating the effect.
 
 ## Required output
 
-Return the scope, applicable pass bindings, component candidates, expected and
-observed targets, resulting commit, and concise outcome for a machine-written
-receipt. Never report partial success as `MERGED`.
+Lead with what happened, what it means, and what happens next. Put scope, pass
+bindings, component candidates, expected and observed targets, and resulting
+commit under technical details for the machine-written receipt. Never report
+partial success as `MERGED`.
 
 ## Stop conditions
 
-Stop before mutation on missing `PASS`, changed candidate, unsafe target
-movement, conflict, unexpected ancestry or tree, ambiguous authority, or an
-unreconciled effect. A stale snapshot is an operational rescan condition, not a
-Baton verdict.
+Stop before changing Git on missing `PASS`, a changed candidate, unsafe target
+movement, conflict, unexpected history or tree, unclear authority, or an
+unreconciled effect. A stale snapshot needs a rescan, not a Baton verdict.
 
 ## Next handoff
 
-Completed track composition waits for remaining tracks or assembly
-verification. Exact release integration is terminal for Baton; deployment is
-external.
+Completed track composition waits for other tracks or assembly verification.
+An exact release merge finishes Baton; deployment happens elsewhere.

@@ -946,6 +946,32 @@ func nativeSameDutyInvocationFixture(
 	return result
 }
 
+func nativeVerifierInvocationFixture(
+	t *testing.T,
+	base Invocation,
+	invocationID string,
+	fresh bool,
+) Invocation {
+	t.Helper()
+	request, err := NewRequest(
+		invocationID, RoleVerifier, base.Selected.Profile.Key,
+		base.Selected.Model,
+		Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+		base.Request.Inputs, fresh, base.Request.Limits,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := NewSubmissionPermission(
+		request, base.Selected, ContainmentReadOnly, WorkVerification,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.Request, base.Permission = request, permission
+	return base
+}
+
 func completeBrokerHandshake(
 	t *testing.T,
 	broker *nativeBroker,
@@ -1134,6 +1160,44 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 			}
 			if _, err := os.Lstat(root); !os.IsNotExist(err) {
 				t.Fatal("consumed native session root still exists")
+			}
+			if family == ProfileCodex {
+				verifierStart := nativeVerifierInvocationFixture(
+					t, pair.ContinuationStart,
+					"native-verifier-start", true,
+				)
+				observation, handle, result, err = (Dispatcher{}).InvokeTurn(
+					context.Background(), verifierStart, binding, nil,
+				)
+				if err != nil || observation.Handoff == nil ||
+					handle == nil ||
+					result.Status != ContinuationStatusSuspended {
+					t.Fatalf(
+						"verifier start = %#v, %p, %#v, %v",
+						observation, handle, result, err,
+					)
+				}
+				verifierResume := nativeVerifierInvocationFixture(
+					t, pair.Resume,
+					"native-verifier-repair", false,
+				)
+				repairBinding := binding
+				repairBinding.Attempt = 2
+				observation, next, result, err = (Dispatcher{}).InvokeTurn(
+					context.Background(), verifierResume,
+					repairBinding, handle,
+				)
+				if err != nil || observation.Handoff == nil ||
+					next == nil ||
+					result.Status != ContinuationStatusSuspended {
+					t.Fatalf(
+						"verifier repair = %#v, %p, %#v, %v",
+						observation, next, result, err,
+					)
+				}
+				if err := next.Close(); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			promotionStart := nativeSameDutyInvocationFixture(

@@ -447,7 +447,12 @@ func validateResponsibility(descriptor PermissionDescriptor) error {
 		if descriptor.Role != RoleCaptain {
 			return fail("INVALID_PERMISSION")
 		}
-	case WorkVerification, AssemblyVerification:
+	case WorkVerification:
+		if descriptor.Role != RoleVerifier ||
+			descriptor.WorkspaceAccess != ReadOnly {
+			return fail("INVALID_PERMISSION")
+		}
+	case AssemblyVerification:
 		if descriptor.Role != RoleVerifier ||
 			descriptor.WorkspaceAccess != ReadOnly ||
 			!descriptor.FreshContext {

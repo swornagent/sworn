@@ -1008,6 +1008,155 @@ func TestGuardedSealPublishesOnlyUnderExactReleaseTargetAndTrack(t *testing.T) {
 	}
 }
 
+func TestGuardedRefreshSealAdoptsOrAdvancesOnlyUnderExactAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		id    string
+		edit  bool
+		drift bool
+	}{
+		{name: "clean adoption", id: "clean"},
+		{name: "refresh plus edit", id: "edit", edit: true},
+		{name: "clean adoption target drift", id: "clean-drift", drift: true},
+		{name: "refresh plus edit target drift", id: "edit-drift", edit: true, drift: true},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			repository, base := newRepository(t, SHA1)
+			key := TrackKey{
+				Release: "release-refresh-" + test.id,
+				Track:   "T1",
+			}
+			releaseRef := "refs/heads/release-wt/" + key.Release
+			if err := repository.AtomicUpdateRefs([]RefOperation{{
+				Kind: CreateRef, Ref: releaseRef, NewHead: &base,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			createTrack(t, repository, key, base)
+			workspaces, err := NewWorkspaces(repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer workspaces.Close()
+
+			first, err := workspaces.OpenTrack(key, ImplementationView)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(
+				filepath.Join(first.Path(), "product.txt"),
+				[]byte("unreceipted refresh\n"),
+				0o644,
+			); err != nil {
+				t.Fatal(err)
+			}
+			refresh, err := workspaces.SealTrack(first)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			lease, err := workspaces.OpenTrack(key, ImplementationView)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Close()
+			if test.edit {
+				if err := os.WriteFile(
+					filepath.Join(lease.Path(), "product.txt"),
+					[]byte("final refresh\n"),
+					0o644,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var prepared SealedCandidate
+			sealed, err := workspaces.SealTrackRefreshGuardedWithClaim(
+				lease,
+				base,
+				SealAuthority{
+					ReleaseHead: base,
+					TargetRef:   "refs/heads/main",
+					TargetHead:  base,
+				},
+				func(candidate SealedCandidate) error {
+					prepared = candidate
+					if !test.drift {
+						return nil
+					}
+					next := nextRecord(
+						t,
+						repository,
+						base,
+						"target-drift",
+					)
+					captured := captureRefs(
+						t,
+						repository,
+						"refs/heads/main",
+					)
+					return repository.ApplyRefTransaction(
+						captured,
+						[]RefOperation{{
+							Kind:     UpdateRef,
+							Ref:      "refs/heads/main",
+							NewHead:  &next,
+							Expected: &base,
+						}},
+					)
+				},
+			)
+			if test.drift {
+				requireGitxErrorCode(t, err, "AUTHORITY_MOVED")
+				if got := captureRefs(
+					t,
+					repository,
+					trackHeadRef(key),
+				)[0].Head; got != refresh.Candidate {
+					t.Fatalf("drift overwrote refreshed head %s", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prepared.Before != refresh.Candidate ||
+				prepared.RefreshFrom != base ||
+				len(prepared.ChangedPaths) != 1 ||
+				prepared.ChangedPaths[0] != "product.txt" {
+				t.Fatalf("prepared refresh = %#v", prepared)
+			}
+			want := refresh.Candidate
+			if test.edit {
+				want = sealed.Candidate
+				parents, err := repository.Parents(want)
+				if err != nil || len(parents) != 1 ||
+					parents[0] != refresh.Candidate {
+					t.Fatalf("refresh parents = %#v, %v", parents, err)
+				}
+			} else if sealed.Candidate != refresh.Candidate ||
+				sealed.Before != sealed.Candidate {
+				t.Fatalf("clean refresh manufactured a commit: %#v", sealed)
+			}
+			if got := captureRefs(
+				t,
+				repository,
+				trackHeadRef(key),
+			)[0].Head; got != want {
+				t.Fatalf("refreshed track = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 func TestGuardedSealRejectsReleaseTargetOrTrackSupersessionWithoutPublishing(t *testing.T) {
 	t.Parallel()
 

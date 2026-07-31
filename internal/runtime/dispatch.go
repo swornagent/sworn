@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
@@ -83,6 +84,23 @@ type continuationSelectionAuthority struct {
 	Model   string                 `json:"model"`
 }
 
+func continuationPlanDigest(oid, digest string, revision int64) string {
+	return driver.Digest(mustJSON(continuationPlanAuthority{
+		OID: oid, Digest: digest, Revision: revision,
+	}))
+}
+
+func continuationTargetDigest(
+	targetRef, targetHead, track, trackRef, preparedBase string,
+	evidence []productionEvidenceBinding,
+) string {
+	return driver.Digest(mustJSON(continuationTargetAuthority{
+		TargetRef: targetRef, TargetHead: targetHead,
+		Track: track, TrackRef: trackRef, PreparedBase: preparedBase,
+		Evidence: append([]productionEvidenceBinding(nil), evidence...),
+	}))
+}
+
 func continuationBindingForDispatch(
 	prepared preparedDriverDispatch,
 	coordinates dispatchCoordinates,
@@ -91,45 +109,59 @@ func continuationBindingForDispatch(
 		prepared.productionContext.Plan == nil ||
 		prepared.productionContext.Receipt == nil ||
 		coordinates.Slice == "" ||
-		coordinates.BatonAttempt < 1 ||
-		prepared.request.Role != driver.RoleImplementer {
+		coordinates.BatonAttempt < 1 {
+		return driver.ContinuationBinding{}, "",
+			runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	expectedRole := driver.RoleImplementer
+	source := continuationToolStage{
+		Responsibility: driver.ImplementerDesign,
+		Workspace:      driver.ReadOnly, FreshContext: true,
+	}
+	resume := continuationToolStage{
+		Responsibility: driver.ImplementerImplementation,
+		Workspace:      driver.ReadWrite, FreshContext: false,
+	}
+	preparedBase := prepared.productionContext.PreparedBase
+	if coordinates.Responsibility == driver.WorkVerification {
+		expectedRole = driver.RoleVerifier
+		preparedBase = ""
+		source = continuationToolStage{
+			Responsibility: driver.WorkVerification,
+			Workspace:      driver.ReadOnly, FreshContext: true,
+		}
+		resume = continuationToolStage{
+			Responsibility: driver.WorkVerification,
+			Workspace:      driver.ReadOnly, FreshContext: false,
+		}
+	} else if coordinates.Responsibility != driver.ImplementerDesign &&
+		coordinates.Responsibility != driver.ImplementerImplementation {
+		return driver.ContinuationBinding{}, "",
+			runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	if prepared.request.Role != expectedRole {
 		return driver.ContinuationBinding{}, "",
 			runtimeFail("INVALID_CONTINUATION", nil)
 	}
 	workContext := prepared.productionContext
-	planDigest := driver.Digest(mustJSON(continuationPlanAuthority{
-		OID:      workContext.Plan.OID,
-		Digest:   workContext.Plan.Digest,
-		Revision: workContext.Plan.Revision,
-	}))
-	targetDigest := driver.Digest(mustJSON(continuationTargetAuthority{
-		TargetRef:    workContext.Authority.TargetRef,
-		TargetHead:   workContext.Authority.TargetHead,
-		Track:        workContext.Track,
-		TrackRef:     workContext.Authority.TrackRef,
-		PreparedBase: workContext.PreparedBase,
-		Evidence: append(
-			make(
-				[]productionEvidenceBinding,
-				0,
-				len(workContext.Evidence),
-			),
-			workContext.Evidence...,
-		),
-	}))
+	planDigest := continuationPlanDigest(
+		workContext.Plan.OID,
+		workContext.Plan.Digest,
+		workContext.Plan.Revision,
+	)
+	targetDigest := continuationTargetDigest(
+		workContext.Authority.TargetRef,
+		workContext.Authority.TargetHead,
+		workContext.Track,
+		workContext.Authority.TrackRef,
+		preparedBase,
+		workContext.Evidence,
+	)
 	toolDigest := driver.Digest(mustJSON(continuationToolAuthority{
 		SchemaVersion: "sworn.continuation-tool-transition/v1",
 		Operation:     prepared.request.Operation,
-		Source: continuationToolStage{
-			Responsibility: driver.ImplementerDesign,
-			Workspace:      driver.ReadOnly,
-			FreshContext:   true,
-		},
-		Resume: continuationToolStage{
-			Responsibility: driver.ImplementerImplementation,
-			Workspace:      driver.ReadWrite,
-			FreshContext:   false,
-		},
+		Source:        source,
+		Resume:        resume,
 	}))
 	selectionDigest := driver.Digest(mustJSON(
 		continuationSelectionAuthority{
@@ -147,6 +179,100 @@ func continuationBindingForDispatch(
 		TargetAuthorityDigest: targetDigest,
 		ToolContractDigest:    toolDigest,
 	}, selectionDigest, nil
+}
+
+func sameStableContinuationAuthority(
+	entry *retainedContinuation,
+	binding driver.ContinuationBinding,
+	selectionDigest string,
+) bool {
+	if entry == nil || entry.handle == nil {
+		return false
+	}
+	binding.Attempt = entry.binding.Attempt
+	return entry.binding == binding && entry.selectionDigest == selectionDigest
+}
+
+func retainedDispatchContinuation(
+	handle *driver.Continuation,
+	binding driver.ContinuationBinding,
+	selectionDigest string,
+	before string,
+	sourceReceipt string,
+) *retainedContinuation {
+	return &retainedContinuation{
+		handle: handle, binding: binding, before: before,
+		selectionDigest: selectionDigest, sourceReceipt: sourceReceipt,
+	}
+}
+
+func verifierRepairContinuationMatches(
+	entry *retainedContinuation,
+	freshBinding driver.ContinuationBinding,
+	selectionDigest string,
+	work *productionWorkContext,
+	history baton.SliceHistory,
+) bool {
+	if entry == nil || entry.handle == nil || entry.verifierFailReceipt == "" ||
+		work == nil || work.Receipt == nil || work.Candidate == nil ||
+		work.Plan == nil ||
+		work.Responsibility != driver.WorkVerification ||
+		work.Receipt.OID != work.Candidate.Receipt ||
+		work.Authority.TrackHead != work.Receipt.OID ||
+		!sameStableContinuationAuthority(
+			entry,
+			freshBinding,
+			selectionDigest,
+		) {
+		return false
+	}
+	entries := make(map[string]*baton.ReceiptEntry, len(history.Entries))
+	for index := range history.Entries {
+		candidate := &history.Entries[index]
+		if candidate.OID == "" || entries[candidate.OID] != nil {
+			return false
+		}
+		entries[candidate.OID] = candidate
+	}
+	fail := entries[entry.verifierFailReceipt]
+	current := entries[work.Receipt.OID]
+	if fail == nil || current == nil ||
+		fail.Receipt.Role != "verifier" ||
+		fail.Receipt.Result != "fail" ||
+		fail.Receipt.Attempt == nil ||
+		*fail.Receipt.Attempt != entry.binding.Attempt ||
+		fail.Receipt.Plan != work.Plan.OID ||
+		fail.Receipt.SliceID() != work.Slice ||
+		current.Receipt.Candidate == nil ||
+		*current.Receipt.Candidate != work.Candidate.Commit {
+		return false
+	}
+	expectedAttempt := work.Attempt
+	seen := make(map[string]struct{}, len(history.Entries))
+	for steps := 0; steps < len(history.Entries); steps++ {
+		if current == nil ||
+			current.Receipt.Role != "implementer" ||
+			current.Receipt.Result != "candidate" ||
+			current.Receipt.Attempt == nil ||
+			*current.Receipt.Attempt != expectedAttempt ||
+			current.Receipt.Plan != work.Plan.OID ||
+			current.Receipt.SliceID() != work.Slice {
+			return false
+		}
+		if _, duplicate := seen[current.OID]; duplicate {
+			return false
+		}
+		seen[current.OID] = struct{}{}
+		if current.Receipt.Binds == fail.OID {
+			return expectedAttempt == *fail.Receipt.Attempt+1
+		}
+		expectedAttempt--
+		if expectedAttempt <= *fail.Receipt.Attempt {
+			return false
+		}
+		current = entries[current.Receipt.Binds]
+	}
+	return false
 }
 
 func continuationEventKind(
@@ -287,6 +413,22 @@ func preparedInvocation(
 	}
 }
 
+func preparedResumeInvocation(
+	prepared preparedDriverDispatch,
+	workspace *gitx.WorkspaceLease,
+	hook driver.RecoveryStepHook,
+) *driver.Invocation {
+	if prepared.resumeRequest == nil || prepared.resumePermission == nil {
+		return nil
+	}
+	invocation := preparedInvocation(
+		prepared, workspace, *prepared.resumeRequest,
+		*prepared.resumePermission,
+	)
+	invocation.RecoveryStepHook = hook
+	return &invocation
+}
+
 func currentPreparedProductionBody(
 	ctx context.Context,
 	engine *engine,
@@ -423,6 +565,196 @@ func (s *Service) invokeFreshRecoverableDriver(
 	return observation, nil, nil
 }
 
+func (s *Service) startPreparedContinuation(
+	ctx context.Context,
+	invocation driver.Invocation,
+	binding driver.ContinuationBinding,
+	continuationDriver driver.ContinuationDriver,
+) (
+	driver.Observation,
+	*driver.Continuation,
+	driver.ContinuationResult,
+	error,
+) {
+	observation, handle, result, invokeErr :=
+		continuationDriver.InvokeTurn(ctx, invocation, binding, nil)
+	invokeErr = runtimeContinuationError(invokeErr)
+	valid := handle == nil &&
+		validFreshContinuationStart(handle, result)
+	valid = valid || (handle != nil && invokeErr == nil &&
+		result.Status == driver.ContinuationStatusSuspended &&
+		validRetainedContinuationMode(result.Mode))
+	if valid {
+		return observation, handle, result, invokeErr
+	}
+	if cleanupErr := closeRetainedContinuation(
+		&retainedContinuation{handle: handle},
+	); cleanupErr != nil {
+		return driver.Observation{}, nil, result, cleanupErr
+	}
+	return observation, nil, result, errors.Join(
+		invokeErr, runtimeFail("INVALID_CONTINUATION", nil),
+	)
+}
+
+func resumePreparedContinuation(
+	ctx context.Context,
+	continuationDriver driver.ContinuationDriver,
+	invocation driver.Invocation,
+	binding driver.ContinuationBinding,
+	entry *retainedContinuation,
+) (
+	driver.Observation,
+	*driver.Continuation,
+	driver.ContinuationResult,
+	bool,
+	error,
+) {
+	if entry == nil || entry.handle == nil {
+		return driver.Observation{}, nil, driver.ContinuationResult{},
+			false, runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	source := entry.handle
+	entry.handle = nil
+	observation, next, result, invokeErr :=
+		continuationDriver.InvokeTurn(
+			ctx,
+			invocation,
+			binding,
+			source,
+		)
+	sourceCloseErr := source.Close()
+	invokeErr = runtimeContinuationError(invokeErr)
+	if sourceCloseErr != nil {
+		if next != nil {
+			sourceCloseErr = errors.Join(sourceCloseErr, next.Close())
+		}
+		return driver.Observation{}, nil, result, false,
+			runtimeFail(
+				"CONTINUATION_CLEANUP_FAILED",
+				sourceCloseErr,
+			)
+	}
+	if requestsFreshRehydrate(observation, result, invokeErr) {
+		if next != nil {
+			if cleanupErr := next.Close(); cleanupErr != nil {
+				return driver.Observation{}, nil, result, false,
+					runtimeFail(
+						"CONTINUATION_CLEANUP_FAILED",
+						cleanupErr,
+					)
+			}
+			return driver.Observation{}, nil, result, false,
+				runtimeFail("INVALID_CONTINUATION", nil)
+		}
+		return observation, nil, result, true, nil
+	}
+	if invokeErr != nil {
+		if cleanupErr := closeRetainedContinuation(
+			&retainedContinuation{handle: next},
+		); cleanupErr != nil {
+			return driver.Observation{}, nil, result, false, cleanupErr
+		}
+		return observation, nil, result, false, invokeErr
+	}
+	if next != nil {
+		if result.Status != driver.ContinuationStatusSuspended ||
+			!validRetainedContinuationMode(result.Mode) {
+			if cleanupErr := closeRetainedContinuation(
+				&retainedContinuation{handle: next},
+			); cleanupErr != nil {
+				return driver.Observation{}, nil, result, false, cleanupErr
+			}
+			return driver.Observation{}, nil, result, false,
+				runtimeFail("INVALID_CONTINUATION", nil)
+		}
+	} else if !validRetainedContinuationResume(next, result) {
+		return driver.Observation{}, nil, result, false,
+			runtimeFail("INVALID_CONTINUATION", nil)
+	}
+	return observation, next, result, false, nil
+}
+
+type continuationTurnPolicy struct {
+	retainFresh       bool
+	missingIsFallback bool
+}
+
+func (s *Service) invokeContinuationTurn(
+	ctx context.Context,
+	continuationDriver driver.ContinuationDriver,
+	supported bool,
+	freshInvocation driver.Invocation,
+	resumeInvocation *driver.Invocation,
+	binding driver.ContinuationBinding,
+	entry *retainedContinuation,
+	matches bool,
+	revalidate func() error,
+	policy continuationTurnPolicy,
+) (
+	driver.Observation,
+	*driver.Continuation,
+	*continuationDispatchFact,
+	error,
+) {
+	start := func() (
+		driver.Observation,
+		*driver.Continuation,
+		driver.ContinuationResult,
+		error,
+	) {
+		if policy.retainFresh && supported {
+			return s.startPreparedContinuation(
+				ctx, freshInvocation, binding,
+				continuationDriver,
+			)
+		}
+		observation, err := s.dispatcher.Invoke(ctx, freshInvocation)
+		return observation, nil, driver.ContinuationResult{
+			Mode:   driver.ContinuationModeFreshRehydrate,
+			Status: driver.ContinuationStatusCompleted,
+		}, err
+	}
+	fallback := entry != nil || policy.missingIsFallback
+	if !matches || !supported || resumeInvocation == nil {
+		if err := closeRetainedContinuation(entry); err != nil {
+			return driver.Observation{}, nil, nil, err
+		}
+		observation, next, _, err := start()
+		if !fallback {
+			return observation, next, nil, err
+		}
+		return observation, next, &continuationDispatchFact{
+			mode:    driver.ContinuationModeFreshRehydrate,
+			outcome: continuationOutcomeFallback,
+		}, err
+	}
+	observation, next, result, wantsFresh, err :=
+		resumePreparedContinuation(
+			ctx, continuationDriver, *resumeInvocation,
+			binding, entry,
+		)
+	if err != nil || !wantsFresh {
+		if err != nil {
+			return observation, nil, nil, err
+		}
+		return observation, next, &continuationDispatchFact{
+			mode: result.Mode, outcome: continuationOutcomeReuse,
+		}, nil
+	}
+	if err := revalidate(); err != nil {
+		return driver.Observation{}, nil, nil, err
+	}
+	outcome := continuationOutcomeFallback
+	if result.Status == driver.ContinuationStatusExpired {
+		outcome = continuationOutcomeFallbackExpired
+	}
+	observation, next, _, err = start()
+	return observation, next, &continuationDispatchFact{
+		mode: driver.ContinuationModeFreshRehydrate, outcome: outcome,
+	}, err
+}
+
 func (s *Service) invokePreparedDriver(
 	ctx context.Context,
 	engine *engine,
@@ -484,48 +816,21 @@ func (s *Service) invokePreparedDriver(
 			}
 			return driver.Observation{}, nil, nil, err
 		}
-		observation, handle, result, invokeErr :=
-			continuationDriver.InvokeTurn(
+		observation, handle, _, invokeErr :=
+			s.startPreparedContinuation(
 				ctx,
 				invocation,
 				binding,
-				nil,
+				continuationDriver,
 			)
-		invokeErr = runtimeContinuationError(invokeErr)
 		if handle == nil {
-			if !validFreshContinuationStart(handle, result) {
-				return observation, nil, nil,
-					errors.Join(
-						invokeErr,
-						runtimeFail("INVALID_CONTINUATION", nil),
-					)
-			}
 			return observation, nil, nil, invokeErr
 		}
-		if invokeErr != nil ||
-			result.Status != driver.ContinuationStatusSuspended ||
-			!validRetainedContinuationMode(result.Mode) {
-			closeErr := closeRetainedContinuation(
-				&retainedContinuation{handle: handle},
-			)
-			if closeErr != nil {
-				return observation, nil, nil, closeErr
-			}
-			return observation, nil, nil,
-				errors.Join(
-					invokeErr,
-					runtimeFail("INVALID_CONTINUATION", nil),
-				)
-		}
 		workContext := prepared.productionContext
-		return observation, &retainedContinuation{
-			handle:          handle,
-			binding:         binding,
-			selectionDigest: selectionDigest,
-			before:          before,
-			sourceReceipt:   workContext.Receipt.OID,
-			sourceTrackHead: workContext.Authority.TrackHead,
-		}, nil, nil
+		return observation, retainedDispatchContinuation(
+			handle, binding, selectionDigest, before,
+			workContext.Receipt.OID,
+		), nil, nil
 	case driver.ImplementerImplementation:
 		if err := revalidatePreparedProductionDispatch(
 			ctx,
@@ -580,74 +885,30 @@ func (s *Service) invokePreparedDriver(
 				prepared.productionContext.DesignReceipt.OID &&
 			entry.binding == binding &&
 			entry.selectionDigest == selectionDigest
-		if !matches {
-			if cleanupErr := closeRetainedContinuation(entry); cleanupErr != nil {
-				return driver.Observation{}, nil, nil, cleanupErr
-			}
-			observation, invokeErr := s.dispatcher.Invoke(ctx, invocation)
-			return observation, nil, &continuationDispatchFact{
-				mode:    driver.ContinuationModeFreshRehydrate,
-				outcome: continuationOutcomeFallback,
-			}, invokeErr
-		}
-		if !supported ||
-			prepared.resumeRequest == nil ||
-			prepared.resumePermission == nil {
-			if cleanupErr := closeRetainedContinuation(entry); cleanupErr != nil {
-				return driver.Observation{}, nil, nil, cleanupErr
-			}
-			observation, invokeErr := s.dispatcher.Invoke(ctx, invocation)
-			return observation, nil, &continuationDispatchFact{
-				mode:    driver.ContinuationModeFreshRehydrate,
-				outcome: continuationOutcomeFallback,
-			}, invokeErr
-		}
-		resumeInvocation := preparedInvocation(
-			prepared,
-			workspace,
-			*prepared.resumeRequest,
-			*prepared.resumePermission,
+		resumeInvocation := preparedResumeInvocation(
+			prepared, workspace, invocation.RecoveryStepHook,
 		)
-		resumeInvocation.RecoveryStepHook =
-			invocation.RecoveryStepHook
-		sourceHandle := entry.handle
-		observation, next, result, invokeErr :=
-			continuationDriver.InvokeTurn(
-				ctx,
-				resumeInvocation,
-				binding,
-				sourceHandle,
+		observation, next, fact, invokeErr :=
+			s.invokeContinuationTurn(
+				ctx, continuationDriver, supported,
+				invocation, resumeInvocation, binding, entry,
+				matches,
+				func() error {
+					return revalidatePreparedProductionDispatch(
+						ctx, engine, coordinates, before, prepared,
+					)
+				},
+				continuationTurnPolicy{missingIsFallback: true},
 			)
-		entry.handle = nil
-		if cleanupErr := sourceHandle.Close(); cleanupErr != nil {
-			if next != nil {
-				cleanupErr = errors.Join(
-					cleanupErr,
-					next.Close(),
-				)
-			}
-			return driver.Observation{}, nil, nil,
-				runtimeFail(
-					"CONTINUATION_CLEANUP_FAILED",
-					cleanupErr,
-				)
+		if invokeErr != nil {
+			return observation, nil, fact, invokeErr
 		}
-		invokeErr = runtimeContinuationError(invokeErr)
-		if invokeErr == nil && observation.Yield != nil {
-			if next == nil {
-				if !validFreshContinuationStart(next, result) {
-					return observation, nil, nil,
-						runtimeFail("INVALID_CONTINUATION", nil)
-				}
-				return observation, nil, nil, nil
+		if observation.Yield != nil {
+			if fact == nil ||
+				fact.outcome != continuationOutcomeReuse {
+				return observation, nil, fact, nil
 			}
-			if result.Status != driver.ContinuationStatusSuspended ||
-				!validRetainedContinuationMode(result.Mode) {
-				if cleanupErr := closeRetainedContinuation(
-					&retainedContinuation{handle: next},
-				); cleanupErr != nil {
-					return driver.Observation{}, nil, nil, cleanupErr
-				}
+			if next == nil {
 				return observation, nil, nil,
 					runtimeFail("INVALID_CONTINUATION", nil)
 			}
@@ -656,53 +917,108 @@ func (s *Service) invokePreparedDriver(
 				binding,
 				selectionDigest,
 				before,
-			), nil, nil
+			), fact, nil
 		}
-		if requestsFreshRehydrate(observation, result, invokeErr) {
-			if next != nil {
-				if cleanupErr := closeRetainedContinuation(
-					&retainedContinuation{handle: next},
-				); cleanupErr != nil {
-					return driver.Observation{}, nil, nil, cleanupErr
-				}
-				return driver.Observation{}, nil, nil,
-					runtimeFail("INVALID_CONTINUATION", nil)
-			}
-			if err := revalidatePreparedProductionDispatch(
-				ctx,
-				engine,
-				coordinates,
-				before,
-				prepared,
-			); err != nil {
-				return driver.Observation{}, nil, nil, err
-			}
-			outcome := continuationOutcomeFallback
-			if result.Status == driver.ContinuationStatusExpired {
-				outcome = continuationOutcomeFallbackExpired
-			}
-			observation, invokeErr = s.dispatcher.Invoke(ctx, invocation)
-			return observation, nil, &continuationDispatchFact{
-				mode:    driver.ContinuationModeFreshRehydrate,
-				outcome: outcome,
-			}, invokeErr
-		}
-		if !validRetainedContinuationResume(next, result) {
+		if next != nil {
 			if cleanupErr := closeRetainedContinuation(
 				&retainedContinuation{handle: next},
 			); cleanupErr != nil {
 				return observation, nil, nil, cleanupErr
 			}
 			return observation, nil, nil,
-				errors.Join(
-					invokeErr,
-					runtimeFail("INVALID_CONTINUATION", nil),
-				)
+				runtimeFail("INVALID_CONTINUATION", nil)
 		}
-		return observation, nil, &continuationDispatchFact{
-			mode:    result.Mode,
-			outcome: continuationOutcomeReuse,
-		}, invokeErr
+		return observation, nil, fact, nil
+	case driver.WorkVerification:
+		if err := revalidatePreparedProductionDispatch(
+			ctx,
+			engine,
+			coordinates,
+			before,
+			prepared,
+		); err != nil {
+			if cleanupErr := s.discardRetainedContinuation(
+				prepared.productionContext.RunID,
+				continuationVerifier,
+				coordinates.Slice,
+			); cleanupErr != nil {
+				return driver.Observation{}, nil, nil, cleanupErr
+			}
+			return driver.Observation{}, nil, nil, err
+		}
+		freshBinding, selectionDigest, err :=
+			continuationBindingForDispatch(prepared, coordinates)
+		if err != nil {
+			if cleanupErr := s.discardRetainedContinuation(
+				prepared.productionContext.RunID,
+				continuationVerifier,
+				coordinates.Slice,
+			); cleanupErr != nil {
+				return driver.Observation{}, nil, nil, cleanupErr
+			}
+			return driver.Observation{}, nil, nil, err
+		}
+		entry := s.takeRetainedContinuation(
+			prepared.productionContext.RunID,
+			continuationVerifier,
+			coordinates.Slice,
+		)
+		var history baton.SliceHistory
+		if entry != nil && entry.verifierFailReceipt != "" {
+			state, stateErr := baton.ReadState(
+				engine.git,
+				engine.manifest.value.Release,
+				engine.inertness,
+			)
+			current, found := state.Slice(coordinates.Slice)
+			if stateErr != nil || !found {
+				restoreErr := s.storeRetainedContinuation(
+					prepared.productionContext.RunID,
+					continuationVerifier,
+					coordinates.Slice,
+					entry,
+				)
+				if stateErr == nil {
+					stateErr = runtimeFail("STALE_DISPATCH", nil)
+				} else {
+					stateErr = runtimeFail("BATON_UNAVAILABLE", stateErr)
+				}
+				return driver.Observation{}, nil, nil,
+					errors.Join(stateErr, restoreErr)
+			}
+			history = current.History
+		}
+		matches := verifierRepairContinuationMatches(
+			entry,
+			freshBinding,
+			selectionDigest,
+			prepared.productionContext,
+			history,
+		)
+		resumeInvocation := preparedResumeInvocation(
+			prepared, workspace, invocation.RecoveryStepHook,
+		)
+		observation, next, fact, invokeErr :=
+			s.invokeContinuationTurn(
+				ctx, continuationDriver, supported,
+				invocation, resumeInvocation, freshBinding, entry,
+				matches,
+				func() error {
+					return revalidatePreparedProductionDispatch(
+						ctx, engine, coordinates, before, prepared,
+					)
+				},
+				continuationTurnPolicy{
+					retainFresh: true, missingIsFallback: prepared.productionContext.Attempt > 1,
+				},
+			)
+		if invokeErr != nil || next == nil {
+			return observation, nil, fact, invokeErr
+		}
+		return observation, retainedDispatchContinuation(
+			next, freshBinding, selectionDigest, before,
+			prepared.productionContext.Receipt.OID,
+		), fact, nil
 	default:
 		if recovery != nil {
 			observation, pending, err :=
@@ -873,9 +1189,7 @@ func (s *Service) prepareDriverDispatch(
 			RequestDigest: driver.Digest(requestBody),
 			Context:       *prepared.productionContext,
 		}
-		if coordinates.Responsibility ==
-			driver.ImplementerImplementation &&
-			prepared.productionContext.DesignReceipt != nil {
+		if hasContinuationResumeRequest(*prepared.productionContext) {
 			resumeRequest, requestErr :=
 				productionRequestForContextFreshness(
 					engine.manifest,
@@ -885,11 +1199,15 @@ func (s *Service) prepareDriverDispatch(
 			if requestErr != nil {
 				return preparedDriverDispatch{}, requestErr
 			}
+			resumeContainment := driver.ContainmentReadOnly
+			if resumeRequest.Workspace.Access == driver.ReadWrite {
+				resumeContainment = driver.ContainmentReadWrite
+			}
 			resumePermission, permissionErr :=
 				driver.NewSubmissionPermission(
 					resumeRequest,
 					selected,
-					driver.ContainmentReadWrite,
+					resumeContainment,
 					coordinates.Responsibility,
 				)
 			if permissionErr != nil {
@@ -1031,10 +1349,14 @@ func restorePreparedProductionDispatch(
 		if requestErr != nil {
 			return preparedDriverDispatch{}, requestErr
 		}
+		resumeContainment := driver.ContainmentReadOnly
+		if resume.Workspace.Access == driver.ReadWrite {
+			resumeContainment = driver.ContainmentReadWrite
+		}
 		resumePermission, permissionErr := driver.NewSubmissionPermission(
 			resume,
 			prepared.selected,
-			driver.ContainmentReadWrite,
+			resumeContainment,
 			workContext.Responsibility,
 		)
 		if permissionErr != nil {
@@ -1422,14 +1744,19 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	}
 	pendingStored := false
 	pendingCommitted := false
+	pendingKind := continuationDesign
+	if coordinates.Responsibility == driver.WorkVerification {
+		pendingKind = continuationVerifier
+	}
 	defer func() {
 		if pendingContinuation == nil || pendingCommitted {
 			return
 		}
 		var cleanupErr error
 		if pendingStored {
-			cleanupErr = s.discardContinuation(
+			cleanupErr = s.discardRetainedContinuation(
 				manifest.value.RunID,
+				pendingKind,
 				coordinates.Slice,
 			)
 		} else {
@@ -1624,9 +1951,21 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, err
 		}
 	}
+	if pendingContinuation != nil &&
+		coordinates.Responsibility == driver.WorkVerification &&
+		(submission.Decision == nil ||
+			submission.Decision.Outcome != driver.DecisionFail) {
+		if err := closeRetainedContinuation(
+			pendingContinuation,
+		); err != nil {
+			return driver.Submission{}, err
+		}
+		pendingContinuation = nil
+	}
 	if pendingContinuation != nil {
-		if err := s.storeContinuation(
+		if err := s.storeRetainedContinuation(
 			manifest.value.RunID,
+			pendingKind,
 			coordinates.Slice,
 			pendingContinuation,
 		); err != nil {

@@ -38,8 +38,8 @@ type RecoverableTurnInput struct {
 	Kind          RecoverableInputKind `json:"kind"`
 	Answer        string               `json:"answer,omitempty"`
 	// TargetBinding is runtime-only authority. It never reaches an adapter;
-	// an exact recovered Implementer design handoff may use it to retain the
-	// same private state for the ordinary implementation continuation.
+	// an exact recovered terminal handoff may use it to retain the same
+	// private state for its admitted continuation flow.
 	TargetBinding *ContinuationBinding `json:"-"`
 }
 
@@ -132,6 +132,10 @@ func startRecoverableTurn(
 		observation, contextErr := contextFailure(err)
 		fresh.Status = ContinuationStatusCancelled
 		return observation, nil, fresh, contextErr
+	}
+	if invocation.Request.Role == RoleVerifier &&
+		!invocation.Request.FreshContext {
+		return Observation{}, nil, fresh, fail("INVALID_VERIFIER")
 	}
 	if err := prepareRecoverableInvocation(&invocation, input); err != nil {
 		return Observation{}, nil, fresh, err
@@ -227,14 +231,23 @@ func resumeRecoverableTurn(
 		)
 	}
 	var promotionFingerprint [sha256.Size]byte
+	var promotionFlow continuationFlow
 	if promotionBinding != nil {
-		if validateContinuationSource(invocation) != nil ||
-			!sameContinuationScope(binding, *promotionBinding) {
+		var promotionErr error
+		promotionFlow, promotionErr = continuationFlowForInvocation(
+			invocation,
+			invocation.Request.Role != RoleVerifier,
+		)
+		if promotionErr != nil ||
+			!sameContinuationScope(
+				binding,
+				*promotionBinding,
+				promotionFlow == continuationFlowVerifier,
+			) {
 			return discardContinuation(
 				cell, ContinuationStatusMismatch, nil,
 			)
 		}
-		var promotionErr error
 		promotionFingerprint, promotionErr =
 			continuationFingerprint(*promotionBinding, invocation)
 		if promotionErr != nil {
@@ -274,10 +287,7 @@ func resumeRecoverableTurn(
 		cell.mu.Unlock()
 		return Observation{}, nil, fresh, nil
 	case cell.flow != continuationFlowRecoverable ||
-		cell.sourceRole != descriptor.Role ||
-		cell.sourceDuty != descriptor.Responsibility ||
-		cell.sourceAccess != descriptor.WorkspaceAccess ||
-		cell.sourceFresh != descriptor.FreshContext:
+		!validRecoverableContinuationTransition(cell, descriptor):
 		discardStatus = ContinuationStatusMismatch
 	case time.Now().UnixNano() >= cell.expiresNano:
 		discardStatus = ContinuationStatusExpired
@@ -344,7 +354,7 @@ func resumeRecoverableTurn(
 			promotionFingerprint,
 			invocation,
 			nextState,
-			continuationFlowW3,
+			promotionFlow,
 		)
 		return observation, handle, result, retainErr
 	}
@@ -358,14 +368,32 @@ func resumeRecoverableTurn(
 	}, invokeErr
 }
 
+func validRecoverableContinuationTransition(
+	cell *continuationCell,
+	target PermissionDescriptor,
+) bool {
+	if cell == nil ||
+		cell.sourceRole != target.Role ||
+		cell.sourceDuty != target.Responsibility ||
+		cell.sourceAccess != target.WorkspaceAccess {
+		return false
+	}
+	if target.Role == RoleVerifier &&
+		target.Responsibility == WorkVerification {
+		return !target.FreshContext
+	}
+	return cell.sourceFresh == target.FreshContext
+}
+
 func sameContinuationScope(
 	source ContinuationBinding,
 	target ContinuationBinding,
+	allowAttemptChange bool,
 ) bool {
 	return source.RunID == target.RunID &&
 		source.Release == target.Release &&
 		source.Slice == target.Slice &&
-		source.Attempt == target.Attempt &&
+		(allowAttemptChange || source.Attempt == target.Attempt) &&
 		source.PlanAuthorityDigest == target.PlanAuthorityDigest &&
 		source.TargetAuthorityDigest == target.TargetAuthorityDigest
 }

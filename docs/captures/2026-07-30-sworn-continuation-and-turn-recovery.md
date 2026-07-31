@@ -6,6 +6,13 @@ Status: agreed direction; implementation pending approved Baton plan
 
 Target: Sworn v1.0.0 release candidate
 
+Narrow update: the claim below that every Verifier turn must start fresh is
+superseded for direct repair by
+[Sworn Verifier repair continuation](2026-07-31-sworn-verifier-repair-continuation.md).
+The first work Verifier remains fresh and independent, and Assembly
+verification remains fresh. The rest of this capture remains useful design
+history.
+
 ## Outcome
 
 Sworn should preserve an Implementer's bounded reasoning context across the

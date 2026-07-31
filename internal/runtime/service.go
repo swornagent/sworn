@@ -43,13 +43,13 @@ type Service struct {
 }
 
 type retainedContinuation struct {
-	handle          *driver.Continuation
-	binding         driver.ContinuationBinding
-	selectionDigest string
-	before          string
-	sourceReceipt   string
-	sourceTrackHead string
-	designReceipt   string
+	handle              *driver.Continuation
+	binding             driver.ContinuationBinding
+	selectionDigest     string
+	before              string
+	sourceReceipt       string
+	designReceipt       string
+	verifierFailReceipt string
 }
 
 type RunStatus struct {
@@ -93,6 +93,7 @@ type sealedRecord struct {
 	Slice        string                   `json:"slice"`
 	Binds        string                   `json:"binds"`
 	Before       string                   `json:"before"`
+	RefreshFrom  string                   `json:"refresh_from,omitempty"`
 	Candidate    string                   `json:"candidate"`
 	Tree         string                   `json:"tree"`
 	ProductTree  string                   `json:"product_tree"`
@@ -111,6 +112,7 @@ type implementationCycle struct {
 	Track          string `json:"track"`
 	TrackRef       string `json:"track_ref"`
 	TrackHead      string `json:"track_head"`
+	RefreshFrom    string `json:"refresh_from,omitempty"`
 	Base           string `json:"base,omitempty"`
 	DispatchWork   string `json:"dispatch_work"`
 	DispatchEffect string `json:"dispatch_effect"`
@@ -232,6 +234,7 @@ func (s *Service) Close() error {
 const (
 	continuationDesign   = "design"
 	continuationRecovery = "recovery"
+	continuationVerifier = "verifier"
 )
 
 func continuationRegistryKey(runID, kind, identity string) string {
@@ -387,7 +390,10 @@ func (s *Service) closeRunRecoverableContinuations(runID string) error {
 }
 
 func (s *Service) closeRunContinuations(runID string) error {
-	return s.closeRunRetainedContinuations(runID, continuationDesign)
+	return errors.Join(
+		s.closeRunRetainedContinuations(runID, continuationDesign),
+		s.closeRunRetainedContinuations(runID, continuationVerifier),
+	)
 }
 
 func (s *Service) closeAllContinuations() error {

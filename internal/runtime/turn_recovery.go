@@ -699,18 +699,13 @@ func recoverableAuthorityMatches(
 	selectionDigest string,
 	before string,
 ) bool {
-	return entry != nil &&
-		entry.handle != nil &&
+	return sameStableContinuationAuthority(
+		entry,
+		fresh,
+		selectionDigest,
+	) &&
 		entry.before == before &&
-		entry.selectionDigest == selectionDigest &&
-		entry.binding.RunID == fresh.RunID &&
-		entry.binding.Release == fresh.Release &&
-		entry.binding.Slice == fresh.Slice &&
-		entry.binding.Attempt == fresh.Attempt &&
-		entry.binding.PlanAuthorityDigest ==
-			fresh.PlanAuthorityDigest &&
-		entry.binding.TargetAuthorityDigest ==
-			fresh.TargetAuthorityDigest
+		entry.binding.Attempt == fresh.Attempt
 }
 
 func (s *Service) invokeRecoverableWorker(
@@ -767,10 +762,19 @@ func (s *Service) invokeRecoverableWorker(
 			driver.ImplementerDesign &&
 		prepared.productionContext.Receipt != nil &&
 		entry.sourceReceipt ==
-			prepared.productionContext.Receipt.OID &&
-		entry.sourceTrackHead ==
-			prepared.productionContext.Authority.TrackHead
-	if promotableDesign {
+			prepared.productionContext.Receipt.OID
+	promotableVerifier := entry != nil &&
+		prepared.productionContext != nil &&
+		prepared.productionContext.Responsibility ==
+			driver.WorkVerification &&
+		prepared.productionContext.Receipt != nil &&
+		entry.binding.Attempt ==
+			prepared.productionContext.Attempt &&
+		entry.verifierFailReceipt == "" &&
+		entry.sourceReceipt ==
+			prepared.productionContext.Receipt.OID
+	promotableTerminal := promotableDesign || promotableVerifier
+	if promotableTerminal {
 		freshBinding, selectionDigest, err =
 			continuationBindingForDispatch(
 				prepared,
@@ -805,8 +809,9 @@ func (s *Service) invokeRecoverableWorker(
 	}
 	request, permission := prepared.request, prepared.permission
 	if entry != nil &&
-		entry.binding.ToolContractDigest !=
-			freshBinding.ToolContractDigest &&
+		(promotableVerifier ||
+			entry.binding.ToolContractDigest !=
+				freshBinding.ToolContractDigest) &&
 		prepared.resumeRequest != nil &&
 		prepared.resumePermission != nil {
 		request, permission =
@@ -821,7 +826,7 @@ func (s *Service) invokeRecoverableWorker(
 	invocation.RecoveryStepHook =
 		s.turnRecoveryStepHook(owner, cycle)
 	var targetBinding *driver.ContinuationBinding
-	if entry != nil && promotableDesign {
+	if entry != nil && promotableTerminal {
 		target := entry.binding
 		targetBinding = &target
 		input.TargetBinding = &target
@@ -901,7 +906,8 @@ func (s *Service) invokeRecoverableWorker(
 			)
 			if entry != nil {
 				retained.sourceReceipt = entry.sourceReceipt
-				retained.sourceTrackHead = entry.sourceTrackHead
+				retained.verifierFailReceipt =
+					entry.verifierFailReceipt
 			}
 			return observation, retained, nil
 		case next == nil && validFreshContinuationStart(next, result):
@@ -922,12 +928,12 @@ func (s *Service) invokeRecoverableWorker(
 			result.Status == driver.ContinuationStatusSuspended &&
 			validRetainedContinuationMode(result.Mode) {
 			return observation, &retainedContinuation{
-				handle:          next,
-				binding:         *targetBinding,
-				selectionDigest: selectionDigest,
-				before:          before,
-				sourceReceipt:   entry.sourceReceipt,
-				sourceTrackHead: entry.sourceTrackHead,
+				handle:              next,
+				binding:             *targetBinding,
+				selectionDigest:     selectionDigest,
+				before:              before,
+				sourceReceipt:       entry.sourceReceipt,
+				verifierFailReceipt: entry.verifierFailReceipt,
 			}, nil
 		}
 		if cleanupErr := closeRetainedContinuation(

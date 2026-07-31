@@ -111,6 +111,12 @@ type productionDispatchCommand struct {
 	Context             productionWorkContext `json:"context"`
 }
 
+func hasContinuationResumeRequest(work productionWorkContext) bool {
+	return work.Responsibility == driver.WorkVerification ||
+		(work.Responsibility == driver.ImplementerImplementation &&
+			work.DesignReceipt != nil)
+}
+
 func roleForResponsibility(
 	responsibility driver.Responsibility,
 ) (driver.Role, bool) {
@@ -611,15 +617,15 @@ func currentImplementationDesignReceipt(
 	track *baton.TrackState,
 ) (*baton.ReceiptEntry, error) {
 	if slice == nil || track == nil || slice.CurrentReceipt == nil ||
-		slice.CurrentReceipt.Receipt.SliceID() != slice.Location.Slice.ID ||
-		track.Head != slice.CurrentReceipt.OID {
+		slice.CurrentReceipt.Receipt.SliceID() != slice.Location.Slice.ID {
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	if slice.CurrentReceipt.Receipt.Role != "captain" ||
 		slice.CurrentReceipt.Receipt.Result != "proceed" {
 		return nil, nil
 	}
-	if slice.CurrentReceipt.Receipt.Attempt == nil ||
+	if track.Head != slice.CurrentReceipt.OID ||
+		slice.CurrentReceipt.Receipt.Attempt == nil ||
 		*slice.CurrentReceipt.Receipt.Attempt != slice.Attempt ||
 		slice.CurrentReceipt.Receipt.Plan != state.Plan.OID ||
 		slice.CurrentReceipt.Parent == "" {
@@ -925,9 +931,7 @@ func parseProductionDispatchCommand(
 		}
 		return command, nil
 	}
-	if command.Context.Responsibility ==
-		driver.ImplementerImplementation &&
-		command.Context.DesignReceipt != nil {
+	if hasContinuationResumeRequest(command.Context) {
 		resume, err := productionRequestForContextFreshness(
 			manifest,
 			command.Context,

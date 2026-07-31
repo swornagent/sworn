@@ -753,6 +753,19 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		RequestDigest: driver.Digest(requestBody),
 		Context:       contextValue,
 	}
+	resumeRequest, err := productionRequestForContextFreshness(
+		manifest,
+		contextValue,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeBody, err := driver.EncodeRequest(resumeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.ResumeRequestDigest = driver.Digest(resumeBody)
 	if _, err := parseProductionDispatchCommand(
 		manifest,
 		mustJSON(command),
@@ -1371,6 +1384,42 @@ func productionImplementationSubmission(
 	return submission, body
 }
 
+func productionImplementationObservation(
+	t *testing.T,
+	invocation driver.Invocation,
+) driver.Observation {
+	t.Helper()
+	_, submissionBody := productionImplementationSubmission(
+		t,
+		invocation.Request.InvocationID,
+	)
+	sealBody, err := json.Marshal(driver.Seal{
+		SchemaVersion:    driver.SealSchemaVersion,
+		InvocationID:     invocation.Request.InvocationID,
+		SubmissionDigest: driver.Digest(submissionBody),
+		Accepted:         true,
+		Code:             "accepted",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealBody = append(sealBody, '\n')
+	return driver.Observation{
+		TransportStatus: driver.Completed,
+		Usage: driver.UsageReceipt{
+			TokenStatus: driver.UsageUnavailable,
+			CostStatus:  driver.UsageUnavailable,
+		},
+		Diagnostic: driver.Diagnostic{Code: "none"},
+		Handoff: &driver.SealedHandoff{
+			SubmissionBytes:  submissionBody,
+			SubmissionDigest: driver.Digest(submissionBody),
+			SealBytes:        sealBody,
+			SealDigest:       driver.Digest(sealBody),
+		},
+	}
+}
+
 func prepareClaimedProductionImplementation(
 	t *testing.T,
 	fixture *productionImplementationRecoveryFixture,
@@ -1447,6 +1496,770 @@ func prepareClaimedProductionImplementation(
 		t.Fatal(err)
 	}
 	return record, preparedClaim, dispatchClaim
+}
+
+func TestCandidateHeadRefreshDispatchAndReceipt(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		consumes   bool
+		driverEdit bool
+		outOfScope bool
+	}{
+		{name: "non-consuming clean adoption"},
+		{name: "consuming clean adoption", consumes: true},
+		{name: "refresh plus legitimate edit", driverEdit: true},
+		{name: "out-of-scope clean adoption", outOfScope: true},
+		{
+			name:       "out-of-scope refresh plus legitimate edit",
+			driverEdit: true, outOfScope: true,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			runCandidateHeadRefreshDispatch(
+				t,
+				test.consumes,
+				test.driverEdit,
+				test.outOfScope,
+			)
+		})
+	}
+}
+
+func runCandidateHeadRefreshDispatch(
+	t *testing.T,
+	consumes bool,
+	driverEdit bool,
+	outOfScope bool,
+) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(
+		config,
+		driver.DriverFactoryOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 31, 1, 2, 3, 0, time.UTC)
+	store, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "journal.sqlite"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.AcquireOwner(
+		ctx,
+		manifest.value.RunID,
+		now,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invocations atomic.Int64
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		invocations.Add(1)
+		if driverEdit {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "two.txt"),
+				[]byte("driver refresh\n"),
+				0o600,
+			); err != nil {
+				return driver.Observation{}, err
+			}
+		}
+		return productionImplementationObservation(t, invocation), nil
+	})
+	service := &Service{
+		journal: store, dispatcher: dispatcher, production: production,
+		gitExecutable: gitExecutable, now: func() time.Time { return now },
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+
+	_, parsed := runtimePlan(
+		t,
+		manifest.value.Release,
+		manifest.value.Approval.Repository,
+		manifest.value.TargetRef,
+		"approval-release-1-v1",
+	)
+	metadata := parsed.Metadata()
+	if consumes {
+		metadata.Tracks[1].Slices[0].Consumes = []string{"S1"}
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nConsuming refresh fixture.\n",
+	)
+	if _, err := engine.actions.RecordPlanRevision(
+		baton.RecordPlanRevisionInput{
+			PlanBytes: planBytes,
+			Summary:   "Install the consuming refresh plan.",
+			Detail:    []byte("Exact consuming refresh fixture."),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	appendReceipt := func(input baton.AppendReceiptInput) baton.ActionResult {
+		t.Helper()
+		result, err := engine.actions.AppendReceipt(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	readState := func() baton.State {
+		t.Helper()
+		state, err := baton.ReadState(
+			engine.git,
+			manifest.value.Release,
+			engine.inertness,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	prepare := func(sliceID string) (baton.State, *baton.SliceState) {
+		t.Helper()
+		state := readState()
+		slice, ok := state.Slice(sliceID)
+		if !ok {
+			t.Fatalf("slice %s is absent", sliceID)
+		}
+		state, slice, err = service.prepareTrackBaseForSlice(
+			ctx,
+			engine,
+			owner,
+			state,
+			slice,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state, slice
+	}
+	sealTrack := func(track, path, contents string) gitx.SealedCandidate {
+		t.Helper()
+		workspace, err := engine.workspaces.OpenTrack(
+			gitx.TrackKey{
+				Release: manifest.value.Release,
+				Track:   track,
+			},
+			gitx.ImplementationView,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer workspace.Close()
+		if err := os.WriteFile(
+			filepath.Join(workspace.Path(), path),
+			[]byte(contents),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		candidate, err := engine.workspaces.SealTrack(workspace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return candidate
+	}
+
+	_, _ = prepare("S1")
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1",
+		Role: "implementer", Result: "designed",
+		Summary: "Design producer.", Detail: []byte("Exact producer design."),
+	})
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1",
+		Role: "captain", Result: "proceed",
+		Summary: "Proceed producer.", Detail: []byte("Exact producer review."),
+	})
+	producer := sealTrack("T1", "one.txt", "producer\n")
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1",
+		Role: "implementer", Result: "candidate",
+		Summary: "Producer candidate.", Detail: []byte("Exact producer."),
+		Candidate:    producer.Candidate.String(),
+		CheckResults: []byte("producer checks\n"),
+	})
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1",
+		Role: "verifier", Result: "pass",
+		Summary: "Producer passes.", Detail: []byte("Exact producer verification."),
+		Candidate:    producer.Candidate.String(),
+		CheckResults: []byte("producer verification checks\n"),
+	})
+
+	_, _ = prepare("S2")
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S2",
+		Role: "implementer", Result: "designed",
+		Summary: "Design consumer.", Detail: []byte("Exact consumer design."),
+	})
+	appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S2",
+		Role: "captain", Result: "proceed",
+		Summary: "Proceed consumer.", Detail: []byte("Exact consumer review."),
+	})
+	consumerReady := readState()
+	consumer, ok := consumerReady.Slice("S2")
+	if !ok ||
+		(consumes && consumer.PreparedBase == "") ||
+		(!consumes && consumer.PreparedBase != "") {
+		t.Fatalf("consumer base = %#v", consumer)
+	}
+	firstBase := consumer.PreparedBase
+	firstCandidate := sealTrack("T2", "two.txt", "first consumer\n")
+	firstReceipt := appendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S2",
+		Role: "implementer", Result: "candidate",
+		Summary: "First consumer candidate.", Detail: []byte("Exact first consumer."),
+		Base: firstBase, Candidate: firstCandidate.Candidate.String(),
+		CheckResults: []byte("first consumer checks\n"),
+	})
+	if firstReceipt.Receipt == nil {
+		t.Fatal("first consumer receipt is absent")
+	}
+	refreshPath := "two.txt"
+	refreshBody := "unreceipted refresh\n"
+	if outOfScope {
+		refreshPath = "outside.txt"
+		refreshBody = "out-of-scope refresh\n"
+	}
+	unreceipted := sealTrack("T2", refreshPath, refreshBody)
+	refreshed := readState()
+	consumer, ok = refreshed.Slice("S2")
+	track, trackOK := refreshed.Track("T2")
+	stableBase := firstReceipt.ReceiptCommit
+	baseStable := consumer.PreparedBase == ""
+	if consumes {
+		baseStable = consumer.PreparedBase == stableBase
+	}
+	if !ok || !trackOK ||
+		!baseStable ||
+		track.Head != unreceipted.Candidate.String() ||
+		!candidateHeadRefresh(refreshed, consumer) {
+		t.Fatalf("consuming refresh = track %#v slice %#v", track, consumer)
+	}
+
+	dispatchErr := service.implementSlice(
+		ctx,
+		engine,
+		owner,
+		refreshed,
+		consumer,
+	)
+	if outOfScope {
+		if !IsCode(dispatchErr, "EFFECT_PARKED") {
+			t.Fatalf("out-of-scope refresh error = %v", dispatchErr)
+		}
+		rejected := readState()
+		rejectedSlice, ok := rejected.Slice("S2")
+		rejectedTrack, trackOK := rejected.Track("T2")
+		if !ok || !trackOK ||
+			rejectedTrack.Head != unreceipted.Candidate.String() ||
+			rejectedSlice.CurrentReceipt == nil ||
+			rejectedSlice.CurrentReceipt.OID != stableBase ||
+			rejectedSlice.Stage != "implement" {
+			t.Fatalf(
+				"rejected refresh mutated authority = track %#v slice %#v",
+				rejectedTrack,
+				rejectedSlice,
+			)
+		}
+		snapshot, err := store.Snapshot(ctx, owner.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		failures := 0
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "git.seal" &&
+				effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+				failures++
+			}
+			if effect.Kind == "git.seal.prepared" {
+				t.Fatalf("out-of-scope refresh wrote prepared receipt: %#v", effect)
+			}
+		}
+		if failures != 3 {
+			t.Fatalf("scope failures = %d, want 3", failures)
+		}
+		return
+	}
+	if dispatchErr != nil {
+		t.Fatalf("dispatch candidate refresh: %v", dispatchErr)
+	}
+	completed := readState()
+	consumer, ok = completed.Slice("S2")
+	if !ok ||
+		consumer.Stage != "verify" ||
+		consumer.Attempt != 2 ||
+		consumer.CurrentReceipt == nil ||
+		consumer.CurrentReceipt.Receipt.Binds != stableBase ||
+		consumer.CurrentReceipt.Receipt.Candidate == nil ||
+		invocations.Load() != 1 {
+		t.Fatalf("completed consuming refresh = %#v", consumer)
+	}
+	if consumes {
+		if consumer.CurrentReceipt.Receipt.Base == nil ||
+			*consumer.CurrentReceipt.Receipt.Base != stableBase {
+			t.Fatalf("consuming receipt base = %#v", consumer.CurrentReceipt)
+		}
+	} else if consumer.CurrentReceipt.Receipt.Base != nil {
+		t.Fatalf("non-consuming receipt base = %#v", consumer.CurrentReceipt)
+	}
+	snapshot, err := store.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sealed sealedRecord
+	sealedCount := 0
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "git.seal" || effect.State != journal.Succeeded ||
+			len(effect.Result) == 0 {
+			continue
+		}
+		if err := json.Unmarshal(effect.Result, &sealed); err != nil {
+			t.Fatal(err)
+		}
+		sealedCount++
+	}
+	if sealedCount != 1 ||
+		sealed.Before != unreceipted.Candidate.String() ||
+		sealed.RefreshFrom != stableBase ||
+		sealed.Candidate != *consumer.CurrentReceipt.Receipt.Candidate ||
+		len(sealed.ChangedPaths) != 1 ||
+		sealed.ChangedPaths[0] != "two.txt" {
+		t.Fatalf("refresh seal evidence = %#v (count %d)", sealed, sealedCount)
+	}
+	wantCandidate := unreceipted.Candidate.String()
+	if driverEdit {
+		wantCandidate = *consumer.CurrentReceipt.Receipt.Candidate
+		if wantCandidate == unreceipted.Candidate.String() {
+			t.Fatal("driver edit was adopted without a new candidate")
+		}
+		candidate, parseErr := gitx.ParseOID(
+			engine.repository.ObjectFormat(),
+			wantCandidate,
+		)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		parents, err := engine.repository.Parents(candidate)
+		if err != nil || len(parents) != 1 ||
+			parents[0] != unreceipted.Candidate {
+			t.Fatalf("refreshed candidate parents = %#v, %v", parents, err)
+		}
+	} else if *consumer.CurrentReceipt.Receipt.Candidate != wantCandidate {
+		t.Fatalf(
+			"clean refresh candidate = %s, want adopted %s",
+			*consumer.CurrentReceipt.Receipt.Candidate,
+			wantCandidate,
+		)
+	}
+	if body := runRuntimeGit(
+		t,
+		repository,
+		"show",
+		*consumer.CurrentReceipt.Receipt.Candidate+":two.txt",
+	); body != map[bool]string{
+		false: "unreceipted refresh",
+		true:  "driver refresh",
+	}[driverEdit] {
+		t.Fatalf("refreshed consumer body = %q", body)
+	}
+}
+
+type preparedHeadRefreshRecovery struct {
+	fixture *productionImplementationRecoveryFixture
+	cycle   implementationCycle
+	head    gitx.OID
+}
+
+func prepareCleanHeadRefreshRecovery(
+	t *testing.T,
+) preparedHeadRefreshRecovery {
+	t.Helper()
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		return productionImplementationObservation(t, invocation), nil
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	if err := fixture.workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.completeImplementationFailure(
+		fixture.ctx,
+		fixture.owner,
+		fixture.outer.ID,
+		fixture.outer.CurrentClaim,
+		"superseded_test_cycle",
+	); err != nil {
+		t.Fatal(err)
+	}
+	seal := func(contents string) gitx.SealedCandidate {
+		t.Helper()
+		workspace, err := fixture.engine.workspaces.OpenTrack(
+			gitx.TrackKey{
+				Release: fixture.manifest.value.Release,
+				Track:   "T1",
+			},
+			gitx.ImplementationView,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(workspace.Path(), "one.txt"),
+			[]byte(contents),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		candidate, err := fixture.engine.workspaces.SealTrack(workspace)
+		if closeErr := workspace.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return candidate
+	}
+	first := seal("first candidate\n")
+	firstReceipt, err := fixture.engine.actions.AppendReceipt(
+		baton.AppendReceiptInput{
+			Release:      fixture.manifest.value.Release,
+			Slice:        "S1",
+			Role:         "implementer",
+			Result:       "candidate",
+			Summary:      "First candidate.",
+			Detail:       []byte("Exact first candidate."),
+			Candidate:    first.Candidate.String(),
+			CheckResults: []byte("first checks\n"),
+		},
+	)
+	if err != nil || firstReceipt.Receipt == nil {
+		t.Fatalf("first candidate receipt = %#v, %v", firstReceipt, err)
+	}
+	head := seal("unreceipted correction\n")
+	state, err := baton.ReadState(
+		fixture.engine.git,
+		fixture.manifest.value.Release,
+		fixture.engine.inertness,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slice, ok := state.Slice("S1")
+	track, trackOK := state.Track("T1")
+	if !ok || !trackOK ||
+		!candidateHeadRefresh(state, slice) ||
+		slice.CurrentReceipt == nil ||
+		slice.CurrentReceipt.OID != firstReceipt.ReceiptCommit ||
+		track.Head != head.Candidate.String() {
+		t.Fatalf("prepared refresh authority = track %#v slice %#v", track, slice)
+	}
+	before := sliceFingerprint(state, "S1")
+	outerWork := workIdentity(before, "git.seal")
+	outerID := journal.AttemptEffectID(outerWork, 1, 1)
+	cycle := implementationCycle{
+		Release:     state.Release,
+		Slice:       "S1",
+		Binds:       slice.CurrentReceipt.OID,
+		Before:      before,
+		Plan:        state.Plan.OID,
+		ReleaseHead: state.Refs.Release.Head,
+		TargetHead:  state.Refs.Target.Head,
+		Track:       track.ID,
+		TrackRef:    track.Ref,
+		TrackHead:   track.Head,
+		RefreshFrom: slice.CurrentReceipt.OID,
+		DispatchWork: workIdentity(
+			outerWork,
+			"driver.dispatch",
+		),
+		PreparedWork: workIdentity(
+			outerWork,
+			"git.seal.prepared",
+		),
+	}
+	cycle.DispatchEffect = journal.AttemptEffectID(
+		cycle.DispatchWork,
+		1,
+		1,
+	)
+	cycle.PreparedEffect = journal.AttemptEffectID(
+		cycle.PreparedWork,
+		1,
+		1,
+	)
+	payload := mustJSON(cycle)
+	if err := fixture.store.EnsureAttempt(
+		fixture.ctx,
+		journal.Command{
+			RunID: fixture.owner.RunID, ReplayKey: outerID,
+			Kind: "git.seal", Payload: payload, CreatedAt: fixture.now,
+		},
+		journal.Effect{
+			RunID: fixture.owner.RunID, ID: outerID,
+			ReplayKey: outerID, Kind: "git.seal",
+			BeforeDigest:   outerWork,
+			ExpectedDigest: sha256Digest(payload),
+			UpdatedAt:      fixture.now,
+		},
+		journal.EffectAttempt{
+			WorkID: outerWork,
+			Epoch:  1,
+			Try:    1,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	outerClaim, err := fixture.store.ClaimOwned(
+		fixture.ctx,
+		fixture.owner,
+		outerID,
+		fixture.now,
+		effectLease,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outerClaim.Token == "" {
+		t.Fatal("refresh recovery outer claim is empty")
+	}
+	workspace, err := fixture.engine.workspaces.OpenTrack(
+		gitx.TrackKey{
+			Release: fixture.manifest.value.Release,
+			Track:   "T1",
+		},
+		gitx.ImplementationView,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, preparedClaim, err :=
+		fixture.service.runProductionImplementationDispatch(
+			fixture.ctx,
+			fixture.engine,
+			fixture.owner,
+			workspace,
+			cycle,
+			dispatchCoordinates{
+				Slice:          "S1",
+				Responsibility: driver.ImplementerImplementation,
+				BatonAttempt:   slice.Attempt,
+				Epoch:          1,
+				Try:            1,
+			},
+		)
+	if closeErr := workspace.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Before != head.Candidate.String() ||
+		record.Candidate != head.Candidate.String() ||
+		record.RefreshFrom != firstReceipt.ReceiptCommit ||
+		preparedClaim.Token == "" {
+		t.Fatalf("prepared clean adoption = %#v", record)
+	}
+	return preparedHeadRefreshRecovery{
+		fixture: fixture,
+		cycle:   cycle,
+		head:    head.Candidate,
+	}
+}
+
+func TestCleanHeadRefreshPreparedRecoveryNeverRewindsOrDuplicates(
+	t *testing.T,
+) {
+	for _, foreign := range []bool{false, true} {
+		name := "completes"
+		if foreign {
+			name = "foreign head fails closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			prepared := prepareCleanHeadRefreshRecovery(t)
+			foreignHead := prepared.head
+			if foreign {
+				workspace, err := prepared.fixture.engine.workspaces.OpenTrack(
+					gitx.TrackKey{
+						Release: prepared.fixture.manifest.value.Release,
+						Track:   "T1",
+					},
+					gitx.ImplementationView,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(
+					filepath.Join(workspace.Path(), "one.txt"),
+					[]byte("foreign correction\n"),
+					0o600,
+				); err != nil {
+					t.Fatal(err)
+				}
+				sealed, err := prepared.fixture.engine.workspaces.SealTrack(
+					workspace,
+				)
+				if closeErr := workspace.Close(); err == nil {
+					err = closeErr
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				foreignHead = sealed.Candidate
+			}
+			if err := prepared.fixture.engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			production, err := newProductionDriverRuntime(
+				prepared.fixture.config,
+				driver.DriverFactoryOptions{},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restarted := &Service{
+				journal:       prepared.fixture.store,
+				production:    production,
+				gitExecutable: prepared.fixture.service.gitExecutable,
+				now: func() time.Time {
+					return prepared.fixture.now
+				},
+			}
+			restartedEngine, err := restarted.openEngine(
+				prepared.fixture.manifest,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer restartedEngine.Close()
+			recovered, err :=
+				restarted.recoverImplementationClaims(
+					prepared.fixture.ctx,
+					restartedEngine,
+					prepared.fixture.owner,
+				)
+			if foreign {
+				if !recovered || !IsCode(err, "RECOVERY_UNCERTAIN") {
+					t.Fatalf("foreign recovery = %t, %v", recovered, err)
+				}
+				if got := runRuntimeGit(
+					t,
+					prepared.fixture.repository,
+					"rev-parse",
+					prepared.cycle.TrackRef,
+				); got != foreignHead.String() {
+					t.Fatalf("foreign head was rewritten to %s", got)
+				}
+				state, stateErr := baton.ReadState(
+					restartedEngine.git,
+					prepared.fixture.manifest.value.Release,
+					restartedEngine.inertness,
+				)
+				if stateErr != nil {
+					t.Fatal(stateErr)
+				}
+				slice, _ := state.Slice("S1")
+				for _, entry := range slice.History.Entries {
+					if entry.Receipt.Role == "implementer" &&
+						entry.Receipt.Result == "candidate" &&
+						entry.Receipt.Attempt != nil &&
+						*entry.Receipt.Attempt == 2 {
+						t.Fatalf("foreign recovery wrote receipt %#v", entry)
+					}
+				}
+				return
+			}
+			if err != nil || !recovered {
+				t.Fatalf("clean recovery = %t, %v", recovered, err)
+			}
+			for attempts := 0; attempts < 3; attempts++ {
+				recovered, err =
+					restarted.recoverImplementationClaims(
+						prepared.fixture.ctx,
+						restartedEngine,
+						prepared.fixture.owner,
+					)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !recovered {
+					break
+				}
+			}
+			if recovered {
+				t.Fatal("clean adoption recovery did not become quiescent")
+			}
+			state, err := baton.ReadState(
+				restartedEngine.git,
+				prepared.fixture.manifest.value.Release,
+				restartedEngine.inertness,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			slice, ok := state.Slice("S1")
+			candidates := 0
+			for _, entry := range slice.History.Entries {
+				if entry.Receipt.Role != "implementer" ||
+					entry.Receipt.Result != "candidate" ||
+					entry.Receipt.Attempt == nil ||
+					*entry.Receipt.Attempt != 2 {
+					continue
+				}
+				candidates++
+				if entry.Receipt.Candidate == nil ||
+					*entry.Receipt.Candidate != prepared.head.String() {
+					t.Fatalf("recovered candidate = %#v", entry)
+				}
+			}
+			if !ok || slice.Stage != "verify" || candidates != 1 {
+				t.Fatalf(
+					"recovered slice = %#v, attempt-2 candidates=%d",
+					slice,
+					candidates,
+				)
+			}
+		})
+	}
 }
 
 func TestProductionImplementationRecoveryBeforeAnyChildRetriesKnownOldState(

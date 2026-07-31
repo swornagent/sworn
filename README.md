@@ -34,7 +34,7 @@ approval or a passing verdict.
 ## Current release candidate
 
 The binary identifies as Sworn `1.0.0-rc.1` and includes Baton
-`1.0.0-rc.11`. Run `sworn version` for the readable identity or
+`1.0.0-rc.12`. Run `sworn version` for the readable identity or
 `sworn version --json` for the complete machine-readable identity.
 
 This candidate can:

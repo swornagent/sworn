@@ -3,6 +3,13 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+import {
+  DIAGNOSTIC_LABELS,
+  OPERATION_LABELS,
+  ROLE_LABELS,
+  STATE_LABELS,
+} from './presentation.mjs';
+
 const BOARD_VERSION = 'baton.board/v1';
 const ANSI_PATTERN = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\)?|[ -/]*[@-~]?)/g;
 const UNSAFE_CONTROL_PATTERN = /[\u0000-\u000c\u000e-\u001f\u007f-\u009f]/g;
@@ -37,6 +44,19 @@ function display(value, fallback = '\u2014') {
   return sanitizeTerminalText(value);
 }
 
+function tokenLabel(value) {
+  if (value === null || value === undefined || value === '') return '\u2014';
+  return STATE_LABELS[value] ?? display(value).replaceAll('_', ' ');
+}
+
+function roleLabel(value) {
+  return ROLE_LABELS[value] ?? tokenLabel(value);
+}
+
+function operationLabel(value) {
+  return OPERATION_LABELS[value] ?? tokenLabel(value);
+}
+
 function operationText(operation) {
   if (!operation) return null;
   const identity = [
@@ -44,7 +64,7 @@ function operationText(operation) {
     operation.track,
     operation.work,
   ].filter((value) => value !== null).map(display).join(' / ');
-  return `${display(operation.operation)} [${display(operation.scope)}] ${identity}`;
+  return `${operationLabel(operation.operation)} \u2014 ${identity} (${display(operation.operation)})`;
 }
 
 function stateColor(state) {
@@ -59,72 +79,92 @@ function renderDiagnostic(lines, item, color) {
     .filter((value) => value !== null)
     .map(display)
     .join(' / ');
-  const prefix = scope ? `${scope}: ` : '';
-  lines.push(`  ${paint(color, 'red', '!')} ${display(item.code)} ${prefix}${display(item.message)}`);
+  const explanation = DIAGNOSTIC_LABELS[item.code] ?? display(item.message);
+  lines.push(`  ${paint(color, item.code === 'TRACK_REF_ABSENT' ? 'cyan' : 'red', '!')} ${explanation}`);
+  const original = DIAGNOSTIC_LABELS[item.code] ? ` \u2014 ${display(item.message)}` : '';
+  lines.push(
+    `    Technical details: ${display(item.code)}${scope ? ` \u00b7 ${scope}` : ''}${original}`,
+  );
 }
 
 function renderWork(lines, work, color) {
-  const state = `${display(work.stage)} / ${display(work.status)} / ${display(work.next_role)}`;
-  const attempt = work.attempt === undefined ? '' : `  attempt=${display(work.attempt)}`;
+  const headline = work.blocker
+    ? 'Needs a decision'
+    : work.status === 'ready' && work.next_role
+      ? `Ready for ${roleLabel(work.next_role)}`
+      : tokenLabel(work.status);
+  const attempt = work.attempt === undefined ? '' : ` \u00b7 attempt ${display(work.attempt)}`;
   lines.push(
-    `    ${display(work.id)}  ${paint(color, stateColor(work.status), state)}${attempt}  outcome=${display(work.outcome)}`,
-  );
-  lines.push(
-    `      source ${display(work.source?.mode)} ${display(work.source?.ref)} @ ${display(work.source?.head)}`,
+    `    ${display(work.id)} \u2014 ${paint(color, stateColor(work.status), headline)}${attempt}`,
   );
   if (work.depends_on?.length > 0) {
-    lines.push(`      depends ${work.depends_on.map(display).join(', ')}`);
+    lines.push(`      Follows: ${work.depends_on.map(display).join(', ')}`);
   }
   if (work.blocker) {
     lines.push(
-      `      ${paint(color, 'red', 'blocked')} ${display(work.blocker.code)}: ${display(work.blocker.summary)}`,
+      `      ${paint(color, 'red', 'What happened:')} ${display(work.blocker.summary)}`,
     );
+    lines.push(`      Technical details: ${display(work.blocker.code)}`);
   }
   const next = operationText(work.next_operation);
-  if (next) lines.push(`      ${paint(color, 'yellow', 'next')} ${next}`);
+  if (next) lines.push(`      ${paint(color, 'yellow', 'Next:')} ${next}`);
+  lines.push(
+    `      Technical details: stage=${display(work.stage)} \u00b7 status=${display(work.status)} \u00b7 next_role=${display(work.next_role)} \u00b7 outcome=${display(work.outcome)}`,
+  );
+  lines.push(
+    `      Source: ${display(work.source?.mode)} ${display(work.source?.ref)} @ ${display(work.source?.head)}`,
+  );
 }
 
 function renderTrack(lines, track, color) {
-  const composed = paint(color, stateColor(track.composition), display(track.composition));
+  const composed = paint(color, stateColor(track.composition), tokenLabel(track.composition));
   lines.push(
-    `  Track ${display(track.id)}  ${composed}  materialisation=${display(track.materialisation)}`,
+    `  Track ${display(track.id)} \u2014 ${composed}`,
   );
-  lines.push(`    ref ${display(track.ref)} @ ${display(track.head)}`);
-  if (track.frozen_head) lines.push(`    frozen ${display(track.frozen_head)}`);
   if (track.depends_on?.length > 0) {
-    lines.push(`    depends ${track.depends_on.map(display).join(', ')}`);
+    lines.push(`    Follows: ${track.depends_on.map(display).join(', ')}`);
   }
   if (track.blockers?.length > 0) {
-    lines.push(`    ${paint(color, 'red', 'waiting for')} ${track.blockers.map(display).join(', ')}`);
+    lines.push(`    ${paint(color, 'yellow', 'Waiting for:')} ${track.blockers.map(display).join(', ')}`);
   }
   for (const work of track.work ?? []) renderWork(lines, work, color);
   const next = operationText(track.next_operation);
   if (next && track.next_operation.scope !== 'work') {
-    lines.push(`    ${paint(color, 'yellow', 'next')} ${next}`);
+    lines.push(`    ${paint(color, 'yellow', 'Next:')} ${next}`);
   }
+  lines.push(
+    `    Technical details: materialisation=${display(track.materialisation)} \u00b7 ref=${display(track.ref)} @ ${display(track.head)}`,
+  );
+  if (track.frozen_head) lines.push(`    Frozen head: ${display(track.frozen_head)}`);
 }
 
 function renderAssembly(lines, assembly, color) {
   if (!assembly) {
-    lines.push(`  Assembly  ${paint(color, 'red', 'invalid')}`);
+    lines.push(`  Complete release \u2014 ${paint(color, 'red', 'State unavailable')}`);
     return;
   }
-  const state = `${display(assembly.stage)} / ${display(assembly.status)} / ${display(assembly.next_role)}`;
+  const state = assembly.status === 'ready' && assembly.next_role
+    ? `Ready for ${roleLabel(assembly.next_role)}`
+    : tokenLabel(assembly.status);
   lines.push(
-    `  Assembly  ${paint(color, stateColor(assembly.status), state)}  outcome=${display(assembly.outcome)}`,
+    `  Complete release \u2014 ${paint(color, stateColor(assembly.status), state)}`,
+  );
+  if (assembly.blocker) {
+    lines.push(
+      `    ${paint(color, 'red', 'What happened:')} ${display(assembly.blocker.summary)}`,
+    );
+    lines.push(`    Technical details: ${display(assembly.blocker.code)}`);
+  }
+  const next = operationText(assembly.next_operation);
+  if (next) lines.push(`    ${paint(color, 'yellow', 'Next:')} ${next}`);
+  lines.push(
+    `    Technical details: stage=${display(assembly.stage)} \u00b7 status=${display(assembly.status)} \u00b7 next_role=${display(assembly.next_role)} \u00b7 outcome=${display(assembly.outcome)}`,
   );
   if (assembly.source) {
     lines.push(
-      `    source ${display(assembly.source.mode)} ${display(assembly.source.ref)} @ ${display(assembly.source.head)}`,
+      `    Source: ${display(assembly.source.mode)} ${display(assembly.source.ref)} @ ${display(assembly.source.head)}`,
     );
   }
-  if (assembly.blocker) {
-    lines.push(
-      `    ${paint(color, 'red', 'blocked')} ${display(assembly.blocker.code)}: ${display(assembly.blocker.summary)}`,
-    );
-  }
-  const next = operationText(assembly.next_operation);
-  if (next) lines.push(`    ${paint(color, 'yellow', 'next')} ${next}`);
 }
 
 function colorEnabled(mode, isTTY) {
@@ -140,37 +180,41 @@ export function renderTerminal(board, { color = 'auto', isTTY = false } = {}) {
   const useColor = colorEnabled(color, isTTY);
   const lines = [];
   const validity = board.valid ? 'valid' : 'invalid';
-  lines.push(
-    `Baton ${display(board.schema_version)}  ${display(board.repository, 'no release')}  ${
-      paint(useColor, stateColor(validity), validity)
-    }`,
-  );
+  lines.push(`Baton board \u2014 ${paint(useColor, stateColor(validity), tokenLabel(validity))}`);
+  lines.push(`Repository: ${display(board.repository, 'No active release')}`);
   for (const item of board.diagnostics ?? []) renderDiagnostic(lines, item, useColor);
   if (board.releases.length === 0) {
-    lines.push(paint(useColor, 'dim', 'No local refs/heads/release-wt/* releases.'));
+    lines.push(paint(useColor, 'dim', 'No active Baton release was found.'));
+    lines.push('Next: ask an agent to start with baton-plan.');
   }
   for (const release of board.releases) {
     lines.push('');
     lines.push(
-      `Release ${display(release.release)}  ${
-        paint(useColor, stateColor(release.status), display(release.status))
+      `Release ${display(release.release)} \u2014 ${
+        paint(useColor, stateColor(release.status), tokenLabel(release.status))
       }`,
     );
-    const revision = release.plan_revision === undefined ? '' : ` r${display(release.plan_revision)}`;
-    lines.push(`  plan${revision} ${display(release.plan_digest)}`);
-    lines.push(`  release ${display(release.release_ref)} @ ${display(release.release_head)}`);
-    lines.push(`  target  ${display(release.target_ref)} @ ${display(release.target_head)}`);
-    for (const item of release.diagnostics ?? []) renderDiagnostic(lines, item, useColor);
+    for (const item of release.diagnostics ?? []) {
+      if (item.code !== 'TRACK_REF_ABSENT') renderDiagnostic(lines, item, useColor);
+    }
     for (const track of release.tracks ?? []) renderTrack(lines, track, useColor);
     renderAssembly(lines, release.assembly, useColor);
+    lines.push('  Release technical details');
+    lines.push(
+      `    Plan revision ${display(release.plan_revision)} \u00b7 fingerprint ${display(release.plan_digest)}`,
+    );
+    lines.push(`    Release ref ${display(release.release_ref)} @ ${display(release.release_head)}`);
+    lines.push(`    Target ref  ${display(release.target_ref)} @ ${display(release.target_head)}`);
   }
   if ((board.next_operations ?? []).length > 0) {
     lines.push('');
-    lines.push('Next operations');
+    lines.push('Next steps');
     for (const operation of board.next_operations) {
       lines.push(`  ${operationText(operation)}`);
     }
   }
+  lines.push('');
+  lines.push(`Board technical details: format=${display(board.schema_version)} \u00b7 state=${validity}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -191,7 +235,9 @@ function main(argv) {
     process.stdout.write(renderTerminal(board, { color, isTTY: Boolean(process.stdout.isTTY) }));
     process.exitCode = board.valid === false ? 2 : 0;
   } catch (error) {
-    process.stderr.write(`${sanitizeTerminalText(error?.message ?? 'invalid board')}\n`);
+    process.stderr.write(
+      `Baton could not read this board. ${sanitizeTerminalText(error?.message ?? 'invalid board')}\n`,
+    );
     process.exitCode = error instanceof TypeError ? 64 : 2;
   }
 }

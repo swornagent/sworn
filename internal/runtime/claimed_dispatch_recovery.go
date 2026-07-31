@@ -338,7 +338,8 @@ func validateImplementationCycleEnvelope(
 		!runtimeIdentityPattern.MatchString(cycle.Track) ||
 		cycle.TrackRef !=
 			"refs/heads/track/"+manifest.value.Release+"/"+cycle.Track ||
-		cycle.TrackHead == "" {
+		cycle.TrackHead == "" ||
+		(cycle.RefreshFrom != "" && cycle.RefreshFrom != cycle.Binds) {
 		return implementationCycle{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
@@ -561,6 +562,14 @@ func validateImplementationCycleObjects(
 		if _, err := gitx.ParseOID(
 			repository.ObjectFormat(),
 			cycle.Base,
+		); err != nil {
+			return runtimeFail("CORRUPT_JOURNAL", err)
+		}
+	}
+	if cycle.RefreshFrom != "" {
+		if _, err := gitx.ParseOID(
+			repository.ObjectFormat(),
+			cycle.RefreshFrom,
 		); err != nil {
 			return runtimeFail("CORRUPT_JOURNAL", err)
 		}

@@ -40,21 +40,21 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC11PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindExactRC12PackageAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.11",
-		TagName:              "v1.0.0-rc.11",
-		TagObject:            "427eb665f7ab32ec1b86f4efe4ae76e0627be588",
-		Commit:               "5807eb8c88cd85bdbad9a7ac3343ae8e1a69a19d",
-		Tree:                 "5900a2d5ab311184cd2a9d9b048da72fff220aef",
-		ArchiveSHA256:        "sha256:524a1e4a7ddfa579fec34ca02fc1bb9c630cd018f3575eebfeb7ae7c4febd550",
-		SupportPackageSHA256: "sha256:f3125e25d85f13cbab5437cb52a61627be33775d4f46b5665d4976b94cba12cc",
-		ManifestSHA256:       "sha256:be9ff79fbbd375ca93675410be88376e7928c4a851adec92fc7d29c6f785142b",
+		Version:              "1.0.0-rc.12",
+		TagName:              "v1.0.0-rc.12",
+		TagObject:            "caac9f0ab32a596600874f911c7f2a5cd24b6552",
+		Commit:               "5bc374451d0e31d74948ea63010f87d017a3abd5",
+		Tree:                 "27297a37e7efd0154c487abfc5bae98fe711a8df",
+		ArchiveSHA256:        "sha256:620e0f04ddcfa10067a8519d23b169d5e3fcc2751f28652990c889b72e0e4afb",
+		SupportPackageSHA256: "sha256:f2db06b64a31403e7a864816a3b278a48578a5788eed3235d2be95cfbf093ef2",
+		ManifestSHA256:       "sha256:61e9760ce782c754cc766920937c0d7fd3ff592db157dea42ca9de0475b0d2ab",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -64,19 +64,19 @@ func TestCanonicalOperationsBindExactRC11PackageAndExcludeMerge(t *testing.T) {
 	}{
 		RolePlanner: {
 			"baton-plan",
-			"sha256:3385b9bd62eee8cbe8b7e23e04abe872e133aa113d2c9ca0b7da3454a17bd413",
+			"sha256:443f8bbce2914f2586de8ae7796b346554097421742071e8494d459673b82760",
 		},
 		RoleImplementer: {
 			"baton-implement",
-			"sha256:52bd75efb49252cfe15b9a9711c8b816e40e559084aa200d1b881e135df50398",
+			"sha256:c274017d47d9dd7bc86ff1188cab1b688f7df73500b3bacdb4244bf496c8c473",
 		},
 		RoleCaptain: {
 			"baton-design-review",
-			"sha256:71cf67af0b9f3089a58bd6dc9d4c4054a41643135b89bf5bc332a2861d68ea84",
+			"sha256:ecfecf92a1858db9a27de6105ccf647f5a15ec85ed76a346072182e22e99a6d5",
 		},
 		RoleVerifier: {
 			"baton-verify",
-			"sha256:859d18353177b8f7692ae2e8fdb7b763020d7d0ab312d492e055565043b0bc4f",
+			"sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014",
 		},
 	}
 	for role, want := range expected {
@@ -254,7 +254,6 @@ func TestRequestRejectsMergeDefaultsDriftAndUnsafeInputs(t *testing.T) {
 		"writable verifier": func(value *Request) {
 			value.Workspace.Access = ReadWrite
 		},
-		"stale verifier": func(value *Request) { value.FreshContext = false },
 	} {
 		value := request
 		mutate(&value)
