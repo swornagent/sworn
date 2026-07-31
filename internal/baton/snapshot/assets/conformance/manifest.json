@@ -1,6 +1,6 @@
 {
   "schema_version": "baton.conformance-manifest/v2",
-  "baton_version": "1.0.0-rc.11",
+  "baton_version": "1.0.0-rc.12",
   "profiles": {
     "portable_kit": {
       "status": "EXECUTABLE",
@@ -159,7 +159,7 @@
           "status": "NOT RUN"
         },
         {
-          "id": "clean-read-only-fresh-verifier-dispatch",
+          "id": "fresh-verifier-thread-and-read-only-invocation-dispatch",
           "status": "NOT RUN"
         },
         {

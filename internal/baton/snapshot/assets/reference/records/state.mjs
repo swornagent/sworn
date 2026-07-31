@@ -670,6 +670,12 @@ function validateSlice(
       const retry = sameLineage
         && bound.role === 'verifier' && bound.result === 'fail'
         && bound.attempt === receipt.attempt - 1;
+      const candidateRefresh = sameLineage
+        && bound.role === 'implementer' && bound.result === 'candidate'
+        && bound.attempt === receipt.attempt - 1
+        && sameInputs(receipt.inputs, bound.inputs)
+        && linearOneParentAncestry(repo, receipt.binds, receipt.candidate)
+        && historyAt(repo, receipt.candidate, receipt.binds).receipts.length === 0;
       const staleRetry = sameLineage
         && bound.attempt === receipt.attempt - 1
         && (
@@ -681,7 +687,7 @@ function validateSlice(
         )
         && !sameInputs(receipt.inputs, bound.inputs);
       if (
-        !proceeded && !retry && !staleRetry
+        !proceeded && !retry && !candidateRefresh && !staleRetry
       ) fail('STALE_BINDING', `candidate ${entry.oid} lacks PROCEED`);
       exactInputs(receipt, planned.slice.consumes, `candidate ${entry.oid}`);
       if (planned.slice.consumes.length === 0 && Object.hasOwn(receipt, 'base')) {
@@ -1917,6 +1923,39 @@ export function readBatonState(
     }
     return productBaseForPass(track.slices[0].id, first.pass);
   };
+  for (const [index, track] of current.parsed.metadata.tracks.entries()) {
+    const head = captured[index + 2].head;
+    const incomplete = track.slices.find(({ id }) => !states.get(id).pass);
+    const active = incomplete
+      ? (
+        ['verifier', 'merge'].includes(states.get(incomplete.id).next_role)
+          ? states.get(incomplete.id)
+          : null
+      )
+      : states.get(track.slices.at(-1).id);
+    if (
+      !head || !active?.candidate
+      || head === active.current_receipt.oid
+    ) continue;
+    const awaitingCandidateVerdict = (
+      active.stage === 'verify'
+      && active.next_role === 'verifier'
+      && active.current_receipt.oid === active.candidate.oid
+    );
+    if (
+      !awaitingCandidateVerdict
+      || !linearOneParentAncestry(repo, active.candidate.oid, head)
+      || historyAt(repo, head, active.candidate.oid).receipts.length > 0
+    ) fail('CHANGED_CANDIDATE', `track ${track.id} moved after its current candidate`);
+    assertCandidateRecordRootUnchanged(repo, active.candidate.oid, head);
+    active.stage = 'implement';
+    active.status = 'ready';
+    active.next_role = 'implementer';
+    active.outcome = 'stale';
+    active.attempt = active.history.maximum_attempt + 1;
+    active.retained = false;
+    active.stale_reason = 'track head changed before verification was recorded';
+  }
   const tracks = current.parsed.metadata.tracks.map((track, index) => frozen({
     id: track.id,
     depends_on: [...track.depends_on],
@@ -1926,17 +1965,6 @@ export function readBatonState(
       ?? captured[0].head,
     slices: track.slices.map((slice) => frozen(states.get(slice.id))),
   }));
-  for (const track of tracks) {
-    const incomplete = track.slices.find((slice) => !slice.pass);
-    const active = incomplete
-      ? (['verifier', 'merge'].includes(incomplete.next_role) ? incomplete : null)
-      : track.slices.at(-1);
-    if (
-      track.head && active?.candidate
-      && productTree(repo, track.head, productCache)
-        !== active.candidate.receipt.product_tree
-    ) fail('CHANGED_CANDIDATE', `track ${track.id} moved after its current candidate`);
-  }
 
   const assemblyEntries = releaseHistory.receipts.filter(({ receipt }) => (
     (receipt.role === 'implementer' && receipt.result === 'candidate'

@@ -1,8 +1,11 @@
 # Baton Protocol 1.0
 
-Baton specifies responsibility boundaries and the durable facts transferred
-between them. It does not prescribe a scheduler, worktree strategy, provider,
-model, project-management method, or recovery state machine.
+In plain language, this document says who may make each decision and what must
+be saved when work moves to the next person or agent. Those boundaries stop the
+builder from approving its own plan or marking its own work as passed.
+
+Baton does not choose the scheduler, worktree strategy, AI provider, model,
+project-management method, or recovery system.
 
 ## 1. Responsibilities
 
@@ -36,16 +39,35 @@ returns:
 
 ### Verifier
 
-A fresh, read-only Verifier checks the exact candidate against the applicable
-approved plan, Captain decision, checks, and evidence. It returns:
+An independent Verifier thread is one separate conversation. It starts fresh,
+with no conversation inherited from the Implementer, Captain, or another
+delivery role. A Verifier invocation is one read-only check in that conversation
+against one exact candidate. It returns at most one verdict:
 
 - `PASS` — the candidate satisfies the approved contract;
 - `FAIL` — the contract is adequate but candidate or evidence is wrong; or
 - `BLOCKED` — a trust-critical decision, scope, contract, or authority fact
   cannot be established.
 
-A transport, runner, tool, or persistence failure produces no verdict. The
-unchanged candidate may be retried.
+A transport, runner, tool, or persistence failure produces no verdict. Without
+an earlier applicable recorded `FAIL`, even an unchanged-candidate retry starts
+a new Verifier thread.
+
+#### Direct-repair continuation
+
+After a recorded `FAIL`, the same Verifier thread MAY receive a new invocation
+for the uninterrupted direct repair chain. This is valid only while the stable
+slice, exact approved plan revision, target, contract, Captain-reviewed design
+and decision, consumed-input pins, and authority bindings remain unchanged and
+no later Verifier verdict has intervened. Receipt ancestry MAY advance only
+through that repair chain, which MAY include a bounded exact-head refresh as
+defined below.
+
+Each invocation receives only that Verifier thread's own conversation history,
+gets new read-only access to the exact current candidate, and checks the
+complete contract again. A fresh thread is always valid. `PASS`, `BLOCKED`, a
+changed binding, heightened policy that requires a new thread, assembly
+verification, or lost or unsupported thread context requires a fresh thread.
 
 ### Merge
 
@@ -75,6 +97,25 @@ Slice identities remain stable:
 
 Attempts never erase prior candidates or decisions. The applicable attempt is
 the latest one whose bindings agree with the current approved plan and inputs.
+
+### Exact-head refresh
+
+An engine MAY admit a bounded exact-head refresh for a candidate receipt with no
+Verifier verdict. The current track head MUST descend from that receipt commit
+through a non-empty linear chain in which every commit has exactly one parent
+and no merge or intervening Baton receipt occurs. The reserved
+`.baton/releases` tree at that head MUST exactly match the tree at the bound
+candidate-receipt commit, and the candidate recorded MUST still be the current
+track head. The current approved plan MUST retain the same target, stable slice,
+contract, Captain-reviewed design and decision, consumed-input pins, and
+authority bindings.
+
+The Implementer rechecks and records that exact head as the next candidate
+attempt. The previous candidate becomes stale without an invented `FAIL`, plan
+revision, or history rewrite. A same-product commit is still a refresh because
+the exact candidate changed. Failure of any condition is not this recovery. A
+valid refresh inside a direct repair chain does not by itself end permitted
+Verifier-thread continuation.
 
 ### Commitment boundary
 
@@ -136,8 +177,9 @@ make discovered support work observable without copying it into a revised plan.
   exact prepared base, candidate, product tree, consumed product pins, checks,
   and relevant Captain decision. The candidate preserves the reserved record
   root exactly from its implementation base.
-- Verifier differs from the Implementer and Captain, is fresh and read-only,
-  and binds the exact candidate and evidence.
+- A Verifier thread differs from the Implementer and Captain, starts fresh, and
+  follows the direct-repair continuation rule above. Every invocation stays
+  read-only and binds its decision to the exact candidate and evidence.
 - Work `PASS` covers one slice candidate. Assembly `PASS` separately covers the
   exact composed track candidates and complete product.
 - Merge binds the applicable `PASS`, exact candidate, expected target, observed
@@ -174,8 +216,8 @@ stages.
 
 Baton blocks only when a trust-critical fact cannot be established: applicable
 approval, unambiguous scope or authority, an applicable Captain decision, an
-exact candidate and evidence, fresh verification, unchanged verified
-candidate, or safe exact composition.
+exact candidate and evidence, valid independent verification, unchanged
+verified candidate, or safe exact composition.
 
 Missing derived status, stale board output, duplicate dispatch, interrupted
 execution, a skipped procedural cursor, or a reconcilable Git effect is
@@ -185,6 +227,9 @@ plan revision or Baton verdict.
 Clerical omissions and evidence corrections are repaired at the role that owns
 them. A bounded Captain correction may proceed inline. Candidate or evidence
 defects produce `FAIL` and another implementation attempt on the same slice.
+A direct unreceipted track advance after a candidate but before a verdict
+returns to the Implementer for an exact replacement candidate receipt; it does
+not require a fabricated Verifier decision or history rewrite.
 Only a material design issue crosses back to Captain; only a material contract,
 authority, or external decision crosses to Planner or the authorizer.
 

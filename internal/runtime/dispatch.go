@@ -211,11 +211,12 @@ func verifierRepairContinuationMatches(
 	freshBinding driver.ContinuationBinding,
 	selectionDigest string,
 	work *productionWorkContext,
+	history baton.SliceHistory,
 ) bool {
 	if entry == nil || entry.handle == nil || entry.verifierFailReceipt == "" ||
 		work == nil || work.Receipt == nil || work.Candidate == nil ||
+		work.Plan == nil ||
 		work.Responsibility != driver.WorkVerification ||
-		work.Attempt != entry.binding.Attempt+1 ||
 		work.Receipt.OID != work.Candidate.Receipt ||
 		work.Authority.TrackHead != work.Receipt.OID ||
 		!sameStableContinuationAuthority(
@@ -225,8 +226,53 @@ func verifierRepairContinuationMatches(
 		) {
 		return false
 	}
-	receipt, err := baton.ParseReceipt(work.Receipt.body)
-	return err == nil && receipt.Binds == entry.verifierFailReceipt
+	entries := make(map[string]*baton.ReceiptEntry, len(history.Entries))
+	for index := range history.Entries {
+		candidate := &history.Entries[index]
+		if candidate.OID == "" || entries[candidate.OID] != nil {
+			return false
+		}
+		entries[candidate.OID] = candidate
+	}
+	fail := entries[entry.verifierFailReceipt]
+	current := entries[work.Receipt.OID]
+	if fail == nil || current == nil ||
+		fail.Receipt.Role != "verifier" ||
+		fail.Receipt.Result != "fail" ||
+		fail.Receipt.Attempt == nil ||
+		*fail.Receipt.Attempt != entry.binding.Attempt ||
+		fail.Receipt.Plan != work.Plan.OID ||
+		fail.Receipt.SliceID() != work.Slice ||
+		current.Receipt.Candidate == nil ||
+		*current.Receipt.Candidate != work.Candidate.Commit {
+		return false
+	}
+	expectedAttempt := work.Attempt
+	seen := make(map[string]struct{}, len(history.Entries))
+	for steps := 0; steps < len(history.Entries); steps++ {
+		if current == nil ||
+			current.Receipt.Role != "implementer" ||
+			current.Receipt.Result != "candidate" ||
+			current.Receipt.Attempt == nil ||
+			*current.Receipt.Attempt != expectedAttempt ||
+			current.Receipt.Plan != work.Plan.OID ||
+			current.Receipt.SliceID() != work.Slice {
+			return false
+		}
+		if _, duplicate := seen[current.OID]; duplicate {
+			return false
+		}
+		seen[current.OID] = struct{}{}
+		if current.Receipt.Binds == fail.OID {
+			return expectedAttempt == *fail.Receipt.Attempt+1
+		}
+		expectedAttempt--
+		if expectedAttempt <= *fail.Receipt.Attempt {
+			return false
+		}
+		current = entries[current.Receipt.Binds]
+	}
+	return false
 }
 
 func continuationEventKind(
@@ -917,11 +963,37 @@ func (s *Service) invokePreparedDriver(
 			continuationVerifier,
 			coordinates.Slice,
 		)
+		var history baton.SliceHistory
+		if entry != nil && entry.verifierFailReceipt != "" {
+			state, stateErr := baton.ReadState(
+				engine.git,
+				engine.manifest.value.Release,
+				engine.inertness,
+			)
+			current, found := state.Slice(coordinates.Slice)
+			if stateErr != nil || !found {
+				restoreErr := s.storeRetainedContinuation(
+					prepared.productionContext.RunID,
+					continuationVerifier,
+					coordinates.Slice,
+					entry,
+				)
+				if stateErr == nil {
+					stateErr = runtimeFail("STALE_DISPATCH", nil)
+				} else {
+					stateErr = runtimeFail("BATON_UNAVAILABLE", stateErr)
+				}
+				return driver.Observation{}, nil, nil,
+					errors.Join(stateErr, restoreErr)
+			}
+			history = current.History
+		}
 		matches := verifierRepairContinuationMatches(
 			entry,
 			freshBinding,
 			selectionDigest,
 			prepared.productionContext,
+			history,
 		)
 		resumeInvocation := preparedResumeInvocation(
 			prepared, workspace, invocation.RecoveryStepHook,

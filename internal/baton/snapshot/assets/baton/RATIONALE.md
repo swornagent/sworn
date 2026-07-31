@@ -1,15 +1,16 @@
 # Why Baton has this shape
 
-Baton began as a useful five-responsibility delivery loop. It later accumulated
-schemas, repeated manuals, universal reviews, and incident-specific procedure.
-Each addition answered a real failure, but every future role paid for it.
+Baton began as a useful five-step delivery loop. Over time it gained more
+schemas, repeated manuals, universal reviews, and incident-specific rules. Each
+addition answered a real failure, but together they made every future delivery
+pay the cost.
 
-The durable value was smaller:
+The part worth keeping was much smaller:
 
 - externally bounded authority;
 - a design decision before implementation;
 - evidence over the real candidate;
-- a fresh independent verdict; and
+- an independent Verifier verdict; and
 - exact safe composition.
 
 Git already retains prior plans, attempts, candidates, and decisions. Replacing
@@ -51,8 +52,10 @@ candidate or engine history.
 Turning those operational facts into plan fields creates a false choice:
 delivery either hides useful work or restarts approval for harmless discovery.
 Repairing forward keeps the stable release and slice while exact Git evidence
-and a fresh adversarial Verifier still expose any attempt to smuggle in a
-material behavior, dependency, contract, or authority change.
+and an adversarial Verifier following the
+[direct-repair boundary](PROTOCOL.md#direct-repair-continuation) still expose
+any attempt to smuggle in a material behavior, dependency, contract, or
+authority change.
 
 ## Growth rule
 

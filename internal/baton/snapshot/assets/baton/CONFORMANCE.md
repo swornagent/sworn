@@ -1,7 +1,10 @@
 # Baton Conformance 1.0
 
-Conformance is behavioral. Loading Baton prose, naming five agents, or drawing
-a workflow does not establish it.
+Following Baton means the system actually protects the five handoffs. Merely
+loading these documents, naming five agents, or drawing the workflow is not
+enough.
+
+The requirements below explain the behavior an implementation must prove.
 
 ## Portable protocol profile
 
@@ -16,7 +19,9 @@ Every implementation MUST:
 4. require an applicable Captain `PROCEED` before implementation;
 5. derive repository, candidate, tree, ancestry, checks, and Merge facts rather
    than trust an unsupported claim;
-6. start verification in fresh context with read-only candidate access;
+6. start each Verifier thread in fresh context, keep every invocation
+   read-only, and, when retaining one, enforce the
+   [Protocol's direct-repair rule](PROTOCOL.md#direct-repair-continuation);
 7. keep operational failure distinct from `FAIL` and `BLOCKED`;
 8. retain unchanged slices across plan revisions and invalidate only changed
    slices plus the dependency closure whose consumed inputs changed;
@@ -60,9 +65,11 @@ repository input.
 ## Guided profile
 
 A guided implementation conforms when it presents exact plan bytes for external
-approval, uses a distinct Captain, starts a fresh read-only Verifier, records
-compact receipts through a machine writer, and stops when a required trust fact
-cannot be established.
+approval, uses a distinct Captain, starts an independent Verifier thread fresh,
+keeps every invocation read-only, records compact receipts through a machine
+writer, and stops when a required trust fact cannot be established. Permitted
+continuation follows the Protocol's direct-repair rule; starting a new thread
+also conforms.
 
 It may rely on a person to choose eligible operations and recover procedure.
 Procedural recovery does not require another role decision when all applicable
@@ -95,22 +102,29 @@ conformance requirements.
 ## Required cases
 
 Positive cases cover plan approval and revision, stable slices, design
-`PROCEED` and `REVISE`, implementation retry after `FAIL`, fresh work and
-assembly `PASS`, exact consumed-input preparation, exact composition, and final
-Merge.
+`PROCEED` and `REVISE`, implementation retry after `FAIL`, independent work
+verification, fresh assembly `PASS`, exact consumed-input preparation,
+exact composition, and final Merge. An implementation that retains Verifier
+threads also covers permitted direct-repair continuation.
 
 Recovery cases cover missing derived status, stale board output, duplicate
 dispatch, runner interruption, skipped procedural cursor, and reconcilable Git
 effects without a new model role or human approval. They also cover discovering
 ancillary test or oracle paths, running additional focused checks, and
-correcting evidence under the same approved plan and stable slice identity.
+correcting evidence under the same approved plan and stable slice identity. An
+implementation that supports exact-head refresh also covers the bounded
+recovery defined by the
+[Protocol](PROTOCOL.md#exact-head-refresh) without fabricating `FAIL`.
 
 Negative cases cover missing or substituted approval; self-review; changed
-plan, design, candidate, proof, product tree, or target; ambiguous authority;
-runtime events presented as role outcomes; missing, stale, or ambiguous
-consumed authority; unsafe dependency reuse; composition conflict; and forged
-Merge results. A material behavioral, consumed-product, contract, authority,
-or external-decision change still crosses the applicable decision boundary.
+bound plan, design, proof, or target; candidate or product-tree movement not
+admitted and re-receipted by the
+[exact-head refresh rule](PROTOCOL.md#exact-head-refresh); candidate movement
+after Verifier dispatch; ambiguous authority; runtime events presented as role
+outcomes; missing, stale, or ambiguous consumed authority; unsafe dependency
+reuse; composition conflict; and forged Merge results. A material behavioral,
+consumed-product, contract, authority, or external-decision change still crosses
+the applicable decision boundary.
 
 ## Board and engine handoff
 

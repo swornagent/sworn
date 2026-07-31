@@ -1035,17 +1035,26 @@ export function createBatonActions(options) {
         authorities,
       });
     }
+    const preservesCandidateRefresh = (
+      slice.stage === 'implement'
+      && slice.next_role === 'implementer'
+      && slice.current_receipt.oid === slice.candidate?.oid
+      && prepared.base === prepared.track.authority_head
+      && prepared.track.head !== null
+      && prepared.track.head !== prepared.track.authority_head
+    );
     if (
       prepared.track.head !== null
       && prepared.track.head !== prepared.track.authority_head
       && prepared.track.head !== prepared.base
+      && !preservesCandidateRefresh
     ) {
       fail(
         'CHANGED_OWNER_HEAD',
         `${prepared.track.ref} moved beyond its authoritative receipt`,
       );
     }
-    if (prepared.track.head === prepared.base) {
+    if (prepared.track.head === prepared.base || preservesCandidateRefresh) {
       unsafeAtomicUpdateRefs(repo, [
         ...snapshotOperations,
         {

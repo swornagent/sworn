@@ -51,7 +51,7 @@ Exact syntax:
 
 const (
 	swornVersion = "1.0.0-rc.1"
-	swornState   = "baton-rc11-admitted"
+	swornState   = "baton-rc12-admitted"
 )
 
 type versionInfo struct {

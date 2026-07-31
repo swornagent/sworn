@@ -2,7 +2,7 @@
 
 Sworn `1.0.0-rc.1` carries Baton handoffs through planning, design review,
 implementation, fresh verification, and a checked Git merge. It includes Baton
-`1.0.0-rc.11`.
+`1.0.0-rc.12`.
 
 Current status: ready for technical evaluation, but not yet approved for a tag,
 merge to `main`, hosted deployment, or publication.
@@ -20,7 +20,7 @@ merge to `main`, hosted deployment, or publication.
   Chat are available as explicit connection choices.
 - Connection configuration can be inspected, checked locally, or certified
   with an explicitly authorized live provider call.
-- All 12 autonomous-engine cases supplied by Baton RC11 run against the built
+- All 12 autonomous-engine cases supplied by Baton RC12 run against the built
   Sworn product.
 
 The [run guide](../../run.md) explains the current operator journey and its
@@ -35,18 +35,18 @@ switch API types, or fall back to another connection.
 
 ## Bound Baton identity
 
-- Baton tag: `v1.0.0-rc.11`
-- tag object: `427eb665f7ab32ec1b86f4efe4ae76e0627be588`
-- peeled commit: `5807eb8c88cd85bdbad9a7ac3343ae8e1a69a19d`
-- tree: `5900a2d5ab311184cd2a9d9b048da72fff220aef`
+- Baton tag: `v1.0.0-rc.12`
+- tag object: `caac9f0ab32a596600874f911c7f2a5cd24b6552`
+- peeled commit: `5bc374451d0e31d74948ea63010f87d017a3abd5`
+- tree: `27297a37e7efd0154c487abfc5bae98fe711a8df`
 - release archive SHA-256:
-  `524a1e4a7ddfa579fec34ca02fc1bb9c630cd018f3575eebfeb7ae7c4febd550`
+  `620e0f04ddcfa10067a8519d23b169d5e3fcc2751f28652990c889b72e0e4afb`
 - published skills payload SHA-256:
-  `f3125e25d85f13cbab5437cb52a61627be33775d4f46b5665d4976b94cba12cc`
+  `f2db06b64a31403e7a864816a3b278a48578a5788eed3235d2be95cfbf093ef2`
 - autonomous conformance manifest Git blob:
-  `75906b2f6584880db498a9a717b2699877551170`
+  `80a9666f0fb214bc0f11f4bb36db5e1ef40c6522`
 - autonomous conformance manifest SHA-256:
-  `f375cc87083ad397689493ef5855f42bbaa34723a5dae515b1fcd846d00e72e9`
+  `8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018`
 
 The existing `support_package_sha256` JSON field keeps its stable wire name and
 reports the published skills payload digest. Sworn does not embed, install, or
@@ -84,8 +84,13 @@ conversation and starts fresh. The first work Verifier starts fresh, read-only,
 and independent of the delivery roles. After that Verifier records an exact
 FAIL, Sworn may keep its thread for the direct repair. Each repaired candidate
 gets a new read-only invocation and a full contract check. Missing or stale
-context falls back to a fresh Verifier, and Assembly verification always starts
-fresh. Planner and Captain remain separate invocations.
+context falls back to a fresh Verifier. If an exact head changed after a
+candidate receipt, the Implementer can recheck and record that head without an
+empty commit; evidence still covers the whole change from the prior candidate.
+A retained Verifier thread can cross that refresh only when Baton's accepted
+candidate receipts form a valid chain back to its recorded FAIL. Assembly
+verification always starts fresh. Planner and Captain remain separate
+invocations.
 
 Recovery uses an explicitly selected automation model with limited actions and
 budgets. It cannot create Baton approval or handoff records. When safe recovery

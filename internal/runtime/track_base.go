@@ -79,6 +79,29 @@ func trackBaseBefore(state baton.State, slice *baton.SliceState) string {
 	)
 }
 
+func candidateHeadRefresh(
+	state baton.State,
+	slice *baton.SliceState,
+) bool {
+	if slice == nil ||
+		slice.Stage != "implement" ||
+		slice.Status != "ready" ||
+		slice.NextRole != "implementer" ||
+		slice.Outcome != "stale" ||
+		slice.Retained ||
+		slice.Attempt != slice.History.MaximumAttempt+1 ||
+		slice.CurrentReceipt == nil ||
+		slice.Candidate == nil ||
+		slice.CurrentReceipt.OID != slice.Candidate.OID {
+		return false
+	}
+	track, ok := state.Track(slice.Location.Track.ID)
+	return ok &&
+		track.Head != "" &&
+		track.Head != slice.CurrentReceipt.OID &&
+		track.AuthorityHead == slice.CurrentReceipt.OID
+}
+
 func trackBaseRequestFromWire(
 	engine *engine,
 	wire trackBaseRequestWire,
@@ -737,6 +760,9 @@ func (s *Service) prepareTrackBaseForSlice(
 		slice.NextRole != "implementer" ||
 		(slice.Stage != "design" && slice.Stage != "implement") {
 		return baton.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
+	}
+	if candidateHeadRefresh(state, slice) {
+		return state, slice, nil
 	}
 	command, request, err := trackBaseRequestForSlice(engine, state, slice)
 	if err != nil {

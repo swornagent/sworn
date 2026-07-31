@@ -1,43 +1,44 @@
 # Baton 1.0 protocol
 
-Baton is the lightweight protocol and portable kit; an engine can orchestrate
-it. Sworn is the reference engine.
+Baton describes how software work is handed from one AI agent to the next
+without losing the approved goal or merging an unchecked result. Sworn is the
+reference engine that runs the team.
+
+The normal path is:
+
+```text
+approve the work
+  -> explain the approach
+  -> Captain checks it
+  -> build it
+  -> fresh Verifier checks it
+  -> merge exactly what passed
+```
+
+After `FAIL`, the same independent Verifier may check the repair under the
+[direct-repair rule](PROTOCOL.md#direct-repair-continuation), or a new Verifier
+may start fresh. Both check the complete current candidate.
 
 Read:
 
-1. [CORE.md](CORE.md) for the five trust principles;
-2. [PROTOCOL.md](PROTOCOL.md) for responsibilities, revisions, attempts, and
-   compact receipts;
-3. [ASSURANCE.md](ASSURANCE.md) for standard and heightened evidence; and
-4. [CONFORMANCE.md](CONFORMANCE.md) for observable portable and engine
-   obligations.
+1. [CORE.md](CORE.md) for the five promises Baton protects;
+2. [PROTOCOL.md](PROTOCOL.md) for who does what and what gets saved;
+3. [ASSURANCE.md](ASSURANCE.md) for when work needs stronger proof; and
+4. [CONFORMANCE.md](CONFORMANCE.md) for how to show an implementation really
+   follows Baton.
 
 [RATIONALE.md](RATIONALE.md) explains the boundary.
 
-The useful minimum is:
+The plan says what the finished work must do, not every file or command likely
+to be involved. Supporting files and extra checks discovered along the way stay
+with the same piece of work. A real change to the promised result, its product
+inputs, or who may approve it needs a revised plan.
 
-```text
-approved plan entry
-  -> design TL;DR
-  -> Captain decision
-  -> exact candidate and evidence
-  -> fresh Verifier decision
-  -> exact Merge
-```
+Git keeps earlier plans and attempts. Small machine-written receipts connect
+decisions to saved work that cannot quietly change. The board reads those facts
+and shows the furthest trustworthy progress; it does not keep a second version
+of the truth.
 
-Git preserves prior plan revisions and attempts. Small machine-written receipts
-bind the decisions and outcomes to exact immutable objects. A board derives the
-most advanced trustworthy state from the plan, receipts, and Git; it is not
-another state store.
-
-The plan is a commitment to behavior, product scope, minimum proof, semantic
-limits, authority, and real dependencies—not an exhaustive inventory of paths
-or commands. Ancillary support discovery and extra evidence repair forward
-under the same approved plan while material contract changes still stop.
-
-The portable kit includes five canonical operations, one generated
-client-neutral payload of standalone Skills, deterministic reference tools,
-and a read-only terminal and browser board. `baton-plan` carries its plan
-template inside its own skill directory. Longer design and evidence documents
-are optional project artefacts. Drivers, scheduling, retries, and telemetry
-belong to an engine such as Sworn.
+The portable kit contains the five skills, record helpers, tests, and a
+read-only terminal and browser board. Drivers, scheduling, retries, recovery,
+and telemetry belong to an engine such as Sworn.

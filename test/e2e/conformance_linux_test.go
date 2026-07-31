@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	rc11ConformanceManifestSHA256 = "f375cc87083ad397689493ef5855f42bbaa34723a5dae515b1fcd846d00e72e9"
+	rc12ConformanceManifestSHA256 = "8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018"
 	autonomousEngineProfile       = "autonomous_engine"
 )
 
@@ -36,7 +36,7 @@ type autonomousEngineResult struct {
 }
 
 // TestAutonomousEngineConformance is the single executable gate for the
-// autonomous-engine profile embedded in Baton RC11. Case identities are read
+// autonomous-engine profile embedded in Baton RC12. Case identities are read
 // from the admitted package at test time; the mapping below can neither omit
 // nor add a case without failing this test.
 func TestAutonomousEngineConformance(t *testing.T) {
@@ -51,8 +51,8 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != rc11ConformanceManifestSHA256 {
-		t.Fatalf("embedded RC11 conformance digest = %x", sum)
+	if hex.EncodeToString(sum[:]) != rc12ConformanceManifestSHA256 {
+		t.Fatalf("embedded RC12 conformance digest = %x", sum)
 	}
 	var manifest conformanceManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -78,7 +78,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		"role-instruction-credential-workspace-process-isolation": {
 			"walking-skeleton/driver-boundary",
 		},
-		"clean-read-only-fresh-verifier-dispatch": {
+		"fresh-verifier-thread-and-read-only-invocation-dispatch": {
 			"walking-skeleton/fresh-verifier",
 		},
 		"one-writer-per-track-with-independent-track-concurrency": {
@@ -174,7 +174,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 	}{
 		SchemaVersion:  "sworn.autonomous-conformance/v1",
 		BatonVersion:   manifest.BatonVersion,
-		ManifestSHA256: "sha256:" + rc11ConformanceManifestSHA256,
+		ManifestSHA256: "sha256:" + rc12ConformanceManifestSHA256,
 		Results:        results,
 	})
 	if err != nil {

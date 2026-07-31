@@ -6,16 +6,18 @@ deploy, or publish. The final Baton candidate receipt binds the exact commit
 and tree externally because a file cannot contain the identity of the Git tree
 that contains itself.
 
-The later RC11 compatibility slice replaces only the embedded Baton identity,
-exact 24-asset snapshot, generated reference corpus, and structural reserved
-record-root admission guards. Its focused package, CLI identity, race, vet,
-tidy, and diff gates are new evidence. The full real-binary E2E and external
-driver certification measurements below remain the W4 evidence and were not
-rerun because this slice does not change runtime or driver behavior.
+The RC12 compatibility work replaces the embedded Baton identity, exact
+25-asset snapshot, and generated reference corpus. It also adds the narrow
+runtime paths for continuing one Verifier thread and returning an unverified,
+updated candidate to the Implementer without inventing a verdict. The serial
+real-binary E2E, current package, race, vet, tidy, format, golden, and build
+gates below are RC12 results. External driver certification remains earlier W4
+evidence: provider and driver behaviour did not change, so it was not
+recertified merely because Baton and runtime handoff logic changed.
 
 ## Measurement environment
 
-- captured: 2026-07-30
+- captured: 2026-07-31
 - operating system: Linux 6.8.0-136-generic, amd64
 - Go toolchain: go1.26.5 linux/amd64
 - build mode: `CGO_ENABLED=0`, `-mod=readonly`, `-buildvcs=false`,
@@ -25,15 +27,16 @@ rerun because this slice does not change runtime or driver behavior.
 
 | Gate | Exact result |
 | --- | --- |
-| `GOFLAGS=-buildvcs=false go test ./...` | PASS; isolated real-binary E2E package 503.634s |
-| `GOFLAGS=-buildvcs=false go test -race ./...` | PASS; isolated real-binary E2E package 515.625s; no race warning |
+| `GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=20m ./test/e2e` | PASS; current RC12 real-binary E2E package 996.271s |
+| `GOFLAGS=-buildvcs=false go test -count=1` over every non-E2E package | PASS; all 10 packages green; slowest package 134.914s |
+| `GOFLAGS=-buildvcs=false go test -race -count=1` over every non-E2E package | PASS; all 10 packages green; no race warning; slowest package 146.052s |
 | `GOFLAGS=-buildvcs=false go vet ./...` | PASS |
 | `go mod tidy -diff` | PASS; empty diff |
 | `gofmt -l` over all tracked Go files | PASS; no paths |
 | `git diff --check` | PASS |
-| W8 implementation scope audit | PASS; the live repair is confined to the existing driver/CLI-test readiness scope plus its requested durable capture |
-| RC9 revision audit | PASS; the 23-path admission commit binds the exact upstream identity/assets and their generated bindings, tests, and evidence |
-| Two fresh product-copy stripped builds | PASS; byte-identical size and SHA-256; record-only history excluded |
+| `GOFLAGS=-buildvcs=false go run ./tools/batongolden verify` | PASS; RC12 identity, 25 assets, and generated corpus match |
+| Stripped Linux amd64 build and `version --json` | PASS; reports Sworn `1.0.0-rc.1`, state `baton-rc12-admitted`, and exact RC12 identity |
+| Implementation scope audit | PASS; no provider driver, second scheduler, public receipt schema, or dependency was added; handwritten production delta is +502 lines |
 
 ## Product size and dependency facts
 
@@ -43,17 +46,17 @@ the standard generated-code marker. Blank and comment lines count.
 
 | Fact | Measured value |
 | --- | ---: |
-| Production Go files | 95 |
-| Production Go lines | 47,006 |
+| Production Go files | 106 |
+| Production Go lines | 61,608 |
 | Legacy baseline at `bad1a6767994cacef2c354061d22db842cb6ca08` | 10,464 |
-| Delta from legacy baseline | +36,542 |
+| Delta from legacy baseline | +51,144 |
 | W8 design measurement | 42,555 |
-| W8 implementation delta | +4,451 |
+| Delta from W8 design measurement | +19,053 |
 | Production packages below `cmd` and `internal` | 8 |
 | Direct module requirements | 10 |
 | Direct-dependency delta in W8 | 0 |
-| Stripped Linux amd64 binary | 22,237,346 bytes |
-| Stripped binary SHA-256 | `7a72bb6bb25c15147bcd185f8dd28172470a1ba2a1813989ff5f6a39f77d4f28` |
+| Stripped Linux amd64 binary | 23,134,370 bytes |
+| Stripped binary SHA-256 | `44a7792360845d3e98db5d8f863b60d358625b2acc3708dd44e7c4388ed29dcf` |
 
 The ten direct requirements are:
 
@@ -68,27 +71,35 @@ The ten direct requirements are:
 - `google.golang.org/protobuf v1.36.11`
 - `modernc.org/sqlite v1.54.0`
 
-The implementation adds no package, provider SDK, scheduler, tool loop,
-credential store, or module requirement. The OpenAI Responses codec translates
-one additional provider wire format behind the existing dispatcher and bounded
-tool loop. New production code is confined to `internal/driver`.
+The RC12 and repair-continuation work adds no package, provider SDK, second
+scheduler, tool loop, credential store, public receipt field, or module
+requirement. Its handwritten production changes stay in the existing Baton
+admission, Git sealing, and runtime continuation seams. The release's OpenAI
+Responses codec continues to translate that provider wire format behind the
+existing dispatcher and bounded tool loop.
 
 ## Executable scenario facts
 
+The current RC12 serial suite passed in 996.271s. It reads the 12
+autonomous-engine cases from the embedded RC12 manifest, requires at least one
+real-binary anchor for every case, and emits 12 PASS results with zero missing,
+duplicate, extra, skipped, or `NOT RUN` results. The manifest SHA-256 is
+`8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018`.
+
+The following per-scenario timings are retained W4 measurements. The current
+non-verbose RC12 suite reran the behaviours but did not pretend to remeasure
+each historical row independently.
+
 | Scenario | Exact result | Elapsed |
 | --- | --- | ---: |
-| RC9 autonomous-engine conformance | 12 of 12 manifest-derived cases PASS; zero missing, duplicate, extra, skipped, or `NOT RUN` results | 582.70s |
 | Real configured production journey | Three tracks, one dependency, two serial T1 slices, two families, four explicit role models, 18 unique dispatches, 22 provider turns, exact assembly and target | 60.26s |
 | Verifier FAIL and repair | Attempt 1 FAIL; distinct attempt 2 candidate; fresh read-only PASS; 20 unique dispatches, 25 provider turns; failed product excluded from assembly | 71.99s |
 | Composition conflict | Three exact `MERGE_CONFLICT` attempts; S1/S2 remain PASS; S3 untouched; target unchanged; run truthfully parked | 15.09s |
 | Telemetry non-interference | Disabled, HTTP 503, and sustained exporter backpressure produce byte-identical candidate, PASS, assembly, merge, target, command-state, and exit evidence | 44.26s |
 | Shared production driver corpus | Seven targets times P01-P10 equals exactly 70 PASS records; mutation gate rejects missing, extra, duplicate, and non-PASS records | 9.09s |
 
-The conformance gate reads the case identities from the embedded Baton RC9
-manifest with SHA-256
-`cb7681e1d52cabc0c220491636b40837c86f1658bd8583421294804ab3abf61c`.
-It executes the real-binary walking-skeleton, consumed-base, and
-topology/recovery journeys before deriving the 12 Sworn PASS records.
+The conformance gate executes the real-binary walking-skeleton, consumed-base,
+and topology/recovery journeys before deriving the 12 Sworn PASS records.
 
 The composition fixture creates a genuine conflict on `shared.txt`; it does
 not inject an error code. Exhaustion is one initial attempt plus two automatic
@@ -127,11 +138,12 @@ Sworn does not invent a score or turn delivery success into a quality verdict.
 
 ## Readiness verdict
 
-The deterministic, parity, telemetry, full, race, vet, format, tidy, and
-reproducible-build gates pass. The canonical secret-free seven-profile
-configuration now has digest
+The current RC12 real-binary E2E, package, race, vet, format, tidy, golden, and
+stripped-build gates pass. The canonical secret-free seven-profile
+configuration retained from W4 has digest
 `sha256:12ab8326666c5c942db23d125c21e29c2165dcbd59d4d849356cf2443c0a35af`.
-Final-binary `driver inspect --all` returns seven PASS reports; its evidence is
+Its final-binary `driver inspect --all` returned seven PASS reports; its
+retained evidence is
 `/tmp/sworn-responses-final.Kz6aNX/driver-inspect-all.json`, SHA-256
 `06c7947457ad25253f9649e9b53e0ee0a1f107c381472861eb93372dc5eeba4e`.
 
@@ -162,15 +174,15 @@ Its evidence is
 SHA-256
 `c471080180ff9047ed2f7ecfccdd0bf89aedd9f4fef623b966e2158bf38172b6`.
 
-Together, the identity-bound bundle covers every required profile and both
-Bedrock surfaces without substituting one provider for another. Replaying the
-eight preserved product commits after the attempt-3 Captain receipt produced
-tree `41c79c4198da60da20c61aa38bad075f3c5b6349`, exactly matching archived
-head `d4ea0f536fe8c30703946ef0a11320800b0c447c`; the only deliberate delta is
-the current readiness wording in this file and the certification-gap capture.
+As historical W4 evidence, that identity-bound bundle covers every required
+profile and both Bedrock surfaces without substituting one provider for
+another. At that checkpoint, replaying the eight preserved product commits
+after the attempt-3 Captain receipt produced tree
+`41c79c4198da60da20c61aa38bad075f3c5b6349`, exactly matching archived head
+`d4ea0f536fe8c30703946ef0a11320800b0c447c`. That replay fact does not describe
+the later RC12 and runtime changes, which are measured independently above.
 
-Revision 10 installs the lean evidence rule while preserving W0 through W6 and
-the existing W8 identity. The repository owner approved and installed its
-exact plan bytes. Technical facts and Baton authority are ready for fresh
-verification; this still grants no tagging, `main` merge, deployment, or
-publication authority.
+This RC12 update preserves the prior W0 through W6 and W8 evidence while adding
+the exact-head repair and Verifier-continuation path. Technical facts and Baton
+authority are ready for fresh verification; this still grants no tagging,
+`main` merge, deployment, or publication authority.

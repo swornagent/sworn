@@ -454,7 +454,7 @@ func TestEndpointBlocksSubmitUntilExactlyOneCompletedResult(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor, err := client.Describe()
-			if err != nil || descriptor.Package.Version != "1.0.0-rc.11" ||
+			if err != nil || descriptor.Package.Version != "1.0.0-rc.12" ||
 				descriptor.Package.SupportPackageSHA256 == "" {
 				t.Fatalf("descriptor = %#v, error = %v", descriptor, err)
 			}

@@ -7,6 +7,11 @@ import {
   boardBytes,
   projectBoard,
 } from './oracle.mjs';
+import {
+  DIAGNOSTIC_LABELS,
+  OPERATION_LABELS,
+  STATE_LABELS,
+} from './presentation.mjs';
 
 const HTML = `<!doctype html>
 <html lang="en">
@@ -14,7 +19,7 @@ const HTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Baton relay board</title>
+  <title>Baton board</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
@@ -28,17 +33,17 @@ const HTML = `<!doctype html>
         <p class="wordmark">Baton</p>
       </div>
     </div>
-    <p id="freshness" class="freshness" role="status" aria-live="polite">Connecting</p>
+    <p id="freshness" class="freshness" role="status" aria-live="polite">Checking for updates</p>
   </header>
   <main id="board" class="board" tabindex="-1">
     <section class="loading" aria-labelledby="loading-title">
       <p class="eyebrow">Local release board</p>
-      <h1 id="loading-title">Reading committed state</h1>
-      <p>The board follows release and track refs, never whichever worktree happens to be open.</p>
+      <h1 id="loading-title">Checking saved work</h1>
+      <p>The board reads the approved plan, handoffs, and Git history.</p>
     </section>
   </main>
   <footer class="footer">
-    <p>Read-only. Refreshed from committed Baton records.</p>
+    <p>Read-only. Built from saved Baton records.</p>
   </footer>
 </body>
 </html>
@@ -48,6 +53,9 @@ const APP_JS = `'use strict';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const GRAPH_VERSION = 'baton.graph/v1';
+const STATE_LABELS = Object.freeze(${JSON.stringify(STATE_LABELS)});
+const OPERATION_LABELS = Object.freeze(${JSON.stringify(OPERATION_LABELS)});
+const DIAGNOSTIC_LABELS = Object.freeze(${JSON.stringify(DIAGNOSTIC_LABELS)});
 const boardRoot = document.getElementById('board');
 const freshness = document.getElementById('freshness');
 let lastBoard = null;
@@ -78,8 +86,17 @@ function stateClass(value) {
   return 'state state--' + (safe || 'unknown');
 }
 
+function tokenLabel(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return STATE_LABELS[value] || String(value).replaceAll('_', ' ');
+}
+
+function operationLabel(value) {
+  return OPERATION_LABELS[value] || tokenLabel(value);
+}
+
 function statePill(value) {
-  return element('span', stateClass(value), text(value));
+  return element('span', stateClass(value), tokenLabel(value));
 }
 
 function labelledValue(label, value, mono) {
@@ -99,17 +116,21 @@ function operationIdentity(operation) {
 function operationCard(operation) {
   const card = element('article', 'operation');
   const lead = element('div', 'operation-lead');
-  lead.append(element('span', 'operation-name mono', operation.operation));
-  lead.append(element('span', 'operation-scope', operation.scope));
+  lead.append(element('span', 'operation-name', operationLabel(operation.operation)));
   card.append(lead);
   card.append(element('p', 'operation-target mono', operationIdentity(operation)));
+  card.append(element(
+    'p',
+    'operation-scope mono',
+    'Technical details · ' + text(operation.operation) + ' · ' + text(operation.scope)
+  ));
   return card;
 }
 
 function blockerBlock(blocker) {
   const block = element('div', 'blocker');
-  block.append(element('p', 'blocker-code mono', blocker.code));
   block.append(element('p', 'blocker-summary', blocker.summary));
+  block.append(element('p', 'blocker-code mono', 'Technical details · ' + text(blocker.code)));
   return block;
 }
 
@@ -204,8 +225,8 @@ function workNode(work, index, graph) {
     summaryRoute.append(document.createTextNode(' '));
     summaryRoute.append(element(
       'span',
-      'lifecycle-role mono',
-      projected.next_operation.operation
+      'lifecycle-role',
+      operationLabel(projected.next_operation.operation)
     ));
     summary.append(summaryRoute);
   }
@@ -221,9 +242,9 @@ function workNode(work, index, graph) {
 
   const facts = element('dl', 'leg-facts');
   facts.append(labelledValue('Attempt', work.attempt));
-  facts.append(labelledValue('Plan revision', work.plan_revision));
-  facts.append(labelledValue('Recorded stage', work.stage));
-  facts.append(labelledValue('Recorded outcome', work.outcome));
+  facts.append(labelledValue('Plan version', work.plan_revision));
+  facts.append(labelledValue('Saved step', work.stage));
+  facts.append(labelledValue('Saved result', work.outcome));
   details.append(facts);
   details.append(sourceLine(work.source));
 
@@ -235,7 +256,8 @@ function workNode(work, index, graph) {
   if (projected.next_operation) {
     const next = element('div', 'next-inline');
     next.append(element('span', 'next-label', 'Next handoff'));
-    next.append(element('span', 'mono', projected.next_operation.operation));
+    next.append(element('span', '', operationLabel(projected.next_operation.operation)));
+    next.append(element('span', 'mono', 'Technical · ' + projected.next_operation.operation));
     details.append(next);
   }
   if (typeof details.addEventListener === 'function') {
@@ -259,7 +281,7 @@ function trackLane(track, graph) {
   stem.append(element(
     'p',
     'track-authority',
-    String((track.work || []).length) + ' legs · ' + text(track.materialisation) + ' authority'
+    String((track.work || []).length) + ' pieces of work'
   ));
   const feeds = projectedTrackFeeds(graph, track.id);
   if (feeds.length > 0) {
@@ -275,14 +297,15 @@ function trackLane(track, graph) {
   lane.append(workList);
 
   const exact = element('details', 'track-record');
-  exact.append(element('summary', 'record-summary', 'Lane record'));
+  exact.append(element('summary', 'record-summary', 'Technical details'));
   const facts = element('dl', 'track-facts');
-  facts.append(labelledValue('Ref', track.ref, true));
-  facts.append(labelledValue('Head', track.head, true));
-  if (track.frozen_head) facts.append(labelledValue('Frozen', track.frozen_head, true));
+  facts.append(labelledValue('Git ref', track.ref, true));
+  facts.append(labelledValue('Git head', track.head, true));
+  facts.append(labelledValue('Prepared as', track.materialisation, true));
+  if (track.frozen_head) facts.append(labelledValue('Fixed head', track.frozen_head, true));
   exact.append(facts);
   if (Array.isArray(track.blockers) && track.blockers.length > 0) {
-    exact.append(element('p', 'track-waiting mono', 'Recorded blockers ' + track.blockers.join(', ')));
+    exact.append(element('p', 'track-waiting mono', 'Waiting for ' + track.blockers.join(', ')));
   }
   lane.append(exact);
   graph.laneSequence += 1;
@@ -296,13 +319,13 @@ function assemblyNode(assembly, graph) {
   const exchange = element('details', 'cadence-node final-exchange');
   const summary = element('summary', 'cadence-summary');
   const label = element('span', 'cadence-label');
-  label.append(element('span', 'eyebrow', 'Final exchange'));
-  label.append(element('strong', 'cadence-title', 'Assembly'));
+  label.append(element('span', 'eyebrow', 'Final check'));
+  label.append(element('strong', 'cadence-title', 'Complete release'));
   summary.append(label);
   summary.append(statePill(projectedAssembly.state));
   exchange.append(summary);
   if (!assembly) {
-    exchange.append(element('p', 'empty-copy', 'Assembly state is unavailable.'));
+    exchange.append(element('p', 'empty-copy', 'The complete release is unavailable.'));
   } else {
     const route = element('p', 'lifecycle');
     route.append(element('span', 'lifecycle-stage', text(assembly.stage)));
@@ -310,18 +333,19 @@ function assemblyNode(assembly, graph) {
       route.append(document.createTextNode(' → '));
       route.append(element(
         'span',
-        'lifecycle-role mono',
-        projectedAssembly.next_operation.operation
+        'lifecycle-role',
+        operationLabel(projectedAssembly.next_operation.operation)
       ));
     }
     exchange.append(route);
-    exchange.append(element('p', 'outcome', 'Outcome ' + text(assembly.outcome)));
+    exchange.append(element('p', 'outcome', 'Saved result ' + text(assembly.outcome)));
     if (assembly.source) exchange.append(sourceLine(assembly.source));
     if (assembly.blocker) exchange.append(blockerBlock(assembly.blocker));
     if (projectedAssembly.next_operation) {
       const next = element('div', 'next-inline');
       next.append(element('span', 'next-label', 'Next handoff'));
-      next.append(element('span', 'mono', projectedAssembly.next_operation.operation));
+      next.append(element('span', '', operationLabel(projectedAssembly.next_operation.operation)));
+      next.append(element('span', 'mono', 'Technical · ' + projectedAssembly.next_operation.operation));
       exchange.append(next);
     }
   }
@@ -340,8 +364,8 @@ function assemblyNode(assembly, graph) {
     'p',
     'finish-copy',
     projectedMerge.next_operation
-      ? text(projectedMerge.next_operation.operation) + ' is the recorded handoff.'
-      : 'Awaits a recorded merge handoff.'
+      ? operationLabel(projectedMerge.next_operation.operation) + ' is next.'
+      : 'Waiting for the complete release to pass.'
   ));
   stack.append(finish);
   registerNode(graph, 'merge', finish);
@@ -352,13 +376,21 @@ function diagnosticCard(item) {
   const card = element('article', 'diagnostic');
   const head = element('div', 'diagnostic-heading');
   head.append(element('span', 'diagnostic-mark', '!'));
-  head.append(element('p', 'diagnostic-code mono', item.code));
+  head.append(element(
+    'p',
+    'diagnostic-message',
+    DIAGNOSTIC_LABELS[item.code] || item.message
+  ));
   card.append(head);
   const scope = [item.release, item.track, item.work]
     .filter(function (value) { return value !== null; })
     .join(' / ');
-  if (scope) card.append(element('p', 'diagnostic-scope mono', scope));
-  card.append(element('p', 'diagnostic-message', item.message));
+  const original = DIAGNOSTIC_LABELS[item.code] ? ' · ' + text(item.message) : '';
+  card.append(element(
+    'p',
+    'diagnostic-code mono',
+    'Technical details · ' + text(item.code) + (scope ? ' · ' + scope : '') + original
+  ));
   return card;
 }
 
@@ -453,7 +485,7 @@ function relayMap(release) {
   const wrapper = element('section', 'relay-map');
   const heading = element('header', 'relay-heading');
   const title = element('div');
-  title.append(element('p', 'eyebrow', 'Committed route'));
+  title.append(element('p', 'eyebrow', 'How the work moves'));
   title.append(element('h3', 'relay-title', 'Release relay'));
   heading.append(title);
   const legend = element('div', 'graph-legend');
@@ -467,13 +499,13 @@ function relayMap(release) {
   wrapper.append(element(
     'p',
     'relay-caption',
-    'Each lane runs forward. Cross-lane lines are declared dependencies; dashed lines are consumed inputs.'
+    'Each lane moves forward. Lines between lanes show work that must finish first or be carried in.'
   ));
   if (!graph.valid) {
     wrapper.append(element(
       'p',
       'graph-unavailable',
-      'The committed graph projection is unavailable. No route is shown.'
+      'Baton could not draw this release safely. See the issue above.'
     ));
     return wrapper;
   }
@@ -521,28 +553,27 @@ function releaseSection(release) {
   title.append(element('p', 'eyebrow', 'Release'));
   title.append(element('h2', 'release-name', release.release));
   header.append(title);
+  header.append(statePill(release.status));
   section.append(header);
 
   const record = element('details', 'release-record');
-  record.append(element(
-    'summary',
-    'record-summary',
-    'Exact ref record · plan r' + text(release.plan_revision)
-  ));
+  record.append(element('summary', 'record-summary', 'Technical details · plan ' + text(release.plan_revision)));
   const facts = element('dl', 'release-facts');
-  facts.append(labelledValue('Plan digest', release.plan_digest, true));
-  facts.append(labelledValue('Plan object', release.plan_object, true));
-  facts.append(labelledValue('Release ref', release.release_ref, true));
-  facts.append(labelledValue('Release head', release.release_head, true));
-  facts.append(labelledValue('Target ref', release.target_ref, true));
-  facts.append(labelledValue('Target head', release.target_head, true));
+  facts.append(labelledValue('Plan fingerprint', release.plan_digest, true));
+  facts.append(labelledValue('Saved plan', release.plan_object, true));
+  facts.append(labelledValue('Release Git ref', release.release_ref, true));
+  facts.append(labelledValue('Release Git head', release.release_head, true));
+  facts.append(labelledValue('Target Git ref', release.target_ref, true));
+  facts.append(labelledValue('Target Git head', release.target_head, true));
   record.append(facts);
   section.append(record);
 
   if (Array.isArray(release.diagnostics) && release.diagnostics.length > 0) {
     const diagnostics = element('div', 'diagnostics');
-    release.diagnostics.forEach(function (item) { diagnostics.append(diagnosticCard(item)); });
-    section.append(diagnostics);
+    release.diagnostics
+      .filter(function (item) { return item.code !== 'TRACK_REF_ABSENT'; })
+      .forEach(function (item) { diagnostics.append(diagnosticCard(item)); });
+    if (diagnostics.children.length > 0) section.append(diagnostics);
   }
   section.append(relayMap(release));
   return section;
@@ -660,14 +691,14 @@ function render(board) {
   const fragment = document.createDocumentFragment();
   const intro = element('section', 'intro');
   const copy = element('div');
-  copy.append(element('p', 'eyebrow', 'Baton board · exact refs'));
+  copy.append(element('p', 'eyebrow', 'Baton board'));
   copy.append(element('h1', 'intro-title', board.repository || 'No active release'));
   copy.append(element(
     'p',
     'intro-copy',
     board.valid
-      ? 'Baton is how the work is handed off. One approved plan starts the relay; each verified leg carries committed work forward.'
-      : 'At least one release cannot be trusted. Its diagnostics are shown without partial progress claims.'
+      ? 'Baton is how the work is handed off. One approved plan starts the relay; each checked piece carries the work forward.'
+      : 'The board found a problem and stopped rather than guessing. What needs attention is shown below.'
   ));
   intro.append(copy);
   intro.append(statePill(board.valid ? 'valid' : 'invalid'));
@@ -675,7 +706,7 @@ function render(board) {
 
   if (Array.isArray(board.diagnostics) && board.diagnostics.length > 0) {
     const diagnostics = element('section', 'diagnostics global-diagnostics');
-    diagnostics.append(element('h2', 'section-title', 'Board diagnostics'));
+    diagnostics.append(element('h2', 'section-title', 'What needs attention'));
     board.diagnostics.forEach(function (item) { diagnostics.append(diagnosticCard(item)); });
     fragment.append(diagnostics);
   }
@@ -683,8 +714,8 @@ function render(board) {
   if (!Array.isArray(board.releases) || board.releases.length === 0) {
     const empty = element('section', 'empty');
     empty.append(element('p', 'eyebrow', 'Nothing on the track'));
-    empty.append(element('h2', 'section-title', 'No local release refs'));
-    empty.append(element('p', 'empty-copy', 'Create an approved refs/heads/release-wt/* release to populate this board.'));
+    empty.append(element('h2', 'section-title', 'No active release'));
+    empty.append(element('p', 'empty-copy', 'Ask an agent to start with baton-plan. An approved release will appear here.'));
     fragment.append(empty);
   } else {
     board.releases.forEach(function (release) { fragment.append(releaseSection(release)); });
@@ -694,7 +725,7 @@ function render(board) {
     const queue = element('section', 'queue');
     const heading = element('div', 'queue-heading');
     heading.append(element('p', 'eyebrow', 'Ready now'));
-    heading.append(element('h2', 'section-title', 'Next handoffs'));
+    heading.append(element('h2', 'section-title', 'Next steps'));
     queue.append(heading);
     const operations = element('div', 'operation-grid');
     board.next_operations.forEach(function (operation) { operations.append(operationCard(operation)); });
@@ -707,14 +738,14 @@ function render(board) {
 
 function markFresh() {
   freshness.className = 'freshness freshness--fresh';
-  freshness.textContent = 'Committed state · current';
+  freshness.textContent = 'Up to date';
 }
 
 function markStale() {
   freshness.className = 'freshness freshness--stale';
   freshness.textContent = lastBoard
-    ? 'Refresh failed · showing last committed view'
-    : 'Board unavailable · retrying';
+    ? 'Could not refresh · showing the last saved view'
+    : 'Board unavailable · trying again';
 }
 
 async function refresh() {

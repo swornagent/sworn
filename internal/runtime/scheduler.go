@@ -2211,6 +2211,7 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			preparedWork = workIdentity(workID, "git.seal.prepared")
 			childEpoch, childTry = epoch, try
 		}
+		refresh := candidateHeadRefresh(state, slice)
 		cycle := implementationCycle{
 			Release: state.Release, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
@@ -2229,8 +2230,12 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 				childTry,
 			),
 		}
+		if refresh {
+			cycle.RefreshFrom = slice.CurrentReceipt.OID
+		}
 		if len(slice.Location.Slice.Consumes) > 0 {
-			if slice.PreparedBase == "" || slice.PreparedBase != track.Head {
+			if slice.PreparedBase == "" ||
+				(slice.PreparedBase != track.Head && !refresh) {
 				return runtimeFail("STALE_DISPATCH", nil)
 			}
 			cycle.Base = slice.PreparedBase
@@ -2676,13 +2681,24 @@ func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
 }
 
 func sealedRecordFromCandidate(candidate gitx.SealedCandidate) sealedRecord {
-	return sealedRecord{Before: candidate.Before.String(), Candidate: candidate.Candidate.String(),
-		Tree: candidate.Tree.String(), ChangedPaths: append([]string(nil), candidate.ChangedPaths...)}
+	record := sealedRecord{
+		Before:       candidate.Before.String(),
+		Candidate:    candidate.Candidate.String(),
+		Tree:         candidate.Tree.String(),
+		ChangedPaths: append([]string(nil), candidate.ChangedPaths...),
+	}
+	if !candidate.RefreshFrom.IsZero() {
+		record.RefreshFrom = candidate.RefreshFrom.String()
+	}
+	return record
 }
 
 func sealedRecordMatchesCycle(record sealedRecord, cycle implementationCycle) bool {
+	baseMatches := record.Before == cycle.TrackHead &&
+		record.RefreshFrom == cycle.RefreshFrom &&
+		(cycle.RefreshFrom == "" || cycle.RefreshFrom == cycle.Binds)
 	return record.Slice == cycle.Slice && record.Binds == cycle.Binds &&
-		record.Before == cycle.TrackHead && record.Receipt.Release == cycle.Release &&
+		baseMatches && record.Receipt.Release == cycle.Release &&
 		record.Receipt.Slice == cycle.Slice && record.Receipt.Role == "implementer" &&
 		record.Receipt.Result == "candidate" &&
 		record.Receipt.Base == cycle.Base &&
@@ -2729,21 +2745,54 @@ func validateSealedRecordCandidate(
 	}
 	format := engine.repository.ObjectFormat()
 	before, beforeErr := gitx.ParseOID(format, record.Before)
+	evidenceBase := before
+	var refreshErr error
+	if record.RefreshFrom != "" {
+		evidenceBase, refreshErr = gitx.ParseOID(format, record.RefreshFrom)
+	}
 	candidate, candidateErr := gitx.ParseOID(format, record.Candidate)
 	tree, treeErr := gitx.ParseOID(format, record.Tree)
-	if beforeErr != nil || candidateErr != nil || treeErr != nil {
+	if beforeErr != nil || refreshErr != nil ||
+		candidateErr != nil || treeErr != nil {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.Join(beforeErr, candidateErr, treeErr),
+			errors.Join(beforeErr, refreshErr, candidateErr, treeErr),
 		)
+	}
+	if record.RefreshFrom == "" && before == candidate {
+		return runtimeFail(
+			"CORRUPT_JOURNAL",
+			errors.New("ordinary sealed candidate did not advance its physical head"),
+		)
+	}
+	if record.RefreshFrom != "" && evidenceBase == before {
+		return runtimeFail(
+			"CORRUPT_JOURNAL",
+			errors.New("refreshed candidate did not retain an earlier evidence base"),
+		)
+	}
+	if candidate != before {
+		parents, parentErr := engine.repository.Parents(candidate)
+		if parentErr != nil || len(parents) != 1 || parents[0] != before {
+			return runtimeFail(
+				"CORRUPT_JOURNAL",
+				errors.Join(
+					parentErr,
+					errors.New("sealed candidate is not one child of its physical head"),
+				),
+			)
+		}
 	}
 	linear, lineageErr := linearCandidateAncestry(
 		engine.repository,
-		before,
+		evidenceBase,
 		candidate,
 	)
 	observedTree, observedTreeErr := engine.repository.TreeOID(candidate)
-	paths, pathsErr := engine.repository.ChangedPaths(before, candidate)
+	paths, pathsErr := engine.repository.ChangedPaths(
+		evidenceBase,
+		candidate,
+	)
 	if lineageErr != nil || observedTreeErr != nil || pathsErr != nil {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
@@ -2800,7 +2849,7 @@ func validateSealedRecordCandidate(
 		engine.inertness,
 		plan,
 		cycle.Slice,
-		record.Before,
+		evidenceBase.String(),
 		record.Candidate,
 	); err != nil {
 		return runtimeFail("CORRUPT_JOURNAL", err)
@@ -2842,6 +2891,35 @@ func currentImplementationState(
 	return fresh, nil
 }
 
+func implementationRefreshBase(
+	engine *engine,
+	state baton.State,
+	cycle implementationCycle,
+) (gitx.OID, bool, error) {
+	if cycle.RefreshFrom == "" {
+		return gitx.OID{}, false, nil
+	}
+	current, ok := state.Slice(cycle.Slice)
+	track, trackOK := state.Track(cycle.Track)
+	if !ok || !trackOK ||
+		!candidateHeadRefresh(state, current) ||
+		current.CurrentReceipt == nil ||
+		current.CurrentReceipt.OID != cycle.Binds ||
+		current.CurrentReceipt.OID != cycle.RefreshFrom ||
+		track.Head != cycle.TrackHead {
+		return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+	}
+	refreshFrom, err := gitx.ParseOID(
+		engine.repository.ObjectFormat(),
+		cycle.RefreshFrom,
+	)
+	if err != nil {
+		return gitx.OID{}, false,
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return refreshFrom, true, nil
+}
+
 func (s *Service) claimPreparedImplementation(
 	ctx context.Context,
 	engine *engine,
@@ -2863,12 +2941,27 @@ func (s *Service) claimPreparedImplementation(
 		return sealedRecord{}, journal.Claim{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
+	scopeBase := prepared.Before.String()
+	if !prepared.RefreshFrom.IsZero() {
+		current, ok := state.Slice(cycle.Slice)
+		if !ok ||
+			!candidateHeadRefresh(state, current) ||
+			prepared.RefreshFrom.String() != cycle.RefreshFrom ||
+			prepared.Before.String() != cycle.TrackHead {
+			return sealedRecord{}, journal.Claim{},
+				runtimeFail("STALE_DISPATCH", nil)
+		}
+		scopeBase = prepared.RefreshFrom.String()
+	} else if cycle.RefreshFrom != "" {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("STALE_DISPATCH", nil)
+	}
 	if err := baton.ValidateSliceCandidateScope(
 		engine.git,
 		engine.inertness,
 		plan,
 		cycle.Slice,
-		prepared.Before.String(),
+		scopeBase,
 		prepared.Candidate.String(),
 	); err != nil {
 		return sealedRecord{}, journal.Claim{},
@@ -2979,8 +3072,49 @@ func (s *Service) prepareProductionImplementationCandidate(
 			errors.Join(releaseErr, targetErr),
 		)
 	}
+	refreshFrom, refreshed, refreshErr :=
+		implementationRefreshBase(engine, fresh, cycle)
+	if refreshErr != nil {
+		return sealedRecord{}, journal.Claim{}, refreshErr
+	}
 	var record sealedRecord
 	var preparedClaim journal.Claim
+	if refreshed {
+		_, prepareErr := engine.workspaces.SealTrackRefreshGuardedWithClaim(
+			workspace,
+			refreshFrom,
+			gitx.SealAuthority{
+				ReleaseHead: releaseHead,
+				TargetRef:   engine.manifest.value.TargetRef,
+				TargetHead:  targetHead,
+			},
+			func(prepared gitx.SealedCandidate) error {
+				var claimErr error
+				record, preparedClaim, claimErr =
+					s.claimPreparedImplementation(
+						ctx,
+						engine,
+						owner,
+						fresh,
+						cycle,
+						submission,
+						prepared,
+						false,
+					)
+				if claimErr != nil {
+					return claimErr
+				}
+				return errProductionCandidatePrepared
+			},
+		)
+		if !errors.Is(prepareErr, errProductionCandidatePrepared) {
+			return sealedRecord{}, journal.Claim{}, prepareErr
+		}
+		if _, err := currentImplementationState(engine, cycle); err != nil {
+			return sealedRecord{}, journal.Claim{}, err
+		}
+		return record, preparedClaim, nil
+	}
 	_, prepareErr := engine.workspaces.SealTrackGuardedWithClaim(
 		workspace,
 		gitx.SealAuthority{
@@ -3220,28 +3354,46 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		return sealedRecord{}, runtimeFail(
 			"CORRUPT_JOURNAL", errors.Join(releaseErr, targetErr))
 	}
-	_, err = engine.workspaces.SealTrackGuardedWithClaim(
-		workspace,
-		gitx.SealAuthority{
-			ReleaseHead: releaseHead,
-			TargetRef:   engine.manifest.value.TargetRef,
-			TargetHead:  targetHead,
-		},
-		func(prepared gitx.SealedCandidate) error {
-			var claimErr error
-			record, preparedClaim, claimErr =
-				s.claimPreparedImplementation(
-					ctx,
-					engine,
-					owner,
-					fresh,
-					cycle,
-					submission,
-					prepared,
-					true,
-				)
-			return claimErr
-		})
+	refreshFrom, refreshed, refreshErr :=
+		implementationRefreshBase(engine, fresh, cycle)
+	if refreshErr != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, refreshErr
+	}
+	authority := gitx.SealAuthority{
+		ReleaseHead: releaseHead,
+		TargetRef:   engine.manifest.value.TargetRef,
+		TargetHead:  targetHead,
+	}
+	claimPrepared := func(prepared gitx.SealedCandidate) error {
+		var claimErr error
+		record, preparedClaim, claimErr =
+			s.claimPreparedImplementation(
+				ctx,
+				engine,
+				owner,
+				fresh,
+				cycle,
+				submission,
+				prepared,
+				true,
+			)
+		return claimErr
+	}
+	if refreshed {
+		_, err = engine.workspaces.SealTrackRefreshGuardedWithClaim(
+			workspace,
+			refreshFrom,
+			authority,
+			claimPrepared,
+		)
+	} else {
+		_, err = engine.workspaces.SealTrackGuardedWithClaim(
+			workspace,
+			authority,
+			claimPrepared,
+		)
+	}
 	_ = workspace.Close()
 	if err != nil {
 		if preparedClaim.Token != "" {
@@ -3887,11 +4039,6 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 		return sealedRecord{}, runtimeFail(
 			"CORRUPT_JOURNAL", errors.Join(beforeErr, candidateErr))
 	}
-	key := gitx.TrackKey{Release: engine.manifest.value.Release, Track: cycle.Track}
-	disposition, err := engine.workspaces.ReconcileSeal(key, before, candidate)
-	if err != nil {
-		return sealedRecord{}, runtimeFail("RECOVERY_FAILED", err)
-	}
 	state, stateErr := baton.ReadState(
 		engine.git, engine.manifest.value.Release, engine.inertness)
 	if stateErr != nil {
@@ -3900,6 +4047,44 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 	if !implementationAuthorityCurrent(state, cycle) {
 		return s.rejectStalePreparedSeal(
 			ctx, engine, owner, cycle, record, claimToken)
+	}
+	if record.RefreshFrom != "" && before == candidate {
+		if err := s.validateSealedCycle(
+			engine,
+			cycle,
+			record,
+			true,
+		); err != nil {
+			return s.rejectStalePreparedSeal(
+				ctx,
+				engine,
+				owner,
+				cycle,
+				record,
+				claimToken,
+			)
+		}
+		body := mustJSON(record)
+		if err := s.journal.ReconcileOwned(
+			context.WithoutCancel(ctx),
+			owner,
+			journal.Completion{
+				RunID: owner.RunID, EffectID: cycle.PreparedEffect,
+				Token: claimToken, State: journal.Succeeded, Result: body,
+				EventKind: "candidate_reconciled", EventBody: body,
+				At: s.now().UTC(),
+			},
+			journal.RecoveryAllNew,
+		); err != nil {
+			return sealedRecord{},
+				runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return record, nil
+	}
+	key := gitx.TrackKey{Release: engine.manifest.value.Release, Track: cycle.Track}
+	disposition, err := engine.workspaces.ReconcileSeal(key, before, candidate)
+	if err != nil {
+		return sealedRecord{}, runtimeFail("RECOVERY_FAILED", err)
 	}
 	releaseAuthority := state.Refs.Release.Head
 	if disposition == gitx.SealAllOld {
@@ -4213,6 +4398,40 @@ func (s *Service) recoverUncertainPreparedCycle(
 			"CORRUPT_JOURNAL",
 			errors.Join(beforeErr, candidateErr),
 		)
+	}
+	if record.RefreshFrom != "" && before == candidate {
+		authorityErr := s.validateSealedCycle(
+			engine,
+			cycle,
+			record,
+			true,
+		)
+		if authorityErr == nil {
+			if err := s.journal.RearmUncertainManyOwned(
+				context.WithoutCancel(ctx),
+				owner,
+				owner.RunID,
+				[]string{outer.ID, prepared.ID},
+				s.now().UTC(),
+			); err != nil {
+				return runtimeFail("JOURNAL_WRITE_FAILED", err)
+			}
+			return nil
+		}
+		if !IsCode(authorityErr, "STALE_DISPATCH") {
+			return runtimeFail("RECOVERY_UNCERTAIN", authorityErr)
+		}
+		if err := s.journal.ResolveUncertainManyOwned(
+			context.WithoutCancel(ctx),
+			owner,
+			owner.RunID,
+			[]string{outer.ID, prepared.ID},
+			"stale_authority",
+			s.now().UTC(),
+		); err != nil {
+			return runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return nil
 	}
 	disposition, err := engine.workspaces.ReconcileSeal(
 		gitx.TrackKey{

@@ -93,6 +93,7 @@ type sealedRecord struct {
 	Slice        string                   `json:"slice"`
 	Binds        string                   `json:"binds"`
 	Before       string                   `json:"before"`
+	RefreshFrom  string                   `json:"refresh_from,omitempty"`
 	Candidate    string                   `json:"candidate"`
 	Tree         string                   `json:"tree"`
 	ProductTree  string                   `json:"product_tree"`
@@ -111,6 +112,7 @@ type implementationCycle struct {
 	Track          string `json:"track"`
 	TrackRef       string `json:"track_ref"`
 	TrackHead      string `json:"track_head"`
+	RefreshFrom    string `json:"refresh_from,omitempty"`
 	Base           string `json:"base,omitempty"`
 	DispatchWork   string `json:"dispatch_work"`
 	DispatchEffect string `json:"dispatch_effect"`

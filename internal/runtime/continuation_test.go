@@ -167,7 +167,7 @@ func continuationTestObservationWithOutcome(
 	}
 }
 
-func TestDesignContinuationPromotesAcrossFreshCaptainReview(
+func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	t *testing.T,
 ) {
 	ctx := context.Background()
@@ -249,15 +249,17 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 				if freshCalls > 2 {
 					body = []byte("second fresh repair implementation\n")
 				}
-				if err := os.WriteFile(
-					filepath.Join(
-						invocation.HostWorkspace,
-						"one.txt",
-					),
-					body,
-					0o600,
-				); err != nil {
-					t.Fatal(err)
+				if freshCalls != 3 {
+					if err := os.WriteFile(
+						filepath.Join(
+							invocation.HostWorkspace,
+							"one.txt",
+						),
+						body,
+						0o600,
+					); err != nil {
+						t.Fatal(err)
+					}
 				}
 			default:
 				t.Fatalf(
@@ -536,7 +538,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 			t.Fatal(err)
 		}
 	}
-	readSlice := func() *baton.SliceState {
+	readState := func() baton.State {
 		t.Helper()
 		state, err := baton.ReadState(
 			engine.git, manifest.value.Release, engine.inertness,
@@ -544,7 +546,11 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 		if err != nil {
 			t.Fatal(err)
 		}
-		slice, ok := state.Slice("S1")
+		return state
+	}
+	readSlice := func() *baton.SliceState {
+		t.Helper()
+		slice, ok := readState().Slice("S1")
 		if !ok {
 			t.Fatal("S1 missing from Baton state")
 		}
@@ -667,8 +673,8 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 			freshCalls,
 		)
 	}
-	for repairAttempt := int64(2); repairAttempt <= 3; repairAttempt++ {
-		lostVerifier := repairAttempt == 3
+	for _, repairAttempt := range []int64{2, 4} {
+		lostVerifier := repairAttempt == 4
 		if lostVerifier {
 			if err := closeRetainedContinuation(verifierEntry); err != nil {
 				t.Fatal(err)
@@ -694,8 +700,8 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 			(!lostVerifier &&
 				(verifierEntry == nil || verifierEntry.handle == nil)) ||
 			(lostVerifier && verifierEntry != nil) ||
-			turnCalls != int(repairAttempt)+1 ||
-			verifierCalls != int(repairAttempt)-1 ||
+			turnCalls != map[int64]int{2: 3, 4: 4}[repairAttempt] ||
+			verifierCalls != map[int64]int{2: 1, 4: 2}[repairAttempt] ||
 			freshCalls != int(repairAttempt) {
 			t.Fatalf(
 				"post-repair %d state=%#v continuation=%#v turns=%d verifier=%d fresh=%d",
@@ -704,6 +710,80 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 			)
 		}
 		if verifierEntry != nil {
+			if repairAttempt == 2 {
+				workspace, err := engine.workspaces.OpenTrack(
+					gitx.TrackKey{
+						Release: manifest.value.Release,
+						Track:   "T1",
+					},
+					gitx.ImplementationView,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(
+					filepath.Join(workspace.Path(), "one.txt"),
+					[]byte("unreceipted verifier correction\n"),
+					0o600,
+				); err != nil {
+					t.Fatal(err)
+				}
+				unreceipted, err := engine.workspaces.SealTrack(
+					workspace,
+				)
+				if closeErr := workspace.Close(); err == nil {
+					err = closeErr
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				refreshed := readSlice()
+				if refreshed.Stage != "implement" ||
+					refreshed.NextRole != "implementer" ||
+					refreshed.Attempt != 3 ||
+					!candidateHeadRefresh(
+						readState(),
+						refreshed,
+					) {
+					t.Fatalf("verifier correction refresh = %#v", refreshed)
+				}
+				if err := service.storeRetainedContinuation(
+					manifest.value.RunID,
+					continuationVerifier,
+					"S1",
+					verifierEntry,
+				); err != nil {
+					t.Fatal(err)
+				}
+				advance()
+				slice = readSlice()
+				verifierEntry = service.takeRetainedContinuation(
+					manifest.value.RunID,
+					continuationVerifier,
+					"S1",
+				)
+				if slice.Candidate == nil ||
+					slice.Candidate.Receipt.Attempt == nil ||
+					*slice.Candidate.Receipt.Attempt != 3 ||
+					slice.Candidate.Receipt.Candidate == nil ||
+					*slice.Candidate.Receipt.Candidate !=
+						unreceipted.Candidate.String() ||
+					slice.NextRole != "verifier" ||
+					verifierEntry == nil ||
+					verifierEntry.handle == nil ||
+					turnCalls != 3 ||
+					verifierCalls != 1 ||
+					freshCalls != 3 {
+					t.Fatalf(
+						"post-head-refresh state=%#v continuation=%#v turns=%d verifier=%d fresh=%d",
+						slice,
+						verifierEntry,
+						turnCalls,
+						verifierCalls,
+						freshCalls,
+					)
+				}
+			}
 			if err := service.storeRetainedContinuation(
 				manifest.value.RunID, continuationVerifier, "S1",
 				verifierEntry,
@@ -721,7 +801,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 				slice.CurrentReceipt.Receipt.Result != "fail" ||
 				slice.NextRole != "implementer" ||
 				verifierEntry == nil || verifierEntry.handle == nil ||
-				verifierEntry.binding.Attempt != repairAttempt ||
+				verifierEntry.binding.Attempt != 3 ||
 				verifierEntry.verifierFailReceipt !=
 					slice.CurrentReceipt.OID {
 				t.Fatalf(
@@ -734,7 +814,7 @@ func TestDesignContinuationPromotesAcrossFreshCaptainReview(
 		if slice.Pass == nil ||
 			slice.Pass.Receipt.Result != "pass" ||
 			turnCalls != 5 || verifierCalls != 3 ||
-			freshCalls != 3 || verifierEntry != nil {
+			freshCalls != 4 || verifierEntry != nil {
 			t.Fatalf(
 				"post-PASS state=%#v continuation=%#v turns=%d verifier=%d fresh=%d",
 				slice, verifierEntry, turnCalls, verifierCalls, freshCalls,
@@ -1480,12 +1560,108 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 		selectionDigest:     selectionDigest,
 		verifierFailReceipt: failReceipt,
 	}
+	failAttempt := entry.binding.Attempt
+	history := baton.SliceHistory{
+		MaximumAttempt: repair.Attempt,
+		Entries: []baton.ReceiptEntry{
+			{
+				OID: failReceipt,
+				Receipt: baton.Receipt{
+					Version: baton.ReceiptVersion,
+					Release: repair.Release,
+					Slice:   &sliceID,
+					Role:    "verifier",
+					Result:  "fail",
+					Attempt: &failAttempt,
+					Plan:    repair.Plan.OID,
+				},
+			},
+			{OID: repair.Receipt.OID, Receipt: receipt},
+		},
+	}
 	if sourceBinding.TargetAuthorityDigest !=
 		repairBinding.TargetAuthorityDigest ||
 		!verifierRepairContinuationMatches(
-			entry, repairBinding, repairSelection, &repair,
+			entry, repairBinding, repairSelection, &repair, history,
 		) {
 		t.Fatal("PreparedBase-only repair did not retain verifier authority")
+	}
+
+	refresh := repair
+	refresh.Attempt++
+	refresh.Receipt = &productionReceiptBinding{}
+	*refresh.Receipt = *repair.Receipt
+	refresh.Receipt.OID = "cccccccccccccccccccccccccccccccccccccccc"
+	refresh.Authority.TrackHead = refresh.Receipt.OID
+	refresh.Candidate = &productionCandidateBinding{
+		Receipt:     refresh.Receipt.OID,
+		Commit:      "dddddddddddddddddddddddddddddddddddddddd",
+		ProductTree: driver.Digest([]byte("refresh-product-tree")),
+	}
+	refreshAttempt := refresh.Attempt
+	refreshCandidate := refresh.Candidate.Commit
+	refreshProductTree := refresh.Candidate.ProductTree
+	refreshReceipt := receipt
+	refreshReceipt.Attempt = &refreshAttempt
+	refreshReceipt.Binds = repair.Receipt.OID
+	refreshReceipt.Candidate = &refreshCandidate
+	refreshReceipt.ProductTree = &refreshProductTree
+	refresh.Receipt.body, err = refreshReceipt.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh.Receipt.BodyInput.Digest = driver.Digest(refresh.Receipt.body)
+	refreshCoordinates := coordinates
+	refreshCoordinates.BatonAttempt = refresh.Attempt
+	refreshPrepared := implementation
+	refreshPrepared.productionContext = &refresh
+	refreshPrepared.request, err = productionRequestForContext(
+		fixture.manifest,
+		refresh,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshBinding, refreshSelection, err :=
+		continuationBindingForDispatch(
+			refreshPrepared,
+			refreshCoordinates,
+		)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.MaximumAttempt = refresh.Attempt
+	history.Entries = append(
+		history.Entries,
+		baton.ReceiptEntry{
+			OID:     refresh.Receipt.OID,
+			Receipt: refreshReceipt,
+		},
+	)
+	if !verifierRepairContinuationMatches(
+		entry,
+		refreshBinding,
+		refreshSelection,
+		&refresh,
+		history,
+	) {
+		t.Fatal("candidate refresh chain did not retain verifier authority")
+	}
+	broken := history
+	broken.Entries = append(
+		[]baton.ReceiptEntry(nil),
+		history.Entries...,
+	)
+	broken.Entries[len(broken.Entries)-1].Receipt.Binds =
+		"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	if verifierRepairContinuationMatches(
+		entry,
+		refreshBinding,
+		refreshSelection,
+		&refresh,
+		broken,
+	) {
+		t.Fatal("broken candidate refresh chain retained verifier authority")
 	}
 
 	freshFallbacks := 0
@@ -1533,7 +1709,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 				t.Fatal(err)
 			}
 			if verifierRepairContinuationMatches(
-				entry, binding, selected, &changed,
+				entry, binding, selected, &changed, history,
 			) {
 				t.Fatal("drift retained verifier continuation")
 			}
