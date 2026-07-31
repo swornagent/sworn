@@ -666,7 +666,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"--journal",
 			journalPath,
 		)
-		if !strings.Contains(stdout, "state awaiting_approval") {
+		if !strings.Contains(stdout, "  state: awaiting_approval") {
 			t.Fatalf("replacement proposal status = %q", stdout)
 		}
 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -740,7 +740,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"--journal",
 			journalPath,
 		)
-		if !strings.Contains(stdout, "state awaiting_approval") {
+		if !strings.Contains(stdout, "  state: awaiting_approval") {
 			t.Fatalf("planner output = %q", stdout)
 		}
 		if targetAfter := runGit(t, repository, "rev-parse", "main"); targetAfter != targetBefore {
@@ -777,7 +777,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"--generation",
 			"0",
 		)
-		if stderr != "" || !strings.Contains(stdout, "state complete") {
+		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
 		methods, auth := approvals.observations()
@@ -865,7 +865,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			t, crashBinary, 0, "takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1",
 		)
-		if !strings.Contains(stdout, "state complete") {
+		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("recovered resume = %q", stdout)
 		}
 	})

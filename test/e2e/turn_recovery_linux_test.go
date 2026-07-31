@@ -510,7 +510,7 @@ func runDirectTurnRecoveryBaseline(
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
 	}
 	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
@@ -527,7 +527,7 @@ func runDirectTurnRecoveryBaseline(
 		"--generation", "0",
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state complete") {
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("direct resume stdout=%q stderr=%q", stdout, stderr)
 	}
 	finalState := readBatonState(
@@ -662,7 +662,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("recovery start stdout=%q stderr=%q", stdout, stderr)
 	}
 
@@ -680,7 +680,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--generation", "0",
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state parked") {
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("recovery park stdout=%q stderr=%q", stdout, stderr)
 	}
 
@@ -786,7 +786,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--answer", recoveryE2EAnswer,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state complete") {
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("recovery answer stdout=%q stderr=%q", stdout, stderr)
 	}
 	finalState := readBatonState(

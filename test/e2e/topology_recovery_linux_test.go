@@ -807,7 +807,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		approvals.publish(31, approvalFor(31, marker, plan))
 		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
-		if !strings.Contains(stdout, "state parked") {
+		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
 		state := readBatonState(t, repository, release)
@@ -821,7 +821,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			"--command", "retry-1", "--generation", "1", "--work", work, "--epoch", "1")
 		stdout, _ = runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "2")
-		if !strings.Contains(stdout, "state complete") {
+		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("retry completion = %q", stdout)
 		}
 	})
@@ -912,7 +912,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		approvals.publish(35, approvalFor(35, marker, plan))
 		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
-		if !strings.Contains(stdout, "state parked") {
+		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("scope exhaustion status = %q", stdout)
 		}
 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -1062,7 +1062,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		approvals.publish(issue, approvalFor(issue, marker2, revisionPlan))
 		stdout, _ = runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "1")
-		if !strings.Contains(stdout, "state complete") {
+		if !strings.Contains(stdout, "  state: complete") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 			snapshot, _ := store.Snapshot(context.Background(), runID)
 			_ = store.Close()
@@ -1301,7 +1301,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "state complete") {
+		if !strings.Contains(stdout, "  state: complete") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 			snapshot, _ := store.Snapshot(context.Background(), runID)
 			_ = store.Close()
@@ -1569,7 +1569,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						t.Fatalf("target-stale seal recovery = %q", stdout)
 					}
 					if authorityKind == "plan" &&
-						!strings.Contains(stdout, "state complete") {
+						!strings.Contains(stdout, "  state: complete") {
 						t.Fatalf("plan-stale seal recovery = %q", stdout)
 					}
 					assertClaimedSealTerminalizedStale(
@@ -1782,7 +1782,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "state complete") {
+		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("restored all-new recovery status = %q", stdout)
 		}
 		store, err = journal.OpenReadOnly(
@@ -1941,7 +1941,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(stdout, "state complete") {
+			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("prepared child recovery = %q", stdout)
 			}
 			store, err = journal.OpenReadOnly(
@@ -2057,7 +2057,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			time.Sleep(1800 * time.Millisecond)
 			stdout, _ := runBinary(t, swornBinary, 0, "takeover", "--run", runID,
 				"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
-			if !strings.Contains(stdout, "state complete") {
+			if !strings.Contains(stdout, "  state: complete") {
 				store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 				snapshot, _ := store.Snapshot(context.Background(), runID)
 				_ = store.Close()

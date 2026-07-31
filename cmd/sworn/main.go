@@ -19,19 +19,34 @@ import (
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-const usage = `Sworn runs autonomous delivery with the Baton protocol.
+const usage = `Sworn carries software work through Baton's recorded handoffs.
 
-Available in the v0.3 walking skeleton:
+Commands:
+  run       Start or continue a run.
+  board     Show what Sworn is doing and what happens next.
+  serve     Open the run board as a local browser service.
+  pause     Stop starting new work at a safe boundary.
+  resume    Continue a paused run.
+  cancel    Stop a run at a safe boundary.
+  takeover  Continue after the previous Sworn process stopped.
+  retry     Retry one stopped work item.
+  answer    Answer a saved question that needs human judgment.
+  status    Return the stable machine-readable run record.
+  driver    Check configured AI connections.
+  version   Show the Sworn and Baton versions.
+  help      Show this help.
+
+Exact syntax:
   sworn version [--json]
-  sworn run --manifest PATH --journal PATH [--config ABS]
-  sworn pause|resume|cancel|takeover --run ID --journal PATH --command ID --generation N
-  sworn retry --run ID --journal PATH --command ID --generation N --work SHA256 --epoch N
-  sworn answer --run ID --journal PATH --attention SHA256 --generation 1 --answer TEXT [--config ABS]
-  sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
-  sworn status --run ID --journal PATH --json
-  sworn board --run ID --journal PATH [--json]
+  sworn run --manifest ABS --journal ABS [--config ABS]
+  sworn pause|cancel --run ID --journal ABS --command ID --generation N
+  sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
+  sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
+  sworn answer --run ID --journal ABS --attention SHA256 --generation 1 --answer TEXT [--config ABS]
+  sworn status --run ID --journal ABS --json
+  sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
-  sworn help
+  sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
 `
 
 const (
@@ -80,7 +95,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "sworn: command %q is not implemented in the v0.3 walking skeleton\n", args[0])
+		fmt.Fprintf(
+			stderr,
+			"sworn: unknown command %q\nRun \"sworn help\" to see available commands.\n",
+			args[0],
+		)
 		return 2
 	}
 }
@@ -109,7 +128,10 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 	}
 	generation, err := strconv.ParseInt(options["--generation"], 10, 64)
 	if err != nil || generation != 1 {
-		fmt.Fprintln(stderr, "sworn answer: invalid generation")
+		fmt.Fprintln(
+			stderr,
+			"sworn answer: generation must be 1 for an unanswered question",
+		)
 		return 2
 	}
 	ctx := context.Background()
@@ -119,7 +141,12 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 		options["--config"],
 	)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn answer: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"answer",
+			"Could not open the saved run or its AI connections.",
+			err,
+		)
 		return 1
 	}
 	defer service.Close()
@@ -134,7 +161,12 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 		},
 	)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn answer: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"answer",
+			"Could not record that answer.",
+			err,
+		)
 		return 1
 	}
 	if err := writeStatusText(stdout, status); err != nil {
@@ -154,16 +186,26 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 	}
 	pkg, err := baton.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn version: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"version",
+			"Could not read the included Baton package.",
+			err,
+		)
 		return 1
 	}
 	batonIdentity, err := pkg.Identity()
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn version: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"version",
+			"Could not confirm the included Baton identity.",
+			err,
+		)
 		return 1
 	}
 	if err := writeVersion(stdout, asJSON, batonIdentity); err != nil {
-		fmt.Fprintf(stderr, "sworn version: %v\n", err)
+		fmt.Fprintln(stderr, "sworn version: Could not write the version result.")
 		return 1
 	}
 	return 0
@@ -186,11 +228,21 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 	}
 	body, err := readManifest(options["--manifest"])
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn run: manifest is unavailable")
+		writeKnownFailure(
+			stderr,
+			"run",
+			"Could not read the run definition. Check that --manifest points to an absolute regular file.",
+			"",
+		)
 		return 1
 	}
 	if _, err := runtimepkg.ParseManifest(body); err != nil {
-		fmt.Fprintf(stderr, "sworn run: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"run",
+			"The run definition is invalid. Check that it is current canonical JSON with a final newline.",
+			err,
+		)
 		return 1
 	}
 	ctx := context.Background()
@@ -200,14 +252,24 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 		options["--config"],
 	)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn run: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"run",
+			"Could not open the saved run or its AI connections.",
+			err,
+		)
 		return 1
 	}
 	defer service.Close()
 	defer factory.Close()
 	status, err := service.Start(ctx, body)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn run: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"run",
+			"Could not start or continue this run.",
+			err,
+		)
 		return 1
 	}
 	if err := writeStatusText(stdout, status); err != nil {
@@ -247,14 +309,21 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 	}
 	generation, err := strconv.ParseInt(options["--generation"], 10, 64)
 	if err != nil || generation < 0 {
-		fmt.Fprintf(stderr, "sworn %s: invalid generation\n", kind)
+		fmt.Fprintf(
+			stderr,
+			"sworn %s: generation must be the non-negative whole number from the latest board\n",
+			kind,
+		)
 		return 2
 	}
 	epoch := int64(0)
 	if kind == journal.Retry {
 		epoch, err = strconv.ParseInt(options["--epoch"], 10, 64)
 		if err != nil || epoch < 1 {
-			fmt.Fprintln(stderr, "sworn retry: invalid epoch")
+			fmt.Fprintln(
+				stderr,
+				"sworn retry: epoch must be the positive whole number from the latest retry action",
+			)
 			return 2
 		}
 	}
@@ -265,7 +334,12 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 		options["--config"],
 	)
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn %s: %v\n", kind, err)
+		writeCommandFailure(
+			stderr,
+			string(kind),
+			"Could not open the saved run or its AI connections.",
+			err,
+		)
 		return 1
 	}
 	defer service.Close()
@@ -275,7 +349,12 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 		ExpectedGeneration: generation, WorkID: options["--work"], ExpectedEpoch: epoch,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn %s: %v\n", kind, err)
+		writeCommandFailure(
+			stderr,
+			string(kind),
+			"Could not apply that control to the current run.",
+			err,
+		)
 		return 1
 	}
 	if err := writeStatusText(stdout, status); err != nil {
@@ -294,13 +373,23 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	service, err := runtimepkg.OpenStatusService(ctx, options["--journal"])
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn status: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"status",
+			"Could not open the saved run record.",
+			err,
+		)
 		return 1
 	}
 	defer service.Close()
 	status, err := service.Status(ctx, options["--run"])
 	if err != nil {
-		fmt.Fprintf(stderr, "sworn status: %v\n", err)
+		writeCommandFailure(
+			stderr,
+			"status",
+			"Could not find that run in the saved record.",
+			err,
+		)
 		return 1
 	}
 	encoder := json.NewEncoder(stdout)
@@ -324,29 +413,54 @@ func runBoard(args []string, stdout, stderr io.Writer) int {
 	}
 	gitExecutable, err := resolveGitExecutable()
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn board: git is unavailable")
+		writeKnownFailure(
+			stderr,
+			"board",
+			"Could not find Git. Install Git or make it available on PATH.",
+			"GIT_UNAVAILABLE",
+		)
 		return 1
 	}
 	ctx := context.Background()
 	journalReader, err := journal.OpenReadOnly(ctx, options["--journal"])
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn board: journal is unavailable")
+		writeKnownFailure(
+			stderr,
+			"board",
+			"Could not open the saved run record. Check the journal path and file permissions.",
+			"JOURNAL_UNAVAILABLE",
+		)
 		return 1
 	}
 	defer journalReader.Close()
 	statusReader, err := runtimepkg.OpenStatusService(ctx, options["--journal"])
 	if err != nil {
 		if runtimepkg.IsCode(err, "GIT_UNAVAILABLE") {
-			fmt.Fprintln(stderr, "sworn board: git is unavailable")
+			writeKnownFailure(
+				stderr,
+				"board",
+				"Could not find Git. Install Git or make it available on PATH.",
+				"GIT_UNAVAILABLE",
+			)
 		} else {
-			fmt.Fprintln(stderr, "sworn board: journal is unavailable")
+			writeKnownFailure(
+				stderr,
+				"board",
+				"Could not open the saved run record. Check the journal path and file permissions.",
+				"JOURNAL_UNAVAILABLE",
+			)
 		}
 		return 1
 	}
 	defer statusReader.Close()
 	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn board: git is unavailable")
+		writeKnownFailure(
+			stderr,
+			"board",
+			"Could not use Git to read the current delivery state.",
+			"GIT_UNAVAILABLE",
+		)
 		return 1
 	}
 	projector, err := cockpit.NewProjector(
@@ -355,12 +469,22 @@ func runBoard(args []string, stdout, stderr io.Writer) int {
 		stateReader,
 	)
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn board: snapshot is unavailable")
+		writeCommandFailure(
+			stderr,
+			"board",
+			"Could not build the delivery board from the saved run and Git state.",
+			err,
+		)
 		return 1
 	}
 	snapshot, err := projector.Snapshot(ctx, options["--run"])
 	if err != nil {
-		fmt.Fprintln(stderr, "sworn board: snapshot is unavailable")
+		writeCommandFailure(
+			stderr,
+			"board",
+			"Could not build the delivery board from the saved run and Git state.",
+			err,
+		)
 		return 1
 	}
 	if options["--json"] == "true" {
@@ -559,12 +683,40 @@ func readManifest(path string) ([]byte, error) {
 }
 
 func writeStatusText(out io.Writer, status runtimepkg.RunStatus) error {
+	presentation := cockpit.PresentRunState(status.State)
+	plan := status.PlanDigest
+	if plan == "" {
+		plan = "not recorded"
+	}
+	outcome := status.Outcome
+	if outcome == "" {
+		outcome = "not recorded"
+	}
 	_, err := fmt.Fprintf(
 		out,
-		"run %s\nstate %s\nplan %s\n",
+		"Sworn run %s\n"+
+			"Status: %s\n"+
+			"What's happening: %s\n"+
+			"Next: %s\n"+
+			"Needs you: %s\n"+
+			"Checked: %s\n\n"+
+			"Technical details:\n"+
+			"  state: %s\n"+
+			"  desired_state: %s\n"+
+			"  control_generation: %d\n"+
+			"  plan: %s\n"+
+			"  outcome: %s\n",
 		status.RunID,
+		presentation.Status,
+		presentation.What,
+		presentation.Next,
+		presentation.NeedsYou,
+		presentation.Checked,
 		status.State,
-		status.PlanDigest,
+		status.DesiredState,
+		status.ControlGeneration,
+		plan,
+		outcome,
 	)
 	return err
 }
@@ -582,11 +734,80 @@ func writeVersion(out io.Writer, asJSON bool, batonIdentity baton.Identity) erro
 	}
 	_, err := fmt.Fprintf(
 		out,
-		"sworn %s\nstate %s\nbaton %s (%s)\n",
+		"Sworn %s\n"+
+			"Baton %s\n\n"+
+			"Technical details:\n"+
+			"  state: %s\n"+
+			"  baton commit: %s\n",
 		info.Version,
-		info.State,
 		info.Baton.PackageVersion,
+		info.State,
 		info.Baton.Commit,
 	)
 	return err
+}
+
+func writeKnownFailure(
+	out io.Writer,
+	command string,
+	message string,
+	code string,
+) {
+	fmt.Fprintf(
+		out,
+		"sworn %s: %s\n",
+		command,
+		message,
+	)
+	if code != "" {
+		fmt.Fprintf(out, "Technical code: %s\n", code)
+	}
+}
+
+func writeCommandFailure(
+	out io.Writer,
+	command string,
+	fallback string,
+	err error,
+) {
+	code := commandErrorCode(err)
+	message := fallback
+	switch code {
+	case "APPROVAL_PENDING":
+		message = "The plan is waiting for approval."
+	case "RECOVERY_UNCERTAIN":
+		message = "Cannot confirm whether the last external action finished. Recover the run before retrying it."
+	case "EFFECT_PARKED":
+		message = "The work stopped after repeated failures. Review the latest board before retrying."
+	case "RUN_NOT_FOUND", "INVALID_RUN":
+		message = "Could not find that run in the saved record."
+	case "BATON_UNAVAILABLE":
+		message = "Could not confirm the current Baton handoff records."
+	case "GIT_UNAVAILABLE":
+		message = "Could not find or use Git."
+	}
+	fmt.Fprintf(out, "sworn %s: %s\n", command, message)
+	if code != "" {
+		fmt.Fprintf(out, "Technical code: %s\n", code)
+	}
+}
+
+func commandErrorCode(err error) string {
+	var runtimeErr *runtimepkg.Error
+	if errors.As(err, &runtimeErr) {
+		return runtimeErr.Code
+	}
+	var journalErr *journal.Error
+	if errors.As(err, &journalErr) {
+		return journalErr.Code
+	}
+	var driverErr *driver.ContractError
+	if errors.As(err, &driverErr) {
+		return driverErr.Code
+	}
+	var cockpitErr *cockpit.Error
+	if errors.As(err, &cockpitErr) {
+		return cockpitErr.Code
+	}
+	return ""
 }

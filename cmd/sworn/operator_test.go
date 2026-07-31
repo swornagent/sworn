@@ -109,7 +109,9 @@ func TestServeArgumentsAreClosedAndContentFree(t *testing.T) {
 		t.Fatalf("missing existing run = %d, want 1", code)
 	}
 	if stdout.Len() != 0 ||
-		stderr.String() != "sworn serve: unavailable\n" ||
+		stderr.String() !=
+			"sworn serve: Could not open the local delivery board. "+
+				"Check the run, journal, and operator settings.\n" ||
 		strings.Contains(stderr.String(), "TOP-SECRET") {
 		t.Fatalf(
 			"missing existing run stdout=%q stderr=%q",

@@ -700,7 +700,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state awaiting_approval") ||
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore {
 		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -730,7 +730,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--generation", "0",
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "state complete") {
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 		snapshot, _ := store.Snapshot(context.Background(), "production-journey")
 		_ = store.Close()

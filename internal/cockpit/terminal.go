@@ -35,7 +35,16 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 	}
 
 	renderer := terminalRenderer{width: width}
-	renderer.heading("SWORN COCKPIT")
+	presentation := PresentSnapshot(snapshot)
+	renderer.heading("SWORN DELIVERY BOARD")
+	renderer.section("SUMMARY")
+	renderer.line(2, "Status: "+presentation.Status)
+	renderer.line(2, "What's happening: "+presentation.What)
+	renderer.line(2, "Next: "+presentation.Next)
+	renderer.line(2, "Needs you: "+presentation.NeedsYou)
+	renderer.line(2, "Checked: "+presentation.Checked)
+
+	renderer.section("TECHNICAL DETAILS")
 	renderer.section("RUN")
 	renderer.line(
 		2,
