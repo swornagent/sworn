@@ -31,6 +31,18 @@ external work before execution, so a stopped process can recover from recorded
 facts instead of guessing. A successful model response is never treated as an
 approval or a passing verdict.
 
+### Sworn's orchestrator
+
+Sworn's orchestrator keeps the relay moving when a worker asks a question,
+reports a block, or returns something Sworn cannot safely use. It can resume
+the same worker with an answer grounded in saved facts, ask the Captain for
+advice, retry an operational failure, or pause only that track for a human
+answer while independent work continues.
+
+The orchestrator is not a sixth Baton role. It cannot approve a plan, invent a
+Captain decision or Verifier verdict, or merge code. Only Baton's recorded
+handoffs decide what advances.
+
 ## Current release candidate
 
 The binary identifies as Sworn `1.0.0-rc.1` and includes Baton
