@@ -915,8 +915,8 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 				payload.Context.Try != 1 {
 				t.Fatalf("production dispatch command = %s", command.Payload)
 			}
-			if payload.Context.Responsibility ==
-				driver.ImplementerImplementation {
+			switch payload.Context.Responsibility {
+			case driver.ImplementerImplementation:
 				if payload.Context.Track == "" ||
 					payload.Context.WorkspaceAccess != driver.ReadWrite {
 					t.Fatalf(
@@ -944,12 +944,22 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 						command.Payload,
 					)
 				}
-			} else if payload.ResumeRequestDigest != "" ||
-				payload.Context.DesignReceipt != nil {
-				t.Fatalf(
-					"non-implementation continuation command = %s",
-					command.Payload,
-				)
+			case driver.WorkVerification:
+				if payload.ResumeRequestDigest == "" ||
+					payload.Context.DesignReceipt != nil {
+					t.Fatalf(
+						"work-verifier continuation command = %s",
+						command.Payload,
+					)
+				}
+			default:
+				if payload.ResumeRequestDigest != "" ||
+					payload.Context.DesignReceipt != nil {
+					t.Fatalf(
+						"one-shot dispatch command = %s",
+						command.Payload,
+					)
+				}
 			}
 			if _, duplicate := contexts[payload.Context.InvocationID]; duplicate {
 				t.Fatalf(

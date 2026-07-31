@@ -110,6 +110,10 @@ func (adapter *continuationContractAdapter) invokeContinuation(
 	if err != nil || !adapter.retain {
 		return observation, nil, err
 	}
+	return observation, adapter.newStateLocked(), nil
+}
+
+func (adapter *continuationContractAdapter) newStateLocked() *continuationContractState {
 	body := []byte("adapter-private-state")
 	adapter.created = &continuationContractState{
 		body:     body,
@@ -117,7 +121,7 @@ func (adapter *continuationContractAdapter) invokeContinuation(
 		mode:     adapter.stateMode,
 		closeErr: adapter.stateCloseErr,
 	}
-	return observation, adapter.created, nil
+	return adapter.created
 }
 
 func (adapter *continuationContractAdapter) resumeContinuation(
@@ -136,6 +140,39 @@ func (adapter *continuationContractAdapter) resumeContinuation(
 		return Observation{}, adapter.resumeErr
 	}
 	return continuationContractObservation(invocation)
+}
+
+func (adapter *continuationContractAdapter) invokeRecoverableContinuation(
+	ctx context.Context,
+	invocation Invocation,
+) (Observation, continuationState, error) {
+	return adapter.invokeContinuation(ctx, invocation)
+}
+
+func (adapter *continuationContractAdapter) resumeRecoverableContinuation(
+	_ context.Context,
+	invocation Invocation,
+	prior continuationState,
+	retainTerminal bool,
+) (Observation, continuationState, error) {
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	adapter.turns++
+	if prior != adapter.created {
+		return Observation{}, nil, fail("CONTINUATION_INVALID")
+	}
+	adapter.resumes++
+	if adapter.resumeErr != nil {
+		return Observation{}, nil, adapter.resumeErr
+	}
+	observation, err := continuationContractObservation(invocation)
+	if err != nil {
+		return Observation{}, nil, err
+	}
+	if retainTerminal {
+		return observation, adapter.newStateLocked(), nil
+	}
+	return observation, nil, nil
 }
 
 func (adapter *continuationContractAdapter) counts() (int, int, int) {
@@ -357,6 +394,47 @@ func startContinuationFixture(
 	return handle, adapter.created
 }
 
+func invokeWorkVerifierContinuation(
+	t *testing.T,
+	adapter *continuationContractAdapter,
+	id string,
+	attempt int64,
+	handle *Continuation,
+) (*Continuation, *continuationContractState) {
+	t.Helper()
+	binding := continuationContractBinding()
+	binding.Attempt = attempt
+	observation, next, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		continuationContractInvocation(
+			t, adapter, id, RoleVerifier, WorkVerification, ReadOnly,
+			handle == nil,
+		),
+		binding,
+		handle,
+	)
+	if err != nil || observation.Handoff == nil || next == nil ||
+		result.Mode != adapter.stateMode ||
+		result.Status != ContinuationStatusSuspended {
+		t.Fatalf(
+			"verifier turn = observation %#v, next %p, result %#v, error %v",
+			observation, next, result, err,
+		)
+	}
+	return next, adapter.created
+}
+
+func requireClosedContinuationState(
+	t *testing.T,
+	state *continuationContractState,
+) {
+	t.Helper()
+	_, bytes, closes := state.snapshot()
+	if bytes != 0 || closes != 1 {
+		t.Fatalf("state = bytes %d, closes %d", bytes, closes)
+	}
+}
+
 func TestContinuationResumesOnlySameImplementerDesignToImplementation(
 	t *testing.T,
 ) {
@@ -424,6 +502,195 @@ func TestContinuationResumesOnlySameImplementerDesignToImplementation(
 	}
 }
 
+func TestWorkVerifierContinuationRetainsItsOwnReadOnlyThreadAcrossRepairs(
+	t *testing.T,
+) {
+	t.Parallel()
+	adapter := newContinuationContractAdapter(
+		"verifier-continuation-adapter",
+		"configuration-a",
+	)
+	first, firstState := invokeWorkVerifierContinuation(
+		t, adapter, "verifier-candidate-one", 1, nil,
+	)
+	second, secondState := invokeWorkVerifierContinuation(
+		t, adapter, "verifier-candidate-two", 2, first,
+	)
+	requireClosedContinuationState(t, firstState)
+	if secondState == firstState {
+		t.Fatal("resumed verifier reused consumed adapter state")
+	}
+	third, _ := invokeWorkVerifierContinuation(
+		t, adapter, "verifier-candidate-three", 3, second,
+	)
+	requireClosedContinuationState(t, secondState)
+	if err := third.Close(); err != nil {
+		t.Fatal(err)
+	}
+	orphan := continuationContractInvocation(
+		t,
+		adapter,
+		"verifier-orphan-nonfresh",
+		RoleVerifier,
+		WorkVerification,
+		ReadOnly,
+		false,
+	)
+	binding := continuationContractBinding()
+	if _, err := (Dispatcher{}).Invoke(
+		context.Background(),
+		orphan,
+	); !IsCode(err, "INVALID_VERIFIER") {
+		t.Fatalf("ordinary nonfresh verifier error = %v", err)
+	}
+	observation, orphanHandle, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		orphan,
+		binding,
+		nil,
+	)
+	if !IsCode(err, "INVALID_VERIFIER") ||
+		!reflect.DeepEqual(observation, Observation{}) ||
+		orphanHandle != nil ||
+		result.Mode != ContinuationModeFreshRehydrate ||
+		result.Status != ContinuationStatusUnsupported {
+		t.Fatalf(
+			"orphan continuation = observation %#v, handle %p, result %#v, error %v",
+			observation,
+			orphanHandle,
+			result,
+			err,
+		)
+	}
+	_, turns, resumes := adapter.counts()
+	if turns != 3 || resumes != 2 {
+		t.Fatalf("adapter turns = %d, resumes = %d", turns, resumes)
+	}
+}
+
+func TestWorkVerifierContinuationRejectsCrossRoleAndAssemblyUse(
+	t *testing.T,
+) {
+	t.Parallel()
+	t.Run("verifier handle cannot become implementation", func(t *testing.T) {
+		adapter := newContinuationContractAdapter(
+			"verifier-cross-role-adapter",
+			"configuration-a",
+		)
+		handle, state := invokeWorkVerifierContinuation(
+			t, adapter, "verifier-cross-role-source", 1, nil,
+		)
+		implementation := continuationContractInvocation(
+			t,
+			adapter,
+			"verifier-cross-role-target",
+			RoleImplementer,
+			ImplementerImplementation,
+			ReadWrite,
+			false,
+		)
+		observation, next, result, err := (Dispatcher{}).InvokeTurn(
+			context.Background(),
+			implementation,
+			continuationContractBinding(),
+			handle,
+		)
+		if err != nil || !reflect.DeepEqual(observation, Observation{}) ||
+			next != nil ||
+			result.Mode != ContinuationModeFreshRehydrate ||
+			result.Status != ContinuationStatusMismatch {
+			t.Fatalf(
+				"cross role = observation %#v, next %p, result %#v, error %v",
+				observation,
+				next,
+				result,
+				err,
+			)
+		}
+		requireClosedContinuationState(t, state)
+	})
+
+	t.Run("assembly verifier remains one shot", func(t *testing.T) {
+		adapter := newContinuationContractAdapter(
+			"assembly-one-shot-adapter",
+			"configuration-a",
+		)
+		assembly := continuationContractInvocation(
+			t,
+			adapter,
+			"assembly-one-shot",
+			RoleVerifier,
+			AssemblyVerification,
+			ReadOnly,
+			true,
+		)
+		observation, handle, result, err := (Dispatcher{}).InvokeTurn(
+			context.Background(),
+			assembly,
+			continuationContractBinding(),
+			nil,
+		)
+		invocations, turns, resumes := adapter.counts()
+		if err != nil || observation.Handoff == nil || handle != nil ||
+			result.Mode != ContinuationModeFreshRehydrate ||
+			result.Status != ContinuationStatusUnsupported ||
+			invocations != 1 || turns != 0 || resumes != 0 {
+			t.Fatalf(
+				"assembly = observation %#v, handle %p, result %#v, calls %d/%d/%d, error %v",
+				observation,
+				handle,
+				result,
+				invocations,
+				turns,
+				resumes,
+				err,
+			)
+		}
+	})
+}
+
+func TestWorkVerifierContinuationOperationalFailureClosesWithoutReplacement(
+	t *testing.T,
+) {
+	t.Parallel()
+	adapter := newContinuationContractAdapter(
+		"verifier-failure-adapter",
+		"configuration-a",
+	)
+	handle, state := invokeWorkVerifierContinuation(
+		t, adapter, "verifier-failure-source", 1, nil,
+	)
+	adapter.resumeErr = fail("PROTOCOL_FAILURE")
+	second := continuationContractInvocation(
+		t,
+		adapter,
+		"verifier-failure-target",
+		RoleVerifier,
+		WorkVerification,
+		ReadOnly,
+		false,
+	)
+	observation, next, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		second,
+		continuationContractBinding(),
+		handle,
+	)
+	if err == nil || observation.Handoff != nil || observation.Yield != nil ||
+		next != nil ||
+		result.Mode != ContinuationModeTranscriptReplay ||
+		result.Status != ContinuationStatusResumed {
+		t.Fatalf(
+			"failure = observation %#v, next %p, result %#v, error %v",
+			observation,
+			next,
+			result,
+			err,
+		)
+	}
+	requireClosedContinuationState(t, state)
+}
+
 func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 	t *testing.T,
 ) {
@@ -444,7 +711,7 @@ func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 			false,
 		)
 		changed := continuationContractBinding()
-		changed.TargetAuthorityDigest = Digest([]byte("changed-target"))
+		changed.Attempt = 2
 		observation, next, result, err := (Dispatcher{}).InvokeTurn(
 			context.Background(),
 			implementation,
@@ -471,6 +738,56 @@ func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 				turns,
 				resumes,
 			)
+		}
+	})
+
+	t.Run("verifier keeps only stable authority", func(t *testing.T) {
+		names := []string{
+			"run", "release", "slice", "plan", "target", "tool", "selection",
+		}
+		values := []string{
+			"other-run", "other-release", "other-slice",
+			Digest([]byte("other-plan")),
+			Digest([]byte("other-target")),
+			Digest([]byte("other-tool")),
+			"other-model",
+		}
+		for index, name := range names {
+			t.Run(name, func(t *testing.T) {
+				adapter := newContinuationContractAdapter(
+					"verifier-stable-"+name,
+					"configuration-a",
+				)
+				binding := continuationContractBinding()
+				handle, state := invokeWorkVerifierContinuation(
+					t, adapter, "verifier-stable-source", 1, nil,
+				)
+				target := continuationContractInvocation(
+					t, adapter, "verifier-stable-target",
+					RoleVerifier, WorkVerification, ReadOnly, false,
+				)
+				binding.Attempt = 2
+				fields := []*string{
+					&binding.RunID, &binding.Release, &binding.Slice,
+					&binding.PlanAuthorityDigest,
+					&binding.TargetAuthorityDigest,
+					&binding.ToolContractDigest,
+					&target.Selected.Model,
+				}
+				*fields[index] = values[index]
+				observation, next, result, err := (Dispatcher{}).InvokeTurn(
+					context.Background(), target, binding, handle,
+				)
+				if err != nil || !reflect.DeepEqual(observation, Observation{}) ||
+					next != nil ||
+					result.Status != ContinuationStatusMismatch {
+					t.Fatalf(
+						"mismatch = observation %#v, next %p, result %#v, error %v",
+						observation, next, result, err,
+					)
+				}
+				requireClosedContinuationState(t, state)
+			})
 		}
 	})
 

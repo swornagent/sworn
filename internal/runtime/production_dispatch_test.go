@@ -753,6 +753,19 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		RequestDigest: driver.Digest(requestBody),
 		Context:       contextValue,
 	}
+	resumeRequest, err := productionRequestForContextFreshness(
+		manifest,
+		contextValue,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeBody, err := driver.EncodeRequest(resumeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.ResumeRequestDigest = driver.Digest(resumeBody)
 	if _, err := parseProductionDispatchCommand(
 		manifest,
 		mustJSON(command),

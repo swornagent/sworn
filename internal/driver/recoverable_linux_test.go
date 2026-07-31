@@ -580,6 +580,135 @@ func TestRecoverableDesignTerminalPromotesAtomicallyToW3(t *testing.T) {
 	}
 }
 
+func TestWorkVerifierResponsesThreadReplaysAndRecoversIntoVerifierFlow(
+	t *testing.T,
+) {
+	t.Parallel()
+	invocationIDs := []string{
+		"verifier-replay-one",
+		"verifier-replay-two",
+		"verifier-replay-three",
+		"verifier-replay-three",
+		"verifier-replay-four",
+	}
+	expectedInputItems := []int{1, 4, 7, 10, 13}
+	outcomes := []DecisionOutcome{
+		DecisionFail, DecisionFail, "", DecisionFail, DecisionPass,
+	}
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := int(requests.Add(1))
+		var body struct {
+			Input []map[string]any `json:"input"`
+		}
+		if json.NewDecoder(request.Body).Decode(&body) != nil ||
+			turn > len(invocationIDs) ||
+			len(body.Input) != expectedInputItems[turn-1] {
+			t.Errorf(
+				"turn %d input items = %d",
+				turn,
+				len(body.Input),
+			)
+			return
+		}
+		if turn == 3 {
+			writeRecoverableYieldCall(
+				t, writer, invocationIDs[turn-1],
+				"Which exact repair candidate should I recheck?",
+				"verifier-yield",
+			)
+			return
+		}
+		writeRecoverableVerificationCall(
+			t, writer, invocationIDs[turn-1], outcomes[turn-1],
+			"verifier-terminal-"+invocationIDs[turn-1],
+		)
+	}))
+	defer server.Close()
+
+	adapter := recoverableProviderAdapter(t, server.URL)
+	binding := continuationContractBinding()
+	var handle *Continuation
+	for index := range invocationIDs {
+		invocation := productionInvocationFixture(
+			t,
+			adapter,
+			ProfileOpenAIHTTP,
+			invocationIDs[index],
+			RoleVerifier,
+			WorkVerification,
+			ReadOnly,
+		)
+		if index > 0 {
+			setRecoverableInvocationFreshContext(
+				t,
+				&invocation,
+				false,
+				ContainmentReadOnly,
+				WorkVerification,
+			)
+		}
+		var (
+			observation Observation
+			next        *Continuation
+			result      ContinuationResult
+			err         error
+		)
+		if index == 3 {
+			observation, next, result, err =
+				(Dispatcher{}).InvokeRecoverableTurn(
+					context.Background(), invocation, binding, handle,
+					&RecoverableTurnInput{
+						SchemaVersion: RecoverableTurnInputSchemaVersion,
+						Kind:          RecoverableInputAnswer,
+						Answer: "Recheck the exact candidate bound by " +
+							"this invocation.",
+						TargetBinding: &binding,
+					},
+				)
+		} else {
+			observation, next, result, err = (Dispatcher{}).InvokeTurn(
+				context.Background(), invocation, binding, handle,
+			)
+		}
+		if err != nil || next == nil ||
+			result.Mode != ContinuationModeOpaqueReplay ||
+			result.Status != ContinuationStatusSuspended {
+			t.Fatalf(
+				"turn %d = observation %#v, next %p, result %#v, error %v",
+				index+1,
+				observation,
+				next,
+				result,
+				err,
+			)
+		}
+		if (index == 2) != (observation.Yield != nil) ||
+			(index != 2) != (observation.Handoff != nil) {
+			t.Fatalf("turn %d output = %#v", index+1, observation)
+		}
+		handle = next
+		if index == 3 {
+			cell := continuationCellFor(handle)
+			cell.mu.Lock()
+			flow := cell.flow
+			cell.mu.Unlock()
+			if flow != continuationFlowVerifier {
+				t.Fatalf("recovered flow = %d", flow)
+			}
+		}
+	}
+	if requests.Load() != int64(len(invocationIDs)) {
+		t.Fatalf("requests = %d", requests.Load())
+	}
+	if err := handle.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRecoverableDesignPromotionPreservesOnlyItsExactContract(t *testing.T) {
 	t.Parallel()
 	const (
@@ -954,6 +1083,31 @@ func writeRecoverableSubmissionCall(
 	)
 	writeJSONResponse(t, writer, responsesToolCallResponse(
 		"submit-"+correlation,
+		"function-"+correlation,
+		"call-"+correlation,
+		"sworn_submit",
+		submissionToolArguments(t, submission),
+		1,
+		1,
+	))
+}
+
+func writeRecoverableVerificationCall(
+	t *testing.T,
+	writer http.ResponseWriter,
+	invocationID string,
+	outcome DecisionOutcome,
+	correlation string,
+) {
+	t.Helper()
+	submission := submissionFixture(
+		t,
+		invocationID,
+		WorkVerification,
+		outcome,
+	)
+	writeJSONResponse(t, writer, responsesToolCallResponse(
+		"verify-"+correlation,
 		"function-"+correlation,
 		"call-"+correlation,
 		"sworn_submit",

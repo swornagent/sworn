@@ -80,8 +80,12 @@ local deterministic servers do not replace it.
 
 An Implementer conversation may continue across an independent Captain review
 inside one process. A changed authority record or process restart discards that
-conversation and starts fresh. Planner, Captain, and every Verifier remain
-separate invocations.
+conversation and starts fresh. The first work Verifier starts fresh, read-only,
+and independent of the delivery roles. After that Verifier records an exact
+FAIL, Sworn may keep its thread for the direct repair. Each repaired candidate
+gets a new read-only invocation and a full contract check. Missing or stale
+context falls back to a fresh Verifier, and Assembly verification always starts
+fresh. Planner and Captain remain separate invocations.
 
 Recovery uses an explicitly selected automation model with limited actions and
 budgets. It cannot create Baton approval or handoff records. When safe recovery

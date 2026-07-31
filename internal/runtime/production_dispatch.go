@@ -111,6 +111,12 @@ type productionDispatchCommand struct {
 	Context             productionWorkContext `json:"context"`
 }
 
+func hasContinuationResumeRequest(work productionWorkContext) bool {
+	return work.Responsibility == driver.WorkVerification ||
+		(work.Responsibility == driver.ImplementerImplementation &&
+			work.DesignReceipt != nil)
+}
+
 func roleForResponsibility(
 	responsibility driver.Responsibility,
 ) (driver.Role, bool) {
@@ -925,9 +931,7 @@ func parseProductionDispatchCommand(
 		}
 		return command, nil
 	}
-	if command.Context.Responsibility ==
-		driver.ImplementerImplementation &&
-		command.Context.DesignReceipt != nil {
+	if hasContinuationResumeRequest(command.Context) {
 		resume, err := productionRequestForContextFreshness(
 			manifest,
 			command.Context,

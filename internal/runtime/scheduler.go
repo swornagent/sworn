@@ -1858,7 +1858,7 @@ func exactDesignContinuationPromotion(
 		entry.before != workIdentity(
 			state.Plan.OID,
 			state.Refs.Target.Head,
-			entry.sourceTrackHead,
+			entry.sourceReceipt,
 			slice.Location.Slice.ID,
 			"design",
 			"implementer",
@@ -1867,7 +1867,7 @@ func exactDesignContinuationPromotion(
 			slice.InputPins,
 		) ||
 		slice.CurrentReceipt.OID != track.Head ||
-		slice.CurrentReceipt.Parent != entry.sourceTrackHead ||
+		slice.CurrentReceipt.Parent != entry.sourceReceipt ||
 		slice.CurrentReceipt.Receipt.Binds != entry.sourceReceipt ||
 		slice.CurrentReceipt.Receipt.Role != "implementer" ||
 		slice.CurrentReceipt.Receipt.Result != "designed" ||
@@ -1880,19 +1880,19 @@ func exactDesignContinuationPromotion(
 			slice.Location.Track.ID {
 		return false
 	}
-	planDigest := driver.Digest(mustJSON(continuationPlanAuthority{
-		OID:      state.Plan.OID,
-		Digest:   state.Plan.Digest,
-		Revision: state.Plan.Metadata.Revision,
-	}))
-	targetDigest := driver.Digest(mustJSON(continuationTargetAuthority{
-		TargetRef:    state.Refs.Target.Ref,
-		TargetHead:   state.Refs.Target.Head,
-		Track:        slice.Location.Track.ID,
-		TrackRef:     track.Ref,
-		PreparedBase: slice.PreparedBase,
-		Evidence:     sliceEvidence(slice.ConsumedInputs),
-	}))
+	planDigest := continuationPlanDigest(
+		state.Plan.OID,
+		state.Plan.Digest,
+		state.Plan.Metadata.Revision,
+	)
+	targetDigest := continuationTargetDigest(
+		state.Refs.Target.Ref,
+		state.Refs.Target.Head,
+		slice.Location.Track.ID,
+		track.Ref,
+		slice.PreparedBase,
+		sliceEvidence(slice.ConsumedInputs),
+	)
 	return entry.binding.PlanAuthorityDigest == planDigest &&
 		entry.binding.TargetAuthorityDigest == targetDigest &&
 		entry.binding.ToolContractDigest != ""
@@ -1933,6 +1933,63 @@ func (s *Service) promoteDesignContinuation(
 	}
 	entry.designReceipt = slice.CurrentReceipt.OID
 	return s.storeContinuation(runID, sliceID, entry)
+}
+
+func (s *Service) promoteVerifierContinuation(
+	engine *engine,
+	sliceID string,
+) error {
+	runID := engine.manifest.value.RunID
+	entry := s.takeRetainedContinuation(
+		runID, continuationVerifier, sliceID,
+	)
+	if entry == nil {
+		return nil
+	}
+	state, err := baton.ReadState(
+		engine.git,
+		engine.manifest.value.Release,
+		engine.inertness,
+	)
+	if err != nil {
+		return closeRetainedContinuation(entry)
+	}
+	slice, ok := state.Slice(sliceID)
+	if !ok || slice.CurrentReceipt == nil {
+		return closeRetainedContinuation(entry)
+	}
+	track, trackOK := state.Track(slice.Location.Track.ID)
+	fail := slice.CurrentReceipt
+	current := entry.binding
+	current.RunID, current.Release, current.Slice =
+		runID, state.Release, slice.Location.Slice.ID
+	current.PlanAuthorityDigest = continuationPlanDigest(
+		state.Plan.OID, state.Plan.Digest, state.Plan.Metadata.Revision,
+	)
+	if trackOK {
+		current.TargetAuthorityDigest = continuationTargetDigest(
+			state.Refs.Target.Ref, state.Refs.Target.Head,
+			slice.Location.Track.ID, track.Ref, "",
+			sliceEvidence(slice.ConsumedInputs),
+		)
+	}
+	if !trackOK || state.Plan.TargetStale ||
+		entry.handle == nil || entry.verifierFailReceipt != "" ||
+		entry.sourceReceipt == "" ||
+		fail.OID != track.Head || fail.Parent != entry.sourceReceipt ||
+		fail.Receipt.Role != "verifier" || fail.Receipt.Result != "fail" ||
+		fail.Receipt.Attempt == nil ||
+		*fail.Receipt.Attempt != entry.binding.Attempt ||
+		fail.Receipt.Binds != entry.sourceReceipt ||
+		!sameStableContinuationAuthority(
+			entry, current, entry.selectionDigest,
+		) {
+		return closeRetainedContinuation(entry)
+	}
+	entry.verifierFailReceipt = fail.OID
+	return s.storeRetainedContinuation(
+		runID, continuationVerifier, sliceID, entry,
+	)
 }
 
 func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
@@ -2068,20 +2125,42 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		submission, runErr := s.dispatchRole(ctx, engine, workspace, driver.RoleVerifier,
 			sliceID, driver.WorkVerification, slice.Attempt, before, owner)
 		closeErr := workspace.Close()
+		discardVerifier := func(cause error) error {
+			return errors.Join(
+				cause,
+				s.discardRetainedContinuation(
+					engine.manifest.value.RunID,
+					continuationVerifier,
+					sliceID,
+				),
+			)
+		}
 		if runErr != nil {
-			return runErr
+			return discardVerifier(runErr)
 		}
 		if closeErr != nil {
-			return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
+			return discardVerifier(
+				runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr),
+			)
 		}
 		checks, err := exactBytes(submission.Checks)
 		if err != nil {
-			return err
+			return discardVerifier(err)
 		}
-		return s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
+		appendErr := s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
 			Release: state.Release, Slice: sliceID, Role: "verifier",
 			Result: string(submission.Decision.Outcome), Summary: submission.Summary,
 			Detail: []byte(submission.Detail), Candidate: candidate, CheckResults: checks})
+		if appendErr != nil {
+			return discardVerifier(appendErr)
+		}
+		if submission.Decision.Outcome == driver.DecisionFail {
+			return s.promoteVerifierContinuation(
+				engine,
+				sliceID,
+			)
+		}
+		return discardVerifier(nil)
 	}
 	return runtimeFail("WORK_NOT_READY", nil)
 }

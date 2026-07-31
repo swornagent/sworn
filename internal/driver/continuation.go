@@ -100,6 +100,7 @@ type continuationFlow uint8
 
 const (
 	continuationFlowW3 continuationFlow = iota + 1
+	continuationFlowVerifier
 	continuationFlowRecoverable
 )
 
@@ -159,7 +160,8 @@ func startContinuation(
 		fresh.Status = ContinuationStatusCancelled
 		return observation, nil, fresh, contextErr
 	}
-	if err := validateContinuationSource(invocation); err != nil {
+	flow, err := continuationSourceFlow(invocation)
+	if err != nil {
 		return invokeWithoutContinuation(
 			ctx, invocation, ContinuationStatusUnsupported,
 		)
@@ -175,6 +177,13 @@ func startContinuation(
 		return invokeWithoutContinuation(
 			ctx, invocation, ContinuationStatusUnsupported,
 		)
+	}
+	if flow == continuationFlowVerifier {
+		if _, supported := invocation.Selected.adapter.(recoverableContinuationAdapter); !supported {
+			return invokeWithoutContinuation(
+				ctx, invocation, ContinuationStatusUnsupported,
+			)
+		}
 	}
 
 	observation, state, invokeErr := adapter.invokeContinuation(
@@ -205,7 +214,6 @@ func startContinuation(
 		}
 		return observation, nil, fresh, nil
 	}
-	flow := continuationFlowW3
 	if observation.Yield != nil {
 		flow = continuationFlowRecoverable
 	}
@@ -236,7 +244,8 @@ func resumeContinuation(
 			cell, ContinuationStatusCancelled, err,
 		)
 	}
-	if err := validateContinuationResume(invocation); err != nil {
+	targetFlow, err := continuationResumeFlow(invocation)
+	if err != nil {
 		return discardContinuation(
 			cell, ContinuationStatusMismatch, nil,
 		)
@@ -253,6 +262,13 @@ func resumeContinuation(
 			cell, ContinuationStatusMismatch, nil,
 		)
 	}
+	recoverableAdapter, retainsState :=
+		invocation.Selected.adapter.(recoverableContinuationAdapter)
+	if targetFlow == continuationFlowVerifier && !retainsState {
+		return discardContinuation(
+			cell, ContinuationStatusMismatch, nil,
+		)
+	}
 
 	targetInvocation := sha256.Sum256([]byte(invocation.Request.InvocationID))
 	cell.mu.Lock()
@@ -265,7 +281,7 @@ func resumeContinuation(
 	case cell.closed || cell.state == nil:
 		cell.mu.Unlock()
 		return Observation{}, nil, fresh, nil
-	case cell.flow != continuationFlowW3:
+	case cell.flow != targetFlow:
 		discardStatus = ContinuationStatusMismatch
 	case time.Now().UnixNano() >= cell.expiresNano:
 		discardStatus = ContinuationStatusExpired
@@ -289,15 +305,13 @@ func resumeContinuation(
 	var nextState continuationState
 	var observation Observation
 	var invokeErr error
-	recoverableAdapter, retainsYield :=
-		invocation.Selected.adapter.(recoverableContinuationAdapter)
-	if retainsYield {
+	if retainsState {
 		observation, nextState, invokeErr =
 			recoverableAdapter.resumeRecoverableContinuation(
 				ctx,
 				invocation,
 				state,
-				false,
+				targetFlow == continuationFlowVerifier,
 			)
 	} else {
 		observation, invokeErr = adapter.resumeContinuation(
@@ -342,6 +356,16 @@ func resumeContinuation(
 			return observation, nil, result, retainErr
 		}
 		return observation, handle, result, nil
+	}
+	if invokeErr == nil && observation.Handoff != nil &&
+		targetFlow == continuationFlowVerifier {
+		handle, result, retainErr := retainedContinuation(
+			fingerprint,
+			invocation,
+			nextState,
+			continuationFlowVerifier,
+		)
+		return observation, handle, result, retainErr
 	}
 	if closeErr := closeContinuationState(nextState); closeErr != nil {
 		return failureObservation("adapter_failed"), nil, ContinuationResult{
@@ -389,36 +413,55 @@ func freshContinuation(status ContinuationStatus) ContinuationResult {
 }
 
 func validateContinuationSource(invocation Invocation) error {
-	return validateContinuationInvocation(
-		invocation, ImplementerDesign, ReadOnly, true,
-	)
+	_, err := continuationSourceFlow(invocation)
+	return err
 }
 
 func validateContinuationResume(invocation Invocation) error {
-	return validateContinuationInvocation(
-		invocation, ImplementerImplementation, ReadWrite, false,
-	)
+	_, err := continuationResumeFlow(invocation)
+	return err
 }
 
-func validateContinuationInvocation(
+func continuationSourceFlow(
 	invocation Invocation,
-	responsibility Responsibility,
-	workspaceAccess WorkspaceAccess,
-	fresh bool,
-) error {
+) (continuationFlow, error) {
+	return continuationFlowForInvocation(invocation, true)
+}
+
+func continuationResumeFlow(
+	invocation Invocation,
+) (continuationFlow, error) {
+	return continuationFlowForInvocation(invocation, false)
+}
+
+func continuationFlowForInvocation(
+	invocation Invocation,
+	source bool,
+) (continuationFlow, error) {
 	if err := validateInvocation(invocation); err != nil {
-		return err
+		return 0, fail("CONTINUATION_INVALID")
 	}
 	descriptor, err := invocation.Permission.Describe()
-	if err != nil ||
-		invocation.Request.Role != RoleImplementer ||
-		descriptor.Role != RoleImplementer ||
-		descriptor.Responsibility != responsibility ||
-		descriptor.WorkspaceAccess != workspaceAccess ||
-		descriptor.FreshContext != fresh {
-		return fail("CONTINUATION_INVALID")
+	if err != nil || invocation.Request.Role != descriptor.Role {
+		return 0, fail("CONTINUATION_INVALID")
 	}
-	return nil
+	if descriptor.Role == RoleVerifier &&
+		descriptor.Responsibility == WorkVerification &&
+		descriptor.WorkspaceAccess == ReadOnly &&
+		descriptor.FreshContext == source {
+		return continuationFlowVerifier, nil
+	}
+	duty, access := ImplementerImplementation, ReadWrite
+	if source {
+		duty, access = ImplementerDesign, ReadOnly
+	}
+	if descriptor.Role == RoleImplementer &&
+		descriptor.Responsibility == duty &&
+		descriptor.WorkspaceAccess == access &&
+		descriptor.FreshContext == source {
+		return continuationFlowW3, nil
+	}
+	return 0, fail("CONTINUATION_INVALID")
 }
 
 func continuationFingerprint(
@@ -439,6 +482,13 @@ func continuationFingerprint(
 	descriptor, err := invocation.Permission.Describe()
 	if err != nil {
 		return empty, err
+	}
+	// A verifier thread follows the same slice across direct repair attempts.
+	// The runtime still admits each exact attempt; the driver binds the stable
+	// thread authority only.
+	if descriptor.Role == RoleVerifier &&
+		descriptor.Responsibility == WorkVerification {
+		binding.Attempt = 1
 	}
 	identity := continuationIdentity{
 		Contract: "sworn.continuation-binding/v1",

@@ -101,6 +101,10 @@ func (Dispatcher) Invoke(ctx context.Context, invocation Invocation) (Observatio
 	if err := ctx.Err(); err != nil {
 		return contextFailure(err)
 	}
+	if invocation.Request.Role == RoleVerifier &&
+		!invocation.Request.FreshContext {
+		return Observation{}, fail("INVALID_VERIFIER")
+	}
 	if err := validateInvocation(invocation); err != nil {
 		return Observation{}, err
 	}

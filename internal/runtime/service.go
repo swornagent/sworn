@@ -43,13 +43,13 @@ type Service struct {
 }
 
 type retainedContinuation struct {
-	handle          *driver.Continuation
-	binding         driver.ContinuationBinding
-	selectionDigest string
-	before          string
-	sourceReceipt   string
-	sourceTrackHead string
-	designReceipt   string
+	handle              *driver.Continuation
+	binding             driver.ContinuationBinding
+	selectionDigest     string
+	before              string
+	sourceReceipt       string
+	designReceipt       string
+	verifierFailReceipt string
 }
 
 type RunStatus struct {
@@ -232,6 +232,7 @@ func (s *Service) Close() error {
 const (
 	continuationDesign   = "design"
 	continuationRecovery = "recovery"
+	continuationVerifier = "verifier"
 )
 
 func continuationRegistryKey(runID, kind, identity string) string {
@@ -387,7 +388,10 @@ func (s *Service) closeRunRecoverableContinuations(runID string) error {
 }
 
 func (s *Service) closeRunContinuations(runID string) error {
-	return s.closeRunRetainedContinuations(runID, continuationDesign)
+	return errors.Join(
+		s.closeRunRetainedContinuations(runID, continuationDesign),
+		s.closeRunRetainedContinuations(runID, continuationVerifier),
+	)
 }
 
 func (s *Service) closeAllContinuations() error {

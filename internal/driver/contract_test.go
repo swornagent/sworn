@@ -254,7 +254,6 @@ func TestRequestRejectsMergeDefaultsDriftAndUnsafeInputs(t *testing.T) {
 		"writable verifier": func(value *Request) {
 			value.Workspace.Access = ReadWrite
 		},
-		"stale verifier": func(value *Request) { value.FreshContext = false },
 	} {
 		value := request
 		mutate(&value)

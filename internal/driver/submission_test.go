@@ -225,7 +225,7 @@ func TestSubmissionRejectsWrongResponsibilityDecisionAndExactBytes(t *testing.T)
 	}
 }
 
-func TestSubmissionPermissionPinsBatonPackageAdapterAndFreshVerifier(t *testing.T) {
+func TestSubmissionPermissionPinsBatonPackageAdapterAndVerifierDuty(t *testing.T) {
 	t.Parallel()
 	permission, _ := permissionFixture(t, RolePlanner, PlannerProposal)
 	permission.descriptor.Package.Version = "1.0.0-rc.3"
@@ -239,8 +239,13 @@ func TestSubmissionPermissionPinsBatonPackageAdapterAndFreshVerifier(t *testing.
 	}
 	permission, _ = permissionFixture(t, RoleVerifier, WorkVerification)
 	permission.descriptor.FreshContext = false
+	if _, err := permission.Describe(); err != nil {
+		t.Fatalf("continued Work Verifier permission error = %v", err)
+	}
+	permission, _ = permissionFixture(t, RoleVerifier, AssemblyVerification)
+	permission.descriptor.FreshContext = false
 	if _, err := permission.Describe(); !IsCode(err, "INVALID_PERMISSION") {
-		t.Fatalf("stale Verifier permission error = %v", err)
+		t.Fatalf("continued Assembly Verifier permission error = %v", err)
 	}
 }
 
