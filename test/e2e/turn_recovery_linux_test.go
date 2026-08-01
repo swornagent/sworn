@@ -569,7 +569,7 @@ func runDirectTurnRecoveryBaseline(
 	evaluator, err := observe.NewEvaluator(
 		store,
 		projector,
-		"1.0.0-rc.1",
+		"1.0.0-rc.2",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -910,7 +910,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	evaluator, err := observe.NewEvaluator(
 		evalStore,
 		projector,
-		"1.0.0-rc.1",
+		"1.0.0-rc.2",
 	)
 	if err != nil {
 		t.Fatal(err)

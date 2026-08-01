@@ -45,7 +45,7 @@ handoffs decide what advances.
 
 ## Current release candidate
 
-Sworn `1.0.0-rc.1` includes Baton `1.0.0-rc.12`. Check the installed
+Sworn `1.0.0-rc.2` includes Baton `1.0.0-rc.12`. Check the installed
 versions with `sworn version`, or use `sworn version --json` when another
 tool needs to read them.
 
@@ -55,6 +55,8 @@ This candidate can:
 - work on independent tracks in parallel while keeping changes on each track
   in order;
 - pause, resume, cancel, take over, and retry a saved run safely;
+- find the project's local Baton releases and saved Sworn runs in one terminal
+  view;
 - show the same saved facts in the terminal, JSON, and a local browser board;
 - use Codex CLI, Claude Code CLI, OpenAI Responses, OpenAI-compatible Chat
   Completions, DeepSeek, Gemini, and two Amazon Bedrock connection types; and
@@ -82,8 +84,22 @@ The [run guide](docs/run.md) covers the files an operator supplies, AI
 connection checks, starting a run, viewing progress, recovery states, and the
 local browser board.
 
+From anywhere inside a Git project, run:
+
+```sh
+sworn
+```
+
+In an interactive terminal, this opens the project view. It finds local Baton
+releases and saved Sworn runs, lets you move between their boards, and offers
+only the controls allowed by the current board. `sworn tui` opens the same
+view explicitly. When input or output is piped or redirected, bare `sworn`
+prints help instead. The full command line remains available for scripts and
+exact run control.
+
 | Command | What it does |
 | --- | --- |
+| `sworn` or `sworn tui` | Open the interactive project view. |
 | `sworn run` | Start or continue the run described by a manifest. |
 | `sworn board` | Show what Sworn is doing, what is next, and whether a person is needed. |
 | `sworn serve` | Open the same run board in a local browser service. |
@@ -96,6 +112,7 @@ local browser board.
 Exact command syntax:
 
 ```text
+sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
 sworn version [--json]
 sworn run --manifest ABS --journal ABS [--config ABS]
 sworn pause|cancel --run ID --journal ABS --command ID --generation N
@@ -154,13 +171,14 @@ exact evidence and known limits.
 ## Technical source map
 
 ```text
-cmd/sworn         command line and local browser service
+cmd/sworn         command line, project TUI, and local browser service
 internal/baton    included Baton protocol and deterministic decisions
 internal/runtime  work order, recovery, and the single state owner
 internal/journal  saved commands, external work, receipts, and events
 internal/gitx     measured Git facts and controlled Git changes
 internal/driver   AI connection selection, tools, and credentials
 internal/cockpit  terminal, JSON, and browser views of the same run
+internal/tui      interactive navigation across project releases and runs
 internal/observe  local evaluation and optional telemetry
 ```
 

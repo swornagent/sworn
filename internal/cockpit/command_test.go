@@ -216,3 +216,22 @@ func TestCommandFacadeRejectsOpenOrUnpinnedInputBeforeDelegation(t *testing.T) {
 		)
 	}
 }
+
+func TestCommandFacadePreservesPendingOwnerTransition(t *testing.T) {
+	t.Parallel()
+
+	runtime := &fakeCommandRuntime{err: &runtimepkg.Error{
+		Code: "OWNER_TRANSITION_PENDING",
+	}}
+	facade, err := NewCommandFacade(runtime, &fakeRedeliverer{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = facade.Control(context.Background(), ControlCommand{
+		RunID: "run-1", CommandID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 0,
+	})
+	if !IsCode(err, "OWNER_TRANSITION_PENDING") || runtime.controlCalls != 1 {
+		t.Fatalf("pending owner transition = %v, calls %d", err, runtime.controlCalls)
+	}
+}

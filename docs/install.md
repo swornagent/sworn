@@ -24,7 +24,7 @@ brew upgrade --cask sworn
 Set the version you want, download its archive and checksum, then verify it:
 
 ```sh
-version=1.0.0-rc.1
+version=1.0.0-rc.2
 base="https://github.com/swornagent/sworn/releases/download/v${version}"
 curl -fLO "${base}/sworn-v${version}-linux-amd64.tar.gz"
 curl -fLO "${base}/checksums.txt"

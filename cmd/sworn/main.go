@@ -22,6 +22,7 @@ import (
 const usage = `Sworn carries software work through Baton's recorded handoffs.
 
 Commands:
+  tui       Browse this project's releases and runs in an interactive terminal.
   run       Start or continue a run.
   board     Show what Sworn is doing and what happens next.
   serve     Open the run board as a local browser service.
@@ -38,6 +39,7 @@ Commands:
 
 Exact syntax:
   sworn version [--json]
+  sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
   sworn run --manifest ABS --journal ABS [--config ABS]
   sworn pause|cancel --run ID --journal ABS --command ID --generation N
   sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
@@ -50,7 +52,7 @@ Exact syntax:
 `
 
 const (
-	swornVersion = "1.0.0-rc.1"
+	swornVersion = "1.0.0-rc.2"
 	swornState   = "baton-rc12-admitted"
 )
 
@@ -61,7 +63,11 @@ type versionInfo struct {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	args := os.Args[1:]
+	if len(args) == 0 && terminalIsInteractive(os.Stdin, os.Stdout) {
+		args = []string{"tui"}
+	}
+	os.Exit(run(args, os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -70,6 +76,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	switch args[0] {
+	case "tui":
+		return runTUI(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
 	case "run":
@@ -411,74 +419,31 @@ func runBoard(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: sworn board --run ID --journal PATH [--json]")
 		return 2
 	}
-	gitExecutable, err := resolveGitExecutable()
-	if err != nil {
-		writeKnownFailure(
-			stderr,
-			"board",
-			"Could not find Git. Install Git or make it available on PATH.",
-			"GIT_UNAVAILABLE",
-		)
-		return 1
-	}
 	ctx := context.Background()
-	journalReader, err := journal.OpenReadOnly(ctx, options["--journal"])
+	snapshot, err := readRunBoard(
+		ctx,
+		options["--run"],
+		options["--journal"],
+	)
 	if err != nil {
-		writeKnownFailure(
-			stderr,
-			"board",
-			"Could not open the saved run record. Check the journal path and file permissions.",
-			"JOURNAL_UNAVAILABLE",
-		)
-		return 1
-	}
-	defer journalReader.Close()
-	statusReader, err := runtimepkg.OpenStatusService(ctx, options["--journal"])
-	if err != nil {
-		if runtimepkg.IsCode(err, "GIT_UNAVAILABLE") {
+		if errors.Is(err, errRunBoardGit) {
 			writeKnownFailure(
 				stderr,
 				"board",
 				"Could not find Git. Install Git or make it available on PATH.",
 				"GIT_UNAVAILABLE",
 			)
-		} else {
+			return 1
+		}
+		if errors.Is(err, errRunBoardJournal) {
 			writeKnownFailure(
 				stderr,
 				"board",
 				"Could not open the saved run record. Check the journal path and file permissions.",
 				"JOURNAL_UNAVAILABLE",
 			)
+			return 1
 		}
-		return 1
-	}
-	defer statusReader.Close()
-	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
-	if err != nil {
-		writeKnownFailure(
-			stderr,
-			"board",
-			"Could not use Git to read the current delivery state.",
-			"GIT_UNAVAILABLE",
-		)
-		return 1
-	}
-	projector, err := cockpit.NewProjector(
-		journalReader,
-		statusReader,
-		stateReader,
-	)
-	if err != nil {
-		writeCommandFailure(
-			stderr,
-			"board",
-			"Could not build the delivery board from the saved run and Git state.",
-			err,
-		)
-		return 1
-	}
-	snapshot, err := projector.Snapshot(ctx, options["--run"])
-	if err != nil {
 		writeCommandFailure(
 			stderr,
 			"board",
