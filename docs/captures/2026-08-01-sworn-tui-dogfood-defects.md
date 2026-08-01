@@ -95,6 +95,49 @@ a UI feature. The content-free journal is a deliberate property, not an
 oversight: it is what keeps the run record auditable and secret-free, which is
 the same property attestation depends on.
 
+## Review corrections, 2026-08-02
+
+A review of PR #175 at 21aec2b raised six objections. Five were verified as
+correct and are folded in below. Recording them here rather than only in review
+comments, because the divergence between this document and the issue bodies was
+itself the most serious finding.
+
+**Single contract.** This document is the implementation contract. Issue bodies
+summarise and link here; they do not restate requirements. The live-streaming
+requirements changed three times on 2026-08-02 and each change landed here as a
+commit but in the issues only as a comment, leaving issue bodies asserting
+"ephemeral, no persistence, blocked by F4" while this document said the
+opposite. A worker reads the body, not the comment thread. That is the exact
+"N places that should be one, therefore drift, therefore silent divergence"
+failure this project has hit repeatedly.
+
+**Prerequisite: adopt Baton RC13 before F1.** `internal/baton/assets.go:27`
+pins `1.0.0-rc.12`. Tag `v1.0.0-rc.13` exists and changes how target movement is
+judged, in `reference/records/state.mjs`:
+
+```diff
+-  const targetStale = assembly.status !== 'complete'
+-    && approval.receipt.target !== captured[1].head;
++  const targetStale = assembly.status !== 'complete'
++    && !isAncestor(repo, approval.receipt.target, captured[1].head);
+```
+
+Under RC12 any forward movement of the target branch raises `TARGET_MOVED`.
+Under RC13 only movement that leaves the approved target off the ancestry does.
+The `TARGET_MOVED` observed on `2026-07-31-ownership-outside-household` is
+therefore most likely an RC12 false positive from an ordinary branch advance.
+
+F1 is the work of explaining diagnostics in plain language. Doing that on top of
+an engine that emits a spurious diagnostic ships a well-worded false alarm, so
+RC13 adoption precedes it.
+
+**Fixtures must be synthetic, not live.** The `fired` acceptance criteria have
+already gone stale. `release-wt/2026-07-30-customer-operations-inbox` moved from
+`2c12ae90e` to `33512c66c` and now has a valid plan, so "reads: this release has
+no plan" no longer reproduces. The 2026-08-01 observations stand as history and
+are not to be edited. Acceptance criteria move to synthetic fixtures built in
+the test suite.
+
 ## Fix plan
 
 Ordered. Each item is independently shippable.
@@ -104,7 +147,7 @@ Ordered. Each item is independently shippable.
 | F1 Surface projection failures as diagnostics | #169 |
 | F2 Correct the plan fence error text | #170 |
 | F3 Explain why no controls are available | #171 |
-| F4 Stop driving a run in the TUI foreground | #172 |
+| F4 Supervised run lifecycle with detach and reconnect | #172 |
 | F5 Per-track activity feed from existing data | #173 |
 | F6a Live model output stream | #176 |
 | F6b Pruning rule for retained transcripts | #174 |
@@ -120,9 +163,10 @@ out, and split "read failed" from "data is stale".
   `INVALID_HEAD_OBJECT` gain entries in `diagnosticExplanation()`.
 - `controlsAllowed()` stops keying the control lockout off the same flag used
   for staleness.
-- Acceptance: opening `2026-07-30-customer-operations-inbox` in `fired` reads
-  "this release has no plan", and `2026-07-25-systematic-flair-ui-hydration-safe`
-  reads that its plan is an older format Sworn does not admit.
+- Acceptance, against synthetic fixtures rather than `fired`: a release ref with
+  no plan reads "this release has no plan"; a release ref carrying a
+  `baton-plan-v1` document reads that its plan is an older format Sworn does not
+  admit. Both fixtures are constructed in the test suite so they cannot go stale.
 
 ### F2. Correct the plan fence error text
 
@@ -142,13 +186,20 @@ searched, and state that the manifest must be provided. Do not leave `a` silent.
   was found in `.sworn/runs/`, and pressing `a` shows the same sentence rather
   than nothing.
 
-### F4. Stop driving a run in the TUI foreground
+### F4. Supervised run lifecycle with detach and reconnect
 
-Either hand off to a detached driver and have the TUI follow the journal, or
-refuse to start from the TUI and print the exact `sworn run` invocation.
+**Decided 2026-08-02: hand off to a supervised background driver.** The earlier
+"or refuse to start and print the command" alternative is withdrawn. It
+contradicts the cockpit being the product, and leaving an unresolved "or" in a
+contract that autonomous workers consume invites exactly the divergence this
+document is trying to prevent.
+
+Starting a run detaches a supervised driver. The TUI follows the journal and can
+be closed and reopened without affecting the run.
 
 - Acceptance: the board keeps refreshing while a run started from the TUI is
-  driving, or the TUI never starts one and says what to run instead.
+  driving; quitting the TUI leaves the run driving; reopening reconnects to it
+  without a `takeover`.
 - Note: `sworn loop --parallel` is not dependable on a cold start, so a frozen
   cockpit holding a live run is a compounding failure, not a cosmetic one.
 
@@ -157,13 +208,27 @@ refuse to start from the TUI and print the exact `sworn run` invocation.
 Build the feed the current journal can honestly support before deciding
 anything about transcripts.
 
+**The per-track promise does not hold today, and the gap is in the projection,
+not the UI.** `Evidence` is `{offset, kind, created_at}`
+(`internal/cockpit/model.go:125`). There is no effect, work, or track
+association on an event, so "filter by track" has nothing to filter on. Stage
+and outcome are available from graph nodes, and tokens and cost from
+`AttemptView`, which is keyed by effect ID; only the events themselves cannot be
+joined.
+
+This slice therefore carries one minimal projection change, or it narrows its
+promise. It must not claim per-track events without adding the association.
+
+- Add a minimal event-to-effect association to `Evidence`, and derive the track
+  from the effect. This is the smaller of the two honest options.
 - Extend the TUI backend with a paged event read over `Projector.Events`.
-- Filter by the selected graph node's track, since the board already tracks node
-  selection.
+- Filter by the selected graph node's track.
 - Render kind, timestamp, and the node's stage and outcome, with attempt tokens
   and cost where present.
-- Acceptance: selecting a track shows its events advancing during a live run,
-  and the header's `LIVE · <offset>` corresponds to something the user can read.
+- Acceptance: selecting a track shows that track's events advancing during a
+  live run, and the header's `LIVE · <offset>` corresponds to something the user
+  can read. If the association is not added, the feed is presented as run-wide
+  and the per-track claim is removed from the UI and from this document.
 
 ### F6a. Live model output stream
 
@@ -190,9 +255,13 @@ discarded.**
   `thread.started`, `item.started`, `item.completed` and `turn.completed`.
   Assistant text, thinking, and tool-use events fall through the switch and are
   dropped at `native_linux.go:2943-2944`.
-- Redaction already exists at exactly the right point:
+- A credential tripwire already exists at exactly the right point:
   `containsCapability(line, capability)` fails the whole invocation if the
-  credential ever appears in output.
+  credential ever appears in output. Note precisely what this is. It is
+  `bytes.Contains` against one known credential
+  (`internal/driver/broker.go:583`). It aborts, it does not redact, and it knows
+  nothing about repository secrets or customer data. It is not a redaction
+  layer and must not be described as one.
 
 A live tap is therefore an observer hook at the point the line is currently
 discarded. No new provider work, no new parsing, no journal change.
@@ -322,6 +391,48 @@ This also strengthens the previous requirement rather than weakening it. A user
 directory default is outside every repository by construction, so the common
 path never touches a repository at all. The admission check from the previous
 section becomes a backstop for an explicit override, not the primary defence.
+
+#### The cockpit receives a provider-neutral contract
+
+Added 2026-08-02 from review. Raw `stream-json` from Claude, or Codex's
+`item.completed` envelopes, must never reach the cockpit. Piping provider JSON
+to the UI couples every surface to provider schemas that change without notice,
+and makes a second provider a rewrite rather than a driver.
+
+The driver translates its native stream into one neutral record before anything
+else sees it:
+
+```text
+effect · sequence · time · kind · text
+```
+
+`kind` is a small closed set, along the lines of `text`, `thinking`,
+`tool_use`, `tool_result`, `usage`. Provider-specific fields are dropped at the
+driver boundary, not filtered downstream. The retained JSONL is this neutral
+record, which is also what makes replay portable across providers and across
+Sworn versions.
+
+#### Storage failure semantics belong in the first implementation
+
+Added 2026-08-02 from review. "Retain everything", "bounded storage" and "decide
+pruning later" cannot all be true, and the gap between them is where a first
+implementation quietly does something unsafe. The following are settled before
+the first line of storage code, not deferred to F6b:
+
+- A per-effect size cap and a per-run cap, with defined behaviour on reaching
+  them. Truncate and mark truncated, rather than stopping silently.
+- Writes are asynchronous and bounded. A slow disk must not enter the driver's
+  critical path.
+- Disk-full, permission-denied, and directory-vanished all degrade to capture
+  disabled with a visible cockpit warning. **A transcript write failure must
+  never fail the run.** Capture is an observation surface, not a delivery
+  dependency.
+- The buffer between the driver and the writer drops oldest under pressure and
+  records that it dropped. A gap that is marked is recoverable; a gap that is
+  silent is a lie about what the model said.
+
+F6b then covers only the long-horizon question: when old transcripts age out and
+whether a per-project ceiling exists.
 
 #### Remaining constraints
 
