@@ -106,7 +106,8 @@ Ordered. Each item is independently shippable.
 | F3 Explain why no controls are available | #171 |
 | F4 Stop driving a run in the TUI foreground | #172 |
 | F5 Per-track activity feed from existing data | #173 |
-| F6 Transcript capture, as a separate decision | #174 |
+| F6a Live model output stream | #176 |
+| F6b Durable transcript retention | #174 |
 
 ### F1. Surface projection failures as diagnostics, not as staleness
 
@@ -164,11 +165,80 @@ anything about transcripts.
 - Acceptance: selecting a track shows its events advancing during a live run,
   and the header's `LIVE · <offset>` corresponds to something the user can read.
 
-### F6. Transcript capture, as a separate decision
+### F6a. Live model output stream
 
-Raw worker output requires a side channel keyed by effect ID, with redaction and
-size caps, kept out of the journal so the content-free guarantee survives. This
-is a policy change and should be specced on its own, not folded into F5.
+Added 2026-08-02 at Brad's direction, with a stated operational reason: he has
+repeatedly stopped churn by watching verbose model output and noticing work
+going off the rails **before** any of the automated checks fired. Live model
+output is therefore an early-warning control, not a debugging luxury, and it
+sits ahead of durable retention.
+
+The provider capability is not in question. Every path Sworn uses can stream:
+OpenAI-compatible vendors stream deltas, and both native CLIs already do.
+The entire gap is Sworn-side, and it is two different sizes.
+
+**Native drivers (Claude, Codex): the stream already flows through Sworn and is
+discarded.**
+
+- `internal/driver/native_linux.go:2703` launches with
+  `--output-format stream-json --verbose`.
+- `scanNativeEvents` (`internal/driver/native_linux.go:2923`) reads stdout line
+  by line off `command.StdoutPipe()` and hands each line to
+  `nativeEventState.accept`.
+- `accept` validates the envelope and extracts usage. For `ProfileClaude` it
+  handles `system`/`init` and `result`; for `ProfileCodex` it handles
+  `thread.started`, `item.started`, `item.completed` and `turn.completed`.
+  Assistant text, thinking, and tool-use events fall through the switch and are
+  dropped at `native_linux.go:2943-2944`.
+- Redaction already exists at exactly the right point:
+  `containsCapability(line, capability)` fails the whole invocation if the
+  credential ever appears in output.
+
+A live tap is therefore an observer hook at the point the line is currently
+discarded. No new provider work, no new parsing, no journal change.
+
+**HTTP drivers: streaming is switched off, deliberately and hardcoded.**
+
+- `internal/driver/openai.go:265` and `internal/driver/responses.go:111` both
+  send `Stream: false`.
+- Enabling it means real work: request the stream, parse SSE deltas, accumulate
+  incrementally, and keep the existing strict response admission intact so the
+  final observation is byte-identical to what non-streaming produced.
+
+**Transport is the hard part, and it is coupled to F4.**
+
+Every cross-process observer in Sworn today reads the journal. The journal is
+the IPC. A live model stream cannot use it without destroying the content-free
+guarantee, so this needs a genuinely new channel:
+
+- If the TUI drives the run in its own process, an in-memory fan-out suffices.
+- If F4 detaches the driver, the stream needs a real IPC hop, such as a unix
+  socket beside the journal, with the same 0600 and no-symlink discipline.
+
+**F4 must be decided before F6a is built.** Building the tap against today's
+in-process driving would produce a channel that dies the moment F4 detaches it.
+
+Constraints for the stream itself:
+
+- Ephemeral and live-only. Nothing durable, so the content-free journal
+  invariant is untouched and no retention policy is required to ship it.
+- Keyed by effect ID so it can be filtered to one track, matching F5.
+- Bounded: drop oldest under back-pressure rather than blocking the driver. A
+  slow reader must never stall a worker.
+- Off by default, opt-in per run or per session.
+- Reuses the existing secret guard. A line that trips it fails the invocation
+  exactly as it does today.
+
+Acceptance: with a run driving, the cockpit shows verbose model output as it is
+produced, filterable to a single track, and disconnecting or lagging the viewer
+has no effect on the run.
+
+### F6b. Durable transcript retention, still a separate decision
+
+Replay after the fact is a different question from watching live, and only this
+half is a policy change. It requires a side channel keyed by effect ID with
+redaction, size caps, and a retention rule, kept out of the journal so the
+content-free guarantee survives. Spec it on its own. Do not let it block F6a.
 
 ## What was not changed
 
