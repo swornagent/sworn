@@ -99,6 +99,15 @@ the same property attestation depends on.
 
 Ordered. Each item is independently shippable.
 
+| Fix | Issue |
+| --- | --- |
+| F1 Surface projection failures as diagnostics | #169 |
+| F2 Correct the plan fence error text | #170 |
+| F3 Explain why no controls are available | #171 |
+| F4 Stop driving a run in the TUI foreground | #172 |
+| F5 Per-track activity feed from existing data | #173 |
+| F6 Transcript capture, as a separate decision | #174 |
+
 ### F1. Surface projection failures as diagnostics, not as staleness
 
 Carry the Baton error code through to the board instead of erroring the board
