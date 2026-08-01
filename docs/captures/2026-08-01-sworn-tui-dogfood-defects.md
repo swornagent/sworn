@@ -215,30 +215,86 @@ guarantee, so this needs a genuinely new channel:
 - If F4 detaches the driver, the stream needs a real IPC hop, such as a unix
   socket beside the journal, with the same 0600 and no-symlink discipline.
 
-**F4 must be decided before F6a is built.** Building the tap against today's
-in-process driving would produce a channel that dies the moment F4 detaches it.
+**Resolved 2026-08-02: the transport is a file, not a socket.** The driver
+writes, any number of readers tail. This works identically whether the run is
+driven in-process or detached, so **F6a is no longer blocked by F4**. The
+earlier in-memory-versus-socket framing was a false choice.
 
-Constraints for the stream itself:
+Correcting the reasoning that produced it: "the journal must stay content-free"
+is an architectural invariant with a concrete reason, namely that the journal is
+the attestable record and the evaluation export surface is deliberately
+content-free so telemetry can leave the machine without carrying customer code
+or model prose. "Model output must not be persisted anywhere" is a strictly
+stronger claim that was inherited from it without being checked. Only the first
+is real.
 
-- Ephemeral and live-only. Nothing durable, so the content-free journal
-  invariant is untouched and no retention policy is required to ship it.
-- Keyed by effect ID so it can be filtered to one track, matching F5.
-- Bounded: drop oldest under back-pressure rather than blocking the driver. A
-  slow reader must never stall a worker.
-- Off by default, opt-in per run or per session.
-- Reuses the existing secret guard. A line that trips it fails the invocation
-  exactly as it does today.
+#### Never in the repository, and never silent
 
-Acceptance: with a run driving, the cockpit shows verbose model output as it is
-produced, filterable to a single track, and disconnecting or lagging the viewer
-has no effect on the run.
+Two requirements set by Brad on 2026-08-02. Both are hard.
 
-### F6b. Durable transcript retention, still a separate decision
+**1. Transcripts must never be persisted inside the repository.** Not by
+convention, by admission check.
 
-Replay after the fact is a different question from watching live, and only this
-half is a policy change. It requires a side channel keyed by effect ID with
-redaction, size caps, and a retention rule, kept out of the journal so the
-content-free guarantee survives. Spec it on its own. Do not let it block F6a.
+`.gitignore` is not sufficient. It is a per-repository convention that
+`git add -f` overrides, that a differently configured repository will not carry,
+and that says nothing about a path outside `.sworn/`. Note that `fired` already
+ignores `.sworn/*` with a single `!.sworn/project.json` exception, so the
+default location would be ignored today. That is not the point. The guarantee
+has to hold when the convention does not.
+
+- The transcript directory is supplied explicitly as an absolute, clean path,
+  matching the existing house style for `--journal` and `--config`.
+- Sworn refuses the path if it resolves inside the repository work tree. The
+  containment test already exists: `gitx.Open` plus `repository.Root()`.
+- Containment must be tested **after** symlink resolution, and must cover linked
+  worktrees, not only the primary root. `fired` has roughly ninety worktrees
+  under a sibling directory; a check against `repository.Root()` alone would
+  wave every one of them through.
+- Failure is a coded refusal at admission, consistent with `INSECURE_PERMISSIONS`
+  and the other fail-closed path checks.
+- Files are `0600`, as the journal already enforces at
+  `internal/journal/store.go:99`.
+
+This is why the journal's own location is not a precedent. The journal lives at
+`.sworn/sworn.db` inside the repository and that is fine, because the journal is
+content-free. The transcript is not, so it does not get the same latitude.
+
+**2. Capture must be explicit and visible.** No silent recording of model
+output.
+
+- Off by default. Enabling is a deliberate act, per run or per session.
+- At the moment of enabling, Sworn states the exact directory being written to.
+- While capture is active, the cockpit shows it. A user must never be able to
+  look at the board and not know that model output is being written to disk.
+- The journal records **that** capture was enabled, as a boolean fact. That is
+  content-free, so the invariant holds, and it makes "was this run observed"
+  an attestable property rather than an unrecorded side effect.
+
+#### Remaining constraints
+
+- Keyed by effect ID so it filters to one track, matching F5.
+- Bounded, with a size cap and rotation. A parallel run with `--verbose`
+  produces a large volume of output.
+- Back-pressure must never stall a worker. A file writer that never waits on a
+  reader gives this nearly for free.
+- Reuses the existing per-line secret guard. A line that trips it fails the
+  invocation exactly as it does today.
+- Data at rest deserves deliberate handling. `fired/.sworn/project.json`
+  declares its own stakes as `pii`, `financial` and `credentials` under the
+  Privacy Act, and verbose model prose about that codebase inherits them.
+
+Acceptance: with a run driving and capture explicitly enabled, the cockpit shows
+verbose model output as it is produced, filterable to a single track, and states
+where it is being written. Disconnecting or lagging the viewer has no effect on
+the run. Pointing the transcript directory anywhere inside the repository or one
+of its worktrees is refused at admission.
+
+### F6b. Retention rule for captured transcripts
+
+Now much smaller than originally scoped. Persistence, location and consent are
+settled in F6a. What remains is how long transcripts are kept, what the rotation
+and cap rules are, and whether a retained transcript is ever in scope for
+attestation. Does not block F6a.
 
 ## What was not changed
 
