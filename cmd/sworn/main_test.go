@@ -56,7 +56,7 @@ func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	want := "Sworn 1.0.0-rc.1\nBaton 1.0.0-rc.12\n\n" +
+	want := "Sworn 1.0.0-rc.2\nBaton 1.0.0-rc.12\n\n" +
 		"Technical details:\n" +
 		"  state: baton-rc12-admitted\n" +
 		"  baton commit: " + baton.Commit + "\n"

@@ -1,0 +1,565 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/journal"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+	"github.com/swornagent/sworn/internal/tui"
+)
+
+var (
+	errRunBoardGit     = errors.New("Git is unavailable")
+	errRunBoardJournal = errors.New("the saved run record is unavailable")
+)
+
+type projectTUIBackend struct {
+	startPath   string
+	journalPath string
+	configPath  string
+	manifestDir string
+	commandID   func() (string, error)
+}
+
+func newProjectTUIBackend(
+	startPath, journalPath, configPath, manifestDir string,
+) *projectTUIBackend {
+	return &projectTUIBackend{
+		startPath: startPath, journalPath: journalPath,
+		configPath: configPath, manifestDir: manifestDir,
+		commandID: newTUICommandID,
+	}
+}
+
+func (b *projectTUIBackend) Catalog(
+	ctx context.Context,
+) (tui.Catalog, error) {
+	if b == nil || ctx == nil {
+		return tui.Catalog{}, errors.New("project releases are unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return tui.Catalog{}, err
+	}
+	entries := make([]tui.CatalogEntry, 0, len(project.releases))
+	for index := len(project.releases) - 1; index >= 0; index-- {
+		release := project.releases[index]
+		run, hasRun := latestProjectRun(release)
+		runID := ""
+		status := "Baton release"
+		needsYou := "Open the board to see the next handoff."
+		checked := "The latest saved Baton release."
+		if hasRun {
+			runID = run.binding.ID
+			status = "Sworn run saved"
+			needsYou = "Open the board to see whether Sworn needs you."
+			checked = "Run " + runID
+		}
+		if release.diagnostic != "" {
+			status = "Baton release missing"
+			if hasRun {
+				status = "Sworn run · Baton release missing"
+			}
+			needsYou = "Yes — restore or prepare the local Baton release."
+			checked = "Saved Sworn run information."
+		}
+		selection, err := newTUISelection(project, release, runID)
+		if err != nil {
+			return tui.Catalog{}, errors.New("project releases are unavailable")
+		}
+		entries = append(entries, tui.CatalogEntry{
+			Selection: selection,
+			Status:    status,
+			NeedsYou:  needsYou,
+			Checked:   checked,
+		})
+	}
+	return tui.Catalog{Entries: entries}, nil
+}
+
+func (b *projectTUIBackend) Board(
+	ctx context.Context,
+	selection tui.Selection,
+) (tui.Board, error) {
+	if b == nil || ctx == nil {
+		return tui.Board{}, errors.New("project board is unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return tui.Board{}, err
+	}
+	release, run, hasRun, err := resolveTUISelection(project, selection)
+	if err != nil {
+		return tui.Board{}, err
+	}
+	if hasRun {
+		snapshot, err := readRunBoard(ctx, run.binding.ID, run.journalPath)
+		if err != nil || snapshot.Run.Release != release.name {
+			return tui.Board{}, errors.New("project board is unavailable")
+		}
+		presentation := cockpit.PresentSnapshot(snapshot)
+		return tui.Board{
+			Selection: selection, Graph: snapshot.Graph,
+			Actions: snapshot.Actions, Attentions: snapshot.Runtime.Attentions,
+			Diagnostics: snapshot.Diagnostics,
+			Status:      presentation.Status, What: presentation.What,
+			Next: presentation.Next, NeedsYou: presentation.NeedsYou,
+			Checked:       presentation.Checked,
+			ThroughOffset: snapshot.ThroughOffset,
+		}, nil
+	}
+	if release.diagnostic != "" {
+		return tui.Board{
+			Selection: selection,
+			Diagnostics: []cockpit.Diagnostic{{
+				Code: release.diagnostic,
+			}},
+			Status:   "Needs confirmation",
+			What:     "Sworn found saved run information, but its local Baton release is missing.",
+			Next:     "Restore or prepare that Baton release, then refresh.",
+			NeedsYou: "Yes — the local Baton release must be available before delivery can start.",
+			Checked:  "Saved run information and local Baton releases.",
+		}, nil
+	}
+
+	stateReader, err := cockpit.NewGitStateReader(project.repository.GitExecutable())
+	if err != nil {
+		return tui.Board{}, errors.New("project board is unavailable")
+	}
+	state, err := stateReader.Read(ctx, journal.Run{
+		Repository: project.paths.root,
+		Release:    release.name,
+	})
+	if err != nil {
+		return tui.Board{}, errors.New("project board is unavailable")
+	}
+	snapshot := cockpit.ProjectRelease(state)
+	for _, code := range project.diagnostics {
+		snapshot.Diagnostics = append(
+			snapshot.Diagnostics,
+			cockpit.Diagnostic{Code: code},
+		)
+	}
+	journalUnavailable := hasTUIProjectDiagnostic(
+		project.diagnostics,
+		"SWORN_UNAVAILABLE",
+	)
+	actions := []cockpit.Action{}
+	if release.manifest != "" && !journalUnavailable {
+		actions = append(actions, cockpit.Action{Kind: "start"})
+	}
+	presentation := snapshot.Presentation
+	if journalUnavailable {
+		presentation.Status = "Needs confirmation"
+		presentation.What = "Sworn could not confirm the saved run records."
+		presentation.Next = "Restore the saved Sworn run record, then refresh this board."
+		presentation.NeedsYou = "Yes — delivery controls are disabled until the saved facts can be confirmed."
+		presentation.Checked = "The Baton release is visible, but the saved Sworn run record is unavailable."
+	}
+	return tui.Board{
+		Selection: selection, Graph: snapshot.Graph,
+		Actions: actions, Diagnostics: snapshot.Diagnostics,
+		Status:   presentation.Status,
+		What:     presentation.What,
+		Next:     presentation.Next,
+		NeedsYou: presentation.NeedsYou,
+		Checked:  presentation.Checked,
+	}, nil
+}
+
+func (b *projectTUIBackend) Execute(
+	ctx context.Context,
+	selection tui.Selection,
+	action cockpit.Action,
+	answer string,
+) error {
+	if b == nil || ctx == nil {
+		return errors.New("project control is unavailable")
+	}
+	board, err := b.Board(ctx, selection)
+	if err != nil || !exactTUIAction(board.Actions, action) {
+		return errors.New("the current board does not allow that action")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return errors.New("project control is unavailable")
+	}
+	release, run, hasRun, err := resolveTUISelection(project, selection)
+	if err != nil {
+		return errors.New("project control is unavailable")
+	}
+	if action.Kind == "start" {
+		if hasRun || release.manifest == "" || answer != "" {
+			return errors.New("the current board does not allow that action")
+		}
+		return startTUIRun(
+			ctx,
+			project,
+			release,
+			selection,
+			release.manifest,
+			project.paths.journal,
+			existingRegularFile(project.paths.config),
+		)
+	}
+	if !hasRun {
+		return errors.New("the current board does not allow that action")
+	}
+	return b.executeRunAction(ctx, run, action, answer)
+}
+
+func (b *projectTUIBackend) executeRunAction(
+	ctx context.Context,
+	run projectRun,
+	action cockpit.Action,
+	answer string,
+) error {
+	configPath := ""
+	var commandID string
+	switch action.Kind {
+	case "pause", "resume", "cancel", "takeover", "retry":
+		if answer != "" {
+			return errors.New("the current board does not allow that action")
+		}
+		kind := journal.ControlKind(action.Kind)
+		configPath = controlConfig(kind, run.configPath)
+		var err error
+		commandID, err = b.commandID()
+		if err != nil {
+			return errors.New("project control is unavailable")
+		}
+	case "answer_attention":
+		if strings.TrimSpace(answer) == "" ||
+			len(answer) > journal.MaxAttentionAnswerBytes {
+			return errors.New("the answer is empty or too long")
+		}
+		configPath = run.configPath
+	case "redeliver":
+		if answer != "" {
+			return errors.New("the current board does not allow that action")
+		}
+	default:
+		return errors.New("the current board does not allow that action")
+	}
+
+	commands, closeCommands, err := openTUICommands(ctx, run, configPath)
+	if err != nil {
+		return err
+	}
+	defer closeCommands()
+	switch action.Kind {
+	case "pause", "resume", "cancel", "takeover", "retry":
+		command := cockpit.ControlCommand{
+			RunID: run.binding.ID, CommandID: commandID,
+			Kind:               journal.ControlKind(action.Kind),
+			ExpectedGeneration: action.ExpectedGeneration,
+			WorkID:             action.WorkID, ExpectedEpoch: action.ExpectedEpoch,
+		}
+		err = replayPendingTUIControl(ctx, commands, command)
+	case "answer_attention":
+		_, err = commands.AnswerAttention(ctx, cockpit.AnswerAttentionCommand{
+			RunID: run.binding.ID, AttentionID: action.AttentionID,
+			ExpectedGeneration: action.ExpectedGeneration,
+			Answer:             answer,
+		})
+	case "redeliver":
+		err = commands.Redeliver(ctx, cockpit.RedeliveryCommand{
+			RunID: run.binding.ID, DestinationID: action.DestinationID,
+			MessageID: action.MessageID,
+		})
+	}
+	if err != nil {
+		return errors.New("the current board rejected that action")
+	}
+	return nil
+}
+
+type tuiControlAPI interface {
+	Control(
+		context.Context,
+		cockpit.ControlCommand,
+	) (runtimepkg.RunStatus, error)
+}
+
+func replayPendingTUIControl(
+	ctx context.Context,
+	controls tuiControlAPI,
+	command cockpit.ControlCommand,
+) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		_, err := controls.Control(ctx, command)
+		if !cockpit.IsCode(err, "OWNER_TRANSITION_PENDING") {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func openTUICommands(
+	ctx context.Context,
+	run projectRun,
+	configPath string,
+) (*cockpit.CommandFacade, func(), error) {
+	service, factory, err := openRuntimeService(
+		ctx,
+		run.journalPath,
+		configPath,
+	)
+	if err != nil {
+		return nil, nil, errors.New("project control is unavailable")
+	}
+	store, err := journal.Open(ctx, run.journalPath)
+	if err != nil {
+		_ = service.Close()
+		_ = factory.Close()
+		return nil, nil, errors.New("project control is unavailable")
+	}
+	closeCommands := func() {
+		_ = store.Close()
+		_ = service.Close()
+		_ = factory.Close()
+	}
+	binding, err := store.RunBinding(ctx, run.binding.ID)
+	if err != nil || !sameTUIRunBinding(binding, run.binding) {
+		closeCommands()
+		return nil, nil, errors.New("project control authority changed")
+	}
+	commands, err := cockpit.NewCommandFacade(service, store, nil)
+	if err != nil {
+		closeCommands()
+		return nil, nil, errors.New("project control is unavailable")
+	}
+	return commands, closeCommands, nil
+}
+
+func (b *projectTUIBackend) discover(
+	ctx context.Context,
+) (projectCatalog, error) {
+	return discoverProject(
+		ctx,
+		b.startPath,
+		b.journalPath,
+		b.configPath,
+		b.manifestDir,
+	)
+}
+
+func readRunBoard(
+	ctx context.Context,
+	runID, journalPath string,
+) (cockpit.Snapshot, error) {
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return cockpit.Snapshot{}, errRunBoardGit
+	}
+	journalReader, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		return cockpit.Snapshot{}, errRunBoardJournal
+	}
+	defer journalReader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		if runtimepkg.IsCode(err, "GIT_UNAVAILABLE") {
+			return cockpit.Snapshot{}, errRunBoardGit
+		}
+		return cockpit.Snapshot{}, errRunBoardJournal
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		return cockpit.Snapshot{}, errRunBoardGit
+	}
+	projector, err := cockpit.NewProjector(
+		journalReader,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		return cockpit.Snapshot{}, err
+	}
+	return projector.Snapshot(ctx, runID)
+}
+
+func startTUIRun(
+	ctx context.Context,
+	project projectCatalog,
+	release projectRelease,
+	selection tui.Selection,
+	manifestPath, journalPath, configPath string,
+) error {
+	body, err := readManifest(manifestPath)
+	if err != nil {
+		return errors.New("the run definition is unavailable")
+	}
+	manifest, err := runtimepkg.ParseManifest(body)
+	if err != nil || manifest.Repository != project.paths.root ||
+		manifest.Release != release.name {
+		return errors.New("the run definition is invalid")
+	}
+	manifestDigest := sha256Digest(body)
+	if tuiSelectionWithManifest(
+		project,
+		release,
+		"",
+		manifestDigest,
+	) != selection {
+		return errors.New("the run definition changed; refresh before starting")
+	}
+	service, factory, err := openRuntimeService(ctx, journalPath, configPath)
+	if err != nil {
+		return errors.New("project control is unavailable")
+	}
+	defer service.Close()
+	defer factory.Close()
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		return errors.New("the run could not be started")
+	}
+	if status.RunID != manifest.RunID || status.ManifestDigest != manifestDigest {
+		return errors.New("the started run did not match the selected definition")
+	}
+	return nil
+}
+
+func resolveTUISelection(
+	project projectCatalog,
+	selection tui.Selection,
+) (projectRelease, projectRun, bool, error) {
+	if selection.Release == "" || selection.Source == "" {
+		return projectRelease{}, projectRun{}, false,
+			errors.New("project selection is unavailable")
+	}
+	for _, release := range project.releases {
+		if release.name != selection.Release {
+			continue
+		}
+		expected, err := newTUISelection(project, release, selection.RunID)
+		if err != nil || expected != selection {
+			break
+		}
+		if selection.RunID != "" {
+			for _, run := range release.runs {
+				if run.binding.ID == selection.RunID {
+					return release, run, true, nil
+				}
+			}
+			break
+		}
+		if len(release.runs) != 0 {
+			break
+		}
+		return release, projectRun{}, false, nil
+	}
+	return projectRelease{}, projectRun{}, false,
+		errors.New("project selection is no longer available")
+}
+
+func newTUISelection(
+	project projectCatalog,
+	release projectRelease,
+	runID string,
+) (tui.Selection, error) {
+	manifestDigest := release.manifestDigest
+	if runID != "" {
+		manifestDigest = ""
+		for _, run := range release.runs {
+			if run.binding.ID == runID {
+				manifestDigest = run.binding.ManifestDigest
+				break
+			}
+		}
+		if manifestDigest == "" {
+			return tui.Selection{}, errors.New("run authority is unavailable")
+		}
+	}
+	return tuiSelectionWithManifest(
+		project,
+		release,
+		runID,
+		manifestDigest,
+	), nil
+}
+
+func tuiSelectionWithManifest(
+	project projectCatalog,
+	release projectRelease,
+	runID, manifestDigest string,
+) tui.Selection {
+	authority := strings.Join([]string{
+		project.paths.root,
+		release.name,
+		release.sourceRef,
+		runID,
+		manifestDigest,
+		project.paths.journal,
+		project.paths.config,
+	}, "\x00")
+	sum := sha256.Sum256([]byte(authority))
+	return tui.Selection{
+		Release: release.name,
+		RunID:   runID,
+		Source:  "sha256:" + hex.EncodeToString(sum[:]),
+	}
+}
+
+func exactTUIAction(actions []cockpit.Action, target cockpit.Action) bool {
+	for _, action := range actions {
+		if action == target {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTUIProjectDiagnostic(diagnostics []string, target string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic == target {
+			return true
+		}
+	}
+	return false
+}
+
+func controlConfig(kind journal.ControlKind, path string) string {
+	switch kind {
+	case journal.Resume, journal.Takeover, journal.Retry:
+		return path
+	default:
+		return ""
+	}
+}
+
+func newTUICommandID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return "tui-" + hex.EncodeToString(value[:]), nil
+}
+
+func sameTUIRunBinding(left, right journal.Run) bool {
+	return left.ID == right.ID &&
+		left.ManifestDigest == right.ManifestDigest &&
+		left.Repository == right.Repository &&
+		left.Release == right.Release &&
+		left.TargetRef == right.TargetRef &&
+		left.CreatedAt.Equal(right.CreatedAt)
+}
+
+func sha256Digest(body []byte) string {
+	sum := sha256.Sum256(body)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

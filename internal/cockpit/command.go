@@ -164,6 +164,9 @@ func (f *CommandFacade) Control(
 		ExpectedEpoch:      command.ExpectedEpoch,
 	})
 	if err != nil {
+		if runtimepkg.IsCode(err, "OWNER_TRANSITION_PENDING") {
+			return runtimepkg.RunStatus{}, fail("OWNER_TRANSITION_PENDING")
+		}
 		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
 	}
 	return status, nil

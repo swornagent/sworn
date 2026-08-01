@@ -1,6 +1,6 @@
 # Start and operate Sworn
 
-This guide covers a current Sworn `1.0.0-rc.1` production run. Baton defines
+This guide covers a current Sworn `1.0.0-rc.2` production run. Baton defines
 the handoffs and approvals; Sworn carries the work, saves progress, and stops
 when it cannot continue safely.
 
@@ -24,6 +24,42 @@ The journal is the saved run record. Sworn creates it with mode `0600` if it
 does not exist; its parent directory must already exist and must not be reached
 through a symlink. Reuse the same journal path when viewing, controlling, or
 recovering that run.
+
+## Open the project view
+
+From anywhere inside the Git project, run:
+
+```sh
+sworn
+```
+
+In an interactive terminal, Sworn finds the project root and opens a list of
+its local Baton releases and saved Sworn runs. You can move between release
+boards, including Baton releases that do not have a Sworn run yet. When a run
+does exist, its live state, questions, and available controls appear on that
+board.
+
+The TUI offers only controls allowed by the current board. It does not decide
+that an action is safe on its own. The full commands described below remain
+available for scripts and exact run control.
+
+`sworn tui` opens the same view explicitly. Its default project files are:
+
+```text
+.sworn/sworn.db       saved runs
+.sworn/drivers.json   AI connection configuration
+.sworn/runs/*.json    run manifests
+```
+
+Viewing the project does not create these files. Override their locations only
+when needed:
+
+```text
+sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
+```
+
+Bare `sworn` prints help instead of opening the TUI when its input or output is
+piped or redirected.
 
 ## 1. Check the AI connection
 
@@ -97,7 +133,8 @@ production driver configuration.
 
 ## 3. See what is happening
 
-The terminal board is the normal operator view:
+The project TUI is the normal view for a person. To read one exact run from a
+script or print its complete terminal report, use:
 
 ```sh
 sworn board \
@@ -151,7 +188,8 @@ listener, webhook delivery, or telemetry export.
 Controls include the generation from the latest board plus a new command ID.
 These values stop an old screen or script from changing a newer run. The board
 JSON `actions` list supplies the current generation and, for retries, the work
-digest and epoch.
+digest and epoch. The TUI uses this same list; it never exposes a control that
+is absent from the current board.
 
 ```sh
 sworn pause \
