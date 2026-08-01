@@ -107,7 +107,7 @@ Ordered. Each item is independently shippable.
 | F4 Stop driving a run in the TUI foreground | #172 |
 | F5 Per-track activity feed from existing data | #173 |
 | F6a Live model output stream | #176 |
-| F6b Durable transcript retention | #174 |
+| F6b Pruning rule for retained transcripts | #174 |
 
 ### F1. Surface projection failures as diagnostics, not as staleness
 
@@ -270,6 +270,59 @@ output.
   content-free, so the invariant holds, and it makes "was this run observed"
   an attestable property rather than an unrecorded side effect.
 
+#### Storage follows the agent CLI convention
+
+Decided 2026-08-02. Retain the full verbose history so it is replayable, and put
+it in the user directory where the other agent CLIs put theirs, organised so
+Sworn can find it.
+
+Three conventions observed on this machine:
+
+| Tool | Layout | Indexed by |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects/<encoded-path>/<session-uuid>.jsonl` | project path |
+| Codex | `~/.codex/sessions/YYYY/MM/DD/rollout-<ISO8601>-<uuid>.jsonl` | date |
+| opencode | `~/.local/share/opencode/` with `storage/`, `log/`, `tool-output/` | mixed, SQLite index |
+
+What they agree on: the user directory rather than the repository, append-only
+JSONL, one file per session, full content retained, and a stable key that makes
+a session findable later.
+
+Sworn's identity is richer than a chat session. A chat has one session; a Sworn
+run has a release, a run, and many concurrent effects across tracks. The layout
+should reflect that:
+
+```text
+~/.sworn/projects/<encoded-project>/
+  project.json                 canonical absolute path, so the encoding is not authoritative
+  <run-id>/
+    run.json                   release, run, started, manifest digest
+    <effect-id>.jsonl          one writer, one file, full verbose stream
+```
+
+Honour `XDG_STATE_HOME` when it is set. Default to `~/.sworn/` for symmetry with
+`~/.claude` and `~/.codex`, which is where a user of those tools will look
+first.
+
+Two deliberate departures from the chat CLIs, both because Sworn is concurrent
+where a chat is serial:
+
+- **One file per effect, not per session.** Interleaving parallel workers into a
+  single file makes per-track tailing hard and invites interleaved writes. One
+  writer per file removes both problems and gives the F5 and F6a per-track
+  filter for free.
+- **The path encoding is not authoritative.** Claude Code's scheme replaces
+  every `/` with `-`, which is lossy: `-home-brad-projects-fired-worktrees` is
+  ambiguous between `/home/brad/projects/fired-worktrees` and a nested
+  `fired/worktrees`. Since Sworn is required to *find* these reliably, keep the
+  readable directory name for browsability but disambiguate it with a short
+  digest of the real path, and record the canonical path in `project.json`.
+
+This also strengthens the previous requirement rather than weakening it. A user
+directory default is outside every repository by construction, so the common
+path never touches a repository at all. The admission check from the previous
+section becomes a backstop for an explicit override, not the primary defence.
+
 #### Remaining constraints
 
 - Keyed by effect ID so it filters to one track, matching F5.
@@ -289,11 +342,12 @@ where it is being written. Disconnecting or lagging the viewer has no effect on
 the run. Pointing the transcript directory anywhere inside the repository or one
 of its worktrees is refused at admission.
 
-### F6b. Retention rule for captured transcripts
+### F6b. Pruning rule for retained transcripts
 
-Now much smaller than originally scoped. Persistence, location and consent are
-settled in F6a. What remains is how long transcripts are kept, what the rotation
-and cap rules are, and whether a retained transcript is ever in scope for
+Now small. Persistence, location, layout and consent are settled in F6a:
+transcripts are retained in full under the user directory, exactly as the agent
+CLIs do. What remains is when they are pruned, whether there is a total size
+ceiling per project, and whether a retained transcript is ever in scope for
 attestation. Does not block F6a.
 
 ## What was not changed
