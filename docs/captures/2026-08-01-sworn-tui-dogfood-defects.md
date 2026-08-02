@@ -111,7 +111,7 @@ opposite. A worker reads the body, not the comment thread. That is the exact
 "N places that should be one, therefore drift, therefore silent divergence"
 failure this project has hit repeatedly.
 
-**Prerequisite: adopt Baton RC13 before F1.** `internal/baton/assets.go:27`
+**Prerequisite: adopt Baton RC13, which opens S1.** `internal/baton/assets.go:27`
 pins `1.0.0-rc.12`. Tag `v1.0.0-rc.13` exists and changes how target movement is
 judged, in `reference/records/state.mjs`:
 
@@ -127,9 +127,9 @@ Under RC13 only movement that leaves the approved target off the ancestry does.
 The `TARGET_MOVED` observed on `2026-07-31-ownership-outside-household` is
 therefore most likely an RC12 false positive from an ordinary branch advance.
 
-F1 is the work of explaining diagnostics in plain language. Doing that on top of
+S1 is the work of explaining diagnostics in plain language. Doing that on top of
 an engine that emits a spurious diagnostic ships a well-worded false alarm, so
-RC13 adoption precedes it.
+RC13 adoption precedes it, which is why it opens S1.
 
 **Fixtures must be synthetic, not live.** The `fired` acceptance criteria have
 already gone stale. `release-wt/2026-07-30-customer-operations-inbox` moved from
@@ -138,21 +138,35 @@ no plan" no longer reproduces. The 2026-08-01 observations stand as history and
 are not to be edited. Acceptance criteria move to synthetic fixtures built in
 the test suite.
 
-## Fix plan
+## Delivery plan
 
-Ordered. Each item is independently shippable.
+Consolidated 2026-08-02 from seven fixes into four vertical slices plus one
+standalone correction. Each slice delivers a coherent change to the product
+rather than a fragment of one, and each is independently shippable in the order
+given.
 
-| Fix | Issue |
-| --- | --- |
-| F1 Surface projection failures as diagnostics | #169 |
-| F2 Correct the plan fence error text | #170 |
-| F3 Explain why no controls are available | #171 |
-| F4 Supervised run lifecycle with detach and reconnect | #172 |
-| F5 Per-track activity feed from existing data | #173 |
-| F6a Live model output stream | #176 |
-| F6b Pruning rule for retained transcripts | #174 |
+| Slice | Contains | Issue |
+| --- | --- | --- |
+| S1 Baton RC13 and truthful cockpit states | F1, F3 | #169 |
+| S2 Supervised run lifecycle with detach and reconnect | F4 | #172 |
+| S3 Structured activity with an honest event association | F5 | #173 |
+| S4 Provider-neutral live output with bounded, explicit storage | F6a, F6b | #176 |
+| Standalone: correct the plan fence error text | F2 | #170 |
 
-### F1. Surface projection failures as diagnostics, not as staleness
+The plan fence fix stays standalone deliberately. It is a wrong error string
+with no coupling to anything else, and bundling it behind a vendor bump would
+delay a correctness fix for no gain.
+
+Superseded issues: #171 folded into #169, #174 folded into #176.
+
+### S1. Baton RC13 and truthful cockpit states
+
+Adopt Baton RC13 first, for the reason recorded above: RC12 raises
+`TARGET_MOVED` on ordinary target movement, and explaining a spurious diagnostic
+in plain language ships a well-worded false alarm. Then make every cockpit state
+truthful.
+
+#### S1a. Surface projection failures as diagnostics, not as staleness
 
 Carry the Baton error code through to the board instead of erroring the board
 out, and split "read failed" from "data is stale".
@@ -168,16 +182,7 @@ out, and split "read failed" from "data is stale".
   `baton-plan-v1` document reads that its plan is an older format Sworn does not
   admit. Both fixtures are constructed in the test suite so they cannot go stale.
 
-### F2. Correct the plan fence error text
-
-`INVALID_PLAN_FENCE: plan must begin at byte zero` is raised for a v1 plan whose
-fence does start at byte zero. Distinguish a wrong-version fence from a
-misplaced fence so the message names the real cause.
-
-- Acceptance: a `baton-plan-v1` document reports a version mismatch, not a byte
-  offset.
-
-### F3. Explain why no controls are available
+#### S1b. Explain why no controls are available
 
 When a release has no manifest, say so on the board, name the directory Sworn
 searched, and state that the manifest must be provided. Do not leave `a` silent.
@@ -186,7 +191,16 @@ searched, and state that the manifest must be provided. Do not leave `a` silent.
   was found in `.sworn/runs/`, and pressing `a` shows the same sentence rather
   than nothing.
 
-### F4. Supervised run lifecycle with detach and reconnect
+### Standalone. Correct the plan fence error text
+
+`INVALID_PLAN_FENCE: plan must begin at byte zero` is raised for a v1 plan whose
+fence does start at byte zero. Distinguish a wrong-version fence from a
+misplaced fence so the message names the real cause.
+
+- Acceptance: a `baton-plan-v1` document reports a version mismatch, not a byte
+  offset.
+
+### S2. Supervised run lifecycle with detach and reconnect
 
 **Decided 2026-08-02: hand off to a supervised background driver.** The earlier
 "or refuse to start and print the command" alternative is withdrawn. It
@@ -203,10 +217,10 @@ be closed and reopened without affecting the run.
 - Note: `sworn loop --parallel` is not dependable on a cold start, so a frozen
   cockpit holding a live run is a compounding failure, not a cosmetic one.
 
-### F5. Per-track activity feed from existing data
+### S3. Structured activity with an honest event association
 
-Build the feed the current journal can honestly support before deciding
-anything about transcripts.
+Build the feed the current journal can honestly support, and make the projection
+able to support what the feed claims.
 
 **The per-track promise does not hold today, and the gap is in the projection,
 not the UI.** `Evidence` is `{offset, kind, created_at}`
@@ -230,13 +244,13 @@ promise. It must not claim per-track events without adding the association.
   can read. If the association is not added, the feed is presented as run-wide
   and the per-track claim is removed from the UI and from this document.
 
-### F6a. Live model output stream
+### S4. Provider-neutral live output with bounded, explicit storage
 
 Added 2026-08-02 at Brad's direction, with a stated operational reason: he has
 repeatedly stopped churn by watching verbose model output and noticing work
 going off the rails **before** any of the automated checks fired. Live model
 output is therefore an early-warning control, not a debugging luxury, and it
-sits ahead of durable retention.
+sits ahead of pruning policy.
 
 The provider capability is not in question. Every path Sworn uses can stream:
 OpenAI-compatible vendors stream deltas, and both native CLIs already do.
@@ -431,12 +445,11 @@ the first line of storage code, not deferred to F6b:
   records that it dropped. A gap that is marked is recoverable; a gap that is
   silent is a lie about what the model said.
 
-F6b then covers only the long-horizon question: when old transcripts age out and
-whether a per-project ceiling exists.
+S4e below covers the pruning defaults that ship with this slice.
 
 #### Remaining constraints
 
-- Keyed by effect ID so it filters to one track, matching F5.
+- Keyed by effect ID so it filters to one track, matching S3.
 - Bounded, with a size cap and rotation. A parallel run with `--verbose`
   produces a large volume of output.
 - Back-pressure must never stall a worker. A file writer that never waits on a
@@ -453,13 +466,16 @@ where it is being written. Disconnecting or lagging the viewer has no effect on
 the run. Pointing the transcript directory anywhere inside the repository or one
 of its worktrees is refused at admission.
 
-### F6b. Pruning rule for retained transcripts
+#### S4e. Pruning defaults
 
-Now small. Persistence, location, layout and consent are settled in F6a:
-transcripts are retained in full under the user directory, exactly as the agent
-CLIs do. What remains is when they are pruned, whether there is a total size
-ceiling per project, and whether a retained transcript is ever in scope for
-attestation. Does not block F6a.
+Folded into this slice rather than deferred, because a storage implementation
+that ships without a pruning default is a storage implementation that grows
+without bound on someone's laptop.
+
+Persistence, location, layout and consent are settled above. What remains, and
+ships with the slice: when transcripts are pruned, whether a per-project size
+ceiling exists, and whether a retained transcript is ever in scope for
+attestation.
 
 ## What was not changed
 
