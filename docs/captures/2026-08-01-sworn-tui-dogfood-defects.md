@@ -151,6 +151,7 @@ given.
 | S2 Supervised run lifecycle with detach and reconnect | F4 | #172 |
 | S3 Structured activity with an honest event association | F5 | #173 |
 | S4 Provider-neutral live output with bounded, explicit storage | F6a, F6b | #176 |
+| S5 A usable on-ramp: `sworn init` and cwd-relative `sworn run` | F7 | #177 |
 | Standalone: correct the plan fence error text | F2 | #170 |
 
 The plan fence fix stays standalone deliberately. It is a wrong error string
@@ -476,6 +477,106 @@ Persistence, location, layout and consent are settled above. What remains, and
 ships with the slice: when transcripts are pruned, whether a per-project size
 ceiling exists, and whether a retained transcript is ever in scope for
 attestation.
+
+### S5. A usable on-ramp: `sworn init` and cwd-relative `sworn run`
+
+Added 2026-08-02. The invocation a human has to type today is:
+
+```sh
+sworn run --manifest ABS --journal ABS [--config ABS]
+```
+
+Three absolute paths, all of which Sworn can already work out for itself. This
+is fine for a script and hostile to a person. The predecessor tool set the bar:
+`coach loop`, bare, kicked off or restarted the currently scoped release.
+
+**The discovery already exists and only the TUI is allowed to use it.**
+`resolveProjectPaths` (`cmd/sworn/tui_project.go:151`) defaults the journal,
+config and manifest directory from the Git root. `discoverProject`
+(`cmd/sworn/tui_project.go:53`) takes a start path defaulting to `os.Getwd()`
+and walks to the root, so it already works from any subdirectory.
+`discoverProjectManifests` already maps release name to manifest path. Meanwhile
+`runStart` (`cmd/sworn/main.go:222`) hard-requires `--manifest` and `--journal`.
+Both are `package main` in the same binary. The on-ramp is present and unused.
+
+#### S5a. `sworn init`
+
+Once per project. Writes `.sworn/drivers.json` and the project defaults that a
+manifest needs but cannot be derived: role and model selections, recovery model,
+and limits.
+
+This is possible precisely because the driver config is specified as canonical
+and **secret-free** (`docs/run.md`). Credentials are not in the file, so Sworn
+can author the whole thing. Verify the result with the existing
+`sworn driver doctor` rather than inventing a second check.
+
+**Not once-only. Idempotent and re-runnable.** Once per project to get started,
+but models get swapped, providers get added, and limits get tuned, so `init`
+has to be safe to run again.
+
+That safety has a specific edge, and it is not obvious. **The manifest pins
+`driver_config_digest`** (`internal/runtime/manifest.go:105`), and
+`validateDriverConfigMode` checks it at `Start`. So rewriting `drivers.json`
+invalidates the digest in every manifest already minted against it, and those
+runs stop being startable. A second `init` therefore must:
+
+- never silently rewrite an existing `drivers.json`;
+- show what would change and require explicit confirmation;
+- when the config does change, report which existing manifests are now stale
+  and re-mint them, since S5b mints manifests anyway.
+
+An `init` that quietly bricks yesterday's manifests would be a worse failure
+than the flags it replaces.
+
+Open question, not blocking: whether a user-level `~/.sworn/drivers.json`
+should seed the project file, matching how the agent CLIs keep provider
+configuration per user rather than per repository. The project file stays
+authoritative either way, because the digest binds to it.
+
+#### S5b. Cwd-relative `sworn run`
+
+```sh
+sworn run                     # cwd, project, current scoped release
+sworn run <release-name>      # named release
+```
+
+`--manifest`, `--journal` and `--config` are retained for scripts and exact
+control. They stop being the only way in.
+
+Resolution precedence, so that one verb covers "kick off or restart":
+
+1. An unfinished run exists for the scoped release: continue it. Sworn decides
+   from the journal whether that means resume, takeover, or plain continuation.
+   Making a person diagnose an orphaned owner lease and reach for `takeover` is
+   the same failure as the flags: Sworn knows and asks anyway.
+2. No run, and exactly one startable release: start it.
+3. Ambiguous: list the candidates and stop.
+
+If no manifest exists for the release, mint one. Repository, release and target
+ref are derivable from the Baton release; everything else comes from the
+defaults written by `sworn init`. Failing that, fail with a message naming
+`sworn init` rather than describing a schema.
+
+- Acceptance: in a project with `sworn init` already run, `sworn run` from any
+  subdirectory starts or continues the scoped release with no flags, and
+  `sworn run <release-name>` selects a specific one. Quitting a supervised run
+  and re-issuing bare `sworn run` reconnects rather than requiring `takeover`.
+
+#### Parked: `--track <track-name>`
+
+`sworn run <release> --track <track>` was specified and then deliberately
+deferred on 2026-08-02. Recorded here so it is not re-derived as a gap.
+
+The manifest has no track scope. `Manifest` carries `MaxParallelTracks`
+(`internal/runtime/manifest.go:102`), which caps how many tracks run
+concurrently but not which. Tracks exist in the run's projection
+(`internal/runtime/service.go:112` carries a `Track` field) but never as a
+dispatch scope. Supporting the flag needs a manifest field or a runtime scope
+parameter plus scheduler support. That is a real change, and `coach loop` could
+not do it either, so it is not a regression against the bar being matched.
+
+Worth revisiting once S4 lands: scoping to one track is how you would sanely
+dogfood a shaky engine, with a narrow blast radius and live output to watch.
 
 ## What was not changed
 
