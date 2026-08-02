@@ -168,6 +168,30 @@ Adopt Baton RC13 first, for the reason recorded above: RC12 raises
 in plain language ships a well-worded false alarm. Then make every cockpit state
 truthful.
 
+**RC13 adoption is a protocol port, not a vendor bump.** `internal/baton` is a
+Go port of Baton's reference implementation, so a reference behaviour change
+must be mirrored by hand. Bumping the embedded assets alone would leave the
+engine behaving like RC12 while reporting RC13: a silent divergence between the
+vendored protocol and the code implementing it.
+
+Inventory of the RC12 to RC13 delta the port must mirror. Reference tags
+resolve locally as `v1.0.0-rc.12` at `caac9f0` and `v1.0.0-rc.13` at `4c9f9b5`.
+
+| Reference change | Sworn site |
+| --- | --- |
+| `TARGET_MOVED` renamed `TARGET_DIVERGED`, meaning "the target history changed, reconcile it" | `internal/baton/state.go:648`, and `diagnosticExplanation()` at `internal/tui/view.go:407` still cases on `TARGET_MOVED` |
+| Staleness by ancestry, not equality | `internal/baton/state.go:642`; the helper `repository.isAncestor` already exists at `internal/baton/repository.go:259` |
+| Plan node state `revision_required` becomes `blocked` when the target is stale | graph projection |
+| `planNextOperation` removed, so target movement no longer emits a planner handoff | this is the obsolete "replan" instruction shown on ordinary target movement |
+| New `requireTargetLineage`, failing `TARGET_DIVERGED` | `internal/baton/actions.go` |
+| New `prepareAssemblyCandidate`: assembly starts from release authority, adds the current target, then adds passed track products, so a later target advance stales only the assembly | `internal/baton/actions_assembly.go` |
+| The approved target is the immutable track floor; live target movement cannot race preparation | assembly and track preparation |
+
+The rename is why this slice and the cockpit work cannot be separated. If
+`diagnosticExplanation()` is not changed in the same commit, the cockpit
+silently falls through to its default text for a diagnostic Baton now emits
+under a different name.
+
 #### S1a. Surface projection failures as diagnostics, not as staleness
 
 Carry the Baton error code through to the board instead of erroring the board
