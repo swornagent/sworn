@@ -152,6 +152,7 @@ given.
 | S3 Structured activity with an honest event association | F5 | #173 |
 | S4 Provider-neutral live output with bounded, explicit storage | F6a, F6b | #176 |
 | S5 A usable on-ramp: `sworn init` and cwd-relative `sworn run` | F7 | #177 |
+| S6 Move the native CLI pin out of the engine and into policy | F8 | #179 |
 | Standalone: correct the plan fence error text | F2 | #170 |
 
 The plan fence fix stays standalone deliberately. It is a wrong error string
@@ -577,6 +578,83 @@ not do it either, so it is not a regression against the bar being matched.
 
 Worth revisiting once S4 lands: scoping to one track is how you would sanely
 dogfood a shaky engine, with a narrow blast radius and live output to watch.
+
+### S6. Move the native CLI pin out of the engine and into policy
+
+Found 2026-08-02 while preparing the first Sworn-driven run in this repository.
+
+Sworn admits a native CLI driver only when the CLI matches a version and digest
+**compiled into Sworn itself**:
+
+```go
+// internal/driver/native.go:12
+CodexCLIVersion  = "0.146.0"
+ClaudeCLIVersion = "2.1.208"
+
+// internal/driver/native.go:174, validateNativeConfig
+case ProfileCodex:
+    if config.CLIVersion != CodexCLIVersion ||
+        config.CLI.Digest != CodexCLIDigest ||
+        config.CredentialTarget != CodexCredentialTarget ||
+        config.VersionOutput != "codex-cli "+CodexCLIVersion {
+        return fail("NATIVE_NOT_CERTIFIED")
+    }
+```
+
+The runtime path is bound to the same constant: `nativeVersion`
+(`internal/driver/native_linux.go:2106`) executes the CLI and its output is
+compared to `config.VersionOutput`, which validation has already forced to equal
+the constant.
+
+Observed on this machine:
+
+| CLI | Installed | Sworn pins | Result |
+| --- | --- | --- | --- |
+| Codex | `codex-cli 0.146.0` | `0.146.0` | admitted, digest matches exactly |
+| Claude | `2.1.220 (Claude Code)` | `2.1.208` | `NATIVE_NOT_CERTIFIED` |
+
+Claude Code was twelve patch versions ahead and therefore unusable, for no
+reason connected to its behaviour.
+
+**The defect is the layer, not the existence of a pin.** `NativeAdapterConfig`
+already carries `CLI.Path`, `CLI.Digest`, `CLIVersion` and `VersionOutput`
+(`internal/driver/native.go:26`). Validation then discards those values by
+requiring each to equal a constant. The configuration fields are decorative:
+the operator cannot express any pin except the one Sworn was built with.
+
+The consequence is that **upgrading your agent CLI requires recompiling Sworn.**
+These CLIs ship near daily. A provenance mechanism that forces a rebuild of the
+engine on every upstream patch release will be routed around, and a mechanism
+that gets routed around provides no provenance at all.
+
+#### What the pin is actually for, and what follows
+
+The goal is answering "exactly which agent produced this work", which
+attestation depends on. That goal is served by **recording** the digest of what
+ran, not by refusing to run anything except one blessed build. Recording is
+strictly more informative than a whitelist of one, because it also captures the
+versions nobody thought to bless.
+
+- The digest and version in the driver config become authoritative. Validation
+  checks the config against the **live binary**, not against a constant.
+- The resolved path, digest and version output are recorded in the run record as
+  provenance. This is content-free and belongs in the journal.
+- Any further restriction is operator policy expressed in the config, not engine
+  policy compiled into the binary: a minimum version, a set of accepted digests,
+  or accept-and-record. Default to accept-and-record.
+- `NATIVE_NOT_CERTIFIED` stops meaning "not the blessed build" and starts
+  meaning what it says: the binary at the configured path did not match the
+  configured identity.
+
+This is a prerequisite for S5a. `sworn init` derives a driver config from a live
+install, which is only meaningful if the config it writes is authoritative.
+Today `init` could only ever write the one digest Sworn was compiled against,
+and would fail on any other machine.
+
+- Acceptance: a native CLI one patch release ahead of whatever Sworn was built
+  against is admitted, its exact digest is recorded in the run record, and
+  tightening beyond that is expressible in the driver config without rebuilding
+  Sworn.
 
 ## What was not changed
 
