@@ -553,6 +553,22 @@ runs stop being startable. A second `init` therefore must:
 An `init` that quietly bricks yesterday's manifests would be a worse failure
 than the flags it replaces.
 
+**Two papercuts `init` must absorb**, both found on 2026-08-02 while
+hand-building a Codex driver config for the first Sworn-driven run:
+
+- **The manifest and the driver config disagree about a trailing newline.**
+  `admitManifest` rejects a manifest whose last byte is not a newline
+  (`internal/runtime/manifest.go:139`). `DecodeDriverConfig` rejects a driver
+  config that has one, because it compares the file byte for byte against
+  `EncodeDriverConfig` output, which has none (`internal/driver/config.go:151`).
+  Two adjacent strict formats, authored together, disagreeing on one byte. The
+  failure surfaces as `NONCANONICAL_JSON`, which gives no hint that a newline is
+  the cause. The first hand-built config in this session failed on exactly this.
+- **Generate through the encoder, never by hand.** Building the config by
+  calling `driver.EncodeDriverConfig` produced a document that validated on the
+  first attempt, because canonical field order and formatting come from the same
+  code that checks them. `init` should do the same rather than template JSON.
+
 Open question, not blocking: whether a user-level `~/.sworn/drivers.json`
 should seed the project file, matching how the agent CLIs keep provider
 configuration per user rather than per repository. The project file stays
@@ -650,6 +666,21 @@ The consequence is that **upgrading your agent CLI requires recompiling Sworn.**
 These CLIs ship near daily. A provenance mechanism that forces a rebuild of the
 engine on every upstream patch release will be routed around, and a mechanism
 that gets routed around provides no provenance at all.
+
+#### Pin things whose change means something
+
+Observed 2026-08-02 while assembling the pinned runtime file set. Of the four
+files the native driver requires, `/etc/resolv.conf` resolves to
+`/run/systemd/resolve/stub-resolv.conf`, a systemd-generated runtime file whose
+contents change whenever the host's network does. Its pinned digest therefore
+drifts for reasons wholly unrelated to trust, and the resulting failure presents
+as a certification error rather than "you joined a different network".
+
+The CA bundle, `/etc/hosts` and `/etc/nsswitch.conf` are stable and worth
+pinning. Generated infrastructure is not. This is the same defect as the CLI
+version pin in miniature: the mechanism is sound, but attached to something that
+moves without meaning. The fix is not fewer pins, it is pinning things whose
+change carries information.
 
 #### What the pin is actually for, and what follows
 
