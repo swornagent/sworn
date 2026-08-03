@@ -22,7 +22,7 @@ Nothing else on the release matters until that is fixed.
 
 ## What is true right now
 
-- `main` is at `b8bdb0b5`.
+- `origin/main` is at `ef263a74` after PR **#183** merged.
 - `sworn init` shipped (#180). It sets a project up: `.sworn/` with a
   `.gitignore` excluding everything, `.sworn/runs/`, and a driver configuration
   derived from the installed agent CLI.
@@ -30,12 +30,11 @@ Nothing else on the release matters until that is fixed.
   mode 0600, reporting `PASS` / `native_binary_ready` from `sworn driver doctor`.
 - A valid run manifest exists at
   `.sworn/runs/2026-08-03-sworn-run-on-ramp.json`.
-- PR **#183** removes the pre-flight certification gate. Merge or close before
-  resuming; the branch is `fix/no-preflight-certification`.
-- The `2026-08-03-native-cli-pin-policy` release is **parked**. Its plan is on
-  disk, it has no `release-wt` ref, and its candidate sits unmerged on local
-  `track/2026-08-03-native-cli-pin-policy-T1` at `657c28e5`. It failed
-  independent verification; see #179.
+- The `2026-08-03-native-cli-pin-policy` release is **parked**. Its intent is
+  documented in issue #179 and in this release's implementation contract. The invalid,
+  uncommitted plan proposal was discarded during checkout cleanup; no
+  `release-wt` ref was created. Its failed candidate remains recoverable on
+  local `track/2026-08-03-native-cli-pin-policy-T1` at `657c28e5`.
 
 ## How a run is actually driven
 
@@ -71,10 +70,9 @@ yet. That is S5b in #177, and it is what removes the hand-written manifest.
 
 ## Suggested order
 
-1. Land or close #183.
-2. Fix #182. Nothing autonomous runs until it is done.
-3. Prove one real autonomous run using the existing manifest and configuration.
-4. Then resume the fix plan: S1 (#169), S2 (#172), S3 (#173), S4 (#176),
+1. Fix #182. Nothing autonomous runs until it is done.
+2. Prove one real autonomous run using the existing manifest and configuration.
+3. Then resume the fix plan: S1 (#169), S2 (#172), S3 (#173), S4 (#176),
    S5b (#177).
 
 #181 and #179 can proceed in parallel; neither blocks a run.
