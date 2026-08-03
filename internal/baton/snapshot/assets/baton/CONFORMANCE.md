@@ -50,6 +50,13 @@ order without moving any unrelated ref. Product-tree identity is the review
 pin: a different or absent product requires a fresh design, while a new
 candidate with the same product retains the review.
 
+A fast-forward of the same target ref MUST NOT revise the plan or invalidate
+unchanged slice `PASS`. Track preparation keeps the approved target as its
+stable floor. Final assembly MUST bind the exact current target and passed
+track products; a later target advance invalidates and rebuilds only assembly
+verification. Non-descendant target history MUST stop as `TARGET_DIVERGED`
+without routing automatically to Planner.
+
 The portable receipt uses existing fields to make that guarantee explicit:
 the consuming design `base` is the immediately prior valid track receipt or
 current plan-install authority, `inputs` are its reviewed product pins, and the
@@ -101,7 +108,8 @@ conformance requirements.
 
 ## Required cases
 
-Positive cases cover plan approval and revision, stable slices, design
+Positive cases cover plan approval and revision, stable slices, target
+fast-forward during active work and after assembly `PASS`, design
 `PROCEED` and `REVISE`, implementation retry after `FAIL`, independent work
 verification, fresh assembly `PASS`, exact consumed-input preparation,
 exact composition, and final Merge. An implementation that retains Verifier
@@ -117,7 +125,7 @@ recovery defined by the
 [Protocol](PROTOCOL.md#exact-head-refresh) without fabricating `FAIL`.
 
 Negative cases cover missing or substituted approval; self-review; changed
-bound plan, design, proof, or target; candidate or product-tree movement not
+bound plan, design, proof, or divergent target history; candidate or product-tree movement not
 admitted and re-receipted by the
 [exact-head refresh rule](PROTOCOL.md#exact-head-refresh); candidate movement
 after Verifier dispatch; ambiguous authority; runtime events presented as role

@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 )
 
-func TestLoadAdmitsExactRC12(t *testing.T) {
+func TestLoadAdmitsExactRC13(t *testing.T) {
 	t.Parallel()
 
 	pkg, err := Load()
@@ -45,7 +45,7 @@ func TestLoadAdmitsExactRC12(t *testing.T) {
 		t.Fatalf("VERSION = %q", version)
 	}
 	if _, err := pkg.ReadAsset("reference/board/presentation.mjs"); err != nil {
-		t.Fatal("RC12 board presentation dependency is absent:", err)
+		t.Fatal("RC13 board presentation dependency is absent:", err)
 	}
 }
 
@@ -53,28 +53,28 @@ func TestReleaseTagAndSnapshotSourceAreExactlyAndIndependentlyBound(t *testing.T
 	t.Parallel()
 
 	if ReleaseCommit != Commit || ReleaseTree != Tree {
-		t.Fatal("RC12 tag and snapshot do not bind the published merge tree")
+		t.Fatal("RC13 tag and snapshot do not bind the published merge tree")
 	}
 
 	release := readReleaseFile(t)
 	if release.Tag.PeeledCommit != ReleaseCommit ||
 		release.Tag.PeeledTree != ReleaseTree ||
 		release.Archive.EmbeddedCommit != ReleaseCommit {
-		t.Fatal("release metadata does not preserve the RC12 tag and archive identity")
+		t.Fatal("release metadata does not preserve the RC13 tag and archive identity")
 	}
 	if release.Snapshot.SourceCommit != Commit || release.Snapshot.SourceTree != Tree {
-		t.Fatal("release metadata does not bind the RC12 snapshot source")
+		t.Fatal("release metadata does not bind the RC13 snapshot source")
 	}
 
 	release.Tag.PeeledCommit = "other"
 	if err := validateReleaseIdentity(release); err == nil {
-		t.Fatal("release identity accepted a changed RC12 tag commit")
+		t.Fatal("release identity accepted a changed RC13 tag commit")
 	}
 
 	manifest := readAssetManifest(t)
 	manifest.Commit = "other"
 	if err := validateManifestIdentity(manifest); err == nil {
-		t.Fatal("manifest identity accepted a changed RC12 snapshot commit")
+		t.Fatal("manifest identity accepted a changed RC13 snapshot commit")
 	}
 }
 

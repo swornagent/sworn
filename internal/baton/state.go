@@ -639,14 +639,23 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			return State{}, recordFail("MOVED_TARGET", "target no longer contains the recorded merge")
 		}
 	}
-	targetStale := assembly.Status != "complete" &&
-		approval.Receipt.Target != nil && *approval.Receipt.Target != targetCapture.Head
+	targetStale := false
+	if assembly.Status != "complete" && approval.Receipt.Target != nil {
+		contained, err := repository.isAncestor(
+			*approval.Receipt.Target,
+			targetCapture.Head,
+		)
+		if err != nil {
+			return State{}, err
+		}
+		targetStale = !contained
+	}
 
 	var diagnostics []Diagnostic
 	if targetStale {
 		diagnostics = append(diagnostics, Diagnostic{
-			Code: "TARGET_MOVED", Release: release,
-			Message: "the approved target moved; record a new plan revision",
+			Code: "TARGET_DIVERGED", Release: release,
+			Message: "the target no longer contains the approved starting point; reconcile its history",
 		})
 	}
 	for _, track := range tracks {
@@ -3322,6 +3331,9 @@ func validateAssemblyHistory(
 	resolveTrackProductBase func(trackID string) (string, error),
 ) (receiptHistory, error) {
 	byOID := make(map[string]ReceiptEntry)
+	for _, entry := range releaseEntries {
+		byOID[entry.OID] = entry
+	}
 	for _, entry := range approvals {
 		byOID[entry.OID] = entry
 	}
@@ -3349,14 +3361,11 @@ func validateAssemblyHistory(
 	releasePredecessor := make(map[string]string)
 	lastReleaseReceipt := ""
 	for _, entry := range releaseEntries {
-		if entry.Receipt.Role == "implementer" &&
-			entry.Receipt.Result == "candidate" &&
-			entry.Receipt.Slice == nil {
+		if entry.Receipt.Role == "planner" || entry.Receipt.Slice == nil {
 			releasePredecessor[entry.OID] = lastReleaseReceipt
+			lastReleaseReceipt = entry.OID
 		}
-		lastReleaseReceipt = entry.OID
 	}
-	var previous *ReceiptEntry
 	for index := range entries {
 		entry := entries[index]
 		receipt := entry.Receipt
@@ -3376,12 +3385,11 @@ func validateAssemblyHistory(
 				return receiptHistory{}, err
 			}
 			bound, exists := byOID[receipt.Binds]
-			first := exists && bound.OID == approval.OID
-			retry := previous != nil && exists && bound.OID == previous.OID &&
-				bound.Receipt.Plan == receipt.Plan
-			if (!first && !retry) || receipt.Candidate == nil || receipt.Base == nil ||
+			if !exists || bound.OID != releasePredecessor[entry.OID] ||
+				receipt.Candidate == nil || receipt.Base == nil ||
 				receipt.Target == nil || receipt.ProductTree == nil ||
-				entry.Parent != *receipt.Candidate {
+				entry.Parent != *receipt.Candidate ||
+				*receipt.Base != *receipt.Target {
 				return receiptHistory{}, recordFail("STALE_BINDING", "assembly candidate "+entry.OID+" has invalid evidence")
 			}
 			baseAncestor, err := repository.isAncestor(*receipt.Base, *receipt.Candidate)
@@ -3396,8 +3404,18 @@ func validateAssemblyHistory(
 			if err != nil {
 				return receiptHistory{}, err
 			}
-			if !baseAncestor || !bindAncestor || approval.Receipt.Target == nil ||
-				*receipt.Target != *approval.Receipt.Target || product != *receipt.ProductTree {
+			if approval.Receipt.Target == nil {
+				return receiptHistory{}, recordFail("STALE_BINDING", "assembly candidate "+entry.OID+" has invalid evidence")
+			}
+			approvedAncestor, err := repository.isAncestor(
+				*approval.Receipt.Target,
+				*receipt.Target,
+			)
+			if err != nil {
+				return receiptHistory{}, err
+			}
+			if !baseAncestor || !bindAncestor || !approvedAncestor ||
+				product != *receipt.ProductTree {
 				return receiptHistory{}, recordFail("STALE_BINDING", "assembly candidate "+entry.OID+" has invalid evidence")
 			}
 			if receipt.Plan == current.OID && currentClassification != nil &&
@@ -3452,8 +3470,17 @@ func validateAssemblyHistory(
 			if assemblyPass {
 				candidateEntry = assemblyCandidate(byOID, &bound)
 			}
-			if (!assemblyPass && !directPass) || receipt.Target == nil ||
-				approval.Receipt.Target == nil || *receipt.Target != *approval.Receipt.Target ||
+			if receipt.Target == nil || approval.Receipt.Target == nil {
+				return receiptHistory{}, recordFail("STALE_BINDING", "Merge "+entry.OID+" has no applicable PASS")
+			}
+			approvedAncestor, err := repository.isAncestor(
+				*approval.Receipt.Target,
+				*receipt.Target,
+			)
+			if err != nil {
+				return receiptHistory{}, err
+			}
+			if (!assemblyPass && !directPass) || !approvedAncestor ||
 				receipt.Candidate == nil || candidateEntry == nil ||
 				candidateEntry.Receipt.Candidate == nil ||
 				*receipt.Candidate != *candidateEntry.Receipt.Candidate ||
@@ -3517,8 +3544,6 @@ func validateAssemblyHistory(
 			return receiptHistory{}, recordFail("AMBIGUOUS_AUTHORITY", "release receipt "+entry.OID+" has an invalid role")
 		}
 		byOID[entry.OID] = entry
-		value := entry
-		previous = &value
 	}
 	return receiptHistory{Receipts: entries, ByOID: byOID}, nil
 }
@@ -3563,10 +3588,6 @@ func deriveAssembly(
 		common.Stage, common.Status, common.NextRole, common.Outcome = "verify", "waiting", "none", "none"
 		return common, nil
 	}
-	approvedTarget := target
-	if approval.Receipt.Target != nil {
-		approvedTarget = *approval.Receipt.Target
-	}
 	classification, err := classifyAssembly(
 		repository, current.Parsed, topology,
 		assemblyEvidenceFromTracks(tracks),
@@ -3584,7 +3605,7 @@ func deriveAssembly(
 	classification, err = withDirectAssemblyReuse(
 		repository, current.Parsed, topology,
 		assemblyEvidenceFromTracks(tracks),
-		approvedTarget, directReleaseHead, classification,
+		target, directReleaseHead, classification,
 		resolveTrackProductBase,
 	)
 	if err != nil {

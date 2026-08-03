@@ -57,11 +57,11 @@ a new Verifier thread.
 
 After a recorded `FAIL`, the same Verifier thread MAY receive a new invocation
 for the uninterrupted direct repair chain. This is valid only while the stable
-slice, exact approved plan revision, target, contract, Captain-reviewed design
-and decision, consumed-input pins, and authority bindings remain unchanged and
-no later Verifier verdict has intervened. Receipt ancestry MAY advance only
-through that repair chain, which MAY include a bounded exact-head refresh as
-defined below.
+slice, exact approved plan revision, target ref, approved target floor,
+contract, Captain-reviewed design and decision, consumed-input pins, and
+authority bindings remain unchanged and no later Verifier verdict has
+intervened. Receipt ancestry MAY advance only through that repair chain, which
+MAY include a bounded exact-head refresh as defined below.
 
 Each invocation receives only that Verifier thread's own conversation history,
 gets new read-only access to the exact current candidate, and checks the
@@ -106,9 +106,9 @@ through a non-empty linear chain in which every commit has exactly one parent
 and no merge or intervening Baton receipt occurs. The reserved
 `.baton/releases` tree at that head MUST exactly match the tree at the bound
 candidate-receipt commit, and the candidate recorded MUST still be the current
-track head. The current approved plan MUST retain the same target, stable slice,
-contract, Captain-reviewed design and decision, consumed-input pins, and
-authority bindings.
+track head. The current approved plan MUST retain the same target ref, approved
+target floor, stable slice, contract, Captain-reviewed design and decision,
+consumed-input pins, and authority bindings.
 
 The Implementer rechecks and records that exact head as the next candidate
 attempt. The previous candidate becomes stale without an invented `FAIL`, plan
@@ -206,6 +206,15 @@ A passed track candidate may be composed only through the approved topology.
 Composition preserves exact candidate identity and ancestry. After every
 required track is present, a fresh Verifier checks the assembled product. Only
 that assembly `PASS` permits final Merge.
+
+The approved target commit is the stable working floor for tracks. A normal
+fast-forward of the same target ref is operational movement, not a plan change:
+final assembly starts from the exact release authority, folds in the latest
+target, then the exact passed track products. If the target advances after
+assembly `PASS`, only that assembly becomes stale and must be rebuilt and
+checked again. A target that no longer descends from the approved floor pauses
+for reconciliation as `TARGET_DIVERGED`; it does not manufacture a plan
+revision. A composition conflict also pauses without moving a ref.
 
 Worktree names, branch conventions, locks, compare-and-set mechanics,
 transaction receipts, and effect recovery belong to the reference kit or

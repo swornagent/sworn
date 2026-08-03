@@ -31,11 +31,14 @@ type TrackBaseInput struct {
 // chain used to prepare one consumer track. AuthoritySeed is immutable engine
 // authority; ConsumerBefore is only the live consumer-ref CAS expectation.
 type PrepareTrackBaseRequest struct {
-	Release            string
-	Plan               OID
-	ReleaseHead        OID
-	TargetRef          string
-	TargetHead         OID
+	Release     string
+	Plan        OID
+	ReleaseHead OID
+	TargetRef   string
+	// TargetHead is the current live ref authority used for compare-and-set.
+	TargetHead OID
+	// ApprovedTarget is the immutable plan base used for track composition.
+	ApprovedTarget     OID
 	Consumer           TrackKey
 	AuthoritySeed      OID
 	ConsumerBefore     *OID
@@ -114,6 +117,9 @@ func (w *Workspaces) validateTrackBaseRequest(
 		return "", OID{}, err
 	}
 	if err := w.repository.validateOID(request.TargetHead); err != nil {
+		return "", OID{}, err
+	}
+	if err := w.repository.validateOID(request.ApprovedTarget); err != nil {
 		return "", OID{}, err
 	}
 	if err := w.repository.validateOID(request.AuthoritySeed); err != nil {
@@ -291,7 +297,7 @@ func (w *Workspaces) expectedTrackBase(
 	approved, err := w.repository.PrepareApprovedTargetBase(
 		CompositionRequest{
 			Expected:         seed,
-			Candidate:        request.TargetHead,
+			Candidate:        request.ApprovedTarget,
 			TargetRef:        consumerRef,
 			ProductAdmission: request.ProductAdmission,
 		},

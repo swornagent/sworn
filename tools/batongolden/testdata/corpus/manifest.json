@@ -1,13 +1,13 @@
 {
   "schema": "sworn.batongolden/v2",
-  "baton": "1.0.0-rc.12",
+  "baton": "1.0.0-rc.13",
   "generator": "exact embedded Baton JavaScript reference",
-  "oracle_sha256": "b84ca19f38157d17bc52b62a4af8745b200003d765c631c16f42766cbfc1f6f0",
+  "oracle_sha256": "51c8a030216abd14d01b953397ff25bc2cdebc702fc655fcc869dda8e11d4a69",
   "references": [
     {
       "file": "actions.mjs",
-      "sha256": "b86205eca04bf0481ff56499ec597cb763def521baa1c11f3b508490c51708a0",
-      "bytes": 41048
+      "sha256": "dce8f7d26900102fb908ad1d30cd90686397cf32a2780332af0cdd7f1b836376",
+      "bytes": 41111
     },
     {
       "file": "git.mjs",
@@ -21,8 +21,8 @@
     },
     {
       "file": "state.mjs",
-      "sha256": "b4fca2f571364fbd45777e022acec920f8a27e043d15211738005f12692ab1e0",
-      "bytes": 71252
+      "sha256": "7cf93985d17d06661869fa282ffaf6038213d1d438f1d070d7c776629aea2403",
+      "bytes": 71381
     }
   ],
   "files": [

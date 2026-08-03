@@ -291,7 +291,7 @@ function projectGraph(state, tracks, assembly, planNextOperation) {
   const nodes = [frozen({
     id: 'plan',
     kind: 'plan',
-    state: state.plan.target_stale ? 'revision_required' : 'approved',
+    state: state.plan.target_stale ? 'blocked' : 'approved',
     next_operation: planNextOperation,
   })];
   const slices = new Map(state.slices.map((slice) => [
@@ -339,7 +339,8 @@ function projectGraph(state, tracks, assembly, planNextOperation) {
 function releaseStatus(state, tracks) {
   if (state.assembly.status === 'complete') return 'complete';
   if (
-    state.assembly.status === 'blocked'
+    state.plan.target_stale
+    || state.assembly.status === 'blocked'
     || state.slices.some((slice) => slice.status === 'blocked')
   ) return 'blocked';
   if ([...tracks.ready.values()].some((ready) => !ready)) return 'in_progress';
@@ -352,11 +353,9 @@ function projectState(state) {
   const tracks = projectTracks(state);
   const allTracksReady = [...tracks.ready.values()].every(Boolean);
   const assembly = projectAssembly(state, allTracksReady);
-  const planNextOperation = state.plan.target_stale
-    ? operation('planner', 'release', state.release)
-    : null;
+  const planNextOperation = null;
   const nextOperations = state.plan.target_stale
-    ? [planNextOperation]
+    ? []
     : allTracksReady
       ? assembly.next_operation ? [assembly.next_operation] : []
       : tracks.next_operations;

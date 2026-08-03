@@ -478,7 +478,7 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 	}
 }
 
-func TestTargetStaleRejectsEveryNonPlannerDispatchAuthority(t *testing.T) {
+func TestTargetStaleRejectsEveryModelDispatchAuthority(t *testing.T) {
 	state := baton.State{
 		Plan: baton.PlanState{TargetStale: true},
 	}
@@ -491,6 +491,7 @@ func TestTargetStaleRejectsEveryNonPlannerDispatchAuthority(t *testing.T) {
 		{driver.ImplementerImplementation, "S1"},
 		{driver.WorkVerification, "S1"},
 		{driver.AssemblyVerification, ""},
+		{driver.PlannerProposal, ""},
 	} {
 		t.Run(string(test.responsibility), func(t *testing.T) {
 			if dispatchAuthorityCurrent(

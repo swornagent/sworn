@@ -1155,10 +1155,10 @@ func currentDriverAuthorities(
 		state.Refs.Target.Ref != engine.manifest.value.TargetRef {
 		return nil, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	plannerNeeded := state.Plan.TargetStale
-	if plannerNeeded {
-		return currentPlannerAuthority(engine, state, current, add)
+	if state.Plan.TargetStale {
+		return current, nil
 	}
+	plannerNeeded := false
 	for _, slice := range state.Slices {
 		plannerNeeded = plannerNeeded || slice.NextRole == "planner"
 	}

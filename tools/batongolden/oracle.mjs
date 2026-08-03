@@ -452,7 +452,7 @@ const references = ['actions.mjs', 'git.mjs', 'receipts.mjs', 'state.mjs'].map((
 });
 writeJSON('manifest.json', {
   schema: 'sworn.batongolden/v2',
-  baton: '1.0.0-rc.12',
+  baton: '1.0.0-rc.13',
   generator: 'exact embedded Baton JavaScript reference',
   oracle_sha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
   references,

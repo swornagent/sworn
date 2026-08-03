@@ -184,13 +184,26 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		current := state.Plan.History[len(state.Plan.History)-1].Plan
 		if bytes.Equal(current.Bytes(), parsed.Bytes()) {
 			approval := state.Plan.Approval
-			if approval.Receipt.Target == nil || *approval.Receipt.Target != target.Head {
-				return ActionResult{}, recordFail("TARGET_MOVED", "the target changed after this plan approval; record a new plan revision")
+			if approval.Receipt.Target == nil {
+				return ActionResult{}, recordFail("APPROVAL_MISSING", "current plan approval has no target")
+			}
+			contained, err := a.repository.isAncestor(
+				*approval.Receipt.Target,
+				target.Head,
+			)
+			if err != nil {
+				return ActionResult{}, err
+			}
+			if !contained {
+				return ActionResult{}, recordFail(
+					"TARGET_DIVERGED",
+					"the target no longer contains this plan's approved starting point; reconcile its history before continuing",
+				)
 			}
 			receipt := approval.Receipt.Clone()
 			result := actionResult("recordPlanRevision", false)
 			result.Release, result.Revision, result.Plan = release, metadata.Revision, state.Plan.OID
-			result.Ref, result.Head, result.Target = ownerRef, prior.Head, target.Head
+			result.Ref, result.Head, result.Target = ownerRef, prior.Head, *approval.Receipt.Target
 			result.ReceiptCommit, result.Receipt = approval.OID, &receipt
 			return result, nil
 		}
@@ -747,9 +760,7 @@ func (a *Actions) appendReceipt(
 			return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "unsupported slice receipt "+role+"/"+resultName)
 		}
 		trackRefCapture := capturedTrackRef(state, track.ID)
-		snapshotValues := []CapturedRef{
-			state.Refs.Release, state.Refs.Target, trackRefCapture,
-		}
+		snapshotValues := []CapturedRef{state.Refs.Release, trackRefCapture}
 		if role == "implementer" &&
 			(resultName == "designed" || resultName == "candidate") {
 			seen := make(map[string]bool)
@@ -802,7 +813,10 @@ func (a *Actions) appendReceipt(
 		if current == nil || ownerHead != current.OID {
 			return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its assembly candidate receipt")
 		}
-		snapshot = sortedCaptured([]CapturedRef{state.Refs.Release, state.Refs.Target})
+		snapshot = sortedCaptured([]CapturedRef{state.Refs.Release})
+	}
+	if err := requireTargetLineage(a.repository, state); err != nil {
+		return ActionResult{}, err
 	}
 
 	subject := fmt.Sprintf("baton(%s", release)
@@ -825,10 +839,6 @@ func (a *Actions) appendReceipt(
 			ExpectedHead: state.Refs.Release.Head,
 		})
 	}
-	operations = append(operations, refOperation{
-		Kind: "verify", Ref: state.Refs.Target.Ref,
-		ExpectedHead: state.Refs.Target.Head,
-	})
 	for _, source := range consumedSources {
 		operations = append(operations, refOperation{
 			Kind:         "verify",

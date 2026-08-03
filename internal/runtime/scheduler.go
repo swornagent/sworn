@@ -5141,10 +5141,7 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return runtimeFail("BATON_UNAVAILABLE", err)
 		}
 		if state.Plan.TargetStale {
-			if proposalPending {
-				return nil
-			}
-			return s.proposeRevision(ctx, engine, owner, state)
+			return nil
 		}
 		plannerNeeded := false
 		for _, slice := range state.Slices {

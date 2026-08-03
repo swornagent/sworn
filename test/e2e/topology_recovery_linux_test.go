@@ -1120,9 +1120,6 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		claimed := claimedAppendAction(t, journalPath, runID)
-		deliveryDispatchesBefore := nonPlannerDriverEffects(
-			t, journalPath, runID)
-
 		if err := os.WriteFile(
 			filepath.Join(repository, "target-moved.txt"),
 			[]byte("external target move\n"),
@@ -1136,42 +1133,16 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "awaiting_approval") {
-			t.Fatalf("target-stale recovery = %q", stdout)
-		}
-		deliveryDispatchesAfter := nonPlannerDriverEffects(
-			t, journalPath, runID)
-		if len(deliveryDispatchesAfter) != len(deliveryDispatchesBefore) {
-			t.Fatalf(
-				"target-stale recovery dispatched new delivery work: before=%v after=%v",
-				deliveryDispatchesBefore,
-				deliveryDispatchesAfter,
-			)
-		}
-		for effectID := range deliveryDispatchesBefore {
-			if _, ok := deliveryDispatchesAfter[effectID]; !ok {
-				t.Fatalf(
-					"target-stale recovery changed delivery dispatch set: before=%v after=%v",
-					deliveryDispatchesBefore,
-					deliveryDispatchesAfter,
-				)
-			}
+		if !strings.Contains(stdout, "  state: complete") {
+			t.Fatalf("forward-target recovery = %q", stdout)
 		}
 		assertClaimedActionTerminalizedStale(
 			t, journalPath, runID, claimed)
 		state := readBatonState(t, repository, release)
 		slice, ok := state.Slice(claimed.Input.Slice)
-		if !ok || !state.Plan.TargetStale {
+		if !ok || state.Plan.TargetStale || state.Plan.Metadata.Revision != 1 {
 			t.Fatalf("target supersession state: plan=%#v slice=%#v",
 				state.Plan, slice)
-		}
-		for _, entry := range slice.History.Entries {
-			if entry.Receipt.Plan == claimed.Plan &&
-				entry.Receipt.Role == claimed.Input.Role &&
-				entry.Receipt.Result == claimed.Input.Result &&
-				entry.Receipt.Summary == claimed.Input.Summary {
-				t.Fatalf("stale claimed handoff replayed as %s", entry.OID)
-			}
 		}
 	})
 
@@ -1408,7 +1379,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "awaiting_approval") {
+		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("all-new install recovery = %q", stdout)
 		}
 		store, err = journal.OpenReadOnly(context.Background(), journalPath)
@@ -1436,7 +1407,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			}
 		}
 		state := readBatonState(t, repository, release)
-		if !state.Plan.TargetStale ||
+		if state.Plan.TargetStale ||
 			state.Plan.Metadata.Revision != 1 {
 			t.Fatalf("post-recovery plan = %#v", state.Plan)
 		}
@@ -1471,7 +1442,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			}
 			t.Run(
 				"claimed_seal_"+strings.ReplaceAll(crash.name, ".", "_")+
-					"_"+authorityKind+"_supersession_rolls_back_exact_candidate",
+					"_"+authorityKind+"_authority_change_recovers_safely",
 				func(t *testing.T) {
 					repository, root := newProductRepository(t), t.TempDir()
 					journalPath := filepath.Join(root, "run.sqlite")
@@ -1565,8 +1536,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						"takeover", "--run", runID, "--journal", journalPath,
 						"--command", "takeover-1", "--generation", "1")
 					if authorityKind == "target" &&
-						!strings.Contains(stdout, "awaiting_approval") {
-						t.Fatalf("target-stale seal recovery = %q", stdout)
+						!strings.Contains(stdout, "  state: complete") {
+						t.Fatalf("forward-target seal recovery = %q", stdout)
 					}
 					if authorityKind == "plan" &&
 						!strings.Contains(stdout, "  state: complete") {
@@ -1574,17 +1545,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 					assertClaimedSealTerminalizedStale(
 						t, journalPath, runID, claimed)
-					if got := runGit(
-						t, repository, "rev-parse", claimed.TrackRef,
-					); got != claimed.TrackHead &&
-						authorityKind == "target" {
-						t.Fatalf(
-							"stale candidate rollback = %s, want %s",
-							got, claimed.TrackHead)
-					}
 					state := readBatonState(t, repository, release)
-					if authorityKind == "target" && !state.Plan.TargetStale {
-						t.Fatal("target move did not stale the installed plan")
+					if authorityKind == "target" && state.Plan.TargetStale {
+						t.Fatal("forward target move staled the installed plan")
 					}
 					if authorityKind == "plan" &&
 						state.Plan.Metadata.Revision != 2 {
@@ -1602,6 +1565,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						entries = append(entries, *slice.Candidate)
 					}
 					for _, entry := range entries {
+						if authorityKind != "plan" {
+							continue
+						}
 						if entry.Receipt.Plan == claimed.Plan &&
 							entry.Receipt.Role == "implementer" &&
 							entry.Receipt.Result == "candidate" &&
@@ -2383,7 +2349,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 	})
 
-	t.Run("superseded_claimed_driver_is_terminalized_before_fresh_planning", func(t *testing.T) {
+	t.Run("forward_target_claimed_driver_is_terminalized_before_fresh_dispatch", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-driver-stale-crash")
 		buildBinary(t, crashBinary, "./cmd/sworn",
 			"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
@@ -2394,21 +2360,17 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		const runID = "topology-driver-stale"
 		const release = "topology-driver-stale-release"
 		const marker1 = "topology-driver-stale-v1"
-		const marker2 = "topology-driver-stale-v2"
 		const issue = int64(51)
 		body, _, topologyPlan := topologyManifest(
 			t, runID, repository, release, issue, marker1,
 			fakeBinary, fakeDigest, "submit", "submit")
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
-		revisionBytes, _ := revisedPlan(
-			t, repository, initialBytes, initialPlan, issue, marker2)
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
 		}
 		manifest.MaxParallelTracks = 1
 		bindInitialPlannerScripts(t, &manifest, runID, initialBytes)
-		addRevisionTwoScripts(t, &manifest, runID, revisionBytes)
 		body, _ = json.Marshal(manifest)
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
@@ -2455,8 +2417,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "awaiting_approval") {
-			t.Fatalf("superseded driver takeover = %q", stdout)
+		if !strings.Contains(stdout, "  state: complete") {
+			t.Fatalf("forward-target driver takeover = %q", stdout)
+		}
+		state := readBatonState(t, repository, release)
+		if state.Plan.TargetStale || state.Plan.Metadata.Revision != 1 {
+			t.Fatalf("forward-target driver plan = %#v", state.Plan)
 		}
 		store, err = journal.OpenReadOnly(context.Background(), journalPath)
 		if err != nil {

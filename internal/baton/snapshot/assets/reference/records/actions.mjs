@@ -373,6 +373,39 @@ function preparedTrackBase(repo, state, slice) {
   });
 }
 
+function requireTargetLineage(repo, state) {
+  const approved = state.plan.approval.receipt.target;
+  const current = state.refs.target.head;
+  if (!isAncestor(repo, approved, current)) {
+    fail(
+      'TARGET_DIVERGED',
+      'The target no longer contains the approved starting point; '
+        + 'reconcile its history before continuing.',
+    );
+  }
+}
+
+function prepareAssemblyCandidate(repo, targetRef, binds, target, tracks) {
+  let candidate = unsafePrepareApprovedTargetBase(repo, {
+    targetRef,
+    expectedHead: binds,
+    approvedTarget: target,
+  });
+  for (const component of tracks) {
+    if (
+      component.authority === candidate
+      || isAncestor(repo, component.authority, candidate)
+    ) continue;
+    candidate = unsafePrepareProductComposition(repo, {
+      targetRef,
+      expectedHead: candidate,
+      candidate: component.authority,
+      productBase: component.product_base,
+    }).result;
+  }
+  return candidate;
+}
+
 function linearOneParentAncestry(repo, base, candidate) {
   let cursor = candidate;
   for (let steps = 0; steps < MAX_CANDIDATE_LINEAGE; steps += 1) {
@@ -504,10 +537,11 @@ export function createBatonActions(options) {
       const previous = currentPlan(repo, release, priorHead);
       if (previous.parsed.bytes.equals(parsed.bytes)) {
         const approval = findApproval(repo, release, priorHead, previous.object);
-        if (approval.receipt.target !== target) {
+        if (!isAncestor(repo, approval.receipt.target, target)) {
           fail(
-            'TARGET_MOVED',
-            'the target changed after this plan approval; record a new plan revision',
+            'TARGET_DIVERGED',
+            'The target no longer contains this plan\'s approved starting point; '
+              + 'reconcile its history before continuing.',
           );
         }
         return planResult({
@@ -519,7 +553,7 @@ export function createBatonActions(options) {
             receipt: approval.receipt,
           },
           ref: ownerRef,
-          target,
+          target: approval.receipt.target,
           head: priorHead,
         });
       }
@@ -917,6 +951,7 @@ export function createBatonActions(options) {
       }
     }
 
+    requireTargetLineage(repo, state);
     const message = renderReceiptCommit({
       subject: `baton(${release}${sliceID ? `/${sliceID}` : ''}): ${role} ${result}`,
       detail,
@@ -967,13 +1002,7 @@ export function createBatonActions(options) {
     const release = identity(input.release, 'release');
     const sliceID = identity(input.slice, 'slice');
     const state = stateFor(release);
-    if (state.plan.target_stale) {
-      fail(
-        'TARGET_MOVED',
-        `the target moved from ${state.plan.approval.receipt.target} `
-          + `to ${state.refs.target.head}; revise and reapprove the plan`,
-      );
-    }
+    requireTargetLineage(repo, state);
     const slice = currentSlice(state, sliceID);
     requireSlicePrerequisites(state, slice);
     if (
@@ -1005,11 +1034,6 @@ export function createBatonActions(options) {
         kind: 'verify',
         ref: state.refs.release.ref,
         expectedHead: state.refs.release.head,
-      },
-      {
-        kind: 'verify',
-        ref: state.refs.target.ref,
-        expectedHead: state.refs.target.head,
       },
       ...consumedRefVerifications(slice, prepared.track.ref),
     ];
@@ -1109,13 +1133,7 @@ export function createBatonActions(options) {
     const summary = text(input.summary, 'summary', MAX_SUMMARY);
     const detail = detailBytes(input.detail);
     const state = stateFor(release);
-    if (state.plan.target_stale) {
-      fail(
-        'TARGET_MOVED',
-        `the target moved from ${state.plan.approval.receipt.target} `
-          + `to ${state.refs.target.head}; revise and reapprove the plan`,
-      );
-    }
+    requireTargetLineage(repo, state);
     for (const slice of state.slices) {
       if (!slice.pass) {
         fail('SLICE_PASS_REQUIRED', `${slice.location.slice.id} has no current PASS`);
@@ -1172,33 +1190,26 @@ export function createBatonActions(options) {
       });
     }
 
-    let candidate = target;
-    for (const component of [
-      { authority: state.refs.release.head, product_base: null },
-      ...trackCandidates,
-    ]) {
-      if (
-        component.authority === candidate
-        || isAncestor(repo, component.authority, candidate)
-      ) continue;
-      const prepare = component.product_base === null
-        ? unsafePrepareExactComposition
-        : unsafePrepareProductComposition;
-      const prepared = prepare(repo, {
-        targetRef: state.refs.target.ref,
-        expectedHead: candidate,
-        candidate: component.authority,
-        ...(component.product_base === null
-          ? {}
-          : { productBase: component.product_base }),
-      });
-      candidate = prepared.result;
+    const authorityHistory = readReleaseReceiptHistory(
+      repo,
+      release,
+      state.refs.release.head,
+    );
+    const binds = authorityHistory.receipts.at(-1)?.oid ?? null;
+    if (binds === null || state.refs.release.head !== binds) {
+      fail('CHANGED_OWNER_HEAD', `${state.refs.release.ref} moved beyond its assembly authority`);
     }
+    const candidate = prepareAssemblyCandidate(
+      repo,
+      state.refs.target.ref,
+      binds,
+      target,
+      trackCandidates,
+    );
     const productIdentity = productTreeIdentity(repo, candidate);
     const checks = Object.hasOwn(input, 'checkResults')
       ? digestBytes(evidenceBytes(input.checkResults, 'checkResults'))
       : digestBytes(Buffer.from(canonicalJSON(inputs)));
-    const binds = state.assembly.current_receipt?.oid ?? state.plan.approval_oid;
     const receipt = {
       version: 1,
       release,
@@ -1269,13 +1280,7 @@ export function createBatonActions(options) {
         receipt: state.assembly.current_receipt.receipt,
       });
     }
-    if (state.plan.target_stale) {
-      fail(
-        'TARGET_MOVED',
-        `the target moved from ${state.plan.approval.receipt.target} `
-          + `to ${state.refs.target.head}; revise and reapprove the plan`,
-      );
-    }
+    requireTargetLineage(repo, state);
 
     let passed;
     if (state.assembly.pass) {

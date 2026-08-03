@@ -56,8 +56,14 @@ and unchanged consumed product-tree pins retain their PASS. Only a changed
 slice and the actual dependency closure whose input pins changed require a new
 attempt. `prepareTrackBase({ release, slice })` composes the plan-ordered
 current producer PASS receipts into only the consumer track ref. It is
-idempotent and compare-and-set verifies the release, target, producer, and
-consumer refs before any move.
+idempotent and compare-and-set verifies the release, producer, and consumer
+refs before any move. The immutable approved target remains the track floor;
+movement of the live target cannot race this preparation.
+
+Assembly starts from the exact release authority, adds the current target, and
+then adds the exact passed track products. A later target advance makes only
+the assembly stale and requires another fresh assembly check. Non-descendant
+target history stops as `TARGET_DIVERGED` without changing a plan or ref.
 
 Consumed-track and assembly composition always try ordinary deterministic Git
 ancestry first. Only an ordinary conflict may retry the exact passed delta from
