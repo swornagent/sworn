@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"maps"
 	"slices"
 	"sort"
@@ -24,15 +23,6 @@ type productionDriverRuntime struct {
 type configuredRuntimeRegistry struct {
 	registry driver.ConfiguredDriverRegistry
 	families map[string]driver.ProfileFamily
-	certify  func(context.Context, string, string) driver.ProfileReport
-
-	certificationMu sync.Mutex
-	certifications  map[string]*runtimeCertification
-}
-
-type runtimeCertification struct {
-	once   sync.Once
-	report driver.ProfileReport
 }
 
 func newProductionDriverRuntime(
@@ -46,7 +36,6 @@ func newProductionDriverRuntime(
 		reloaded.ConfigurationDigest() != config.ConfigurationDigest() {
 		return nil, runtimeFail("INVALID_DRIVER_CONFIG", err)
 	}
-	options.NativeSmokeBuilders = maps.Clone(options.NativeSmokeBuilders)
 	options.LiveProbes = maps.Clone(options.LiveProbes)
 	options.RoundTrippers = maps.Clone(options.RoundTrippers)
 	return &productionDriverRuntime{
@@ -109,17 +98,14 @@ func (runtime *productionDriverRuntime) registryFor(
 		}
 	}
 	configured := &configuredRuntimeRegistry{
-		registry:       registry,
-		families:       families,
-		certify:        registry.Certify,
-		certifications: make(map[string]*runtimeCertification),
+		registry: registry,
+		families: families,
 	}
 	runtime.registries[key] = configured
 	return configured, nil
 }
 
-func (configured *configuredRuntimeRegistry) certifySelected(
-	ctx context.Context,
+func (configured *configuredRuntimeRegistry) validateSelected(
 	selected driver.SelectedProfile,
 ) error {
 	if configured == nil {
@@ -128,11 +114,5 @@ func (configured *configuredRuntimeRegistry) certifySelected(
 	if _, ok := configured.families[selected.Profile.Key]; !ok {
 		return runtimeFail("DRIVER_SELECTION_FAILED", nil)
 	}
-	// Runs are not gated on a pre-flight smoke test of the agent CLI. The run
-	// exercises the CLI for real on its first dispatch, and a CLI that cannot
-	// work fails there with the actual error. Blocking every run because a
-	// handshake drifted reports a problem the run had not yet had.
-	//
-	// sworn driver certify remains available as a deliberate diagnostic.
 	return nil
 }

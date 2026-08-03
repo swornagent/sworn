@@ -91,7 +91,6 @@ type DriverFactoryOptions struct {
 	EnvironmentCredentials HeaderCredentialResolver
 	FileCredentials        HeaderCredentialResolver
 	AWSCredentials         AWSRuntimeResolver
-	NativeSmokeBuilders    map[string]NativeSmokeBuilder
 	LiveProbes             map[string]ProfileLiveProbe
 	RoundTrippers          map[string]http.RoundTripper
 }
@@ -319,7 +318,6 @@ func buildConfiguredAdapter(
 		return NewNativeAdapter(
 			value,
 			filePathResolver(sources),
-			options.NativeSmokeBuilders[descriptor.key],
 		)
 	case driverAdapterOpenAI:
 		value := cloneOpenAIProfileConfig(*config.OpenAI)

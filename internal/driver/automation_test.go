@@ -424,7 +424,7 @@ func TestProviderAutomationUsesOneRoleNeutralTerminalWithoutSubmissionAuthority(
 	}
 }
 
-func TestNativeAutomationRequiresItsSeparateCertificate(t *testing.T) {
+func TestNativeRuntimeDoesNotRequirePreflightCertificate(t *testing.T) {
 	t.Parallel()
 	if _, admitted := any((*nativeAdapter)(nil)).(automationAdapter); !admitted {
 		t.Fatal("native adapter does not expose its certified automation surface")
@@ -442,8 +442,6 @@ func TestNativeAutomationRequiresItsSeparateCertificate(t *testing.T) {
 		resolve: func(context.Context, string) (string, error) {
 			return "/not-reached", nil
 		},
-		certified:           map[string]nativeSurfaceCertificate{},
-		automationCertified: map[string]nativeAutomationSurfaceCertificate{},
 	}
 	nativeProfile := ProfileConfig{
 		Key:           "native-profile",
@@ -461,7 +459,20 @@ func TestNativeAutomationRequiresItsSeparateCertificate(t *testing.T) {
 		Profile: nativeProfile.Key,
 		Model:   nativeSelected.Model,
 	}
-	_, err := (Dispatcher{}).InvokeAutomation(
+	certificate, credentialPath, err := native.nativeRuntime(
+		context.Background(),
+		Invocation{Selected: nativeSelected},
+	)
+	if err != nil || hasNativeSurfaceCertificate(certificate) ||
+		credentialPath != "/not-reached" {
+		t.Fatalf(
+			"native runtime = certificate %#v, path %q, error %v",
+			certificate,
+			credentialPath,
+			err,
+		)
+	}
+	automationCertificate, credentialPath, err := native.nativeAutomationRuntime(
 		context.Background(),
 		AutomationInvocation{
 			Selected: nativeSelected,
@@ -470,8 +481,15 @@ func TestNativeAutomationRequiresItsSeparateCertificate(t *testing.T) {
 			),
 		},
 	)
-	if !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-		t.Fatalf("uncertified native automation error = %v", err)
+	if err != nil ||
+		hasNativeAutomationSurfaceCertificate(automationCertificate) ||
+		credentialPath != "/not-reached" {
+		t.Fatalf(
+			"native automation runtime = certificate %#v, path %q, error %v",
+			automationCertificate,
+			credentialPath,
+			err,
+		)
 	}
 
 	adapter := processAdapterFixture(t, "closed-adapter", "sworn.closed")

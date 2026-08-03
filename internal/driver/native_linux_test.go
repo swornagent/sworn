@@ -34,24 +34,16 @@ var (
 	nativeContinuationError  error
 )
 
-func TestExactNativeProfilesRejectUnboundCertificationCallbacks(t *testing.T) {
+func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
 			config := exactNativeConfigFixture(t, family)
 			ref := string(family) + "-credential"
-			var probed SelectedProfile
 			adapterValue, err := NewNativeAdapter(
 				config,
 				func(context.Context, string) (string, error) {
 					return "/not-used-by-readiness", nil
-				},
-				func(
-					_ context.Context,
-					selected SelectedProfile,
-				) (NativeSmokeInvocations, error) {
-					probed = selected
-					return NativeSmokeInvocations{}, nil
 				},
 			)
 			if err != nil {
@@ -83,18 +75,8 @@ func TestExactNativeProfilesRejectUnboundCertificationCallbacks(t *testing.T) {
 				checkCertify,
 				profile,
 				"exact-native-model",
-			); state != ReadinessFail || code != "native_smoke_invalid" ||
-				probed.Profile.CredentialRef == nil ||
-				*probed.Profile.CredentialRef != ref ||
-				probed.Model != "exact-native-model" ||
-				len(adapter.certified) != 0 {
-				t.Fatalf(
-					"certify = %s %s, probe=%#v, certificates=%d",
-					state,
-					code,
-					probed,
-					len(adapter.certified),
-				)
+			); state != ReadinessPass || code != "native_preflight_not_required" {
+				t.Fatalf("certify = %s %s", state, code)
 			}
 			registry, err := NewSelectionRegistry(
 				[]ProfileConfig{profile},
@@ -1080,8 +1062,7 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 				resolve: func(context.Context, string) (string, error) {
 					return credential, nil
 				},
-				refs:      map[string]struct{}{ref: {}},
-				certified: map[string]nativeSurfaceCertificate{},
+				refs: map[string]struct{}{ref: {}},
 			}
 			profile := ProfileConfig{
 				Key:     "native-continuation-profile-" + string(family),
@@ -1097,14 +1078,6 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 			base, _, _ := memoryInvocationFixture(t)
 			base.Selected = selected
 			pair := nativeSmokeInvocationsFixture(t, base)
-			adapter.certified[nativeCertificationKey(
-				profile,
-				selected.Model,
-			)] = nativeContinuationCertificateFixture(
-				pair.ContinuationStart,
-				config,
-			)
-
 			binding := continuationContractBinding()
 			observation, handle, result, err := (Dispatcher{}).InvokeTurn(
 				context.Background(),

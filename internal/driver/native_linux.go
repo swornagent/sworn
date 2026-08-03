@@ -906,11 +906,12 @@ func platformInvokeNativeAutomation(
 	credentialPath string,
 	certificate nativeAutomationSurfaceCertificate,
 ) (AutomationObservation, error) {
-	if validateNativeAutomationSurfaceCertificate(
-		certificate,
-		invocation,
-		config,
-	) != nil {
+	if hasNativeAutomationSurfaceCertificate(certificate) &&
+		validateNativeAutomationSurfaceCertificate(
+			certificate,
+			invocation,
+			config,
+		) != nil {
 		return AutomationObservation{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	stageKind, definitions, err := nativeAutomationSurface(invocation)
@@ -1008,7 +1009,7 @@ func platformInvokeNative(
 	credentialPath string,
 	certificate nativeSurfaceCertificate,
 ) (Observation, error) {
-	if validateNativeSurfaceCertificate(
+	if hasNativeSurfaceCertificate(certificate) && validateNativeSurfaceCertificate(
 		certificate,
 		invocation,
 		config,
@@ -1021,7 +1022,7 @@ func platformInvokeNative(
 		config,
 		credentialPath,
 		nil,
-		&certificate,
+		optionalNativeSurfaceCertificate(certificate),
 		nil,
 		nil,
 	)
@@ -1034,7 +1035,7 @@ func platformStartNativeContinuation(
 	credentialPath string,
 	certificate nativeSurfaceCertificate,
 ) (observation Observation, state continuationState, resultErr error) {
-	if validateNativeSurfaceCertificate(
+	if hasNativeSurfaceCertificate(certificate) && validateNativeSurfaceCertificate(
 		certificate,
 		invocation,
 		config,
@@ -1058,7 +1059,7 @@ func platformStartNativeRecoverableContinuation(
 	credentialPath string,
 	certificate nativeSurfaceCertificate,
 ) (Observation, continuationState, error) {
-	if validateNativeSurfaceCertificate(
+	if hasNativeSurfaceCertificate(certificate) && validateNativeSurfaceCertificate(
 		certificate,
 		invocation,
 		config,
@@ -1091,7 +1092,7 @@ func platformStartNativeContinuationMode(
 			config,
 			credentialPath,
 			nil,
-			&certificate,
+			optionalNativeSurfaceCertificate(certificate),
 			nil,
 			nil,
 		)
@@ -1113,7 +1114,7 @@ func platformStartNativeContinuationMode(
 		config,
 		credentialPath,
 		nil,
-		&certificate,
+		optionalNativeSurfaceCertificate(certificate),
 		launch,
 		nil,
 	)
@@ -1162,7 +1163,7 @@ func platformResumeNativeContinuation(
 	certificate nativeSurfaceCertificate,
 	prior continuationState,
 ) (Observation, error) {
-	if validateNativeSurfaceCertificate(
+	if hasNativeSurfaceCertificate(certificate) && validateNativeSurfaceCertificate(
 		certificate,
 		invocation,
 		config,
@@ -1195,7 +1196,7 @@ func platformResumeNativeRecoverableContinuation(
 	prior continuationState,
 	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
-	if validateNativeSurfaceCertificate(
+	if hasNativeSurfaceCertificate(certificate) && validateNativeSurfaceCertificate(
 		certificate,
 		invocation,
 		config,
@@ -1248,7 +1249,7 @@ func platformResumeNativeContinuationMode(
 		config,
 		credentialPath,
 		nil,
-		&certificate,
+		optionalNativeSurfaceCertificate(certificate),
 		launch,
 		nil,
 	)
@@ -1307,6 +1308,15 @@ func nativeProseNudgeInvocation(invocation Invocation) Invocation {
 	}
 	invocation.recoverableInput = &nudge
 	return invocation
+}
+
+func optionalNativeSurfaceCertificate(
+	certificate nativeSurfaceCertificate,
+) *nativeSurfaceCertificate {
+	if !hasNativeSurfaceCertificate(certificate) {
+		return nil
+	}
+	return &certificate
 }
 
 func platformCaptureNativeSurface(
@@ -1554,14 +1564,14 @@ func platformRunNative(
 ) (observation Observation, resultErr error) {
 	started := time.Now()
 	if automationRun == nil &&
-		((captureRun == nil) == (certificate == nil) ||
+		((captureRun != nil && certificate != nil) ||
 			(captureRun != nil && captureRun.automation != nil)) {
 		return Observation{}, fail("NATIVE_NOT_CERTIFIED")
 	}
 	if automationRun != nil &&
 		(certificate != nil || launch != nil ||
 			(captureRun != nil && captureRun.automation != automationRun) ||
-			(captureRun == nil &&
+			(captureRun == nil && automationRun.certificate.InvocationStage != 0 &&
 				!validNativeAutomationStage(
 					automationRun.certificate,
 					config.Family,
@@ -1633,7 +1643,8 @@ func platformRunNative(
 			ListDigest:         certifiedStage.ListDigest,
 			ToolDigest:         nativeToolDefinitionsDigest(definitions),
 		})
-	} else if automationRun != nil && captureRun == nil {
+	} else if automationRun != nil && captureRun == nil &&
+		automationRun.certificate.InvocationStage != 0 {
 		stage := automationRun.certificate
 		broker, err = newNativeBroker(session, nativeHandshakeEvidence{
 			Protocol:           stage.Protocol,
@@ -1791,23 +1802,27 @@ func platformRunNative(
 		_ = command.Wait()
 		return Observation{}, fail("NATIVE_SURFACE_INVALID")
 	}
-	if runtimeErr := certifyNativeRuntime(
-		childPID,
-		invocation,
-		config,
-		credential,
-		closure,
-		projectionRoot,
-		capability,
-		captureRun,
-		launch,
-		definitions,
-	); runtimeErr != nil {
-		_ = syscall.Kill(-processGroup, syscall.SIGKILL)
-		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-		_ = command.Wait()
-		_ = waitProcessGroup(processGroup)
-		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+	strictRuntime := captureRun != nil || certificate != nil ||
+		automationRun != nil && automationRun.certificate.InvocationStage != 0
+	if strictRuntime {
+		if runtimeErr := certifyNativeRuntime(
+			childPID,
+			invocation,
+			config,
+			credential,
+			closure,
+			projectionRoot,
+			capability,
+			captureRun,
+			launch,
+			definitions,
+		); runtimeErr != nil {
+			_ = syscall.Kill(-processGroup, syscall.SIGKILL)
+			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+			_ = command.Wait()
+			_ = waitProcessGroup(processGroup)
+			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		}
 	}
 	scanDone := make(chan error, 1)
 	go func() {

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 )
 
 const (
@@ -111,26 +110,31 @@ type nativeAutomationSurfaceCertificate struct {
 	Advisory            nativeSurfaceStageCertificate
 }
 
+func hasNativeSurfaceCertificate(certificate nativeSurfaceCertificate) bool {
+	return certificate.Family != ""
+}
+
+func hasNativeAutomationSurfaceCertificate(
+	certificate nativeAutomationSurfaceCertificate,
+) bool {
+	return certificate.Family != ""
+}
+
 type nativeAutomationSmokeInvocations struct {
 	Recovery AutomationInvocation
 	Advisory AutomationInvocation
 }
 
 type nativeAdapter struct {
-	identity            AdapterIdentity
-	config              NativeAdapterConfig
-	resolve             FileCredentialResolver
-	smokeBuilder        NativeSmokeBuilder
-	refs                map[string]struct{}
-	certMu              sync.RWMutex
-	certified           map[string]nativeSurfaceCertificate
-	automationCertified map[string]nativeAutomationSurfaceCertificate
+	identity AdapterIdentity
+	config   NativeAdapterConfig
+	resolve  FileCredentialResolver
+	refs     map[string]struct{}
 }
 
 func NewNativeAdapter(
 	config NativeAdapterConfig,
 	resolver FileCredentialResolver,
-	builder NativeSmokeBuilder,
 ) (Adapter, error) {
 	if !providerKeyPattern.MatchString(config.Key) ||
 		!driverIdentityPattern.MatchString(config.ID) ||
@@ -165,9 +169,7 @@ func NewNativeAdapter(
 			Key: config.Key, ID: config.ID, Version: config.Version,
 			ConfigurationDigest: Digest(body),
 		},
-		config: config, resolve: resolver, smokeBuilder: builder, refs: refs,
-		certified:           make(map[string]nativeSurfaceCertificate),
-		automationCertified: make(map[string]nativeAutomationSurfaceCertificate),
+		config: config, resolve: resolver, refs: refs,
 	}, nil
 }
 
@@ -301,81 +303,17 @@ func (adapter *nativeAdapter) checkProfile(
 	switch kind {
 	case checkInspect:
 		return ReadinessPass, "native_closure_exact"
-	case checkDoctor:
+	case checkDoctor, checkCertify:
 		body, runErr := nativeVersion(ctx, adapter.config)
 		exact := runErr == nil && string(body) == adapter.config.VersionOutput+"\n"
 		clearBytes(body)
 		if !exact {
 			return ReadinessNotCertified, "native_version_changed"
 		}
+		if kind == checkCertify {
+			return ReadinessPass, "native_preflight_not_required"
+		}
 		return ReadinessPass, "native_binary_ready"
-	case checkCertify:
-		if adapter.smokeBuilder == nil {
-			return ReadinessNotCertified, "native_smoke_not_configured"
-		}
-		selected := SelectedProfile{
-			Profile: cloneProfileConfig(profile),
-			Adapter: adapter.identity,
-			Model:   model,
-			adapter: adapter,
-		}
-		invocations, err := adapter.smokeBuilder(ctx, selected)
-		if err != nil || validateNativeSmokeInvocations(
-			invocations,
-			selected,
-			adapter,
-		) != nil {
-			return ReadinessFail, "native_smoke_invalid"
-		}
-		certificate, err := platformCaptureNativeSurface(
-			ctx,
-			invocations,
-			adapter.config,
-		)
-		if err != nil {
-			return ReadinessFail, "native_surface_failed"
-		}
-		automationInvocations, err := nativeAutomationCertificationInvocations(
-			selected,
-		)
-		if err != nil {
-			return ReadinessFail, "native_automation_smoke_invalid"
-		}
-		automationCertificate, err := platformCaptureNativeAutomationSurface(
-			ctx,
-			automationInvocations,
-			adapter.config,
-		)
-		if err != nil {
-			return ReadinessFail, "native_automation_surface_failed"
-		}
-		credentialPath, err := adapter.resolve(ctx, *profile.CredentialRef)
-		if err != nil {
-			return ReadinessFail, certificationFailureCode(err)
-		}
-		if _, err := platformInvokeNative(
-			ctx,
-			invocations.FreshReadWrite,
-			adapter.config,
-			credentialPath,
-			certificate,
-		); err != nil {
-			return ReadinessFail, certificationFailureCode(err)
-		}
-		adapter.certMu.Lock()
-		key := nativeCertificationKey(profile, model)
-		if adapter.certified == nil {
-			adapter.certified = make(map[string]nativeSurfaceCertificate)
-		}
-		if adapter.automationCertified == nil {
-			adapter.automationCertified = make(
-				map[string]nativeAutomationSurfaceCertificate,
-			)
-		}
-		adapter.certified[key] = certificate
-		adapter.automationCertified[key] = automationCertificate
-		adapter.certMu.Unlock()
-		return ReadinessPass, "live_smoke_passed"
 	default:
 		return ReadinessFail, "check_kind_invalid"
 	}
@@ -516,20 +454,11 @@ func (adapter *nativeAdapter) nativeRuntime(
 	if _, admitted := adapter.refs[ref]; !admitted {
 		return nativeSurfaceCertificate{}, "", fail("CREDENTIAL_NOT_CERTIFIED")
 	}
-	adapter.certMu.RLock()
-	certificate, certified := adapter.certified[nativeCertificationKey(
-		invocation.Selected.Profile,
-		invocation.Selected.Model,
-	)]
-	adapter.certMu.RUnlock()
-	if !certified {
-		return nativeSurfaceCertificate{}, "", fail("NATIVE_NOT_CERTIFIED")
-	}
 	pathValue, err := adapter.resolve(ctx, ref)
 	if err != nil {
 		return nativeSurfaceCertificate{}, "", fail("CREDENTIAL_NOT_CERTIFIED")
 	}
-	return certificate, pathValue, nil
+	return nativeSurfaceCertificate{}, pathValue, nil
 }
 
 func (adapter *nativeAdapter) nativeAutomationRuntime(
@@ -546,23 +475,12 @@ func (adapter *nativeAdapter) nativeAutomationRuntime(
 		return nativeAutomationSurfaceCertificate{}, "",
 			fail("CREDENTIAL_NOT_CERTIFIED")
 	}
-	adapter.certMu.RLock()
-	key := nativeCertificationKey(
-		invocation.Selected.Profile,
-		invocation.Selected.Model,
-	)
-	certificate, certified := adapter.automationCertified[key]
-	adapter.certMu.RUnlock()
-	if !certified {
-		return nativeAutomationSurfaceCertificate{}, "",
-			fail("NATIVE_NOT_CERTIFIED")
-	}
 	pathValue, err := adapter.resolve(ctx, ref)
 	if err != nil {
 		return nativeAutomationSurfaceCertificate{}, "",
 			fail("CREDENTIAL_NOT_CERTIFIED")
 	}
-	return certificate, pathValue, nil
+	return nativeAutomationSurfaceCertificate{}, pathValue, nil
 }
 
 func nativeAutomationCertificationInvocations(
