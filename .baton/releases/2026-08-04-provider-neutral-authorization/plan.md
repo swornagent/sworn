@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "2026-08-04-provider-neutral-authorization",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "688ff2c940e5af65fd33df1355dea6097969b322",
   "repository": "sworn",
   "target_ref": "refs/heads/main",
-  "approval_ref": "operator://2026-08-04-provider-neutral-authorization/1",
+  "approval_ref": "operator://2026-08-04-provider-neutral-authorization/2",
   "tracks": [
     {
       "id": "T1",
@@ -59,13 +59,14 @@
         },
         {
           "id": "S2-approve",
-          "outcome": "The sworn approve command grants exact local authority for one discovered plan digest and remains safe across interruption and retry.",
+          "outcome": "One exact, durable, idempotent, journaled approval command service is used identically by the TUI for interactive human approval, MCP for headless agent or orchestrator approval, and CLI for recovery, testing, scripting, and low-level operations.",
           "scope": {
             "include": [
-              "sworn approve CLI",
-              "exact plan digest binding",
-              "duplicate and stale approval handling",
-              "journaled authorization effects"
+              "shared approval command service",
+              "TUI interactive human approval UX",
+              "MCP headless agent and orchestrator adapter",
+              "CLI recovery, testing, scripting, and low-level operational adapter",
+              "exact approval binding, authorization, replay, and run continuation"
             ],
             "exclude": [
               "hosted issue comments",
@@ -76,15 +77,19 @@
           "acceptance": [
             {
               "id": "A1",
-              "text": "sworn approve records authority only for the exact current plan digest and rejects wrong, stale, missing, or ambiguous selections."
+              "text": "TUI, MCP, and CLI submit the same approval command bound to the exact release, project, target, plan digest, and decision class, apply identical authorization checks, and produce the same approval result."
             },
             {
               "id": "A2",
-              "text": "Approval is journaled, idempotent after interruption, and automatically unblocks the same run without a GitHub dependency."
+              "text": "Approval is durably journaled before its effect, is idempotent across interruption and replay, and unblocks only the same exactly approved run."
             },
             {
               "id": "A3",
-              "text": "CLI and TUI explain the approved digest, current authority, and next autonomous action in provider-neutral language."
+              "text": "Every adapter rejects missing, stale, wrong, conflicting, insufficient, or ambiguous binding or authority facts without approving or advancing any run."
+            },
+            {
+              "id": "A4",
+              "text": "The TUI is the primary interactive human approval UX, MCP is the primary headless agent or orchestrator adapter, and CLI remains available for recovery, testing, scripting, and low-level operations."
             }
           ],
           "checks": [
@@ -95,7 +100,10 @@
             "git diff --check"
           ],
           "constraints": [
-            "No human approval may be inferred from Git authorship, hosting membership, or environment credentials.",
+            "All adapters are projections of one approval command service and cannot alter binding, authorization, replay, or transition semantics.",
+            "New scope, changed target, protocol changes, destructive or high-stakes actions, remit expansion, ambiguity, and out-of-policy decisions require explicit human approval and fail closed otherwise.",
+            "Missing, stale, conflicting, or insufficient authorization or delegation fails closed; no actor can grant or expand its own remit.",
+            "Git identity, provider credentials, authorship, membership, or hosting state never confer approval authority.",
             "A retry cannot duplicate authority or advance an unrelated plan."
           ],
           "depends_on": [],
@@ -148,37 +156,48 @@
         },
         {
           "id": "S4-captain-writes",
-          "outcome": "Captain writes its own bounded Baton governance decision and Sworn continues automatically when that decision is within Captain remit.",
+          "outcome": "Captain uses the shared approval service to exercise recorded decision-class-specific delegation for Planner proposals and bounded replans only within an explicitly pre-authorized release envelope, while writing only its own bounded governance decisions and detail through the command and effect path.",
           "scope": {
             "include": [
               "Captain submission contract",
-              "journaled Captain decision effect",
-              "PROCEED and bounded REVISE continuation",
-              "informational human notification"
+              "recorded decision-class-specific delegation",
+              "Planner proposal and bounded replan approval within a pre-authorized release envelope",
+              "journaled Captain governance decision effect through the shared approval service",
+              "PROCEED and in-remit REVISE continuation",
+              "durable informational human notification"
             ],
             "exclude": [
               "Captain product-code writes",
               "arbitrary Git ref mutation",
-              "human-only high-stakes authorization",
+              "human-only authorization classes",
+              "self-granted or expanded remit",
               "detached worker process survival"
             ]
           },
           "acceptance": [
             {
               "id": "A1",
-              "text": "A Captain invocation can submit only its own decision and bounded detail; the command service validates eligibility and writes the exact Baton receipt through the journaled effect path."
+              "text": "A Captain invocation can submit only its own bounded governance decision and detail; the command service validates eligibility and writes the exact Baton record through the journaled effect path."
             },
             {
               "id": "A2",
-              "text": "PROCEED and an in-remit REVISE continue the run without waiting for a human while emitting a durable informational notification."
+              "text": "Recorded delegation permits Captain to approve a Planner proposal or bounded replan only when that decision class and the exact release envelope are explicitly pre-authorized."
             },
             {
               "id": "A3",
-              "text": "ESCALATE or any requested change outside Captain remit fails closed for explicit human authority, and Captain cannot write product files, commits, refs, or another role's receipt."
+              "text": "Captain approval uses the S2 approval service with the exact release, project, target, plan digest, and decision class bindings and the same authorization, replay, idempotency, and run-unblocking semantics as every other adapter."
             },
             {
               "id": "A4",
-              "text": "Crash and retry around Captain submission reconcile to one canonical decision without duplicate effects."
+              "text": "PROCEED and an in-remit REVISE continue the run without waiting for a human while emitting a durable informational human notification."
+            },
+            {
+              "id": "A5",
+              "text": "New scope, changed target, protocol changes, destructive or high-stakes actions, remit expansion, ambiguity, out-of-policy decisions, and ESCALATE require explicit human authority and fail closed otherwise."
+            },
+            {
+              "id": "A6",
+              "text": "Crash and retry around Captain submission reconcile to one canonical decision without duplicate approval, record, effect, or continuation."
             }
           ],
           "checks": [
@@ -190,11 +209,18 @@
           ],
           "constraints": [
             "Only the command service and journal own mutations.",
-            "Captain capability is decision-specific, attempt-bound, and role-bound.",
-            "Human notification is informational unless Baton authority requires escalation."
+            "Captain capability is recorded, decision-class-specific, release-envelope-bound, attempt-bound, and role-bound.",
+            "Missing, stale, conflicting, or insufficient delegation fails closed.",
+            "No actor can grant or expand its own remit.",
+            "Git identity, provider credentials, authorship, membership, or hosting state never confer approval authority.",
+            "Human notification for PROCEED and in-remit REVISE is durable and informational; human-only boundaries remain authorization gates."
           ],
-          "depends_on": [],
-          "consumes": []
+          "depends_on": [
+            "S2-approve"
+          ],
+          "consumes": [
+            "S2-approve"
+          ]
         }
       ]
     }
