@@ -36,6 +36,6 @@ export const DIAGNOSTIC_LABELS = Object.freeze({
   INVALID_RELEASE_REF: 'One release reference is not valid.',
   REF_SNAPSHOT_UNSTABLE: 'The release changed while Baton was reading it. Try again.',
   STALE_ASSEMBLY: 'The complete release changed and needs to be checked again.',
-  TARGET_MOVED: 'The target changed after the plan was approved. Update the plan before continuing.',
+  TARGET_DIVERGED: 'The target history changed. Reconcile it before continuing.',
   TRACK_REF_ABSENT: 'This track has not started yet.',
 });

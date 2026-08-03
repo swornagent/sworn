@@ -366,14 +366,13 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 	}
 
 	t.Run(
-		"crash_after_preparation_target_move_revision_reprepares",
+		"crash_after_preparation_forward_target_move_recovers_without_replan",
 		func(t *testing.T) {
 			const (
 				runID   = "e2e-consumed-stale-prepared"
 				release = runID + "-release"
 				issue   = int64(54)
 				marker1 = "approval-e2e-consumed-stale-prepared-v1"
-				marker2 = "approval-e2e-consumed-stale-prepared-v2"
 			)
 			crashBinary := filepath.Join(
 				buildRoot,
@@ -400,27 +399,10 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				fakeBinary,
 				fakeDigest,
 			)
-			revisionBytes, revisionPlan := revisedPlan(
-				t,
-				repository,
-				initialBytes,
-				initialPlan,
-				issue,
-				marker2,
-			)
-			var manifest swornruntime.Manifest
-			if err := json.Unmarshal(manifestBody, &manifest); err != nil {
-				t.Fatal(err)
-			}
-			addRevisionTwoScripts(t, &manifest, runID, revisionBytes)
-			manifestBody, err := json.Marshal(manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
 			manifestPath := writeManifest(
 				t,
 				runRoot,
-				append(manifestBody, '\n'),
+				manifestBody,
 			)
 			stdout, _ := runBinary(
 				t,
@@ -511,50 +493,14 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"--generation",
 				"1",
 			)
-			if !strings.Contains(stdout, "  state: awaiting_approval") {
-				t.Fatalf("target-stale takeover = %q", stdout)
-			}
-			staleState := readBatonState(t, repository, release)
-			if !staleState.Plan.TargetStale ||
-				staleState.Plan.Metadata.Revision != 1 ||
-				runGit(
-					t,
-					repository,
-					"rev-parse",
-					consumerRef,
-				) != stalePrepared {
-				t.Fatalf(
-					"stale prepared base was not preserved: plan=%#v",
-					staleState.Plan,
-				)
-			}
-
-			approvals.publish(
-				issue,
-				approvalFor(issue, marker2, revisionPlan),
-			)
-			stdout, _ = runBinary(
-				t,
-				normalBinary,
-				0,
-				"resume",
-				"--run",
-				runID,
-				"--journal",
-				journalPath,
-				"--command",
-				"resume-2",
-				"--generation",
-				"2",
-			)
 			if !strings.Contains(stdout, "  state: complete") {
-				t.Fatalf("revised prepared-base completion = %q", stdout)
+				t.Fatalf("forward-target recovery = %q", stdout)
 			}
 			after := readBatonState(t, repository, release)
 			consumer, ok = after.Slice("S1")
 			if !ok ||
-				after.Plan.Metadata.Revision != 2 ||
-				len(after.Plan.History) != 2 ||
+				after.Plan.Metadata.Revision != 1 ||
+				len(after.Plan.History) != 1 ||
 				after.Plan.TargetStale ||
 				consumer.Pass == nil ||
 				consumer.Outcome != "pass" ||
@@ -565,7 +511,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 					consumerRef,
 				) == stalePrepared {
 				t.Fatalf(
-					"revised prepared-base state: plan=%#v consumer=%#v",
+					"forward-target prepared-base state: plan=%#v consumer=%#v",
 					after.Plan,
 					consumer,
 				)

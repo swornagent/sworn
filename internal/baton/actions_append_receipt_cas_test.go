@@ -2,7 +2,7 @@ package baton
 
 import "testing"
 
-func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing.T) {
+func TestAppendReceiptAllowsDescendantTargetMoveAfterClassification(t *testing.T) {
 	t.Run("work_receipt", func(t *testing.T) {
 		repoPath, _, actions := createActionHarness(t)
 		release := "append-receipt-work-target-cas"
@@ -22,7 +22,7 @@ func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing
 		releaseBefore := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
 		targetBefore := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
 		var targetAfterMove string
-		_, err := actions.appendReceipt(AppendReceiptInput{
+		result, err := actions.appendReceipt(AppendReceiptInput{
 			Release: release, Slice: "S1", Role: "captain", Result: "proceed",
 			Summary: "Proceed S1.", Detail: []byte("review"),
 		}, func() {
@@ -30,15 +30,15 @@ func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing
 				t, repoPath, "move target during work receipt classification",
 			)
 		})
-		if ErrorCode(err) != "REF_TRANSACTION_RECOVERY_REQUIRED" {
-			t.Fatalf("target interleaving error = %v", err)
+		if err != nil || !result.Changed {
+			t.Fatalf("target interleaving result = %#v, error = %v", result, err)
 		}
 		if targetAfterMove == "" || targetAfterMove == targetBefore ||
 			actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main") != targetAfterMove {
 			t.Fatal("work receipt interleaving did not move the target")
 		}
-		if ownerAfter := actionGit(t, repoPath, nil, nil, "rev-parse", ownerRef); ownerAfter != ownerBefore {
-			t.Fatalf("work receipt moved owner ref from %s to %s", ownerBefore, ownerAfter)
+		if ownerAfter := actionGit(t, repoPath, nil, nil, "rev-parse", ownerRef); ownerAfter == ownerBefore {
+			t.Fatalf("work receipt did not advance owner ref from %s", ownerBefore)
 		}
 		if releaseAfter := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release)); releaseAfter != releaseBefore {
 			t.Fatalf("work receipt moved release ref from %s to %s", releaseBefore, releaseAfter)
@@ -167,7 +167,7 @@ func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing
 		ownerBefore := actionGit(t, repoPath, nil, nil, "rev-parse", ownerRef)
 		targetBefore := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
 		var targetAfterMove string
-		_, err = actions.appendReceipt(AppendReceiptInput{
+		result, err := actions.appendReceipt(AppendReceiptInput{
 			Release: release, Role: "verifier", Result: "pass",
 			Summary: "Pass assembly.", Detail: []byte("verification"),
 			Candidate: assembly.Candidate, CheckResults: []byte("fresh assembly checks\n"),
@@ -176,15 +176,15 @@ func TestAppendReceiptTargetMoveAfterClassificationDoesNotMutateOwner(t *testing
 				t, repoPath, "move target during assembly receipt classification",
 			)
 		})
-		if ErrorCode(err) != "REF_TRANSACTION_RECOVERY_REQUIRED" {
-			t.Fatalf("target interleaving error = %v", err)
+		if err != nil || !result.Changed {
+			t.Fatalf("target interleaving result = %#v, error = %v", result, err)
 		}
 		if targetAfterMove == "" || targetAfterMove == targetBefore ||
 			actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main") != targetAfterMove {
 			t.Fatal("assembly receipt interleaving did not move the target")
 		}
-		if ownerAfter := actionGit(t, repoPath, nil, nil, "rev-parse", ownerRef); ownerAfter != ownerBefore {
-			t.Fatalf("assembly receipt moved owner ref from %s to %s", ownerBefore, ownerAfter)
+		if ownerAfter := actionGit(t, repoPath, nil, nil, "rev-parse", ownerRef); ownerAfter == ownerBefore {
+			t.Fatalf("assembly receipt did not advance owner ref from %s", ownerBefore)
 		}
 	})
 }

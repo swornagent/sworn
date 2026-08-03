@@ -28,14 +28,8 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	if err != nil {
 		return ActionResult{}, err
 	}
-	if state.Plan.TargetStale {
-		return ActionResult{}, recordFail(
-			"TARGET_MOVED",
-			fmt.Sprintf(
-				"the target moved from %s to %s; revise and reapprove the plan",
-				valueOrEmpty(state.Plan.Approval.Receipt.Target), state.Refs.Target.Head,
-			),
-		)
+	if err := requireTargetLineage(a.repository, state); err != nil {
+		return ActionResult{}, err
 	}
 	classification, err := classifyStateAssembly(a.repository, state)
 	if err != nil {
@@ -83,10 +77,7 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 		}
 		checks = DigestBytes(canonical)
 	}
-	binds := state.Plan.ApprovalOID
-	if state.Assembly.CurrentReceipt != nil {
-		binds = state.Assembly.CurrentReceipt.OID
-	}
+	binds := state.Refs.Release.Head
 	base := target
 	receipt := Receipt{
 		Version: ReceiptVersion, Release: release, Role: "implementer", Result: "candidate",
@@ -144,14 +135,8 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 	if err != nil {
 		return ActionResult{}, err
 	}
-	if state.Plan.TargetStale {
-		return ActionResult{}, recordFail(
-			"TARGET_MOVED",
-			fmt.Sprintf(
-				"the target moved from %s to %s; revise and reapprove the plan",
-				valueOrEmpty(state.Plan.Approval.Receipt.Target), state.Refs.Target.Head,
-			),
-		)
+	if err := requireTargetLineage(a.repository, state); err != nil {
+		return ActionResult{}, err
 	}
 	classification, err := classifyStateAssembly(a.repository, state)
 	if err != nil {
@@ -248,6 +233,26 @@ func assemblyRefCAS(
 	return sortedCaptured(snapshot), resultOperations, nil
 }
 
+func requireTargetLineage(repository *repository, state State) error {
+	if state.Plan.Approval.Receipt.Target == nil {
+		return recordFail("APPROVAL_MISSING", "current plan approval has no target")
+	}
+	contained, err := repository.isAncestor(
+		*state.Plan.Approval.Receipt.Target,
+		state.Refs.Target.Head,
+	)
+	if err != nil {
+		return err
+	}
+	if !contained {
+		return recordFail(
+			"TARGET_DIVERGED",
+			"the target no longer contains the approved starting point; reconcile its history before continuing",
+		)
+	}
+	return nil
+}
+
 func classifyStateAssembly(
 	repository *repository,
 	state State,
@@ -271,9 +276,6 @@ func classifyStateAssembly(
 		return assemblyClassification{}, err
 	}
 	target := state.Refs.Target.Head
-	if state.Plan.Approval.Receipt.Target != nil {
-		target = *state.Plan.Approval.Receipt.Target
-	}
 	releaseHead := state.Refs.Release.Head
 	if state.Assembly.Outcome == "merged" &&
 		state.Assembly.CurrentReceipt != nil &&

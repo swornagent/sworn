@@ -74,10 +74,11 @@ invalidates it.
 Merge is mechanical. It rechecks current authority and integrates only the
 exact candidate covered by `PASS` against the expected target.
 
-A changed candidate, unsafe target movement, conflict, ambiguous composition,
-or persistence ambiguity stops without claiming success. Multi-track delivery
-requires fresh verification of the complete assembled product before final
-Merge.
+A changed candidate, divergent target history, conflict, ambiguous composition,
+or persistence ambiguity stops without claiming success. A normal advance of
+the same target is folded into a rebuilt assembly and checked again without
+resetting passed slices. Multi-track delivery requires fresh verification of
+the complete assembled product before final Merge.
 
 ## The useful minimum
 

@@ -11,7 +11,10 @@ import (
 	"github.com/swornagent/sworn/internal/journal"
 )
 
-const trackBaseCommandVersion = "sworn.git-prepare-track-base/v2"
+const (
+	trackBaseCommandVersion   = "sworn.git-prepare-track-base/v3"
+	trackBaseCommandVersionV2 = "sworn.git-prepare-track-base/v2"
+)
 
 type trackBaseInputWire struct {
 	Slice            string `json:"slice"`
@@ -29,6 +32,7 @@ type trackBaseRequestWire struct {
 	ReleaseHead    string               `json:"release_head"`
 	TargetRef      string               `json:"target_ref"`
 	TargetHead     string               `json:"target_head"`
+	ApprovedTarget string               `json:"approved_target,omitempty"`
 	ConsumerTrack  string               `json:"consumer_track"`
 	ConsumerSlice  string               `json:"consumer_slice"`
 	AuthoritySeed  string               `json:"authority_seed"`
@@ -130,6 +134,16 @@ func trackBaseRequestFromWire(
 	if err != nil {
 		return gitx.PrepareTrackBaseRequest{}, err
 	}
+	approvedTargetValue := wire.ApprovedTarget
+	if approvedTargetValue == "" {
+		// v2 commands predate RC13 target-lineage support, when the live and
+		// approved target were required to be identical.
+		approvedTargetValue = wire.TargetHead
+	}
+	approvedTarget, err := gitx.ParseOID(format, approvedTargetValue)
+	if err != nil {
+		return gitx.PrepareTrackBaseRequest{}, err
+	}
 	authoritySeed, err := gitx.ParseOID(format, wire.AuthoritySeed)
 	if err != nil {
 		return gitx.PrepareTrackBaseRequest{}, err
@@ -143,11 +157,12 @@ func trackBaseRequestFromWire(
 		before = &value
 	}
 	request := gitx.PrepareTrackBaseRequest{
-		Release:     wire.Release,
-		Plan:        plan,
-		ReleaseHead: releaseHead,
-		TargetRef:   wire.TargetRef,
-		TargetHead:  targetHead,
+		Release:        wire.Release,
+		Plan:           plan,
+		ReleaseHead:    releaseHead,
+		TargetRef:      wire.TargetRef,
+		TargetHead:     targetHead,
+		ApprovedTarget: approvedTarget,
 		Consumer: gitx.TrackKey{
 			Release: wire.Release,
 			Track:   wire.ConsumerTrack,
@@ -220,6 +235,8 @@ func trackBaseRequestFromWire(
 		state.Refs.Release.Head != wire.ReleaseHead ||
 		state.Refs.Target.Ref != wire.TargetRef ||
 		state.Refs.Target.Head != wire.TargetHead ||
+		state.Plan.Approval.Receipt.Target == nil ||
+		*state.Plan.Approval.Receipt.Target != approvedTargetValue ||
 		current.Location.Track.ID != wire.ConsumerTrack ||
 		track.AuthorityHead != wire.AuthoritySeed ||
 		!currentConsumedInputsMatch(
@@ -258,6 +275,7 @@ func trackBaseRequestForSlice(
 		ReleaseHead:    state.Refs.Release.Head,
 		TargetRef:      state.Refs.Target.Ref,
 		TargetHead:     state.Refs.Target.Head,
+		ApprovedTarget: *state.Plan.Approval.Receipt.Target,
 		ConsumerTrack:  slice.Location.Track.ID,
 		ConsumerSlice:  slice.Location.Slice.ID,
 		AuthoritySeed:  track.AuthorityHead,
@@ -389,7 +407,10 @@ func validateTrackBaseCommand(
 		effect.Kind != "git.prepare_track_base" ||
 		json.Unmarshal(command.Payload, &persisted) != nil ||
 		!bytesEqualCanonicalJSON(command.Payload, persisted) ||
-		persisted.Version != trackBaseCommandVersion ||
+		(persisted.Version != trackBaseCommandVersion &&
+			persisted.Version != trackBaseCommandVersionV2) ||
+		(persisted.Version == trackBaseCommandVersion &&
+			persisted.Request.ApprovedTarget == "") ||
 		!runtimeDigestPattern.MatchString(persisted.Before) {
 		return trackBaseCommand{}, gitx.PrepareTrackBaseRequest{},
 			runtimeFail("CORRUPT_JOURNAL", nil)

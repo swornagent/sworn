@@ -196,7 +196,11 @@ func runBinaryWithEnvironment(
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Fatal("Sworn binary timed out")
+		t.Fatalf(
+			"Sworn binary timed out\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 	exit := 0
 	if err != nil {

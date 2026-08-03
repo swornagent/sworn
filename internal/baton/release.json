@@ -1,34 +1,34 @@
 {
   "schema": "sworn.baton-release/v1",
-  "package_version": "1.0.0-rc.12",
+  "package_version": "1.0.0-rc.13",
   "source_repository": "https://github.com/sawy3r/baton",
-  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.12",
-  "published_at": "2026-07-31T04:32:53Z",
+  "release_url": "https://github.com/sawy3r/baton/releases/tag/v1.0.0-rc.13",
+  "published_at": "2026-08-01T10:01:15Z",
   "tag": {
-    "name": "v1.0.0-rc.12",
-    "object": "caac9f0ab32a596600874f911c7f2a5cd24b6552",
+    "name": "v1.0.0-rc.13",
+    "object": "4c9f9b54d25cd97ea6ac7457492b3124b893a156",
     "object_type": "tag",
-    "peeled_commit": "5bc374451d0e31d74948ea63010f87d017a3abd5",
-    "peeled_tree": "27297a37e7efd0154c487abfc5bae98fe711a8df"
+    "peeled_commit": "f4a9ee77a5ade46eeed74a85e0c2b1336622d8f3",
+    "peeled_tree": "92786d89210ef816be4982c19877e8b312db24ec"
   },
   "archive": {
-    "name": "baton-1.0.0-rc.12.tar.gz",
-    "sha256": "sha256:620e0f04ddcfa10067a8519d23b169d5e3fcc2751f28652990c889b72e0e4afb",
-    "embedded_commit": "5bc374451d0e31d74948ea63010f87d017a3abd5"
+    "name": "baton-1.0.0-rc.13.tar.gz",
+    "sha256": "sha256:38e8ceb4e9adc2dd5eff054d2a35cf69fa54fdcc104c028998615ca949525c1a",
+    "embedded_commit": "f4a9ee77a5ade46eeed74a85e0c2b1336622d8f3"
   },
   "generated_support": {
     "manifest_schema": "baton.skills-payload/v1",
     "generator_version": "baton.skill-generator/v1",
     "operation_version": "baton.operation/v2",
-    "package_digest": "sha256:f2db06b64a31403e7a864816a3b278a48578a5788eed3235d2be95cfbf093ef2"
+    "package_digest": "sha256:9340b3f379b2e46d58665ff98ad53735673c2d8ab24788491f42445b5951c126"
   },
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "source_commit": "5bc374451d0e31d74948ea63010f87d017a3abd5",
-    "source_tree": "27297a37e7efd0154c487abfc5bae98fe711a8df",
-    "manifest_sha256": "sha256:61e9760ce782c754cc766920937c0d7fd3ff592db157dea42ca9de0475b0d2ab",
+    "source_commit": "f4a9ee77a5ade46eeed74a85e0c2b1336622d8f3",
+    "source_tree": "92786d89210ef816be4982c19877e8b312db24ec",
+    "manifest_sha256": "sha256:517a7274daf72c6ca1c927a88d97ac309d5f331133ad2c5ba7c156fc88d3f636",
     "asset_count": 25,
-    "total_bytes": 371555
+    "total_bytes": 373458
   },
   "operations": [
     {
@@ -59,7 +59,7 @@
       "name": "baton-merge",
       "source": "operations/baton-merge.md",
       "version": "baton.operation/v2",
-      "sha256": "sha256:4056008e46a987a9c08cc69f297acfe08c1844eb1edcadf146096ea9bd23ada3"
+      "sha256": "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"
     }
   ],
   "templates": [
@@ -80,7 +80,7 @@
       "kind": "conformance_manifest",
       "source": "conformance/manifest.json",
       "version": "baton.conformance-manifest/v2",
-      "sha256": "sha256:8c3b7247a782a55a08c2ca09226123e4b96b8e80f4c2649a950a0df699988018"
+      "sha256": "sha256:d125ebc409d2b9fcaec979741a1554cfec6b4c4159996a517d94fd9ec13dece1"
     },
     {
       "kind": "receipt",

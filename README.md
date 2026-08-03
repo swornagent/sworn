@@ -45,7 +45,7 @@ handoffs decide what advances.
 
 ## Current release candidate
 
-Sworn `1.0.0-rc.2` includes Baton `1.0.0-rc.12`. Check the installed
+Sworn `1.0.0-rc.2-dev` includes Baton `1.0.0-rc.13`. Check the installed
 versions with `sworn version`, or use `sworn version --json` when another
 tool needs to read them.
 

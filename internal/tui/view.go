@@ -406,8 +406,8 @@ func wrapFact(label, value string, width int) []string {
 
 func diagnosticExplanation(code string) string {
 	switch code {
-	case "TARGET_MOVED":
-		return "The target branch moved after this plan was approved."
+	case "TARGET_DIVERGED":
+		return "The target history changed. Reconcile it before continuing."
 	case "TRACK_REF_ABSENT":
 		return "A track is ready for Sworn to prepare."
 	case "STALE_INPUTS":

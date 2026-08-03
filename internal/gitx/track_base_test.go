@@ -127,6 +127,7 @@ func (f trackBaseFixture) request(
 		ReleaseHead:      f.releaseHead,
 		TargetRef:        "refs/heads/main",
 		TargetHead:       f.targetHead,
+		ApprovedTarget:   f.targetHead,
 		Consumer:         f.consumer,
 		AuthoritySeed:    f.releaseHead,
 		ConsumerBefore:   before,
@@ -555,7 +556,7 @@ func TestPrepareTrackBaseRejectsNonFastForwardConsumerMovement(t *testing.T) {
 	}
 }
 
-func TestPrepareTrackBaseIncludesApprovedTargetBeforeInputs(t *testing.T) {
+func TestPrepareTrackBaseSeparatesLiveAndApprovedTargets(t *testing.T) {
 	fixture := newTrackBaseFixture(t, "approved-target")
 	approvedTarget := prepareProduct(
 		t,
@@ -564,14 +565,22 @@ func TestPrepareTrackBaseIncludesApprovedTargetBeforeInputs(t *testing.T) {
 		[]BlobChange{{Path: "approved.txt", Bytes: []byte("approved\n")}},
 		"approved target",
 	)
+	liveTarget := prepareProduct(
+		t,
+		fixture.repository,
+		approvedTarget.Commit,
+		[]BlobChange{{Path: "live.txt", Bytes: []byte("live\n")}},
+		"live target",
+	)
 	if err := fixture.repository.AtomicUpdateRefs([]RefOperation{{
 		Kind: UpdateRef, Ref: "refs/heads/main",
-		NewHead: &approvedTarget.Commit, Expected: &fixture.targetHead,
+		NewHead: &liveTarget.Commit, Expected: &fixture.targetHead,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	request := fixture.request(nil, nil)
-	request.TargetHead = approvedTarget.Commit
+	request.TargetHead = liveTarget.Commit
+	request.ApprovedTarget = approvedTarget.Commit
 	result, err := fixture.workspaces.PrepareTrackBase(request)
 	if err != nil {
 		t.Fatal(err)

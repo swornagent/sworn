@@ -1582,6 +1582,7 @@ function assemblyCandidate(history, entry) {
 function validateAssembly(
   repo,
   entries,
+  releaseEntries,
   planByOID,
   approvals,
   sliceEntries,
@@ -1590,9 +1591,17 @@ function validateAssembly(
   trackProductBaseFor,
   productCache,
 ) {
-  const byOID = new Map([...approvals.values()].map((entry) => [entry.oid, entry]));
+  const byOID = new Map(releaseEntries.map((entry) => [entry.oid, entry]));
+  for (const entry of approvals.values()) byOID.set(entry.oid, entry);
   for (const entry of sliceEntries) byOID.set(entry.oid, entry);
-  let previous = null;
+  const predecessors = new Map();
+  let predecessor = null;
+  for (const entry of releaseEntries.filter(({ receipt }) => (
+    receipt.role === 'planner' || !Object.hasOwn(receipt, 'slice')
+  ))) {
+    predecessors.set(entry.oid, predecessor);
+    predecessor = entry;
+  }
   for (const entry of entries) {
     const receipt = entry.receipt;
     const plan = planByOID.get(receipt.plan);
@@ -1602,14 +1611,13 @@ function validateAssembly(
       const trackIDs = plan.parsed.metadata.tracks.map((track) => track.id);
       exactInputs(receipt, trackIDs, `assembly candidate ${entry.oid}`);
       const bound = byOID.get(receipt.binds);
-      const first = bound?.oid === approval.oid;
-      const retry = previous && bound?.oid === previous.oid;
       if (
-        (!first && !retry)
+        bound?.oid !== predecessors.get(entry.oid)?.oid
         || entry.parent !== receipt.candidate
+        || receipt.base !== receipt.target
         || !isAncestor(repo, receipt.base, receipt.candidate)
         || !isAncestor(repo, receipt.binds, receipt.candidate)
-        || receipt.target !== approval.receipt.target
+        || !isAncestor(repo, approval.receipt.target, receipt.target)
         || productTree(repo, receipt.candidate, productCache) !== receipt.product_tree
       ) fail('STALE_BINDING', `assembly candidate ${entry.oid} has invalid evidence`);
       const currentPins = Object.fromEntries(tracks.map((track) => [
@@ -1620,31 +1628,25 @@ function validateAssembly(
         receipt.plan === currentPlanOID
         && sameInputs(receipt.inputs, currentPins)
       ) {
-        let expectedCandidate = receipt.target;
-        for (const component of [
-          { authority: receipt.binds, product_base: null },
-          ...tracks.map((track) => ({
-            authority: track.slices.at(-1).pass.oid,
-            product_base: () => trackProductBaseFor(track.id),
-          })),
-        ]) {
+        let expectedCandidate = unsafePrepareApprovedTargetBase(repo, {
+          targetRef: plan.parsed.metadata.target_ref,
+          expectedHead: receipt.binds,
+          approvedTarget: receipt.target,
+        });
+        for (const component of tracks.map((track) => ({
+          authority: track.slices.at(-1).pass.oid,
+          product_base: () => trackProductBaseFor(track.id),
+        }))) {
           if (
             component.authority === expectedCandidate
             || isAncestor(repo, component.authority, expectedCandidate)
           ) continue;
-          const prepared = component.product_base === null
-            ? unsafePrepareExactComposition(repo, {
-              targetRef: plan.parsed.metadata.target_ref,
-              expectedHead: expectedCandidate,
-              candidate: component.authority,
-            })
-            : unsafePrepareProductComposition(repo, {
-              targetRef: plan.parsed.metadata.target_ref,
-              expectedHead: expectedCandidate,
-              candidate: component.authority,
-              productBase: component.product_base,
-            });
-          expectedCandidate = prepared.result;
+          expectedCandidate = unsafePrepareProductComposition(repo, {
+            targetRef: plan.parsed.metadata.target_ref,
+            expectedHead: expectedCandidate,
+            candidate: component.authority,
+            productBase: component.product_base,
+          }).result;
         }
         if (receipt.candidate !== expectedCandidate) {
           fail(
@@ -1675,7 +1677,7 @@ function validateAssembly(
       const candidate = assemblyPass ? assemblyCandidate({ byOID }, bound) : bound;
       if (
         (!assemblyPass && !directPass)
-        || receipt.target !== approval.receipt.target
+        || !isAncestor(repo, approval.receipt.target, receipt.target)
         || receipt.candidate !== candidate?.receipt.candidate
         || receipt.product_tree !== candidate?.receipt.product_tree
       ) fail('STALE_BINDING', `Merge ${entry.oid} has no applicable PASS`);
@@ -1688,7 +1690,6 @@ function validateAssembly(
       fail('AMBIGUOUS_AUTHORITY', `release receipt ${entry.oid} has an invalid role`);
     }
     byOID.set(entry.oid, entry);
-    previous = entry;
   }
   return { entries, byOID };
 }
@@ -1716,7 +1717,7 @@ function deriveAssembly(repo, current, history, approval, tracks, target) {
       ? tracks[0].slices[0]
       : null;
     const direct = lastSlice?.pass
-      && isAncestor(repo, approval.receipt.target, lastSlice.pass.receipt.candidate);
+      && isAncestor(repo, target, lastSlice.pass.receipt.candidate);
     return frozen({
       ...common,
       stage: direct ? 'merge' : 'verify',
@@ -1985,6 +1986,7 @@ export function readBatonState(
   const assemblyHistory = validateAssembly(
     repo,
     assemblyEntries,
+    releaseHistory.receipts,
     planByOID,
     plans.approvals,
     allSliceEntries,
@@ -2011,11 +2013,11 @@ export function readBatonState(
   // the target ancestry above, that movement is the successful terminal
   // outcome, not a reason to revise the plan.
   const targetStale = assembly.status !== 'complete'
-    && approval.receipt.target !== captured[1].head;
+    && !isAncestor(repo, approval.receipt.target, captured[1].head);
   const diagnostics = [];
   if (targetStale) diagnostics.push(diagnostic(
-    'TARGET_MOVED',
-    'the approved target moved; record a new plan revision',
+    'TARGET_DIVERGED',
+    'The target no longer contains the approved starting point; reconcile its history.',
     { release },
   ));
   for (const track of tracks) {

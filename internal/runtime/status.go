@@ -524,7 +524,7 @@ func exhaustedWorkApplies(
 		}
 		return intersectsWork(exhausted, applicable)
 	}
-	plannerNeeded := state.Plan.TargetStale
+	plannerNeeded := false
 	for _, slice := range state.Slices {
 		plannerNeeded = plannerNeeded || slice.NextRole == "planner"
 	}
