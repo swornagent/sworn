@@ -527,7 +527,7 @@ func (s *Service) selectedAutomationProfile(
 			runtimeFail("DRIVER_SELECTION_FAILED", err)
 	}
 	if engine.configured != nil {
-		if err := engine.configured.certifySelected(ctx, selected); err != nil {
+		if err := engine.configured.validateSelected(selected); err != nil {
 			return driver.SelectedProfile{}, err
 		}
 	}

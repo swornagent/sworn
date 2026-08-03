@@ -63,7 +63,6 @@ func NewProductionDriverFactory(
 	) ([][]byte, error) {
 		return systemAWSEnvironment(ctx, reference, awsEnvironments)
 	}
-	factory.options.NativeSmokeBuilders = make(map[string]NativeSmokeBuilder)
 	factory.options.LiveProbes = make(map[string]ProfileLiveProbe)
 
 	sources := credentialSourceMap(reloaded.config.Credentials)
@@ -74,9 +73,6 @@ func NewProductionDriverFactory(
 			return nil, descriptorErr
 		}
 		switch descriptor.kind {
-		case driverAdapterNative:
-			factory.options.NativeSmokeBuilders[descriptor.key] =
-				factory.nativeCertificationInvocations
 		case driverAdapterOpenAI, driverAdapterDeepSeek, driverAdapterGemini,
 			driverAdapterBedrock, driverAdapterMantle:
 			config := cloneDriverAdapterConfig(adapterConfig)
@@ -94,7 +90,6 @@ func (factory *ProductionDriverFactory) Options() DriverFactoryOptions {
 		return DriverFactoryOptions{}
 	}
 	options := factory.options
-	options.NativeSmokeBuilders = maps.Clone(options.NativeSmokeBuilders)
 	options.LiveProbes = maps.Clone(options.LiveProbes)
 	options.RoundTrippers = maps.Clone(options.RoundTrippers)
 	return options
@@ -132,7 +127,6 @@ func (factory *ProductionDriverFactory) liveProbe(
 		}
 		options := factory.Options()
 		options.LiveProbes = nil
-		options.NativeSmokeBuilders = nil
 		adapter, err := buildConfiguredAdapter(
 			config,
 			descriptor,
@@ -230,122 +224,6 @@ func (factory *ProductionDriverFactory) certificationInvocation(
 			Input: input,
 			Bytes: instruction,
 		}},
-	}, nil
-}
-
-func (factory *ProductionDriverFactory) nativeCertificationInvocations(
-	ctx context.Context,
-	selected SelectedProfile,
-) (NativeSmokeInvocations, error) {
-	if factory == nil || factory.root == "" || ctx == nil ||
-		ctx.Err() != nil {
-		return NativeSmokeInvocations{}, fail("LIVE_PROBE_FAILED")
-	}
-	workspace, err := os.MkdirTemp(factory.root, "native-workspace-")
-	if err != nil {
-		return NativeSmokeInvocations{}, fail("LIVE_PROBE_FAILED")
-	}
-	build := func(
-		suffix string,
-		responsibility Responsibility,
-		access WorkspaceAccess,
-		fresh bool,
-	) (Invocation, error) {
-		instruction := []byte(
-			`{"instruction":"Exercise the exact configured native model and terminate with one valid sworn_submit call for the named responsibility. Do not make product changes.","responsibility":"` +
-				string(responsibility) + `","schema_version":"` +
-				driverCertificationSchemaVersion + `","stage":"` + suffix + `"}`,
-		)
-		input := Input{
-			Name:   "native-certification-" + suffix,
-			Path:   "certification/" + suffix + ".json",
-			Digest: Digest(instruction),
-		}
-		sum := sha256.Sum256([]byte(
-			selected.Profile.Key + "\x00" + selected.Model + "\x00" +
-				workspace + "\x00" + suffix,
-		))
-		request, requestErr := NewRequest(
-			"native-certify-"+suffix+"-"+hex.EncodeToString(sum[:8]),
-			RoleImplementer,
-			selected.Profile.Key,
-			selected.Model,
-			Workspace{Path: GuestWorkspacePath, Access: access},
-			[]Input{input},
-			fresh,
-			Limits{
-				TimeoutMillis: 120_000,
-				OutputBytes:   MaxProviderOutputBytes,
-			},
-		)
-		if requestErr != nil {
-			return Invocation{}, requestErr
-		}
-		containment := ContainmentReadOnly
-		if access == ReadWrite {
-			containment = ContainmentReadWrite
-		}
-		permission, permissionErr := NewSubmissionPermission(
-			request,
-			selected,
-			containment,
-			responsibility,
-		)
-		if permissionErr != nil {
-			return Invocation{}, permissionErr
-		}
-		return Invocation{
-			Request:       request,
-			HostWorkspace: workspace,
-			Selected:      selected,
-			Permission:    permission,
-			Inputs: []InputContent{{
-				Input: input,
-				Bytes: instruction,
-			}},
-		}, nil
-	}
-	freshReadOnly, err := build(
-		"fresh-read-only",
-		ImplementerDesign,
-		ReadOnly,
-		true,
-	)
-	if err != nil {
-		return NativeSmokeInvocations{}, err
-	}
-	freshReadWrite, err := build(
-		"fresh-read-write",
-		ImplementerDesign,
-		ReadWrite,
-		true,
-	)
-	if err != nil {
-		return NativeSmokeInvocations{}, err
-	}
-	continuationStart, err := build(
-		"continuation-start",
-		ImplementerDesign,
-		ReadOnly,
-		true,
-	)
-	if err != nil {
-		return NativeSmokeInvocations{}, err
-	}
-	resume, err := build(
-		"resume",
-		ImplementerImplementation,
-		ReadWrite,
-		false,
-	)
-	if err != nil {
-		return NativeSmokeInvocations{}, err
-	}
-	return NativeSmokeInvocations{
-		FreshReadOnly:     freshReadOnly,
-		FreshReadWrite:    freshReadWrite,
-		ContinuationStart: continuationStart,
-		Resume:            resume,
 	}, nil
 }
 

@@ -1152,25 +1152,12 @@ func w8NewNativeTarget(
 		resolve: func(context.Context, string) (string, error) {
 			return credentialPath, nil
 		},
-		refs:      map[string]struct{}{ref: {}},
-		certified: make(map[string]nativeSurfaceCertificate),
+		refs: map[string]struct{}{ref: {}},
 	}
 	profile := ProfileConfig{
 		Key: "w8-profile-" + name, Adapter: identity.Key,
 		Network: NetworkRequired, CredentialRef: &ref,
 	}
-	native.certified[nativeCertificationKey(profile, w8CorpusModel)] =
-		nativeSurfaceCertificateFixture(
-			Invocation{Selected: SelectedProfile{
-				Profile: profile,
-				Adapter: identity,
-				Model:   w8CorpusModel,
-			}},
-			config,
-			"w8-native",
-			"1.0.0",
-			Digest([]byte("w8-native-capture")),
-		)
 	return &w8CorpusTarget{
 		name: name, family: family, profile: profile,
 		adapter:    &w8CountedAdapter{delegate: native},

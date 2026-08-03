@@ -54,7 +54,7 @@ Exact syntax:
 `
 
 const (
-	swornVersion = "1.0.0-rc.2"
+	swornVersion = "1.0.0-rc.2-dev"
 	swornState   = "baton-rc12-admitted"
 )
 

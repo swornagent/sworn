@@ -333,64 +333,30 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 	}
 }
 
-func TestSelectedNativeProfileIsCertifiedOncePerProcessAndModel(
+func TestSelectedProfileMustBelongToConfiguredRegistry(
 	t *testing.T,
 ) {
 	t.Parallel()
 
-	var calls atomic.Int64
 	configured := &configuredRuntimeRegistry{
 		families: map[string]driver.ProfileFamily{
 			"native": driver.ProfileCodex,
 			"http":   driver.ProfileOpenAIHTTP,
 		},
-		certify: func(
-			_ context.Context,
-			profile string,
-			model string,
-		) driver.ProfileReport {
-			calls.Add(1)
-			return driver.ProfileReport{
-				Profile: profile,
-				Model:   model,
-				State:   driver.ReadinessPass,
-				Code:    "live_smoke_passed",
-			}
-		},
-		certifications: make(map[string]*runtimeCertification),
 	}
 	selected := driver.SelectedProfile{
 		Profile: driver.ProfileConfig{Key: "native"},
 		Model:   "model-1",
 	}
-	if err := configured.certifySelected(
-		context.Background(),
-		selected,
-	); err != nil {
+	if err := configured.validateSelected(selected); err != nil {
 		t.Fatal(err)
 	}
-	if err := configured.certifySelected(
-		context.Background(),
-		selected,
-	); err != nil {
-		t.Fatal(err)
-	}
-	selected.Model = "model-2"
-	if err := configured.certifySelected(
-		context.Background(),
-		selected,
-	); err != nil {
-		t.Fatal(err)
-	}
-	selected.Profile.Key = "http"
-	if err := configured.certifySelected(
-		context.Background(),
-		selected,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("native certification calls = %d, want 2", calls.Load())
+	selected.Profile.Key = "missing"
+	if err := configured.validateSelected(selected); !IsCode(
+		err,
+		"DRIVER_SELECTION_FAILED",
+	) {
+		t.Fatalf("unknown profile = %v", err)
 	}
 }
 

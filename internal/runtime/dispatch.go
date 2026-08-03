@@ -1072,7 +1072,7 @@ func (s *Service) prepareDriverDispatch(
 		return preparedDriverDispatch{},
 			runtimeFail("DRIVER_SELECTION_FAILED", err)
 	}
-	if err := engine.configured.certifySelected(ctx, selected); err != nil {
+	if err := engine.configured.validateSelected(selected); err != nil {
 		return preparedDriverDispatch{}, err
 	}
 	access := driver.ReadOnly
