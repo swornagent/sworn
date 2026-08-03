@@ -22,6 +22,7 @@ import (
 const usage = `Sworn carries software work through Baton's recorded handoffs.
 
 Commands:
+  init      Set this project up to work with Sworn.
   tui       Browse this project's releases and runs in an interactive terminal.
   run       Start or continue a run.
   board     Show what Sworn is doing and what happens next.
@@ -39,6 +40,7 @@ Commands:
 
 Exact syntax:
   sworn version [--json]
+  sworn init [--project ABS] [--force]
   sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
   sworn run --manifest ABS --journal ABS [--config ABS]
   sworn pause|cancel --run ID --journal ABS --command ID --generation N
@@ -80,6 +82,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runTUI(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
+	case "init":
+		return runInit(args[1:], stdout, stderr)
 	case "run":
 		return runStart(args[1:], stdout, stderr)
 	case "driver":
