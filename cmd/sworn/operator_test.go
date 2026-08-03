@@ -1165,11 +1165,8 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 		TargetRef:         "refs/heads/main",
 		Intent:            intent,
 		MaxParallelTracks: 1,
-		Approval: runtimepkg.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               1,
-			AllowedAuthorIDs:    []int64{1},
-			AllowedAssociations: []string{"OWNER"},
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",

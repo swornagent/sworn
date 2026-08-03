@@ -30,8 +30,23 @@ func PresentRunState(state string) RunPresentation {
 	case "awaiting_approval":
 		presentation.Status = "Waiting for approval"
 		presentation.What = "The proposed plan is ready, but delivery has not been approved."
-		presentation.Next = "Approve the plan through the configured approval source."
+		presentation.Next = "Authorize the exact plan through the configured external authorizer."
 		presentation.NeedsYou = "Yes — approve or decline the plan."
+	case "migration_required":
+		presentation.Status = "Migration required"
+		presentation.What = "This saved run uses legacy hosted approval authority and is read-only."
+		presentation.Next = "Create a v4 project-authority run before continuing delivery."
+		presentation.NeedsYou = "Yes — migrate the run definition."
+	case "authority_conflict":
+		presentation.Status = "Authority conflict"
+		presentation.What = "Distinct plan authority facts disagree, so Sworn stopped closed."
+		presentation.Next = "Resolve the conflicting exact plan digests before continuing."
+		presentation.NeedsYou = "Yes — review project authority."
+	case "invalid_authority":
+		presentation.Status = "Invalid authority"
+		presentation.What = "Saved project authority does not bind the exact approved Baton plan."
+		presentation.Next = "Correct the project authority or migrate the saved run."
+		presentation.NeedsYou = "Yes — review project authority."
 	case "pausing":
 		presentation.Status = "Pausing safely"
 		presentation.What = "Sworn is waiting for current work to reach a safe stopping point."

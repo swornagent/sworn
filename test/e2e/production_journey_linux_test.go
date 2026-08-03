@@ -474,9 +474,9 @@ func productionJourneyPlan(
 		Release:       "production-journey-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef:   "github://acme/repo/issues/61#production-journey-v1",
+		ApprovalRef:   "operator://production-journey-release/1",
 		Tracks: []baton.Track{
 			{
 				ID: "T1", DependsOn: []string{},
@@ -587,18 +587,15 @@ func productionJourneyManifest(
 ) []byte {
 	t.Helper()
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersionV2,
+		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             "production-journey",
 		Repository:        repository,
 		Release:           "production-journey-release",
 		TargetRef:         "refs/heads/main",
 		Intent:            "Complete the deterministic configured production journey.",
 		MaxParallelTracks: 3,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               61,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		DriverConfigDigest: config.ConfigurationDigest(),
 		Roles: driver.RoleSelections{
@@ -614,6 +611,9 @@ func productionJourneyManifest(
 			Verifier: driver.RoleSelection{
 				Profile: "gemini", Model: "journey-verifier",
 			},
+		},
+		Automation: &swornruntime.AutomationSelections{
+			Recovery: driver.RoleSelection{Profile: "openai", Model: "journey-planner"},
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 30_000,
@@ -714,6 +714,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	}
 
 	approvals.publish(61, approvalFor(61, "production-journey-v1", plan))
+	authorizePlan(t, journalPath, "production-journey", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,

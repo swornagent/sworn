@@ -282,13 +282,9 @@ func e2ePlan(
 	}
 	metadata := baton.Metadata{
 		SchemaVersion: baton.PlanVersion, Release: release, Revision: 1,
-		PreviousPlan: nil, Repository: "acme/repo",
-		TargetRef: "refs/heads/main",
-		ApprovalRef: fmt.Sprintf(
-			"github://acme/repo/issues/%d#%s",
-			issue,
-			marker,
-		),
+		PreviousPlan: nil, Repository: "acme-repo",
+		TargetRef:   "refs/heads/main",
+		ApprovalRef: "operator://" + release + "/1",
 		Tracks: []baton.Track{
 			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{slice("S1", "one.txt")}},
 			{ID: "T2", DependsOn: []string{}, Slices: []baton.Slice{slice("S2", "two.txt")}},
@@ -374,14 +370,12 @@ func e2eManifest(
 		return left < right
 	})
 	manifest := swornruntime.Manifest{
-		SchemaVersion: swornruntime.ManifestVersionV2,
+		SchemaVersion: swornruntime.ManifestVersion,
 		RunID:         runID, Repository: repository, Release: release,
 		TargetRef: "refs/heads/main", Intent: "Drive the exact approved E2E track.",
 		MaxParallelTracks: 2,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository: "acme/repo", Issue: issue,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &swornruntime.FakeDriverConfig{
 			Executable: fakeExecutable, Digest: fakeDigest,
@@ -392,6 +386,9 @@ func e2eManifest(
 			Implementer: driver.RoleSelection{Profile: "e2e-fake", Model: "implementer-model"},
 			Captain:     driver.RoleSelection{Profile: "e2e-fake", Model: "captain-model"},
 			Verifier:    driver.RoleSelection{Profile: "e2e-fake", Model: verifierModel},
+		},
+		Automation: &swornruntime.AutomationSelections{
+			Recovery: driver.RoleSelection{Profile: "e2e-fake", Model: "recovery-model"},
 		},
 		Limits:  driver.Limits{TimeoutMillis: 30_000, OutputBytes: 65_536},
 		Scripts: scripts,
@@ -426,6 +423,34 @@ func approvalFor(issue int64, marker string, plan baton.Plan) approvalComment {
 	}
 	comment.User.ID, comment.User.Login = 42, "approver"
 	return comment
+}
+
+func authorizePlan(
+	t *testing.T,
+	journalPath, runID string,
+	plan baton.Plan,
+) {
+	t.Helper()
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	payload, err := json.Marshal(struct {
+		Version    string `json:"version"`
+		PlanDigest string `json:"plan_digest"`
+	}{Version: "sworn.plan-authority/v1", PlanDigest: plan.Digest()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload, '\n')
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     runID,
+		ReplayKey: "plan-authority/" + strings.TrimPrefix(plan.Digest(), "sha256:"),
+		Kind:      "plan_authority", Payload: payload, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func inertResolver(

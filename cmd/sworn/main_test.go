@@ -355,11 +355,8 @@ func boardJournalFixture(t *testing.T) string {
 		TargetRef:         "refs/heads/main",
 		Intent:            "Project one read-only board fixture.",
 		MaxParallelTracks: 1,
-		Approval: runtimepkg.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               1,
-			AllowedAuthorIDs:    []int64{1},
-			AllowedAssociations: []string{"OWNER"},
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",

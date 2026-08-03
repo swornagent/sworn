@@ -29,7 +29,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	ownerActive := ownerPresent && owner.ExpiresAt.After(s.now().UTC())
 	ownerExpired := ownerPresent && !ownerActive
-	result := RunStatus{SchemaVersion: "sworn.run-status/v2", RunID: runID,
+	result := RunStatus{SchemaVersion: "sworn.run-status/v3", RunID: runID,
 		State: "new", DesiredState: control.Desired, ControlGeneration: control.Generation,
 		ManifestDigest: snapshot.Run.ManifestDigest, TargetRef: snapshot.Run.TargetRef,
 		Effects: make([]EffectStatus, 0, len(snapshot.Effects))}
@@ -37,6 +37,23 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if loadErr != nil {
 		return RunStatus{}, loadErr
 	}
+	if manifest.legacyVersion != "" {
+		result.State = "migration_required"
+		result.AuthorityState = "migration_required"
+		return result, nil
+	}
+	result.Project = manifest.value.Authority.Project
+	result.ExternalAuthorizer = manifest.value.Authority.ExternalAuthorizer
+	authorityDigest, authorityErr := effectivePlanAuthority(manifest, snapshot)
+	if authorityErr != nil {
+		if IsCode(authorityErr, "AUTHORITY_CONFLICT") {
+			result.State = "authority_conflict"
+			result.AuthorityState = "authority_conflict"
+			return result, nil
+		}
+		return RunStatus{}, authorityErr
+	}
+	result.AuthorityDigest = authorityDigest
 	attentions, err := s.journal.Attentions(ctx, runID)
 	if err != nil {
 		return RunStatus{}, runtimeFail("CORRUPT_JOURNAL", err)
@@ -118,6 +135,36 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		statusEngine, snapshot, proposals, state, stateErr)
 	if selectErr != nil {
 		return RunStatus{}, selectErr
+	}
+	result.AuthorityState = "awaiting_approval"
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "baton.install" {
+			continue
+		}
+		switch effect.State {
+		case journal.Pending, journal.Claimed:
+			result.AuthorityState = "installing"
+		case journal.Uncertain:
+			result.AuthorityState = "reconciling_install"
+		case journal.OperationalFailed:
+			result.AuthorityState = "invalid_authority"
+		}
+	}
+	if result.AuthorityState == "awaiting_approval" && authorityDigest != "" {
+		switch {
+		case stateErr == nil:
+			adopted, err := validateSavedPlanAdoption(
+				statusEngine, state, authorityDigest)
+			if err != nil {
+				result.AuthorityState = "invalid_authority"
+			} else if adopted {
+				result.AuthorityState = "approved"
+			}
+		case proposalFound && proposal.plan.Digest() == authorityDigest:
+			result.AuthorityState = "approved"
+		default:
+			result.AuthorityState = "authority_conflict"
+		}
 	}
 	latestRevision := int64(0)
 	if proposalFound {

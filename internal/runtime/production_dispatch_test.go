@@ -547,7 +547,7 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		ManifestDigest:     manifest.digest,
 		DriverConfigDigest: manifest.value.DriverConfigDigest,
 		RunID:              manifest.value.RunID,
-		Repository:         manifest.value.Approval.Repository,
+		Repository:         manifest.value.Authority.Project,
 		Release:            manifest.value.Release,
 		Intent:             manifest.value.Intent,
 		InvocationID: dispatchInvocationID(
@@ -899,7 +899,7 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -1204,7 +1204,7 @@ func newProductionImplementationRecoveryFixture(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -1570,7 +1570,7 @@ func runCandidateHeadRefreshDispatch(
 	_, parsed := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -2729,7 +2729,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)

@@ -17,15 +17,22 @@ func TestResumeReportsOwnerTransitionUntilExactReplayCanAcquire(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	_, manifestBody, _ := fixtureManifest(t)
 	run := journal.Run{
-		ID:             "resume-transition",
-		ManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ID:             "run-1",
+		ManifestDigest: sha256Digest(manifestBody),
 		Repository:     "/repository",
 		Release:        "release-1",
 		TargetRef:      "refs/heads/main",
 		CreatedAt:      now,
 	}
 	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	owner, err := store.AcquireOwner(ctx, run.ID, now, 30*time.Second, false)

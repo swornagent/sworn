@@ -397,7 +397,7 @@ func captureProductionWorkContext(
 		ManifestDigest:     engine.manifest.digest,
 		DriverConfigDigest: engine.manifest.value.DriverConfigDigest,
 		RunID:              engine.manifest.value.RunID,
-		Repository:         engine.manifest.value.Approval.Repository,
+		Repository:         engine.manifest.value.Authority.Project,
 		Release:            engine.manifest.value.Release,
 		Intent:             engine.manifest.value.Intent,
 		InvocationID:       dispatchInvocationID(engine.manifest.value.RunID, coordinates),
@@ -667,7 +667,7 @@ func validateProductionWorkContext(
 		workContext.ManifestDigest != manifest.digest ||
 		workContext.DriverConfigDigest != manifest.value.DriverConfigDigest ||
 		workContext.RunID != manifest.value.RunID ||
-		workContext.Repository != manifest.value.Approval.Repository ||
+		workContext.Repository != manifest.value.Authority.Project ||
 		workContext.Release != manifest.value.Release ||
 		workContext.Intent != manifest.value.Intent ||
 		workContext.Role != role ||

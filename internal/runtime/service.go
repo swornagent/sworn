@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -31,7 +30,6 @@ var (
 
 type Service struct {
 	journal            *journal.Store
-	resolver           approvalResolver
 	dispatcher         driver.Driver
 	production         *productionDriverRuntime
 	gitExecutable      string
@@ -53,19 +51,23 @@ type retainedContinuation struct {
 }
 
 type RunStatus struct {
-	SchemaVersion     string         `json:"schema_version"`
-	RunID             string         `json:"run_id"`
-	State             string         `json:"state"`
-	DesiredState      string         `json:"desired_state"`
-	ControlGeneration int64          `json:"control_generation"`
-	ManifestDigest    string         `json:"manifest_digest"`
-	PlanDigest        string         `json:"plan_digest,omitempty"`
-	TargetRef         string         `json:"target_ref"`
-	TargetHead        string         `json:"target_head,omitempty"`
-	ReleaseHead       string         `json:"release_head,omitempty"`
-	Outcome           string         `json:"outcome,omitempty"`
-	Effects           []EffectStatus `json:"effects"`
-	EventOffset       int64          `json:"event_offset"`
+	SchemaVersion      string         `json:"schema_version"`
+	RunID              string         `json:"run_id"`
+	State              string         `json:"state"`
+	DesiredState       string         `json:"desired_state"`
+	ControlGeneration  int64          `json:"control_generation"`
+	ManifestDigest     string         `json:"manifest_digest"`
+	PlanDigest         string         `json:"plan_digest,omitempty"`
+	TargetRef          string         `json:"target_ref"`
+	TargetHead         string         `json:"target_head,omitempty"`
+	ReleaseHead        string         `json:"release_head,omitempty"`
+	Outcome            string         `json:"outcome,omitempty"`
+	AuthorityState     string         `json:"authority_state,omitempty"`
+	Project            string         `json:"project,omitempty"`
+	ExternalAuthorizer string         `json:"external_authorizer,omitempty"`
+	AuthorityDigest    string         `json:"authority_digest,omitempty"`
+	Effects            []EffectStatus `json:"effects"`
+	EventOffset        int64          `json:"event_offset"`
 }
 
 type EffectStatus struct {
@@ -177,9 +179,7 @@ func openService(
 	if err != nil {
 		return nil, runtimeFail("JOURNAL_UNAVAILABLE", err)
 	}
-	return &Service{journal: store, resolver: newProductionApprovalResolver(func() (string, error) {
-		return os.Getenv("SWORN_GITHUB_TOKEN"), nil
-	}), dispatcher: driver.Dispatcher{}, production: production,
+	return &Service{journal: store, dispatcher: driver.Dispatcher{}, production: production,
 		gitExecutable: gitExecutable, now: time.Now}, nil
 }
 
@@ -209,11 +209,11 @@ func resolveGitExecutable() (string, error) {
 	return value, nil
 }
 
-func newService(store *journal.Store, resolver approvalResolver, dispatcher driver.Driver, gitExecutable string, now func() time.Time) (*Service, error) {
-	if store == nil || resolver == nil || dispatcher == nil || !filepath.IsAbs(gitExecutable) || now == nil {
+func newService(store *journal.Store, dispatcher driver.Driver, gitExecutable string, now func() time.Time) (*Service, error) {
+	if store == nil || dispatcher == nil || !filepath.IsAbs(gitExecutable) || now == nil {
 		return nil, runtimeFail("INVALID_SERVICE", nil)
 	}
-	return &Service{journal: store, resolver: resolver, dispatcher: dispatcher,
+	return &Service{journal: store, dispatcher: dispatcher,
 		gitExecutable: gitExecutable, now: now}, nil
 }
 
@@ -630,11 +630,11 @@ func (s *Service) recordProposal(
 func validatePlanBinding(manifest admittedManifest, plan baton.Plan, current *baton.State) error {
 	metadata := plan.Metadata()
 	if metadata.Release != manifest.value.Release ||
-		metadata.Repository != manifest.value.Approval.Repository ||
+		metadata.Repository != manifest.value.Authority.Project ||
 		metadata.TargetRef != manifest.value.TargetRef {
 		return runtimeFail("PLAN_BINDING_MISMATCH", nil)
 	}
-	if _, err := approvalMarker(manifest.value.Approval, metadata.ApprovalRef); err != nil {
+	if err := validateApprovalRef(manifest, plan); err != nil {
 		return err
 	}
 	if current == nil {
@@ -677,12 +677,11 @@ func admitPlanProposal(
 	}
 	metadata := plan.Metadata()
 	if metadata.Release != manifest.value.Release ||
-		metadata.Repository != manifest.value.Approval.Repository ||
+		metadata.Repository != manifest.value.Authority.Project ||
 		metadata.TargetRef != manifest.value.TargetRef {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	if _, err := approvalMarker(
-		manifest.value.Approval, metadata.ApprovalRef); err != nil {
+	if err := validateApprovalRef(manifest, plan); err != nil {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if metadata.Revision == 1 {
@@ -766,11 +765,18 @@ func loadRunSnapshot(
 			manifestBytes = command.Payload
 		}
 	}
-	manifest, err := admitManifest(manifestBytes)
-	if err != nil || manifest.value.RunID != runID || manifest.digest != snapshot.Run.ManifestDigest ||
+	manifest, err := admitStoredManifest(manifestBytes)
+	if err != nil || manifest.digest != snapshot.Run.ManifestDigest ||
 		snapshot.Run.ID != runID {
 		return admittedManifest{}, nil,
 			runtimeFail("RUN_BINDING_MISMATCH", err)
+	}
+	if manifest.legacyVersion != "" {
+		return manifest, nil, nil
+	}
+	if manifest.value.RunID != runID {
+		return admittedManifest{}, nil,
+			runtimeFail("RUN_BINDING_MISMATCH", nil)
 	}
 	effects := make(map[string]journal.Effect, len(snapshot.Effects))
 	for _, effect := range snapshot.Effects {
@@ -832,6 +838,13 @@ func (s *Service) AnswerAttention(
 	if s == nil || s.journal == nil || ctx == nil ||
 		command.ExpectedGeneration != 1 {
 		return RunStatus{}, runtimeFail("INVALID_ATTENTION_COMMAND", nil)
+	}
+	manifest, _, err := s.loadRun(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	attention, err := s.journal.Attention(
 		ctx,
@@ -914,6 +927,13 @@ func (s *Service) AnswerAttention(
 func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatus, error) {
 	if s == nil || s.journal == nil || ctx == nil {
 		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	manifest, _, err := s.loadRun(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	if _, err := s.journal.ApplyControl(
 		ctx,

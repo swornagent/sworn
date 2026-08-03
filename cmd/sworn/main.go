@@ -674,7 +674,11 @@ func writeStatusText(out io.Writer, status runtimepkg.RunStatus) error {
 			"  desired_state: %s\n"+
 			"  control_generation: %d\n"+
 			"  plan: %s\n"+
-			"  outcome: %s\n",
+			"  outcome: %s\n"+
+			"  authority_state: %s\n"+
+			"  project: %s\n"+
+			"  external_authorizer: %s\n"+
+			"  authority_digest: %s\n",
 		status.RunID,
 		presentation.Status,
 		presentation.What,
@@ -686,6 +690,10 @@ func writeStatusText(out io.Writer, status runtimepkg.RunStatus) error {
 		status.ControlGeneration,
 		plan,
 		outcome,
+		status.AuthorityState,
+		status.Project,
+		status.ExternalAuthorizer,
+		status.AuthorityDigest,
 	)
 	return err
 }

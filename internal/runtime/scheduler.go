@@ -61,10 +61,8 @@ type batonActionCommand struct {
 
 type installActionInput struct {
 	PlanBytes  []byte `json:"plan_bytes"`
-	Evidence   []byte `json:"evidence"`
 	PlanDigest string `json:"plan_digest"`
 	Reference  string `json:"reference"`
-	CommentID  int64  `json:"comment_id"`
 }
 
 type actionTruth string
@@ -284,7 +282,7 @@ func validateBatonActionEnvelope(
 				errors.New("install action input is noncanonical"),
 			)
 		}
-		plan, _, err := validateInstallActionPolicy(engine.manifest, input)
+		plan, err := validateInstallActionPolicy(engine.manifest, input)
 		metadata := plan.Metadata()
 		previousMatches := authority.Plan == "" &&
 			metadata.PreviousPlan == nil
@@ -536,54 +534,36 @@ func matchingReceipt(
 
 func validateInstallActionInput(
 	input installActionInput,
-) (baton.Plan, approvalEvidence, error) {
+) (baton.Plan, error) {
 	if input.PlanDigest == "" ||
 		sha256Digest(input.PlanBytes) != input.PlanDigest ||
-		len(input.Evidence) == 0 ||
-		input.Reference == "" ||
-		input.CommentID <= 0 {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", nil)
+		input.Reference == "" {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	plan, err := baton.ParsePlan(input.PlanBytes)
 	if err != nil ||
 		plan.Digest() != input.PlanDigest ||
 		plan.Metadata().ApprovalRef != input.Reference {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", err)
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	var evidence approvalEvidence
-	if json.Unmarshal(input.Evidence, &evidence) != nil ||
-		!bytes.Equal(input.Evidence, mustJSON(evidence)) ||
-		evidence.SchemaVersion != "sworn.approval-evidence/v1" ||
-		evidence.ApprovalRef != input.Reference ||
-		evidence.PlanDigest != input.PlanDigest ||
-		evidence.CommentID != input.CommentID ||
-		evidence.MatchCount != 1 ||
-		evidence.Decision != "approved" {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	return plan, evidence, nil
+	return plan, nil
 }
 
 func validateInstallActionPolicy(
 	manifest admittedManifest,
 	input installActionInput,
-) (baton.Plan, approvalEvidence, error) {
-	plan, evidence, err := validateInstallActionInput(input)
+) (baton.Plan, error) {
+	plan, err := validateInstallActionInput(input)
 	if err != nil {
-		return baton.Plan{}, approvalEvidence{}, err
+		return baton.Plan{}, err
 	}
-	if err := validatePersistedApprovalEvidence(
-		manifest,
-		plan,
-		input,
-		evidence,
-	); err != nil {
-		return baton.Plan{}, approvalEvidence{}, err
+	if plan.Metadata().Repository != manifest.value.Authority.Project ||
+		plan.Metadata().Release != manifest.value.Release ||
+		plan.Metadata().TargetRef != manifest.value.TargetRef ||
+		validateApprovalRef(manifest, plan) != nil {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	return plan, evidence, nil
+	return plan, nil
 }
 
 func appliedBatonAction(
@@ -707,7 +687,7 @@ func appliedBatonAction(
 			return appliedActionEvidence{}, false,
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		plan, _, err := validateInstallActionInput(input)
+		plan, err := validateInstallActionInput(input)
 		if err != nil {
 			return appliedActionEvidence{}, false, err
 		}
@@ -735,12 +715,15 @@ func appliedBatonAction(
 			if candidate.Plan.Digest() != input.PlanDigest ||
 				metadata.ApprovalRef != input.Reference ||
 				!previousMatches ||
-				!bytes.Equal(candidate.Approval.Detail, input.Evidence) ||
+				!bytes.Equal(candidate.Approval.Detail, installDetail(approvalAdmission{
+					planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+					reference: input.Reference,
+				})) ||
 				receipt.Role != "planner" ||
 				receipt.Result != "approved" ||
 				receipt.Plan != candidate.OID ||
 				receipt.Summary !=
-					"Install the exact externally approved plan." ||
+					"Install the exact locally authorized plan." ||
 				receipt.Target == nil ||
 				*receipt.Target != authority.TargetHead {
 				continue
@@ -902,8 +885,8 @@ func validateBatonAllOldStateAuthority(
 // installActionIdempotentlyCallable recognizes an exact plan that another
 // Baton client already installed under the same still-current target
 // authority. This is not proof that a previously claimed Sworn effect ran:
-// recovery must still classify different approval evidence as stale. It only
-// permits a new live invocation to call Baton's idempotent
+// Recovery must still classify different persisted authority as stale. This
+// only permits a new live invocation to call Baton's idempotent
 // RecordPlanRevision and journal the actual no-change result.
 func installActionIdempotentlyCallable(
 	state baton.State,
@@ -913,7 +896,7 @@ func installActionIdempotentlyCallable(
 	if parseCanonicalActionInput(command.Input, &input) != nil {
 		return false
 	}
-	plan, _, err := validateInstallActionInput(input)
+	plan, err := validateInstallActionInput(input)
 	if err != nil {
 		return false
 	}
@@ -956,7 +939,7 @@ func classifyBatonAction(engine *engine, kind string,
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return actionAmbiguous, state, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if _, _, validateErr := validateInstallActionInput(input); validateErr != nil {
+		if _, validateErr := validateInstallActionInput(input); validateErr != nil {
 			return actionAmbiguous, state, validateErr
 		}
 		refs, captureErr := engine.repository.CaptureHeadRefs(
@@ -1139,7 +1122,7 @@ func installEvidenceFromHistory(
 		return appliedActionEvidence{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	plan, _, err := validateInstallActionPolicy(engine.manifest, input)
+	plan, err := validateInstallActionPolicy(engine.manifest, input)
 	if err != nil {
 		return appliedActionEvidence{}, err
 	}
@@ -1154,6 +1137,10 @@ func installEvidenceFromHistory(
 				*candidateMetadata.PreviousPlan == command.Authority.Plan
 		}
 		receipt := candidate.Approval.Receipt
+		expectedAdmission := approvalAdmission{
+			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+			reference: input.Reference,
+		}
 		if candidate.Plan.Digest() != input.PlanDigest ||
 			candidateMetadata.Revision != metadata.Revision ||
 			candidateMetadata.ApprovalRef != input.Reference ||
@@ -1161,6 +1148,8 @@ func installEvidenceFromHistory(
 			receipt.Role != "planner" ||
 			receipt.Result != "approved" ||
 			receipt.Plan != candidate.OID ||
+			receipt.Summary != "Install the exact locally authorized plan." ||
+			!bytes.Equal(candidate.Approval.Detail, installDetail(expectedAdmission)) ||
 			receipt.Target == nil ||
 			*receipt.Target != command.Authority.TargetHead ||
 			candidate.InstallHead == "" {
@@ -1446,13 +1435,12 @@ func persistedBatonAction(engine *engine, kind string,
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if _, _, err := validateInstallActionInput(input); err != nil {
+		if _, err := validateInstallActionInput(input); err != nil {
 			return nil, nil, err
 		}
 		admission := approvalAdmission{
-			planBytes: input.PlanBytes, evidence: input.Evidence,
-			planDigest: input.PlanDigest, reference: input.Reference,
-			commentID: input.CommentID,
+			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+			reference: input.Reference,
 		}
 		return func() (baton.ActionResult, error) {
 			return engine.installer.install(admission)
@@ -5249,7 +5237,8 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		commands[command.ReplayKey] = command
 	}
 	for _, effect := range snapshot.Effects {
-		if effect.State != journal.Claimed &&
+		if effect.State != journal.Pending &&
+			effect.State != journal.Claimed &&
 			effect.State != journal.Uncertain {
 			continue
 		}
@@ -5271,6 +5260,15 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		if err := validateBatonActionEnvelope(
 			engine, command, effect, persisted); err != nil {
 			return true, err
+		}
+		if effect.State == journal.Pending {
+			claim, err := s.journal.ClaimOwned(
+				ctx, owner, effect.ID, s.now().UTC(), effectLease)
+			if err != nil {
+				return true, runtimeFail("EFFECT_CLAIM_FAILED", err)
+			}
+			effect.State = journal.Claimed
+			effect.CurrentClaim = claim.Token
 		}
 		if effect.State == journal.Uncertain {
 			truth, _, classifyErr := classifyBatonAction(
@@ -5376,6 +5374,145 @@ func proposalInstallWork(proposal admittedPlanProposal) string {
 		proposal.authority.Before,
 		proposal.plan.Digest(),
 	)
+}
+
+const planAuthorityVersion = "sworn.plan-authority/v1"
+
+type planAuthorityCommand struct {
+	Version    string `json:"version"`
+	PlanDigest string `json:"plan_digest"`
+}
+
+func effectivePlanAuthority(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+) (string, error) {
+	digests := make(map[string]struct{})
+	if manifest.value.Authority.BootstrapApprovedPlanDigest != nil {
+		digests[*manifest.value.Authority.BootstrapApprovedPlanDigest] = struct{}{}
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind != "plan_authority" {
+			continue
+		}
+		var wire planAuthorityCommand
+		if json.Unmarshal(command.Payload, &wire) != nil ||
+			!bytes.Equal(command.Payload, mustJSON(wire)) ||
+			wire.Version != planAuthorityVersion ||
+			!runtimeDigestPattern.MatchString(wire.PlanDigest) ||
+			command.ReplayKey != "plan-authority/"+
+				strings.TrimPrefix(wire.PlanDigest, "sha256:") {
+			return "", runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		digests[wire.PlanDigest] = struct{}{}
+	}
+	if len(digests) > 1 {
+		return "", runtimeFail("AUTHORITY_CONFLICT", nil)
+	}
+	for digest := range digests {
+		return digest, nil
+	}
+	return "", nil
+}
+
+func validateInstallEffectPrecedence(
+	engine *engine,
+	snapshot journal.Snapshot,
+) error {
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "baton.install" {
+			continue
+		}
+		command, ok := commands[effect.ReplayKey]
+		if !ok {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		persisted, err := parseActionCommand(command.Payload)
+		if err != nil || validateBatonActionEnvelope(
+			engine, command, effect, persisted) != nil {
+			return runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		validateSucceeded, precedenceErr := installEffectPrecedence(effect.State)
+		if precedenceErr != nil {
+			return precedenceErr
+		}
+		if validateSucceeded {
+			if _, err := validateSucceededBatonAction(
+				engine, command, effect, persisted); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func installEffectPrecedence(state journal.EffectState) (bool, error) {
+	switch state {
+	case journal.Pending, journal.Claimed, journal.Uncertain:
+		return false, runtimeFail("INSTALL_RECOVERY_PENDING", nil)
+	case journal.OperationalFailed:
+		return false, runtimeFail("INSTALL_FAILED", nil)
+	case journal.Succeeded:
+		return true, nil
+	default:
+		return false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+}
+
+func validateSavedPlanAdoption(
+	engine *engine,
+	state baton.State,
+	authorityDigest string,
+) (bool, error) {
+	if authorityDigest == "" {
+		return false, nil
+	}
+	manifest := engine.manifest
+	metadata := state.Plan.Metadata
+	if state.Release != manifest.value.Release ||
+		state.Repository != manifest.value.Authority.Project ||
+		metadata.Repository != manifest.value.Authority.Project ||
+		metadata.Release != manifest.value.Release ||
+		metadata.TargetRef != manifest.value.TargetRef ||
+		state.Plan.Digest != authorityDigest ||
+		state.Plan.TargetStale ||
+		state.Refs.Release.Ref != "refs/heads/release-wt/"+manifest.value.Release ||
+		state.Refs.Release.Head == "" ||
+		state.Refs.Target.Ref != manifest.value.TargetRef ||
+		state.Refs.Target.Head == "" ||
+		state.Plan.Approval.Receipt.Role != "planner" ||
+		state.Plan.Approval.Receipt.Result != "approved" ||
+		state.Plan.Approval.Receipt.Plan != state.Plan.OID ||
+		state.Plan.Approval.Receipt.Target == nil ||
+		*state.Plan.Approval.Receipt.Target != state.Refs.Target.Head {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	found := false
+	var saved baton.Plan
+	for _, historical := range state.Plan.History {
+		if historical.OID != state.Plan.OID {
+			continue
+		}
+		if found || historical.Plan.Digest() != authorityDigest {
+			return false, runtimeFail("INVALID_AUTHORITY", nil)
+		}
+		found = true
+		saved = historical.Plan
+	}
+	if !found {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	if validateApprovalRef(manifest, saved) != nil {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	return true, nil
 }
 
 func captureProposalRefs(
@@ -5924,6 +6061,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err != nil {
 		return RunStatus{}, err
 	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
+	}
 	engine, err := s.openEngine(manifest)
 	if err != nil {
 		return RunStatus{}, err
@@ -5959,21 +6099,55 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	}
 	state, stateErr := baton.ReadState(
 		engine.git, manifest.value.Release, engine.inertness)
-	proposal, found, installed, err := selectPlanProposal(
+	if err := validateInstallEffectPrecedence(engine, snapshot); err != nil {
+		return RunStatus{}, err
+	}
+	authorityDigest, err := effectivePlanAuthority(manifest, snapshot)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	proposal, found, _, err := selectPlanProposal(
 		engine, snapshot, proposals, state, stateErr)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	if !found {
+	if found && stateErr == nil && proposal.plan.Digest() != state.Plan.Digest {
+		return RunStatus{}, runtimeFail("PLAN_AUTHORITY_CONFLICT", nil)
+	}
+	if authorityDigest == "" {
+		if found || stateErr == nil {
+			return s.Status(context.Background(), runID)
+		}
+		if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+	}
+	if !found && stateErr != nil && authorityDigest == "" {
 		if err := s.refreshPlanProposal(
 			ownedCtx, engine, owner, state, stateErr); err != nil {
 			return RunStatus{}, err
 		}
 		return s.Status(context.Background(), runID)
 	}
-	pending := false
+	if stateErr == nil {
+		adopted, adoptErr := validateSavedPlanAdoption(
+			engine, state, authorityDigest)
+		if adoptErr != nil {
+			return RunStatus{}, adoptErr
+		}
+		if adopted {
+			runErr := s.driveLoop(ownedCtx, engine, owner, false)
+			if runErr != nil && !errors.Is(runErr, context.Canceled) {
+				return RunStatus{}, runErr
+			}
+			return s.Status(context.Background(), runID)
+		}
+	}
+	if !found || authorityDigest == "" || proposal.plan.Digest() != authorityDigest {
+		return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", nil)
+	}
 	installWork := proposalInstallWork(proposal)
-	if !installed {
+	{
 		current, err := proposalPendingAuthorityCurrent(
 			engine.repository, manifest, proposal, state, stateErr)
 		if err != nil {
@@ -5986,8 +6160,6 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			}
 			return s.Status(context.Background(), runID)
 		}
-		admission, resolveErr := s.resolver.resolve(
-			ownedCtx, manifest, proposal.plan)
 		freshState, freshStateErr := baton.ReadState(
 			engine.git, manifest.value.Release, engine.inertness)
 		current, err = proposalPendingAuthorityCurrent(
@@ -6003,49 +6175,41 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			return s.Status(context.Background(), runID)
 		}
 		state, stateErr = freshState, freshStateErr
-		if IsCode(resolveErr, "APPROVAL_PENDING") {
-			if stateErr != nil {
-				return s.Status(context.Background(), runID)
-			}
-			pending = true
-		} else if resolveErr != nil {
-			return RunStatus{}, resolveErr
-		} else {
-			installInput := installActionInput{
-				PlanBytes: admission.planBytes, Evidence: admission.evidence,
-				PlanDigest: admission.planDigest, Reference: admission.reference,
-				CommentID: admission.commentID,
-			}
-			authority := batonActionAuthority{
-				Release:     manifest.value.Release,
-				Plan:        proposal.authority.PriorPlan,
-				ReleaseHead: proposal.authority.ReleaseHead,
-				TargetRef:   proposal.authority.TargetRef,
-				TargetHead:  proposal.authority.TargetHead,
-				OwnerRef:    proposal.authority.ReleaseRef,
-				OwnerHead:   proposal.authority.ReleaseHead,
-				Before:      installWork,
-			}
-			action := func() (baton.ActionResult, error) {
-				return engine.installer.install(admission)
-			}
-			if _, err := s.runAction(
-				ownedCtx, engine, owner, installWork, "baton.install",
-				marshalActionCommand(authority, installInput), action,
-			); err != nil {
-				return RunStatus{}, err
-			}
-			state, stateErr = baton.ReadState(
-				engine.git, manifest.value.Release, engine.inertness)
+		admission := approvalAdmission{
+			planBytes:  proposal.plan.Bytes(),
+			planDigest: proposal.plan.Digest(),
+			reference:  proposal.plan.Metadata().ApprovalRef,
 		}
+		installInput := installActionInput{
+			PlanBytes: admission.planBytes, PlanDigest: admission.planDigest,
+			Reference: admission.reference,
+		}
+		authority := batonActionAuthority{
+			Release:     manifest.value.Release,
+			Plan:        proposal.authority.PriorPlan,
+			ReleaseHead: proposal.authority.ReleaseHead,
+			TargetRef:   proposal.authority.TargetRef,
+			TargetHead:  proposal.authority.TargetHead,
+			OwnerRef:    proposal.authority.ReleaseRef,
+			OwnerHead:   proposal.authority.ReleaseHead,
+			Before:      installWork,
+		}
+		action := func() (baton.ActionResult, error) {
+			return engine.installer.install(admission)
+		}
+		if _, err := s.runAction(
+			ownedCtx, engine, owner, installWork, "baton.install",
+			marshalActionCommand(authority, installInput), action,
+		); err != nil {
+			return RunStatus{}, err
+		}
+		state, stateErr = baton.ReadState(
+			engine.git, manifest.value.Release, engine.inertness)
 	}
 	if stateErr != nil {
-		if pending {
-			return s.Status(context.Background(), runID)
-		}
 		return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
 	}
-	runErr := s.driveLoop(ownedCtx, engine, owner, pending)
+	runErr := s.driveLoop(ownedCtx, engine, owner, false)
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		return RunStatus{}, runErr
 	}

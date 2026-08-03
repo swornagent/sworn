@@ -274,6 +274,7 @@ func telemetryParityDelivery(
 	)
 
 	approvals.publish(issue, approvalFor(issue, marker, plan))
+	authorizePlan(t, journalPath, runID, plan)
 	installAndPassComponent(t, repository, release, planBytes)
 	resumeCommand := cockpit.ControlCommand{
 		RunID:              runID,

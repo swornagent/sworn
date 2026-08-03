@@ -21,7 +21,8 @@ import (
 
 const (
 	ManifestVersionV2 = "sworn.runtime-manifest/v2"
-	ManifestVersion   = "sworn.runtime-manifest/v3"
+	ManifestVersionV3 = "sworn.runtime-manifest/v3"
+	ManifestVersion   = "sworn.runtime-manifest/v4"
 	MaxManifestBytes  = 2 * 1024 * 1024
 	MaxParallelTracks = 8
 )
@@ -29,8 +30,6 @@ const (
 var (
 	runtimeIdentityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	runtimeDigestPattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	repositoryPattern      = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	markerPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$`)
 )
 
 type Error struct {
@@ -54,11 +53,10 @@ func IsCode(err error, code string) bool {
 	return errors.As(err, &runtimeErr) && runtimeErr.Code == code
 }
 
-type ApprovalPolicy struct {
-	Repository          string   `json:"repository"`
-	Issue               int64    `json:"issue"`
-	AllowedAuthorIDs    []int64  `json:"allowed_author_ids"`
-	AllowedAssociations []string `json:"allowed_associations"`
+type ProjectAuthority struct {
+	Project                     string  `json:"project"`
+	ExternalAuthorizer          string  `json:"external_authorizer"`
+	BootstrapApprovedPlanDigest *string `json:"bootstrap_approved_plan_digest,omitempty"`
 }
 
 type FakeDriverConfig struct {
@@ -100,7 +98,7 @@ type Manifest struct {
 	TargetRef          string                `json:"target_ref"`
 	Intent             string                `json:"intent"`
 	MaxParallelTracks  int                   `json:"max_parallel_tracks"`
-	Approval           ApprovalPolicy        `json:"approval"`
+	Authority          ProjectAuthority      `json:"authority"`
 	Driver             *FakeDriverConfig     `json:"driver,omitempty"`
 	DriverConfigDigest string                `json:"driver_config_digest,omitempty"`
 	Roles              driver.RoleSelections `json:"roles"`
@@ -121,9 +119,24 @@ func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
 }
 
 type admittedManifest struct {
-	value  Manifest
-	raw    []byte
-	digest string
+	value         Manifest
+	raw           []byte
+	digest        string
+	legacyVersion string
+}
+
+func admitStoredManifest(body []byte) (admittedManifest, error) {
+	version, err := classifyManifestVersion(body)
+	if err != nil {
+		return admittedManifest{}, err
+	}
+	if version == ManifestVersionV2 || version == ManifestVersionV3 {
+		return admittedManifest{
+			raw: append([]byte(nil), body...), digest: sha256Digest(body),
+			legacyVersion: version,
+		}, nil
+	}
+	return admitManifest(body)
 }
 
 func ParseManifest(body []byte) (Manifest, error) {
@@ -135,13 +148,15 @@ func ParseManifest(body []byte) (Manifest, error) {
 }
 
 func admitManifest(body []byte) (admittedManifest, error) {
-	if len(body) < 2 || len(body) > MaxManifestBytes ||
-		body[len(body)-1] != '\n' || !utf8.Valid(body) ||
-		bytes.ContainsRune(body, '\r') {
-		return admittedManifest{}, runtimeFail("INVALID_MANIFEST", nil)
-	}
-	if err := rejectDuplicateJSONKeys(body); err != nil {
+	version, err := classifyManifestVersion(body)
+	if err != nil {
 		return admittedManifest{}, err
+	}
+	if version == ManifestVersionV2 || version == ManifestVersionV3 {
+		return admittedManifest{}, runtimeFail("MIGRATION_REQUIRED", nil)
+	}
+	if version != ManifestVersion {
+		return admittedManifest{}, runtimeFail("INVALID_MANIFEST_VERSION", nil)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
@@ -165,12 +180,71 @@ func admitManifest(body []byte) (admittedManifest, error) {
 	}, nil
 }
 
+// ClassifyManifestVersion performs the bounded, authority-free inspection used
+// by read-only discovery. Legacy approval fields are never decoded or trusted.
+func ClassifyManifestVersion(body []byte) (string, error) {
+	return classifyManifestVersion(body)
+}
+
+type ManifestIdentity struct {
+	SchemaVersion string
+	Repository    string
+	Release       string
+}
+
+// InspectManifestIdentity reads only the project binding needed for read-only
+// discovery. In particular it never decodes legacy approval authority.
+func InspectManifestIdentity(body []byte) (ManifestIdentity, error) {
+	version, err := classifyManifestVersion(body)
+	if err != nil {
+		return ManifestIdentity{}, err
+	}
+	var wire struct {
+		Repository string `json:"repository"`
+		Release    string `json:"release"`
+	}
+	if json.Unmarshal(body, &wire) != nil ||
+		!filepath.IsAbs(wire.Repository) ||
+		filepath.Clean(wire.Repository) != wire.Repository ||
+		!runtimeIdentityPattern.MatchString(wire.Release) {
+		return ManifestIdentity{}, runtimeFail("INVALID_MANIFEST", nil)
+	}
+	return ManifestIdentity{
+		SchemaVersion: version,
+		Repository:    wire.Repository,
+		Release:       wire.Release,
+	}, nil
+}
+
+func classifyManifestVersion(body []byte) (string, error) {
+	if len(body) < 2 || len(body) > MaxManifestBytes ||
+		body[len(body)-1] != '\n' || !utf8.Valid(body) ||
+		bytes.ContainsRune(body, '\r') {
+		return "", runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if err := rejectDuplicateJSONKeys(body); err != nil {
+		return "", err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := decoder.Decode(&envelope); err != nil || envelope.SchemaVersion == "" {
+		return "", runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return "", err
+	}
+	switch envelope.SchemaVersion {
+	case ManifestVersionV2, ManifestVersionV3, ManifestVersion:
+		return envelope.SchemaVersion, nil
+	default:
+		return "", runtimeFail("INVALID_MANIFEST_VERSION", nil)
+	}
+}
+
 func validateManifest(manifest Manifest) error {
 	switch manifest.SchemaVersion {
-	case ManifestVersionV2:
-		if manifest.Automation != nil {
-			return runtimeFail("INVALID_AUTOMATION", nil)
-		}
 	case ManifestVersion:
 		if manifest.Automation == nil ||
 			driver.ValidateModelSelection(
@@ -205,7 +279,7 @@ func validateManifest(manifest Manifest) error {
 	if manifest.MaxParallelTracks < 1 || manifest.MaxParallelTracks > MaxParallelTracks {
 		return runtimeFail("INVALID_PARALLELISM", nil)
 	}
-	if err := validateApprovalPolicy(manifest.Approval); err != nil {
+	if err := validateProjectAuthority(manifest.Authority); err != nil {
 		return err
 	}
 	if err := driver.ValidateRoleSelections(manifest.Roles); err != nil {
@@ -300,31 +374,16 @@ func validateScriptedAttempts(manifest Manifest) error {
 	return nil
 }
 
-func validateApprovalPolicy(policy ApprovalPolicy) error {
-	if !repositoryPattern.MatchString(policy.Repository) ||
-		policy.Issue < 1 || policy.Issue > driver.MaxSafeInteger ||
-		len(policy.AllowedAuthorIDs) == 0 ||
-		len(policy.AllowedAuthorIDs) > 64 ||
-		len(policy.AllowedAssociations) == 0 ||
-		len(policy.AllowedAssociations) > 8 {
-		return runtimeFail("INVALID_APPROVAL_POLICY", nil)
+func validateProjectAuthority(authority ProjectAuthority) error {
+	// Both names are deliberately the same small identifier language. This
+	// excludes URLs, accounts, credentials and provider-qualified identities.
+	if !runtimeIdentityPattern.MatchString(authority.Project) ||
+		!runtimeIdentityPattern.MatchString(authority.ExternalAuthorizer) {
+		return runtimeFail("INVALID_AUTHORITY", nil)
 	}
-	for index, id := range policy.AllowedAuthorIDs {
-		if id < 1 || id > driver.MaxSafeInteger ||
-			(index > 0 && id <= policy.AllowedAuthorIDs[index-1]) {
-			return runtimeFail("INVALID_APPROVAL_POLICY", nil)
-		}
-	}
-	allowed := map[string]bool{
-		"COLLABORATOR": true,
-		"MEMBER":       true,
-		"OWNER":        true,
-	}
-	for index, association := range policy.AllowedAssociations {
-		if !allowed[association] ||
-			(index > 0 && association <= policy.AllowedAssociations[index-1]) {
-			return runtimeFail("INVALID_APPROVAL_POLICY", nil)
-		}
+	if authority.BootstrapApprovedPlanDigest != nil &&
+		!runtimeDigestPattern.MatchString(*authority.BootstrapApprovedPlanDigest) {
+		return runtimeFail("INVALID_AUTHORITY", nil)
 	}
 	return nil
 }
@@ -419,13 +478,6 @@ func canonicalManifest(manifest Manifest) ([]byte, error) {
 		return nil, runtimeFail("INVALID_MANIFEST", nil)
 	}
 	return append(body, '\n'), nil
-}
-
-func containsInt64(sortedValues []int64, value int64) bool {
-	index := sort.Search(len(sortedValues), func(index int) bool {
-		return sortedValues[index] >= value
-	})
-	return index < len(sortedValues) && sortedValues[index] == value
 }
 
 func containsString(sortedValues []string, value string) bool {

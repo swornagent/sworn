@@ -196,6 +196,34 @@ func TestDiscoverProjectRunsDistinguishesMissingFromUnsafeJournal(t *testing.T) 
 	}
 }
 
+func TestDiscoverProjectManifestsReportsLegacyMigrationReadOnly(t *testing.T) {
+	t.Parallel()
+	root, _ := projectRepositoryFixture(t)
+	manifestDir := filepath.Join(root, ".sworn", "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "legacy.json", root, "legacy-release", "legacy-run")
+	path := filepath.Join(manifestDir, "legacy.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.Replace(
+		string(body), runtimepkg.ManifestVersion, runtimepkg.ManifestVersionV3, 1,
+	))
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifests := discoverProjectManifests(projectPaths{
+		root: root, manifestDir: manifestDir,
+	})
+	legacy, ok := manifests["legacy-release"]
+	if !ok || legacy.path != path || legacy.diagnostic != "MIGRATION_REQUIRED" {
+		t.Fatalf("legacy discovery = %#v", manifests)
+	}
+}
+
 func TestResolveProjectPathsRequiresCleanAbsoluteOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -378,11 +406,8 @@ func projectWriteManifest(
 		TargetRef:         "refs/heads/main",
 		Intent:            "Exercise project manifest discovery.",
 		MaxParallelTracks: 1,
-		Approval: runtimepkg.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               1,
-			AllowedAuthorIDs:    []int64{1},
-			AllowedAssociations: []string{"OWNER"},
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",

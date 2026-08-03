@@ -51,10 +51,9 @@ func conflictParityPlan(
 		Release:       "parity-conflict-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef: "github://acme/repo/issues/62#" +
-			"parity-conflict-v1",
+		ApprovalRef:   "operator://parity-conflict-release/1",
 		Tracks: []baton.Track{
 			{
 				ID: "T1", DependsOn: []string{},
@@ -170,18 +169,15 @@ func conflictParityManifest(
 		return leftKey < rightKey
 	})
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersionV2,
+		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,
 		Release:           "parity-conflict-release",
 		TargetRef:         "refs/heads/main",
 		Intent:            "Prove a genuine derived-base composition conflict.",
 		MaxParallelTracks: 2,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               62,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &swornruntime.FakeDriverConfig{
 			Executable: fakeBinary,
@@ -206,6 +202,9 @@ func conflictParityManifest(
 				Profile: "parity-conflict-fake",
 				Model:   "verifier-model",
 			},
+		},
+		Automation: &swornruntime.AutomationSelections{
+			Recovery: driver.RoleSelection{Profile: "parity-conflict-fake", Model: "recovery-model"},
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 30_000,
@@ -268,6 +267,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		62,
 		approvalFor(62, "parity-conflict-v1", plan),
 	)
+	authorizePlan(t, journalPath, "parity-conflict", plan)
 	stdout, stderr = runBinary(
 		t,
 		swornBinary,

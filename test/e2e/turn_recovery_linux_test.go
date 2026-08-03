@@ -316,9 +316,9 @@ func recoveryE2EPlan(t *testing.T) ([]byte, baton.Plan) {
 		Release:       "turn-recovery-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef:   "github://acme/repo/issues/64#turn-recovery-v1",
+		ApprovalRef:   "operator://turn-recovery-release/1",
 		Tracks: []baton.Track{{
 			ID:        "T1",
 			DependsOn: []string{},
@@ -420,11 +420,8 @@ func recoveryE2EManifest(
 		TargetRef:         "refs/heads/main",
 		Intent:            "Prove exact production recovery across a process restart.",
 		MaxParallelTracks: 1,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               64,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		DriverConfigDigest: config.ConfigurationDigest(),
 		Roles: driver.RoleSelections{
@@ -514,6 +511,7 @@ func runDirectTurnRecoveryBaseline(
 		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
 	}
 	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
+	authorizePlan(t, journalPath, "turn-recovery", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,

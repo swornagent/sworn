@@ -173,7 +173,7 @@ func projectionFixture() (
 		EventOffset: 7,
 	}
 	status := runtimepkg.RunStatus{
-		SchemaVersion: "sworn.run-status/v2",
+		SchemaVersion: "sworn.run-status/v3",
 		RunID:         run.ID,
 		State:         "parked", DesiredState: "running",
 		ControlGeneration: 4,

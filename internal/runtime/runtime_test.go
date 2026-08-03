@@ -2,14 +2,9 @@ package runtime
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -37,11 +32,7 @@ func runtimePlan(t *testing.T, release, repository, target, marker string) ([]by
 		PreviousPlan:  nil,
 		Repository:    repository,
 		TargetRef:     target,
-		ApprovalRef: fmt.Sprintf(
-			"github://%s/issues/7#%s",
-			repository,
-			marker,
-		),
+		ApprovalRef:   "operator://" + release + "/1",
 		Tracks: []baton.Track{
 			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{slice("S1", "one.txt")}},
 			{ID: "T2", DependsOn: []string{}, Slices: []baton.Slice{slice("S2", "two.txt")}},
@@ -76,7 +67,7 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 	const (
 		runID      = "run-1"
 		release    = "release-1"
-		repository = "acme/repo"
+		repository = "acme-repo"
 		target     = "refs/heads/main"
 		marker     = "approval-release-1-v1"
 	)
@@ -114,10 +105,12 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 		RunID:         runID, Repository: "/repository", Release: release,
 		TargetRef: target, Intent: "Deliver the exact fixture.",
 		MaxParallelTracks: 2,
-		Approval: ApprovalPolicy{
-			Repository: repository, Issue: 7,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER", "OWNER"},
+		Authority: ProjectAuthority{
+			Project: repository, ExternalAuthorizer: "operator",
+			BootstrapApprovedPlanDigest: func() *string {
+				digest := plan.Digest()
+				return &digest
+			}(),
 		},
 		Driver: &FakeDriverConfig{
 			Executable: "/bin/true",
@@ -174,8 +167,8 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	unknown := append([]byte(nil), body...)
 	unknown = []byte(strings.Replace(
 		string(unknown),
-		`"schema_version":"sworn.runtime-manifest/v3"`,
-		`"schema_version":"sworn.runtime-manifest/v3","unknown":true`,
+		`"schema_version":"sworn.runtime-manifest/v4"`,
+		`"schema_version":"sworn.runtime-manifest/v4","unknown":true`,
 		1,
 	))
 	if _, err := admitManifest(unknown); !IsCode(err, "INVALID_MANIFEST") {
@@ -222,8 +215,8 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	}
 	if _, err := admitManifest(
 		append(legacyWithAutomationBody, '\n'),
-	); !IsCode(err, "INVALID_AUTOMATION") {
-		t.Fatalf("v2 automation = %v", err)
+	); !IsCode(err, "MIGRATION_REQUIRED") {
+		t.Fatalf("v2 migration = %v", err)
 	}
 }
 
@@ -240,14 +233,12 @@ func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.
 	legacy := fake
 	legacy.SchemaVersion = ManifestVersionV2
 	legacy.Automation = nil
-	legacyBody, err := canonicalManifest(legacy)
+	legacyBody, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyAdmitted, err := admitManifest(legacyBody)
-	_, recoveryEnabled := legacyAdmitted.value.recoverySelection()
-	if err != nil || recoveryEnabled {
-		t.Fatalf("legacy v2 admission = %#v, %v", legacyAdmitted.value, err)
+	if _, err := admitManifest(append(legacyBody, '\n')); !IsCode(err, "MIGRATION_REQUIRED") {
+		t.Fatalf("legacy v2 admission = %v", err)
 	}
 
 	production := fake
@@ -411,7 +402,7 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 	metadata := initialPlan.Metadata()
 	metadata.Revision = 2
 	metadata.PreviousPlan = &priorPlan
-	metadata.ApprovalRef = "github://acme/repo/issues/7#approval-release-1-v2"
+	metadata.ApprovalRef = "operator://release-1/2"
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -532,26 +523,21 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		}
 	}
 	planBytes, installedPlan := runtimePlan(
-		t, release, "acme/repo", "refs/heads/main",
+		t, release, "acme-repo", "refs/heads/main",
 		"approval-release-1-v1",
 	)
 	planMetadata := installedPlan.Metadata()
-	installEvidenceValue := approvalEvidence{
-		SchemaVersion: "sworn.approval-evidence/v1",
-		ApprovalRef:   planMetadata.ApprovalRef,
-		PlanDigest:    installedPlan.Digest(),
-		MatchCount:    1,
-		CommentID:     41,
-		Decision:      "approved",
+	installAdmission := approvalAdmission{
+		planBytes: planBytes, planDigest: installedPlan.Digest(),
+		reference: planMetadata.ApprovalRef,
 	}
-	installEvidence := mustJSON(installEvidenceValue)
 	installReceipt := receipt("planner", "approved")
 	installReceipt.Plan = planOID
-	installReceipt.Summary = "Install the exact externally approved plan."
+	installReceipt.Summary = "Install the exact locally authorized plan."
 	installReceipt.Candidate = nil
 	installApproval := baton.ReceiptEntry{
 		OID:     "approval-receipt",
-		Detail:  append([]byte(nil), installEvidence...),
+		Detail:  installDetail(installAdmission),
 		Receipt: installReceipt,
 	}
 	retiredSlice := "S-retired"
@@ -567,8 +553,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	nextMetadata := planMetadata
 	nextMetadata.Revision = 2
 	nextMetadata.PreviousPlan = &previousPlan
-	nextMetadata.ApprovalRef =
-		"github://acme/repo/issues/7#approval-release-1-v2"
+	nextMetadata.ApprovalRef = "operator://release-1/2"
 	nextMetadataBytes, err := json.MarshalIndent(nextMetadata, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -583,13 +568,13 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	nextPlanOID := strings.Repeat("2", 40)
 	nextApproval := baton.ReceiptEntry{
 		OID:    "later-approval-receipt",
-		Detail: []byte("later approval evidence"),
+		Detail: []byte("later authority detail"),
 		Receipt: baton.Receipt{
 			Version: baton.ReceiptVersion,
 			Release: release,
 			Role:    "planner", Result: "approved",
 			Plan:    nextPlanOID,
-			Summary: "Install the exact externally approved plan.",
+			Summary: "Install the exact locally authorized plan.",
 			Target:  &target,
 		},
 	}
@@ -724,9 +709,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 				Input: mustJSON(installActionInput{
 					PlanBytes:  planBytes,
 					PlanDigest: installedPlan.Digest(),
-					Evidence:   installEvidence,
 					Reference:  planMetadata.ApprovalRef,
-					CommentID:  installEvidenceValue.CommentID,
 				}),
 			},
 			wantAction: "recordPlanRevision", wantCommit: "approval-receipt",
@@ -866,15 +849,13 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		}
 	})
 
-	t.Run("install approval evidence substitution is not applied", func(t *testing.T) {
+	t.Run("install authority detail substitution is not applied", func(t *testing.T) {
 		substituted := installState
 		substituted.Plan.History = append(
 			[]baton.PlanHistory(nil), installState.Plan.History...)
 		substituted.Plan.History[0].Approval =
 			substituted.Plan.History[0].Approval.Clone()
-		other := installEvidenceValue
-		other.CommentID++
-		substituted.Plan.History[0].Approval.Detail = mustJSON(other)
+		substituted.Plan.History[0].Approval.Detail = []byte("other authority\n")
 
 		command := batonActionCommand{
 			Authority: batonActionAuthority{
@@ -883,9 +864,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			Input: mustJSON(installActionInput{
 				PlanBytes:  planBytes,
 				PlanDigest: installedPlan.Digest(),
-				Evidence:   installEvidence,
 				Reference:  planMetadata.ApprovalRef,
-				CommentID:  installEvidenceValue.CommentID,
 			}),
 		}
 		applied, applyErr := actionAlreadyApplied(
@@ -894,15 +873,13 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			t.Fatal(applyErr)
 		}
 		if applied {
-			t.Fatal("different approval evidence laundered the install")
+			t.Fatal("different authority detail laundered the install")
 		}
 	})
 
 	t.Run("external exact plan permits only a fresh idempotent call", func(t *testing.T) {
 		externalApproval := installApproval.Clone()
-		other := installEvidenceValue
-		other.CommentID++
-		externalApproval.Detail = mustJSON(other)
+		externalApproval.Detail = []byte("external authority\n")
 		releaseRef := "refs/heads/release-wt/" + release
 		targetRef := "refs/heads/main"
 		external := baton.State{
@@ -929,9 +906,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			Input: mustJSON(installActionInput{
 				PlanBytes:  planBytes,
 				PlanDigest: installedPlan.Digest(),
-				Evidence:   installEvidence,
 				Reference:  planMetadata.ApprovalRef,
-				CommentID:  installEvidenceValue.CommentID,
 			}),
 		}
 		applied, applyErr := actionAlreadyApplied(
@@ -940,7 +915,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			t.Fatal(applyErr)
 		}
 		if applied {
-			t.Fatal("external approval evidence inferred a Sworn effect")
+			t.Fatal("external Baton approval inferred a Sworn effect")
 		}
 		if !installActionIdempotentlyCallable(external, command) {
 			t.Fatal("exact external plan rejected a fresh idempotent call")
@@ -1084,216 +1059,6 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 	}
 }
 
-func TestGitHubApprovalIsUniqueUneditedGETOnlyAndDigestBound(t *testing.T) {
-	t.Parallel()
-
-	manifestValue, manifestBody, plan := fixtureManifest(t)
-	manifest, err := admitManifest(manifestBody)
-	if err != nil {
-		t.Fatal(err)
-	}
-	created := "2026-07-26T01:02:03Z"
-	commentBody := fmt.Sprintf(
-		"baton-plan-approval/v1\nmarker: %s\ndecision: approved\nrepository: %s\nissue: %d\nplan_digest: %s\n",
-		markerFromPlan(t, manifestValue.Approval, plan),
-		manifestValue.Approval.Repository,
-		manifestValue.Approval.Issue,
-		plan.Digest(),
-	)
-	var (
-		mu      sync.Mutex
-		methods []string
-	)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		mu.Lock()
-		methods = append(methods, request.Method)
-		mu.Unlock()
-		if request.URL.Path != "/repos/acme/repo/issues/7/comments" ||
-			request.URL.Query().Get("per_page") != "100" ||
-			request.URL.Query().Get("page") != "1" {
-			http.Error(writer, "unexpected request", http.StatusBadRequest)
-			return
-		}
-		writer.Header().Set("ETag", `"fixture-etag"`)
-		_ = json.NewEncoder(writer).Encode([]githubComment{{
-			ID: 99, HTMLURL: "https://github.com/acme/repo/issues/7#issuecomment-99",
-			Body: commentBody, AuthorAssociation: "MEMBER",
-			CreatedAt: created, UpdatedAt: created,
-			User: struct {
-				ID    int64  `json:"id"`
-				Login string `json:"login"`
-			}{ID: 42, Login: "approver"},
-		}})
-	}))
-	defer server.Close()
-	resolver := newFixtureApprovalResolver(server.URL, server.Client())
-	admission, err := resolver.resolve(context.Background(), manifest, plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if admission.planDigest != plan.Digest() ||
-		admission.reference != plan.Metadata().ApprovalRef ||
-		admission.commentID != 99 ||
-		!strings.Contains(string(admission.evidence), `"match_count":1`) ||
-		!strings.Contains(string(admission.evidence), `"raw_body_digest":"`+sha256Digest([]byte(commentBody))+`"`) {
-		t.Fatalf("approval admission = %#v, evidence = %s", admission, admission.evidence)
-	}
-	if _, _, err := validateInstallActionPolicy(
-		manifest,
-		installActionInput{
-			PlanBytes:  admission.planBytes,
-			Evidence:   admission.evidence,
-			PlanDigest: admission.planDigest,
-			Reference:  admission.reference,
-			CommentID:  admission.commentID,
-		},
-	); err != nil {
-		t.Fatalf("persisted approval evidence rejected: %v", err)
-	}
-	var admittedEvidence approvalEvidence
-	if json.Unmarshal(admission.evidence, &admittedEvidence) != nil {
-		t.Fatal("approval evidence did not decode")
-	}
-	for name, mutate := range map[string]func(*approvalEvidence){
-		"resolver": func(value *approvalEvidence) {
-			value.ResolverVersion = "other-resolver/v1"
-		},
-		"repository": func(value *approvalEvidence) {
-			value.Repository = "other/repository"
-		},
-		"author": func(value *approvalEvidence) {
-			value.AuthorID = 999
-		},
-		"url": func(value *approvalEvidence) {
-			value.URL =
-				"https://github.com/acme/repo/issues/8#issuecomment-99"
-		},
-		"marker": func(value *approvalEvidence) {
-			value.Marker = "other-marker"
-		},
-	} {
-		t.Run("persisted_"+name, func(t *testing.T) {
-			substituted := admittedEvidence
-			mutate(&substituted)
-			evidence := mustJSON(substituted)
-			_, _, err := validateInstallActionPolicy(
-				manifest,
-				installActionInput{
-					PlanBytes: plan.Bytes(), Evidence: evidence,
-					PlanDigest: plan.Digest(),
-					Reference:  plan.Metadata().ApprovalRef,
-					CommentID:  admittedEvidence.CommentID,
-				},
-			)
-			if !IsCode(err, "CORRUPT_JOURNAL") {
-				t.Fatalf("substituted approval evidence = %v", err)
-			}
-		})
-	}
-	serialized, err := json.Marshal(admission)
-	if err != nil || string(serialized) != "{}" {
-		t.Fatalf("approval admission serialized as %s, err = %v", serialized, err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(methods) != 1 || methods[0] != http.MethodGet {
-		t.Fatalf("approval methods = %v", methods)
-	}
-}
-
-func TestGitHubApprovalRejectsEditedDuplicateAndRedirectedMarkers(t *testing.T) {
-	t.Parallel()
-
-	manifestValue, manifestBody, plan := fixtureManifest(t)
-	manifest, err := admitManifest(manifestBody)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := fmt.Sprintf(
-		"baton-plan-approval/v1\nmarker: %s\ndecision: approved\nrepository: %s\nissue: %d\nplan_digest: %s\n",
-		markerFromPlan(t, manifestValue.Approval, plan),
-		manifestValue.Approval.Repository,
-		manifestValue.Approval.Issue,
-		plan.Digest(),
-	)
-	valid := githubComment{
-		ID: 99, HTMLURL: "https://github.com/acme/repo/issues/7#issuecomment-99",
-		Body: body, AuthorAssociation: "MEMBER",
-		CreatedAt: "2026-07-26T01:02:03Z", UpdatedAt: "2026-07-26T01:02:03Z",
-		User: struct {
-			ID    int64  `json:"id"`
-			Login string `json:"login"`
-		}{ID: 42, Login: "approver"},
-	}
-	for name, response := range map[string][]githubComment{
-		"edited": func() []githubComment {
-			edited := valid
-			edited.UpdatedAt = "2026-07-26T01:03:03Z"
-			return []githubComment{edited}
-		}(),
-		"duplicate": {valid, valid},
-		"wrong author": func() []githubComment {
-			wrong := valid
-			wrong.User.ID = 43
-			return []githubComment{wrong}
-		}(),
-		"noncanonical url": func() []githubComment {
-			noncanonical := valid
-			noncanonical.HTMLURL += "?redirect=1"
-			return []githubComment{noncanonical}
-		}(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				_ = json.NewEncoder(writer).Encode(response)
-			}))
-			defer server.Close()
-			_, err := newFixtureApprovalResolver(server.URL, server.Client()).
-				resolve(context.Background(), manifest, plan)
-			if err == nil {
-				t.Fatal("unsafe approval was admitted")
-			}
-		})
-	}
-	encoded, err := json.Marshal([]githubComment{valid})
-	if err != nil {
-		t.Fatal(err)
-	}
-	duplicateKeyBody := bytes.Replace(
-		encoded,
-		[]byte(`"id":99`),
-		[]byte(`"id":99,"id":99`),
-		1,
-	)
-	if bytes.Equal(duplicateKeyBody, encoded) {
-		t.Fatal("fixture did not insert a duplicate JSON key")
-	}
-	duplicateKeyServer := httptest.NewServer(http.HandlerFunc(
-		func(writer http.ResponseWriter, _ *http.Request) {
-			_, _ = writer.Write(duplicateKeyBody)
-		},
-	))
-	defer duplicateKeyServer.Close()
-	if _, err := newFixtureApprovalResolver(
-		duplicateKeyServer.URL,
-		duplicateKeyServer.Client(),
-	).resolve(context.Background(), manifest, plan); !IsCode(err, "APPROVAL_UNAVAILABLE") {
-		t.Fatalf("duplicate JSON key = %v", err)
-	}
-	redirectTarget := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(writer).Encode([]githubComment{valid})
-	}))
-	defer redirectTarget.Close()
-	redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Redirect(writer, request, redirectTarget.URL, http.StatusFound)
-	}))
-	defer redirect.Close()
-	if _, err := newFixtureApprovalResolver(redirect.URL, redirect.Client()).
-		resolve(context.Background(), manifest, plan); !IsCode(err, "APPROVAL_UNAVAILABLE") {
-		t.Fatalf("redirect = %v", err)
-	}
-}
-
 func TestInvocationIdentityIsStableAcrossResume(t *testing.T) {
 	t.Parallel()
 
@@ -1316,13 +1081,4 @@ func TestInvocationIdentityIsStableAcrossResume(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339, "2026-07-26T01:02:03Z"); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func markerFromPlan(t *testing.T, policy ApprovalPolicy, plan baton.Plan) string {
-	t.Helper()
-	marker, err := approvalMarker(policy, plan.Metadata().ApprovalRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return marker
 }

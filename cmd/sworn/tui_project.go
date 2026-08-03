@@ -109,6 +109,9 @@ func discoverProject(
 		}
 		entry.manifest = manifest.path
 		entry.manifestDigest = manifest.digest
+		if manifest.diagnostic != "" {
+			entry.diagnostic = manifest.diagnostic
+		}
 	}
 
 	var diagnostics []string
@@ -202,8 +205,9 @@ func discoverProjectRuns(
 }
 
 type projectManifest struct {
-	path   string
-	digest string
+	path       string
+	digest     string
+	diagnostic string
 }
 
 func discoverProjectManifests(paths projectPaths) map[string]projectManifest {
@@ -225,20 +229,25 @@ func discoverProjectManifests(paths projectPaths) map[string]projectManifest {
 		if readErr != nil {
 			continue
 		}
-		manifest, parseErr := runtimepkg.ParseManifest(body)
-		if parseErr != nil || manifest.Repository != paths.root {
+		identity, parseErr := runtimepkg.InspectManifestIdentity(body)
+		if parseErr != nil || identity.Repository != paths.root {
 			continue
 		}
-		if duplicates[manifest.Release] {
+		if duplicates[identity.Release] {
 			continue
 		}
-		if _, duplicate := result[manifest.Release]; duplicate {
-			delete(result, manifest.Release)
-			duplicates[manifest.Release] = true
+		if _, duplicate := result[identity.Release]; duplicate {
+			delete(result, identity.Release)
+			duplicates[identity.Release] = true
 			continue
 		}
-		result[manifest.Release] = projectManifest{
-			path: path, digest: sha256Digest(body),
+		diagnostic := ""
+		if identity.SchemaVersion == runtimepkg.ManifestVersionV2 ||
+			identity.SchemaVersion == runtimepkg.ManifestVersionV3 {
+			diagnostic = "MIGRATION_REQUIRED"
+		}
+		result[identity.Release] = projectManifest{
+			path: path, digest: sha256Digest(body), diagnostic: diagnostic,
 		}
 	}
 	return result
