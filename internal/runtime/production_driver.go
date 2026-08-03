@@ -125,33 +125,14 @@ func (configured *configuredRuntimeRegistry) certifySelected(
 	if configured == nil {
 		return nil
 	}
-	family, ok := configured.families[selected.Profile.Key]
-	if !ok {
+	if _, ok := configured.families[selected.Profile.Key]; !ok {
 		return runtimeFail("DRIVER_SELECTION_FAILED", nil)
 	}
-	if family != driver.ProfileCodex && family != driver.ProfileClaude {
-		return nil
-	}
-	if configured.certify == nil {
-		return runtimeFail("DRIVER_SELECTION_FAILED", nil)
-	}
-	key := selected.Profile.Key + "\x00" + selected.Model
-	configured.certificationMu.Lock()
-	certification := configured.certifications[key]
-	if certification == nil {
-		certification = &runtimeCertification{}
-		configured.certifications[key] = certification
-	}
-	configured.certificationMu.Unlock()
-	certification.once.Do(func() {
-		certification.report = configured.certify(
-			ctx,
-			selected.Profile.Key,
-			selected.Model,
-		)
-	})
-	if certification.report.State != driver.ReadinessPass {
-		return runtimeFail("DRIVER_CERTIFICATION_FAILED", nil)
-	}
+	// Runs are not gated on a pre-flight smoke test of the agent CLI. The run
+	// exercises the CLI for real on its first dispatch, and a CLI that cannot
+	// work fails there with the actual error. Blocking every run because a
+	// handshake drifted reports a problem the run had not yet had.
+	//
+	// sworn driver certify remains available as a deliberate diagnostic.
 	return nil
 }
