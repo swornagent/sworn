@@ -151,6 +151,8 @@ given.
 | S2 Supervised run lifecycle with detach and reconnect | F4 | #172 |
 | S3 Structured activity with an honest event association | F5 | #173 |
 | S4 Provider-neutral live output with bounded, explicit storage | F6a, F6b | #176 |
+| S5 A usable on-ramp: `sworn init`, cwd-relative `sworn run`, `sworn approve` | F7 | #177 |
+| S6 Move the native CLI pin out of the engine and into policy | F8 | #179 |
 | Standalone: correct the plan fence error text | F2 | #170 |
 
 The plan fence fix stays standalone deliberately. It is a wrong error string
@@ -165,6 +167,30 @@ Adopt Baton RC13 first, for the reason recorded above: RC12 raises
 `TARGET_MOVED` on ordinary target movement, and explaining a spurious diagnostic
 in plain language ships a well-worded false alarm. Then make every cockpit state
 truthful.
+
+**RC13 adoption is a protocol port, not a vendor bump.** `internal/baton` is a
+Go port of Baton's reference implementation, so a reference behaviour change
+must be mirrored by hand. Bumping the embedded assets alone would leave the
+engine behaving like RC12 while reporting RC13: a silent divergence between the
+vendored protocol and the code implementing it.
+
+Inventory of the RC12 to RC13 delta the port must mirror. Reference tags
+resolve locally as `v1.0.0-rc.12` at `caac9f0` and `v1.0.0-rc.13` at `4c9f9b5`.
+
+| Reference change | Sworn site |
+| --- | --- |
+| `TARGET_MOVED` renamed `TARGET_DIVERGED`, meaning "the target history changed, reconcile it" | `internal/baton/state.go:648`, and `diagnosticExplanation()` at `internal/tui/view.go:407` still cases on `TARGET_MOVED` |
+| Staleness by ancestry, not equality | `internal/baton/state.go:642`; the helper `repository.isAncestor` already exists at `internal/baton/repository.go:259` |
+| Plan node state `revision_required` becomes `blocked` when the target is stale | graph projection |
+| `planNextOperation` removed, so target movement no longer emits a planner handoff | this is the obsolete "replan" instruction shown on ordinary target movement |
+| New `requireTargetLineage`, failing `TARGET_DIVERGED` | `internal/baton/actions.go` |
+| New `prepareAssemblyCandidate`: assembly starts from release authority, adds the current target, then adds passed track products, so a later target advance stales only the assembly | `internal/baton/actions_assembly.go` |
+| The approved target is the immutable track floor; live target movement cannot race preparation | assembly and track preparation |
+
+The rename is why this slice and the cockpit work cannot be separated. If
+`diagnosticExplanation()` is not changed in the same commit, the cockpit
+silently falls through to its default text for a diagnostic Baton now emits
+under a different name.
 
 #### S1a. Surface projection failures as diagnostics, not as staleness
 
@@ -476,6 +502,280 @@ Persistence, location, layout and consent are settled above. What remains, and
 ships with the slice: when transcripts are pruned, whether a per-project size
 ceiling exists, and whether a retained transcript is ever in scope for
 attestation.
+
+### S5. A usable on-ramp: `sworn init` and cwd-relative `sworn run`
+
+Added 2026-08-02. The invocation a human has to type today is:
+
+```sh
+sworn run --manifest ABS --journal ABS [--config ABS]
+```
+
+Three absolute paths, all of which Sworn can already work out for itself. This
+is fine for a script and hostile to a person. The predecessor tool set the bar:
+`coach loop`, bare, kicked off or restarted the currently scoped release.
+
+**The discovery already exists and only the TUI is allowed to use it.**
+`resolveProjectPaths` (`cmd/sworn/tui_project.go:151`) defaults the journal,
+config and manifest directory from the Git root. `discoverProject`
+(`cmd/sworn/tui_project.go:53`) takes a start path defaulting to `os.Getwd()`
+and walks to the root, so it already works from any subdirectory.
+`discoverProjectManifests` already maps release name to manifest path. Meanwhile
+`runStart` (`cmd/sworn/main.go:222`) hard-requires `--manifest` and `--journal`.
+Both are `package main` in the same binary. The on-ramp is present and unused.
+
+#### S5a. `sworn init`
+
+**Delivered 2026-08-03.** The first command run in a project, and the one that
+sets the project up to work with Sworn at all.
+
+It resolves the project from the working directory, creates `.sworn` with a
+`.gitignore` excluding everything inside it, creates the run definition
+directory, detects an installed agent CLI, and writes the connection file.
+
+Excluding the whole directory from Git is not housekeeping. `.sworn` holds
+absolute host paths, binary digests, and the run journal, none of which belong
+in a repository other people clone, and excluding the directory is more reliable
+than trusting each future writer to remember.
+
+It then reports what it found: the Baton releases in this project, or that there
+are none, and what is still required before a run can start. **That report is
+half the value.** The first question in a new project is "what now", and nothing
+answered it before, which is the same silence recorded as D2.
+
+The connection file is what nobody can hand-author: an absolute path to the
+platform build a package manager hides behind a launcher script, digests for
+four host runtime files, the sandbox credential target, and canonical JSON with
+no trailing newline while the run manifest beside it demands one.
+
+This is possible precisely because the driver config is specified as canonical
+and **secret-free** (`docs/run.md`). Credentials are not in the file, so Sworn
+can author the whole thing. Verify the result with the existing
+`sworn driver doctor` rather than inventing a second check.
+
+**Not once-only. Idempotent and re-runnable.** Once per project to get started,
+but models get swapped, providers get added, and limits get tuned, so `init`
+has to be safe to run again. As delivered, a re-run refuses rather than
+rewriting, `--force` replaces, and a file that would be byte-identical is left
+alone so its digest is preserved.
+
+That safety has a specific edge, and it is not obvious. **The manifest pins
+`driver_config_digest`** (`internal/runtime/manifest.go:105`), and
+`validateDriverConfigMode` checks it at `Start`. So rewriting `drivers.json`
+invalidates the digest in every manifest already minted against it, and those
+runs stop being startable. A second `init` therefore must:
+
+- never silently rewrite an existing `drivers.json`;
+- show what would change and require explicit confirmation;
+- when the config does change, report which existing manifests are now stale
+  and re-mint them, since S5b mints manifests anyway.
+
+An `init` that quietly bricks yesterday's manifests would be a worse failure
+than the flags it replaces.
+
+**Two papercuts `init` must absorb**, both found on 2026-08-02 while
+hand-building a Codex driver config for the first Sworn-driven run:
+
+- **The manifest and the driver config disagree about a trailing newline.**
+  `admitManifest` rejects a manifest whose last byte is not a newline
+  (`internal/runtime/manifest.go:139`). `DecodeDriverConfig` rejects a driver
+  config that has one, because it compares the file byte for byte against
+  `EncodeDriverConfig` output, which has none (`internal/driver/config.go:151`).
+  Two adjacent strict formats, authored together, disagreeing on one byte. The
+  failure surfaces as `NONCANONICAL_JSON`, which gives no hint that a newline is
+  the cause. The first hand-built config in this session failed on exactly this.
+- **Generate through the encoder, never by hand.** Building the config by
+  calling `driver.EncodeDriverConfig` produced a document that validated on the
+  first attempt, because canonical field order and formatting come from the same
+  code that checks them. `init` should do the same rather than template JSON.
+
+**Known cap while S6 is parked.** `init` derives the connection file from the
+live install, but admission still requires the digest to equal a constant
+compiled into Sworn. On a machine whose agent CLI matches that constant it
+works; on any other, `init` writes a valid file the engine then refuses. The
+refusal is at least legible rather than silent.
+
+Open question, not blocking: whether a user-level `~/.sworn/drivers.json`
+should seed the project file, matching how the agent CLIs keep provider
+configuration per user rather than per repository. The project file stays
+authoritative either way, because the digest binds to it.
+
+#### S5c. `sworn approve`
+
+Added 2026-08-03. Sworn can read and verify every artefact it requires and can
+author none of them. Three instances of one gap: the driver configuration, the
+run manifest, and now the plan approval.
+
+Approving a plan by hand is not currently possible. `baton-plan` ends with "do
+not write an approval or receipt", `baton-verify` stops on "missing approval",
+and no skill, command, or Baton binary writes one. During the 2026-08-03 dogfood
+approvals were recorded as GitHub comments carrying an anchor matching the
+plan's `approval_ref`. That is a human-readable note, not a protocol record:
+`readState` resolves approvals from receipts in the record root, so the release
+would not have read as approved had the engine driven it.
+
+An approval is a receipt with `Role` `planner` and `Result` `approved`
+(`internal/baton/state.go:1287`), bound to the plan object and carrying the
+approved target.
+
+```sh
+sworn approve <release> --plan sha256:...
+```
+
+- Resolves the project from the working directory, as S5b does.
+- Reads the plan for that release, computes its digest, and **refuses unless the
+  digest supplied matches**. The approver states what they are approving; the
+  tool checks rather than infers.
+- Writes the receipt into the record root and commits it on the release ref.
+- Refuses when an approval already covers those exact bytes.
+
+The explicit digest is the whole safeguard, and it is deliberately thin.
+Authority comes from who runs the command, exactly as it does for a push to a
+protected branch. What the flag prevents is approving whatever happens to be on
+disk at the time, which is the failure mode that matters when the plan may have
+been rewritten between review and approval.
+
+Deliberately not built: a general receipt-writing surface. One artefact, one
+command, no framework. Writing verdicts, merges, or plans stays outside Sworn's
+command set, because a tool that can write any receipt can forge the ones whose
+whole value is that a human produced them.
+
+#### S5b. Cwd-relative `sworn run`
+
+```sh
+sworn run                     # cwd, project, current scoped release
+sworn run <release-name>      # named release
+```
+
+`--manifest`, `--journal` and `--config` are retained for scripts and exact
+control. They stop being the only way in.
+
+Resolution precedence, so that one verb covers "kick off or restart":
+
+1. An unfinished run exists for the scoped release: continue it. Sworn decides
+   from the journal whether that means resume, takeover, or plain continuation.
+   Making a person diagnose an orphaned owner lease and reach for `takeover` is
+   the same failure as the flags: Sworn knows and asks anyway.
+2. No run, and exactly one startable release: start it.
+3. Ambiguous: list the candidates and stop.
+
+If no manifest exists for the release, mint one. Repository, release and target
+ref are derivable from the Baton release; everything else comes from the
+defaults written by `sworn init`. Failing that, fail with a message naming
+`sworn init` rather than describing a schema.
+
+- Acceptance: in a project with `sworn init` already run, `sworn run` from any
+  subdirectory starts or continues the scoped release with no flags, and
+  `sworn run <release-name>` selects a specific one. Quitting a supervised run
+  and re-issuing bare `sworn run` reconnects rather than requiring `takeover`.
+
+#### Parked: `--track <track-name>`
+
+`sworn run <release> --track <track>` was specified and then deliberately
+deferred on 2026-08-02. Recorded here so it is not re-derived as a gap.
+
+The manifest has no track scope. `Manifest` carries `MaxParallelTracks`
+(`internal/runtime/manifest.go:102`), which caps how many tracks run
+concurrently but not which. Tracks exist in the run's projection
+(`internal/runtime/service.go:112` carries a `Track` field) but never as a
+dispatch scope. Supporting the flag needs a manifest field or a runtime scope
+parameter plus scheduler support. That is a real change, and `coach loop` could
+not do it either, so it is not a regression against the bar being matched.
+
+Worth revisiting once S4 lands: scoping to one track is how you would sanely
+dogfood a shaky engine, with a narrow blast radius and live output to watch.
+
+### S6. Move the native CLI pin out of the engine and into policy
+
+Found 2026-08-02 while preparing the first Sworn-driven run in this repository.
+
+Sworn admits a native CLI driver only when the CLI matches a version and digest
+**compiled into Sworn itself**:
+
+```go
+// internal/driver/native.go:12
+CodexCLIVersion  = "0.146.0"
+ClaudeCLIVersion = "2.1.208"
+
+// internal/driver/native.go:174, validateNativeConfig
+case ProfileCodex:
+    if config.CLIVersion != CodexCLIVersion ||
+        config.CLI.Digest != CodexCLIDigest ||
+        config.CredentialTarget != CodexCredentialTarget ||
+        config.VersionOutput != "codex-cli "+CodexCLIVersion {
+        return fail("NATIVE_NOT_CERTIFIED")
+    }
+```
+
+The runtime path is bound to the same constant: `nativeVersion`
+(`internal/driver/native_linux.go:2106`) executes the CLI and its output is
+compared to `config.VersionOutput`, which validation has already forced to equal
+the constant.
+
+Observed on this machine:
+
+| CLI | Installed | Sworn pins | Result |
+| --- | --- | --- | --- |
+| Codex | `codex-cli 0.146.0` | `0.146.0` | admitted, digest matches exactly |
+| Claude | `2.1.220 (Claude Code)` | `2.1.208` | `NATIVE_NOT_CERTIFIED` |
+
+Claude Code was twelve patch versions ahead and therefore unusable, for no
+reason connected to its behaviour.
+
+**The defect is the layer, not the existence of a pin.** `NativeAdapterConfig`
+already carries `CLI.Path`, `CLI.Digest`, `CLIVersion` and `VersionOutput`
+(`internal/driver/native.go:26`). Validation then discards those values by
+requiring each to equal a constant. The configuration fields are decorative:
+the operator cannot express any pin except the one Sworn was built with.
+
+The consequence is that **upgrading your agent CLI requires recompiling Sworn.**
+These CLIs ship near daily. A provenance mechanism that forces a rebuild of the
+engine on every upstream patch release will be routed around, and a mechanism
+that gets routed around provides no provenance at all.
+
+#### Pin things whose change means something
+
+Observed 2026-08-02 while assembling the pinned runtime file set. Of the four
+files the native driver requires, `/etc/resolv.conf` resolves to
+`/run/systemd/resolve/stub-resolv.conf`, a systemd-generated runtime file whose
+contents change whenever the host's network does. Its pinned digest therefore
+drifts for reasons wholly unrelated to trust, and the resulting failure presents
+as a certification error rather than "you joined a different network".
+
+The CA bundle, `/etc/hosts` and `/etc/nsswitch.conf` are stable and worth
+pinning. Generated infrastructure is not. This is the same defect as the CLI
+version pin in miniature: the mechanism is sound, but attached to something that
+moves without meaning. The fix is not fewer pins, it is pinning things whose
+change carries information.
+
+#### What the pin is actually for, and what follows
+
+The goal is answering "exactly which agent produced this work", which
+attestation depends on. That goal is served by **recording** the digest of what
+ran, not by refusing to run anything except one blessed build. Recording is
+strictly more informative than a whitelist of one, because it also captures the
+versions nobody thought to bless.
+
+- The digest and version in the driver config become authoritative. Validation
+  checks the config against the **live binary**, not against a constant.
+- The resolved path, digest and version output are recorded in the run record as
+  provenance. This is content-free and belongs in the journal.
+- Any further restriction is operator policy expressed in the config, not engine
+  policy compiled into the binary: a minimum version, a set of accepted digests,
+  or accept-and-record. Default to accept-and-record.
+- `NATIVE_NOT_CERTIFIED` stops meaning "not the blessed build" and starts
+  meaning what it says: the binary at the configured path did not match the
+  configured identity.
+
+This is a prerequisite for S5a. `sworn init` derives a driver config from a live
+install, which is only meaningful if the config it writes is authoritative.
+Today `init` could only ever write the one digest Sworn was compiled against,
+and would fail on any other machine.
+
+- Acceptance: a native CLI one patch release ahead of whatever Sworn was built
+  against is admitted, its exact digest is recorded in the run record, and
+  tightening beyond that is expressible in the driver config without rebuilding
+  Sworn.
 
 ## What was not changed
 
