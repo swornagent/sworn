@@ -526,9 +526,27 @@ Both are `package main` in the same binary. The on-ramp is present and unused.
 
 #### S5a. `sworn init`
 
-Once per project. Writes `.sworn/drivers.json` and the project defaults that a
-manifest needs but cannot be derived: role and model selections, recovery model,
-and limits.
+**Delivered 2026-08-03.** The first command run in a project, and the one that
+sets the project up to work with Sworn at all.
+
+It resolves the project from the working directory, creates `.sworn` with a
+`.gitignore` excluding everything inside it, creates the run definition
+directory, detects an installed agent CLI, and writes the connection file.
+
+Excluding the whole directory from Git is not housekeeping. `.sworn` holds
+absolute host paths, binary digests, and the run journal, none of which belong
+in a repository other people clone, and excluding the directory is more reliable
+than trusting each future writer to remember.
+
+It then reports what it found: the Baton releases in this project, or that there
+are none, and what is still required before a run can start. **That report is
+half the value.** The first question in a new project is "what now", and nothing
+answered it before, which is the same silence recorded as D2.
+
+The connection file is what nobody can hand-author: an absolute path to the
+platform build a package manager hides behind a launcher script, digests for
+four host runtime files, the sandbox credential target, and canonical JSON with
+no trailing newline while the run manifest beside it demands one.
 
 This is possible precisely because the driver config is specified as canonical
 and **secret-free** (`docs/run.md`). Credentials are not in the file, so Sworn
@@ -537,7 +555,9 @@ can author the whole thing. Verify the result with the existing
 
 **Not once-only. Idempotent and re-runnable.** Once per project to get started,
 but models get swapped, providers get added, and limits get tuned, so `init`
-has to be safe to run again.
+has to be safe to run again. As delivered, a re-run refuses rather than
+rewriting, `--force` replaces, and a file that would be byte-identical is left
+alone so its digest is preserved.
 
 That safety has a specific edge, and it is not obvious. **The manifest pins
 `driver_config_digest`** (`internal/runtime/manifest.go:105`), and
@@ -568,6 +588,12 @@ hand-building a Codex driver config for the first Sworn-driven run:
   calling `driver.EncodeDriverConfig` produced a document that validated on the
   first attempt, because canonical field order and formatting come from the same
   code that checks them. `init` should do the same rather than template JSON.
+
+**Known cap while S6 is parked.** `init` derives the connection file from the
+live install, but admission still requires the digest to equal a constant
+compiled into Sworn. On a machine whose agent CLI matches that constant it
+works; on any other, `init` writes a valid file the engine then refuses. The
+refusal is at least legible rather than silent.
 
 Open question, not blocking: whether a user-level `~/.sworn/drivers.json`
 should seed the project file, matching how the agent CLIs keep provider
