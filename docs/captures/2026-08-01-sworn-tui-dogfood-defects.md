@@ -151,7 +151,7 @@ given.
 | S2 Supervised run lifecycle with detach and reconnect | F4 | #172 |
 | S3 Structured activity with an honest event association | F5 | #173 |
 | S4 Provider-neutral live output with bounded, explicit storage | F6a, F6b | #176 |
-| S5 A usable on-ramp: `sworn init` and cwd-relative `sworn run` | F7 | #177 |
+| S5 A usable on-ramp: `sworn init`, cwd-relative `sworn run`, `sworn approve` | F7 | #177 |
 | S6 Move the native CLI pin out of the engine and into policy | F8 | #179 |
 | Standalone: correct the plan fence error text | F2 | #170 |
 
@@ -573,6 +573,46 @@ Open question, not blocking: whether a user-level `~/.sworn/drivers.json`
 should seed the project file, matching how the agent CLIs keep provider
 configuration per user rather than per repository. The project file stays
 authoritative either way, because the digest binds to it.
+
+#### S5c. `sworn approve`
+
+Added 2026-08-03. Sworn can read and verify every artefact it requires and can
+author none of them. Three instances of one gap: the driver configuration, the
+run manifest, and now the plan approval.
+
+Approving a plan by hand is not currently possible. `baton-plan` ends with "do
+not write an approval or receipt", `baton-verify` stops on "missing approval",
+and no skill, command, or Baton binary writes one. During the 2026-08-03 dogfood
+approvals were recorded as GitHub comments carrying an anchor matching the
+plan's `approval_ref`. That is a human-readable note, not a protocol record:
+`readState` resolves approvals from receipts in the record root, so the release
+would not have read as approved had the engine driven it.
+
+An approval is a receipt with `Role` `planner` and `Result` `approved`
+(`internal/baton/state.go:1287`), bound to the plan object and carrying the
+approved target.
+
+```sh
+sworn approve <release> --plan sha256:...
+```
+
+- Resolves the project from the working directory, as S5b does.
+- Reads the plan for that release, computes its digest, and **refuses unless the
+  digest supplied matches**. The approver states what they are approving; the
+  tool checks rather than infers.
+- Writes the receipt into the record root and commits it on the release ref.
+- Refuses when an approval already covers those exact bytes.
+
+The explicit digest is the whole safeguard, and it is deliberately thin.
+Authority comes from who runs the command, exactly as it does for a push to a
+protected branch. What the flag prevents is approving whatever happens to be on
+disk at the time, which is the failure mode that matters when the plan may have
+been rewritten between review and approval.
+
+Deliberately not built: a general receipt-writing surface. One artefact, one
+command, no framework. Writing verdicts, merges, or plans stays outside Sworn's
+command set, because a tool that can write any receipt can forge the ones whose
+whole value is that a human produced them.
 
 #### S5b. Cwd-relative `sworn run`
 
