@@ -23,6 +23,29 @@ bindings, creates at most one bounded commit or effect, and compare-and-set
 updates only its declared ref. An exact retry returns the existing receipt
 rather than duplicating it.
 
+Every record-writing engine constructs the action layer with an explicit Git
+identity:
+
+```js
+createBatonActions({
+  repo,
+  identity: { name: 'Delivery engine', email: 'delivery@example.org' },
+});
+```
+
+The name is at most 128 UTF-8 bytes and the address at most 254. Both must be
+well-formed Unicode without controls, Git ident delimiters, or surrounding
+whitespace; the address must contain one non-empty local and domain part.
+Baton uses the same identity for author and committer. It is attribution only,
+never role, approval, or authority. There is no built-in service identity and
+no fallback to repository or global Git configuration.
+
+The same parent, content, timestamp rule, and identity produce the same object.
+A different valid identity may produce a different commit object, while the
+plan, receipt, candidate, product, and authority projection remains the same.
+Read-only projection recovers historical engine identity from the commits it
+validates and needs no current writer identity.
+
 Product candidates remain ordinary product commits. Receipt commits have one
 parent and exactly the same tree as that parent. Captain and Verifier decisions
 therefore bind immutable Git objects without mixing metadata into the product

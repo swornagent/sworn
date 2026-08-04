@@ -41,7 +41,7 @@ func TestPrepareProductCompositionResolvesBaseOnlyAfterConflict(t *testing.T) {
 		)
 		resolutions := 0
 		prepared, err := repository.PrepareProductComposition(
-			CompositionRequest{
+			CompositionRequest{Identity: testIdentity,
 				Expected: expected.Commit, Candidate: candidate.Commit,
 				TargetRef:        "refs/heads/result/clean",
 				ProductAdmission: product,
@@ -89,7 +89,7 @@ func TestPrepareProductCompositionResolvesBaseOnlyAfterConflict(t *testing.T) {
 			},
 			"producer",
 		)
-		request := CompositionRequest{
+		request := CompositionRequest{Identity: testIdentity,
 			Expected: expected.Commit, Candidate: candidate.Commit,
 			TargetRef:        "refs/heads/result/replay",
 			ProductAdmission: product,
@@ -157,7 +157,7 @@ func TestPrepareProductCompositionRejectsHostileBaseWithoutMovingRef(t *testing.
 		t.Fatal(err)
 	}
 	_, err := repository.PrepareProductComposition(
-		CompositionRequest{
+		CompositionRequest{Identity: testIdentity,
 			Expected: expected.Commit, Candidate: candidate.Commit,
 			TargetRef: targetRef, ProductAdmission: product,
 		},
@@ -185,7 +185,7 @@ func TestPrepareApprovedTargetBasePreservesFirstParentAuthority(t *testing.T) {
 		"target first parent",
 	)
 	targetMerge, err := repository.prepareTwoParentComposition(
-		CompositionRequest{
+		CompositionRequest{Identity: testIdentity,
 			Expected: targetFirst.Commit, Candidate: authority.Commit,
 			TargetRef:        "refs/heads/main",
 			ProductAdmission: product,
@@ -196,7 +196,7 @@ func TestPrepareApprovedTargetBasePreservesFirstParentAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepared, err := repository.PrepareApprovedTargetBase(
-		CompositionRequest{
+		CompositionRequest{Identity: testIdentity,
 			Expected: authority.Commit, Candidate: targetMerge.Commit,
 			TargetRef:        "refs/heads/tracks/consumer",
 			ProductAdmission: product,

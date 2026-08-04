@@ -243,7 +243,8 @@ func discoverProjectManifests(paths projectPaths) map[string]projectManifest {
 		}
 		diagnostic := ""
 		if identity.SchemaVersion == runtimepkg.ManifestVersionV2 ||
-			identity.SchemaVersion == runtimepkg.ManifestVersionV3 {
+			identity.SchemaVersion == runtimepkg.ManifestVersionV3 ||
+			identity.SchemaVersion == runtimepkg.ManifestVersionV4 {
 			diagnostic = "MIGRATION_REQUIRED"
 		}
 		result[identity.Release] = projectManifest{

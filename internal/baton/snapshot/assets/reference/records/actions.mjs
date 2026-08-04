@@ -5,6 +5,7 @@ import {
   captureHeadRefs,
   commitParents,
   isAncestor,
+  normalizeGitIdentity,
   productTreeIdentity,
   readFilesAtOID,
   repositoryRoot,
@@ -333,7 +334,7 @@ function currentConsumedInputs(state, slice) {
   }));
 }
 
-function prepareConsumedTrackBase(repo, consumerRef, seed, inputs) {
+function prepareConsumedTrackBase(repo, consumerRef, seed, inputs, gitIdentity) {
   let candidate = seed;
   for (const input of inputs) {
     if (
@@ -345,13 +346,14 @@ function prepareConsumedTrackBase(repo, consumerRef, seed, inputs) {
       expectedHead: candidate,
       candidate: input.pass_receipt,
       productBase: input.product_base,
+      identity: gitIdentity,
     });
     candidate = prepared.result;
   }
   return candidate;
 }
 
-function preparedTrackBase(repo, state, slice) {
+function preparedTrackBase(repo, state, slice, gitIdentity) {
   const track = currentTrack(state, slice.location.track.id);
   const inputs = currentConsumedInputs(state, slice);
   const seed = track.authority_head;
@@ -359,6 +361,7 @@ function preparedTrackBase(repo, state, slice) {
     targetRef: track.ref,
     expectedHead: seed,
     approvedTarget: state.plan.approval.receipt.target,
+    identity: gitIdentity,
   });
   return Object.freeze({
     track,
@@ -369,6 +372,7 @@ function preparedTrackBase(repo, state, slice) {
       track.ref,
       targetBase,
       inputs,
+      gitIdentity,
     ),
   });
 }
@@ -385,11 +389,12 @@ function requireTargetLineage(repo, state) {
   }
 }
 
-function prepareAssemblyCandidate(repo, targetRef, binds, target, tracks) {
+function prepareAssemblyCandidate(repo, targetRef, binds, target, tracks, gitIdentity) {
   let candidate = unsafePrepareApprovedTargetBase(repo, {
     targetRef,
     expectedHead: binds,
     approvedTarget: target,
+    identity: gitIdentity,
   });
   for (const component of tracks) {
     if (
@@ -401,6 +406,7 @@ function prepareAssemblyCandidate(repo, targetRef, binds, target, tracks) {
       expectedHead: candidate,
       candidate: component.authority,
       productBase: component.product_base,
+      identity: gitIdentity,
     }).result;
   }
   return candidate;
@@ -490,7 +496,7 @@ function actionEntry(oid, parent, message) {
 export function createBatonActions(options) {
   const admitted = exactOptions(
     options,
-    ['repo'],
+    ['repo', 'identity'],
     [],
     'createBatonActions',
   );
@@ -498,6 +504,12 @@ export function createBatonActions(options) {
     fail('INVALID_ACTION_INPUT', 'repo must be a non-empty path');
   }
   const repo = repositoryRoot(admitted.repo);
+  let gitIdentity;
+  try {
+    gitIdentity = normalizeGitIdentity(admitted.identity);
+  } catch (error) {
+    fail('INVALID_ACTION_INPUT', error.message, error);
+  }
   const recordPathAdmission = resolveRecordPathAdmission(repo);
 
   function stateFor(release) {
@@ -580,6 +592,7 @@ export function createBatonActions(options) {
       changes: {
         [planPath(release)]: parsed.bytes,
       },
+      identity: gitIdentity,
     });
     const planObject = fileAt(repo, preparedPlan.commit, planPath(release)).object;
     if (!planObject) fail('PLAN_NOT_FOUND', 'prepared plan blob could not be resolved');
@@ -594,6 +607,7 @@ export function createBatonActions(options) {
     const preparedApproval = unsafePrepareMetadataCommit(repo, {
       expectedHead: preparedPlan.commit,
       message: rendered.message,
+      identity: gitIdentity,
     });
     let nextHead = preparedApproval.commit;
     const retirements = [];
@@ -625,6 +639,7 @@ export function createBatonActions(options) {
         const preparedRetirement = unsafePrepareMetadataCommit(repo, {
           expectedHead: nextHead,
           message: retirementMessage,
+          identity: gitIdentity,
         });
         retirements.push(Object.freeze({
           slice,
@@ -774,6 +789,7 @@ export function createBatonActions(options) {
           repo,
           state,
           slice,
+          gitIdentity,
         );
         if (parent !== prepared.base) {
           fail(
@@ -820,6 +836,7 @@ export function createBatonActions(options) {
           repo,
           state,
           slice,
+          gitIdentity,
         );
         if (location.slice.consumes.length > 0 && base !== prepared.base) {
           fail(
@@ -960,6 +977,7 @@ export function createBatonActions(options) {
     const prepared = unsafePrepareMetadataCommit(repo, {
       expectedHead: parent,
       message,
+      identity: gitIdentity,
     });
     const operations = [];
     if (ownerRef !== state.refs.release.ref) {
@@ -1018,6 +1036,7 @@ export function createBatonActions(options) {
       repo,
       state,
       slice,
+      gitIdentity,
     );
     const pins = Object.fromEntries(
       prepared.inputs.map((item) => [item.slice, item.product_tree]),
@@ -1205,6 +1224,7 @@ export function createBatonActions(options) {
       binds,
       target,
       trackCandidates,
+      gitIdentity,
     );
     const productIdentity = productTreeIdentity(repo, candidate);
     const checks = Object.hasOwn(input, 'checkResults')
@@ -1234,6 +1254,7 @@ export function createBatonActions(options) {
     const prepared = unsafePrepareMetadataCommit(repo, {
       expectedHead: candidate,
       message,
+      identity: gitIdentity,
     });
     unsafeAtomicUpdateRefs(repo, [
       {
@@ -1302,6 +1323,7 @@ export function createBatonActions(options) {
       targetRef: state.refs.target.ref,
       expectedHead: state.refs.target.head,
       candidate,
+      identity: gitIdentity,
     });
     const productIdentity = productTreeIdentity(repo, prepared.result);
     const receipt = {
@@ -1326,6 +1348,7 @@ export function createBatonActions(options) {
     const preparedReceipt = unsafePrepareMetadataCommit(repo, {
       expectedHead: state.refs.release.head,
       message,
+      identity: gitIdentity,
     });
     unsafeAtomicUpdateRefs(repo, [
       {

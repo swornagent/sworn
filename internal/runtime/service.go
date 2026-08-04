@@ -105,22 +105,23 @@ type sealedRecord struct {
 }
 
 type implementationCycle struct {
-	Release        string `json:"release"`
-	Slice          string `json:"slice"`
-	Binds          string `json:"binds"`
-	Before         string `json:"before"`
-	Plan           string `json:"plan"`
-	ReleaseHead    string `json:"release_head"`
-	TargetHead     string `json:"target_head"`
-	Track          string `json:"track"`
-	TrackRef       string `json:"track_ref"`
-	TrackHead      string `json:"track_head"`
-	RefreshFrom    string `json:"refresh_from,omitempty"`
-	Base           string `json:"base,omitempty"`
-	DispatchWork   string `json:"dispatch_work"`
-	DispatchEffect string `json:"dispatch_effect"`
-	PreparedWork   string `json:"prepared_work"`
-	PreparedEffect string `json:"prepared_effect"`
+	Release        string        `json:"release"`
+	GitIdentity    gitx.Identity `json:"git_identity"`
+	Slice          string        `json:"slice"`
+	Binds          string        `json:"binds"`
+	Before         string        `json:"before"`
+	Plan           string        `json:"plan"`
+	ReleaseHead    string        `json:"release_head"`
+	TargetHead     string        `json:"target_head"`
+	Track          string        `json:"track"`
+	TrackRef       string        `json:"track_ref"`
+	TrackHead      string        `json:"track_head"`
+	RefreshFrom    string        `json:"refresh_from,omitempty"`
+	Base           string        `json:"base,omitempty"`
+	DispatchWork   string        `json:"dispatch_work"`
+	DispatchEffect string        `json:"dispatch_effect"`
+	PreparedWork   string        `json:"prepared_work"`
+	PreparedEffect string        `json:"prepared_effect"`
 }
 
 const planProposalVersion = "sworn.plan-proposal/v1"
@@ -469,11 +470,11 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 	if err != nil {
 		return nil, runtimeFail("BATON_UNAVAILABLE", err)
 	}
-	actions, err := baton.NewActions(gitRepository, inertness)
+	actions, err := baton.NewActions(gitRepository, inertness, manifest.value.GitIdentity)
 	if err != nil {
 		return nil, runtimeFail("BATON_UNAVAILABLE", err)
 	}
-	workspaces, err := gitx.NewRunWorkspaces(repository, manifest.value.RunID)
+	workspaces, err := gitx.NewRunWorkspaces(repository, manifest.value.RunID, manifest.value.GitIdentity)
 	if err != nil {
 		return nil, runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}

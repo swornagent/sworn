@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -399,6 +400,7 @@ func projectWriteManifest(
 		Model:   "fixture-model",
 	}
 	manifest := runtimepkg.Manifest{
+		GitIdentity:       gitx.Identity{Name: "TUI Test Engine", Email: "engine@example.test"},
 		SchemaVersion:     runtimepkg.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,

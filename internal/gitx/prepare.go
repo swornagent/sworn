@@ -9,9 +9,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
-type Identity struct{ Name, Email string }
+type Identity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
 type BlobChange struct {
 	Path   string
 	Bytes  []byte
@@ -30,10 +35,36 @@ type PreparedCommit struct {
 	Parents []OID
 }
 
-func validateIdentity(identity Identity) error {
-	if identity.Name == "" || identity.Email == "" || len(identity.Name) > 200 || len(identity.Email) > 320 ||
-		strings.ContainsAny(identity.Name, "\x00\n<>") || strings.ContainsAny(identity.Email, "\x00\n<>") {
-		return fail("INVALID_COMMIT_IDENTITY", "validate commit identity", errors.New("identity is not a closed Git identity"))
+func ValidateIdentity(identity Identity) error {
+	if err := validateIdentityField(identity.Name, 128, false); err != nil {
+		return fail("INVALID_COMMIT_IDENTITY", "validate commit identity name", err)
+	}
+	if err := validateIdentityField(identity.Email, 254, true); err != nil {
+		return fail("INVALID_COMMIT_IDENTITY", "validate commit identity email", err)
+	}
+	return nil
+}
+
+func validateIdentityField(value string, maximum int, email bool) error {
+	if value == "" || !utf8.ValidString(value) || len([]byte(value)) > maximum ||
+		value != strings.TrimSpace(value) || strings.ContainsAny(value, "<>") {
+		return errors.New("identity field is not bounded canonical UTF-8")
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return errors.New("identity field contains a control character")
+		}
+	}
+	if email {
+		at := strings.IndexByte(value, '@')
+		if at <= 0 || at != strings.LastIndexByte(value, '@') || at == len(value)-1 {
+			return errors.New("identity email must contain one non-empty local and domain part")
+		}
+		for _, character := range value {
+			if unicode.IsSpace(character) {
+				return errors.New("identity email must contain one non-empty local and domain part")
+			}
+		}
 	}
 	return nil
 }
@@ -65,7 +96,7 @@ func (r *Repository) prepareRecord(request RecordRequest) (PreparedCommit, error
 	if err := validateMessage(request.Message); err != nil {
 		return PreparedCommit{}, err
 	}
-	if err := validateIdentity(request.Identity); err != nil {
+	if err := ValidateIdentity(request.Identity); err != nil {
 		return PreparedCommit{}, err
 	}
 	if request.Timestamp < 0 {
@@ -147,6 +178,7 @@ type RecordTransitionRequest struct {
 	ExpectedHead     OID
 	Changes          []BlobChange
 	Message          string
+	Identity         Identity
 	RecordAdmission  *RecordPathAdmission
 	ProductAdmission *ProductExclusionAdmission
 }
@@ -177,7 +209,7 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 	prepared, err := r.prepareRecord(RecordRequest{
 		Parent: request.ExpectedHead, Changes: request.Changes,
 		Message:   strings.TrimSpace(request.Message) + "\n",
-		Identity:  Identity{Name: "Baton Records", Email: "records@baton.invalid"},
+		Identity:  request.Identity,
 		Timestamp: timestamp + 1,
 	})
 	if err != nil {
@@ -199,10 +231,14 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 type MetadataRequest struct {
 	ExpectedHead OID
 	Message      []byte
+	Identity     Identity
 }
 
 func (r *Repository) PrepareMetadataCommit(request MetadataRequest) (PreparedCommit, error) {
 	if err := r.validateOID(request.ExpectedHead); err != nil {
+		return PreparedCommit{}, err
+	}
+	if err := ValidateIdentity(request.Identity); err != nil {
 		return PreparedCommit{}, err
 	}
 	if len(request.Message) == 0 || len(request.Message) > MaxMessageBytes ||
@@ -219,10 +255,7 @@ func (r *Repository) PrepareMetadataCommit(request MetadataRequest) (PreparedCom
 	}
 	raw, err := r.run(
 		request.Message,
-		commitEnvironment(
-			Identity{Name: "Baton Receipts", Email: "receipts@baton.invalid"},
-			timestamp+1,
-		),
+		commitEnvironment(request.Identity, timestamp+1),
 		"commit-tree", tree.String(), "-p", request.ExpectedHead.String(),
 	)
 	if err != nil {
@@ -257,6 +290,7 @@ type CompositionRequest struct {
 	Expected         OID
 	Candidate        OID
 	TargetRef        string
+	Identity         Identity
 	ProductAdmission *ProductExclusionAdmission
 }
 type PreparedComposition struct {
@@ -448,6 +482,9 @@ func (r *Repository) deterministicMergeTree(expected, candidate OID, productBase
 }
 
 func (r *Repository) validateCompositionRequest(request CompositionRequest) error {
+	if err := ValidateIdentity(request.Identity); err != nil {
+		return err
+	}
 	if err := r.validateOID(request.Expected); err != nil {
 		return err
 	}
@@ -525,7 +562,7 @@ func (r *Repository) prepareTwoParentComposition(
 	timestamp++
 	rawCommit, err := r.run(
 		[]byte(fmt.Sprintf("Baton exact composition of %s into %s\n", request.Candidate.String(), request.TargetRef)),
-		commitEnvironment(Identity{Name: "Baton Merge", Email: "merge@baton.invalid"}, timestamp),
+		commitEnvironment(request.Identity, timestamp),
 		"commit-tree", tree.String(), "-p", request.Expected.String(), "-p", request.Candidate.String(),
 	)
 	if err != nil {

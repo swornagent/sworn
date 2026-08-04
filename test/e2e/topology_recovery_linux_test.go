@@ -1239,7 +1239,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		actions, err := baton.NewActions(
-			baton.UseGitRepository(gitRepository), inertResolver)
+			baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1490,7 +1490,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 							t.Fatal(err)
 						}
 						actions, err := baton.NewActions(
-							baton.UseGitRepository(gitRepository), inertResolver)
+							baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -2137,6 +2137,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		actions, err := baton.NewActions(
 			baton.UseGitRepository(product),
 			inertResolver,
+			gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		)
 		if err != nil {
 			t.Fatal(err)

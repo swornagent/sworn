@@ -33,6 +33,10 @@ const {
 } = await import(path.join(referenceRoot, 'git.mjs'));
 
 const git = '/usr/bin/git';
+const gitIdentity = Object.freeze({
+  name: 'Golden Baton Engine',
+  email: 'engine@example.test',
+});
 configureEngineGitExecutable(git);
 
 const output = path.resolve(process.argv[2] ?? path.join(here, 'testdata/corpus'));
@@ -62,14 +66,16 @@ function runGit(repo, args, options = {}) {
     GIT_CONFIG_SYSTEM: '/dev/null',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
-    GIT_AUTHOR_NAME: options.name ?? 'Golden Author',
-    GIT_AUTHOR_EMAIL: options.email ?? 'golden@baton.invalid',
-    GIT_AUTHOR_DATE: options.date ?? '1000000000 +0000',
-    GIT_COMMITTER_NAME: options.name ?? 'Golden Author',
-    GIT_COMMITTER_EMAIL: options.email ?? 'golden@baton.invalid',
-    GIT_COMMITTER_DATE: options.date ?? '1000000000 +0000',
     ...(options.env ?? {}),
   };
+  if (options.identity) {
+    environment.GIT_AUTHOR_NAME = options.identity.name;
+    environment.GIT_AUTHOR_EMAIL = options.identity.email;
+    environment.GIT_AUTHOR_DATE = options.date;
+    environment.GIT_COMMITTER_NAME = options.identity.name;
+    environment.GIT_COMMITTER_EMAIL = options.identity.email;
+    environment.GIT_COMMITTER_DATE = options.date;
+  }
   const result = spawnSync(git, ['-C', repo, ...args], {
     input: options.input,
     encoding: options.binary ? null : 'utf8',
@@ -99,7 +105,10 @@ function createRepository(objectFormat) {
   if (init.status !== 0) throw new Error(init.stderr);
   writeFileSync(path.join(repo, 'base.txt'), 'base\n');
   runGit(repo, ['add', '--', 'base.txt']);
-  runGit(repo, ['commit', '--quiet', '-m', 'base']);
+  runGit(repo, ['commit', '--quiet', '-m', 'base'], {
+    identity: gitIdentity,
+    date: '1000000000 +0000',
+  });
   runGit(repo, ['branch', '-M', 'main']);
   return repo;
 }
@@ -120,6 +129,7 @@ function commitFile(repo, parent, ref, relativePath, contents, timestamp) {
     const commit = runGit(repo, ['commit-tree', tree, '-p', parent], {
       input: `product ${relativePath}\n`,
       date: `${timestamp} +0000`,
+      identity: gitIdentity,
     });
     runGit(repo, ['update-ref', ref, commit, parent]);
     return commit;
@@ -256,7 +266,7 @@ function executeFlow(objectFormat) {
       },
     ];
     const plan = planBytes(release, tracks);
-    const actions = createBatonActions({ repo });
+    const actions = createBatonActions({ repo, identity: gitIdentity });
     const results = [];
     const states = [];
     results.push(projectResult(actions.recordPlanRevision({
@@ -452,7 +462,7 @@ const references = ['actions.mjs', 'git.mjs', 'receipts.mjs', 'state.mjs'].map((
 });
 writeJSON('manifest.json', {
   schema: 'sworn.batongolden/v2',
-  baton: '1.0.0-rc.13',
+  baton: '1.0.0-rc.14',
   generator: 'exact embedded Baton JavaScript reference',
   oracle_sha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
   references,

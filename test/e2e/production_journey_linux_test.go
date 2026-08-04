@@ -18,9 +18,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -587,6 +589,7 @@ func productionJourneyManifest(
 ) []byte {
 	t.Helper()
 	manifest := swornruntime.Manifest{
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             "production-journey",
 		Repository:        repository,
@@ -705,7 +708,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 
 	authorizePlan(t, journalPath, "production-journey", plan)
 	installApprovedPlan(t, repository, planBytes)
-	stdout, stderr = runBinaryWithEnvironment(
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t,
 		swornBinary,
 		0,
@@ -713,6 +716,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
 			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
 		},
+		180*time.Second,
 		"resume",
 		"--run", "production-journey",
 		"--journal", journalPath,

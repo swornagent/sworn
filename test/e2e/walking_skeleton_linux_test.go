@@ -112,7 +112,21 @@ func runBinaryWithEnvironment(
 	args ...string,
 ) (string, string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	return runBinaryWithEnvironmentTimeout(
+		t, binary, wantExit, environment, 120*time.Second, args...,
+	)
+}
+
+func runBinaryWithEnvironmentTimeout(
+	t *testing.T,
+	binary string,
+	wantExit int,
+	environment map[string]string,
+	timeout time.Duration,
+	args ...string,
+) (string, string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, binary, args...)
 	overrides := map[string]string{}
@@ -291,6 +305,7 @@ func e2eManifest(
 		return left < right
 	})
 	manifest := swornruntime.Manifest{
+		GitIdentity:   gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		SchemaVersion: swornruntime.ManifestVersion,
 		RunID:         runID, Repository: repository, Release: release,
 		TargetRef: "refs/heads/main", Intent: "Drive the exact approved E2E track.",
@@ -375,7 +390,7 @@ func installAndPassComponent(
 		t.Fatal(err)
 	}
 	gitRepository := baton.UseGitRepository(repository)
-	actions, err := baton.NewActions(gitRepository, inertResolver)
+	actions, err := baton.NewActions(gitRepository, inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +408,10 @@ func installAndPassComponent(
 			t.Fatal(err)
 		}
 	}
-	workspaces, err := gitx.NewWorkspaces(repository)
+	workspaces, err := gitx.NewWorkspaces(
+		repository,
+		gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,6 +480,7 @@ func installApprovedPlan(
 	actions, err := baton.NewActions(
 		baton.UseGitRepository(repository),
 		inertResolver,
+		gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 	)
 	if err != nil {
 		t.Fatal(err)

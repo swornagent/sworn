@@ -1253,7 +1253,7 @@ func newProductionImplementationRecoveryFixture(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release: state.Release, Slice: "S1",
 		Binds: slice.CurrentReceipt.OID, Before: before,
 		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
@@ -1962,7 +1962,7 @@ func prepareCleanHeadRefreshRecovery(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     state.Release,
 		Slice:       "S1",
 		Binds:       slice.CurrentReceipt.OID,
@@ -2780,7 +2780,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release: state.Release, Slice: "S1",
 		Binds: slice.CurrentReceipt.OID, Before: before,
 		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,

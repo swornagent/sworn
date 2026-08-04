@@ -140,6 +140,7 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 				Decision: "inert",
 			}, nil
 		},
+		gitx.Identity{Name: "TUI Test Engine", Email: "engine@example.test"},
 	)
 	if err != nil {
 		t.Fatal(err)

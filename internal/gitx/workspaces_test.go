@@ -39,7 +39,7 @@ func TestReleaseAssemblyLeaseBindsExactReleaseHead(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestRunWorkspacesRejectRepositoryLocalTempBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRunWorkspaces(repository, "overlap-run"); err == nil {
+	if _, err := NewRunWorkspaces(repository, "overlap-run", testIdentity); err == nil {
 		t.Fatal("repository-local workspace base was admitted")
 	} else {
 		requireGitxErrorCode(t, err, "INVALID_REPOSITORY")
@@ -143,7 +143,7 @@ func TestRunWorkspacesHardExitHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaces, err := NewRunWorkspaces(repository, "hard-exit-run")
+	workspaces, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRunWorkspacesRecoverAfterHardProcessExit(t *testing.T) {
 		t.Fatal("hard-exit workspace registration was not left behind")
 	}
 
-	differentRun, err := NewRunWorkspaces(repository, "hard-exit-next-run")
+	differentRun, err := NewRunWorkspaces(repository, "hard-exit-next-run", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestRunWorkspacesRecoverAfterHardProcessExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	replacement, err := NewRunWorkspaces(repository, "hard-exit-run")
+	replacement, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 	key := TrackKey{Release: "release-recovery", Track: "T1"}
 	createTrack(t, repository, key, base)
 
-	crashed, err := NewRunWorkspaces(repository, "run-recovery")
+	crashed, err := NewRunWorkspaces(repository, "run-recovery", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	abandonedRoot, abandonedPath := crashed.root, abandoned.Path()
-	if _, err := NewRunWorkspaces(repository, "run-recovery"); err == nil {
+	if _, err := NewRunWorkspaces(repository, "run-recovery", testIdentity); err == nil {
 		t.Fatal("second active workspace owner was admitted")
 	} else {
 		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
@@ -289,7 +289,7 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 		t.Fatal("rejected active owner removed the live Git registration")
 	}
 
-	otherRun, err := NewRunWorkspaces(repository, "run-other")
+	otherRun, err := NewRunWorkspaces(repository, "run-other", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 	otherPath := otherLease.Path()
 
 	otherRepository, otherBase := newRepository(t, SHA1)
-	otherRepositoryRun, err := NewRunWorkspaces(otherRepository, "run-recovery")
+	otherRepositoryRun, err := NewRunWorkspaces(otherRepository, "run-recovery", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestRunWorkspacesRecoverOnlyAbandonedExactRun(t *testing.T) {
 	if err := crashed.releaseLock(); err != nil {
 		t.Fatal(err)
 	}
-	replacement, err := NewRunWorkspaces(repository, "run-recovery")
+	replacement, err := NewRunWorkspaces(repository, "run-recovery", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestImplementationWritersSerializeByRepositoryReleaseTrack(t *testing.T) {
 	createTrack(t, repository, otherKey, base)
 	createTrack(t, repository, otherReleaseKey, base)
 
-	firstRun, err := NewRunWorkspaces(repository, "writer-first")
+	firstRun, err := NewRunWorkspaces(repository, "writer-first", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestImplementationWritersSerializeByRepositoryReleaseTrack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondRun, err := NewRunWorkspaces(secondRepository, "writer-second")
+	secondRun, err := NewRunWorkspaces(secondRepository, "writer-second", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestImplementationWritersSerializeByRepositoryReleaseTrack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	linkedRun, err := NewRunWorkspaces(linkedRepository, "writer-linked")
+	linkedRun, err := NewRunWorkspaces(linkedRepository, "writer-linked", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,6 +508,7 @@ func TestImplementationWritersSerializeByRepositoryReleaseTrack(t *testing.T) {
 	otherRepositoryRun, err := NewRunWorkspaces(
 		otherRepository,
 		"writer-other-repository",
+		testIdentity,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -583,12 +584,12 @@ func TestImplementationWriterLockReleasesWhenAdmissionFails(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-writer-admission", Track: "T1"}
 	createTrack(t, repository, key, base)
-	failedRun, err := NewRunWorkspaces(repository, "writer-admission-failed")
+	failedRun, err := NewRunWorkspaces(repository, "writer-admission-failed", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer failedRun.Close()
-	nextRun, err := NewRunWorkspaces(repository, "writer-admission-next")
+	nextRun, err := NewRunWorkspaces(repository, "writer-admission-next", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,12 +624,12 @@ func TestWorkspaceCloseRetriesFailedWriterCleanup(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-writer-cleanup", Track: "T1"}
 	createTrack(t, repository, key, base)
-	firstRun, err := NewRunWorkspaces(repository, "writer-cleanup-first")
+	firstRun, err := NewRunWorkspaces(repository, "writer-cleanup-first", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer firstRun.Close()
-	secondRun, err := NewRunWorkspaces(repository, "writer-cleanup-second")
+	secondRun, err := NewRunWorkspaces(repository, "writer-cleanup-second", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +697,7 @@ func TestRunWorkspacesRejectUnownedCrashStateWithoutDeleting(t *testing.T) {
 			repository, base := newRepository(t, SHA1)
 			key := TrackKey{Release: "release-" + test.name, Track: "T1"}
 			createTrack(t, repository, key, base)
-			workspaces, err := NewRunWorkspaces(repository, "run-"+test.name)
+			workspaces, err := NewRunWorkspaces(repository, "run-"+test.name, testIdentity)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -712,7 +713,7 @@ func TestRunWorkspacesRejectUnownedCrashStateWithoutDeleting(t *testing.T) {
 			if err := workspaces.releaseLock(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := NewRunWorkspaces(repository, "run-"+test.name); err == nil {
+			if _, err := NewRunWorkspaces(repository, "run-"+test.name, testIdentity); err == nil {
 				t.Fatal("replacement accepted unowned workspace state")
 			} else {
 				requireGitxErrorCode(t, err, "WORKSPACE_OWNERSHIP_MISMATCH")
@@ -748,7 +749,7 @@ func TestTypedWorkspacesAreFreshReadOnlyAndSealBehindClaim(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-1", Track: "T1"}
 	createTrack(t, repository, key, base)
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -860,7 +861,7 @@ func TestSealReconciliationClassifiesAllOldAllNewAndThirdState(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-2", Track: "T1"}
 	createTrack(t, repository, key, base)
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +915,7 @@ func TestFailedClaimCallbackCannotMoveTrack(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-3", Track: "T1"}
 	createTrack(t, repository, key, base)
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -958,7 +959,7 @@ func TestGuardedSealPublishesOnlyUnderExactReleaseTargetAndTrack(t *testing.T) {
 		t.Fatal(err)
 	}
 	createTrack(t, repository, key, base)
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -976,7 +977,7 @@ func TestGuardedSealPublishesOnlyUnderExactReleaseTargetAndTrack(t *testing.T) {
 	}
 	sealed, err := workspaces.SealTrackGuardedWithClaim(
 		lease,
-		SealAuthority{
+		SealAuthority{Identity: testIdentity,
 			ReleaseHead: base,
 			TargetRef:   "refs/heads/main",
 			TargetHead:  base,
@@ -1039,7 +1040,7 @@ func TestGuardedRefreshSealAdoptsOrAdvancesOnlyUnderExactAuthority(
 				t.Fatal(err)
 			}
 			createTrack(t, repository, key, base)
-			workspaces, err := NewWorkspaces(repository)
+			workspaces, err := NewWorkspaces(repository, testIdentity)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1082,7 +1083,7 @@ func TestGuardedRefreshSealAdoptsOrAdvancesOnlyUnderExactAuthority(
 			sealed, err := workspaces.SealTrackRefreshGuardedWithClaim(
 				lease,
 				base,
-				SealAuthority{
+				SealAuthority{Identity: testIdentity,
 					ReleaseHead: base,
 					TargetRef:   "refs/heads/main",
 					TargetHead:  base,
@@ -1173,7 +1174,7 @@ func TestGuardedSealRejectsReleaseTargetOrTrackSupersessionWithoutPublishing(t *
 				t.Fatal(err)
 			}
 			createTrack(t, repository, key, base)
-			workspaces, err := NewWorkspaces(repository)
+			workspaces, err := NewWorkspaces(repository, testIdentity)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1198,7 +1199,7 @@ func TestGuardedSealRejectsReleaseTargetOrTrackSupersessionWithoutPublishing(t *
 			}
 			_, err = workspaces.SealTrackGuardedWithClaim(
 				lease,
-				SealAuthority{
+				SealAuthority{Identity: testIdentity,
 					ReleaseHead: base,
 					TargetRef:   "refs/heads/main",
 					TargetHead:  base,
@@ -1235,7 +1236,7 @@ func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
 	repository, base := newRepository(t, SHA1)
 	key := TrackKey{Release: "release-4", Track: "T1"}
 	createTrack(t, repository, key, base)
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}

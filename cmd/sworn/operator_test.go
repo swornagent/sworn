@@ -27,6 +27,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
@@ -1168,6 +1169,7 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 		Model:   "fixture-model",
 	}
 	manifest := runtimepkg.Manifest{
+		GitIdentity:       gitx.Identity{Name: "Operator Test Engine", Email: "engine@example.test"},
 		SchemaVersion:     runtimepkg.ManifestVersion,
 		RunID:             runID,
 		Repository:        "/tmp/repository",

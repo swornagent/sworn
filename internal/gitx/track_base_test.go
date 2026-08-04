@@ -25,7 +25,7 @@ func newTrackBaseFixture(t *testing.T, name string) trackBaseFixture {
 	release := "track-base-" + name
 	planPath := recordRoot + "/" + release + "/plan.md"
 	prepared, err := repository.PrepareRecordTransition(
-		RecordTransitionRequest{
+		RecordTransitionRequest{Identity: testIdentity,
 			ExpectedHead: target,
 			Changes: []BlobChange{{
 				Path:  planPath,
@@ -59,7 +59,7 @@ func newTrackBaseFixture(t *testing.T, name string) trackBaseFixture {
 	if plan.IsZero() {
 		t.Fatal("fixture plan blob is absent")
 	}
-	workspaces, err := NewWorkspaces(repository)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func (f trackBaseFixture) request(
 	inputs []TrackBaseInput,
 	before *OID,
 ) PrepareTrackBaseRequest {
-	return PrepareTrackBaseRequest{
+	return PrepareTrackBaseRequest{Identity: testIdentity,
 		Release: f.release, Plan: f.plan,
 		ReleaseHead:      f.releaseHead,
 		TargetRef:        "refs/heads/main",
@@ -413,7 +413,7 @@ func TestPrepareTrackBaseConflictAndAuthorityDriftMoveNoConsumerRef(t *testing.T
 			"two.txt", "two\n",
 		)
 		source, err := fixture.repository.PrepareComposition(
-			CompositionRequest{
+			CompositionRequest{Identity: testIdentity,
 				Expected: firstPass, Candidate: secondPass,
 				TargetRef:        trackHeadRef(producer),
 				ProductAdmission: fixture.product,

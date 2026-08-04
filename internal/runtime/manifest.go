@@ -22,7 +22,8 @@ import (
 const (
 	ManifestVersionV2 = "sworn.runtime-manifest/v2"
 	ManifestVersionV3 = "sworn.runtime-manifest/v3"
-	ManifestVersion   = "sworn.runtime-manifest/v4"
+	ManifestVersionV4 = "sworn.runtime-manifest/v4"
+	ManifestVersion   = "sworn.runtime-manifest/v5"
 	MaxManifestBytes  = 2 * 1024 * 1024
 	MaxParallelTracks = 8
 )
@@ -96,6 +97,7 @@ type Manifest struct {
 	Repository         string                `json:"repository"`
 	Release            string                `json:"release"`
 	TargetRef          string                `json:"target_ref"`
+	GitIdentity        gitx.Identity         `json:"git_identity"`
 	Intent             string                `json:"intent"`
 	MaxParallelTracks  int                   `json:"max_parallel_tracks"`
 	Authority          ProjectAuthority      `json:"authority"`
@@ -130,7 +132,7 @@ func admitStoredManifest(body []byte) (admittedManifest, error) {
 	if err != nil {
 		return admittedManifest{}, err
 	}
-	if version == ManifestVersionV2 || version == ManifestVersionV3 {
+	if version == ManifestVersionV2 || version == ManifestVersionV3 || version == ManifestVersionV4 {
 		return admittedManifest{
 			raw: append([]byte(nil), body...), digest: sha256Digest(body),
 			legacyVersion: version,
@@ -152,7 +154,7 @@ func admitManifest(body []byte) (admittedManifest, error) {
 	if err != nil {
 		return admittedManifest{}, err
 	}
-	if version == ManifestVersionV2 || version == ManifestVersionV3 {
+	if version == ManifestVersionV2 || version == ManifestVersionV3 || version == ManifestVersionV4 {
 		return admittedManifest{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	if version != ManifestVersion {
@@ -236,7 +238,7 @@ func classifyManifestVersion(body []byte) (string, error) {
 		return "", err
 	}
 	switch envelope.SchemaVersion {
-	case ManifestVersionV2, ManifestVersionV3, ManifestVersion:
+	case ManifestVersionV2, ManifestVersionV3, ManifestVersionV4, ManifestVersion:
 		return envelope.SchemaVersion, nil
 	default:
 		return "", runtimeFail("INVALID_MANIFEST_VERSION", nil)
@@ -269,6 +271,9 @@ func validateManifest(manifest Manifest) error {
 	if err := gitx.ValidateHeadRef(manifest.TargetRef); err != nil ||
 		!strings.HasPrefix(manifest.TargetRef, "refs/heads/") {
 		return runtimeFail("INVALID_TARGET_REF", nil)
+	}
+	if err := gitx.ValidateIdentity(manifest.GitIdentity); err != nil {
+		return runtimeFail("INVALID_GIT_IDENTITY", err)
 	}
 	if strings.TrimSpace(manifest.Intent) == "" ||
 		len([]byte(manifest.Intent)) > 8_192 ||

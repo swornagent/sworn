@@ -38,7 +38,7 @@ func validateRecoveryCommand(
 	return nil
 }
 
-const batonActionCommandVersion = "sworn.baton-action/v1"
+const batonActionCommandVersion = "sworn.baton-action/v2"
 
 type batonActionAuthority struct {
 	Release     string `json:"release"`
@@ -55,9 +55,10 @@ type batonActionAuthority struct {
 }
 
 type batonActionCommand struct {
-	Version   string               `json:"version"`
-	Authority batonActionAuthority `json:"authority"`
-	Input     json.RawMessage      `json:"input"`
+	Version     string               `json:"version"`
+	GitIdentity gitx.Identity        `json:"git_identity"`
+	Authority   batonActionAuthority `json:"authority"`
+	Input       json.RawMessage      `json:"input"`
 }
 
 type installActionInput struct {
@@ -75,9 +76,9 @@ const (
 	actionAmbiguous actionTruth = "ambiguous"
 )
 
-func marshalActionCommand(authority batonActionAuthority, input any) []byte {
+func marshalActionCommand(identity gitx.Identity, authority batonActionAuthority, input any) []byte {
 	return mustJSON(batonActionCommand{
-		Version: batonActionCommandVersion, Authority: authority,
+		Version: batonActionCommandVersion, GitIdentity: identity, Authority: authority,
 		Input: append(json.RawMessage(nil), mustJSON(input)...),
 	})
 }
@@ -107,6 +108,9 @@ func parseActionCommand(raw []byte) (batonActionCommand, error) {
 		command.Authority.TargetHead == "" || command.Authority.OwnerRef == "" ||
 		command.Authority.Before == "" || len(command.Input) == 0 {
 		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := gitx.ValidateIdentity(command.GitIdentity); err != nil {
+		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return command, nil
 }
@@ -1379,6 +1383,16 @@ func persistedBatonAction(engine *engine, kind string,
 	func() error,
 	error,
 ) {
+	actions := engine.actions
+	installer := engine.installer
+	if command.GitIdentity != engine.manifest.value.GitIdentity {
+		var err error
+		actions, err = baton.NewActions(engine.git, engine.inertness, command.GitIdentity)
+		if err != nil {
+			return nil, nil, runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		installer = newAuthorityInstaller(actions)
+	}
 	switch kind {
 	case "baton.append_receipt", "baton.assembly_verdict":
 		var input baton.AppendReceiptInput
@@ -1387,7 +1401,7 @@ func persistedBatonAction(engine *engine, kind string,
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return func() (baton.ActionResult, error) {
-			return engine.actions.AppendReceipt(input)
+			return actions.AppendReceipt(input)
 		}, nil, nil
 	case "baton.prepare_assembly":
 		var input baton.PrepareAssemblyInput
@@ -1402,7 +1416,7 @@ func persistedBatonAction(engine *engine, kind string,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
 					func() (baton.ActionResult, error) {
-						return engine.actions.PrepareAssembly(input)
+						return actions.PrepareAssembly(input)
 					},
 				)
 				cleanupErr = errors.Join(cleanupErr, closeErr)
@@ -1423,7 +1437,7 @@ func persistedBatonAction(engine *engine, kind string,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
 					func() (baton.ActionResult, error) {
-						return engine.actions.MergePassedCandidate(input)
+						return actions.MergePassedCandidate(input)
 					},
 				)
 				cleanupErr = errors.Join(cleanupErr, closeErr)
@@ -1444,7 +1458,7 @@ func persistedBatonAction(engine *engine, kind string,
 			reference: input.Reference,
 		}
 		return func() (baton.ActionResult, error) {
-			return engine.installer.install(admission)
+			return installer.install(admission)
 		}, nil, nil
 	default:
 		return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
@@ -1650,7 +1664,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 
 func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	workID, kind string, payload []byte,
-	action func() (baton.ActionResult, error)) (baton.ActionResult, error) {
+	_ func() (baton.ActionResult, error)) (result baton.ActionResult, resultErr error) {
 	persisted, err := parseActionCommand(payload)
 	if err != nil {
 		return baton.ActionResult{}, runtimeFail(
@@ -1661,6 +1675,15 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			),
 		)
 	}
+	action, cleanup, err := persistedBatonAction(engine, kind, persisted)
+	if err != nil {
+		return baton.ActionResult{}, err
+	}
+	defer func() {
+		if cleanup != nil {
+			resultErr = errors.Join(resultErr, cleanup())
+		}
+	}()
 	projection, err := s.journal.ControlProjection(ctx, engine.manifest.value.RunID)
 	if err != nil {
 		return baton.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
@@ -1822,7 +1845,7 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 		state, track.Ref, track.Head, before, slice.CurrentReceipt.OID,
 		input.Candidate, slice.Attempt)
 	_, err = s.runAction(ctx, engine, owner, workID, "baton.append_receipt",
-		marshalActionCommand(authority, input), action)
+		marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
 
@@ -2202,7 +2225,7 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		}
 		refresh := candidateHeadRefresh(state, slice)
 		cycle := implementationCycle{
-			Release: state.Release, Slice: sliceID,
+			Release: state.Release, GitIdentity: engine.manifest.value.GitIdentity, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
 			Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
 			TargetHead: state.Refs.Target.Head, Track: key.Track, TrackRef: track.Ref,
@@ -3076,6 +3099,7 @@ func (s *Service) prepareProductionImplementationCandidate(
 				ReleaseHead: releaseHead,
 				TargetRef:   engine.manifest.value.TargetRef,
 				TargetHead:  targetHead,
+				Identity:    cycle.GitIdentity,
 			},
 			func(prepared gitx.SealedCandidate) error {
 				var claimErr error
@@ -3110,6 +3134,7 @@ func (s *Service) prepareProductionImplementationCandidate(
 			ReleaseHead: releaseHead,
 			TargetRef:   engine.manifest.value.TargetRef,
 			TargetHead:  targetHead,
+			Identity:    cycle.GitIdentity,
 		},
 		func(prepared gitx.SealedCandidate) error {
 			var claimErr error
@@ -3353,6 +3378,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		ReleaseHead: releaseHead,
 		TargetRef:   engine.manifest.value.TargetRef,
 		TargetHead:  targetHead,
+		Identity:    cycle.GitIdentity,
 	}
 	claimPrepared := func(prepared gitx.SealedCandidate) error {
 		var claimErr error
@@ -5976,7 +6002,7 @@ func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner jou
 		return result, actionErr
 	}
 	result, err := s.runAction(ctx, engine, owner, workIdentity(before, "prepare"),
-		"baton.prepare_assembly", marshalActionCommand(authority, input), action)
+		"baton.prepare_assembly", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	err = errors.Join(err, cleanupErr)
 	if err == nil && result.Direct {
 		return runtimeFail("DISTINCT_ASSEMBLY_VERIFICATION_REQUIRED", nil)
@@ -6028,7 +6054,7 @@ func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner jour
 		state, state.Refs.Release.Ref, state.Refs.Release.Head,
 		before, state.Assembly.Candidate.OID, candidate, 0)
 	_, err = s.runAction(ctx, engine, owner, workIdentity(before, "assembly_verdict"),
-		"baton.assembly_verdict", marshalActionCommand(authority, input), action)
+		"baton.assembly_verdict", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
 
@@ -6058,7 +6084,7 @@ func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journ
 		return result, actionErr
 	}
 	_, err := s.runAction(ctx, engine, owner, workIdentity(before, "merge"),
-		"baton.merge", marshalActionCommand(authority, input), action)
+		"baton.merge", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return errors.Join(err, cleanupErr)
 }
 
@@ -6296,7 +6322,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		}
 		if _, err := s.runAction(
 			ownedCtx, engine, owner, installWork, "baton.install",
-			marshalActionCommand(authority, installInput), action,
+			marshalActionCommand(engine.manifest.value.GitIdentity, authority, installInput), action,
 		); err != nil {
 			return RunStatus{}, err
 		}

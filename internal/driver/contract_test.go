@@ -40,21 +40,20 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC13PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindExactRC14PackageAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.13",
-		TagName:              "v1.0.0-rc.13",
-		TagObject:            "4c9f9b54d25cd97ea6ac7457492b3124b893a156",
-		Commit:               "f4a9ee77a5ade46eeed74a85e0c2b1336622d8f3",
-		Tree:                 "92786d89210ef816be4982c19877e8b312db24ec",
-		ArchiveSHA256:        "sha256:38e8ceb4e9adc2dd5eff054d2a35cf69fa54fdcc104c028998615ca949525c1a",
-		SupportPackageSHA256: "sha256:9340b3f379b2e46d58665ff98ad53735673c2d8ab24788491f42445b5951c126",
-		ManifestSHA256:       "sha256:517a7274daf72c6ca1c927a88d97ac309d5f331133ad2c5ba7c156fc88d3f636",
+		Version:              "1.0.0-rc.14",
+		TagName:              "v1.0.0-rc.14",
+		TagObject:            "cf3a3822cebedf7e53a067f8966ecb17f238c8df",
+		Commit:               "efacafb2579e99b9d291b2ad27d41df26fbb9d79",
+		Tree:                 "a92479268e0874f0d262ad80703fee489b5d6572",
+		SupportPackageSHA256: "sha256:6a1528cbaf357eb9ffc9e494d55f1de86cbb43ee220848cc9fb65227b9fd0452",
+		ManifestSHA256:       "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}

@@ -83,7 +83,6 @@ type PackageIdentity struct {
 	TagObject            string `json:"tag_object"`
 	Commit               string `json:"commit"`
 	Tree                 string `json:"tree"`
-	ArchiveSHA256        string `json:"archive_sha256"`
 	SupportPackageSHA256 string `json:"support_package_sha256"`
 	ManifestSHA256       string `json:"manifest_sha256"`
 }
@@ -243,7 +242,6 @@ func admittedPackage() (baton.Package, PackageIdentity, error) {
 		identity.TagObject != baton.TagObject ||
 		identity.Commit != baton.Commit ||
 		identity.Tree != baton.Tree ||
-		identity.ArchiveSHA256 != baton.ArchiveSHA256 ||
 		identity.SupportPackageSHA256 != baton.SupportPackageSHA256 ||
 		identity.ManifestSHA256 != baton.ManifestSHA256 {
 		return baton.Package{}, PackageIdentity{}, fail("INVALID_PACKAGE")
@@ -254,7 +252,6 @@ func admittedPackage() (baton.Package, PackageIdentity, error) {
 		TagObject:            identity.TagObject,
 		Commit:               identity.Commit,
 		Tree:                 identity.Tree,
-		ArchiveSHA256:        identity.ArchiveSHA256,
 		SupportPackageSHA256: identity.SupportPackageSHA256,
 		ManifestSHA256:       identity.ManifestSHA256,
 	}, nil

@@ -13,6 +13,8 @@ import (
 
 const testGit = "/usr/bin/git"
 
+var testIdentity = Identity{Name: "Sworn Test Engine", Email: "engine@example.test"}
+
 func runTestGit(t *testing.T, repository string, stdin []byte, args ...string) string {
 	t.Helper()
 	commandArgs := append([]string{"-C", repository}, args...)
@@ -63,10 +65,61 @@ func requireGitxErrorCode(t *testing.T, err error, code string) {
 	}
 }
 
+func TestExplicitCommitIdentityIsClosedAndIgnoresProcessConfiguration(t *testing.T) {
+	repository, head := newRepository(t, SHA1)
+	identity := Identity{Name: "Provider Neutral Engine", Email: "engine@example.test"}
+	for _, invalid := range []Identity{
+		{},
+		{Name: " leading", Email: identity.Email},
+		{Name: identity.Name, Email: "two@@example.test"},
+		{Name: identity.Name, Email: "engine@exam\u00a0ple.test"},
+		{Name: "bad<name", Email: identity.Email},
+		{Name: strings.Repeat("n", 129), Email: identity.Email},
+	} {
+		if err := ValidateIdentity(invalid); err == nil {
+			t.Fatalf("invalid identity admitted: %#v", invalid)
+		}
+	}
+
+	t.Setenv("GIT_AUTHOR_NAME", "Hostile Process Author")
+	t.Setenv("GIT_AUTHOR_EMAIL", "hostile-author@example.invalid")
+	t.Setenv("GIT_COMMITTER_NAME", "Hostile Process Committer")
+	t.Setenv("GIT_COMMITTER_EMAIL", "hostile-committer@example.invalid")
+	prepared, err := repository.PrepareMetadataCommit(MetadataRequest{
+		ExpectedHead: head, Message: []byte("explicit identity\n"), Identity: identity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := repository.CommitIdentity(prepared.Commit)
+	if err != nil || observed != identity {
+		t.Fatalf("commit identity = %#v, %v", observed, err)
+	}
+
+	tree := runTestGit(t, repository.Root(), nil, "rev-parse", head.String()+"^{tree}")
+	raw, err := repository.run([]byte("mismatched identity\n"), []string{
+		"GIT_AUTHOR_NAME=Author", "GIT_AUTHOR_EMAIL=author@example.test",
+		"GIT_COMMITTER_NAME=Committer", "GIT_COMMITTER_EMAIL=committer@example.test",
+		"GIT_AUTHOR_DATE=@1000000001 +0000", "GIT_COMMITTER_DATE=@1000000001 +0000",
+	}, "commit-tree", tree, "-p", head.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatched, err := ParseOID(SHA1, strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.CommitIdentity(mismatched); err == nil {
+		t.Fatal("mismatched author and committer identity was admitted")
+	} else {
+		requireGitxErrorCode(t, err, "INVALID_COMMIT_IDENTITY")
+	}
+}
+
 func nextRecord(t *testing.T, repository *Repository, parent OID, name string) OID {
 	t.Helper()
 	record, product := inertAdmissions(t, repository, nil)
-	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{
+	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{Identity: testIdentity,
 		ExpectedHead: parent,
 		Changes: []BlobChange{{
 			Path:  ".baton/releases/fixture/" + name + ".txt",
@@ -168,7 +221,7 @@ func TestRC3ExactCreateUpdateVerifyReconcileAndRetry(t *testing.T) {
 			t.Parallel()
 			repository, base := newRepository(t, format)
 			recordAdmission, productAdmission := inertAdmissions(t, repository, nil)
-			request := RecordTransitionRequest{
+			request := RecordTransitionRequest{Identity: testIdentity,
 				ExpectedHead: base,
 				Changes: []BlobChange{{
 					Path: ".baton/releases/demo/metadata", Bytes: []byte("metadata\n"),
@@ -645,7 +698,7 @@ func TestCapturedReadsAndDeterministicComposition(t *testing.T) {
 			_, productAdmission := inertAdmissions(t, repository, nil)
 			left := prepareProduct(t, repository, base, []BlobChange{{Path: "left.txt", Bytes: []byte("left\n")}}, "left")
 			right := prepareProduct(t, repository, base, []BlobChange{{Path: "right.txt", Bytes: []byte("right\n")}}, "right")
-			fastForward, err := repository.PrepareComposition(CompositionRequest{
+			fastForward, err := repository.PrepareComposition(CompositionRequest{Identity: testIdentity,
 				Expected: base, Candidate: left.Commit, TargetRef: "refs/heads/result/demo",
 				ProductAdmission: productAdmission,
 			})
@@ -655,7 +708,7 @@ func TestCapturedReadsAndDeterministicComposition(t *testing.T) {
 			if fastForward.Mode != FastForward || fastForward.Commit != left.Commit {
 				t.Fatalf("fast-forward = %#v", fastForward)
 			}
-			request := CompositionRequest{
+			request := CompositionRequest{Identity: testIdentity,
 				Expected: left.Commit, Candidate: right.Commit, TargetRef: "refs/heads/result/demo",
 				ProductAdmission: productAdmission,
 			}
@@ -696,7 +749,7 @@ func TestCapturedReadsAndDeterministicComposition(t *testing.T) {
 				t.Fatal("ReadBlob accepted noncanonical path")
 			}
 			var typed *Error
-			if _, err := repository.PrepareComposition(CompositionRequest{
+			if _, err := repository.PrepareComposition(CompositionRequest{Identity: testIdentity,
 				Expected: first.Commit, Candidate: right.Commit,
 				TargetRef: "refs/heads/result/demo", ProductAdmission: productAdmission,
 			}); !errors.As(err, &typed) || typed.Code != "CANDIDATE_ALREADY_CONTAINED" {
@@ -729,7 +782,7 @@ func TestCompositionRejectsNestedCustomMergeDriver(t *testing.T) {
 		},
 		"right",
 	)
-	_, err := repository.PrepareComposition(CompositionRequest{
+	_, err := repository.PrepareComposition(CompositionRequest{Identity: testIdentity,
 		Expected: expected.Commit, Candidate: candidate.Commit,
 		TargetRef: "refs/heads/result/demo", ProductAdmission: productAdmission,
 	})
@@ -814,7 +867,7 @@ func TestRecordAndMetadataTransitionsAreProductInert(t *testing.T) {
 	t.Parallel()
 	repository, base := newRepository(t, SHA1)
 	record, product := inertAdmissions(t, repository, nil)
-	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{
+	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{Identity: testIdentity,
 		ExpectedHead: base,
 		Changes: []BlobChange{{
 			Path: ".baton/releases/demo/plan.md", Bytes: []byte("plan\n"),
@@ -835,7 +888,7 @@ func TestRecordAndMetadataTransitionsAreProductInert(t *testing.T) {
 	if before.ProductTree != after.ProductTree {
 		t.Fatalf("record transition changed product: %s != %s", before.ProductTree, after.ProductTree)
 	}
-	metadata, err := repository.PrepareMetadataCommit(MetadataRequest{
+	metadata, err := repository.PrepareMetadataCommit(MetadataRequest{Identity: testIdentity,
 		ExpectedHead: prepared.Commit, Message: []byte("metadata-only\n"),
 	})
 	if err != nil {
@@ -844,7 +897,7 @@ func TestRecordAndMetadataTransitionsAreProductInert(t *testing.T) {
 	if metadata.Tree != prepared.Tree || !reflect.DeepEqual(metadata.Parents, []OID{prepared.Commit}) {
 		t.Fatalf("metadata transition = %#v", metadata)
 	}
-	if _, err := repository.PrepareRecordTransition(RecordTransitionRequest{
+	if _, err := repository.PrepareRecordTransition(RecordTransitionRequest{Identity: testIdentity,
 		ExpectedHead: base,
 		Changes:      []BlobChange{{Path: "product.txt", Bytes: []byte("changed\n")}},
 		Message:      "escape", RecordAdmission: record, ProductAdmission: product,

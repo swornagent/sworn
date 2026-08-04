@@ -133,11 +133,13 @@ type ProductIdentity struct {
 }
 
 type Repository struct {
-	root      string
-	git       string
-	commonDir string
-	format    ObjectFormat
-	refFault  *refFault
+	root       string
+	git        string
+	commonDir  string
+	format     ObjectFormat
+	refFault   *refFault
+	identityMu sync.Mutex
+	identities map[string]Identity
 }
 
 // Open admits one canonical repository and literal absolute Git executable.
@@ -157,7 +159,10 @@ func Open(repository, gitExecutable string) (*Repository, error) {
 	if err != nil || !info.IsDir() {
 		return nil, fail("INVALID_REPOSITORY", "inspect repository", err)
 	}
-	repo := &Repository{root: filepath.Clean(rootCandidate), git: git}
+	repo := &Repository{
+		root: filepath.Clean(rootCandidate), git: git,
+		identities: make(map[string]Identity),
+	}
 	rootBytes, err := repo.run(nil, nil, "rev-parse", "--path-format=absolute", "--show-toplevel")
 	if err != nil {
 		rootBytes, err = repo.run(nil, nil, "rev-parse", "--path-format=absolute", "--git-dir")
@@ -763,6 +768,40 @@ func (r *Repository) CommitTimestamp(commit OID) (int64, error) {
 		return 0, fail("INVALID_GIT_OUTPUT", "read commit timestamp", err)
 	}
 	return value, nil
+}
+
+// CommitIdentity returns the one validated author/committer identity on an
+// engine-created commit. It rejects malformed UTF-8 and mixed attribution.
+func (r *Repository) CommitIdentity(commit OID) (Identity, error) {
+	if err := r.validateOID(commit); err != nil {
+		return Identity{}, err
+	}
+	r.identityMu.Lock()
+	identity, present := r.identities[commit.String()]
+	r.identityMu.Unlock()
+	if present {
+		return identity, nil
+	}
+	raw, err := r.run(nil, nil, "show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", commit.String())
+	if err != nil {
+		return Identity{}, err
+	}
+	if !utf8.Valid(raw) {
+		return Identity{}, fail("INVALID_COMMIT_IDENTITY", "read commit identity", errors.New("identity is malformed UTF-8"))
+	}
+	raw = bytes.TrimSuffix(raw, []byte{'\n'})
+	fields := bytes.Split(raw, []byte{0})
+	if len(fields) != 4 || !bytes.Equal(fields[0], fields[2]) || !bytes.Equal(fields[1], fields[3]) {
+		return Identity{}, fail("INVALID_COMMIT_IDENTITY", "read commit identity", errors.New("author and committer identities differ"))
+	}
+	identity = Identity{Name: string(fields[0]), Email: string(fields[1])}
+	if err := ValidateIdentity(identity); err != nil {
+		return Identity{}, err
+	}
+	r.identityMu.Lock()
+	r.identities[commit.String()] = identity
+	r.identityMu.Unlock()
+	return identity, nil
 }
 func (r *Repository) IsAncestor(ancestor, descendant OID) (bool, error) {
 	if err := r.validateOID(ancestor); err != nil {

@@ -1644,6 +1644,7 @@ func validateSliceHistory(
 					nil,
 					approvals,
 					nil,
+					receipt.Binds,
 				)
 				if err != nil {
 					return SliceHistory{}, err
@@ -2285,6 +2286,7 @@ func exactPreparedDesignInputs(
 		nil,
 		approvals,
 		resolveProductBase,
+		design.Parent,
 	)
 	if err != nil {
 		return nil, err
@@ -2352,6 +2354,7 @@ func exactPreparedDesignInputs(
 		inputs,
 		approvals,
 		resolveProductBase,
+		design.Parent,
 	)
 	if err != nil {
 		return nil, err
@@ -2573,6 +2576,7 @@ func validateConsumedHistories(
 				inputs,
 				approvals,
 				resolveProductBase,
+				*receipt.Base,
 			)
 			if err != nil {
 				return err
@@ -3119,7 +3123,18 @@ func preparePlanBoundBase(
 	inputs []ConsumedInput,
 	approvals map[string]ReceiptEntry,
 	resolveProductBase func(sliceID, passOID string) (string, error),
+	historicalResults ...string,
 ) (string, error) {
+	if len(historicalResults) > 1 {
+		return "", recordFail("INVALID_GIT_IDENTITY", "only one historical composition result is accepted")
+	}
+	if len(historicalResults) == 1 {
+		var err error
+		repository, err = repository.withHistoricalIdentity(historicalResults[0])
+		if err != nil {
+			return "", err
+		}
+	}
 	approval, present := approvals[plan.OID]
 	if !present || approval.Receipt.Target == nil {
 		return "", recordFail(
@@ -3206,6 +3221,11 @@ func projectedConsumedTrackBase(
 	if consumerHead == "" {
 		return "", nil
 	}
+	var err error
+	repository, err = repository.withHistoricalIdentity(authority)
+	if err != nil {
+		return "", err
+	}
 	targetBase, err := repository.prepareApprovedTargetBase(
 		consumerRef,
 		authority,
@@ -3248,6 +3268,11 @@ func exactAssemblyComposition(
 	classification assemblyClassification,
 	resolvers ...func(trackID string) (string, error),
 ) (bool, error) {
+	var err error
+	repository, err = repository.withHistoricalIdentity(candidate)
+	if err != nil {
+		return false, err
+	}
 	expected, err := prepareClassifiedAssembly(
 		repository, targetRef, target, releaseHead, classification,
 		resolvers...,
@@ -3420,8 +3445,12 @@ func validateAssemblyHistory(
 			}
 			if receipt.Plan == current.OID && currentClassification != nil &&
 				inputsEqual(receipt.Inputs, currentClassification.Inputs) {
+				historicalRepository, err := repository.withHistoricalIdentity(*receipt.Candidate)
+				if err != nil {
+					return receiptHistory{}, err
+				}
 				expected, err := prepareClassifiedAssembly(
-					repository, plan.Parsed.Metadata().TargetRef,
+					historicalRepository, plan.Parsed.Metadata().TargetRef,
 					*receipt.Target, releasePredecessor[entry.OID],
 					*currentClassification,
 					resolveTrackProductBase,
@@ -3516,8 +3545,12 @@ func validateAssemblyHistory(
 							"Merge "+entry.OID+" binds stale assembly inputs",
 						)
 					}
+					historicalRepository, err := repository.withHistoricalIdentity(*candidateEntry.Receipt.Candidate)
+					if err != nil {
+						return receiptHistory{}, err
+					}
 					expected, err := prepareClassifiedAssembly(
-						repository, plan.Parsed.Metadata().TargetRef,
+						historicalRepository, plan.Parsed.Metadata().TargetRef,
 						*receipt.Target,
 						releasePredecessor[candidateEntry.OID],
 						*currentClassification,

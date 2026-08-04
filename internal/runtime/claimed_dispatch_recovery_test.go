@@ -95,7 +95,7 @@ func implementationDispatchProofFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     manifest.value.Release,
 		Slice:       "S1",
 		Binds:       strings.Repeat("1", 40),
@@ -287,7 +287,7 @@ func TestImplementationCycleAuthorityDerivesSliceTrackFromPlan(
 		Ref:  "refs/heads/track/" + state.Release + "/T2",
 		Head: "track-head-v2",
 	})
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     state.Release,
 		Slice:       "S1",
 		Binds:       slice.CurrentReceipt.OID,
@@ -443,7 +443,7 @@ func TestImplementationReceiptAppliedUsesRetiredFullEvidence(
 			CheckResults: checks,
 		},
 	}
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release: release, Slice: sliceID,
 		Binds: binds, Plan: planOID,
 	}
@@ -941,7 +941,7 @@ func TestPreparedSealReclaimUsesCurrentFenceForUncertainty(t *testing.T) {
 		"prepared-reclaim-child",
 	)
 	oldToken := prepared.CurrentClaim
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Slice:          "S1",
 		PreparedEffect: prepared.ID,
 	}
@@ -1061,7 +1061,7 @@ func TestImplementationCycleEnvelopeBindsExactTopologyAndWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     manifest.value.Release,
 		Slice:       "S1",
 		Binds:       "1111111111111111111111111111111111111111",
@@ -1193,7 +1193,7 @@ func TestClaimedImplementationDispatchRequiresItsExactLiveSealCycle(t *testing.T
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     state.Release,
 		Slice:       "S1",
 		Binds:       slice.CurrentReceipt.OID,

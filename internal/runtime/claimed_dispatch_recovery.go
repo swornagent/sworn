@@ -329,6 +329,7 @@ func validateImplementationCycleEnvelope(
 	if json.Unmarshal(command.Payload, &cycle) != nil ||
 		!bytesEqualCanonicalJSON(command.Payload, cycle) ||
 		cycle.Release != manifest.value.Release ||
+		gitx.ValidateIdentity(cycle.GitIdentity) != nil ||
 		cycle.Slice == "" ||
 		cycle.Binds == "" ||
 		!runtimeDigestPattern.MatchString(cycle.Before) ||

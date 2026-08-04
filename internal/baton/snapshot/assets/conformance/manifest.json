@@ -1,6 +1,6 @@
 {
   "schema_version": "baton.conformance-manifest/v2",
-  "baton_version": "1.0.0-rc.13",
+  "baton_version": "1.0.0-rc.14",
   "profiles": {
     "portable_kit": {
       "status": "EXECUTABLE",
@@ -115,6 +115,14 @@
             "test/records/actions.test.mjs",
             "test/records/git-boundary.test.mjs",
             "test/records/git-trust-adversarial.test.mjs"
+          ]
+        },
+        {
+          "id": "provider-neutral-explicit-git-identity",
+          "suites": [
+            "test/records/actions.test.mjs",
+            "test/records/receipt-git.test.mjs",
+            "test/records/git-boundary.test.mjs"
           ]
         },
         {

@@ -14,6 +14,8 @@ import (
 	"github.com/swornagent/sworn/internal/journal"
 )
 
+var runtimeTestGitIdentity = gitx.Identity{Name: "Runtime Test Engine", Email: "engine@example.test"}
+
 func runtimePlan(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan) {
 	t.Helper()
 	slice := func(id, path string) baton.Slice {
@@ -101,6 +103,7 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
 	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
 	manifest := Manifest{
+		GitIdentity:   runtimeTestGitIdentity,
 		SchemaVersion: ManifestVersion,
 		RunID:         runID, Repository: "/repository", Release: release,
 		TargetRef: target, Intent: "Deliver the exact fixture.",
@@ -167,8 +170,8 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	unknown := append([]byte(nil), body...)
 	unknown = []byte(strings.Replace(
 		string(unknown),
-		`"schema_version":"sworn.runtime-manifest/v4"`,
-		`"schema_version":"sworn.runtime-manifest/v4","unknown":true`,
+		`"schema_version":"sworn.runtime-manifest/v5"`,
+		`"schema_version":"sworn.runtime-manifest/v5","unknown":true`,
 		1,
 	))
 	if _, err := admitManifest(unknown); !IsCode(err, "INVALID_MANIFEST") {
@@ -217,6 +220,59 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 		append(legacyWithAutomationBody, '\n'),
 	); !IsCode(err, "MIGRATION_REQUIRED") {
 		t.Fatalf("v2 migration = %v", err)
+	}
+	missingIdentity := manifest
+	missingIdentity.GitIdentity = gitx.Identity{}
+	missingIdentityBody, err := json.Marshal(missingIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitManifest(append(missingIdentityBody, '\n')); !IsCode(err, "INVALID_GIT_IDENTITY") {
+		t.Fatalf("missing v5 Git identity = %v", err)
+	}
+	v4 := manifest
+	v4.SchemaVersion = ManifestVersionV4
+	v4Body, err := json.Marshal(v4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitManifest(append(v4Body, '\n')); !IsCode(err, "MIGRATION_REQUIRED") {
+		t.Fatalf("v4 migration = %v", err)
+	}
+}
+
+func TestBatonCommandPersistsIdentityWithoutChangingReplayIdentity(t *testing.T) {
+	authority := batonActionAuthority{
+		Release: "release-1", Before: "sha256:" + strings.Repeat("a", 64),
+		OwnerRef: "refs/heads/track/release-1/T1", OwnerHead: strings.Repeat("1", 40),
+		ReleaseHead: strings.Repeat("2", 40), TargetRef: "refs/heads/main",
+		TargetHead: strings.Repeat("3", 40),
+	}
+	first := runtimeTestGitIdentity
+	second := gitx.Identity{Name: "Replacement Engine", Email: "replacement@example.test"}
+	firstPayload := marshalActionCommand(first, authority, installActionInput{Reference: "plan.md"})
+	secondPayload := marshalActionCommand(second, authority, installActionInput{Reference: "plan.md"})
+	if bytes.Equal(firstPayload, secondPayload) || sha256Digest(firstPayload) == sha256Digest(secondPayload) {
+		t.Fatal("changed persisted identity did not change the canonical command digest")
+	}
+	parsed, err := parseActionCommand(firstPayload)
+	if err != nil || parsed.GitIdentity != first {
+		t.Fatalf("persisted identity = %#v, %v", parsed.GitIdentity, err)
+	}
+	effect := journal.Effect{
+		RunID: "run-1", ID: "effect-1", ReplayKey: "effect-1",
+		Kind: "baton.install", ExpectedDigest: sha256Digest(firstPayload),
+	}
+	changed := journal.Command{
+		RunID: "run-1", ReplayKey: "effect-1", Kind: "baton.install", Payload: secondPayload,
+	}
+	if err := validateRecoveryCommand(changed, effect, true); !IsCode(err, "CORRUPT_JOURNAL") {
+		t.Fatalf("changed identity for existing work = %v", err)
+	}
+	legacy := append([]byte(nil), firstPayload...)
+	legacy = bytes.Replace(legacy, []byte(batonActionCommandVersion), []byte("sworn.baton-action/v1"), 1)
+	if _, err := parseActionCommand(legacy); !IsCode(err, "CORRUPT_JOURNAL") {
+		t.Fatalf("legacy actionable command = %v", err)
 	}
 }
 

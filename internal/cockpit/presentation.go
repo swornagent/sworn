@@ -34,8 +34,8 @@ func PresentRunState(state string) RunPresentation {
 		presentation.NeedsYou = "Yes — approve or decline the plan."
 	case "migration_required":
 		presentation.Status = "Migration required"
-		presentation.What = "This saved run uses legacy hosted approval authority and is read-only."
-		presentation.Next = "Create a v4 project-authority run before continuing delivery."
+		presentation.What = "This saved run has no explicit Git commit identity and is read-only."
+		presentation.Next = "Configure git_identity and create a new v5 run definition before continuing delivery."
 		presentation.NeedsYou = "Yes — migrate the run definition."
 	case "authority_conflict":
 		presentation.Status = "Authority conflict"

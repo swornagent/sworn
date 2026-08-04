@@ -48,7 +48,7 @@ exec /usr/bin/git "$@"
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := NewActions(UseGitRepository(repository), inertActionResolver)
+	actions, err := NewActions(UseGitRepository(repository), inertActionResolver, gitx.Identity{Name: "Test Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}

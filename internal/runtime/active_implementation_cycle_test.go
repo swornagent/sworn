@@ -134,7 +134,7 @@ func activeImplementationCycleFixture(
 	before := "sha256:" + strings.Repeat("1", 64)
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, epoch, try)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     manifest.value.Release,
 		Slice:       "S1",
 		Binds:       strings.Repeat("2", 40),

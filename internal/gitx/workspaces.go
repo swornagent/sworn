@@ -122,6 +122,7 @@ type SealAuthority struct {
 	ReleaseHead OID
 	TargetRef   string
 	TargetHead  OID
+	Identity    Identity
 }
 
 type SealReconciliation string
@@ -133,27 +134,40 @@ const (
 )
 
 type Workspaces struct {
-	repository *Repository
-	identity   string
-	root       string
-	treesRoot  string
-	leasesRoot string
-	lock       *os.File
-	mu         sync.Mutex
-	leases     map[string]*WorkspaceLease
-	closed     bool
+	repository     *Repository
+	identity       string
+	commitIdentity Identity
+	root           string
+	treesRoot      string
+	leasesRoot     string
+	lock           *os.File
+	mu             sync.Mutex
+	leases         map[string]*WorkspaceLease
+	closed         bool
 }
 
 // NewWorkspaces creates an ephemeral engine-owned workspace root for callers
 // that do not have a durable run identity. Runtime delivery must use
 // NewRunWorkspaces so a replacement owner can recover worktrees after a hard
 // process exit.
-func NewWorkspaces(repository *Repository) (*Workspaces, error) {
+func NewWorkspaces(repository *Repository, identities ...Identity) (*Workspaces, error) {
+	if len(identities) > 1 {
+		return nil, fail("INVALID_COMMIT_IDENTITY", "create workspaces", nil)
+	}
+	if len(identities) == 1 {
+		if err := ValidateIdentity(identities[0]); err != nil {
+			return nil, err
+		}
+	}
 	token, err := randomWorkspaceName()
 	if err != nil {
 		return nil, fail("WORKSPACE_CREATE_FAILED", "name workspace owner", err)
 	}
-	return newWorkspaces(repository, "ephemeral-"+token)
+	workspaces, err := newWorkspaces(repository, "ephemeral-"+token)
+	if err == nil && len(identities) == 1 {
+		workspaces.commitIdentity = identities[0]
+	}
+	return workspaces, err
 }
 
 // NewRunWorkspaces creates the one stable workspace owner for a canonical
@@ -161,11 +175,23 @@ func NewWorkspaces(repository *Repository) (*Workspaces, error) {
 // common directory and run identity. A replacement runtime owner therefore
 // finds and removes only abandoned worktrees carrying this exact ownership
 // marker; other repositories and runs have different roots.
-func NewRunWorkspaces(repository *Repository, runID string) (*Workspaces, error) {
+func NewRunWorkspaces(repository *Repository, runID string, identities ...Identity) (*Workspaces, error) {
 	if !workspaceIdentityPattern.MatchString(runID) {
 		return nil, fail("INVALID_WORKSPACE_KEY", "validate workspace run", nil)
 	}
-	return newWorkspaces(repository, runID)
+	if len(identities) > 1 {
+		return nil, fail("INVALID_COMMIT_IDENTITY", "create workspaces", nil)
+	}
+	if len(identities) == 1 {
+		if err := ValidateIdentity(identities[0]); err != nil {
+			return nil, err
+		}
+	}
+	workspaces, err := newWorkspaces(repository, runID)
+	if err == nil && len(identities) == 1 {
+		workspaces.commitIdentity = identities[0]
+	}
+	return workspaces, err
 }
 
 func newWorkspaces(repository *Repository, runID string) (*Workspaces, error) {
@@ -1044,6 +1070,13 @@ func (w *Workspaces) sealTrackWithClaim(
 	if err := validateTrackKey(lease.key); err != nil {
 		return SealedCandidate{}, err
 	}
+	identity := w.commitIdentity
+	if authority != nil {
+		identity = authority.Identity
+	}
+	if err := ValidateIdentity(identity); err != nil {
+		return SealedCandidate{}, err
+	}
 	releaseRef := "refs/heads/release-wt/" + lease.key.Release
 	trackRef := trackHeadRef(lease.key)
 	if refreshFrom != nil {
@@ -1165,10 +1198,7 @@ func (w *Workspaces) sealTrackWithClaim(
 		)
 		rawCommit, commitErr := w.repository.run(
 			[]byte(message),
-			commitEnvironment(
-				Identity{Name: "Sworn Runtime", Email: "runtime@sworn.invalid"},
-				timestamp+1,
-			),
+			commitEnvironment(identity, timestamp+1),
 			"commit-tree",
 			tree.String(),
 			"-p",

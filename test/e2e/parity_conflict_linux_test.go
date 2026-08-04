@@ -13,6 +13,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -167,6 +168,7 @@ func conflictParityManifest(
 		return leftKey < rightKey
 	})
 	manifest := swornruntime.Manifest{
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,

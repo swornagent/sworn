@@ -19,6 +19,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
@@ -413,6 +414,7 @@ func recoveryE2EManifest(
 		Model:   "turn-recovery-model",
 	}
 	manifest := swornruntime.Manifest{
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,

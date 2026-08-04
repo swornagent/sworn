@@ -13,10 +13,12 @@ const MaxHistoryBytes = 32 * 1024 * 1024
 
 // HistoryEntry is one bounded first-parent commit envelope, newest first.
 type HistoryEntry struct {
-	OID     OID
-	Parents []OID
-	Tree    OID
-	Message []byte
+	OID               OID
+	Parents           []OID
+	Tree              OID
+	AuthorIdentity    Identity
+	CommitterIdentity Identity
+	Message           []byte
 }
 
 func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEntry, error) {
@@ -33,7 +35,7 @@ func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEn
 		"--first-parent",
 		"--max-count="+strconv.Itoa(maxCount),
 		"-z",
-		"--format=%H%x00%P%x00%T%x00%B%x00",
+		"--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%B%x00",
 		head.String(),
 	)
 	if err != nil {
@@ -51,11 +53,14 @@ func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEn
 	fields := bytes.Split(raw[:len(raw)-1], []byte{0})
 	result := make([]HistoryEntry, 0, maxCount)
 	for len(fields) > 0 {
-		if len(fields) < 5 {
+		if len(fields) < 9 {
 			return nil, fail("MALFORMED_GIT_OUTPUT", "read first-parent history", errors.New("history envelope is malformed"))
 		}
-		oidRaw, parentsRaw, treeRaw, message, separator := fields[0], fields[1], fields[2], fields[3], fields[4]
-		fields = fields[5:]
+		oidRaw, parentsRaw, treeRaw := fields[0], fields[1], fields[2]
+		authorName, authorEmail := fields[3], fields[4]
+		committerName, committerEmail := fields[5], fields[6]
+		message, separator := fields[7], fields[8]
+		fields = fields[9:]
 		if len(separator) != 0 {
 			return nil, fail("MALFORMED_GIT_OUTPUT", "read first-parent history", errors.New("history separator is malformed"))
 		}
@@ -79,8 +84,20 @@ func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEn
 		}
 		result = append(result, HistoryEntry{
 			OID: oid, Parents: parents, Tree: tree,
+			AuthorIdentity: Identity{
+				Name: string(authorName), Email: string(authorEmail),
+			},
+			CommitterIdentity: Identity{
+				Name: string(committerName), Email: string(committerEmail),
+			},
 			Message: append([]byte(nil), message...),
 		})
+		if result[len(result)-1].AuthorIdentity == result[len(result)-1].CommitterIdentity &&
+			ValidateIdentity(result[len(result)-1].AuthorIdentity) == nil {
+			r.identityMu.Lock()
+			r.identities[oid.String()] = result[len(result)-1].AuthorIdentity
+			r.identityMu.Unlock()
+		}
 	}
 	return result, nil
 }

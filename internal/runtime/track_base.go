@@ -11,10 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/journal"
 )
 
-const (
-	trackBaseCommandVersion   = "sworn.git-prepare-track-base/v3"
-	trackBaseCommandVersionV2 = "sworn.git-prepare-track-base/v2"
-)
+const trackBaseCommandVersion = "sworn.git-prepare-track-base/v4"
 
 type trackBaseInputWire struct {
 	Slice            string `json:"slice"`
@@ -41,9 +38,10 @@ type trackBaseRequestWire struct {
 }
 
 type trackBaseCommand struct {
-	Version string               `json:"version"`
-	Before  string               `json:"before"`
-	Request trackBaseRequestWire `json:"request"`
+	Version     string               `json:"version"`
+	GitIdentity gitx.Identity        `json:"git_identity"`
+	Before      string               `json:"before"`
+	Request     trackBaseRequestWire `json:"request"`
 }
 
 type trackBaseResultWire struct {
@@ -108,6 +106,7 @@ func candidateHeadRefresh(
 
 func trackBaseRequestFromWire(
 	engine *engine,
+	identity gitx.Identity,
 	wire trackBaseRequestWire,
 	snapshot *baton.State,
 ) (gitx.PrepareTrackBaseRequest, error) {
@@ -120,6 +119,9 @@ func trackBaseRequestFromWire(
 		len(wire.Inputs) > gitx.MaxTrackBaseInputs {
 		return gitx.PrepareTrackBaseRequest{},
 			runtimeFail("INVALID_TRACK_BASE", nil)
+	}
+	if err := gitx.ValidateIdentity(identity); err != nil {
+		return gitx.PrepareTrackBaseRequest{}, runtimeFail("INVALID_TRACK_BASE", err)
 	}
 	format := engine.repository.ObjectFormat()
 	plan, err := gitx.ParseOID(format, wire.Plan)
@@ -163,6 +165,7 @@ func trackBaseRequestFromWire(
 		TargetRef:      wire.TargetRef,
 		TargetHead:     targetHead,
 		ApprovedTarget: approvedTarget,
+		Identity:       identity,
 		Consumer: gitx.TrackKey{
 			Release: wire.Release,
 			Track:   wire.ConsumerTrack,
@@ -298,14 +301,13 @@ func trackBaseRequestForSlice(
 			ProductTree:      consumed.ProductTree,
 		})
 	}
-	request, err := trackBaseRequestFromWire(engine, wire, &state)
+	request, err := trackBaseRequestFromWire(engine, engine.manifest.value.GitIdentity, wire, &state)
 	if err != nil {
 		return trackBaseCommand{}, gitx.PrepareTrackBaseRequest{}, err
 	}
 	command := trackBaseCommand{
-		Version: trackBaseCommandVersion,
-		Before:  trackBaseBefore(state, slice),
-		Request: wire,
+		Version: trackBaseCommandVersion, GitIdentity: engine.manifest.value.GitIdentity,
+		Before: trackBaseBefore(state, slice), Request: wire,
 	}
 	return command, request, nil
 }
@@ -407,10 +409,9 @@ func validateTrackBaseCommand(
 		effect.Kind != "git.prepare_track_base" ||
 		json.Unmarshal(command.Payload, &persisted) != nil ||
 		!bytesEqualCanonicalJSON(command.Payload, persisted) ||
-		(persisted.Version != trackBaseCommandVersion &&
-			persisted.Version != trackBaseCommandVersionV2) ||
-		(persisted.Version == trackBaseCommandVersion &&
-			persisted.Request.ApprovedTarget == "") ||
+		persisted.Version != trackBaseCommandVersion ||
+		gitx.ValidateIdentity(persisted.GitIdentity) != nil ||
+		persisted.Request.ApprovedTarget == "" ||
 		!runtimeDigestPattern.MatchString(persisted.Before) {
 		return trackBaseCommand{}, gitx.PrepareTrackBaseRequest{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
@@ -423,7 +424,7 @@ func validateTrackBaseCommand(
 		return trackBaseCommand{}, gitx.PrepareTrackBaseRequest{},
 			runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	request, err := trackBaseRequestFromWire(engine, persisted.Request, nil)
+	request, err := trackBaseRequestFromWire(engine, persisted.GitIdentity, persisted.Request, nil)
 	if err != nil {
 		return trackBaseCommand{}, gitx.PrepareTrackBaseRequest{},
 			trackBaseCommandRequestError(err)

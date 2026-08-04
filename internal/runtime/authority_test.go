@@ -279,8 +279,8 @@ func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
 	}
 }
 
-func TestLegacyV2V3AreReadOnlyBeforeEveryMutation(t *testing.T) {
-	for _, version := range []string{ManifestVersionV2, ManifestVersionV3} {
+func TestLegacyV2V3V4AreReadOnlyBeforeEveryMutation(t *testing.T) {
+	for _, version := range []string{ManifestVersionV2, ManifestVersionV3, ManifestVersionV4} {
 		t.Run(version, func(t *testing.T) {
 			ctx := context.Background()
 			legacy := []byte(`{"schema_version":"` + version + `","run_id":"legacy"}` + "\n")

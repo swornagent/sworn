@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const maxSummaryBytes = 280
@@ -14,8 +16,8 @@ type Actions struct {
 	repository *repository
 }
 
-func NewActions(gitRepository GitRepository, resolver InertnessResolver) (*Actions, error) {
-	repository, err := newRepository(gitRepository.repository(), resolver)
+func NewActions(gitRepository GitRepository, resolver InertnessResolver, identity gitx.Identity) (*Actions, error) {
+	repository, err := newRepository(gitRepository.repository(), resolver, identity)
 	if err != nil {
 		return nil, err
 	}
