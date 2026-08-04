@@ -7,8 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,8 +24,7 @@ import (
 func consumingE2EManifest(
 	t *testing.T,
 	runID, repository, release string,
-	issue int64,
-	marker, fakeExecutable, fakeDigest string,
+	fakeExecutable, fakeDigest string,
 ) ([]byte, []byte, baton.Plan) {
 	t.Helper()
 	manifestBody, _, original := e2eManifest(
@@ -35,8 +32,6 @@ func consumingE2EManifest(
 		runID,
 		repository,
 		release,
-		issue,
-		marker,
 		fakeExecutable,
 		fakeDigest,
 		"verifier-model",
@@ -213,10 +208,7 @@ func assertConsumedBaseRun(
 func prepareConsumedBaseRun(
 	t *testing.T,
 	binary, fakeBinary, fakeDigest string,
-	approvals *approvalServer,
 	runID, release string,
-	issue int64,
-	marker string,
 ) (string, string, string) {
 	t.Helper()
 	repository := newProductRepository(t)
@@ -227,11 +219,10 @@ func prepareConsumedBaseRun(
 		runID,
 		repository,
 		release,
-		issue,
-		marker,
+
 		fakeBinary,
-		fakeDigest,
-	)
+		fakeDigest)
+
 	manifestPath := writeManifest(t, runRoot, manifestBody)
 	stdout, _ := runBinary(
 		t,
@@ -246,49 +237,40 @@ func prepareConsumedBaseRun(
 	if !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("planner output = %q", stdout)
 	}
-	approvals.publish(issue, approvalFor(issue, marker, plan))
+	authorizePlan(t, journalPath, runID, plan)
 	installAndPassComponent(t, repository, release, planBytes)
 	return repository, journalPath, manifestPath
 }
 
 func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer server.Close()
 	buildRoot := t.TempDir()
 	fakeBinary := filepath.Join(buildRoot, "e2e-fake")
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
-	baseLDFlags := "-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase=" +
-		server.URL
 	normalBinary := filepath.Join(buildRoot, "sworn")
-	buildBinary(t, normalBinary, "./cmd/sworn", baseLDFlags)
+	buildBinary(t, normalBinary, "./cmd/sworn", "")
 
 	for _, crash := range []struct {
 		name       string
 		cut        string
 		wantRefSet bool
-		issue      int64
 	}{
 		{
-			name:  "crash-before-ref-update",
-			cut:   "testCrashBeforeEffect",
-			issue: 52,
+			name: "crash-before-ref-update",
+			cut:  "testCrashBeforeEffect",
 		},
 	} {
 		crash := crash
 		t.Run(crash.name, func(t *testing.T) {
 			runID := "e2e-consumed-" + crash.name
 			release := runID + "-release"
-			marker := "approval-" + runID + "-v1"
 			crashBinary := filepath.Join(buildRoot, "sworn-"+crash.name)
 			buildBinary(
 				t,
 				crashBinary,
 				"./cmd/sworn",
 				fmt.Sprintf(
-					"%s -X=github.com/swornagent/sworn/internal/runtime.%s=git.prepare_track_base -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
-					baseLDFlags,
+					"-X=github.com/swornagent/sworn/internal/runtime.%s=git.prepare_track_base -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
 					crash.cut,
 				),
 			)
@@ -297,11 +279,8 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				crashBinary,
 				fakeBinary,
 				fakeDigest,
-				approvals,
 				runID,
 				release,
-				crash.issue,
-				marker,
 			)
 			runBinary(
 				t,
@@ -371,8 +350,6 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			const (
 				runID   = "e2e-consumed-stale-prepared"
 				release = runID + "-release"
-				issue   = int64(54)
-				marker1 = "approval-e2e-consumed-stale-prepared-v1"
 			)
 			crashBinary := filepath.Join(
 				buildRoot,
@@ -382,8 +359,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				t,
 				crashBinary,
 				"./cmd/sworn",
-				baseLDFlags+
-					" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=git.prepare_track_base"+
+				"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=git.prepare_track_base"+
 					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
 			)
 			repository := newProductRepository(t)
@@ -394,11 +370,10 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				runID,
 				repository,
 				release,
-				issue,
-				marker1,
+
 				fakeBinary,
-				fakeDigest,
-			)
+				fakeDigest)
+
 			manifestPath := writeManifest(
 				t,
 				runRoot,
@@ -417,10 +392,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			if !strings.Contains(stdout, "  state: awaiting_approval") {
 				t.Fatalf("planner output = %q", stdout)
 			}
-			approvals.publish(
-				issue,
-				approvalFor(issue, marker1, initialPlan),
-			)
+			authorizePlan(t, journalPath, runID, initialPlan)
 			installAndPassComponent(
 				t,
 				repository,

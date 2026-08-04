@@ -136,6 +136,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
+	proposalActivated := proposalInstalled ||
+		(proposalFound &&
+			proposalMatchesAppliedPlan(proposal, state, stateErr) &&
+			planExecutionEffectRecorded(snapshot))
 	result.AuthorityState = "awaiting_approval"
 	for _, effect := range snapshot.Effects {
 		if effect.Kind != "baton.install" {
@@ -152,6 +156,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	if result.AuthorityState == "awaiting_approval" && authorityDigest != "" {
 		switch {
+		case proposalActivated:
+			result.AuthorityState = "approved"
 		case stateErr == nil:
 			adopted, err := validateSavedPlanAdoption(
 				statusEngine, state, authorityDigest)
@@ -170,7 +176,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		latestRevision = proposal.plan.Metadata().Revision
 		result.PlanDigest = proposal.plan.Digest()
-		if !proposalInstalled {
+		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
 			parked = attentionParked || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
@@ -213,7 +219,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		selected = &proposal
 	}
 	parked = attentionParked || exhaustedWorkApplies(
-		manifest, selected, proposalInstalled, state, snapshot, exhausted)
+		manifest, selected, proposalActivated, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case active:
@@ -222,7 +228,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "takeover_required"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
-		case proposalFound && !proposalInstalled &&
+		case proposalFound && !proposalActivated &&
 			state.Plan.Metadata.Revision < latestRevision:
 			result.State = "awaiting_approval"
 		default:

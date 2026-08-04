@@ -458,16 +458,11 @@ type recoveryE2EPairedResult struct {
 
 func runDirectTurnRecoveryBaseline(
 	t *testing.T,
-	approvals *approvalServer,
 	swornBinary string,
 	planBytes []byte,
 	plan baton.Plan,
 ) recoveryE2EPairedResult {
 	t.Helper()
-
-	approvals.mu.Lock()
-	delete(approvals.comments, int64(64))
-	approvals.mu.Unlock()
 
 	repository := newProductRepository(t)
 	provider := &recoveryE2EProvider{
@@ -510,8 +505,7 @@ func runDirectTurnRecoveryBaseline(
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
 	}
-	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
-	authorizePlan(t, journalPath, "turn-recovery", plan)
+	authorizePlan(t, journalPath, "turn-recovery-direct", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,
@@ -611,12 +605,6 @@ func runDirectTurnRecoveryBaseline(
 func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	t *testing.T,
 ) {
-	approvals := &approvalServer{
-		comments: make(map[int64][]approvalComment),
-	}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	repository := newProductRepository(t)
 	planBytes, plan := recoveryE2EPlan(t)
 	provider := &recoveryE2EProvider{
@@ -639,13 +627,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	environment := map[string]string{
 		"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret,
 	}
@@ -664,7 +646,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		t.Fatalf("recovery start stdout=%q stderr=%q", stdout, stderr)
 	}
 
-	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
+	authorizePlan(t, journalPath, "turn-recovery", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,
@@ -956,7 +938,6 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 
 	direct := runDirectTurnRecoveryBaseline(
 		t,
-		approvals,
 		swornBinary,
 		planBytes,
 		plan,

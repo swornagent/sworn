@@ -113,10 +113,6 @@ func (b *telemetryParityBlocker) unblock() {
 func TestRealBinaryTelemetryCannotAffectDelivery(t *testing.T) {
 	t.Parallel()
 
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	var failedRequests atomic.Uint64
 	failingOTLP := httptest.NewServer(http.HandlerFunc(func(
 		writer http.ResponseWriter,
@@ -141,13 +137,7 @@ func TestRealBinaryTelemetryCannotAffectDelivery(t *testing.T) {
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
 	swornBinary := filepath.Join(buildRoot, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 
 	fixtureRoot := t.TempDir()
 	repository := filepath.Join(fixtureRoot, "product")
@@ -162,7 +152,6 @@ func TestRealBinaryTelemetryCannotAffectDelivery(t *testing.T) {
 		t.Run(mode.name, func(t *testing.T) {
 			results[mode.name] = telemetryParityDelivery(
 				t,
-				approvals,
 				mode,
 				swornBinary,
 				fakeBinary,
@@ -191,7 +180,6 @@ func TestRealBinaryTelemetryCannotAffectDelivery(t *testing.T) {
 
 func telemetryParityDelivery(
 	t *testing.T,
-	approvals *approvalServer,
 	mode telemetryParityMode,
 	swornBinary, fakeBinary, fakeDigest, fixtureRoot, repository string,
 	failedRequests *atomic.Uint64,
@@ -201,29 +189,23 @@ func telemetryParityDelivery(
 	const (
 		runID   = "e2e-telemetry-parity"
 		release = "e2e-telemetry-parity-release"
-		issue   = int64(31)
-		marker  = "approval-e2e-telemetry-parity-v1"
 	)
 
 	if err := os.RemoveAll(repository); err != nil {
 		t.Fatal(err)
 	}
 	telemetryParityRepository(t, repository)
-	approvals.mu.Lock()
-	delete(approvals.comments, issue)
-	approvals.mu.Unlock()
 
 	manifestBody, planBytes, plan := e2eManifest(
 		t,
 		runID,
 		repository,
 		release,
-		issue,
-		marker,
+
 		fakeBinary,
 		fakeDigest,
-		"verifier-model",
-	)
+		"verifier-model")
+
 	modeRoot := filepath.Join(fixtureRoot, "run-"+mode.name)
 	if err := os.MkdirAll(modeRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -273,7 +255,6 @@ func telemetryParityDelivery(
 		failedRequests,
 	)
 
-	approvals.publish(issue, approvalFor(issue, marker, plan))
 	authorizePlan(t, journalPath, runID, plan)
 	installAndPassComponent(t, repository, release, planBytes)
 	resumeCommand := cockpit.ControlCommand{
@@ -504,8 +485,6 @@ func telemetryParityStartServe(
 		configPath,
 	)
 	result.command.Env = cleanEnvironment(map[string]string{
-		"SWORN_GITHUB_TOKEN":                            "read-only-approval-token",
-		"GITHUB_TOKEN":                                  "",
 		"OTEL_EXPORTER_OTLP_CERTIFICATE":                "",
 		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE":         "",
 		"OTEL_EXPORTER_OTLP_CLIENT_KEY":                 "",

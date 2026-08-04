@@ -6,8 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -226,22 +224,12 @@ func conflictParityManifest(
 func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 	t.Parallel()
 
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	root := t.TempDir()
 	fakeBinary := filepath.Join(root, "fake")
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	repository := newProductRepository(t)
 	manifestBody, plan := conflictParityManifest(
 		t,
@@ -263,10 +251,6 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("conflict start stdout=%q stderr=%q", stdout, stderr)
 	}
-	approvals.publish(
-		62,
-		approvalFor(62, "parity-conflict-v1", plan),
-	)
 	authorizePlan(t, journalPath, "parity-conflict", plan)
 	stdout, stderr = runBinary(
 		t,

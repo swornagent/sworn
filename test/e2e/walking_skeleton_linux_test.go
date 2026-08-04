@@ -11,16 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -32,71 +28,6 @@ import (
 )
 
 const e2eGit = "/usr/bin/git"
-
-type approvalComment struct {
-	ID                int64  `json:"id"`
-	HTMLURL           string `json:"html_url"`
-	Body              string `json:"body"`
-	AuthorAssociation string `json:"author_association"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
-	User              struct {
-		ID    int64  `json:"id"`
-		Login string `json:"login"`
-	} `json:"user"`
-}
-
-type approvalServer struct {
-	mu       sync.Mutex
-	comments map[int64][]approvalComment
-	methods  []string
-	auth     []string
-}
-
-func (s *approvalServer) serve(writer http.ResponseWriter, request *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.methods = append(s.methods, request.Method)
-	s.auth = append(s.auth, request.Header.Get("Authorization"))
-	if request.Method != http.MethodGet {
-		http.Error(writer, "read only", http.StatusMethodNotAllowed)
-		return
-	}
-	parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
-	if len(parts) != 6 || parts[0] != "repos" || parts[3] != "issues" ||
-		parts[5] != "comments" {
-		http.Error(writer, "not found", http.StatusNotFound)
-		return
-	}
-	issue, err := strconv.ParseInt(parts[4], 10, 64)
-	if err != nil || request.URL.Query().Get("per_page") != "100" ||
-		request.URL.Query().Get("page") != "1" {
-		http.Error(writer, "bad request", http.StatusBadRequest)
-		return
-	}
-	writer.Header().Set("Content-Type", "application/json")
-	writer.Header().Set("ETag", fmt.Sprintf(`"fixture-%d"`, issue))
-	_ = json.NewEncoder(writer).Encode(s.comments[issue])
-}
-
-func (s *approvalServer) resetObservations() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.methods = nil
-	s.auth = nil
-}
-
-func (s *approvalServer) publish(issue int64, comment approvalComment) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.comments[issue] = []approvalComment{comment}
-}
-
-func (s *approvalServer) observations() ([]string, []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.methods...), append([]string(nil), s.auth...)
-}
 
 func moduleRoot(t *testing.T) string {
 	t.Helper()
@@ -184,10 +115,7 @@ func runBinaryWithEnvironment(
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, binary, args...)
-	overrides := map[string]string{
-		"SWORN_GITHUB_TOKEN": "read-only-approval-token",
-		"GITHUB_TOKEN":       "",
-	}
+	overrides := map[string]string{}
 	for key, value := range environment {
 		overrides[key] = value
 	}
@@ -219,10 +147,6 @@ func runBinaryWithEnvironment(
 			stdout.String(),
 			stderr.String(),
 		)
-	}
-	if strings.Contains(stdout.String(), "read-only-approval-token") ||
-		strings.Contains(stderr.String(), "read-only-approval-token") {
-		t.Fatal("approval credential escaped into process output")
 	}
 	return stdout.String(), stderr.String()
 }
@@ -267,8 +191,6 @@ func newProductRepository(t *testing.T) string {
 func e2ePlan(
 	t *testing.T,
 	release, repository string,
-	issue int64,
-	marker string,
 ) ([]byte, baton.Plan) {
 	t.Helper()
 	slice := func(id, path string) baton.Slice {
@@ -317,11 +239,10 @@ func encodedSubmission(t *testing.T, submission driver.Submission) string {
 func e2eManifest(
 	t *testing.T,
 	runID, repository, release string,
-	issue int64,
-	marker, fakeExecutable, fakeDigest, verifierModel string,
+	fakeExecutable, fakeDigest, verifierModel string,
 ) ([]byte, []byte, baton.Plan) {
 	t.Helper()
-	planBytes, plan := e2ePlan(t, release, repository, issue, marker)
+	planBytes, plan := e2ePlan(t, release, repository)
 	var scripts []swornruntime.ScriptedAttempt
 	add := func(slice string, responsibility driver.Responsibility, batonAttempt int64) {
 		for try := int64(1); try <= 3; try++ {
@@ -402,27 +323,6 @@ func e2eManifest(
 		t.Fatal(err)
 	}
 	return body, planBytes, plan
-}
-
-func approvalFor(issue int64, marker string, plan baton.Plan) approvalComment {
-	created := "2026-07-26T01:02:03Z"
-	body := fmt.Sprintf(
-		"baton-plan-approval/v1\nmarker: %s\ndecision: approved\nrepository: acme/repo\nissue: %d\nplan_digest: %s\n",
-		marker,
-		issue,
-		plan.Digest(),
-	)
-	comment := approvalComment{
-		ID: issue * 100, HTMLURL: fmt.Sprintf(
-			"https://github.com/acme/repo/issues/%d#issuecomment-%d",
-			issue,
-			issue*100,
-		),
-		Body: body, AuthorAssociation: "MEMBER",
-		CreatedAt: created, UpdatedAt: created,
-	}
-	comment.User.ID, comment.User.Login = 42, "approver"
-	return comment
 }
 
 func authorizePlan(
@@ -632,17 +532,12 @@ func assertDispatchOrder(t *testing.T, journalPath, runID string) {
 }
 
 func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer server.Close()
-
 	buildRoot := t.TempDir()
 	fakeBinary := filepath.Join(buildRoot, "e2e-fake")
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
-	baseLDFlags := "-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase=" + server.URL
 	swornBinary := filepath.Join(buildRoot, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn", baseLDFlags)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 
 	t.Run("rerun_replaces_stale_initial_proposal_at_same_revision", func(t *testing.T) {
 		repository := newProductRepository(t)
@@ -651,20 +546,17 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		const (
 			runID   = "e2e-proposal-drift"
 			release = "e2e-proposal-drift-release"
-			issue   = int64(6)
-			marker  = "approval-e2e-proposal-drift-v1"
 		)
 		manifestBody, _, _ := e2eManifest(
 			t,
 			runID,
 			repository,
 			release,
-			issue,
-			marker,
+
 			fakeBinary,
 			fakeDigest,
-			"verifier-model",
-		)
+			"verifier-model")
+
 		manifestPath := writeManifest(t, runRoot, manifestBody)
 		runBinary(
 			t,
@@ -743,20 +635,17 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		const (
 			runID   = "e2e-complete"
 			release = "e2e-complete-release"
-			issue   = int64(7)
-			marker  = "approval-e2e-complete-v1"
 		)
 		manifestBody, planBytes, plan := e2eManifest(
 			t,
 			runID,
 			repository,
 			release,
-			issue,
-			marker,
+
 			fakeBinary,
 			fakeDigest,
-			"verifier-model",
-		)
+			"verifier-model")
+
 		manifestPath := writeManifest(t, runRoot, manifestBody)
 		targetBefore := runGit(t, repository, "rev-parse", "main")
 		stdout, _ := runBinary(
@@ -785,13 +674,8 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 				t.Fatalf("planner pause created authority ref %s", ref)
 			}
 		}
-		if methods, _ := approvals.observations(); len(methods) != 0 {
-			t.Fatalf("planner contacted approval service: %v", methods)
-		}
-
-		approvals.publish(issue, approvalFor(issue, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
-		approvals.resetObservations()
 		stdout, stderr := runBinary(
 			t,
 			swornBinary,
@@ -808,11 +692,6 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		)
 		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
-		}
-		methods, auth := approvals.observations()
-		if len(methods) != 1 || methods[0] != http.MethodGet ||
-			len(auth) != 1 || auth[0] != "Bearer read-only-approval-token" {
-			t.Fatalf("approval access methods = %v, auth = %v", methods, auth)
 		}
 		state := readBatonState(t, repository, release)
 		if state.Assembly.Outcome != "merged" ||
@@ -843,7 +722,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			t,
 			crashBinary,
 			"./cmd/sworn",
-			baseLDFlags+" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge"+
+			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge"+
 				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
 		)
 		repository := newProductRepository(t)
@@ -852,18 +731,16 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		const (
 			runID   = "e2e-crash"
 			release = "e2e-crash-release"
-			issue   = int64(8)
-			marker  = "approval-e2e-crash-v1"
 		)
 		manifestBody, planBytes, plan := e2eManifest(
-			t, runID, repository, release, issue, marker,
-			fakeBinary, fakeDigest, "verifier-model",
-		)
+			t, runID, repository, release,
+			fakeBinary, fakeDigest, "verifier-model")
+
 		manifestPath := writeManifest(t, runRoot, manifestBody)
 		runBinary(
 			t, crashBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
 		)
-		approvals.publish(issue, approvalFor(issue, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
 		runBinary(
 			t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
@@ -906,18 +783,16 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		const (
 			runID   = "e2e-transport"
 			release = "e2e-transport-release"
-			issue   = int64(9)
-			marker  = "approval-e2e-transport-v1"
 		)
 		manifestBody, planBytes, plan := e2eManifest(
-			t, runID, repository, release, issue, marker,
-			fakeBinary, fakeDigest, "transport-fail",
-		)
+			t, runID, repository, release,
+			fakeBinary, fakeDigest, "transport-fail")
+
 		manifestPath := writeManifest(t, runRoot, manifestBody)
 		runBinary(
 			t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
 		)
-		approvals.publish(issue, approvalFor(issue, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
 		_, stderr := runBinary(
 			t, swornBinary, 0, "resume", "--run", runID, "--journal", journalPath,

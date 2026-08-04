@@ -5654,6 +5654,18 @@ func proposalMatchesAppliedPlan(
 	return true
 }
 
+func planExecutionEffectRecorded(snapshot journal.Snapshot) bool {
+	for _, effect := range snapshot.Effects {
+		switch effect.Kind {
+		case "git.prepare_track_base", "git.seal.prepared", "git.seal",
+			"baton.append_receipt", "baton.prepare_assembly",
+			"baton.assembly_verdict", "baton.merge":
+			return true
+		}
+	}
+	return false
+}
+
 func selectPlanProposal(
 	engine *engine,
 	snapshot journal.Snapshot,
@@ -6106,7 +6118,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err != nil {
 		return RunStatus{}, err
 	}
-	proposal, found, _, err := selectPlanProposal(
+	proposal, found, installed, err := selectPlanProposal(
 		engine, snapshot, proposals, state, stateErr)
 	if err != nil {
 		return RunStatus{}, err
@@ -6126,6 +6138,14 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		if err := s.refreshPlanProposal(
 			ownedCtx, engine, owner, state, stateErr); err != nil {
 			return RunStatus{}, err
+		}
+		return s.Status(context.Background(), runID)
+	}
+	if stateErr == nil && found &&
+		(installed || planExecutionEffectRecorded(snapshot)) {
+		runErr := s.driveLoop(ownedCtx, engine, owner, false)
+		if runErr != nil && !errors.Is(runErr, context.Canceled) {
+			return RunStatus{}, runErr
 		}
 		return s.Status(context.Background(), runID)
 	}

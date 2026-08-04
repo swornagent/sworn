@@ -653,10 +653,6 @@ func TestConfiguredProductionJourneyRepairsVerifierFailWithFreshPass(
 
 func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	t.Helper()
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	repository := newProductRepository(t)
 	planBytes, plan := productionJourneyPlan(t, repository)
 	provider := &journeyProvider{
@@ -679,13 +675,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	manifestPath := writeManifest(t, root, manifestBody)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	targetBefore := runGit(t, repository, "rev-parse", "main")
 	stdout, stderr := runBinaryWithEnvironment(
 		t,
@@ -713,7 +703,6 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		t.Fatal("production config identity changed before restart")
 	}
 
-	approvals.publish(61, approvalFor(61, "production-journey-v1", plan))
 	authorizePlan(t, journalPath, "production-journey", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
