@@ -1254,7 +1254,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "  state: complete") {
+		if !strings.Contains(stdout, "  state: awaiting_approval") ||
+			!strings.Contains(stdout, "  authority_state: authority_conflict") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 			snapshot, _ := store.Snapshot(context.Background(), runID)
 			_ = store.Close()
@@ -1516,7 +1517,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						t.Fatalf("forward-target seal recovery = %q", stdout)
 					}
 					if authorityKind == "plan" &&
-						!strings.Contains(stdout, "  state: complete") {
+						(!strings.Contains(stdout, "  state: awaiting_approval") ||
+							!strings.Contains(stdout, "  authority_state: authority_conflict")) {
 						t.Fatalf("plan-stale seal recovery = %q", stdout)
 					}
 					assertClaimedSealTerminalizedStale(

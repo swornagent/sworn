@@ -179,6 +179,106 @@ func TestEveryInstallEffectStateOutranksFreshAdoption(t *testing.T) {
 	}
 }
 
+func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
+	_, _, oldPlan := fixtureManifest(t)
+	metadata := oldPlan.Metadata()
+	previous := strings.Repeat("1", 40)
+	metadata.Revision = 2
+	metadata.PreviousPlan = &previous
+	metadata.ApprovalRef = "operator://release-1/2"
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPlan, err := baton.ParsePlan([]byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nNewer fixture revision.\n",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := strings.Repeat("2", 40)
+	proposal := admittedPlanProposal{
+		plan: newPlan,
+		authority: planProposalAuthority{
+			TargetHead: target,
+		},
+	}
+	state := baton.State{Plan: baton.PlanState{
+		Digest: newPlan.Digest(), Metadata: newPlan.Metadata(),
+		Approval: baton.ReceiptEntry{Receipt: baton.Receipt{Target: &target}},
+	}}
+	executed := journal.Snapshot{Effects: []journal.Effect{{
+		Kind: "git.prepare_track_base", State: journal.Succeeded,
+	}}}
+
+	for _, test := range []struct {
+		name      string
+		found     bool
+		installed bool
+		authority string
+		snapshot  journal.Snapshot
+		state     baton.State
+		want      bool
+	}{
+		{
+			name:  "old authority and old execution cannot activate newer applied plan",
+			found: true, authority: oldPlan.Digest(), snapshot: executed,
+			state: state,
+		},
+		{
+			name:  "exact same-plan restart resumes from durable execution",
+			found: true, authority: newPlan.Digest(), snapshot: executed,
+			state: state, want: true,
+		},
+		{
+			name:  "exact installed proposal resumes after takeover",
+			found: true, installed: true, authority: newPlan.Digest(),
+			state: state, want: true,
+		},
+		{
+			name:  "installed proposal cannot borrow old authority",
+			found: true, installed: true, authority: oldPlan.Digest(),
+			state: state,
+		},
+		{
+			name:  "exact authority without durable activation remains waiting",
+			found: true, authority: newPlan.Digest(), state: state,
+		},
+		{
+			name:      "unselected proposal cannot activate",
+			authority: newPlan.Digest(), snapshot: executed, state: state,
+		},
+		{
+			name:  "different applied plan cannot activate",
+			found: true, authority: newPlan.Digest(), snapshot: executed,
+			state: baton.State{Plan: baton.PlanState{
+				Digest: oldPlan.Digest(), Metadata: oldPlan.Metadata(),
+				Approval: baton.ReceiptEntry{Receipt: baton.Receipt{Target: &target}},
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := proposalActivationRecorded(
+				proposal, test.found, test.installed, test.state, nil,
+				test.authority, test.snapshot,
+			); got != test.want {
+				t.Fatalf("activation = %t, want %t", got, test.want)
+			}
+		})
+	}
+	if !proposalAwaitsExactAuthority(
+		proposal, true, state, nil, oldPlan.Digest(),
+	) {
+		t.Fatal("newer applied proposal did not remain awaiting exact authority")
+	}
+	if proposalAwaitsExactAuthority(
+		proposal, true, state, nil, newPlan.Digest(),
+	) {
+		t.Fatal("exact same-plan authority remained waiting")
+	}
+}
+
 func TestLegacyV2V3AreReadOnlyBeforeEveryMutation(t *testing.T) {
 	for _, version := range []string{ManifestVersionV2, ManifestVersionV3} {
 		t.Run(version, func(t *testing.T) {

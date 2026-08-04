@@ -136,10 +136,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
-	proposalActivated := proposalInstalled ||
-		(proposalFound &&
-			proposalMatchesAppliedPlan(proposal, state, stateErr) &&
-			planExecutionEffectRecorded(snapshot))
+	proposalActivated := proposalActivationRecorded(
+		proposal, proposalFound, proposalInstalled, state, stateErr,
+		authorityDigest, snapshot,
+	)
 	result.AuthorityState = "awaiting_approval"
 	for _, effect := range snapshot.Effects {
 		if effect.Kind != "baton.install" {
@@ -158,6 +158,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		switch {
 		case proposalActivated:
 			result.AuthorityState = "approved"
+		case proposalAwaitsExactAuthority(
+			proposal, proposalFound, state, stateErr, authorityDigest,
+		):
+			result.AuthorityState = "authority_conflict"
 		case stateErr == nil:
 			adopted, err := validateSavedPlanAdoption(
 				statusEngine, state, authorityDigest)
@@ -172,9 +176,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.AuthorityState = "authority_conflict"
 		}
 	}
-	latestRevision := int64(0)
 	if proposalFound {
-		latestRevision = proposal.plan.Metadata().Revision
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
@@ -226,11 +228,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "running"
 		case ownerExpired || answeredWithoutOwner:
 			result.State = "takeover_required"
+		case proposalFound && !proposalActivated:
+			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
-		case proposalFound && !proposalActivated &&
-			state.Plan.Metadata.Revision < latestRevision:
-			result.State = "awaiting_approval"
 		default:
 			result.State = "running"
 		}

@@ -5666,6 +5666,34 @@ func planExecutionEffectRecorded(snapshot journal.Snapshot) bool {
 	return false
 }
 
+func proposalActivationRecorded(
+	proposal admittedPlanProposal,
+	found bool,
+	installed bool,
+	state baton.State,
+	stateErr error,
+	authorityDigest string,
+	snapshot journal.Snapshot,
+) bool {
+	if !found || authorityDigest == "" ||
+		proposal.plan.Digest() != authorityDigest ||
+		!proposalMatchesAppliedPlan(proposal, state, stateErr) {
+		return false
+	}
+	return installed || planExecutionEffectRecorded(snapshot)
+}
+
+func proposalAwaitsExactAuthority(
+	proposal admittedPlanProposal,
+	found bool,
+	state baton.State,
+	stateErr error,
+	authorityDigest string,
+) bool {
+	return found && proposalMatchesAppliedPlan(proposal, state, stateErr) &&
+		proposal.plan.Digest() != authorityDigest
+}
+
 func selectPlanProposal(
 	engine *engine,
 	snapshot journal.Snapshot,
@@ -6141,12 +6169,19 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		}
 		return s.Status(context.Background(), runID)
 	}
-	if stateErr == nil && found &&
-		(installed || planExecutionEffectRecorded(snapshot)) {
+	if proposalActivationRecorded(
+		proposal, found, installed, state, stateErr,
+		authorityDigest, snapshot,
+	) {
 		runErr := s.driveLoop(ownedCtx, engine, owner, false)
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			return RunStatus{}, runErr
 		}
+		return s.Status(context.Background(), runID)
+	}
+	if proposalAwaitsExactAuthority(
+		proposal, found, state, stateErr, authorityDigest,
+	) {
 		return s.Status(context.Background(), runID)
 	}
 	if stateErr == nil {
