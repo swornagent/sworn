@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"reflect"
 	"strings"
 	"time"
 
@@ -105,9 +106,16 @@ func (b *projectTUIBackend) Board(
 			return tui.Board{}, errors.New("project board is unavailable")
 		}
 		presentation := cockpit.PresentSnapshot(snapshot)
+		actions := append([]cockpit.Action(nil), snapshot.Actions...)
+		if snapshot.ApprovalOffer != nil {
+			command := snapshot.ApprovalOffer.Command
+			actions = append([]cockpit.Action{{
+				Kind: "approve", Approval: &command,
+			}}, actions...)
+		}
 		return tui.Board{
 			Selection: selection, Graph: snapshot.Graph,
-			Actions: snapshot.Actions, Attentions: snapshot.Runtime.Attentions,
+			Actions: actions, Attentions: snapshot.Runtime.Attentions,
 			Diagnostics: snapshot.Diagnostics,
 			Status:      presentation.Status, What: presentation.What,
 			Next: presentation.Next, NeedsYou: presentation.NeedsYou,
@@ -224,6 +232,11 @@ func (b *projectTUIBackend) executeRunAction(
 	configPath := ""
 	var commandID string
 	switch action.Kind {
+	case "approve":
+		if answer != "" || action.Approval == nil {
+			return errors.New("the current board does not allow that action")
+		}
+		configPath = run.configPath
 	case "pause", "resume", "cancel", "takeover", "retry":
 		if answer != "" {
 			return errors.New("the current board does not allow that action")
@@ -255,6 +268,8 @@ func (b *projectTUIBackend) executeRunAction(
 	}
 	defer closeCommands()
 	switch action.Kind {
+	case "approve":
+		_, err = commands.Approve(ctx, *action.Approval)
 	case "pause", "resume", "cancel", "takeover", "retry":
 		command := cockpit.ControlCommand{
 			RunID: run.binding.ID, CommandID: commandID,
@@ -517,7 +532,7 @@ func tuiSelectionWithManifest(
 
 func exactTUIAction(actions []cockpit.Action, target cockpit.Action) bool {
 	for _, action := range actions {
-		if action == target {
+		if reflect.DeepEqual(action, target) {
 			return true
 		}
 	}

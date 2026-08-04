@@ -56,6 +56,10 @@ type CommandAPI interface {
 		AnswerAttentionCommand,
 	) (runtimepkg.RunStatus, error)
 	Redeliver(context.Context, RedeliveryCommand) error
+	Approve(
+		context.Context,
+		runtimepkg.ApprovalCommand,
+	) (runtimepkg.ApprovalResult, error)
 }
 
 const TelemetryHealthSchemaVersion = "sworn.telemetry-health/v1"
@@ -279,6 +283,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/mcp":
+		h.serveMCP(w, r)
+		return
 	case "/":
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return

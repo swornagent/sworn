@@ -20,6 +20,10 @@ type CommandRuntime interface {
 		context.Context,
 		runtimepkg.AnswerAttentionCommand,
 	) (runtimepkg.RunStatus, error)
+	Approve(
+		context.Context,
+		runtimepkg.ApprovalCommand,
+	) (runtimepkg.ApprovalResult, error)
 }
 
 type NotificationRedeliverer interface {
@@ -214,4 +218,28 @@ func (f *CommandFacade) AnswerAttention(
 		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
 	}
 	return status, nil
+}
+
+func (f *CommandFacade) Approve(
+	ctx context.Context,
+	command runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	if f == nil || ctx == nil {
+		return runtimepkg.ApprovalResult{}, fail("INVALID_COMMAND")
+	}
+	result, err := f.runtime.Approve(ctx, command)
+	if err != nil {
+		for _, code := range []string{
+			"APPROVAL_BINDING_MISMATCH", "APPROVAL_STALE",
+			"APPROVAL_AMBIGUOUS", "APPROVAL_AUTHORITY_MISSING",
+			"APPROVAL_AUTHORITY_INSUFFICIENT", "APPROVAL_AUTHORITY_CONFLICT",
+			"APPROVAL_REPLAY_CONFLICT", "APPROVAL_RECOVERY_PENDING",
+		} {
+			if runtimepkg.IsCode(err, code) {
+				return runtimepkg.ApprovalResult{}, fail(code)
+			}
+		}
+		return runtimepkg.ApprovalResult{}, fail("COMMAND_REJECTED")
+	}
+	return result, nil
 }

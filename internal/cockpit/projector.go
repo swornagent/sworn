@@ -249,6 +249,7 @@ func buildSnapshot(
 		Actions:       []Action{},
 		Diagnostics:   []Diagnostic{},
 		ThroughOffset: observation.EventOffset,
+		ApprovalOffer: status.ApprovalOffer,
 	}
 	redeliveryActions := make([]Action, 0)
 	attentionActions := make([]Action, 0)

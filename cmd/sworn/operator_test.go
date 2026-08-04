@@ -482,6 +482,13 @@ func (f *fakeOperatorCommands) AnswerAttention(
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
+func (f *fakeOperatorCommands) Approve(
+	context.Context,
+	runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	return runtimepkg.ApprovalResult{}, nil
+}
+
 func TestOperatorAuthorityGuardsEveryConsumerAndActivatesOnStart(
 	t *testing.T,
 ) {

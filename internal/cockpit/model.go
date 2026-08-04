@@ -1,19 +1,24 @@
 package cockpit
 
-import "time"
+import (
+	"time"
+
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+)
 
 const SnapshotSchemaVersion = "sworn.cockpit/v2"
 
 type Snapshot struct {
-	SchemaVersion string       `json:"schema_version"`
-	Run           RunView      `json:"run"`
-	Graph         Graph        `json:"graph"`
-	Handoff       Handoff      `json:"handoff"`
-	Runtime       RuntimeView  `json:"runtime"`
-	Evidence      []Evidence   `json:"evidence"`
-	Actions       []Action     `json:"actions"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
-	ThroughOffset int64        `json:"through_offset"`
+	SchemaVersion string                    `json:"schema_version"`
+	Run           RunView                   `json:"run"`
+	Graph         Graph                     `json:"graph"`
+	Handoff       Handoff                   `json:"handoff"`
+	Runtime       RuntimeView               `json:"runtime"`
+	Evidence      []Evidence                `json:"evidence"`
+	Actions       []Action                  `json:"actions"`
+	Diagnostics   []Diagnostic              `json:"diagnostics"`
+	ThroughOffset int64                     `json:"through_offset"`
+	ApprovalOffer *runtimepkg.ApprovalOffer `json:"approval_offer,omitempty"`
 }
 
 type RunView struct {
@@ -129,13 +134,14 @@ type Evidence struct {
 }
 
 type Action struct {
-	Kind               string `json:"kind"`
-	ExpectedGeneration int64  `json:"expected_generation"`
-	AttentionID        string `json:"attention_id,omitempty"`
-	WorkID             string `json:"work_id,omitempty"`
-	ExpectedEpoch      int64  `json:"expected_epoch,omitempty"`
-	DestinationID      string `json:"destination_id,omitempty"`
-	MessageID          string `json:"message_id,omitempty"`
+	Kind               string                      `json:"kind"`
+	ExpectedGeneration int64                       `json:"expected_generation"`
+	AttentionID        string                      `json:"attention_id,omitempty"`
+	WorkID             string                      `json:"work_id,omitempty"`
+	ExpectedEpoch      int64                       `json:"expected_epoch,omitempty"`
+	DestinationID      string                      `json:"destination_id,omitempty"`
+	MessageID          string                      `json:"message_id,omitempty"`
+	Approval           *runtimepkg.ApprovalCommand `json:"approval,omitempty"`
 }
 
 type Diagnostic struct {

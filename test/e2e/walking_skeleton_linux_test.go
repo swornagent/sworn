@@ -628,6 +628,87 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		}
 	})
 
+	t.Run("real_binary_cli_approval_replays_one_admission_install_and_continuation", func(t *testing.T) {
+		repository := newProductRepository(t)
+		runRoot := t.TempDir()
+		journalPath := filepath.Join(runRoot, "run.sqlite")
+		const (
+			runID   = "e2e-cli-approval"
+			release = "e2e-cli-approval-release"
+		)
+		manifestBody, _, _ := e2eManifest(
+			t, runID, repository, release, fakeBinary, fakeDigest, "verifier-model",
+		)
+		manifestPath := writeManifest(t, runRoot, manifestBody)
+		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+		statusBody, _ := runBinary(
+			t, swornBinary, 0, "status", "--run", runID,
+			"--journal", journalPath, "--json",
+		)
+		var status swornruntime.RunStatus
+		if err := json.Unmarshal([]byte(statusBody), &status); err != nil || status.ApprovalOffer == nil {
+			t.Fatalf("approval offer = %#v, err=%v, body=%s", status.ApprovalOffer, err, statusBody)
+		}
+		approval := status.ApprovalOffer.Command
+		absent := func(value string) string {
+			if value == "" {
+				return "absent"
+			}
+			return value
+		}
+		approveArgs := []string{
+			"approve", "--journal", journalPath,
+			"--run", approval.RunID,
+			"--manifest-digest", approval.ManifestDigest,
+			"--project", approval.Project,
+			"--release", approval.Release,
+			"--release-ref", approval.ReleaseRef,
+			"--release-head", absent(approval.ReleaseHead),
+			"--proposal-replay-key", approval.ProposalReplayKey,
+			"--plan-revision", fmt.Sprintf("%d", approval.PlanRevision),
+			"--prior-plan", absent(approval.PriorPlan),
+			"--plan-digest", approval.PlanDigest,
+			"--target-ref", approval.TargetRef,
+			"--target-head", approval.TargetHead,
+			"--decision-class", approval.DecisionClass,
+			"--decision", approval.Decision,
+			"--actor-class", approval.ActorClass,
+			"--actor-authority", approval.ActorAuthority,
+		}
+		first, firstErr := runBinary(t, swornBinary, 0, approveArgs...)
+		second, secondErr := runBinary(t, swornBinary, 0, approveArgs...)
+		if firstErr != "" || secondErr != "" || first != second {
+			t.Fatalf("approval replay drift: first=%q/%q second=%q/%q", first, firstErr, second, secondErr)
+		}
+		store, err := journal.OpenReadOnly(context.Background(), journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := store.Snapshot(context.Background(), runID)
+		_ = store.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		admissions, installs, continuations := 0, 0, 0
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "approval.admit" && effect.State == journal.Succeeded {
+				admissions++
+			}
+			if effect.Kind == "baton.install" && effect.State == journal.Succeeded {
+				installs++
+			}
+			if effect.Kind == "driver.dispatch" && effect.State == journal.Succeeded {
+				submission, decodeErr := driver.DecodeSubmission(effect.Result)
+				if decodeErr == nil && submission.Responsibility == driver.ImplementerDesign {
+					continuations++
+				}
+			}
+		}
+		if admissions != 1 || installs != 1 || continuations != 1 {
+			t.Fatalf("durable authority effects: admissions=%d installs=%d continuations=%d", admissions, installs, continuations)
+		}
+	})
+
 	t.Run("complete_non_direct_flow", func(t *testing.T) {
 		repository := newProductRepository(t)
 		runRoot := t.TempDir()

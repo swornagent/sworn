@@ -33,6 +33,7 @@ Commands:
   takeover  Continue after the previous Sworn process stopped.
   retry     Retry one stopped work item.
   answer    Answer a saved question that needs human judgment.
+  approve   Admit one exact plan approval (low-level recovery/scripting).
   status    Return the stable machine-readable run record.
   driver    Check configured AI connections.
   version   Show the Sworn and Baton versions.
@@ -47,6 +48,7 @@ Exact syntax:
   sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
   sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
   sworn answer --run ID --journal ABS --attention SHA256 --generation 1 --answer TEXT [--config ABS]
+  sworn approve --journal ABS [--config ABS] --run ID --manifest-digest SHA256 --project PROJECT --release RELEASE --release-ref REF --release-head OID|absent --proposal-replay-key KEY --plan-revision N --prior-plan OID|absent --plan-digest SHA256 --target-ref REF --target-head OID --decision-class CLASS --decision approve --actor-class external_authorizer --actor-authority AUTHORITY
   sworn status --run ID --journal ABS --json
   sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
@@ -100,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runControl(journal.Takeover, args[1:], stdout, stderr)
 	case "answer":
 		return runAnswer(args[1:], stdout, stderr)
+	case "approve":
+		return runApprove(args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	case "board":

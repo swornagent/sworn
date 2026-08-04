@@ -66,6 +66,7 @@ type RunStatus struct {
 	Project            string         `json:"project,omitempty"`
 	ExternalAuthorizer string         `json:"external_authorizer,omitempty"`
 	AuthorityDigest    string         `json:"authority_digest,omitempty"`
+	ApprovalOffer      *ApprovalOffer `json:"approval_offer,omitempty"`
 	Effects            []EffectStatus `json:"effects"`
 	EventOffset        int64          `json:"event_offset"`
 }

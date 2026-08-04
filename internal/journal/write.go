@@ -143,6 +143,38 @@ func (s *Store) RecordCommand(ctx context.Context, command Command) error {
 	})
 }
 
+// RecordCommandEffect records one immutable command and its first pending
+// effect in the same transaction. Callers must never treat the command alone
+// as evidence that the effect was admitted.
+func (s *Store) RecordCommandEffect(
+	ctx context.Context,
+	command Command,
+	effect Effect,
+) error {
+	preparedCommand, err := prepareCommand(command)
+	if err != nil {
+		return err
+	}
+	updatedAt, err := prepareEffect(effect)
+	if err != nil {
+		return err
+	}
+	if command.RunID != effect.RunID || command.ReplayKey != effect.ReplayKey {
+		return fail("COMMAND_EFFECT_CONFLICT", nil)
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := recordCommandOnConnection(
+			ctx,
+			conn,
+			command,
+			preparedCommand,
+		); err != nil {
+			return err
+		}
+		return ensureEffectOnConnection(ctx, conn, effect, updatedAt)
+	})
+}
+
 func prepareEffect(effect Effect) (string, error) {
 	for label, value := range map[string]string{
 		"run": effect.RunID, "effect": effect.ID, "replay_key": effect.ReplayKey,

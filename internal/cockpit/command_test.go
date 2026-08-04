@@ -3,6 +3,7 @@ package cockpit
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,14 +13,17 @@ import (
 )
 
 type fakeCommandRuntime struct {
-	startCalls   int
-	controlCalls int
-	answerCalls  int
-	startBody    []byte
-	control      runtimepkg.ControlCommand
-	answer       runtimepkg.AnswerAttentionCommand
-	status       runtimepkg.RunStatus
-	err          error
+	startCalls     int
+	controlCalls   int
+	answerCalls    int
+	approveCalls   int
+	startBody      []byte
+	control        runtimepkg.ControlCommand
+	answer         runtimepkg.AnswerAttentionCommand
+	approval       runtimepkg.ApprovalCommand
+	approvalResult runtimepkg.ApprovalResult
+	status         runtimepkg.RunStatus
+	err            error
 }
 
 func (f *fakeCommandRuntime) Start(
@@ -47,6 +51,45 @@ func (f *fakeCommandRuntime) AnswerAttention(
 	f.answerCalls++
 	f.answer = command
 	return f.status, f.err
+}
+
+func (f *fakeCommandRuntime) Approve(
+	_ context.Context,
+	command runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	f.approveCalls++
+	f.approval = command
+	return f.approvalResult, f.err
+}
+
+func TestCommandFacadePassesCanonicalApprovalUnchanged(t *testing.T) {
+	t.Parallel()
+	command := runtimepkg.ApprovalCommand{
+		SchemaVersion: runtimepkg.ApprovalCommandVersion,
+		RunID:         "run-1", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Project: "project", Release: "release-1",
+		ReleaseRef:        "refs/heads/release-wt/release-1",
+		ProposalReplayKey: "proposal", PlanRevision: 1,
+		PlanDigest: "sha256:" + strings.Repeat("b", 64),
+		TargetRef:  "refs/heads/main", TargetHead: strings.Repeat("c", 40),
+		DecisionClass: runtimepkg.PlannerProposalClass,
+		Decision:      runtimepkg.ApprovalDecision,
+		ActorClass:    runtimepkg.ApprovalActorClass, ActorAuthority: "operator",
+	}
+	want := runtimepkg.ApprovalResult{
+		SchemaVersion:  runtimepkg.ApprovalResultVersion,
+		AdmissionState: "succeeded",
+	}
+	runtime := &fakeCommandRuntime{approvalResult: want}
+	facade, err := NewCommandFacade(runtime, &fakeRedeliverer{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := facade.Approve(context.Background(), command)
+	if err != nil || runtime.approveCalls != 1 ||
+		!reflect.DeepEqual(runtime.approval, command) || !reflect.DeepEqual(got, want) {
+		t.Fatalf("approval delegation = %#v calls=%d command=%#v err=%v", got, runtime.approveCalls, runtime.approval, err)
+	}
 }
 
 type fakeRedeliverer struct {

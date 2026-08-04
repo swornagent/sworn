@@ -8,12 +8,45 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/cockpit"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 type executeCall struct {
 	selection Selection
 	action    cockpit.Action
 	answer    string
+}
+
+func TestApprovalConfirmationShowsFullBindingAndRejectsOfferDrift(t *testing.T) {
+	selection := Selection{Release: "release-1", RunID: "run-1", Source: "source"}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	head := strings.Repeat("b", 40)
+	command := runtimepkg.ApprovalCommand{
+		SchemaVersion: runtimepkg.ApprovalCommandVersion,
+		RunID:         "run-1", ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+		Project: "project", Release: "release-1",
+		ReleaseRef:        "refs/heads/release-wt/release-1",
+		ProposalReplayKey: "proposal", PlanRevision: 1,
+		PlanDigest: digest, TargetRef: "refs/heads/main", TargetHead: head,
+		DecisionClass: runtimepkg.PlannerProposalClass,
+		Decision:      runtimepkg.ApprovalDecision,
+		ActorClass:    runtimepkg.ApprovalActorClass, ActorAuthority: "operator",
+	}
+	action := cockpit.Action{Kind: "approve", Approval: &command}
+	backend, m := readyBoardModel(selection, action)
+	updateModel(t, m, runeKey('a'))
+	updateModel(t, m, specialKey(tea.KeyEnter))
+	view := lipgloss.NewStyle().Render(m.renderConfirmation(34))
+	compact := strings.ReplaceAll(view, "\n", "")
+	if !strings.Contains(compact, digest) || !strings.Contains(compact, head) {
+		t.Fatalf("confirmation omitted full binding:\n%s", view)
+	}
+	drifted := command
+	drifted.TargetHead = strings.Repeat("d", 40)
+	m.board.Actions = []cockpit.Action{{Kind: "approve", Approval: &drifted}}
+	if command := updateModel(t, m, runeKey('y')); command != nil || len(backend.executed) != 0 {
+		t.Fatalf("stale confirmation executed: command=%v calls=%d", command != nil, len(backend.executed))
+	}
 }
 
 type fakeBackend struct {

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -313,7 +314,7 @@ func trimLastRune(value string) string {
 
 func confirmAction(kind string) bool {
 	switch kind {
-	case "start", "cancel", "retry", "takeover":
+	case "start", "cancel", "retry", "takeover", "approve":
 		return true
 	default:
 		return false
@@ -342,7 +343,7 @@ func (m *model) execute(action cockpit.Action, answer string) tea.Cmd {
 
 func containsAction(actions []cockpit.Action, target cockpit.Action) bool {
 	for _, action := range actions {
-		if action == target {
+		if reflect.DeepEqual(action, target) {
 			return true
 		}
 	}
@@ -512,6 +513,14 @@ func (m *model) actionLabel(action cockpit.Action) string {
 	switch action.Kind {
 	case "start":
 		return "Start run"
+	case "approve":
+		if action.Approval != nil {
+			return fmt.Sprintf(
+				"Approve plan revision %d",
+				action.Approval.PlanRevision,
+			)
+		}
+		return "Approve plan"
 	case "pause":
 		return "Pause safely"
 	case "resume":

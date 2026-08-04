@@ -169,6 +169,21 @@ func (c *operatorCommands) AnswerAttention(
 	return c.delegate.AnswerAttention(ctx, command)
 }
 
+func (c *operatorCommands) Approve(
+	ctx context.Context,
+	command runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	if c == nil || c.authority == nil || c.delegate == nil ||
+		command.RunID != c.authority.runID ||
+		command.ManifestDigest != c.authority.manifestDigest {
+		return runtimepkg.ApprovalResult{}, errOperatorAuthorityUnavailable
+	}
+	if err := c.authority.require(ctx); err != nil {
+		return runtimepkg.ApprovalResult{}, err
+	}
+	return c.delegate.Approve(ctx, command)
+}
+
 func waitForRunAuthority(
 	ctx context.Context,
 	authority *operatorRunAuthority,

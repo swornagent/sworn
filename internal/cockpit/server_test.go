@@ -67,6 +67,7 @@ type httpFakeCommands struct {
 	controlCalls int
 	answerCalls  int
 	redeliveries int
+	approveCalls int
 }
 
 type httpFakeTelemetry struct {
@@ -115,6 +116,72 @@ func (f *httpFakeCommands) AnswerAttention(
 	defer f.mu.Unlock()
 	f.answerCalls++
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
+func (f *httpFakeCommands) Approve(
+	context.Context,
+	runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.approveCalls++
+	return runtimepkg.ApprovalResult{
+		SchemaVersion:  runtimepkg.ApprovalResultVersion,
+		AdmissionState: "succeeded",
+	}, nil
+}
+
+func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
+	t.Parallel()
+	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	call := func(body string, remote string) *httptest.ResponseRecorder {
+		request := httpRequest(
+			http.MethodPost, testLocalOrigin+"/mcp", remote, []byte(body),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		return serve(handler, request)
+	}
+	initialize := call(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`, "127.0.0.1:41100")
+	if initialize.Code != http.StatusOK || !strings.Contains(initialize.Body.String(), mcpProtocolVersion) {
+		t.Fatalf("initialize = %d %s", initialize.Code, initialize.Body.String())
+	}
+	listed := call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, "127.0.0.1:41100")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), mcpApprovalTool) ||
+		!strings.Contains(listed.Body.String(), `"additionalProperties":false`) {
+		t.Fatalf("tools/list = %d %s", listed.Code, listed.Body.String())
+	}
+	arguments := runtimepkg.ApprovalCommand{
+		SchemaVersion: runtimepkg.ApprovalCommandVersion,
+		RunID:         "run-1", ManifestDigest: "sha256:" + strings.Repeat("1", 64),
+		Project: "project", Release: "release-1",
+		ReleaseRef:        "refs/heads/release-wt/release-1",
+		ProposalReplayKey: "proposal", PlanRevision: 1,
+		PlanDigest: "sha256:" + strings.Repeat("2", 64),
+		TargetRef:  "refs/heads/main", TargetHead: strings.Repeat("3", 40),
+		DecisionClass: runtimepkg.PlannerProposalClass,
+		Decision:      runtimepkg.ApprovalDecision,
+		ActorClass:    runtimepkg.ApprovalActorClass, ActorAuthority: "operator",
+	}
+	argumentBody, _ := json.Marshal(arguments)
+	callBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": mcpApprovalTool, "arguments": json.RawMessage(argumentBody)},
+	})
+	called := call(string(callBody), "127.0.0.1:41100")
+	if called.Code != http.StatusOK || commands.approveCalls != 1 ||
+		!strings.Contains(called.Body.String(), `"admission_state":"succeeded"`) {
+		t.Fatalf("tools/call = %d calls=%d %s", called.Code, commands.approveCalls, called.Body.String())
+	}
+	unknownBody := strings.Replace(string(callBody), `"actor_authority":"operator"`, `"actor_authority":"operator","unknown":true`, 1)
+	unknown := call(unknownBody, "127.0.0.1:41100")
+	if unknown.Code != http.StatusOK || commands.approveCalls != 1 ||
+		!strings.Contains(unknown.Body.String(), `"code":-32602`) {
+		t.Fatalf("unknown input = %d calls=%d %s", unknown.Code, commands.approveCalls, unknown.Body.String())
+	}
+	remote := call(string(callBody), "203.0.113.10:41100")
+	if remote.Code != http.StatusForbidden || commands.approveCalls != 1 {
+		t.Fatalf("public mutation = %d calls=%d", remote.Code, commands.approveCalls)
+	}
 }
 
 func httpSnapshot() Snapshot {

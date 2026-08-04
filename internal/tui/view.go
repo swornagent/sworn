@@ -361,6 +361,26 @@ func (m *model) renderActions(width, height int) string {
 }
 
 func (m *model) renderConfirmation(width int) string {
+	if m.pendingAction.Kind == "approve" && m.pendingAction.Approval != nil {
+		command := m.pendingAction.Approval
+		lines := []string{
+			titleStyle.Render("CONFIRM EXACT PLAN APPROVAL"),
+			"",
+		}
+		lines = append(lines, wrapFact("Release", command.Release, width)...)
+		lines = append(lines, wrapFact("Project", command.Project, width)...)
+		lines = append(lines, wrapFact(
+			"Revision", fmt.Sprintf("%d", command.PlanRevision), width,
+		)...)
+		lines = append(lines, wrapFact(
+			"Decision class", command.DecisionClass, width,
+		)...)
+		lines = append(lines, wrapExactFact("Plan digest", command.PlanDigest, width)...)
+		lines = append(lines, wrapExactFact("Target head", command.TargetHead, width)...)
+		lines = append(lines, "",
+			batonStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
+		return strings.Join(lines, "\n")
+	}
 	copy := fmt.Sprintf("Confirm: %s?", m.actionLabel(m.pendingAction))
 	return strings.Join([]string{
 		titleStyle.Render("CONFIRM ACTION"),
@@ -402,6 +422,22 @@ func (m *model) renderAnswer(width, height int) string {
 
 func wrapFact(label, value string, width int) []string {
 	return wrapText(label+": "+safeText(value), width)
+}
+
+func wrapExactFact(label, value string, width int) []string {
+	label = safeText(label) + ":"
+	value = safeText(value)
+	if width < 1 {
+		return []string{label, value}
+	}
+	lines := []string{truncate(label, width)}
+	runes := []rune(value)
+	for len(runes) > 0 {
+		count := min(width, len(runes))
+		lines = append(lines, string(runes[:count]))
+		runes = runes[count:]
+	}
+	return lines
 }
 
 func diagnosticExplanation(code string) string {

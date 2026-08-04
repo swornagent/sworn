@@ -136,6 +136,31 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
+	var currentProposal *admittedPlanProposal
+	if proposalFound {
+		currentProposal = &proposal
+	}
+	authorityDigest, authorityErr = effectivePlanAuthority(
+		manifest, snapshot, currentProposal)
+	if authorityErr != nil {
+		if IsCode(authorityErr, "AUTHORITY_CONFLICT") {
+			result.State = "authority_conflict"
+			result.AuthorityState = "authority_conflict"
+			return result, nil
+		}
+		return RunStatus{}, authorityErr
+	}
+	result.AuthorityDigest = authorityDigest
+	if proposalFound && authorityDigest == "" {
+		command, err := approvalCommandForProposal(manifest, proposal)
+		if err != nil {
+			return RunStatus{}, err
+		}
+		result.ApprovalOffer = &ApprovalOffer{
+			SchemaVersion: ApprovalCommandVersion,
+			Command:       command,
+		}
+	}
 	proposalActivated := proposalActivationRecorded(
 		proposal, proposalFound, proposalInstalled, state, stateErr,
 		authorityDigest, snapshot,

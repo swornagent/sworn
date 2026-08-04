@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -5386,6 +5387,7 @@ type planAuthorityCommand struct {
 func effectivePlanAuthority(
 	manifest admittedManifest,
 	snapshot journal.Snapshot,
+	selected ...*admittedPlanProposal,
 ) (string, error) {
 	digests := make(map[string]struct{})
 	if manifest.value.Authority.BootstrapApprovedPlanDigest != nil {
@@ -5405,6 +5407,41 @@ func effectivePlanAuthority(
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		digests[wire.PlanDigest] = struct{}{}
+	}
+	var current *admittedPlanProposal
+	if len(selected) > 0 {
+		current = selected[0]
+	}
+	if current != nil {
+		expected, err := approvalCommandForProposal(manifest, *current)
+		if err != nil {
+			return "", err
+		}
+		commands := make(map[string]journal.Command, len(snapshot.Commands))
+		for _, command := range snapshot.Commands {
+			commands[command.ReplayKey] = command
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.Kind != approvalEffectKind || effect.State != journal.Succeeded {
+				continue
+			}
+			stored, ok := commands[effect.ReplayKey]
+			if !ok {
+				return "", runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			command, err := parseApprovalCommand(stored)
+			if err != nil {
+				return "", err
+			}
+			if !reflect.DeepEqual(command, expected) {
+				// Historical approvals are deliberately inert.
+				continue
+			}
+			if _, err := parseSucceededApproval(command, effect); err != nil {
+				return "", err
+			}
+			digests[command.PlanDigest] = struct{}{}
+		}
 	}
 	if len(digests) > 1 {
 		return "", runtimeFail("AUTHORITY_CONFLICT", nil)
@@ -6142,12 +6179,17 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err := validateInstallEffectPrecedence(engine, snapshot); err != nil {
 		return RunStatus{}, err
 	}
-	authorityDigest, err := effectivePlanAuthority(manifest, snapshot)
+	proposal, found, installed, err := selectPlanProposal(
+		engine, snapshot, proposals, state, stateErr)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	proposal, found, installed, err := selectPlanProposal(
-		engine, snapshot, proposals, state, stateErr)
+	var currentProposal *admittedPlanProposal
+	if found {
+		currentProposal = &proposal
+	}
+	authorityDigest, err := effectivePlanAuthority(
+		manifest, snapshot, currentProposal)
 	if err != nil {
 		return RunStatus{}, err
 	}
