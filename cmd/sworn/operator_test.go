@@ -152,6 +152,9 @@ func TestOperatorConfigFileAdmissionRejectsUnsafePathsAndReplacement(
 		if err := os.WriteFile(path, body, mode); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
 		return path
 	}
 

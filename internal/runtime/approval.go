@@ -451,6 +451,32 @@ func (s *Service) wakeApprovedRun(ctx context.Context, runID string) error {
 	return err
 }
 
+func (s *Service) approvedRunNeedsWake(
+	ctx context.Context,
+	command ApprovalCommand,
+) (bool, error) {
+	manifest, proposal, snapshot, err := s.currentApprovalProposal(
+		ctx,
+		command.RunID,
+	)
+	if err != nil {
+		return false, err
+	}
+	if err := validateApprovalAuthority(manifest, proposal, command); err != nil {
+		return false, err
+	}
+	engine, err := s.openEngine(manifest)
+	if err != nil {
+		return false, err
+	}
+	defer engine.Close()
+	installed, err := proposalHasInstalledEffect(engine, snapshot, proposal)
+	if err != nil {
+		return false, err
+	}
+	return !installed, nil
+}
+
 // ReconcileApprovals is called at operator startup. It covers pending and
 // claimed admission, plus succeeded admission whose plan was not installed.
 func (s *Service) ReconcileApprovals(ctx context.Context, runID string) error {
@@ -482,7 +508,15 @@ func (s *Service) ReconcileApprovals(ctx context.Context, runID string) error {
 			!IsCode(err, "APPROVAL_BINDING_MISMATCH") {
 			return err
 		} else if err == nil {
-			wake = true
+			needsWake, wakeErr := s.approvedRunNeedsWake(ctx, command)
+			if wakeErr != nil {
+				if IsCode(wakeErr, "APPROVAL_STALE") ||
+					IsCode(wakeErr, "APPROVAL_BINDING_MISMATCH") {
+					continue
+				}
+				return wakeErr
+			}
+			wake = wake || needsWake
 		}
 	}
 	if !wake {

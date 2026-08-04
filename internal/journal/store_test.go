@@ -610,6 +610,9 @@ func TestOpenRejectsPermissionsAndSymlinks(t *testing.T) {
 	if err := os.WriteFile(insecure, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(insecure, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Open(ctx, insecure); !IsCode(err, "INSECURE_PERMISSIONS") {
 		t.Fatalf("insecure journal = %v", err)
 	}
