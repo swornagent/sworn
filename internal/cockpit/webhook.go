@@ -463,7 +463,8 @@ func safeCaptainDecisionEvent(event journal.EventFact) (*runtimepkg.CaptainDecis
 		return nil, errors.New("invalid captain decision")
 	}
 	canonical, err := json.Marshal(value)
-	if err != nil || !bytes.Equal(canonical, event.SafeBody) || value.SchemaVersion != runtimepkg.CaptainDecisionEventVersion || value.RunID == "" || value.Project == "" || value.Release == "" || (value.DecisionClass != runtimepkg.PlannerProposalClass && value.DecisionClass != runtimepkg.PlannerReplanClass) || (value.Outcome != "proceed" && value.Outcome != "revise" && value.Outcome != "escalate") || value.ProposalReplayKey == "" || value.PlanDigest == "" || value.PlanRevision < 1 || value.TargetHead == "" || value.EnvelopeDigest == "" || value.EnvelopeEpoch < 1 || value.DecisionReplayKey == "" || value.Summary == "" || len(value.Summary) > 280 || value.NextAction == "" {
+	expectedSummary, expectedNext, mapped := runtimepkg.CaptainDecisionNotificationText(value.DecisionClass, value.Outcome)
+	if err != nil || !bytes.Equal(canonical, event.SafeBody) || value.SchemaVersion != runtimepkg.CaptainDecisionEventVersion || value.RunID == "" || value.Project == "" || value.Release == "" || !mapped || value.ProposalReplayKey == "" || value.PlanDigest == "" || value.PlanRevision < 1 || value.TargetHead == "" || value.EnvelopeDigest == "" || value.EnvelopeEpoch < 1 || value.DecisionReplayKey == "" || value.Summary != expectedSummary || value.NextAction != expectedNext {
 		return nil, errors.New("invalid captain decision")
 	}
 	return &value, nil

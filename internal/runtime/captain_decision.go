@@ -215,9 +215,41 @@ func captainDecisionResult(command CaptainDecisionCommand) (CaptainDecisionResul
 	return value, mustJSON(value), nil
 }
 
-func captainDecisionEvent(command CaptainDecisionCommand, replay string) []byte {
-	next := map[string]string{"proceed": "install_approved_plan", "revise": "request_planner_revision", "escalate": "await_external_authority"}[command.Outcome]
-	return mustJSON(CaptainDecisionEvent{SchemaVersion: CaptainDecisionEventVersion, RunID: command.RunID, Project: command.Project, Release: command.Release, DecisionClass: command.DecisionClass, Outcome: command.Outcome, ProposalReplayKey: command.ProposalReplayKey, PlanDigest: command.PlanDigest, PlanRevision: command.PlanRevision, ReleaseHead: command.ReleaseHead, TargetHead: command.TargetHead, EnvelopeDigest: command.EnvelopeDigest, EnvelopeEpoch: command.EnvelopeEpoch, DecisionReplayKey: replay, Summary: command.Summary, NextAction: next})
+// CaptainDecisionNotificationText is the closed, engine-owned informational
+// projection for Captain decisions. Model-authored summary and detail remain in
+// the bounded local command record and must never be copied into this event.
+// Adding a decision class or outcome therefore requires an explicit safe
+// notification mapping before completion or external projection can succeed.
+func CaptainDecisionNotificationText(decisionClass, outcome string) (summary, nextAction string, ok bool) {
+	switch decisionClass {
+	case PlannerProposalClass:
+		switch outcome {
+		case "proceed":
+			return "Captain authorized the exact Planner proposal.", "install_approved_plan", true
+		case "revise":
+			return "Captain requested a bounded revision of the Planner proposal.", "request_planner_revision", true
+		case "escalate":
+			return "Captain escalated the Planner proposal to external authority.", "await_external_authority", true
+		}
+	case PlannerReplanClass:
+		switch outcome {
+		case "proceed":
+			return "Captain authorized the exact Planner replan.", "install_approved_plan", true
+		case "revise":
+			return "Captain requested another bounded Planner replan.", "request_planner_revision", true
+		case "escalate":
+			return "Captain escalated the Planner replan to external authority.", "await_external_authority", true
+		}
+	}
+	return "", "", false
+}
+
+func captainDecisionEvent(command CaptainDecisionCommand, replay string) ([]byte, error) {
+	summary, next, ok := CaptainDecisionNotificationText(command.DecisionClass, command.Outcome)
+	if !ok {
+		return nil, runtimeFail("CAPTAIN_DECISION_BINDING_MISMATCH", nil)
+	}
+	return mustJSON(CaptainDecisionEvent{SchemaVersion: CaptainDecisionEventVersion, RunID: command.RunID, Project: command.Project, Release: command.Release, DecisionClass: command.DecisionClass, Outcome: command.Outcome, ProposalReplayKey: command.ProposalReplayKey, PlanDigest: command.PlanDigest, PlanRevision: command.PlanRevision, ReleaseHead: command.ReleaseHead, TargetHead: command.TargetHead, EnvelopeDigest: command.EnvelopeDigest, EnvelopeEpoch: command.EnvelopeEpoch, DecisionReplayKey: replay, Summary: summary, NextAction: next}), nil
 }
 
 func captainRefusalEvent(manifest admittedManifest, proposal admittedPlanProposal, delegation CaptainDelegationState, code string) []byte {
@@ -502,7 +534,11 @@ func (s *Service) CaptainDecide(ctx context.Context, command CaptainDecisionComm
 	if len(fresh.Events) > 0 {
 		offset = fresh.Events[len(fresh.Events)-1].Offset
 	}
-	completion := journal.Completion{RunID: command.RunID, EffectID: effectID, Token: effect.CurrentClaim, State: journal.Succeeded, Result: resultBody, EventKind: "captain_plan_decided", EventBody: captainDecisionEvent(command, replay), At: now, ExpectedEventOffset: &offset}
+	eventBody, eventErr := captainDecisionEvent(command, replay)
+	if eventErr != nil {
+		return CaptainDecisionResult{}, eventErr
+	}
+	completion := journal.Completion{RunID: command.RunID, EffectID: effectID, Token: effect.CurrentClaim, State: journal.Succeeded, Result: resultBody, EventKind: "captain_plan_decided", EventBody: eventBody, At: now, ExpectedEventOffset: &offset}
 	var childCommand *journal.Command
 	var childEffect *journal.Effect
 	if command.Outcome == "proceed" {
