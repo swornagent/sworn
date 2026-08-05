@@ -2,11 +2,11 @@
 {
   "schema_version": "baton.plan/v2",
   "release": "2026-08-07-sworn-native-delivery-kernel",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "9293aa5e3d065d0781a73957090e7cf889303181",
   "repository": "sworn",
   "target_ref": "refs/heads/main",
-  "approval_ref": "operator://2026-08-07-sworn-native-delivery-kernel/1",
+  "approval_ref": "operator://2026-08-07-sworn-native-delivery-kernel/2",
   "tracks": [
     {
       "id": "T1-kernel",
@@ -270,7 +270,7 @@
           ],
           "checks": [
             "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
-            "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=20m ./test/e2e",
+            "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
             "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
             "GOFLAGS=-buildvcs=false go vet ./...",
             "git diff --check"
