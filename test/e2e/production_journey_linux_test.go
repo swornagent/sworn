@@ -33,17 +33,20 @@ const (
 )
 
 type journeyProvider struct {
-	t         *testing.T
-	planBytes []byte
-	repair    bool
+	t                   *testing.T
+	planBytes           []byte
+	replanBytes         []byte
+	captainPlanOutcomes []driver.DecisionOutcome
+	repair              bool
 
-	mu          sync.Mutex
-	turns       map[string]int
-	families    map[string]driver.ProfileFamily
-	models      map[string]string
-	access      map[string]driver.WorkspaceAccess
-	httpCalls   int
-	submissions int
+	mu               sync.Mutex
+	turns            map[string]int
+	families         map[string]driver.ProfileFamily
+	models           map[string]string
+	access           map[string]driver.WorkspaceAccess
+	httpCalls        int
+	submissions      int
+	captainPlanCalls int
 }
 
 type journeyPrompt struct {
@@ -384,10 +387,23 @@ func (provider *journeyProvider) submissionArguments(
 	var err error
 	switch prompt.Responsibility {
 	case driver.PlannerProposal:
-		submission.Plan, err = driver.NewPlanBytes(provider.planBytes)
+		planBytes := provider.planBytes
+		if provider.replanBytes != nil && strings.Contains(prompt.InvocationID, "/release-") {
+			planBytes = provider.replanBytes
+		}
+		submission.Plan, err = driver.NewPlanBytes(planBytes)
 	case driver.ImplementerDesign:
 	case driver.CaptainReview:
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
+	case driver.CaptainPlanReview:
+		outcome := driver.DecisionProceed
+		provider.mu.Lock()
+		if provider.captainPlanCalls < len(provider.captainPlanOutcomes) {
+			outcome = provider.captainPlanOutcomes[provider.captainPlanCalls]
+		}
+		provider.captainPlanCalls++
+		provider.mu.Unlock()
+		submission.Decision, err = driver.NewDecision(outcome)
 	case driver.ImplementerImplementation:
 		submission.Checks, err = driver.NewCheckBytes(
 			[]byte("deterministic production implementation checks\n"),

@@ -36,6 +36,25 @@ type NotificationRedeliverer interface {
 	) error
 }
 
+type captainDelegationRuntime interface {
+	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+}
+
+func (f *CommandFacade) CaptainDelegation(ctx context.Context, command runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error) {
+	if f == nil || ctx == nil {
+		return runtimepkg.CaptainDelegationResult{}, fail("INVALID_COMMAND")
+	}
+	runtime, ok := f.runtime.(captainDelegationRuntime)
+	if !ok {
+		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_UNAVAILABLE")
+	}
+	result, err := runtime.CaptainDelegation(ctx, command)
+	if err != nil {
+		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_REJECTED")
+	}
+	return result, nil
+}
+
 type AdmittedManifest struct {
 	digest string
 	runID  string
@@ -61,6 +80,34 @@ func (m AdmittedManifest) RunID() string { return m.runID }
 
 type StartCommand struct {
 	ManifestDigest string `json:"manifest_digest"`
+}
+
+type StartDelegatedCommand struct {
+	ManifestDigest string `json:"manifest_digest"`
+	EnvelopeBytes  []byte `json:"envelope_bytes"`
+}
+
+type delegatedStarter interface {
+	StartWithCaptainDelegation(context.Context, []byte, []byte) (runtimepkg.RunStatus, error)
+}
+
+func (f *CommandFacade) StartDelegated(ctx context.Context, command StartDelegatedCommand) (runtimepkg.RunStatus, error) {
+	if f == nil || ctx == nil || command.ManifestDigest == "" || len(command.EnvelopeBytes) == 0 {
+		return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
+	}
+	manifest, ok := f.manifests[command.ManifestDigest]
+	if !ok {
+		return runtimepkg.RunStatus{}, fail("MANIFEST_NOT_ADMITTED")
+	}
+	runtime, ok := f.runtime.(delegatedStarter)
+	if !ok {
+		return runtimepkg.RunStatus{}, fail("COMMAND_UNAVAILABLE")
+	}
+	status, err := runtime.StartWithCaptainDelegation(ctx, manifest.body, command.EnvelopeBytes)
+	if err != nil {
+		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
+	}
+	return status, nil
 }
 
 type ControlCommand struct {

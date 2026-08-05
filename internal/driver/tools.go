@@ -27,7 +27,7 @@ const (
 	MaxSubmissionCorrections = 2
 )
 
-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
 type toolPathEntry struct {
 	Relative  string
@@ -499,7 +499,7 @@ func decodeToolSubmission(value any) (Submission, error) {
 		submission.Plan, submission.Checks, submission.Decision = nil, nil, nil
 	case ImplementerImplementation:
 		submission.Plan, submission.Decision = nil, nil
-	case CaptainReview:
+	case CaptainReview, CaptainPlanReview:
 		submission.Plan, submission.Checks = nil, nil
 	case WorkVerification, AssemblyVerification:
 		submission.Plan = nil

@@ -38,6 +38,14 @@ type operatorCommands struct {
 	delegate  cockpit.CommandAPI
 }
 
+type operatorDelegatedStarter interface {
+	StartDelegated(context.Context, cockpit.StartDelegatedCommand) (runtimepkg.RunStatus, error)
+}
+
+type operatorCaptainDelegationCommands interface {
+	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+}
+
 func (a *operatorRunAuthority) matches(
 	ctx context.Context,
 ) (bool, error) {
@@ -125,6 +133,52 @@ func (c *operatorCommands) Start(
 		return runtimepkg.RunStatus{}, err
 	}
 	return status, nil
+}
+
+func (c *operatorCommands) StartDelegated(
+	ctx context.Context,
+	command cockpit.StartDelegatedCommand,
+) (runtimepkg.RunStatus, error) {
+	if c == nil || c.authority == nil || c.delegate == nil || command.ManifestDigest != c.authority.manifestDigest {
+		return runtimepkg.RunStatus{}, errOperatorAuthorityUnavailable
+	}
+	delegate, ok := c.delegate.(operatorDelegatedStarter)
+	if !ok {
+		return runtimepkg.RunStatus{}, errOperatorAuthorityUnavailable
+	}
+	matched, err := c.authority.matches(ctx)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	if !matched && !c.authority.allowAbsent {
+		return runtimepkg.RunStatus{}, errOperatorAuthorityUnavailable
+	}
+	status, err := delegate.StartDelegated(ctx, command)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	if err := c.authority.require(ctx); err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	return status, nil
+}
+
+func (c *operatorCommands) CaptainDelegation(
+	ctx context.Context,
+	command runtimepkg.CaptainDelegationCommand,
+) (runtimepkg.CaptainDelegationResult, error) {
+	if c == nil || c.authority == nil || c.delegate == nil || command.RunID != c.authority.runID ||
+		command.ManifestDigest != c.authority.manifestDigest {
+		return runtimepkg.CaptainDelegationResult{}, errOperatorAuthorityUnavailable
+	}
+	delegate, ok := c.delegate.(operatorCaptainDelegationCommands)
+	if !ok {
+		return runtimepkg.CaptainDelegationResult{}, errOperatorAuthorityUnavailable
+	}
+	if err := c.authority.require(ctx); err != nil {
+		return runtimepkg.CaptainDelegationResult{}, err
+	}
+	return delegate.CaptainDelegation(ctx, command)
 }
 
 func (c *operatorCommands) Control(

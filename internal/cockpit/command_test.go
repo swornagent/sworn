@@ -18,12 +18,34 @@ type fakeCommandRuntime struct {
 	answerCalls    int
 	approveCalls   int
 	startBody      []byte
+	delegationBody []byte
 	control        runtimepkg.ControlCommand
 	answer         runtimepkg.AnswerAttentionCommand
 	approval       runtimepkg.ApprovalCommand
 	approvalResult runtimepkg.ApprovalResult
 	status         runtimepkg.RunStatus
 	err            error
+}
+
+func (f *fakeCommandRuntime) StartWithCaptainDelegation(_ context.Context, manifest, envelope []byte) (runtimepkg.RunStatus, error) {
+	f.startCalls++
+	f.startBody = append([]byte(nil), manifest...)
+	f.delegationBody = append([]byte(nil), envelope...)
+	return f.status, f.err
+}
+
+func TestCommandFacadeStartsDelegationBeforeRuntimeDispatch(t *testing.T) {
+	runtime := &fakeCommandRuntime{status: runtimepkg.RunStatus{RunID: "run-1"}}
+	manifest := AdmittedManifest{digest: "sha256:" + strings.Repeat("a", 64), runID: "run-1", body: []byte("manifest\n")}
+	facade, err := NewCommandFacade(runtime, &fakeRedeliverer{}, []AdmittedManifest{manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := []byte("envelope\n")
+	status, err := facade.StartDelegated(context.Background(), StartDelegatedCommand{ManifestDigest: manifest.digest, EnvelopeBytes: envelope})
+	if err != nil || status.RunID != "run-1" || !bytes.Equal(runtime.startBody, manifest.body) || !bytes.Equal(runtime.delegationBody, envelope) {
+		t.Fatalf("start = %#v, %v, %q, %q", status, err, runtime.startBody, runtime.delegationBody)
+	}
 }
 
 func (f *fakeCommandRuntime) Start(

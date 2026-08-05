@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1328,7 +1329,13 @@ func dispatchAuthorityCurrent(
 func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
 	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
 	before string, owner journal.OwnerLease) (driver.Submission, error) {
-	if responsibility != driver.PlannerProposal {
+	return s.dispatchRoleWithScope(ctx, engine, workspace, role, slice, responsibility, batonAttempt, before, owner, "")
+}
+
+func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
+	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
+	before string, owner journal.OwnerLease, invocationScope string) (driver.Submission, error) {
+	if responsibility != driver.PlannerProposal && responsibility != driver.CaptainPlanReview {
 		fresh, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
 			return driver.Submission{}, runtimeFail("BATON_UNAVAILABLE", err)
@@ -1347,18 +1354,50 @@ func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *g
 	if epoch == 0 {
 		epoch = 1
 	}
+	maximumAttempts := int64(3)
+	if responsibility == driver.CaptainPlanReview {
+		snapshot, snapshotErr := s.journal.Snapshot(ctx, engine.manifest.value.RunID)
+		if snapshotErr != nil {
+			return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		delegation, delegationErr := currentCaptainDelegation(snapshot)
+		if delegationErr != nil || !delegation.Active {
+			return driver.Submission{}, runtimeFail("CAPTAIN_DECISION_STALE", delegationErr)
+		}
+		maximumAttempts = delegation.Envelope.Limits.MaximumCaptainAttemptsPerProposal
+	}
 	for try := int64(1); try <= 3; try++ {
+		if responsibility == driver.CaptainPlanReview {
+			attemptID := journal.AttemptEffectID(workID, epoch, try)
+			_, existingErr := s.journal.Effect(ctx, engine.manifest.value.RunID, attemptID)
+			if journal.IsCode(existingErr, "EFFECT_NOT_FOUND") {
+				snapshot, snapshotErr := s.journal.Snapshot(ctx, engine.manifest.value.RunID)
+				if snapshotErr != nil {
+					return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+				}
+				count, countErr := captainDispatchAttemptCount(snapshot, workID)
+				if countErr != nil {
+					return driver.Submission{}, countErr
+				}
+				if count >= maximumAttempts {
+					return driver.Submission{}, runtimeFail("CAPTAIN_ATTEMPTS_EXHAUSTED", nil)
+				}
+			} else if existingErr != nil {
+				return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", existingErr)
+			}
+		}
 		submission, err := s.runDriverEffect(
 			ctx,
 			engine,
 			workspace,
 			role,
 			dispatchCoordinates{
-				Slice:          slice,
-				Responsibility: responsibility,
-				BatonAttempt:   batonAttempt,
-				Epoch:          epoch,
-				Try:            try,
+				Slice:           slice,
+				Responsibility:  responsibility,
+				BatonAttempt:    batonAttempt,
+				Epoch:           epoch,
+				Try:             try,
+				InvocationScope: invocationScope,
 			},
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}, before, owner)
 		if err == nil {
@@ -1655,6 +1694,9 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 	}
 	if allowCrash && testCrashAfterEffect == effect.Kind {
 		os.Exit(86)
+	}
+	if effect.Kind == "baton.install" && testCaptainCrashCut == "baton_mutation" {
+		return actionAllNew, result, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
 	}
 	if err := s.finishClaimedAction(ctx, owner, effect, result, fresh); err != nil {
 		return truth, baton.ActionResult{}, err
@@ -5384,6 +5426,9 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 }
 
 func plannerAuthorityBefore(authority planProposalAuthority) string {
+	if authority.PlannerAttempt <= 1 && authority.ReplanDecision == "" {
+		return workIdentity(authority.Release, authority.PriorPlan, authority.ReleaseRef, authority.ReleaseHead, authority.TargetRef, authority.TargetHead)
+	}
 	return workIdentity(
 		authority.Release,
 		authority.PriorPlan,
@@ -5391,6 +5436,8 @@ func plannerAuthorityBefore(authority planProposalAuthority) string {
 		authority.ReleaseHead,
 		authority.TargetRef,
 		authority.TargetHead,
+		strconv.FormatInt(authority.PlannerAttempt, 10),
+		authority.ReplanDecision,
 	)
 }
 
@@ -5459,9 +5506,15 @@ func effectivePlanAuthority(
 			if err != nil {
 				return "", err
 			}
-			if !reflect.DeepEqual(command, expected) {
+			boundExpected := expected
+			boundExpected.ActorClass = command.ActorClass
+			boundExpected.ActorAuthority = command.ActorAuthority
+			if !reflect.DeepEqual(command, boundExpected) {
 				// Historical approvals are deliberately inert.
 				continue
+			}
+			if err := validateApprovalAuthorityWithSnapshot(manifest, *current, snapshot, command, false); err != nil {
+				return "", err
 			}
 			if _, err := parseSucceededApproval(command, effect); err != nil {
 				return "", err
@@ -5822,6 +5875,35 @@ func (s *Service) proposePlan(
 	current *baton.State,
 	revision int64,
 ) error {
+	return s.proposePlanAttempt(ctx, engine, owner, current, revision, 1, "")
+}
+
+func (s *Service) proposePlanAttempt(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	current *baton.State,
+	revision int64,
+	plannerAttempt int64,
+	replanDecision string,
+) error {
+	delegationSnapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
+	if snapshotErr != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+	}
+	delegation, delegationErr := currentCaptainDelegation(delegationSnapshot)
+	if delegationErr != nil {
+		return delegationErr
+	}
+	if delegation.Epoch > 0 {
+		limits := delegation.Envelope.Limits
+		if !delegation.Active || revision < limits.MinimumPlanRevision || revision > limits.MaximumPlanRevision ||
+			plannerAttempt < 1 || plannerAttempt > limits.MaximumPlannerAttemptsPerRevision ||
+			delegation.Decisions >= limits.MaximumTotalCaptainDecisions ||
+			(plannerAttempt > 1 && (delegation.ReplanSpent < 1 || delegation.ReplanSpent > limits.ReplanBudget)) {
+			return runtimeFail("CAPTAIN_PLAN_POLICY_REFUSED", nil)
+		}
+	}
 	releaseRef := "refs/heads/release-wt/" + engine.manifest.value.Release
 	refs, err := engine.repository.CaptureHeadRefs(
 		[]string{releaseRef, engine.manifest.value.TargetRef})
@@ -5837,10 +5919,15 @@ func (s *Service) proposePlan(
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	authority := planProposalAuthority{
-		Release:    engine.manifest.value.Release,
-		ReleaseRef: releaseRef,
-		TargetRef:  engine.manifest.value.TargetRef,
-		TargetHead: target.Head.String(),
+		Release:        engine.manifest.value.Release,
+		ReleaseRef:     releaseRef,
+		TargetRef:      engine.manifest.value.TargetRef,
+		TargetHead:     target.Head.String(),
+		PlannerAttempt: plannerAttempt,
+		ReplanDecision: replanDecision,
+	}
+	if plannerAttempt < 1 || (plannerAttempt == 1 && replanDecision != "") || (plannerAttempt > 1 && replanDecision == "") {
+		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	snapshotHead := target.Head
 	if current == nil {
@@ -5868,9 +5955,17 @@ func (s *Service) proposePlan(
 	if err != nil {
 		return runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
-	submission, runErr := s.dispatchRole(
+	invocationScope := ""
+	if plannerAttempt > 1 {
+		dispatchWork := driverWorkIdentity(
+			engine.manifest.digest, "", driver.PlannerProposal,
+			revision, authority.Before,
+		)
+		invocationScope = strings.TrimPrefix(dispatchWork, "sha256:")[:12]
+	}
+	submission, runErr := s.dispatchRoleWithScope(
 		ctx, engine, workspace, driver.RolePlanner, "",
-		driver.PlannerProposal, revision, authority.Before, owner)
+		driver.PlannerProposal, revision, authority.Before, owner, invocationScope)
 	closeErr := workspace.Close()
 	if runErr != nil {
 		return runErr
@@ -5902,6 +5997,152 @@ func (s *Service) proposeRevision(
 ) error {
 	return s.proposePlan(
 		ctx, engine, owner, &state, state.Plan.Metadata.Revision+1)
+}
+
+func (s *Service) reviewDelegatedProposal(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	proposal admittedPlanProposal,
+	snapshot journal.Snapshot,
+) (string, bool, error) {
+	delegation, err := currentCaptainDelegation(snapshot)
+	if err != nil {
+		return "", false, err
+	}
+	if delegation.Epoch == 0 {
+		return "", false, nil
+	}
+	refuse := func(code string) (string, bool, error) {
+		return "", true, s.appendCaptainRefusal(
+			ctx, engine.manifest, proposal, delegation, code)
+	}
+	if !delegation.Active {
+		return refuse("CAPTAIN_DELEGATION_REVOKED")
+	}
+	envelope := delegation.Envelope
+	metadata := proposal.plan.Metadata()
+	class, classErr := approvalDecisionClass(proposal)
+	var prior *baton.Plan
+	var lineageState *baton.State
+	if metadata.Revision > 1 {
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		if stateErr != nil {
+			return "", true, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+		for _, history := range state.Plan.History {
+			if history.OID == proposal.authority.PriorPlan {
+				copy := history.Plan
+				prior = &copy
+			}
+		}
+		if prior == nil {
+			return "", true, runtimeFail("CAPTAIN_DECISION_STALE", nil)
+		}
+		lineageState = &state
+	}
+	plannerAttempt := proposal.authority.PlannerAttempt
+	if plannerAttempt == 0 {
+		plannerAttempt = 1
+	}
+	lineageOK := envelope.ReleaseLineageAnchor.State == "absent" && metadata.Revision == 1 && proposal.authority.PriorPlan == "" && proposal.authority.ReleaseHead == ""
+	if envelope.ReleaseLineageAnchor.State == "present" && lineageState != nil {
+		anchor := envelope.ReleaseLineageAnchor
+		for _, history := range lineageState.Plan.History {
+			if history.OID == anchor.PlanOID && history.Revision == anchor.PlanRevision && history.InstallHead == anchor.ReleaseHead {
+				lineageOK = true
+			}
+		}
+	}
+	if classErr != nil || !lineageOK || envelope.RunID != engine.manifest.value.RunID || envelope.ManifestDigest != engine.manifest.digest || envelope.Project != engine.manifest.value.Authority.Project || envelope.Release != engine.manifest.value.Release || envelope.ReleaseRef != proposal.authority.ReleaseRef || envelope.TargetRef != proposal.authority.TargetRef || envelope.TargetHead != proposal.authority.TargetHead || metadata.Revision < envelope.Limits.MinimumPlanRevision || metadata.Revision > envelope.Limits.MaximumPlanRevision || plannerAttempt > envelope.Limits.MaximumPlannerAttemptsPerRevision || delegation.Decisions >= envelope.Limits.MaximumTotalCaptainDecisions || delegation.ReplanSpent > envelope.Limits.ReplanBudget || ValidateCaptainPlanPolicy(envelope.PlanRules, proposal.plan, prior) != nil {
+		return refuse("CAPTAIN_PLAN_POLICY_REFUSED")
+	}
+	if err := validateCaptainReleaseLineageWithEngine(engine, engine.manifest, proposal, snapshot, delegation); err != nil {
+		return refuse("CAPTAIN_RELEASE_LINEAGE_REFUSED")
+	}
+	classAllowed := false
+	for _, rule := range envelope.DecisionRules {
+		classAllowed = classAllowed || rule.DecisionClass == class
+	}
+	if !classAllowed {
+		return refuse("CAPTAIN_DECISION_CLASS_REFUSED")
+	}
+	before := captainReviewBefore(proposal, delegation)
+	_, target, err := captureProposalRefs(engine.repository, engine.manifest)
+	if err != nil || target.Head.String() != proposal.authority.TargetHead {
+		return refuse("CAPTAIN_TARGET_DRIFT")
+	}
+	workspace, err := engine.workspaces.OpenSnapshot(target.Head)
+	if err != nil {
+		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", err)
+	}
+	workID := driverWorkIdentity(engine.manifest.digest, "", driver.CaptainPlanReview, metadata.Revision, before)
+	invocationScope := ""
+	if plannerAttempt > 1 {
+		invocationScope = strings.TrimPrefix(workID, "sha256:")[:12]
+	}
+	submission, runErr := s.dispatchRoleWithScope(ctx, engine, workspace, driver.RoleCaptain, "", driver.CaptainPlanReview, metadata.Revision, before, owner, invocationScope)
+	closeErr := workspace.Close()
+	if runErr != nil {
+		if IsCode(runErr, "CAPTAIN_ATTEMPTS_EXHAUSTED") || IsCode(runErr, "EFFECT_PARKED") || IsCode(runErr, "RECOVERY_UNCERTAIN") {
+			return refuse("CAPTAIN_ATTEMPTS_EXHAUSTED")
+		}
+		return "", true, runErr
+	}
+	if closeErr != nil {
+		return "", true, runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
+	}
+	decisionSnapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
+	if snapshotErr != nil {
+		return "", true, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+	}
+	if testCaptainCrashCut == "sealed_submission" {
+		return "", true, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	}
+	captainAttempt, attemptErr := captainDispatchAttemptForSubmission(decisionSnapshot, workID, submission)
+	if attemptErr != nil {
+		return "", true, attemptErr
+	}
+	command, err := newCaptainDecisionCommand(engine.manifest, proposal, delegation, submission, workID, captainAttempt)
+	if err != nil {
+		return "", true, err
+	}
+	// The public command service reopens and revalidates all current Git and
+	// journal facts. Release this engine's workspace-owner lock while that
+	// independent admission runs, then reacquire the same durable run workspace.
+	if err := engine.workspaces.Close(); err != nil {
+		return "", true, runtimeFail("WORKSPACE_CLEANUP_FAILED", err)
+	}
+	engine.workspaces = nil
+	_, decisionErr := s.CaptainDecide(ctx, command)
+	workspaces, reopenErr := gitx.NewRunWorkspaces(engine.repository, engine.manifest.value.RunID, engine.manifest.value.GitIdentity)
+	if reopenErr != nil {
+		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", reopenErr)
+	}
+	engine.workspaces = workspaces
+	if decisionErr != nil {
+		return "", true, decisionErr
+	}
+	if command.Outcome == "revise" {
+		if err := s.processCaptainPlannerContinuations(ctx, engine, owner); err != nil {
+			return "", true, err
+		}
+		freshSnapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+		if err != nil {
+			return "", true, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		_, proposals, err := loadRunSnapshot(freshSnapshot, owner.RunID)
+		if err != nil {
+			return "", true, err
+		}
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		replacement, found, _, err := selectPlanProposal(engine, freshSnapshot, proposals, state, stateErr)
+		if err != nil || !found || replacement.replayKey == proposal.replayKey || replacement.plan.Digest() == proposal.plan.Digest() {
+			return refuse("CAPTAIN_REPLAN_RECOVERY_REFUSED")
+		}
+		return s.reviewDelegatedProposal(ctx, engine, owner, replacement, freshSnapshot)
+	}
+	return command.Outcome, true, nil
 }
 
 func (s *Service) refreshPlanProposal(
@@ -6182,6 +6423,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if control.Desired != "running" {
 		return s.Status(context.Background(), runID)
 	}
+	if err := s.processCaptainPlannerContinuations(ownedCtx, engine, owner); err != nil {
+		return RunStatus{}, err
+	}
 	if err := s.recoverClaimedEffects(ownedCtx, engine, owner); err != nil {
 		return RunStatus{}, err
 	}
@@ -6223,10 +6467,10 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		return RunStatus{}, runtimeFail("PLAN_AUTHORITY_CONFLICT", nil)
 	}
 	if authorityDigest == "" {
-		if found || stateErr == nil {
+		if !found && stateErr == nil {
 			return s.Status(context.Background(), runID)
 		}
-		if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+		if !found && baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
 			return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
 		}
 	}
@@ -6235,7 +6479,53 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			ownedCtx, engine, owner, state, stateErr); err != nil {
 			return RunStatus{}, err
 		}
-		return s.Status(context.Background(), runID)
+		snapshot, err = s.journal.Snapshot(ownedCtx, runID)
+		if err != nil {
+			return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		_, proposals, err = loadRunSnapshot(snapshot, runID)
+		if err != nil {
+			return RunStatus{}, err
+		}
+		proposal, found, installed, err = selectPlanProposal(engine, snapshot, proposals, state, stateErr)
+		if err != nil || !found {
+			return RunStatus{}, runtimeFail("INVALID_PLAN", err)
+		}
+		currentProposal = &proposal
+	}
+	if found && authorityDigest == "" {
+		outcome, handled, reviewErr := s.reviewDelegatedProposal(ownedCtx, engine, owner, proposal, snapshot)
+		if reviewErr != nil {
+			return RunStatus{}, reviewErr
+		}
+		if !handled {
+			return s.Status(context.Background(), runID)
+		}
+		if handled {
+			if outcome != "proceed" {
+				return s.Status(context.Background(), runID)
+			}
+			snapshot, err = s.journal.Snapshot(ownedCtx, runID)
+			if err != nil {
+				return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", err)
+			}
+			_, proposals, err = loadRunSnapshot(snapshot, runID)
+			if err != nil {
+				return RunStatus{}, err
+			}
+			state, stateErr = baton.ReadState(
+				engine.git, manifest.value.Release, engine.inertness)
+			proposal, found, installed, err = selectPlanProposal(
+				engine, snapshot, proposals, state, stateErr)
+			if err != nil || !found {
+				return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", err)
+			}
+			currentProposal = &proposal
+			authorityDigest, err = effectivePlanAuthority(manifest, snapshot, &proposal)
+			if err != nil || authorityDigest != proposal.plan.Digest() {
+				return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", err)
+			}
+		}
 	}
 	if proposalActivationRecorded(
 		proposal, found, installed, state, stateErr,
@@ -6337,6 +6627,58 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		return RunStatus{}, runErr
 	}
 	return s.Status(context.Background(), runID)
+}
+
+func (s *Service) processCaptainPlannerContinuations(ctx context.Context, engine *engine, owner journal.OwnerLease) error {
+	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "planner.continue" || (effect.State != journal.Pending && effect.State != journal.Claimed) {
+			continue
+		}
+		stored, ok := commands[effect.ReplayKey]
+		if !ok || stored.Kind != "planner_continuation" {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		var continuation CaptainPlannerContinuationCommand
+		if json.Unmarshal(stored.Payload, &continuation) != nil || continuation.RunID != owner.RunID {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		delegation, err := currentCaptainDelegation(snapshot)
+		if err != nil || !delegation.Active || delegation.Digest != continuation.EnvelopeDigest || delegation.Epoch != continuation.EnvelopeEpoch {
+			return runtimeFail("CAPTAIN_DECISION_STALE", err)
+		}
+		if effect.State == journal.Pending {
+			if testCaptainCrashCut == "before_planner_continuation" {
+				return runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+			}
+			claim, claimErr := s.journal.ClaimOwned(ctx, owner, effect.ID, s.now().UTC(), effectLease)
+			if claimErr != nil {
+				return runtimeFail("CAPTAIN_DECISION_RECOVERY_PENDING", claimErr)
+			}
+			effect.CurrentClaim = claim.Token
+		}
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		var current *baton.State
+		if stateErr == nil {
+			current = &state
+		} else if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+		if err := s.proposePlanAttempt(ctx, engine, owner, current, continuation.PlanRevision, continuation.PlannerAttempt, continuation.DecisionReplayKey); err != nil {
+			return err
+		}
+		if err := s.journal.CompleteOwned(ctx, owner, journal.Completion{RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim, State: journal.Succeeded, Result: []byte("scheduled"), EventKind: "planner_replan_scheduled", EventBody: []byte(continuation.SupersededProposalReplayKey), At: s.now().UTC()}); err != nil {
+			return runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) watchOwner(ctx context.Context, owner journal.OwnerLease, cancel context.CancelFunc, done chan<- error) {

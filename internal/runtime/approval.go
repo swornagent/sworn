@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	ApprovalCommandVersion = "sworn.approval-command/v1"
-	ApprovalResultVersion  = "sworn.approval-result/v1"
-	ApprovalDecision       = "approve"
-	ApprovalActorClass     = "external_authorizer"
-	PlannerProposalClass   = "planner_proposal"
-	PlannerReplanClass     = "planner_replan"
-	approvalEffectKind     = "approval.admit"
+	ApprovalCommandVersion     = "sworn.approval-command/v1"
+	ApprovalResultVersion      = "sworn.approval-result/v1"
+	ApprovalDecision           = "approve"
+	ApprovalActorClass         = "external_authorizer"
+	DelegatedCaptainActorClass = "delegated_captain"
+	PlannerProposalClass       = "planner_proposal"
+	PlannerReplanClass         = "planner_replan"
+	approvalEffectKind         = "approval.admit"
 )
 
 // ApprovalCommand is the sole model shared unchanged by the TUI, product MCP,
@@ -75,7 +76,7 @@ func CanonicalApprovalCommand(command ApprovalCommand) ([]byte, error) {
 		(command.DecisionClass != PlannerProposalClass &&
 			command.DecisionClass != PlannerReplanClass) ||
 		command.Decision != ApprovalDecision ||
-		command.ActorClass != ApprovalActorClass ||
+		(command.ActorClass != ApprovalActorClass && command.ActorClass != DelegatedCaptainActorClass) ||
 		command.ActorAuthority == "" {
 		return nil, runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
 	}
@@ -207,6 +208,127 @@ func validateApprovalAuthority(
 	return nil
 }
 
+func approvalCommandForDelegatedProposal(
+	manifest admittedManifest,
+	proposal admittedPlanProposal,
+	envelope AdmittedCaptainDelegation,
+) (ApprovalCommand, error) {
+	command, err := approvalCommandForProposal(manifest, proposal)
+	if err != nil {
+		return ApprovalCommand{}, err
+	}
+	command.ActorClass = DelegatedCaptainActorClass
+	command.ActorAuthority = envelope.Digest
+	if _, err := CanonicalApprovalCommand(command); err != nil {
+		return ApprovalCommand{}, err
+	}
+	return command, nil
+}
+
+func validateDelegatedApprovalAuthority(
+	manifest admittedManifest,
+	proposal admittedPlanProposal,
+	snapshot journal.Snapshot,
+	command ApprovalCommand,
+	requireActive bool,
+) error {
+	state, err := currentCaptainDelegation(snapshot)
+	if err != nil {
+		return err
+	}
+	if state.Epoch == 0 || state.Digest != command.ActorAuthority || (requireActive && !state.Active) {
+		return runtimeFail("APPROVAL_AUTHORITY_CONFLICT", nil)
+	}
+	envelope := AdmittedCaptainDelegation{Envelope: state.Envelope, Bytes: state.EnvelopeBytes, Digest: state.Digest}
+	expected, err := approvalCommandForDelegatedProposal(manifest, proposal, envelope)
+	if err != nil || !reflect.DeepEqual(command, expected) {
+		return runtimeFail("APPROVAL_BINDING_MISMATCH", err)
+	}
+	metadata := proposal.plan.Metadata()
+	limits := state.Envelope.Limits
+	if metadata.Revision < limits.MinimumPlanRevision || metadata.Revision > limits.MaximumPlanRevision ||
+		state.Decisions > limits.MaximumTotalCaptainDecisions || state.ReplanSpent > limits.ReplanBudget {
+		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
+	}
+	allowed := false
+	for _, rule := range state.Envelope.DecisionRules {
+		if rule.DecisionClass == command.DecisionClass {
+			for _, outcome := range rule.AllowedOutcomes {
+				allowed = allowed || outcome == "proceed"
+			}
+		}
+	}
+	if !allowed {
+		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
+	}
+	if state.Envelope.TargetRef != proposal.authority.TargetRef || state.Envelope.TargetHead != proposal.authority.TargetHead || state.Envelope.ReleaseRef != proposal.authority.ReleaseRef {
+		return runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
+	}
+	anchor := state.Envelope.ReleaseLineageAnchor
+	if anchor.State == "absent" {
+		if proposal.authority.ReleaseHead != "" || metadata.Revision != 1 {
+			return runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
+		}
+	} else if proposal.authority.ReleaseHead == "" || metadata.Revision <= anchor.PlanRevision {
+		return runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
+	}
+	if err := ValidateCaptainPlanPolicy(state.Envelope.PlanRules, proposal.plan, nil); err != nil {
+		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", err)
+	}
+	expectedChildReplay, expectedChildEffect, _, identityErr := approvalIdentity(command)
+	if identityErr != nil {
+		return runtimeFail("APPROVAL_BINDING_MISMATCH", identityErr)
+	}
+	foundDecisions := 0
+	for _, stored := range snapshot.Commands {
+		if stored.Kind != "captain_decision" {
+			continue
+		}
+		var decision CaptainDecisionCommand
+		if json.Unmarshal(stored.Payload, &decision) != nil {
+			continue
+		}
+		canonical, canonicalErr := CanonicalCaptainDecisionCommand(decision)
+		plannerAttempt := proposal.authority.PlannerAttempt
+		if plannerAttempt == 0 {
+			plannerAttempt = 1
+		}
+		if canonicalErr != nil || !bytes.Equal(canonical, stored.Payload) ||
+			decision.Outcome != "proceed" || decision.RunID != manifest.value.RunID ||
+			decision.ManifestDigest != manifest.digest || decision.Project != manifest.value.Authority.Project ||
+			decision.Release != manifest.value.Release || decision.ReleaseRef != proposal.authority.ReleaseRef ||
+			decision.ReleaseHead != proposal.authority.ReleaseHead || decision.TargetRef != proposal.authority.TargetRef ||
+			decision.TargetHead != proposal.authority.TargetHead || decision.ProposalReplayKey != proposal.replayKey ||
+			decision.ProposalByteCount != int64(len(proposal.plan.Bytes())) || decision.PlanDigest != proposal.plan.Digest() ||
+			decision.PlanRevision != metadata.Revision || decision.PriorPlan != proposal.authority.PriorPlan ||
+			decision.PlannerAttempt != plannerAttempt || plannerAttempt > limits.MaximumPlannerAttemptsPerRevision ||
+			decision.PlannerSourceWork != proposal.authority.SourceWork || decision.PlannerSourceEffect != proposal.authority.SourceEffect ||
+			decision.EnvelopeDigest != state.Digest || decision.EnvelopeEpoch != state.Epoch ||
+			decision.ChildReplayKey != expectedChildReplay || decision.ChildEffectID != expectedChildEffect {
+			continue
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.ReplayKey == stored.ReplayKey && effect.Kind == captainDecisionEffectKind && effect.State == journal.Succeeded {
+				if validateCaptainDecisionDispatch(snapshot, decision, limits.MaximumCaptainAttemptsPerProposal) != nil {
+					return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
+				}
+				foundDecisions++
+			}
+		}
+	}
+	if foundDecisions != 1 {
+		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
+	}
+	return nil
+}
+
+func validateApprovalAuthorityWithSnapshot(manifest admittedManifest, proposal admittedPlanProposal, snapshot journal.Snapshot, command ApprovalCommand, requireActive bool) error {
+	if command.ActorClass == DelegatedCaptainActorClass {
+		return validateDelegatedApprovalAuthority(manifest, proposal, snapshot, command, requireActive)
+	}
+	return validateApprovalAuthority(manifest, proposal, command)
+}
+
 func (s *Service) currentApprovalProposal(
 	ctx context.Context,
 	runID string,
@@ -274,14 +396,24 @@ func (s *Service) completeApprovalAdmission(
 	if err != nil {
 		return ApprovalResult{}, err
 	}
-	manifest, proposal, _, validationErr := s.currentApprovalProposal(ctx, command.RunID)
+	manifest, proposal, snapshot, validationErr := s.currentApprovalProposal(ctx, command.RunID)
+	if validationErr == nil && command.ActorClass == DelegatedCaptainActorClass {
+		validationErr = s.validateCaptainReleaseLineage(ctx, manifest, proposal, snapshot)
+	}
 	if validationErr == nil {
-		validationErr = validateApprovalAuthority(manifest, proposal, command)
+		validationErr = validateApprovalAuthorityWithSnapshot(manifest, proposal, snapshot, command, true)
 	}
 	completion := journal.Completion{
 		RunID: command.RunID, EffectID: effect.ID,
 		Token: effect.CurrentClaim, At: s.now().UTC(),
 		EventKind: "approval_admitted", EventBody: []byte(command.PlanDigest),
+	}
+	if command.ActorClass == DelegatedCaptainActorClass && validationErr == nil {
+		offset := int64(0)
+		if len(snapshot.Events) > 0 {
+			offset = snapshot.Events[len(snapshot.Events)-1].Offset
+		}
+		completion.ExpectedEventOffset = &offset
 	}
 	if validationErr != nil {
 		completion.State = journal.OperationalFailed
@@ -305,6 +437,24 @@ func (s *Service) completeApprovalAdmission(
 			current, readErr := s.journal.Effect(ctx, command.RunID, effect.ID)
 			if readErr == nil && current.State == journal.Succeeded {
 				return parseSucceededApproval(command, current)
+			}
+			if command.ActorClass == DelegatedCaptainActorClass && readErr == nil && current.State == journal.Claimed {
+				fresh, readSnapshotErr := s.journal.Snapshot(ctx, command.RunID)
+				if readSnapshotErr == nil {
+					offset := int64(0)
+					if len(fresh.Events) > 0 {
+						offset = fresh.Events[len(fresh.Events)-1].Offset
+					}
+					completion.State = journal.OperationalFailed
+					completion.Result = nil
+					completion.ErrorCode = "APPROVAL_STALE"
+					completion.EventKind = "approval_rejected"
+					completion.EventBody = []byte(command.PlanDigest)
+					completion.ExpectedEventOffset = &offset
+					if failErr := s.journal.Complete(ctx, completion); failErr == nil {
+						return ApprovalResult{}, runtimeFail("APPROVAL_STALE", nil)
+					}
+				}
 			}
 		}
 		return ApprovalResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -375,11 +525,16 @@ func (s *Service) Approve(
 	if s == nil || s.journal == nil || ctx == nil {
 		return ApprovalResult{}, runtimeFail("INVALID_SERVICE", nil)
 	}
-	manifest, proposal, _, err := s.currentApprovalProposal(ctx, command.RunID)
+	manifest, proposal, snapshot, err := s.currentApprovalProposal(ctx, command.RunID)
 	if err != nil {
 		return ApprovalResult{}, err
 	}
-	if err := validateApprovalAuthority(manifest, proposal, command); err != nil {
+	if command.ActorClass == DelegatedCaptainActorClass {
+		if err := s.validateCaptainReleaseLineage(ctx, manifest, proposal, snapshot); err != nil {
+			return ApprovalResult{}, err
+		}
+	}
+	if err := validateApprovalAuthorityWithSnapshot(manifest, proposal, snapshot, command, true); err != nil {
 		return ApprovalResult{}, err
 	}
 	replayKey, effectID, payload, err := approvalIdentity(command)
@@ -413,6 +568,10 @@ func (s *Service) Approve(
 	result, err := s.processApprovalEffect(ctx, command, effect)
 	if err != nil {
 		return ApprovalResult{}, err
+	}
+	if testCaptainCrashCut == "approval_admission" ||
+		testCaptainCrashCut == "before_approved_wake" {
+		return ApprovalResult{}, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
 	}
 	// Admission is already durable. Waking the run is best effort here; exact
 	// replay and operator startup perform the same reconciliation.
@@ -462,7 +621,7 @@ func (s *Service) approvedRunNeedsWake(
 	if err != nil {
 		return false, err
 	}
-	if err := validateApprovalAuthority(manifest, proposal, command); err != nil {
+	if err := validateApprovalAuthorityWithSnapshot(manifest, proposal, snapshot, command, false); err != nil {
 		return false, err
 	}
 	engine, err := s.openEngine(manifest)

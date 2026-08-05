@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/journal"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 const (
@@ -151,7 +152,7 @@ func (m *model) handleKey(key tea.KeyMsg) tea.Cmd {
 	case overlayConfirm:
 		switch key.String() {
 		case "y":
-			return m.execute(m.pendingAction, "")
+			return m.execute(m.pendingAction, m.answer)
 		case "n", "esc":
 			m.closeOverlay()
 		}
@@ -246,7 +247,8 @@ func (m *model) handleActionKey(key tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		action := m.board.Actions[m.actionCursor]
-		if action.Kind == "answer_attention" {
+		if action.Kind == "answer_attention" || action.Kind == "start_delegated" ||
+			action.Kind == "captain_delegation_replace" {
 			m.pendingAction = action
 			m.answer = ""
 			m.overlay = overlayAnswer
@@ -269,10 +271,18 @@ func (m *model) handleAnswerKey(key tea.KeyMsg) tea.Cmd {
 		return nil
 	case "ctrl+s":
 		if strings.TrimSpace(m.answer) == "" {
-			m.statusMsg = "Write an answer before continuing."
+			m.statusMsg = "Provide the required bounded text before continuing."
 			return nil
 		}
-		return m.execute(m.pendingAction, m.answer)
+		if m.pendingAction.Kind == "answer_attention" {
+			return m.execute(m.pendingAction, m.answer)
+		}
+		if _, err := runtimepkg.ParseCaptainDelegation([]byte(m.answer)); err != nil {
+			m.statusMsg = "The Captain delegation envelope is not canonical."
+			return nil
+		}
+		m.overlay = overlayConfirm
+		return nil
 	case "backspace":
 		m.answer = trimLastRune(m.answer)
 		return nil
@@ -297,8 +307,13 @@ func (m *model) appendAnswer(value string) {
 		}
 	}
 	value = clean.String()
-	if len(m.answer)+len(value) > maxAnswerBytes {
-		m.statusMsg = "Answer is at the 16 KiB limit."
+	limit := maxAnswerBytes
+	if m.pendingAction.Kind == "start_delegated" ||
+		m.pendingAction.Kind == "captain_delegation_replace" {
+		limit = runtimepkg.MaxCaptainDelegationBytes
+	}
+	if len(m.answer)+len(value) > limit {
+		m.statusMsg = "Input is at its safe size limit."
 		return
 	}
 	m.answer += value
@@ -314,7 +329,8 @@ func trimLastRune(value string) string {
 
 func confirmAction(kind string) bool {
 	switch kind {
-	case "start", "cancel", "retry", "takeover", "approve":
+	case "start", "start_delegated", "cancel", "retry", "takeover", "approve",
+		"captain_delegation_revoke", "captain_delegation_replace":
 		return true
 	default:
 		return false
@@ -445,7 +461,7 @@ func (m *model) acceptExecution(msg executeResultMsg) tea.Cmd {
 	} else {
 		m.statusMsg = m.actionLabel(msg.action) + " accepted."
 	}
-	if msg.err == nil && msg.action.Kind == "start" {
+	if msg.err == nil && (msg.action.Kind == "start" || msg.action.Kind == "start_delegated") {
 		m.screen = screenCatalog
 		m.selection = Selection{}
 		m.board = Board{}
@@ -513,6 +529,12 @@ func (m *model) actionLabel(action cockpit.Action) string {
 	switch action.Kind {
 	case "start":
 		return "Start run"
+	case "start_delegated":
+		return "Start with Captain delegation"
+	case "captain_delegation_revoke":
+		return "Revoke Captain delegation"
+	case "captain_delegation_replace":
+		return "Replace Captain delegation"
 	case "approve":
 		if action.Approval != nil {
 			return fmt.Sprintf(

@@ -44,6 +44,17 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	result.Project = manifest.value.Authority.Project
 	result.ExternalAuthorizer = manifest.value.Authority.ExternalAuthorizer
+	delegation, delegationErr := currentCaptainDelegation(snapshot)
+	if delegationErr != nil {
+		return RunStatus{}, delegationErr
+	}
+	if delegation.Epoch > 0 {
+		state := "revoked"
+		if delegation.Active {
+			state = "active"
+		}
+		result.CaptainDelegation = &CaptainDelegationView{Digest: delegation.Digest, Epoch: delegation.Epoch, State: state, Decisions: delegation.Decisions, ReplanSpent: delegation.ReplanSpent, ReplanBudget: delegation.Envelope.Limits.ReplanBudget}
+	}
 	authorityDigest, authorityErr := effectivePlanAuthority(manifest, snapshot)
 	if authorityErr != nil {
 		if IsCode(authorityErr, "AUTHORITY_CONFLICT") {
@@ -136,6 +147,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
+	humanAuthorityRequired := false
+	if proposalFound && delegation.Epoch > 0 {
+		humanAuthorityRequired, err = captainHumanAuthorityRequired(snapshot, proposal, delegation)
+		if err != nil {
+			return RunStatus{}, err
+		}
+	}
 	var currentProposal *admittedPlanProposal
 	if proposalFound {
 		currentProposal = &proposal
@@ -151,7 +169,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		return RunStatus{}, authorityErr
 	}
 	result.AuthorityDigest = authorityDigest
-	if proposalFound && authorityDigest == "" {
+	if proposalFound && authorityDigest == "" && (!delegation.Active || humanAuthorityRequired) {
 		command, err := approvalCommandForProposal(manifest, proposal)
 		if err != nil {
 			return RunStatus{}, err
@@ -208,6 +226,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			parked = attentionParked || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
+			parked = parked || humanAuthorityRequired
 		}
 	}
 	switch {
@@ -245,7 +264,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = attentionParked || exhaustedWorkApplies(
+	parked = humanAuthorityRequired || attentionParked || exhaustedWorkApplies(
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {

@@ -252,6 +252,8 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 	t.Parallel()
 
 	run, observation, status, state := projectionFixture()
+	status.ExternalAuthorizer = "external-authorizer"
+	status.CaptainDelegation = &runtimepkg.CaptainDelegationView{Digest: "sha256:" + strings.Repeat("a", 64), Epoch: 2, State: "active", Decisions: 3, ReplanSpent: 1, ReplanBudget: 4}
 	var calls []string
 	projector, err := NewProjector(
 		&fakeJournal{
@@ -275,6 +277,28 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 	snapshot, err := projector.Snapshot(context.Background(), run.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if snapshot.CaptainDelegation == nil || !reflect.DeepEqual(snapshot.CaptainDelegation, status.CaptainDelegation) {
+		t.Fatalf("captain delegation = %#v", snapshot.CaptainDelegation)
+	}
+	var authorityActions []Action
+	for _, action := range snapshot.Actions {
+		if strings.HasPrefix(action.Kind, "captain_delegation_") {
+			authorityActions = append(authorityActions, action)
+		}
+	}
+	if len(authorityActions) != 2 {
+		t.Fatalf("Captain authority actions = %#v", authorityActions)
+	}
+	for _, action := range authorityActions {
+		binding := action.CaptainDelegation
+		if binding == nil || binding.RunID != status.RunID ||
+			binding.ManifestDigest != status.ManifestDigest ||
+			binding.ActorClass != runtimepkg.CaptainDelegationActorClass ||
+			binding.ActorAuthority != status.ExternalAuthorizer ||
+			binding.CurrentEpoch != 2 || binding.CurrentDigest != status.CaptainDelegation.Digest {
+			t.Fatalf("Captain authority binding = %#v", action)
+		}
 	}
 	wantCalls := []string{
 		"binding", "state", "status", "observation", "status", "state",

@@ -245,11 +245,12 @@ func buildSnapshot(
 			NotificationsTruncated: observation.NotificationsTruncated,
 			AttentionsTruncated:    observation.AttentionsTruncated,
 		},
-		Evidence:      make([]Evidence, 0, len(observation.Events)),
-		Actions:       []Action{},
-		Diagnostics:   []Diagnostic{},
-		ThroughOffset: observation.EventOffset,
-		ApprovalOffer: status.ApprovalOffer,
+		Evidence:          make([]Evidence, 0, len(observation.Events)),
+		Actions:           []Action{},
+		Diagnostics:       []Diagnostic{},
+		ThroughOffset:     observation.EventOffset,
+		ApprovalOffer:     status.ApprovalOffer,
+		CaptainDelegation: status.CaptainDelegation,
 	}
 	redeliveryActions := make([]Action, 0)
 	attentionActions := make([]Action, 0)
@@ -628,6 +629,23 @@ func safeActions(
 				ExpectedEpoch:      epoch,
 			})
 		}
+	}
+	if delegation := status.CaptainDelegation; delegation != nil &&
+		delegation.State == "active" {
+		binding := CaptainDelegationAction{
+			RunID: status.RunID, ManifestDigest: status.ManifestDigest,
+			ActorClass:     runtimepkg.CaptainDelegationActorClass,
+			ActorAuthority: status.ExternalAuthorizer,
+			CurrentEpoch:   delegation.Epoch, CurrentDigest: delegation.Digest,
+		}
+		revoke := binding
+		revoke.Action = "revoke"
+		replace := binding
+		replace.Action = "replace"
+		result = append(result,
+			Action{Kind: "captain_delegation_revoke", CaptainDelegation: &revoke},
+			Action{Kind: "captain_delegation_replace", CaptainDelegation: &replace},
+		)
 	}
 	return result
 }
