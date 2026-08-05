@@ -18,9 +18,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -31,17 +33,20 @@ const (
 )
 
 type journeyProvider struct {
-	t         *testing.T
-	planBytes []byte
-	repair    bool
+	t                   *testing.T
+	planBytes           []byte
+	replanBytes         []byte
+	captainPlanOutcomes []driver.DecisionOutcome
+	repair              bool
 
-	mu          sync.Mutex
-	turns       map[string]int
-	families    map[string]driver.ProfileFamily
-	models      map[string]string
-	access      map[string]driver.WorkspaceAccess
-	httpCalls   int
-	submissions int
+	mu               sync.Mutex
+	turns            map[string]int
+	families         map[string]driver.ProfileFamily
+	models           map[string]string
+	access           map[string]driver.WorkspaceAccess
+	httpCalls        int
+	submissions      int
+	captainPlanCalls int
 }
 
 type journeyPrompt struct {
@@ -382,10 +387,23 @@ func (provider *journeyProvider) submissionArguments(
 	var err error
 	switch prompt.Responsibility {
 	case driver.PlannerProposal:
-		submission.Plan, err = driver.NewPlanBytes(provider.planBytes)
+		planBytes := provider.planBytes
+		if provider.replanBytes != nil && strings.Contains(prompt.InvocationID, "/release-") {
+			planBytes = provider.replanBytes
+		}
+		submission.Plan, err = driver.NewPlanBytes(planBytes)
 	case driver.ImplementerDesign:
 	case driver.CaptainReview:
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
+	case driver.CaptainPlanReview:
+		outcome := driver.DecisionProceed
+		provider.mu.Lock()
+		if provider.captainPlanCalls < len(provider.captainPlanOutcomes) {
+			outcome = provider.captainPlanOutcomes[provider.captainPlanCalls]
+		}
+		provider.captainPlanCalls++
+		provider.mu.Unlock()
+		submission.Decision, err = driver.NewDecision(outcome)
 	case driver.ImplementerImplementation:
 		submission.Checks, err = driver.NewCheckBytes(
 			[]byte("deterministic production implementation checks\n"),
@@ -474,9 +492,9 @@ func productionJourneyPlan(
 		Release:       "production-journey-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef:   "github://acme/repo/issues/61#production-journey-v1",
+		ApprovalRef:   "operator://production-journey-release/1",
 		Tracks: []baton.Track{
 			{
 				ID: "T1", DependsOn: []string{},
@@ -587,18 +605,16 @@ func productionJourneyManifest(
 ) []byte {
 	t.Helper()
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersionV2,
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
+		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             "production-journey",
 		Repository:        repository,
 		Release:           "production-journey-release",
 		TargetRef:         "refs/heads/main",
 		Intent:            "Complete the deterministic configured production journey.",
 		MaxParallelTracks: 3,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               61,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		DriverConfigDigest: config.ConfigurationDigest(),
 		Roles: driver.RoleSelections{
@@ -614,6 +630,9 @@ func productionJourneyManifest(
 			Verifier: driver.RoleSelection{
 				Profile: "gemini", Model: "journey-verifier",
 			},
+		},
+		Automation: &swornruntime.AutomationSelections{
+			Recovery: driver.RoleSelection{Profile: "openai", Model: "journey-planner"},
 		},
 		Limits: driver.Limits{
 			TimeoutMillis: 30_000,
@@ -653,10 +672,6 @@ func TestConfiguredProductionJourneyRepairsVerifierFailWithFreshPass(
 
 func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	t.Helper()
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	repository := newProductRepository(t)
 	planBytes, plan := productionJourneyPlan(t, repository)
 	provider := &journeyProvider{
@@ -679,13 +694,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	manifestPath := writeManifest(t, root, manifestBody)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	targetBefore := runGit(t, repository, "rev-parse", "main")
 	stdout, stderr := runBinaryWithEnvironment(
 		t,
@@ -713,9 +722,9 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		t.Fatal("production config identity changed before restart")
 	}
 
-	approvals.publish(61, approvalFor(61, "production-journey-v1", plan))
+	authorizePlan(t, journalPath, "production-journey", plan)
 	installApprovedPlan(t, repository, planBytes)
-	stdout, stderr = runBinaryWithEnvironment(
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t,
 		swornBinary,
 		0,
@@ -723,6 +732,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
 			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
 		},
+		180*time.Second,
 		"resume",
 		"--run", "production-journey",
 		"--journal", journalPath,

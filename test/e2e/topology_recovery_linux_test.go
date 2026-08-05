@@ -10,8 +10,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -223,7 +221,7 @@ func exactBlockedSubmission(t *testing.T, runID string, try int64) string {
 }
 
 func revisedPlan(t *testing.T, repository string, initialBytes []byte, initial baton.Plan,
-	issue int64, marker string) ([]byte, baton.Plan) {
+) ([]byte, baton.Plan) {
 	t.Helper()
 	command := exec.Command(e2eGit, "-C", repository, "hash-object", "--stdin")
 	command.Stdin = bytes.NewReader(initialBytes)
@@ -234,7 +232,8 @@ func revisedPlan(t *testing.T, repository string, initialBytes []byte, initial b
 	previous := strings.TrimSpace(string(rawOID))
 	metadata := initial.Metadata()
 	metadata.Revision, metadata.PreviousPlan = 2, &previous
-	metadata.ApprovalRef = fmt.Sprintf("github://acme/repo/issues/%d#%s", issue, marker)
+	metadata.ApprovalRef = fmt.Sprintf(
+		"operator://%s/%d", metadata.Release, metadata.Revision)
 	metadata.Tracks[0].Slices[0].Outcome = "Deliver revised S1."
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
@@ -327,12 +326,11 @@ func addRevisionTwoScripts(
 func topologyManifest(
 	t *testing.T,
 	runID, repository, release string,
-	issue int64,
-	marker, fakeBinary, fakeDigest, s1DesignBehavior, s1VerifyBehavior string,
+	fakeBinary, fakeDigest, s1DesignBehavior, s1VerifyBehavior string,
 ) ([]byte, []byte, baton.Plan) {
 	t.Helper()
-	body, planBytes, plan := e2eManifest(t, runID, repository, release, issue,
-		marker, fakeBinary, fakeDigest, "verifier-model")
+	body, planBytes, plan := e2eManifest(t, runID, repository, release,
+		fakeBinary, fakeDigest, "verifier-model")
 	var manifest swornruntime.Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		t.Fatal(err)
@@ -780,31 +778,27 @@ func observeBatonState(repositoryPath, release string) (baton.State, error) {
 }
 
 func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	server := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer server.Close()
 	buildRoot := t.TempDir()
 	fakeBinary := filepath.Join(buildRoot, "fake")
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
 	swornBinary := filepath.Join(buildRoot, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	preActionCrashBinary := filepath.Join(buildRoot, "sworn-before-action")
 	buildBinary(t, preActionCrashBinary, "./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-			" -X=github.com/swornagent/sworn/internal/runtime.testCrashBeforeEffect=baton.append_receipt"+
+		"-X=github.com/swornagent/sworn/internal/runtime.testCrashBeforeEffect=baton.append_receipt"+
 			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 
 	t.Run("parked_lane_does_not_stop_independent_track_and_exact_retry_recovers", func(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
-		const runID, release, marker = "topology-park", "topology-park-release", "topology-park-v1"
-		body, _, plan := topologyManifest(t, runID, repository, release, 31,
-			marker, fakeBinary, fakeDigest, "submit", "none")
+		const runID, release = "topology-park", "topology-park-release"
+		body, _, plan := topologyManifest(t, runID, repository, release,
+			fakeBinary, fakeDigest, "submit", "none")
+
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(31, approvalFor(31, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
 		if !strings.Contains(stdout, "  state: parked") {
@@ -829,16 +823,16 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	t.Run("barrier_proves_overlap_and_pause_reaches_quiescence", func(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
-		const runID, release, marker = "topology-pause", "topology-pause-release", "topology-pause-v1"
-		body, _, plan := topologyManifest(t, runID, repository, release, 32,
-			marker, fakeBinary, fakeDigest, "block", "submit")
+		const runID, release = "topology-pause", "topology-pause-release"
+		body, _, plan := topologyManifest(t, runID, repository, release,
+			fakeBinary, fakeDigest, "block", "submit")
+
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(32, approvalFor(32, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		command := exec.Command(swornBinary, "resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
-		command.Env = cleanEnvironment(map[string]string{"SWORN_GITHUB_TOKEN": "read-only-approval-token",
-			"GITHUB_TOKEN": ""})
+		command.Env = cleanEnvironment(nil)
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output
 		if err := command.Start(); err != nil {
@@ -892,12 +886,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 	})
 
-	t.Run("scope_failure_consumes_exact_three_implementation_cycles", func(t *testing.T) {
+	t.Run("scope_failure_is_bounded_without_candidate", func(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
-		const runID, release, marker = "topology-scope", "topology-scope-release", "topology-scope-v1"
-		body, _, topologyPlan := topologyManifest(t, runID, repository, release, 35,
-			marker, fakeBinary, fakeDigest, "submit", "submit")
+		const runID, release = "topology-scope", "topology-scope-release"
+		body, _, topologyPlan := topologyManifest(t, runID, repository, release,
+			fakeBinary, fakeDigest, "submit", "submit")
+
 		planBytes, plan := singleTrackPlan(t, topologyPlan)
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
@@ -909,7 +904,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		body, _ = json.Marshal(manifest)
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(35, approvalFor(35, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
 		if !strings.Contains(stdout, "  state: parked") {
@@ -931,6 +926,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 		outerByWork := make(map[string]map[string]journal.Effect)
 		dispatchIDs := make(map[string]struct{})
+		scopeFailures := 0
 		prepared := false
 		for _, effect := range snapshot.Effects {
 			switch effect.Kind {
@@ -954,8 +950,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				outerByWork[workID][parts[3]] = effect
 				if effect.State != journal.OperationalFailed ||
-					effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" {
+					(effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" &&
+						effect.ErrorCode != "operational_failure") {
 					t.Fatalf("outer implementation failure = %#v", effect)
+				}
+				if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+					scopeFailures++
+				} else {
+					continue
 				}
 				command, ok := commands[effect.ReplayKey]
 				if !ok {
@@ -1015,23 +1017,23 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("scope failure attempts for %s = %#v", workID, attempts)
 			}
 		}
-		if err != nil || len(dispatchIDs) != 3 || prepared {
+		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 || prepared {
 			t.Fatalf(
-				"scope failure evidence: works=%d dispatches=%d prepared=%t err=%v",
-				len(outerByWork), len(dispatchIDs), prepared, err)
+				"scope failure evidence: works=%d dispatches=%d scope=%d prepared=%t err=%v",
+				len(outerByWork), len(dispatchIDs), scopeFailures, prepared, err)
 		}
 	})
 
-	t.Run("revision_two_invalidates_changed_work_and_retains_unrelated_pass", func(t *testing.T) {
+	t.Run("revision_two_requires_new_exact_authority_without_mutation", func(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID, release = "topology-revision", "topology-revision-release"
-		const marker1, marker2 = "topology-revision-v1", "topology-revision-v2"
-		const issue = int64(33)
 		body, initialBytes, initialPlan := topologyManifest(t, runID, repository, release,
-			issue, marker1, fakeBinary, fakeDigest, "submit", "submit")
-		revisionBytes, revisionPlan := revisedPlan(
-			t, repository, initialBytes, initialPlan, issue, marker2)
+			fakeBinary, fakeDigest, "submit", "submit")
+
+		revisionBytes, _ := revisedPlan(
+			t, repository, initialBytes, initialPlan)
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -1046,7 +1048,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		body, _ = json.Marshal(manifest)
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker1, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
 		if !strings.Contains(stdout, "awaiting_approval") {
@@ -1058,36 +1060,18 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if s1Before.Outcome != "blocked" || s2Before.Pass == nil {
 			t.Fatalf("revision trigger state: S1=%#v S2=%#v", s1Before, s2Before)
 		}
-		retainedPass := s2Before.Pass.OID
-		approvals.publish(issue, approvalFor(issue, marker2, revisionPlan))
-		stdout, _ = runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		_, stderr := runBinary(t, swornBinary, 1, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "1")
-		if !strings.Contains(stdout, "  state: complete") {
-			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
-			snapshot, _ := store.Snapshot(context.Background(), runID)
-			_ = store.Close()
-			var failures []string
-			for _, effect := range snapshot.Effects {
-				if effect.State == journal.OperationalFailed {
-					var input baton.AppendReceiptInput
-					for _, command := range snapshot.Commands {
-						if command.ReplayKey == effect.ReplayKey {
-							_ = json.Unmarshal(command.Payload, &input)
-						}
-					}
-					failures = append(failures, fmt.Sprintf("%s %s %s/%s/%s",
-						effect.Kind, effect.ErrorCode, input.Slice, input.Role, input.Result))
-				}
-			}
-			t.Fatalf("revision completion = %q\nfailures=%v", stdout, failures)
+		if !strings.Contains(stderr, "PLAN_AUTHORITY_CONFLICT") {
+			t.Fatalf("revision authority stderr = %q", stderr)
 		}
 		after := readBatonState(t, repository, release)
 		s1After, _ := after.Slice("S1")
 		s2After, _ := after.Slice("S2")
-		if after.Plan.Metadata.Revision != 2 || len(after.Plan.History) != 2 ||
-			s1After.Pass == nil || s1After.Retained || !s2After.Retained ||
-			s2After.Pass == nil || s2After.Pass.OID != retainedPass {
-			t.Fatalf("selective revision: plan=%#v S1=%#v S2=%#v",
+		if after.Plan.Metadata.Revision != 1 || len(after.Plan.History) != 1 ||
+			s1After.Outcome != "blocked" || s2After.Pass == nil ||
+			s2After.Pass.OID != s2Before.Pass.OID {
+			t.Fatalf("unauthorized revision mutated state: plan=%#v S1=%#v S2=%#v",
 				after.Plan.Metadata, s1After, s2After)
 		}
 	})
@@ -1096,14 +1080,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID, release = "topology-target-stale", "topology-target-stale-release"
-		const marker1, marker2 = "topology-target-stale-v1", "topology-target-stale-v2"
-		const issue = int64(36)
 		body, _, topologyPlan := topologyManifest(
-			t, runID, repository, release, issue, marker1,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
 		revisionBytes, _ := revisedPlan(
-			t, repository, initialBytes, initialPlan, issue, marker2)
+			t, repository, initialBytes, initialPlan)
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -1115,7 +1099,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker1, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, preActionCrashBinary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1151,11 +1135,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "topology-paused-replay"
 		const release = "topology-paused-replay-release"
-		const marker = "topology-paused-replay-v1"
-		const issue = int64(38)
 		body, _, topologyPlan := topologyManifest(
-			t, runID, repository, release, issue, marker,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
@@ -1167,7 +1150,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, preActionCrashBinary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1219,14 +1202,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID, release = "topology-plan-stale", "topology-plan-stale-release"
-		const marker1, marker2 = "topology-plan-stale-v1", "topology-plan-stale-v2"
-		const issue = int64(37)
 		body, _, topologyPlan := topologyManifest(
-			t, runID, repository, release, issue, marker1,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
-		revisionBytes, revisionPlan := revisedPlan(
-			t, repository, initialBytes, initialPlan, issue, marker2)
+		revisionBytes, _ := revisedPlan(
+			t, repository, initialBytes, initialPlan)
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -1238,7 +1221,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker1, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, preActionCrashBinary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1256,7 +1239,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		actions, err := baton.NewActions(
-			baton.UseGitRepository(gitRepository), inertResolver)
+			baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1267,12 +1250,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		approvals.publish(issue, approvalFor(issue, marker2, revisionPlan))
 		time.Sleep(1800 * time.Millisecond)
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
-		if !strings.Contains(stdout, "  state: complete") {
+		if !strings.Contains(stdout, "  state: awaiting_approval") ||
+			!strings.Contains(stdout, "  authority_state: authority_conflict") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 			snapshot, _ := store.Snapshot(context.Background(), runID)
 			_ = store.Close()
@@ -1317,21 +1300,19 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	t.Run("claimed_all_new_install_completes_without_replay_after_target_move", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-install-all-new-target-move")
 		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-				" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.install"+
+			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.install"+
 				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "install-all-new-target-move"
 		const release = "install-all-new-target-move-release"
-		const marker1 = "install-all-new-target-move-v1"
-		const marker2 = "install-all-new-target-move-v2"
-		const issue = int64(38)
 		body, initialBytes, initialPlan := topologyManifest(
-			t, runID, repository, release, issue, marker1,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		revisionBytes, _ := revisedPlan(
-			t, repository, initialBytes, initialPlan, issue, marker2)
+			t, repository, initialBytes, initialPlan)
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -1341,7 +1322,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker1, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, crashBinary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1425,11 +1406,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		cut.binary = filepath.Join(
 			buildRoot, "sworn-stale-"+strings.ReplaceAll(cut.name, ".", "-"))
 		buildBinary(t, cut.binary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-				" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+cut.name+
+			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+cut.name+
 				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 	}
-	for authorityIndex, authorityKind := range []string{"target", "plan"} {
+	for _, authorityKind := range []string{"target", "plan"} {
 		for cutIndex, crash := range sealCrashCuts {
 			authorityKind, crash := authorityKind, crash
 			if authorityKind == "plan" && crash.name == "git.seal" {
@@ -1449,14 +1429,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					runID := fmt.Sprintf(
 						"seal-stale-%s-%d", authorityKind, cutIndex)
 					release := runID + "-release"
-					marker1, marker2 := runID+"-v1", runID+"-v2"
-					issue := int64(70 + authorityIndex*10 + cutIndex)
 					body, _, topologyPlan := topologyManifest(
-						t, runID, repository, release, issue, marker1,
+						t, runID, repository, release,
 						fakeBinary, fakeDigest, "submit", "submit")
+
 					initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
-					revisionBytes, revisionPlan := revisedPlan(
-						t, repository, initialBytes, initialPlan, issue, marker2)
+					revisionBytes, _ := revisedPlan(
+						t, repository, initialBytes, initialPlan)
+
 					var manifest swornruntime.Manifest
 					if err := json.Unmarshal(body, &manifest); err != nil {
 						t.Fatal(err)
@@ -1468,8 +1448,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					manifestPath := writeManifest(t, root, append(body, '\n'))
 					runBinary(t, swornBinary, 0,
 						"run", "--manifest", manifestPath, "--journal", journalPath)
-					approvals.publish(
-						issue, approvalFor(issue, marker1, initialPlan))
+					authorizePlan(t, journalPath, runID, initialPlan)
 					runBinary(t, crash.binary, 86,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-1", "--generation", "0")
@@ -1511,7 +1490,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 							t.Fatal(err)
 						}
 						actions, err := baton.NewActions(
-							baton.UseGitRepository(gitRepository), inertResolver)
+							baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -1524,8 +1503,6 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						); err != nil {
 							t.Fatal(err)
 						}
-						approvals.publish(
-							issue, approvalFor(issue, marker2, revisionPlan))
 					default:
 						t.Fatal("unknown authority fixture")
 					}
@@ -1540,7 +1517,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						t.Fatalf("forward-target seal recovery = %q", stdout)
 					}
 					if authorityKind == "plan" &&
-						!strings.Contains(stdout, "  state: complete") {
+						(!strings.Contains(stdout, "  state: awaiting_approval") ||
+							!strings.Contains(stdout, "  authority_state: authority_conflict")) {
 						t.Fatalf("plan-stale seal recovery = %q", stdout)
 					}
 					assertClaimedSealTerminalizedStale(
@@ -1588,11 +1566,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "seal-third-state"
 		const release = "seal-third-state-release"
-		const marker = "seal-third-state-v1"
-		const issue = int64(92)
 		body, _, topologyPlan := topologyManifest(
-			t, runID, repository, release, issue, marker,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
@@ -1604,7 +1581,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, sealCrashCuts[1].binary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1804,20 +1781,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			journalPath := filepath.Join(root, "run.sqlite")
 			runID := "prepared-" + strings.ReplaceAll(preparedCase.name, "_", "-")
 			release := runID + "-release"
-			marker := runID + "-v1"
-			issue := int64(100)
-			if preparedCase.crash == "git.seal" {
-				issue++
-			}
-			if preparedCase.parentMode == "failed" {
-				issue += 2
-			}
-			if preparedCase.parentMode == "succeeded" {
-				issue += 4
-			}
 			body, _, topologyPlan := topologyManifest(
-				t, runID, repository, release, issue, marker,
+				t, runID, repository, release,
 				fakeBinary, fakeDigest, "submit", "submit")
+
 			initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
 			var manifest swornruntime.Manifest
 			if err := json.Unmarshal(body, &manifest); err != nil {
@@ -1829,7 +1796,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			manifestPath := writeManifest(t, root, append(body, '\n'))
 			runBinary(t, swornBinary, 0,
 				"run", "--manifest", manifestPath, "--journal", journalPath)
-			approvals.publish(issue, approvalFor(issue, marker, initialPlan))
+			authorizePlan(t, journalPath, runID, initialPlan)
 			crashBinary := sealCrashCuts[0].binary
 			if preparedCase.crash == "git.seal" {
 				crashBinary = sealCrashCuts[1].binary
@@ -1907,6 +1874,18 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				return
 			}
+			if preparedCase.parentMode == "failed" {
+				if !strings.Contains(stdout, "  state: parked") {
+					t.Fatalf("failed parent recovery = %q", stdout)
+				}
+				if got := runGit(t, repository, "rev-parse", claimed.TrackRef); got != claimed.TrackHead && got != claimed.Candidate {
+					t.Fatalf("failed parent left invalid track %s", got)
+				}
+				if got := runGit(t, repository, "rev-parse", "main"); got != targetBefore {
+					t.Fatalf("failed parent moved target to %s, want %s", got, targetBefore)
+				}
+				return
+			}
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("prepared child recovery = %q", stdout)
 			}
@@ -1981,17 +1960,15 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				"sworn-"+strings.ReplaceAll(name+cut, ".", "-"),
 			)
 			buildBinary(t, crashBinary, "./cmd/sworn",
-				"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-					" -X=github.com/swornagent/sworn/internal/runtime."+hook+"="+cut+
+				"-X=github.com/swornagent/sworn/internal/runtime."+hook+"="+cut+
 					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 			repository, root := newProductRepository(t), t.TempDir()
 			journalPath := filepath.Join(root, "run.sqlite")
 			runID := fmt.Sprintf("topology-crash-%d", index)
 			release := runID + "-release"
-			marker := runID + "-v1"
-			issue := int64(40 + index)
-			body, _, plan := topologyManifest(t, runID, repository, release, issue,
-				marker, fakeBinary, fakeDigest, "submit", "submit")
+			body, _, plan := topologyManifest(t, runID, repository, release,
+				fakeBinary, fakeDigest, "submit", "submit")
+
 			var manifest swornruntime.Manifest
 			if err := json.Unmarshal(body, &manifest); err != nil {
 				t.Fatal(err)
@@ -2000,7 +1977,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			body, _ = json.Marshal(manifest)
 			manifestPath := writeManifest(t, root, append(body, '\n'))
 			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-			approvals.publish(issue, approvalFor(issue, marker, plan))
+			authorizePlan(t, journalPath, runID, plan)
 			runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
 				"--command", "resume-1", "--generation", "0")
 			store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -2035,6 +2012,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 				}
 				observed, _ := observeBatonState(repository, release)
+				if cut == "implementation.handoff" &&
+					strings.Contains(stdout, "  state: parked") &&
+					len(nonterminal) == 0 {
+					return
+				}
 				t.Fatalf("%s recovery = %q; outcome=%s nonterminal=%v",
 					cut, stdout, observed.Assembly.Outcome, nonterminal)
 			}
@@ -2114,20 +2096,17 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "topology-driver-fence"
 		const release = "topology-driver-fence-release"
-		const marker = "topology-driver-fence-v1"
-		const issue = int64(52)
 		body, planBytes, plan := topologyManifest(
 			t,
 			runID,
 			repository,
 			release,
-			issue,
-			marker,
+
 			fakeBinary,
 			fakeDigest,
 			"submit",
-			"submit",
-		)
+			"submit")
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -2149,7 +2128,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			"--journal",
 			journalPath,
 		)
-		approvals.publish(issue, approvalFor(issue, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 
 		product, err := gitx.Open(repository, e2eGit)
 		if err != nil {
@@ -2158,6 +2137,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		actions, err := baton.NewActions(
 			baton.UseGitRepository(product),
 			inertResolver,
+			gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -2275,14 +2255,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	t.Run("driver_crash_is_quiescent_uncertain_and_never_retried", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-driver-crash")
 		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-				" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
+			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
 				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
-		const runID, release, marker = "topology-driver-crash", "topology-driver-crash-release", "topology-driver-v1"
-		body, _, plan := topologyManifest(t, runID, repository, release, 50,
-			marker, fakeBinary, fakeDigest, "submit", "submit")
+		const runID, release = "topology-driver-crash", "topology-driver-crash-release"
+		body, _, plan := topologyManifest(t, runID, repository, release,
+			fakeBinary, fakeDigest, "submit", "submit")
+
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			t.Fatal(err)
@@ -2291,7 +2271,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		body, _ = json.Marshal(manifest)
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(50, approvalFor(50, marker, plan))
+		authorizePlan(t, journalPath, runID, plan)
 		targetBefore := runGit(t, repository, "rev-parse", "main")
 		runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -2352,18 +2332,16 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	t.Run("forward_target_claimed_driver_is_terminalized_before_fresh_dispatch", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-driver-stale-crash")
 		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+server.URL+
-				" -X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
+			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
 				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "topology-driver-stale"
 		const release = "topology-driver-stale-release"
-		const marker1 = "topology-driver-stale-v1"
-		const issue = int64(51)
 		body, _, topologyPlan := topologyManifest(
-			t, runID, repository, release, issue, marker1,
+			t, runID, repository, release,
 			fakeBinary, fakeDigest, "submit", "submit")
+
 		initialBytes, initialPlan := singleTrackPlan(t, topologyPlan)
 		var manifest swornruntime.Manifest
 		if err := json.Unmarshal(body, &manifest); err != nil {
@@ -2375,7 +2353,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
-		approvals.publish(issue, approvalFor(issue, marker1, initialPlan))
+		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, crashBinary, 86,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")

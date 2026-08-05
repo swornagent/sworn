@@ -217,6 +217,20 @@ func serveOperator(
 	if err != nil || (!matched && !allowAbsent) {
 		return errors.New("operator unavailable")
 	}
+	if matched {
+		if err := runtimeService.ReconcileCaptainDelegations(parent, options.runID); err != nil {
+			return errors.New("operator unavailable")
+		}
+		if err := runtimeService.ReconcileCaptainDecisions(parent, options.runID); err != nil && !runtimepkg.IsCode(err, "CAPTAIN_DECISION_RECOVERY_PENDING") {
+			return errors.New("operator unavailable")
+		}
+		if err := runtimeService.ReconcileApprovals(
+			parent,
+			options.runID,
+		); err != nil && !runtimepkg.IsCode(err, "APPROVAL_RECOVERY_PENDING") {
+			return errors.New("operator unavailable")
+		}
+	}
 	manifests := make([]cockpit.AdmittedManifest, 0, 1)
 	if manifest != nil {
 		manifests = append(manifests, *manifest)

@@ -1,19 +1,25 @@
 package cockpit
 
-import "time"
+import (
+	"time"
+
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+)
 
 const SnapshotSchemaVersion = "sworn.cockpit/v2"
 
 type Snapshot struct {
-	SchemaVersion string       `json:"schema_version"`
-	Run           RunView      `json:"run"`
-	Graph         Graph        `json:"graph"`
-	Handoff       Handoff      `json:"handoff"`
-	Runtime       RuntimeView  `json:"runtime"`
-	Evidence      []Evidence   `json:"evidence"`
-	Actions       []Action     `json:"actions"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
-	ThroughOffset int64        `json:"through_offset"`
+	SchemaVersion     string                            `json:"schema_version"`
+	Run               RunView                           `json:"run"`
+	Graph             Graph                             `json:"graph"`
+	Handoff           Handoff                           `json:"handoff"`
+	Runtime           RuntimeView                       `json:"runtime"`
+	Evidence          []Evidence                        `json:"evidence"`
+	Actions           []Action                          `json:"actions"`
+	Diagnostics       []Diagnostic                      `json:"diagnostics"`
+	ThroughOffset     int64                             `json:"through_offset"`
+	ApprovalOffer     *runtimepkg.ApprovalOffer         `json:"approval_offer,omitempty"`
+	CaptainDelegation *runtimepkg.CaptainDelegationView `json:"captain_delegation,omitempty"`
 }
 
 type RunView struct {
@@ -129,13 +135,29 @@ type Evidence struct {
 }
 
 type Action struct {
-	Kind               string `json:"kind"`
-	ExpectedGeneration int64  `json:"expected_generation"`
-	AttentionID        string `json:"attention_id,omitempty"`
-	WorkID             string `json:"work_id,omitempty"`
-	ExpectedEpoch      int64  `json:"expected_epoch,omitempty"`
-	DestinationID      string `json:"destination_id,omitempty"`
-	MessageID          string `json:"message_id,omitempty"`
+	Kind               string                      `json:"kind"`
+	ExpectedGeneration int64                       `json:"expected_generation"`
+	AttentionID        string                      `json:"attention_id,omitempty"`
+	WorkID             string                      `json:"work_id,omitempty"`
+	ExpectedEpoch      int64                       `json:"expected_epoch,omitempty"`
+	DestinationID      string                      `json:"destination_id,omitempty"`
+	MessageID          string                      `json:"message_id,omitempty"`
+	Approval           *runtimepkg.ApprovalCommand `json:"approval,omitempty"`
+	CaptainDelegation  *CaptainDelegationAction    `json:"captain_delegation,omitempty"`
+}
+
+// CaptainDelegationAction carries the complete immutable authority binding
+// that a local cockpit must confirm before asking the shared command service
+// to mutate Captain authority. Envelope bytes are supplied only at execution
+// time and are independently parsed and rebound by runtime.Service.
+type CaptainDelegationAction struct {
+	Action         string `json:"action"`
+	RunID          string `json:"run_id"`
+	ManifestDigest string `json:"manifest_digest"`
+	ActorClass     string `json:"actor_class"`
+	ActorAuthority string `json:"actor_authority"`
+	CurrentEpoch   int64  `json:"current_epoch"`
+	CurrentDigest  string `json:"current_digest"`
 }
 
 type Diagnostic struct {

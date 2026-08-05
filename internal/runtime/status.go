@@ -29,7 +29,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	ownerActive := ownerPresent && owner.ExpiresAt.After(s.now().UTC())
 	ownerExpired := ownerPresent && !ownerActive
-	result := RunStatus{SchemaVersion: "sworn.run-status/v2", RunID: runID,
+	result := RunStatus{SchemaVersion: "sworn.run-status/v3", RunID: runID,
 		State: "new", DesiredState: control.Desired, ControlGeneration: control.Generation,
 		ManifestDigest: snapshot.Run.ManifestDigest, TargetRef: snapshot.Run.TargetRef,
 		Effects: make([]EffectStatus, 0, len(snapshot.Effects))}
@@ -37,6 +37,34 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if loadErr != nil {
 		return RunStatus{}, loadErr
 	}
+	if manifest.legacyVersion != "" {
+		result.State = "migration_required"
+		result.AuthorityState = "migration_required"
+		return result, nil
+	}
+	result.Project = manifest.value.Authority.Project
+	result.ExternalAuthorizer = manifest.value.Authority.ExternalAuthorizer
+	delegation, delegationErr := currentCaptainDelegation(snapshot)
+	if delegationErr != nil {
+		return RunStatus{}, delegationErr
+	}
+	if delegation.Epoch > 0 {
+		state := "revoked"
+		if delegation.Active {
+			state = "active"
+		}
+		result.CaptainDelegation = &CaptainDelegationView{Digest: delegation.Digest, Epoch: delegation.Epoch, State: state, Decisions: delegation.Decisions, ReplanSpent: delegation.ReplanSpent, ReplanBudget: delegation.Envelope.Limits.ReplanBudget}
+	}
+	authorityDigest, authorityErr := effectivePlanAuthority(manifest, snapshot)
+	if authorityErr != nil {
+		if IsCode(authorityErr, "AUTHORITY_CONFLICT") {
+			result.State = "authority_conflict"
+			result.AuthorityState = "authority_conflict"
+			return result, nil
+		}
+		return RunStatus{}, authorityErr
+	}
+	result.AuthorityDigest = authorityDigest
 	attentions, err := s.journal.Attentions(ctx, runID)
 	if err != nil {
 		return RunStatus{}, runtimeFail("CORRUPT_JOURNAL", err)
@@ -119,15 +147,86 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
-	latestRevision := int64(0)
+	humanAuthorityRequired := false
+	if proposalFound && delegation.Epoch > 0 {
+		humanAuthorityRequired, err = captainHumanAuthorityRequired(snapshot, proposal, delegation)
+		if err != nil {
+			return RunStatus{}, err
+		}
+	}
+	var currentProposal *admittedPlanProposal
 	if proposalFound {
-		latestRevision = proposal.plan.Metadata().Revision
+		currentProposal = &proposal
+	}
+	authorityDigest, authorityErr = effectivePlanAuthority(
+		manifest, snapshot, currentProposal)
+	if authorityErr != nil {
+		if IsCode(authorityErr, "AUTHORITY_CONFLICT") {
+			result.State = "authority_conflict"
+			result.AuthorityState = "authority_conflict"
+			return result, nil
+		}
+		return RunStatus{}, authorityErr
+	}
+	result.AuthorityDigest = authorityDigest
+	if proposalFound && authorityDigest == "" && (!delegation.Active || humanAuthorityRequired) {
+		command, err := approvalCommandForProposal(manifest, proposal)
+		if err != nil {
+			return RunStatus{}, err
+		}
+		result.ApprovalOffer = &ApprovalOffer{
+			SchemaVersion: ApprovalCommandVersion,
+			Command:       command,
+		}
+	}
+	proposalActivated := proposalActivationRecorded(
+		proposal, proposalFound, proposalInstalled, state, stateErr,
+		authorityDigest, snapshot,
+	)
+	result.AuthorityState = "awaiting_approval"
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "baton.install" {
+			continue
+		}
+		switch effect.State {
+		case journal.Pending, journal.Claimed:
+			result.AuthorityState = "installing"
+		case journal.Uncertain:
+			result.AuthorityState = "reconciling_install"
+		case journal.OperationalFailed:
+			result.AuthorityState = "invalid_authority"
+		}
+	}
+	if result.AuthorityState == "awaiting_approval" && authorityDigest != "" {
+		switch {
+		case proposalActivated:
+			result.AuthorityState = "approved"
+		case proposalAwaitsExactAuthority(
+			proposal, proposalFound, state, stateErr, authorityDigest,
+		):
+			result.AuthorityState = "authority_conflict"
+		case stateErr == nil:
+			adopted, err := validateSavedPlanAdoption(
+				statusEngine, state, authorityDigest)
+			if err != nil {
+				result.AuthorityState = "invalid_authority"
+			} else if adopted {
+				result.AuthorityState = "approved"
+			}
+		case proposalFound && proposal.plan.Digest() == authorityDigest:
+			result.AuthorityState = "approved"
+		default:
+			result.AuthorityState = "authority_conflict"
+		}
+	}
+	if proposalFound {
 		result.PlanDigest = proposal.plan.Digest()
-		if !proposalInstalled {
+		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
 			parked = attentionParked || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
+			parked = parked || humanAuthorityRequired
 		}
 	}
 	switch {
@@ -165,19 +264,18 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = attentionParked || exhaustedWorkApplies(
-		manifest, selected, proposalInstalled, state, snapshot, exhausted)
+	parked = humanAuthorityRequired || attentionParked || exhaustedWorkApplies(
+		manifest, selected, proposalActivated, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case active:
 			result.State = "running"
 		case ownerExpired || answeredWithoutOwner:
 			result.State = "takeover_required"
+		case proposalFound && !proposalActivated:
+			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
-		case proposalFound && !proposalInstalled &&
-			state.Plan.Metadata.Revision < latestRevision:
-			result.State = "awaiting_approval"
 		default:
 			result.State = "running"
 		}

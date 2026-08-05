@@ -6,8 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -51,10 +50,9 @@ func conflictParityPlan(
 		Release:       "parity-conflict-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef: "github://acme/repo/issues/62#" +
-			"parity-conflict-v1",
+		ApprovalRef:   "operator://parity-conflict-release/1",
 		Tracks: []baton.Track{
 			{
 				ID: "T1", DependsOn: []string{},
@@ -170,18 +168,16 @@ func conflictParityManifest(
 		return leftKey < rightKey
 	})
 	manifest := swornruntime.Manifest{
-		SchemaVersion:     swornruntime.ManifestVersionV2,
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
+		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,
 		Release:           "parity-conflict-release",
 		TargetRef:         "refs/heads/main",
 		Intent:            "Prove a genuine derived-base composition conflict.",
 		MaxParallelTracks: 2,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               62,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &swornruntime.FakeDriverConfig{
 			Executable: fakeBinary,
@@ -207,6 +203,9 @@ func conflictParityManifest(
 				Model:   "verifier-model",
 			},
 		},
+		Automation: &swornruntime.AutomationSelections{
+			Recovery: driver.RoleSelection{Profile: "parity-conflict-fake", Model: "recovery-model"},
+		},
 		Limits: driver.Limits{
 			TimeoutMillis: 30_000,
 			OutputBytes:   65_536,
@@ -227,22 +226,12 @@ func conflictParityManifest(
 func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 	t.Parallel()
 
-	approvals := &approvalServer{comments: make(map[int64][]approvalComment)}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	root := t.TempDir()
 	fakeBinary := filepath.Join(root, "fake")
 	buildBinary(t, fakeBinary, "./test/e2e/testdata/fake", "")
 	fakeDigest := fileDigest(t, fakeBinary)
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	repository := newProductRepository(t)
 	manifestBody, plan := conflictParityManifest(
 		t,
@@ -264,10 +253,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("conflict start stdout=%q stderr=%q", stdout, stderr)
 	}
-	approvals.publish(
-		62,
-		approvalFor(62, "parity-conflict-v1", plan),
-	)
+	authorizePlan(t, journalPath, "parity-conflict", plan)
 	stdout, stderr = runBinary(
 		t,
 		swornBinary,

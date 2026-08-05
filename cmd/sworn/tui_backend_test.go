@@ -20,6 +20,16 @@ type pendingTUIControls struct {
 	commands []cockpit.ControlCommand
 }
 
+func TestCaptainDelegationTUILabelProjectsHumanAndDelegatedAuthority(t *testing.T) {
+	if got := captainDelegationTUILabel(nil); got != "External human approval" {
+		t.Fatalf("human label = %q", got)
+	}
+	view := &runtimepkg.CaptainDelegationView{Epoch: 3, State: "revoked", Decisions: 4, ReplanSpent: 2, ReplanBudget: 5}
+	if got := captainDelegationTUILabel(view); got != "captain_plan_review epoch 3 revoked · decisions 4 · replans 2/5" {
+		t.Fatalf("delegated label = %q", got)
+	}
+}
+
 func (p *pendingTUIControls) Control(
 	_ context.Context,
 	command cockpit.ControlCommand,
@@ -140,6 +150,7 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 				Decision: "inert",
 			}, nil
 		},
+		gitx.Identity{Name: "TUI Test Engine", Email: "engine@example.test"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -200,6 +211,19 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 	}
 	if !exactTUIAction(board.Actions, cockpit.Action{Kind: "start"}) {
 		t.Fatalf("unrelated invalid manifest blocked valid start: %#v", board)
+	}
+	delegated := false
+	for _, action := range board.Actions {
+		if action.Kind == "start_delegated" && action.CaptainDelegation != nil &&
+			action.CaptainDelegation.Action == "admit" &&
+			action.CaptainDelegation.ActorClass == runtimepkg.CaptainDelegationActorClass &&
+			action.CaptainDelegation.RunID == "run-1" &&
+			strings.HasPrefix(action.CaptainDelegation.ManifestDigest, "sha256:") {
+			delegated = true
+		}
+	}
+	if !delegated {
+		t.Fatalf("valid manifest omitted bound delegated start: %#v", board.Actions)
 	}
 	for _, diagnostic := range board.Diagnostics {
 		if strings.HasPrefix(diagnostic.Code, "MANIFEST") ||

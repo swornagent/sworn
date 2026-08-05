@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -26,12 +25,12 @@ const effectLease = 5 * time.Minute
 var (
 	testCrashBeforeEffect string
 	testCrashAfterEffect  string
+	testCaptainCrashCut   string
 	testOwnerLeaseMillis  string
 )
 
 type Service struct {
 	journal            *journal.Store
-	resolver           approvalResolver
 	dispatcher         driver.Driver
 	production         *productionDriverRuntime
 	gitExecutable      string
@@ -53,19 +52,34 @@ type retainedContinuation struct {
 }
 
 type RunStatus struct {
-	SchemaVersion     string         `json:"schema_version"`
-	RunID             string         `json:"run_id"`
-	State             string         `json:"state"`
-	DesiredState      string         `json:"desired_state"`
-	ControlGeneration int64          `json:"control_generation"`
-	ManifestDigest    string         `json:"manifest_digest"`
-	PlanDigest        string         `json:"plan_digest,omitempty"`
-	TargetRef         string         `json:"target_ref"`
-	TargetHead        string         `json:"target_head,omitempty"`
-	ReleaseHead       string         `json:"release_head,omitempty"`
-	Outcome           string         `json:"outcome,omitempty"`
-	Effects           []EffectStatus `json:"effects"`
-	EventOffset       int64          `json:"event_offset"`
+	SchemaVersion      string                 `json:"schema_version"`
+	RunID              string                 `json:"run_id"`
+	State              string                 `json:"state"`
+	DesiredState       string                 `json:"desired_state"`
+	ControlGeneration  int64                  `json:"control_generation"`
+	ManifestDigest     string                 `json:"manifest_digest"`
+	PlanDigest         string                 `json:"plan_digest,omitempty"`
+	TargetRef          string                 `json:"target_ref"`
+	TargetHead         string                 `json:"target_head,omitempty"`
+	ReleaseHead        string                 `json:"release_head,omitempty"`
+	Outcome            string                 `json:"outcome,omitempty"`
+	AuthorityState     string                 `json:"authority_state,omitempty"`
+	Project            string                 `json:"project,omitempty"`
+	ExternalAuthorizer string                 `json:"external_authorizer,omitempty"`
+	AuthorityDigest    string                 `json:"authority_digest,omitempty"`
+	ApprovalOffer      *ApprovalOffer         `json:"approval_offer,omitempty"`
+	CaptainDelegation  *CaptainDelegationView `json:"captain_delegation,omitempty"`
+	Effects            []EffectStatus         `json:"effects"`
+	EventOffset        int64                  `json:"event_offset"`
+}
+
+type CaptainDelegationView struct {
+	Digest       string `json:"digest"`
+	Epoch        int64  `json:"epoch"`
+	State        string `json:"state"`
+	Decisions    int64  `json:"decisions"`
+	ReplanSpent  int64  `json:"replan_spent"`
+	ReplanBudget int64  `json:"replan_budget"`
 }
 
 type EffectStatus struct {
@@ -77,6 +91,7 @@ type EffectStatus struct {
 
 type engine struct {
 	manifest   admittedManifest
+	journal    *journal.Store
 	repository *gitx.Repository
 	git        baton.GitRepository
 	actions    *baton.Actions
@@ -102,36 +117,39 @@ type sealedRecord struct {
 }
 
 type implementationCycle struct {
-	Release        string `json:"release"`
-	Slice          string `json:"slice"`
-	Binds          string `json:"binds"`
-	Before         string `json:"before"`
-	Plan           string `json:"plan"`
-	ReleaseHead    string `json:"release_head"`
-	TargetHead     string `json:"target_head"`
-	Track          string `json:"track"`
-	TrackRef       string `json:"track_ref"`
-	TrackHead      string `json:"track_head"`
-	RefreshFrom    string `json:"refresh_from,omitempty"`
-	Base           string `json:"base,omitempty"`
-	DispatchWork   string `json:"dispatch_work"`
-	DispatchEffect string `json:"dispatch_effect"`
-	PreparedWork   string `json:"prepared_work"`
-	PreparedEffect string `json:"prepared_effect"`
+	Release        string        `json:"release"`
+	GitIdentity    gitx.Identity `json:"git_identity"`
+	Slice          string        `json:"slice"`
+	Binds          string        `json:"binds"`
+	Before         string        `json:"before"`
+	Plan           string        `json:"plan"`
+	ReleaseHead    string        `json:"release_head"`
+	TargetHead     string        `json:"target_head"`
+	Track          string        `json:"track"`
+	TrackRef       string        `json:"track_ref"`
+	TrackHead      string        `json:"track_head"`
+	RefreshFrom    string        `json:"refresh_from,omitempty"`
+	Base           string        `json:"base,omitempty"`
+	DispatchWork   string        `json:"dispatch_work"`
+	DispatchEffect string        `json:"dispatch_effect"`
+	PreparedWork   string        `json:"prepared_work"`
+	PreparedEffect string        `json:"prepared_effect"`
 }
 
 const planProposalVersion = "sworn.plan-proposal/v1"
 
 type planProposalAuthority struct {
-	Release      string `json:"release"`
-	PriorPlan    string `json:"prior_plan,omitempty"`
-	ReleaseRef   string `json:"release_ref"`
-	ReleaseHead  string `json:"release_head,omitempty"`
-	TargetRef    string `json:"target_ref"`
-	TargetHead   string `json:"target_head"`
-	Before       string `json:"before"`
-	SourceWork   string `json:"source_work"`
-	SourceEffect string `json:"source_effect"`
+	Release        string `json:"release"`
+	PriorPlan      string `json:"prior_plan,omitempty"`
+	ReleaseRef     string `json:"release_ref"`
+	ReleaseHead    string `json:"release_head,omitempty"`
+	TargetRef      string `json:"target_ref"`
+	TargetHead     string `json:"target_head"`
+	Before         string `json:"before"`
+	SourceWork     string `json:"source_work"`
+	SourceEffect   string `json:"source_effect"`
+	PlannerAttempt int64  `json:"planner_attempt,omitempty"`
+	ReplanDecision string `json:"replan_decision,omitempty"`
 }
 
 type planProposalCommand struct {
@@ -177,9 +195,7 @@ func openService(
 	if err != nil {
 		return nil, runtimeFail("JOURNAL_UNAVAILABLE", err)
 	}
-	return &Service{journal: store, resolver: newProductionApprovalResolver(func() (string, error) {
-		return os.Getenv("SWORN_GITHUB_TOKEN"), nil
-	}), dispatcher: driver.Dispatcher{}, production: production,
+	return &Service{journal: store, dispatcher: driver.Dispatcher{}, production: production,
 		gitExecutable: gitExecutable, now: time.Now}, nil
 }
 
@@ -209,11 +225,11 @@ func resolveGitExecutable() (string, error) {
 	return value, nil
 }
 
-func newService(store *journal.Store, resolver approvalResolver, dispatcher driver.Driver, gitExecutable string, now func() time.Time) (*Service, error) {
-	if store == nil || resolver == nil || dispatcher == nil || !filepath.IsAbs(gitExecutable) || now == nil {
+func newService(store *journal.Store, dispatcher driver.Driver, gitExecutable string, now func() time.Time) (*Service, error) {
+	if store == nil || dispatcher == nil || !filepath.IsAbs(gitExecutable) || now == nil {
 		return nil, runtimeFail("INVALID_SERVICE", nil)
 	}
-	return &Service{journal: store, resolver: resolver, dispatcher: dispatcher,
+	return &Service{journal: store, dispatcher: dispatcher,
 		gitExecutable: gitExecutable, now: now}, nil
 }
 
@@ -468,11 +484,11 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 	if err != nil {
 		return nil, runtimeFail("BATON_UNAVAILABLE", err)
 	}
-	actions, err := baton.NewActions(gitRepository, inertness)
+	actions, err := baton.NewActions(gitRepository, inertness, manifest.value.GitIdentity)
 	if err != nil {
 		return nil, runtimeFail("BATON_UNAVAILABLE", err)
 	}
-	workspaces, err := gitx.NewRunWorkspaces(repository, manifest.value.RunID)
+	workspaces, err := gitx.NewRunWorkspaces(repository, manifest.value.RunID, manifest.value.GitIdentity)
 	if err != nil {
 		return nil, runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
@@ -492,7 +508,7 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 			return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
 		}
 	}
-	return &engine{manifest: manifest, repository: repository, git: gitRepository,
+	return &engine{manifest: manifest, journal: s.journal, repository: repository, git: gitRepository,
 		actions: actions, installer: newAuthorityInstaller(actions), workspaces: workspaces,
 		product: productAdmission, registry: registry, configured: configured,
 		inertness: inertness}, nil
@@ -551,6 +567,106 @@ func (s *Service) Start(ctx context.Context, manifestBytes []byte) (RunStatus, e
 		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	owner, err := s.journal.AcquireOwner(ctx, manifest.value.RunID, now, ownerDuration(), false)
+	if err != nil {
+		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	return s.driveOwned(ctx, manifest.value.RunID, owner)
+}
+
+// StartWithCaptainDelegation atomically establishes the run record before
+// admitting external Captain authority, and admits that authority before the
+// first Planner dispatch. It is the only delegated-run bootstrap path.
+func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
+	if s == nil || s.journal == nil || ctx == nil {
+		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	manifest, err := admitManifest(manifestBytes)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if err = s.validateDriverConfigMode(manifest); err != nil {
+		return RunStatus{}, err
+	}
+	envelope, err := ParseCaptainDelegation(envelopeBytes)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if envelope.Envelope.RunID != manifest.value.RunID || envelope.Envelope.ManifestDigest != manifest.digest {
+		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+	}
+	if envelope.Envelope.Project != manifest.value.Authority.Project ||
+		envelope.Envelope.Release != manifest.value.Release ||
+		envelope.Envelope.TargetRef != manifest.value.TargetRef {
+		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+	}
+	existingRun := false
+	if binding, bindingErr := s.journal.RunBinding(ctx, manifest.value.RunID); bindingErr == nil {
+		existingRun = true
+		if binding.ManifestDigest != manifest.digest || binding.Repository != manifest.value.Repository ||
+			binding.Release != manifest.value.Release || binding.TargetRef != manifest.value.TargetRef {
+			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		}
+	} else if !journal.IsCode(bindingErr, "RUN_NOT_FOUND") {
+		return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", bindingErr)
+	}
+	if !existingRun {
+		if err := s.validateCaptainDelegationGitFacts(manifest, envelope.Envelope); err != nil {
+			return RunStatus{}, err
+		}
+	}
+	now := s.now().UTC()
+	delegationCommand := CaptainDelegationCommand{
+		SchemaVersion: CaptainDelegationCommandVersion,
+		Action:        "admit", RunID: manifest.value.RunID,
+		ManifestDigest: manifest.digest,
+		ActorClass:     CaptainDelegationActorClass,
+		ActorAuthority: manifest.value.Authority.ExternalAuthorizer,
+		EnvelopeDigest: envelope.Digest,
+		EnvelopeBytes:  envelope.Bytes,
+	}
+	payload, err := CanonicalCaptainDelegationCommand(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	replay, effectID, _, err := captainDelegationIdentity(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	_, resultBody, err := canonicalCaptainDelegationResult(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if existingRun {
+		snapshot, snapshotErr := s.journal.Snapshot(ctx, manifest.value.RunID)
+		if snapshotErr != nil {
+			return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		manifestFound, authorityFound, effectFound := false, false, false
+		for _, stored := range snapshot.Commands {
+			manifestFound = manifestFound || stored.ReplayKey == "manifest" && stored.Kind == "start" && bytes.Equal(stored.Payload, manifest.raw)
+			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "captain_delegation" && bytes.Equal(stored.Payload, payload)
+		}
+		for _, stored := range snapshot.Effects {
+			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == captainDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
+		}
+		if !manifestFound || !authorityFound || !effectFound {
+			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_STALE", nil)
+		}
+	}
+	if err = s.journal.RegisterRunCommandsEffect(
+		ctx,
+		journal.Run{ID: manifest.value.RunID, ManifestDigest: manifest.digest, Repository: manifest.value.Repository, Release: manifest.value.Release, TargetRef: manifest.value.TargetRef, CreatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: "manifest", Kind: "start", Payload: manifest.raw, CreatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "captain_delegation", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: captainDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
+	); err != nil {
+		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	_, err = s.captainDelegationAt(ctx, delegationCommand, now)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	owner, err := s.journal.AcquireOwner(ctx, manifest.value.RunID, s.now().UTC(), ownerDuration(), false)
 	if err != nil {
 		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
 	}
@@ -630,11 +746,11 @@ func (s *Service) recordProposal(
 func validatePlanBinding(manifest admittedManifest, plan baton.Plan, current *baton.State) error {
 	metadata := plan.Metadata()
 	if metadata.Release != manifest.value.Release ||
-		metadata.Repository != manifest.value.Approval.Repository ||
+		metadata.Repository != manifest.value.Authority.Project ||
 		metadata.TargetRef != manifest.value.TargetRef {
 		return runtimeFail("PLAN_BINDING_MISMATCH", nil)
 	}
-	if _, err := approvalMarker(manifest.value.Approval, metadata.ApprovalRef); err != nil {
+	if err := validateApprovalRef(manifest, plan); err != nil {
 		return err
 	}
 	if current == nil {
@@ -677,12 +793,11 @@ func admitPlanProposal(
 	}
 	metadata := plan.Metadata()
 	if metadata.Release != manifest.value.Release ||
-		metadata.Repository != manifest.value.Approval.Repository ||
+		metadata.Repository != manifest.value.Authority.Project ||
 		metadata.TargetRef != manifest.value.TargetRef {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	if _, err := approvalMarker(
-		manifest.value.Approval, metadata.ApprovalRef); err != nil {
+	if err := validateApprovalRef(manifest, plan); err != nil {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if metadata.Revision == 1 {
@@ -701,7 +816,11 @@ func admitPlanProposal(
 	if wire.Authority.Before != plannerAuthorityBefore(wire.Authority) {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	if driverWorkIdentity(
+	plannerAttempt := wire.Authority.PlannerAttempt
+	if plannerAttempt == 0 {
+		plannerAttempt = 1
+	}
+	if plannerAttempt < 1 || (plannerAttempt == 1 && wire.Authority.ReplanDecision != "") || (plannerAttempt > 1 && wire.Authority.ReplanDecision == "") || driverWorkIdentity(
 		manifest.digest, "", driver.PlannerProposal,
 		metadata.Revision, wire.Authority.Before,
 	) != wire.Authority.SourceWork ||
@@ -766,11 +885,18 @@ func loadRunSnapshot(
 			manifestBytes = command.Payload
 		}
 	}
-	manifest, err := admitManifest(manifestBytes)
-	if err != nil || manifest.value.RunID != runID || manifest.digest != snapshot.Run.ManifestDigest ||
+	manifest, err := admitStoredManifest(manifestBytes)
+	if err != nil || manifest.digest != snapshot.Run.ManifestDigest ||
 		snapshot.Run.ID != runID {
 		return admittedManifest{}, nil,
 			runtimeFail("RUN_BINDING_MISMATCH", err)
+	}
+	if manifest.legacyVersion != "" {
+		return manifest, nil, nil
+	}
+	if manifest.value.RunID != runID {
+		return admittedManifest{}, nil,
+			runtimeFail("RUN_BINDING_MISMATCH", nil)
 	}
 	effects := make(map[string]journal.Effect, len(snapshot.Effects))
 	for _, effect := range snapshot.Effects {
@@ -789,8 +915,22 @@ func loadRunSnapshot(
 		commands[command.ReplayKey] = command
 	}
 	proposals := make([]admittedPlanProposal, 0)
+	superseded := make(map[string]bool)
+	for _, stored := range snapshot.Commands {
+		if stored.Kind != "planner_continuation" {
+			continue
+		}
+		var continuation CaptainPlannerContinuationCommand
+		if json.Unmarshal(stored.Payload, &continuation) != nil || continuation.RunID != runID {
+			return admittedManifest{}, nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		superseded[continuation.SupersededProposalReplayKey] = true
+	}
 	for _, command := range snapshot.Commands {
 		if command.Kind != "planner_proposal" {
+			continue
+		}
+		if superseded[command.ReplayKey] {
 			continue
 		}
 		proposal, err := admitPlanProposal(
@@ -832,6 +972,13 @@ func (s *Service) AnswerAttention(
 	if s == nil || s.journal == nil || ctx == nil ||
 		command.ExpectedGeneration != 1 {
 		return RunStatus{}, runtimeFail("INVALID_ATTENTION_COMMAND", nil)
+	}
+	manifest, _, err := s.loadRun(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	attention, err := s.journal.Attention(
 		ctx,
@@ -914,6 +1061,13 @@ func (s *Service) AnswerAttention(
 func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatus, error) {
 	if s == nil || s.journal == nil || ctx == nil {
 		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	manifest, _, err := s.loadRun(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	if _, err := s.journal.ApplyControl(
 		ctx,

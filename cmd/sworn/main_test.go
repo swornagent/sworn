@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -37,7 +38,6 @@ func TestVersionJSONReportsExactBatonAdmission(t *testing.T) {
 		got.Baton.TagObject != baton.TagObject ||
 		got.Baton.Commit != baton.Commit ||
 		got.Baton.Tree != baton.Tree ||
-		got.Baton.ArchiveSHA256 != baton.ArchiveSHA256 ||
 		got.Baton.SupportPackageSHA256 != baton.SupportPackageSHA256 ||
 		got.Baton.ManifestSHA256 != baton.ManifestSHA256 ||
 		got.Baton.AssetCount != baton.AssetCount ||
@@ -56,9 +56,9 @@ func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	want := "Sworn 1.0.0-rc.2-dev\nBaton 1.0.0-rc.13\n\n" +
+	want := "Sworn 1.0.0-rc.2-dev\nBaton 1.0.0-rc.14\n\n" +
 		"Technical details:\n" +
-		"  state: baton-rc13-admitted\n" +
+		"  state: baton-rc14-admitted\n" +
 		"  baton commit: " + baton.Commit + "\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -348,6 +348,7 @@ func boardJournalFixture(t *testing.T) string {
 		Model:   "fixture-model",
 	}
 	manifest := runtimepkg.Manifest{
+		GitIdentity:       gitx.Identity{Name: "CLI Test Engine", Email: "engine@example.test"},
 		SchemaVersion:     runtimepkg.ManifestVersion,
 		RunID:             "run-1",
 		Repository:        repository,
@@ -355,11 +356,8 @@ func boardJournalFixture(t *testing.T) string {
 		TargetRef:         "refs/heads/main",
 		Intent:            "Project one read-only board fixture.",
 		MaxParallelTracks: 1,
-		Approval: runtimepkg.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               1,
-			AllowedAuthorIDs:    []int64{1},
-			AllowedAssociations: []string{"OWNER"},
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",

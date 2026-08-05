@@ -1,7 +1,7 @@
 import {
   GitRecordError, assertCandidateRecordRootUnchanged, captureHeadRefs,
-  commitParents, firstParentPathChange, isAncestor, productTreeIdentity,
-  readFilesAtOID, readFirstParentHistory,
+  commitGitIdentity, commitParents, firstParentPathChange, isAncestor,
+  productTreeIdentity, readFilesAtOID, readFirstParentHistory,
   verifyReleaseIntegration,
   unsafePrepareApprovedTargetBase,
   unsafePrepareExactComposition,
@@ -703,6 +703,7 @@ function validateSlice(
           receipt.binds,
           [],
           approvals,
+          commitGitIdentity(repo, entry.oid),
         )
         : null;
       if (preparedBase && !isAncestor(repo, preparedBase, receipt.candidate)) {
@@ -976,6 +977,7 @@ function createPassProductBaseResolver(
           expectedHead: baseline,
           candidate: input.candidate,
           productBase: () => baselineFor(input.slice, dependencyPass),
+          identity: commitGitIdentity(repo, pass.oid),
         }).result;
       }
       memo.set(key, baseline);
@@ -1015,7 +1017,7 @@ function pinsForConsumedInputs(inputs) {
   return Object.fromEntries(inputs.map((input) => [input.slice, input.product_tree]));
 }
 
-function prepareConsumedBase(repo, ref, seed, inputs) {
+function prepareConsumedBase(repo, ref, seed, inputs, gitIdentity) {
   let candidate = seed;
   for (const input of inputs) {
     if (
@@ -1030,6 +1032,7 @@ function prepareConsumedBase(repo, ref, seed, inputs) {
       expectedHead: candidate,
       candidate: input.pass_receipt,
       ...(input.product_base ? { productBase: input.product_base } : {}),
+      identity: gitIdentity,
     }).result;
   }
   return candidate;
@@ -1061,6 +1064,7 @@ function preparePlanBoundBase(
   authority,
   inputs,
   approvals,
+  gitIdentity,
 ) {
   const approval = approvals.get(plan.oid);
   if (!approval) fail('APPROVAL_MISSING', `plan ${plan.oid} has no approval`);
@@ -1069,8 +1073,9 @@ function preparePlanBoundBase(
     targetRef: ref,
     expectedHead: authority,
     approvedTarget: approval.receipt.target,
+    identity: gitIdentity,
   });
-  return prepareConsumedBase(repo, ref, targetBase, inputs);
+  return prepareConsumedBase(repo, ref, targetBase, inputs, gitIdentity);
 }
 
 function linearOneParentAncestry(repo, base, candidate) {
@@ -1126,6 +1131,7 @@ function exactPreparedDesignInputs(
     seed,
     [],
     approvals,
+    commitGitIdentity(repo, design.oid),
   );
   if (location.slice.consumes.length === 0) {
     if (targetBase !== design.parent) {
@@ -1166,6 +1172,7 @@ function exactPreparedDesignInputs(
     seed,
     inputs,
     approvals,
+    commitGitIdentity(repo, design.oid),
   );
   if (expected !== design.parent) {
     fail('STALE_BINDING', `design ${design.oid} has an inexact reviewed base`);
@@ -1321,6 +1328,7 @@ function validateConsumedHistories(
         receipt.binds,
         inputs,
         approvals,
+        commitGitIdentity(repo, entry.oid),
       );
       if (expected !== receipt.base) {
         fail('CHANGED_CANDIDATE', `candidate ${entry.oid} has an inexact prepared base`);
@@ -1632,6 +1640,7 @@ function validateAssembly(
           targetRef: plan.parsed.metadata.target_ref,
           expectedHead: receipt.binds,
           approvedTarget: receipt.target,
+          identity: commitGitIdentity(repo, entry.oid),
         });
         for (const component of tracks.map((track) => ({
           authority: track.slices.at(-1).pass.oid,
@@ -1646,6 +1655,7 @@ function validateAssembly(
             expectedHead: expectedCandidate,
             candidate: component.authority,
             productBase: component.product_base,
+            identity: commitGitIdentity(repo, entry.oid),
           }).result;
         }
         if (receipt.candidate !== expectedCandidate) {
@@ -1682,7 +1692,13 @@ function validateAssembly(
         || receipt.product_tree !== candidate?.receipt.product_tree
       ) fail('STALE_BINDING', `Merge ${entry.oid} has no applicable PASS`);
       try {
-        verifyReleaseIntegration(repo, receipt.target, receipt.candidate, receipt.result_commit);
+        verifyReleaseIntegration(
+          repo,
+          receipt.target,
+          receipt.candidate,
+          receipt.result_commit,
+          commitGitIdentity(repo, entry.oid),
+        );
       } catch (error) {
         fail(error.code ?? 'INVALID_MERGE', `Merge ${entry.oid} is not exact`, error);
       }

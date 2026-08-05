@@ -19,6 +19,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
@@ -316,9 +317,9 @@ func recoveryE2EPlan(t *testing.T) ([]byte, baton.Plan) {
 		Release:       "turn-recovery-release",
 		Revision:      1,
 		PreviousPlan:  nil,
-		Repository:    "acme/repo",
+		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
-		ApprovalRef:   "github://acme/repo/issues/64#turn-recovery-v1",
+		ApprovalRef:   "operator://turn-recovery-release/1",
 		Tracks: []baton.Track{{
 			ID:        "T1",
 			DependsOn: []string{},
@@ -413,6 +414,7 @@ func recoveryE2EManifest(
 		Model:   "turn-recovery-model",
 	}
 	manifest := swornruntime.Manifest{
+		GitIdentity:       gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,
@@ -420,11 +422,8 @@ func recoveryE2EManifest(
 		TargetRef:         "refs/heads/main",
 		Intent:            "Prove exact production recovery across a process restart.",
 		MaxParallelTracks: 1,
-		Approval: swornruntime.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               64,
-			AllowedAuthorIDs:    []int64{42},
-			AllowedAssociations: []string{"MEMBER"},
+		Authority: swornruntime.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		DriverConfigDigest: config.ConfigurationDigest(),
 		Roles: driver.RoleSelections{
@@ -461,16 +460,11 @@ type recoveryE2EPairedResult struct {
 
 func runDirectTurnRecoveryBaseline(
 	t *testing.T,
-	approvals *approvalServer,
 	swornBinary string,
 	planBytes []byte,
 	plan baton.Plan,
 ) recoveryE2EPairedResult {
 	t.Helper()
-
-	approvals.mu.Lock()
-	delete(approvals.comments, int64(64))
-	approvals.mu.Unlock()
 
 	repository := newProductRepository(t)
 	provider := &recoveryE2EProvider{
@@ -513,7 +507,7 @@ func runDirectTurnRecoveryBaseline(
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
 	}
-	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
+	authorizePlan(t, journalPath, "turn-recovery-direct", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,
@@ -613,12 +607,6 @@ func runDirectTurnRecoveryBaseline(
 func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	t *testing.T,
 ) {
-	approvals := &approvalServer{
-		comments: make(map[int64][]approvalComment),
-	}
-	approvalHTTP := httptest.NewServer(http.HandlerFunc(approvals.serve))
-	defer approvalHTTP.Close()
-
 	repository := newProductRepository(t)
 	planBytes, plan := recoveryE2EPlan(t)
 	provider := &recoveryE2EProvider{
@@ -641,13 +629,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(
-		t,
-		swornBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.githubAPIBase="+
-			approvalHTTP.URL,
-	)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	environment := map[string]string{
 		"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret,
 	}
@@ -666,7 +648,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		t.Fatalf("recovery start stdout=%q stderr=%q", stdout, stderr)
 	}
 
-	approvals.publish(64, approvalFor(64, "turn-recovery-v1", plan))
+	authorizePlan(t, journalPath, "turn-recovery", plan)
 	installApprovedPlan(t, repository, planBytes)
 	stdout, stderr = runBinaryWithEnvironment(
 		t,
@@ -958,7 +940,6 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 
 	direct := runDirectTurnRecoveryBaseline(
 		t,
-		approvals,
 		swornBinary,
 		planBytes,
 		plan,

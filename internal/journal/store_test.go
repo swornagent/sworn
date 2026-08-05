@@ -152,6 +152,43 @@ func TestPrivateOneWriterReplayClaimAndCASCompletion(t *testing.T) {
 	}
 }
 
+func TestRecordCommandEffectIsAtomicAndConflictSafe(t *testing.T) {
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_100, 0).UTC()
+	command := Command{
+		RunID: run.ID, ReplayKey: "atomic-admission", Kind: "approval",
+		Payload: []byte(`{"exact":true}`), CreatedAt: now,
+	}
+	effect := Effect{
+		RunID: run.ID, ID: "atomic-admission", ReplayKey: command.ReplayKey,
+		Kind: "approval.admit", BeforeDigest: digest(command.Payload),
+		ExpectedDigest: digest([]byte("result")), UpdatedAt: now,
+	}
+	if err := store.RecordCommandEffect(ctx, command, effect); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCommand, foundEffect := false, false
+	for _, value := range snapshot.Commands {
+		foundCommand = foundCommand || value.ReplayKey == command.ReplayKey
+	}
+	for _, value := range snapshot.Effects {
+		foundEffect = foundEffect || value.ID == effect.ID
+	}
+	if !foundCommand || !foundEffect {
+		t.Fatalf("atomic pair missing: command=%t effect=%t", foundCommand, foundEffect)
+	}
+	conflict := effect
+	conflict.ExpectedDigest = digest([]byte("different"))
+	if err := store.RecordCommandEffect(ctx, command, conflict); !IsCode(err, "EFFECT_CONFLICT") {
+		t.Fatalf("effect conflict = %v", err)
+	}
+}
+
 func TestReconcileManyIsAtomicAcrossRelatedClaims(t *testing.T) {
 	t.Parallel()
 
@@ -571,6 +608,9 @@ func TestOpenRejectsPermissionsAndSymlinks(t *testing.T) {
 	root := t.TempDir()
 	insecure := filepath.Join(root, "insecure.sqlite")
 	if err := os.WriteFile(insecure, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(insecure, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Open(ctx, insecure); !IsCode(err, "INSECURE_PERMISSIONS") {

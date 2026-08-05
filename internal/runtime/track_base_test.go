@@ -96,7 +96,7 @@ func TestCandidateHeadRefreshNeedsNoBaseMutation(t *testing.T) {
 }
 
 func TestSealedRefreshRecordMustMatchItsExplicitCycleAuthority(t *testing.T) {
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     "release-1",
 		Slice:       "S1",
 		Binds:       "candidate-receipt",

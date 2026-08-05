@@ -19,6 +19,7 @@ import {
   spawnSync,
 } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { types as utilTypes } from 'node:util';
 
 export class GitRecordError extends Error {
   constructor(code, message, cause) {
@@ -44,8 +45,122 @@ const MAX_REF_HELPER_REQUEST_BYTES = 512 * 1024;
 const MAX_REF_HELPER_OUTPUT_BYTES = 512 * 1024;
 const REF_HELPER_TIMEOUT_MS = 10_000;
 const REF_HELPER_MARKER = '--baton-exact-ref-helper-v1';
+const MAX_GIT_IDENTITY_NAME_BYTES = 128;
+const MAX_GIT_IDENTITY_EMAIL_BYTES = 254;
 const recordPathAdmissions = new WeakMap();
 let configuredGitExecutable;
+
+function wellFormedUnicode(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function gitIdentityField(value, label, maximum, { email = false } = {}) {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value !== value.trim()
+    || Buffer.byteLength(value, 'utf8') > maximum
+    || !wellFormedUnicode(value)
+    || /[\u0000-\u001f\u007f-\u009f<>]/u.test(value)
+    || (email && !/^[^\s@]+@[^\s@]+$/u.test(value))
+  ) {
+    throw new GitRecordError(
+      'INVALID_GIT_IDENTITY',
+      `${label} must be a non-empty, well-formed UTF-8 ${email ? 'address' : 'name'} of at most ${maximum} bytes without controls or Git ident delimiters`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Admit the provider-neutral attribution applied to engine-created commits.
+ * Identity is commit metadata only; Baton never treats it as role or authority.
+ */
+export function normalizeGitIdentity(value) {
+  if (
+    value === null
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || utilTypes.isProxy(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== 2
+  ) {
+    throw new GitRecordError(
+      'INVALID_GIT_IDENTITY',
+      'Git identity must be exactly one plain { name, email } object',
+    );
+  }
+  const admitted = Object.create(null);
+  for (const key of ['name', 'email']) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new GitRecordError(
+        'INVALID_GIT_IDENTITY',
+        'Git identity must contain plain enumerable name and email values',
+      );
+    }
+    admitted[key] = gitIdentityField(
+      descriptor.value,
+      `Git identity ${key}`,
+      key === 'name' ? MAX_GIT_IDENTITY_NAME_BYTES : MAX_GIT_IDENTITY_EMAIL_BYTES,
+      { email: key === 'email' },
+    );
+  }
+  return Object.freeze(admitted);
+}
+
+export function commitGitIdentity(repo, commit) {
+  const exact = resolveRef(repo, commit);
+  const rendered = runGit(
+    repo,
+    ['show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', exact],
+    { encoding: null, label: `read Git identity for ${exact}` },
+  );
+  let decoded;
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(rendered);
+  } catch (error) {
+    throw new GitRecordError(
+      'INVALID_GIT_IDENTITY',
+      `engine commit ${exact} contains a malformed UTF-8 identity`,
+      error,
+    );
+  }
+  const fields = decoded.replace(/\n$/u, '').split('\0');
+  if (
+    fields.length !== 4
+    || fields[0] !== fields[2]
+    || fields[1] !== fields[3]
+  ) {
+    throw new GitRecordError(
+      'INVALID_GIT_IDENTITY',
+      `engine commit ${exact} must use one matching author and committer identity`,
+    );
+  }
+  return normalizeGitIdentity({ name: fields[0], email: fields[1] });
+}
+
+function gitIdentityEnvironment(identity, date) {
+  const admitted = normalizeGitIdentity(identity);
+  return {
+    GIT_AUTHOR_NAME: admitted.name,
+    GIT_AUTHOR_EMAIL: admitted.email,
+    GIT_AUTHOR_DATE: date,
+    GIT_COMMITTER_NAME: admitted.name,
+    GIT_COMMITTER_EMAIL: admitted.email,
+    GIT_COMMITTER_DATE: date,
+  };
+}
 
 function defaultGitCandidates() {
   if (process.platform === 'win32') {
@@ -1810,6 +1925,7 @@ function normalizedCandidateForRecordRoot(
   candidate,
   recordRoot,
   label,
+  identity,
 ) {
   runEngineGit(
     context,
@@ -1831,14 +1947,7 @@ function normalizedCandidateForRecordRoot(
     ['commit-tree', tree, ...parents],
     {
       input: `Baton engine-owned record normalization for ${candidate}\n`,
-      env: {
-        GIT_AUTHOR_NAME: 'Baton Merge',
-        GIT_AUTHOR_EMAIL: 'merge@baton.invalid',
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_NAME: 'Baton Merge',
-        GIT_COMMITTER_EMAIL: 'merge@baton.invalid',
-        GIT_COMMITTER_DATE: date,
-      },
+      env: gitIdentityEnvironment(identity, date),
       label: `create ${label} candidate with first-parent records`,
     },
   ).trim();
@@ -1871,7 +1980,7 @@ function sameRecordRootEntry(context, expected, candidate, recordRoot) {
   return raw.length === 0;
 }
 
-function exactBaseMergeSide(context, source, productBase, side) {
+function exactBaseMergeSide(context, source, productBase, side, identity) {
   const tree = runEngineGit(
     context,
     ['rev-parse', '--verify', `${source}^{tree}`],
@@ -1883,14 +1992,7 @@ function exactBaseMergeSide(context, source, productBase, side) {
     ['commit-tree', tree, '-p', productBase],
     {
       input: `Baton exact-base ${side} for ${source}\n`,
-      env: {
-        GIT_AUTHOR_NAME: 'Baton Merge',
-        GIT_AUTHOR_EMAIL: 'merge@baton.invalid',
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_NAME: 'Baton Merge',
-        GIT_COMMITTER_EMAIL: 'merge@baton.invalid',
-        GIT_COMMITTER_DATE: date,
-      },
+      env: gitIdentityEnvironment(identity, date),
       label: `create exact-base ${side}`,
     },
   ).trim();
@@ -1903,6 +2005,7 @@ function deterministicMergeTreeInContext(
   label,
   productBase = null,
   recordRoot = null,
+  identity,
 ) {
   runEngineGit(
     context,
@@ -1920,13 +2023,14 @@ function deterministicMergeTreeInContext(
       candidate,
       recordRoot,
       label,
+      identity,
     );
   const mergeExpected = productBase === null
     ? expected
-    : exactBaseMergeSide(context, expected, productBase, 'expected');
+    : exactBaseMergeSide(context, expected, productBase, 'expected', identity);
   const mergePassed = productBase === null
     ? mergeCandidate
-    : exactBaseMergeSide(context, mergeCandidate, productBase, 'candidate');
+    : exactBaseMergeSide(context, mergeCandidate, productBase, 'candidate', identity);
   const mergedTree = runEngineMergeTree(
     context,
     [
@@ -1947,7 +2051,7 @@ function deterministicMergeTreeInContext(
   return restoreFirstParentRecordRoot(context, expected, recordRoot, label);
 }
 
-function deterministicMergeTree(repo, expected, candidate, label, recordRoot = null) {
+function deterministicMergeTree(repo, expected, candidate, label, recordRoot = null, identity) {
   return withEngineGitContext(
     repo,
     (context) => deterministicMergeTreeInContext(
@@ -1957,6 +2061,7 @@ function deterministicMergeTree(repo, expected, candidate, label, recordRoot = n
       label,
       null,
       recordRoot,
+      identity,
     ),
   );
 }
@@ -1968,6 +2073,7 @@ function verifyExactComposition(
   observedResult,
   label,
   recordRoot = null,
+  identity,
 ) {
   const expected = resolveRef(repo, expectedTarget);
   const passed = resolveRef(repo, candidate);
@@ -1983,12 +2089,14 @@ function verifyExactComposition(
     && isAncestor(repo, expected, observed)
     && isAncestor(repo, passed, observed)
   ) {
+    const admittedIdentity = normalizeGitIdentity(identity);
     const deterministicTree = deterministicMergeTree(
       repo,
       expected,
       passed,
       label,
       recordRoot,
+      admittedIdentity,
     );
     const observedTree = runGit(repo, ['rev-parse', `${observed}^{tree}`], {
       label: `resolve ${label} result tree`,
@@ -2007,7 +2115,13 @@ function verifyExactComposition(
   );
 }
 
-export function verifyTrackComposition(repo, expectedReleaseHead, frozenTrackHead, observedResult) {
+export function verifyTrackComposition(
+  repo,
+  expectedReleaseHead,
+  frozenTrackHead,
+  observedResult,
+  identity,
+) {
   return verifyExactComposition(
     repo,
     expectedReleaseHead,
@@ -2015,10 +2129,17 @@ export function verifyTrackComposition(repo, expectedReleaseHead, frozenTrackHea
     observedResult,
     'track composition',
     RECORD_ROOT_V1,
+    identity,
   );
 }
 
-export function verifyReleaseIntegration(repo, expectedTarget, assemblyCandidate, observedResult) {
+export function verifyReleaseIntegration(
+  repo,
+  expectedTarget,
+  assemblyCandidate,
+  observedResult,
+  identity,
+) {
   return verifyExactComposition(
     repo,
     expectedTarget,
@@ -2026,6 +2147,7 @@ export function verifyReleaseIntegration(repo, expectedTarget, assemblyCandidate
     observedResult,
     'release integration',
     RECORD_ROOT_V1,
+    identity,
   );
 }
 
@@ -2050,7 +2172,9 @@ function commitTimestamp(repo, commit) {
 export function unsafePrepareMetadataCommit(repo, {
   expectedHead,
   message,
+  identity,
 }) {
+  const admittedIdentity = normalizeGitIdentity(identity);
   const expected = resolveRef(repo, expectedHead);
   const input = Buffer.from(message);
   if (
@@ -2070,14 +2194,7 @@ export function unsafePrepareMetadataCommit(repo, {
   const date = `@${commitTimestamp(repo, expected) + 1} +0000`;
   const commit = runGit(repo, ['commit-tree', tree, '-p', expected], {
     input,
-    env: {
-      GIT_AUTHOR_NAME: 'Baton Receipts',
-      GIT_AUTHOR_EMAIL: 'receipts@baton.invalid',
-      GIT_AUTHOR_DATE: date,
-      GIT_COMMITTER_NAME: 'Baton Receipts',
-      GIT_COMMITTER_EMAIL: 'receipts@baton.invalid',
-      GIT_COMMITTER_DATE: date,
-    },
+    env: gitIdentityEnvironment(admittedIdentity, date),
     label: 'create metadata receipt commit',
   }).trim();
   const parents = commitParents(repo, commit);
@@ -2184,7 +2301,15 @@ export function readFirstParentHistory(repo, head, { maxCount = 4096 } = {}) {
   return Object.freeze(records);
 }
 
-function deterministicCompositionCommit(context, repo, targetRef, expected, candidate, tree) {
+function deterministicCompositionCommit(
+  context,
+  repo,
+  targetRef,
+  expected,
+  candidate,
+  tree,
+  identity,
+) {
   const timestamp = Math.max(
     commitTimestamp(repo, expected),
     commitTimestamp(repo, candidate),
@@ -2195,14 +2320,7 @@ function deterministicCompositionCommit(context, repo, targetRef, expected, cand
     ['commit-tree', tree, '-p', expected, '-p', candidate],
     {
       input: `Baton exact composition of ${candidate} into ${targetRef}\n`,
-      env: {
-        GIT_AUTHOR_NAME: 'Baton Merge',
-        GIT_AUTHOR_EMAIL: 'merge@baton.invalid',
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_NAME: 'Baton Merge',
-        GIT_COMMITTER_EMAIL: 'merge@baton.invalid',
-        GIT_COMMITTER_DATE: date,
-      },
+      env: gitIdentityEnvironment(identity, date),
       label: 'create deterministic composition commit',
     },
   ).trim();
@@ -2228,6 +2346,7 @@ function prepareTwoParentComposition(
   candidate,
   productBase,
   recordRoot,
+  identity,
 ) {
   return withEngineGitContext(repo, (context) => {
     const tree = deterministicMergeTreeInContext(
@@ -2237,6 +2356,7 @@ function prepareTwoParentComposition(
       'composition',
       productBase,
       recordRoot,
+      identity,
     );
     const result = deterministicCompositionCommit(
       context,
@@ -2245,6 +2365,7 @@ function prepareTwoParentComposition(
       expected,
       candidate,
       tree,
+      identity,
     );
     return Object.freeze({ result, tree });
   });
@@ -2306,6 +2427,7 @@ export function unsafePrepareExactComposition(repo, {
   targetRef,
   expectedHead,
   candidate,
+  identity,
 }) {
   validateCompositionTargetRef(repo, targetRef);
   const expected = resolveRef(repo, expectedHead);
@@ -2325,6 +2447,7 @@ export function unsafePrepareExactComposition(repo, {
     );
   } else {
     mode = 'two-parent';
+    const admittedIdentity = normalizeGitIdentity(identity);
     const prepared = prepareTwoParentComposition(
       repo,
       targetRef,
@@ -2332,6 +2455,7 @@ export function unsafePrepareExactComposition(repo, {
       passed,
       null,
       recordRoot,
+      admittedIdentity,
     );
     verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
     result = prepared.result;
@@ -2357,6 +2481,7 @@ export function unsafePrepareProductComposition(repo, {
   expectedHead,
   candidate,
   productBase,
+  identity,
 }) {
   if (typeof productBase !== 'function') {
     throw new GitRecordError(
@@ -2369,6 +2494,7 @@ export function unsafePrepareProductComposition(repo, {
       targetRef,
       expectedHead,
       candidate,
+      identity,
     });
     return prepared;
   } catch (error) {
@@ -2390,6 +2516,7 @@ export function unsafePrepareProductComposition(repo, {
   const base = resolveRef(repo, suppliedBase);
   productTreeIdentity(repo, base);
   const recordRoot = RECORD_ROOT_V1;
+  const admittedIdentity = normalizeGitIdentity(identity);
   const prepared = prepareTwoParentComposition(
     repo,
     targetRef,
@@ -2397,6 +2524,7 @@ export function unsafePrepareProductComposition(repo, {
     passed,
     base,
     recordRoot,
+    admittedIdentity,
   );
   verifyPreparedComposition(repo, expected, passed, prepared, 'composition');
   const { result } = prepared;
@@ -2416,6 +2544,7 @@ export function unsafePrepareApprovedTargetBase(repo, {
   targetRef,
   expectedHead,
   approvedTarget,
+  identity,
 }) {
   const expected = resolveRef(repo, expectedHead);
   const target = resolveRef(repo, approvedTarget);
@@ -2426,12 +2555,14 @@ export function unsafePrepareApprovedTargetBase(repo, {
         targetRef,
         expectedHead: expected,
         candidate: target,
+        identity,
       }).result;
     }
     validateCompositionTargetRef(repo, targetRef);
     productTreeIdentity(repo, expected);
     productTreeIdentity(repo, target);
     const recordRoot = RECORD_ROOT_V1;
+    const admittedIdentity = normalizeGitIdentity(identity);
     const prepared = prepareTwoParentComposition(
       repo,
       targetRef,
@@ -2439,6 +2570,7 @@ export function unsafePrepareApprovedTargetBase(repo, {
       target,
       null,
       recordRoot,
+      admittedIdentity,
     );
     verifyPreparedComposition(repo, expected, target, prepared, 'composition');
     const { result } = prepared;
@@ -2449,6 +2581,7 @@ export function unsafePrepareApprovedTargetBase(repo, {
     targetRef,
     expectedHead: expected,
     candidate: target,
+    identity,
   }).result;
 }
 
@@ -2586,7 +2719,9 @@ export function unsafePrepareRecordTransition(repo, {
   message,
   recordPathAdmission,
   changes,
+  identity,
 }) {
+  const admittedIdentity = normalizeGitIdentity(identity);
   const root = requireRecordPathAdmission(repo, recordPathAdmission);
   const expected = resolveRef(repo, expectedHead);
   const expectedProduct = productTreeIdentity(repo, expected);
@@ -2687,14 +2822,7 @@ export function unsafePrepareRecordTransition(repo, {
     const date = `@${commitTimestamp(repo, expected) + 1} +0000`;
     const commit = runGit(repo, ['commit-tree', tree, '-p', expected], {
       input: `${commitMessage}\n`,
-      env: {
-        GIT_AUTHOR_NAME: 'Baton Records',
-        GIT_AUTHOR_EMAIL: 'records@baton.invalid',
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_NAME: 'Baton Records',
-        GIT_COMMITTER_EMAIL: 'records@baton.invalid',
-        GIT_COMMITTER_DATE: date,
-      },
+      env: gitIdentityEnvironment(admittedIdentity, date),
       label: 'create record transition commit',
     }).trim();
     const nextProduct = productTreeIdentity(repo, commit);
@@ -2721,6 +2849,7 @@ export function unsafeCommitRecordTransition(repo, {
   recordPathAdmission,
   changes,
   createRef,
+  identity,
 }) {
   const exactRef = assertExactHeadRef(ref);
   let ownerRef;
@@ -2758,6 +2887,7 @@ export function unsafeCommitRecordTransition(repo, {
     message,
     recordPathAdmission,
     changes,
+    identity,
   });
   const operations = [{
     kind: 'update',

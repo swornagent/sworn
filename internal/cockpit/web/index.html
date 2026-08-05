@@ -123,6 +123,27 @@
     <div class="actions" id="sheet-actions" role="group" aria-label="Available local controls"></div>
   </dialog>
 
+  <dialog class="detail-sheet" id="captain-dialog" aria-labelledby="captain-dialog-title">
+    <form method="dialog" id="captain-form">
+      <div class="sheet-heading">
+        <div>
+          <p class="eyebrow">External authorizer control</p>
+          <h2 id="captain-dialog-title">Confirm Captain authority</h2>
+        </div>
+        <button class="quiet-button" value="cancel" type="submit">Close</button>
+      </div>
+      <p class="quiet">Confirm every current binding. Replacement envelopes are parsed and rebound again by Sworn.</p>
+      <pre id="captain-bindings"></pre>
+      <label id="captain-envelope-label">
+        Exact canonical delegation envelope
+        <textarea id="captain-envelope" rows="10" spellcheck="false"></textarea>
+      </label>
+      <div class="actions">
+        <button class="control" id="captain-confirm" value="confirm" type="submit">Confirm authority change</button>
+      </div>
+    </form>
+  </dialog>
+
   <p class="visually-hidden" id="announcer" aria-live="polite"></p>
 </body>
 </html>

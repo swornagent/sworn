@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/journal"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 	productionReceiptDetailPath    = "baton/current-receipt-detail.md"
 	productionDesignReceiptPath    = "baton/design-receipt.json"
 	productionDesignDetailPath     = "baton/design-receipt-detail.md"
+	productionCaptainEnvelopePath  = "captain/delegation.json"
+	productionCaptainProposalPath  = "captain/proposal.md"
 )
 
 var productionOutputExpectation = sha256Digest(
@@ -29,11 +33,12 @@ var productionOutputExpectation = sha256Digest(
 )
 
 type dispatchCoordinates struct {
-	Slice          string
-	Responsibility driver.Responsibility
-	BatonAttempt   int64
-	Epoch          int64
-	Try            int64
+	Slice           string
+	Responsibility  driver.Responsibility
+	BatonAttempt    int64
+	Epoch           int64
+	Try             int64
+	InvocationScope string
 }
 
 type productionAuthorityBinding struct {
@@ -77,31 +82,49 @@ type productionEvidenceBinding struct {
 	SourceHead       string `json:"source_head"`
 }
 
+type productionCaptainPlanBinding struct {
+	EnvelopeDigest    string       `json:"envelope_digest"`
+	EnvelopeEpoch     int64        `json:"envelope_epoch"`
+	EnvelopeInput     driver.Input `json:"envelope_input"`
+	ProposalReplayKey string       `json:"proposal_replay_key"`
+	ProposalDigest    string       `json:"proposal_digest"`
+	ProposalByteCount int64        `json:"proposal_byte_count"`
+	ProposalInput     driver.Input `json:"proposal_input"`
+	DecisionClass     string       `json:"decision_class"`
+	PredicateResults  []string     `json:"predicate_results"`
+	envelopeBody      []byte
+	proposalBody      []byte
+}
+
 type productionWorkContext struct {
-	SchemaVersion      string                      `json:"schema_version"`
-	ManifestDigest     string                      `json:"manifest_digest"`
-	DriverConfigDigest string                      `json:"driver_config_digest"`
-	RunID              string                      `json:"run_id"`
-	Repository         string                      `json:"repository"`
-	Release            string                      `json:"release"`
-	Intent             string                      `json:"intent"`
-	InvocationID       string                      `json:"invocation_id"`
-	Role               driver.Role                 `json:"role"`
-	Track              string                      `json:"track,omitempty"`
-	Slice              string                      `json:"slice,omitempty"`
-	Responsibility     driver.Responsibility       `json:"responsibility"`
-	Attempt            int64                       `json:"attempt"`
-	Epoch              int64                       `json:"epoch"`
-	Try                int64                       `json:"try"`
-	Before             string                      `json:"before"`
-	WorkspaceAccess    driver.WorkspaceAccess      `json:"workspace_access"`
-	Authority          productionAuthorityBinding  `json:"authority"`
-	PreparedBase       string                      `json:"prepared_base,omitempty"`
-	Plan               *productionPlanBinding      `json:"plan,omitempty"`
-	Receipt            *productionReceiptBinding   `json:"receipt,omitempty"`
-	DesignReceipt      *productionReceiptBinding   `json:"design_receipt,omitempty"`
-	Candidate          *productionCandidateBinding `json:"candidate,omitempty"`
-	Evidence           []productionEvidenceBinding `json:"evidence"`
+	SchemaVersion      string                        `json:"schema_version"`
+	ManifestDigest     string                        `json:"manifest_digest"`
+	DriverConfigDigest string                        `json:"driver_config_digest"`
+	RunID              string                        `json:"run_id"`
+	Repository         string                        `json:"repository"`
+	Release            string                        `json:"release"`
+	Intent             string                        `json:"intent"`
+	InvocationID       string                        `json:"invocation_id"`
+	InvocationScope    string                        `json:"invocation_scope,omitempty"`
+	PlannerAttempt     int64                         `json:"planner_attempt,omitempty"`
+	ReplanDecision     string                        `json:"replan_decision,omitempty"`
+	Role               driver.Role                   `json:"role"`
+	Track              string                        `json:"track,omitempty"`
+	Slice              string                        `json:"slice,omitempty"`
+	Responsibility     driver.Responsibility         `json:"responsibility"`
+	Attempt            int64                         `json:"attempt"`
+	Epoch              int64                         `json:"epoch"`
+	Try                int64                         `json:"try"`
+	Before             string                        `json:"before"`
+	WorkspaceAccess    driver.WorkspaceAccess        `json:"workspace_access"`
+	Authority          productionAuthorityBinding    `json:"authority"`
+	PreparedBase       string                        `json:"prepared_base,omitempty"`
+	Plan               *productionPlanBinding        `json:"plan,omitempty"`
+	Receipt            *productionReceiptBinding     `json:"receipt,omitempty"`
+	DesignReceipt      *productionReceiptBinding     `json:"design_receipt,omitempty"`
+	Candidate          *productionCandidateBinding   `json:"candidate,omitempty"`
+	Evidence           []productionEvidenceBinding   `json:"evidence"`
+	CaptainPlan        *productionCaptainPlanBinding `json:"captain_plan,omitempty"`
 }
 
 type productionDispatchCommand struct {
@@ -125,7 +148,7 @@ func roleForResponsibility(
 		return driver.RolePlanner, true
 	case driver.ImplementerDesign, driver.ImplementerImplementation:
 		return driver.RoleImplementer, true
-	case driver.CaptainReview:
+	case driver.CaptainReview, driver.CaptainPlanReview:
 		return driver.RoleCaptain, true
 	case driver.WorkVerification, driver.AssemblyVerification:
 		return driver.RoleVerifier, true
@@ -141,6 +164,9 @@ func dispatchInvocationID(
 	work := coordinates.Slice
 	if work == "" {
 		work = "release"
+	}
+	if coordinates.InvocationScope != "" {
+		work += "-" + coordinates.InvocationScope
 	}
 	return invocationIdentity(
 		runID,
@@ -397,10 +423,11 @@ func captureProductionWorkContext(
 		ManifestDigest:     engine.manifest.digest,
 		DriverConfigDigest: engine.manifest.value.DriverConfigDigest,
 		RunID:              engine.manifest.value.RunID,
-		Repository:         engine.manifest.value.Approval.Repository,
+		Repository:         engine.manifest.value.Authority.Project,
 		Release:            engine.manifest.value.Release,
 		Intent:             engine.manifest.value.Intent,
 		InvocationID:       dispatchInvocationID(engine.manifest.value.RunID, coordinates),
+		InvocationScope:    coordinates.InvocationScope,
 		Role:               role,
 		Track:              "",
 		Slice:              coordinates.Slice,
@@ -418,6 +445,13 @@ func captureProductionWorkContext(
 				runtimeFail("INVALID_PRODUCTION_DISPATCH", nil)
 		}
 		if err := capturePlannerWorkContext(engine, coordinates, before, &workContext); err != nil {
+			return productionWorkContext{}, nil, err
+		}
+	} else if coordinates.Responsibility == driver.CaptainPlanReview {
+		if coordinates.Slice != "" {
+			return productionWorkContext{}, nil, runtimeFail("INVALID_PRODUCTION_DISPATCH", nil)
+		}
+		if err := captureCaptainPlanReviewContext(ctx, engine, coordinates, before, &workContext); err != nil {
 			return productionWorkContext{}, nil, err
 		}
 	} else {
@@ -442,6 +476,56 @@ func captureProductionWorkContext(
 	return workContext, body, nil
 }
 
+func captainReviewBefore(proposal admittedPlanProposal, delegation CaptainDelegationState) string {
+	return sha256Digest(mustJSON(struct {
+		SchemaVersion     string `json:"schema_version"`
+		ProposalReplayKey string `json:"proposal_replay_key"`
+		PlanDigest        string `json:"plan_digest"`
+		EnvelopeDigest    string `json:"envelope_digest"`
+		EnvelopeEpoch     int64  `json:"envelope_epoch"`
+		TargetHead        string `json:"target_head"`
+		ReleaseHead       string `json:"release_head"`
+	}{"sworn.captain-plan-review-binding/v1", proposal.replayKey, proposal.plan.Digest(), delegation.Digest, delegation.Epoch, proposal.authority.TargetHead, proposal.authority.ReleaseHead}))
+}
+
+func captureCaptainPlanReviewContext(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string, workContext *productionWorkContext) error {
+	snapshot, err := engineSnapshot(ctx, engine)
+	if err != nil {
+		return err
+	}
+	manifest, proposals, err := loadRunSnapshot(snapshot, engine.manifest.value.RunID)
+	if err != nil || manifest.digest != engine.manifest.digest {
+		return runtimeFail("RUN_BINDING_MISMATCH", err)
+	}
+	state, stateErr := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	proposal, found, _, err := selectPlanProposal(engine, snapshot, proposals, state, stateErr)
+	if err != nil || !found {
+		return runtimeFail("STALE_DISPATCH", err)
+	}
+	delegation, err := currentCaptainDelegation(snapshot)
+	if err != nil || !delegation.Active || captainReviewBefore(proposal, delegation) != before {
+		return runtimeFail("STALE_DISPATCH", err)
+	}
+	class, err := approvalDecisionClass(proposal)
+	if err != nil {
+		return err
+	}
+	workContext.Authority = productionAuthorityBinding{ReleaseRef: proposal.authority.ReleaseRef, ReleaseHead: proposal.authority.ReleaseHead, TargetRef: proposal.authority.TargetRef, TargetHead: proposal.authority.TargetHead}
+	workContext.CaptainPlan = &productionCaptainPlanBinding{EnvelopeDigest: delegation.Digest, EnvelopeEpoch: delegation.Epoch, EnvelopeInput: driver.Input{Name: "captain-delegation", Path: productionCaptainEnvelopePath, Digest: driver.Digest(delegation.EnvelopeBytes)}, ProposalReplayKey: proposal.replayKey, ProposalDigest: proposal.plan.Digest(), ProposalByteCount: int64(len(proposal.plan.Bytes())), ProposalInput: driver.Input{Name: "captain-proposal", Path: productionCaptainProposalPath, Digest: driver.Digest(proposal.plan.Bytes())}, DecisionClass: class, PredicateResults: []string{"authority_active", "bindings_exact", "limits_available", "policy_admitted", "proposal_unique"}, envelopeBody: append([]byte(nil), delegation.EnvelopeBytes...), proposalBody: proposal.plan.Bytes()}
+	return nil
+}
+
+func engineSnapshot(ctx context.Context, engine *engine) (journal.Snapshot, error) {
+	if engine == nil || engine.journal == nil {
+		return journal.Snapshot{}, runtimeFail("JOURNAL_READ_FAILED", nil)
+	}
+	snapshot, err := engine.journal.Snapshot(ctx, engine.manifest.value.RunID)
+	if err != nil {
+		return journal.Snapshot{}, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	return snapshot, nil
+}
+
 func capturePlannerWorkContext(
 	engine *engine,
 	coordinates dispatchCoordinates,
@@ -456,10 +540,30 @@ func capturePlannerWorkContext(
 		return err
 	}
 	authority := planProposalAuthority{
-		Release:    engine.manifest.value.Release,
-		ReleaseRef: release.Ref,
-		TargetRef:  target.Ref,
-		TargetHead: target.Head.String(),
+		Release:        engine.manifest.value.Release,
+		ReleaseRef:     release.Ref,
+		TargetRef:      target.Ref,
+		TargetHead:     target.Head.String(),
+		PlannerAttempt: 1,
+	}
+	if engine.journal != nil {
+		snapshot, snapshotErr := engine.journal.Snapshot(context.Background(), engine.manifest.value.RunID)
+		if snapshotErr != nil {
+			return runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		for _, stored := range snapshot.Commands {
+			if stored.Kind != "planner_continuation" {
+				continue
+			}
+			var continuation CaptainPlannerContinuationCommand
+			if json.Unmarshal(stored.Payload, &continuation) != nil {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if continuation.PlanRevision == coordinates.BatonAttempt && continuation.PlannerAttempt > authority.PlannerAttempt {
+				authority.PlannerAttempt = continuation.PlannerAttempt
+				authority.ReplanDecision = continuation.DecisionReplayKey
+			}
+		}
 	}
 	if release.Head.String() == "" {
 		if coordinates.BatonAttempt != 1 {
@@ -498,6 +602,8 @@ func capturePlannerWorkContext(
 		TargetRef:   authority.TargetRef,
 		TargetHead:  authority.TargetHead,
 	}
+	workContext.PlannerAttempt = authority.PlannerAttempt
+	workContext.ReplanDecision = authority.ReplanDecision
 	return nil
 }
 
@@ -667,18 +773,19 @@ func validateProductionWorkContext(
 		workContext.ManifestDigest != manifest.digest ||
 		workContext.DriverConfigDigest != manifest.value.DriverConfigDigest ||
 		workContext.RunID != manifest.value.RunID ||
-		workContext.Repository != manifest.value.Approval.Repository ||
+		workContext.Repository != manifest.value.Authority.Project ||
 		workContext.Release != manifest.value.Release ||
 		workContext.Intent != manifest.value.Intent ||
 		workContext.Role != role ||
 		workContext.InvocationID != dispatchInvocationID(
 			workContext.RunID,
 			dispatchCoordinates{
-				Slice:          workContext.Slice,
-				Responsibility: workContext.Responsibility,
-				BatonAttempt:   workContext.Attempt,
-				Epoch:          workContext.Epoch,
-				Try:            workContext.Try,
+				Slice:           workContext.Slice,
+				Responsibility:  workContext.Responsibility,
+				BatonAttempt:    workContext.Attempt,
+				Epoch:           workContext.Epoch,
+				Try:             workContext.Try,
+				InvocationScope: workContext.InvocationScope,
 			},
 		) ||
 		workContext.Attempt < 1 || workContext.Epoch < 1 ||
@@ -691,6 +798,21 @@ func validateProductionWorkContext(
 		workContext.Authority.TargetRef != manifest.value.TargetRef ||
 		workContext.Authority.TargetHead == "" {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if workContext.InvocationScope != "" {
+		workID := driverWorkIdentity(
+			workContext.ManifestDigest,
+			workContext.Slice,
+			workContext.Responsibility,
+			workContext.Attempt,
+			workContext.Before,
+		)
+		expected := strings.TrimPrefix(workID, "sha256:")[:12]
+		if workContext.InvocationScope != expected ||
+			(workContext.Responsibility != driver.PlannerProposal &&
+				workContext.Responsibility != driver.CaptainPlanReview) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
 	}
 	if workContext.SchemaVersion == productionWorkContextVersionV1 &&
 		(workContext.Track != "" ||
@@ -782,20 +904,38 @@ func validateProductionWorkContext(
 			priorPlan = workContext.Plan.OID
 		}
 		authority := planProposalAuthority{
-			Release:     workContext.Release,
-			PriorPlan:   priorPlan,
-			ReleaseRef:  workContext.Authority.ReleaseRef,
-			ReleaseHead: workContext.Authority.ReleaseHead,
-			TargetRef:   workContext.Authority.TargetRef,
-			TargetHead:  workContext.Authority.TargetHead,
+			Release:        workContext.Release,
+			PriorPlan:      priorPlan,
+			ReleaseRef:     workContext.Authority.ReleaseRef,
+			ReleaseHead:    workContext.Authority.ReleaseHead,
+			TargetRef:      workContext.Authority.TargetRef,
+			TargetHead:     workContext.Authority.TargetHead,
+			PlannerAttempt: workContext.PlannerAttempt,
+			ReplanDecision: workContext.ReplanDecision,
+		}
+		if authority.PlannerAttempt == 0 {
+			authority.PlannerAttempt = 1
+		}
+		if authority.PlannerAttempt < 1 ||
+			(authority.PlannerAttempt == 1 && authority.ReplanDecision != "") ||
+			(authority.PlannerAttempt > 1 && authority.ReplanDecision == "") {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		if plannerAuthorityBefore(authority) != workContext.Before {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-	} else if workContext.Plan == nil || workContext.Receipt == nil {
+	} else if workContext.PlannerAttempt != 0 || workContext.ReplanDecision != "" {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	} else if workContext.Responsibility != driver.CaptainPlanReview && (workContext.Plan == nil || workContext.Receipt == nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	switch workContext.Responsibility {
+	case driver.CaptainPlanReview:
+		binding := workContext.CaptainPlan
+		if workContext.Track != "" || workContext.Slice != "" || workContext.Plan != nil || workContext.Receipt != nil || workContext.DesignReceipt != nil || workContext.Candidate != nil || len(workContext.Evidence) != 0 || binding == nil ||
+			!runtimeDigestPattern.MatchString(binding.EnvelopeDigest) || binding.EnvelopeEpoch < 1 || binding.EnvelopeInput.Name != "captain-delegation" || binding.EnvelopeInput.Path != productionCaptainEnvelopePath || !runtimeDigestPattern.MatchString(binding.EnvelopeInput.Digest) || binding.ProposalReplayKey == "" || !runtimeDigestPattern.MatchString(binding.ProposalDigest) || binding.ProposalByteCount < 1 || binding.ProposalInput.Name != "captain-proposal" || binding.ProposalInput.Path != productionCaptainProposalPath || !runtimeDigestPattern.MatchString(binding.ProposalInput.Digest) || (binding.DecisionClass != PlannerProposalClass && binding.DecisionClass != PlannerReplanClass) || len(binding.PredicateResults) == 0 || captainReviewBeforeFromBinding(binding, workContext.Authority) != workContext.Before {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
 	case driver.ImplementerDesign,
 		driver.CaptainReview:
 		if (workContext.SchemaVersion == productionWorkContextVersion &&
@@ -852,7 +992,22 @@ func validateProductionWorkContext(
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	}
+	if workContext.Responsibility != driver.CaptainPlanReview && workContext.CaptainPlan != nil {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
 	return nil
+}
+
+func captainReviewBeforeFromBinding(binding *productionCaptainPlanBinding, authority productionAuthorityBinding) string {
+	return sha256Digest(mustJSON(struct {
+		SchemaVersion     string `json:"schema_version"`
+		ProposalReplayKey string `json:"proposal_replay_key"`
+		PlanDigest        string `json:"plan_digest"`
+		EnvelopeDigest    string `json:"envelope_digest"`
+		EnvelopeEpoch     int64  `json:"envelope_epoch"`
+		TargetHead        string `json:"target_head"`
+		ReleaseHead       string `json:"release_head"`
+	}{"sworn.captain-plan-review-binding/v1", binding.ProposalReplayKey, binding.ProposalDigest, binding.EnvelopeDigest, binding.EnvelopeEpoch, authority.TargetHead, authority.ReleaseHead}))
 }
 
 func productionWorkContextV1(
@@ -1021,6 +1176,9 @@ func productionRequestForContextFreshness(
 			workContext.DesignReceipt.DetailInput,
 		)
 	}
+	if workContext.CaptainPlan != nil {
+		inputs = append(inputs, workContext.CaptainPlan.EnvelopeInput, workContext.CaptainPlan.ProposalInput)
+	}
 	request, err := driver.NewRequest(
 		workContext.InvocationID,
 		workContext.Role,
@@ -1106,6 +1264,13 @@ func productionInputContents(
 				),
 			},
 		)
+	}
+	if workContext.CaptainPlan != nil {
+		binding := workContext.CaptainPlan
+		if driver.Digest(binding.envelopeBody) != binding.EnvelopeInput.Digest || driver.Digest(binding.proposalBody) != binding.ProposalInput.Digest {
+			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		contents = append(contents, driver.InputContent{Input: binding.EnvelopeInput, Bytes: append([]byte(nil), binding.envelopeBody...)}, driver.InputContent{Input: binding.ProposalInput, Bytes: append([]byte(nil), binding.proposalBody...)})
 	}
 	return contents, nil
 }

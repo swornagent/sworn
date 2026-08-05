@@ -81,6 +81,7 @@ const state = {
   source: null,
   refreshing: false,
   connection: "connecting",
+  pendingCaptainAction: null,
 };
 
 const elements = {
@@ -114,6 +115,12 @@ const elements = {
   sheetActions: document.querySelector("#sheet-actions"),
   closeSheet: document.querySelector("#close-sheet"),
   announcer: document.querySelector("#announcer"),
+  captainDialog: document.querySelector("#captain-dialog"),
+  captainForm: document.querySelector("#captain-form"),
+  captainBindings: document.querySelector("#captain-bindings"),
+  captainEnvelopeLabel: document.querySelector("#captain-envelope-label"),
+  captainEnvelope: document.querySelector("#captain-envelope"),
+  captainConfirm: document.querySelector("#captain-confirm"),
 };
 
 function runFromPath() {
@@ -194,8 +201,27 @@ function validSnapshot(value) {
     Array.isArray(value.evidence) &&
     Array.isArray(value.actions) &&
     Array.isArray(value.diagnostics) &&
+    (value.captain_delegation === undefined ||
+      validCaptainDelegation(value.captain_delegation)) &&
     Number.isSafeInteger(value.through_offset) &&
     value.through_offset >= 0;
+}
+
+function validCaptainDelegation(value) {
+  return value && /^sha256:[0-9a-f]{64}$/.test(value.digest) &&
+    Number.isSafeInteger(value.epoch) && value.epoch >= 1 &&
+    ["active", "revoked"].includes(value.state) &&
+    Number.isSafeInteger(value.decisions) && value.decisions >= 0 &&
+    Number.isSafeInteger(value.replan_spent) && value.replan_spent >= 0 &&
+    Number.isSafeInteger(value.replan_budget) && value.replan_budget >= 0;
+}
+
+function captainAuthority(value) {
+  if (!value) {
+    return "External human approval";
+  }
+  return `captain_plan_review epoch ${value.epoch} ${value.state}; ` +
+    `${value.decisions} decisions; ${value.replan_spent}/${value.replan_budget} replans`;
 }
 
 function validAttention(value) {
@@ -353,6 +379,7 @@ function render() {
     fact("What's happening", presentation.doing),
     fact("Next", presentation.next),
     fact("Needs you", presentation.needs),
+    fact("Captain authority", captainAuthority(snapshot.captain_delegation)),
   );
   elements.offset.textContent = `Checked update ${snapshot.through_offset}`;
   renderHandoff(snapshot.handoff);
@@ -639,10 +666,102 @@ function renderActions(container, actions) {
     button.dataset.kind = action.kind;
     button.textContent = actionLabel(action);
     button.disabled = !controlsAllowed();
-    button.addEventListener("click", () => void submitAction(action, button));
+    button.addEventListener("click", () => {
+      if (action.kind === "captain_delegation_revoke" ||
+        action.kind === "captain_delegation_replace") {
+        openCaptainDialog(action);
+        return;
+      }
+      void submitAction(action, button);
+    });
     return button;
   });
   container.replaceChildren(...buttons);
+}
+
+function openCaptainDialog(action) {
+  const binding = action.captain_delegation;
+  if (!binding || !controlsAllowed() || binding.run_id !== state.runID) {
+    return;
+  }
+  state.pendingCaptainAction = action;
+  elements.captainBindings.textContent = [
+    `Action: ${binding.action}`,
+    `Run: ${binding.run_id}`,
+    `Manifest digest: ${binding.manifest_digest}`,
+    `Actor class: ${binding.actor_class}`,
+    `External authorizer: ${binding.actor_authority}`,
+    `Current epoch: ${binding.current_epoch}`,
+    `Current digest: ${binding.current_digest}`,
+  ].join("\n");
+  const replacing = binding.action === "replace";
+  elements.captainEnvelopeLabel.hidden = !replacing;
+  elements.captainEnvelope.required = replacing;
+  elements.captainEnvelope.value = "";
+  elements.captainDialog.showModal();
+}
+
+elements.captainForm.addEventListener("submit", (event) => {
+  if (event.submitter && event.submitter.value === "confirm") {
+    event.preventDefault();
+    void submitCaptainDelegation();
+    return;
+  }
+  state.pendingCaptainAction = null;
+});
+
+async function submitCaptainDelegation() {
+  const action = state.pendingCaptainAction;
+  const binding = action && action.captain_delegation;
+  if (!binding || !controlsAllowed() || binding.run_id !== state.runID) {
+    return;
+  }
+  const body = {
+    schema_version: "sworn.captain-delegation-command/v1",
+    action: binding.action,
+    run_id: binding.run_id,
+    manifest_digest: binding.manifest_digest,
+    actor_class: binding.actor_class,
+    actor_authority: binding.actor_authority,
+    current_epoch: binding.current_epoch,
+    current_digest: binding.current_digest,
+    envelope_digest: "",
+    envelope_bytes: null,
+  };
+  if (binding.action === "replace") {
+    const envelope = elements.captainEnvelope.value;
+    if (new TextEncoder().encode(envelope).byteLength > 65_536 ||
+      !envelope.endsWith("\n")) {
+      elements.captainEnvelope.setCustomValidity("Use the exact canonical envelope, including its final newline, under 64 KiB.");
+      elements.captainEnvelope.reportValidity();
+      return;
+    }
+    elements.captainEnvelope.setCustomValidity("");
+    const bytes = new TextEncoder().encode(envelope);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    body.envelope_digest = `sha256:${Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("")}`;
+    body.envelope_bytes = btoa(String.fromCharCode(...bytes));
+  }
+  elements.captainConfirm.disabled = true;
+  try {
+    const response = await fetch(`${API}/runs/${state.runID}/captain-delegation/manage`, {
+      method: "POST",
+      headers: {Accept: "application/json", "Content-Type": "application/json"},
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error("Captain authority rejected");
+    }
+    elements.captainDialog.close();
+    state.pendingCaptainAction = null;
+    await refresh(`${humanize(binding.action)} Captain authority accepted.`);
+  } catch {
+    setConnection("stale", "Refresh required");
+    elements.announcer.textContent = "Captain authority was not accepted. Refresh before trying again.";
+  } finally {
+    elements.captainConfirm.disabled = false;
+  }
 }
 
 function admittedAnswerAction(attention, actions) {
@@ -934,6 +1053,12 @@ function humanize(value) {
 }
 
 function actionLabel(action) {
+	if (action.kind === "captain_delegation_revoke") {
+		return "Revoke Captain delegation";
+	}
+	if (action.kind === "captain_delegation_replace") {
+		return "Replace Captain delegation";
+	}
   if (action.kind === "redeliver") {
     return `Send ${short(action.message_id)} again`;
   }

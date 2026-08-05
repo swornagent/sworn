@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +39,7 @@ func validateRecoveryCommand(
 	return nil
 }
 
-const batonActionCommandVersion = "sworn.baton-action/v1"
+const batonActionCommandVersion = "sworn.baton-action/v2"
 
 type batonActionAuthority struct {
 	Release     string `json:"release"`
@@ -54,17 +56,16 @@ type batonActionAuthority struct {
 }
 
 type batonActionCommand struct {
-	Version   string               `json:"version"`
-	Authority batonActionAuthority `json:"authority"`
-	Input     json.RawMessage      `json:"input"`
+	Version     string               `json:"version"`
+	GitIdentity gitx.Identity        `json:"git_identity"`
+	Authority   batonActionAuthority `json:"authority"`
+	Input       json.RawMessage      `json:"input"`
 }
 
 type installActionInput struct {
 	PlanBytes  []byte `json:"plan_bytes"`
-	Evidence   []byte `json:"evidence"`
 	PlanDigest string `json:"plan_digest"`
 	Reference  string `json:"reference"`
-	CommentID  int64  `json:"comment_id"`
 }
 
 type actionTruth string
@@ -76,9 +77,9 @@ const (
 	actionAmbiguous actionTruth = "ambiguous"
 )
 
-func marshalActionCommand(authority batonActionAuthority, input any) []byte {
+func marshalActionCommand(identity gitx.Identity, authority batonActionAuthority, input any) []byte {
 	return mustJSON(batonActionCommand{
-		Version: batonActionCommandVersion, Authority: authority,
+		Version: batonActionCommandVersion, GitIdentity: identity, Authority: authority,
 		Input: append(json.RawMessage(nil), mustJSON(input)...),
 	})
 }
@@ -108,6 +109,9 @@ func parseActionCommand(raw []byte) (batonActionCommand, error) {
 		command.Authority.TargetHead == "" || command.Authority.OwnerRef == "" ||
 		command.Authority.Before == "" || len(command.Input) == 0 {
 		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := gitx.ValidateIdentity(command.GitIdentity); err != nil {
+		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return command, nil
 }
@@ -284,7 +288,7 @@ func validateBatonActionEnvelope(
 				errors.New("install action input is noncanonical"),
 			)
 		}
-		plan, _, err := validateInstallActionPolicy(engine.manifest, input)
+		plan, err := validateInstallActionPolicy(engine.manifest, input)
 		metadata := plan.Metadata()
 		previousMatches := authority.Plan == "" &&
 			metadata.PreviousPlan == nil
@@ -536,54 +540,36 @@ func matchingReceipt(
 
 func validateInstallActionInput(
 	input installActionInput,
-) (baton.Plan, approvalEvidence, error) {
+) (baton.Plan, error) {
 	if input.PlanDigest == "" ||
 		sha256Digest(input.PlanBytes) != input.PlanDigest ||
-		len(input.Evidence) == 0 ||
-		input.Reference == "" ||
-		input.CommentID <= 0 {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", nil)
+		input.Reference == "" {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	plan, err := baton.ParsePlan(input.PlanBytes)
 	if err != nil ||
 		plan.Digest() != input.PlanDigest ||
 		plan.Metadata().ApprovalRef != input.Reference {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", err)
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	var evidence approvalEvidence
-	if json.Unmarshal(input.Evidence, &evidence) != nil ||
-		!bytes.Equal(input.Evidence, mustJSON(evidence)) ||
-		evidence.SchemaVersion != "sworn.approval-evidence/v1" ||
-		evidence.ApprovalRef != input.Reference ||
-		evidence.PlanDigest != input.PlanDigest ||
-		evidence.CommentID != input.CommentID ||
-		evidence.MatchCount != 1 ||
-		evidence.Decision != "approved" {
-		return baton.Plan{}, approvalEvidence{},
-			runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	return plan, evidence, nil
+	return plan, nil
 }
 
 func validateInstallActionPolicy(
 	manifest admittedManifest,
 	input installActionInput,
-) (baton.Plan, approvalEvidence, error) {
-	plan, evidence, err := validateInstallActionInput(input)
+) (baton.Plan, error) {
+	plan, err := validateInstallActionInput(input)
 	if err != nil {
-		return baton.Plan{}, approvalEvidence{}, err
+		return baton.Plan{}, err
 	}
-	if err := validatePersistedApprovalEvidence(
-		manifest,
-		plan,
-		input,
-		evidence,
-	); err != nil {
-		return baton.Plan{}, approvalEvidence{}, err
+	if plan.Metadata().Repository != manifest.value.Authority.Project ||
+		plan.Metadata().Release != manifest.value.Release ||
+		plan.Metadata().TargetRef != manifest.value.TargetRef ||
+		validateApprovalRef(manifest, plan) != nil {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	return plan, evidence, nil
+	return plan, nil
 }
 
 func appliedBatonAction(
@@ -707,7 +693,7 @@ func appliedBatonAction(
 			return appliedActionEvidence{}, false,
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		plan, _, err := validateInstallActionInput(input)
+		plan, err := validateInstallActionInput(input)
 		if err != nil {
 			return appliedActionEvidence{}, false, err
 		}
@@ -735,12 +721,15 @@ func appliedBatonAction(
 			if candidate.Plan.Digest() != input.PlanDigest ||
 				metadata.ApprovalRef != input.Reference ||
 				!previousMatches ||
-				!bytes.Equal(candidate.Approval.Detail, input.Evidence) ||
+				!bytes.Equal(candidate.Approval.Detail, installDetail(approvalAdmission{
+					planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+					reference: input.Reference,
+				})) ||
 				receipt.Role != "planner" ||
 				receipt.Result != "approved" ||
 				receipt.Plan != candidate.OID ||
 				receipt.Summary !=
-					"Install the exact externally approved plan." ||
+					"Install the exact locally authorized plan." ||
 				receipt.Target == nil ||
 				*receipt.Target != authority.TargetHead {
 				continue
@@ -902,8 +891,8 @@ func validateBatonAllOldStateAuthority(
 // installActionIdempotentlyCallable recognizes an exact plan that another
 // Baton client already installed under the same still-current target
 // authority. This is not proof that a previously claimed Sworn effect ran:
-// recovery must still classify different approval evidence as stale. It only
-// permits a new live invocation to call Baton's idempotent
+// Recovery must still classify different persisted authority as stale. This
+// only permits a new live invocation to call Baton's idempotent
 // RecordPlanRevision and journal the actual no-change result.
 func installActionIdempotentlyCallable(
 	state baton.State,
@@ -913,7 +902,7 @@ func installActionIdempotentlyCallable(
 	if parseCanonicalActionInput(command.Input, &input) != nil {
 		return false
 	}
-	plan, _, err := validateInstallActionInput(input)
+	plan, err := validateInstallActionInput(input)
 	if err != nil {
 		return false
 	}
@@ -956,7 +945,7 @@ func classifyBatonAction(engine *engine, kind string,
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return actionAmbiguous, state, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if _, _, validateErr := validateInstallActionInput(input); validateErr != nil {
+		if _, validateErr := validateInstallActionInput(input); validateErr != nil {
 			return actionAmbiguous, state, validateErr
 		}
 		refs, captureErr := engine.repository.CaptureHeadRefs(
@@ -1139,7 +1128,7 @@ func installEvidenceFromHistory(
 		return appliedActionEvidence{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	plan, _, err := validateInstallActionPolicy(engine.manifest, input)
+	plan, err := validateInstallActionPolicy(engine.manifest, input)
 	if err != nil {
 		return appliedActionEvidence{}, err
 	}
@@ -1154,6 +1143,10 @@ func installEvidenceFromHistory(
 				*candidateMetadata.PreviousPlan == command.Authority.Plan
 		}
 		receipt := candidate.Approval.Receipt
+		expectedAdmission := approvalAdmission{
+			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+			reference: input.Reference,
+		}
 		if candidate.Plan.Digest() != input.PlanDigest ||
 			candidateMetadata.Revision != metadata.Revision ||
 			candidateMetadata.ApprovalRef != input.Reference ||
@@ -1161,6 +1154,8 @@ func installEvidenceFromHistory(
 			receipt.Role != "planner" ||
 			receipt.Result != "approved" ||
 			receipt.Plan != candidate.OID ||
+			receipt.Summary != "Install the exact locally authorized plan." ||
+			!bytes.Equal(candidate.Approval.Detail, installDetail(expectedAdmission)) ||
 			receipt.Target == nil ||
 			*receipt.Target != command.Authority.TargetHead ||
 			candidate.InstallHead == "" {
@@ -1334,7 +1329,13 @@ func dispatchAuthorityCurrent(
 func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
 	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
 	before string, owner journal.OwnerLease) (driver.Submission, error) {
-	if responsibility != driver.PlannerProposal {
+	return s.dispatchRoleWithScope(ctx, engine, workspace, role, slice, responsibility, batonAttempt, before, owner, "")
+}
+
+func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
+	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
+	before string, owner journal.OwnerLease, invocationScope string) (driver.Submission, error) {
+	if responsibility != driver.PlannerProposal && responsibility != driver.CaptainPlanReview {
 		fresh, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
 			return driver.Submission{}, runtimeFail("BATON_UNAVAILABLE", err)
@@ -1353,18 +1354,50 @@ func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *g
 	if epoch == 0 {
 		epoch = 1
 	}
+	maximumAttempts := int64(3)
+	if responsibility == driver.CaptainPlanReview {
+		snapshot, snapshotErr := s.journal.Snapshot(ctx, engine.manifest.value.RunID)
+		if snapshotErr != nil {
+			return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		delegation, delegationErr := currentCaptainDelegation(snapshot)
+		if delegationErr != nil || !delegation.Active {
+			return driver.Submission{}, runtimeFail("CAPTAIN_DECISION_STALE", delegationErr)
+		}
+		maximumAttempts = delegation.Envelope.Limits.MaximumCaptainAttemptsPerProposal
+	}
 	for try := int64(1); try <= 3; try++ {
+		if responsibility == driver.CaptainPlanReview {
+			attemptID := journal.AttemptEffectID(workID, epoch, try)
+			_, existingErr := s.journal.Effect(ctx, engine.manifest.value.RunID, attemptID)
+			if journal.IsCode(existingErr, "EFFECT_NOT_FOUND") {
+				snapshot, snapshotErr := s.journal.Snapshot(ctx, engine.manifest.value.RunID)
+				if snapshotErr != nil {
+					return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+				}
+				count, countErr := captainDispatchAttemptCount(snapshot, workID)
+				if countErr != nil {
+					return driver.Submission{}, countErr
+				}
+				if count >= maximumAttempts {
+					return driver.Submission{}, runtimeFail("CAPTAIN_ATTEMPTS_EXHAUSTED", nil)
+				}
+			} else if existingErr != nil {
+				return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", existingErr)
+			}
+		}
 		submission, err := s.runDriverEffect(
 			ctx,
 			engine,
 			workspace,
 			role,
 			dispatchCoordinates{
-				Slice:          slice,
-				Responsibility: responsibility,
-				BatonAttempt:   batonAttempt,
-				Epoch:          epoch,
-				Try:            try,
+				Slice:           slice,
+				Responsibility:  responsibility,
+				BatonAttempt:    batonAttempt,
+				Epoch:           epoch,
+				Try:             try,
+				InvocationScope: invocationScope,
 			},
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}, before, owner)
 		if err == nil {
@@ -1389,6 +1422,16 @@ func persistedBatonAction(engine *engine, kind string,
 	func() error,
 	error,
 ) {
+	actions := engine.actions
+	installer := engine.installer
+	if command.GitIdentity != engine.manifest.value.GitIdentity {
+		var err error
+		actions, err = baton.NewActions(engine.git, engine.inertness, command.GitIdentity)
+		if err != nil {
+			return nil, nil, runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		installer = newAuthorityInstaller(actions)
+	}
 	switch kind {
 	case "baton.append_receipt", "baton.assembly_verdict":
 		var input baton.AppendReceiptInput
@@ -1397,7 +1440,7 @@ func persistedBatonAction(engine *engine, kind string,
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return func() (baton.ActionResult, error) {
-			return engine.actions.AppendReceipt(input)
+			return actions.AppendReceipt(input)
 		}, nil, nil
 	case "baton.prepare_assembly":
 		var input baton.PrepareAssemblyInput
@@ -1412,7 +1455,7 @@ func persistedBatonAction(engine *engine, kind string,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
 					func() (baton.ActionResult, error) {
-						return engine.actions.PrepareAssembly(input)
+						return actions.PrepareAssembly(input)
 					},
 				)
 				cleanupErr = errors.Join(cleanupErr, closeErr)
@@ -1433,7 +1476,7 @@ func persistedBatonAction(engine *engine, kind string,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
 					func() (baton.ActionResult, error) {
-						return engine.actions.MergePassedCandidate(input)
+						return actions.MergePassedCandidate(input)
 					},
 				)
 				cleanupErr = errors.Join(cleanupErr, closeErr)
@@ -1446,16 +1489,15 @@ func persistedBatonAction(engine *engine, kind string,
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if _, _, err := validateInstallActionInput(input); err != nil {
+		if _, err := validateInstallActionInput(input); err != nil {
 			return nil, nil, err
 		}
 		admission := approvalAdmission{
-			planBytes: input.PlanBytes, evidence: input.Evidence,
-			planDigest: input.PlanDigest, reference: input.Reference,
-			commentID: input.CommentID,
+			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
+			reference: input.Reference,
 		}
 		return func() (baton.ActionResult, error) {
-			return engine.installer.install(admission)
+			return installer.install(admission)
 		}, nil, nil
 	default:
 		return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
@@ -1653,6 +1695,9 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 	if allowCrash && testCrashAfterEffect == effect.Kind {
 		os.Exit(86)
 	}
+	if effect.Kind == "baton.install" && testCaptainCrashCut == "baton_mutation" {
+		return actionAllNew, result, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	}
 	if err := s.finishClaimedAction(ctx, owner, effect, result, fresh); err != nil {
 		return truth, baton.ActionResult{}, err
 	}
@@ -1661,7 +1706,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 
 func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	workID, kind string, payload []byte,
-	action func() (baton.ActionResult, error)) (baton.ActionResult, error) {
+	_ func() (baton.ActionResult, error)) (result baton.ActionResult, resultErr error) {
 	persisted, err := parseActionCommand(payload)
 	if err != nil {
 		return baton.ActionResult{}, runtimeFail(
@@ -1672,6 +1717,15 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			),
 		)
 	}
+	action, cleanup, err := persistedBatonAction(engine, kind, persisted)
+	if err != nil {
+		return baton.ActionResult{}, err
+	}
+	defer func() {
+		if cleanup != nil {
+			resultErr = errors.Join(resultErr, cleanup())
+		}
+	}()
 	projection, err := s.journal.ControlProjection(ctx, engine.manifest.value.RunID)
 	if err != nil {
 		return baton.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
@@ -1833,7 +1887,7 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 		state, track.Ref, track.Head, before, slice.CurrentReceipt.OID,
 		input.Candidate, slice.Attempt)
 	_, err = s.runAction(ctx, engine, owner, workID, "baton.append_receipt",
-		marshalActionCommand(authority, input), action)
+		marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
 
@@ -2213,7 +2267,7 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		}
 		refresh := candidateHeadRefresh(state, slice)
 		cycle := implementationCycle{
-			Release: state.Release, Slice: sliceID,
+			Release: state.Release, GitIdentity: engine.manifest.value.GitIdentity, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
 			Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
 			TargetHead: state.Refs.Target.Head, Track: key.Track, TrackRef: track.Ref,
@@ -3087,6 +3141,7 @@ func (s *Service) prepareProductionImplementationCandidate(
 				ReleaseHead: releaseHead,
 				TargetRef:   engine.manifest.value.TargetRef,
 				TargetHead:  targetHead,
+				Identity:    cycle.GitIdentity,
 			},
 			func(prepared gitx.SealedCandidate) error {
 				var claimErr error
@@ -3121,6 +3176,7 @@ func (s *Service) prepareProductionImplementationCandidate(
 			ReleaseHead: releaseHead,
 			TargetRef:   engine.manifest.value.TargetRef,
 			TargetHead:  targetHead,
+			Identity:    cycle.GitIdentity,
 		},
 		func(prepared gitx.SealedCandidate) error {
 			var claimErr error
@@ -3364,6 +3420,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		ReleaseHead: releaseHead,
 		TargetRef:   engine.manifest.value.TargetRef,
 		TargetHead:  targetHead,
+		Identity:    cycle.GitIdentity,
 	}
 	claimPrepared := func(prepared gitx.SealedCandidate) error {
 		var claimErr error
@@ -5249,7 +5306,8 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		commands[command.ReplayKey] = command
 	}
 	for _, effect := range snapshot.Effects {
-		if effect.State != journal.Claimed &&
+		if effect.State != journal.Pending &&
+			effect.State != journal.Claimed &&
 			effect.State != journal.Uncertain {
 			continue
 		}
@@ -5271,6 +5329,15 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		if err := validateBatonActionEnvelope(
 			engine, command, effect, persisted); err != nil {
 			return true, err
+		}
+		if effect.State == journal.Pending {
+			claim, err := s.journal.ClaimOwned(
+				ctx, owner, effect.ID, s.now().UTC(), effectLease)
+			if err != nil {
+				return true, runtimeFail("EFFECT_CLAIM_FAILED", err)
+			}
+			effect.State = journal.Claimed
+			effect.CurrentClaim = claim.Token
 		}
 		if effect.State == journal.Uncertain {
 			truth, _, classifyErr := classifyBatonAction(
@@ -5359,6 +5426,9 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 }
 
 func plannerAuthorityBefore(authority planProposalAuthority) string {
+	if authority.PlannerAttempt <= 1 && authority.ReplanDecision == "" {
+		return workIdentity(authority.Release, authority.PriorPlan, authority.ReleaseRef, authority.ReleaseHead, authority.TargetRef, authority.TargetHead)
+	}
 	return workIdentity(
 		authority.Release,
 		authority.PriorPlan,
@@ -5366,6 +5436,8 @@ func plannerAuthorityBefore(authority planProposalAuthority) string {
 		authority.ReleaseHead,
 		authority.TargetRef,
 		authority.TargetHead,
+		strconv.FormatInt(authority.PlannerAttempt, 10),
+		authority.ReplanDecision,
 	)
 }
 
@@ -5376,6 +5448,187 @@ func proposalInstallWork(proposal admittedPlanProposal) string {
 		proposal.authority.Before,
 		proposal.plan.Digest(),
 	)
+}
+
+const planAuthorityVersion = "sworn.plan-authority/v1"
+
+type planAuthorityCommand struct {
+	Version    string `json:"version"`
+	PlanDigest string `json:"plan_digest"`
+}
+
+func effectivePlanAuthority(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	selected ...*admittedPlanProposal,
+) (string, error) {
+	digests := make(map[string]struct{})
+	if manifest.value.Authority.BootstrapApprovedPlanDigest != nil {
+		digests[*manifest.value.Authority.BootstrapApprovedPlanDigest] = struct{}{}
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind != "plan_authority" {
+			continue
+		}
+		var wire planAuthorityCommand
+		if json.Unmarshal(command.Payload, &wire) != nil ||
+			!bytes.Equal(command.Payload, mustJSON(wire)) ||
+			wire.Version != planAuthorityVersion ||
+			!runtimeDigestPattern.MatchString(wire.PlanDigest) ||
+			command.ReplayKey != "plan-authority/"+
+				strings.TrimPrefix(wire.PlanDigest, "sha256:") {
+			return "", runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		digests[wire.PlanDigest] = struct{}{}
+	}
+	var current *admittedPlanProposal
+	if len(selected) > 0 {
+		current = selected[0]
+	}
+	if current != nil {
+		expected, err := approvalCommandForProposal(manifest, *current)
+		if err != nil {
+			return "", err
+		}
+		commands := make(map[string]journal.Command, len(snapshot.Commands))
+		for _, command := range snapshot.Commands {
+			commands[command.ReplayKey] = command
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.Kind != approvalEffectKind || effect.State != journal.Succeeded {
+				continue
+			}
+			stored, ok := commands[effect.ReplayKey]
+			if !ok {
+				return "", runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			command, err := parseApprovalCommand(stored)
+			if err != nil {
+				return "", err
+			}
+			boundExpected := expected
+			boundExpected.ActorClass = command.ActorClass
+			boundExpected.ActorAuthority = command.ActorAuthority
+			if !reflect.DeepEqual(command, boundExpected) {
+				// Historical approvals are deliberately inert.
+				continue
+			}
+			if err := validateApprovalAuthorityWithSnapshot(manifest, *current, snapshot, command, false); err != nil {
+				return "", err
+			}
+			if _, err := parseSucceededApproval(command, effect); err != nil {
+				return "", err
+			}
+			digests[command.PlanDigest] = struct{}{}
+		}
+	}
+	if len(digests) > 1 {
+		return "", runtimeFail("AUTHORITY_CONFLICT", nil)
+	}
+	for digest := range digests {
+		return digest, nil
+	}
+	return "", nil
+}
+
+func validateInstallEffectPrecedence(
+	engine *engine,
+	snapshot journal.Snapshot,
+) error {
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "baton.install" {
+			continue
+		}
+		command, ok := commands[effect.ReplayKey]
+		if !ok {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		persisted, err := parseActionCommand(command.Payload)
+		if err != nil || validateBatonActionEnvelope(
+			engine, command, effect, persisted) != nil {
+			return runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		validateSucceeded, precedenceErr := installEffectPrecedence(effect.State)
+		if precedenceErr != nil {
+			return precedenceErr
+		}
+		if validateSucceeded {
+			if _, err := validateSucceededBatonAction(
+				engine, command, effect, persisted); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func installEffectPrecedence(state journal.EffectState) (bool, error) {
+	switch state {
+	case journal.Pending, journal.Claimed, journal.Uncertain:
+		return false, runtimeFail("INSTALL_RECOVERY_PENDING", nil)
+	case journal.OperationalFailed:
+		return false, runtimeFail("INSTALL_FAILED", nil)
+	case journal.Succeeded:
+		return true, nil
+	default:
+		return false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+}
+
+func validateSavedPlanAdoption(
+	engine *engine,
+	state baton.State,
+	authorityDigest string,
+) (bool, error) {
+	if authorityDigest == "" {
+		return false, nil
+	}
+	manifest := engine.manifest
+	metadata := state.Plan.Metadata
+	if state.Release != manifest.value.Release ||
+		state.Repository != manifest.value.Authority.Project ||
+		metadata.Repository != manifest.value.Authority.Project ||
+		metadata.Release != manifest.value.Release ||
+		metadata.TargetRef != manifest.value.TargetRef ||
+		state.Plan.Digest != authorityDigest ||
+		state.Plan.TargetStale ||
+		state.Refs.Release.Ref != "refs/heads/release-wt/"+manifest.value.Release ||
+		state.Refs.Release.Head == "" ||
+		state.Refs.Target.Ref != manifest.value.TargetRef ||
+		state.Refs.Target.Head == "" ||
+		state.Plan.Approval.Receipt.Role != "planner" ||
+		state.Plan.Approval.Receipt.Result != "approved" ||
+		state.Plan.Approval.Receipt.Plan != state.Plan.OID ||
+		state.Plan.Approval.Receipt.Target == nil ||
+		*state.Plan.Approval.Receipt.Target != state.Refs.Target.Head {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	found := false
+	var saved baton.Plan
+	for _, historical := range state.Plan.History {
+		if historical.OID != state.Plan.OID {
+			continue
+		}
+		if found || historical.Plan.Digest() != authorityDigest {
+			return false, runtimeFail("INVALID_AUTHORITY", nil)
+		}
+		found = true
+		saved = historical.Plan
+	}
+	if !found {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	if validateApprovalRef(manifest, saved) != nil {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	return true, nil
 }
 
 func captureProposalRefs(
@@ -5517,6 +5770,46 @@ func proposalMatchesAppliedPlan(
 	return true
 }
 
+func planExecutionEffectRecorded(snapshot journal.Snapshot) bool {
+	for _, effect := range snapshot.Effects {
+		switch effect.Kind {
+		case "git.prepare_track_base", "git.seal.prepared", "git.seal",
+			"baton.append_receipt", "baton.prepare_assembly",
+			"baton.assembly_verdict", "baton.merge":
+			return true
+		}
+	}
+	return false
+}
+
+func proposalActivationRecorded(
+	proposal admittedPlanProposal,
+	found bool,
+	installed bool,
+	state baton.State,
+	stateErr error,
+	authorityDigest string,
+	snapshot journal.Snapshot,
+) bool {
+	if !found || authorityDigest == "" ||
+		proposal.plan.Digest() != authorityDigest ||
+		!proposalMatchesAppliedPlan(proposal, state, stateErr) {
+		return false
+	}
+	return installed || planExecutionEffectRecorded(snapshot)
+}
+
+func proposalAwaitsExactAuthority(
+	proposal admittedPlanProposal,
+	found bool,
+	state baton.State,
+	stateErr error,
+	authorityDigest string,
+) bool {
+	return found && proposalMatchesAppliedPlan(proposal, state, stateErr) &&
+		proposal.plan.Digest() != authorityDigest
+}
+
 func selectPlanProposal(
 	engine *engine,
 	snapshot journal.Snapshot,
@@ -5582,6 +5875,35 @@ func (s *Service) proposePlan(
 	current *baton.State,
 	revision int64,
 ) error {
+	return s.proposePlanAttempt(ctx, engine, owner, current, revision, 1, "")
+}
+
+func (s *Service) proposePlanAttempt(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	current *baton.State,
+	revision int64,
+	plannerAttempt int64,
+	replanDecision string,
+) error {
+	delegationSnapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
+	if snapshotErr != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+	}
+	delegation, delegationErr := currentCaptainDelegation(delegationSnapshot)
+	if delegationErr != nil {
+		return delegationErr
+	}
+	if delegation.Epoch > 0 {
+		limits := delegation.Envelope.Limits
+		if !delegation.Active || revision < limits.MinimumPlanRevision || revision > limits.MaximumPlanRevision ||
+			plannerAttempt < 1 || plannerAttempt > limits.MaximumPlannerAttemptsPerRevision ||
+			delegation.Decisions >= limits.MaximumTotalCaptainDecisions ||
+			(plannerAttempt > 1 && (delegation.ReplanSpent < 1 || delegation.ReplanSpent > limits.ReplanBudget)) {
+			return runtimeFail("CAPTAIN_PLAN_POLICY_REFUSED", nil)
+		}
+	}
 	releaseRef := "refs/heads/release-wt/" + engine.manifest.value.Release
 	refs, err := engine.repository.CaptureHeadRefs(
 		[]string{releaseRef, engine.manifest.value.TargetRef})
@@ -5597,10 +5919,15 @@ func (s *Service) proposePlan(
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	authority := planProposalAuthority{
-		Release:    engine.manifest.value.Release,
-		ReleaseRef: releaseRef,
-		TargetRef:  engine.manifest.value.TargetRef,
-		TargetHead: target.Head.String(),
+		Release:        engine.manifest.value.Release,
+		ReleaseRef:     releaseRef,
+		TargetRef:      engine.manifest.value.TargetRef,
+		TargetHead:     target.Head.String(),
+		PlannerAttempt: plannerAttempt,
+		ReplanDecision: replanDecision,
+	}
+	if plannerAttempt < 1 || (plannerAttempt == 1 && replanDecision != "") || (plannerAttempt > 1 && replanDecision == "") {
+		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	snapshotHead := target.Head
 	if current == nil {
@@ -5628,9 +5955,17 @@ func (s *Service) proposePlan(
 	if err != nil {
 		return runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
-	submission, runErr := s.dispatchRole(
+	invocationScope := ""
+	if plannerAttempt > 1 {
+		dispatchWork := driverWorkIdentity(
+			engine.manifest.digest, "", driver.PlannerProposal,
+			revision, authority.Before,
+		)
+		invocationScope = strings.TrimPrefix(dispatchWork, "sha256:")[:12]
+	}
+	submission, runErr := s.dispatchRoleWithScope(
 		ctx, engine, workspace, driver.RolePlanner, "",
-		driver.PlannerProposal, revision, authority.Before, owner)
+		driver.PlannerProposal, revision, authority.Before, owner, invocationScope)
 	closeErr := workspace.Close()
 	if runErr != nil {
 		return runErr
@@ -5662,6 +5997,152 @@ func (s *Service) proposeRevision(
 ) error {
 	return s.proposePlan(
 		ctx, engine, owner, &state, state.Plan.Metadata.Revision+1)
+}
+
+func (s *Service) reviewDelegatedProposal(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	proposal admittedPlanProposal,
+	snapshot journal.Snapshot,
+) (string, bool, error) {
+	delegation, err := currentCaptainDelegation(snapshot)
+	if err != nil {
+		return "", false, err
+	}
+	if delegation.Epoch == 0 {
+		return "", false, nil
+	}
+	refuse := func(code string) (string, bool, error) {
+		return "", true, s.appendCaptainRefusal(
+			ctx, engine.manifest, proposal, delegation, code)
+	}
+	if !delegation.Active {
+		return refuse("CAPTAIN_DELEGATION_REVOKED")
+	}
+	envelope := delegation.Envelope
+	metadata := proposal.plan.Metadata()
+	class, classErr := approvalDecisionClass(proposal)
+	var prior *baton.Plan
+	var lineageState *baton.State
+	if metadata.Revision > 1 {
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		if stateErr != nil {
+			return "", true, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+		for _, history := range state.Plan.History {
+			if history.OID == proposal.authority.PriorPlan {
+				copy := history.Plan
+				prior = &copy
+			}
+		}
+		if prior == nil {
+			return "", true, runtimeFail("CAPTAIN_DECISION_STALE", nil)
+		}
+		lineageState = &state
+	}
+	plannerAttempt := proposal.authority.PlannerAttempt
+	if plannerAttempt == 0 {
+		plannerAttempt = 1
+	}
+	lineageOK := envelope.ReleaseLineageAnchor.State == "absent" && metadata.Revision == 1 && proposal.authority.PriorPlan == "" && proposal.authority.ReleaseHead == ""
+	if envelope.ReleaseLineageAnchor.State == "present" && lineageState != nil {
+		anchor := envelope.ReleaseLineageAnchor
+		for _, history := range lineageState.Plan.History {
+			if history.OID == anchor.PlanOID && history.Revision == anchor.PlanRevision && history.InstallHead == anchor.ReleaseHead {
+				lineageOK = true
+			}
+		}
+	}
+	if classErr != nil || !lineageOK || envelope.RunID != engine.manifest.value.RunID || envelope.ManifestDigest != engine.manifest.digest || envelope.Project != engine.manifest.value.Authority.Project || envelope.Release != engine.manifest.value.Release || envelope.ReleaseRef != proposal.authority.ReleaseRef || envelope.TargetRef != proposal.authority.TargetRef || envelope.TargetHead != proposal.authority.TargetHead || metadata.Revision < envelope.Limits.MinimumPlanRevision || metadata.Revision > envelope.Limits.MaximumPlanRevision || plannerAttempt > envelope.Limits.MaximumPlannerAttemptsPerRevision || delegation.Decisions >= envelope.Limits.MaximumTotalCaptainDecisions || delegation.ReplanSpent > envelope.Limits.ReplanBudget || ValidateCaptainPlanPolicy(envelope.PlanRules, proposal.plan, prior) != nil {
+		return refuse("CAPTAIN_PLAN_POLICY_REFUSED")
+	}
+	if err := validateCaptainReleaseLineageWithEngine(engine, engine.manifest, proposal, snapshot, delegation); err != nil {
+		return refuse("CAPTAIN_RELEASE_LINEAGE_REFUSED")
+	}
+	classAllowed := false
+	for _, rule := range envelope.DecisionRules {
+		classAllowed = classAllowed || rule.DecisionClass == class
+	}
+	if !classAllowed {
+		return refuse("CAPTAIN_DECISION_CLASS_REFUSED")
+	}
+	before := captainReviewBefore(proposal, delegation)
+	_, target, err := captureProposalRefs(engine.repository, engine.manifest)
+	if err != nil || target.Head.String() != proposal.authority.TargetHead {
+		return refuse("CAPTAIN_TARGET_DRIFT")
+	}
+	workspace, err := engine.workspaces.OpenSnapshot(target.Head)
+	if err != nil {
+		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", err)
+	}
+	workID := driverWorkIdentity(engine.manifest.digest, "", driver.CaptainPlanReview, metadata.Revision, before)
+	invocationScope := ""
+	if plannerAttempt > 1 {
+		invocationScope = strings.TrimPrefix(workID, "sha256:")[:12]
+	}
+	submission, runErr := s.dispatchRoleWithScope(ctx, engine, workspace, driver.RoleCaptain, "", driver.CaptainPlanReview, metadata.Revision, before, owner, invocationScope)
+	closeErr := workspace.Close()
+	if runErr != nil {
+		if IsCode(runErr, "CAPTAIN_ATTEMPTS_EXHAUSTED") || IsCode(runErr, "EFFECT_PARKED") || IsCode(runErr, "RECOVERY_UNCERTAIN") {
+			return refuse("CAPTAIN_ATTEMPTS_EXHAUSTED")
+		}
+		return "", true, runErr
+	}
+	if closeErr != nil {
+		return "", true, runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
+	}
+	decisionSnapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
+	if snapshotErr != nil {
+		return "", true, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+	}
+	if testCaptainCrashCut == "sealed_submission" {
+		return "", true, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	}
+	captainAttempt, attemptErr := captainDispatchAttemptForSubmission(decisionSnapshot, workID, submission)
+	if attemptErr != nil {
+		return "", true, attemptErr
+	}
+	command, err := newCaptainDecisionCommand(engine.manifest, proposal, delegation, submission, workID, captainAttempt)
+	if err != nil {
+		return "", true, err
+	}
+	// The public command service reopens and revalidates all current Git and
+	// journal facts. Release this engine's workspace-owner lock while that
+	// independent admission runs, then reacquire the same durable run workspace.
+	if err := engine.workspaces.Close(); err != nil {
+		return "", true, runtimeFail("WORKSPACE_CLEANUP_FAILED", err)
+	}
+	engine.workspaces = nil
+	_, decisionErr := s.CaptainDecide(ctx, command)
+	workspaces, reopenErr := gitx.NewRunWorkspaces(engine.repository, engine.manifest.value.RunID, engine.manifest.value.GitIdentity)
+	if reopenErr != nil {
+		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", reopenErr)
+	}
+	engine.workspaces = workspaces
+	if decisionErr != nil {
+		return "", true, decisionErr
+	}
+	if command.Outcome == "revise" {
+		if err := s.processCaptainPlannerContinuations(ctx, engine, owner); err != nil {
+			return "", true, err
+		}
+		freshSnapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+		if err != nil {
+			return "", true, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		_, proposals, err := loadRunSnapshot(freshSnapshot, owner.RunID)
+		if err != nil {
+			return "", true, err
+		}
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		replacement, found, _, err := selectPlanProposal(engine, freshSnapshot, proposals, state, stateErr)
+		if err != nil || !found || replacement.replayKey == proposal.replayKey || replacement.plan.Digest() == proposal.plan.Digest() {
+			return refuse("CAPTAIN_REPLAN_RECOVERY_REFUSED")
+		}
+		return s.reviewDelegatedProposal(ctx, engine, owner, replacement, freshSnapshot)
+	}
+	return command.Outcome, true, nil
 }
 
 func (s *Service) refreshPlanProposal(
@@ -5762,7 +6243,7 @@ func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner jou
 		return result, actionErr
 	}
 	result, err := s.runAction(ctx, engine, owner, workIdentity(before, "prepare"),
-		"baton.prepare_assembly", marshalActionCommand(authority, input), action)
+		"baton.prepare_assembly", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	err = errors.Join(err, cleanupErr)
 	if err == nil && result.Direct {
 		return runtimeFail("DISTINCT_ASSEMBLY_VERIFICATION_REQUIRED", nil)
@@ -5814,7 +6295,7 @@ func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner jour
 		state, state.Refs.Release.Ref, state.Refs.Release.Head,
 		before, state.Assembly.Candidate.OID, candidate, 0)
 	_, err = s.runAction(ctx, engine, owner, workIdentity(before, "assembly_verdict"),
-		"baton.assembly_verdict", marshalActionCommand(authority, input), action)
+		"baton.assembly_verdict", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
 
@@ -5844,7 +6325,7 @@ func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journ
 		return result, actionErr
 	}
 	_, err := s.runAction(ctx, engine, owner, workIdentity(before, "merge"),
-		"baton.merge", marshalActionCommand(authority, input), action)
+		"baton.merge", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return errors.Join(err, cleanupErr)
 }
 
@@ -5924,6 +6405,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err != nil {
 		return RunStatus{}, err
 	}
+	if manifest.legacyVersion != "" {
+		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
+	}
 	engine, err := s.openEngine(manifest)
 	if err != nil {
 		return RunStatus{}, err
@@ -5938,6 +6422,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	}
 	if control.Desired != "running" {
 		return s.Status(context.Background(), runID)
+	}
+	if err := s.processCaptainPlannerContinuations(ownedCtx, engine, owner); err != nil {
+		return RunStatus{}, err
 	}
 	if err := s.recoverClaimedEffects(ownedCtx, engine, owner); err != nil {
 		return RunStatus{}, err
@@ -5959,21 +6446,121 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	}
 	state, stateErr := baton.ReadState(
 		engine.git, manifest.value.Release, engine.inertness)
+	if err := validateInstallEffectPrecedence(engine, snapshot); err != nil {
+		return RunStatus{}, err
+	}
 	proposal, found, installed, err := selectPlanProposal(
 		engine, snapshot, proposals, state, stateErr)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	if !found {
+	var currentProposal *admittedPlanProposal
+	if found {
+		currentProposal = &proposal
+	}
+	authorityDigest, err := effectivePlanAuthority(
+		manifest, snapshot, currentProposal)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if found && stateErr == nil && proposal.plan.Digest() != state.Plan.Digest {
+		return RunStatus{}, runtimeFail("PLAN_AUTHORITY_CONFLICT", nil)
+	}
+	if authorityDigest == "" {
+		if !found && stateErr == nil {
+			return s.Status(context.Background(), runID)
+		}
+		if !found && baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+	}
+	if !found && stateErr != nil && authorityDigest == "" {
 		if err := s.refreshPlanProposal(
 			ownedCtx, engine, owner, state, stateErr); err != nil {
 			return RunStatus{}, err
 		}
+		snapshot, err = s.journal.Snapshot(ownedCtx, runID)
+		if err != nil {
+			return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		_, proposals, err = loadRunSnapshot(snapshot, runID)
+		if err != nil {
+			return RunStatus{}, err
+		}
+		proposal, found, installed, err = selectPlanProposal(engine, snapshot, proposals, state, stateErr)
+		if err != nil || !found {
+			return RunStatus{}, runtimeFail("INVALID_PLAN", err)
+		}
+		currentProposal = &proposal
+	}
+	if found && authorityDigest == "" {
+		outcome, handled, reviewErr := s.reviewDelegatedProposal(ownedCtx, engine, owner, proposal, snapshot)
+		if reviewErr != nil {
+			return RunStatus{}, reviewErr
+		}
+		if !handled {
+			return s.Status(context.Background(), runID)
+		}
+		if handled {
+			if outcome != "proceed" {
+				return s.Status(context.Background(), runID)
+			}
+			snapshot, err = s.journal.Snapshot(ownedCtx, runID)
+			if err != nil {
+				return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", err)
+			}
+			_, proposals, err = loadRunSnapshot(snapshot, runID)
+			if err != nil {
+				return RunStatus{}, err
+			}
+			state, stateErr = baton.ReadState(
+				engine.git, manifest.value.Release, engine.inertness)
+			proposal, found, installed, err = selectPlanProposal(
+				engine, snapshot, proposals, state, stateErr)
+			if err != nil || !found {
+				return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", err)
+			}
+			currentProposal = &proposal
+			authorityDigest, err = effectivePlanAuthority(manifest, snapshot, &proposal)
+			if err != nil || authorityDigest != proposal.plan.Digest() {
+				return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", err)
+			}
+		}
+	}
+	if proposalActivationRecorded(
+		proposal, found, installed, state, stateErr,
+		authorityDigest, snapshot,
+	) {
+		runErr := s.driveLoop(ownedCtx, engine, owner, false)
+		if runErr != nil && !errors.Is(runErr, context.Canceled) {
+			return RunStatus{}, runErr
+		}
 		return s.Status(context.Background(), runID)
 	}
-	pending := false
+	if proposalAwaitsExactAuthority(
+		proposal, found, state, stateErr, authorityDigest,
+	) {
+		return s.Status(context.Background(), runID)
+	}
+	if stateErr == nil {
+		adopted, adoptErr := validateSavedPlanAdoption(
+			engine, state, authorityDigest)
+		if adoptErr != nil {
+			return RunStatus{}, adoptErr
+		}
+		if adopted {
+			runErr := s.driveLoop(ownedCtx, engine, owner, false)
+			if runErr != nil && !errors.Is(runErr, context.Canceled) {
+				return RunStatus{}, runErr
+			}
+			return s.Status(context.Background(), runID)
+		}
+	}
+	if !found || authorityDigest == "" || proposal.plan.Digest() != authorityDigest {
+		return RunStatus{}, runtimeFail("AUTHORITY_CONFLICT", nil)
+	}
 	installWork := proposalInstallWork(proposal)
-	if !installed {
+	{
 		current, err := proposalPendingAuthorityCurrent(
 			engine.repository, manifest, proposal, state, stateErr)
 		if err != nil {
@@ -5986,8 +6573,6 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			}
 			return s.Status(context.Background(), runID)
 		}
-		admission, resolveErr := s.resolver.resolve(
-			ownedCtx, manifest, proposal.plan)
 		freshState, freshStateErr := baton.ReadState(
 			engine.git, manifest.value.Release, engine.inertness)
 		current, err = proposalPendingAuthorityCurrent(
@@ -6003,53 +6588,97 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			return s.Status(context.Background(), runID)
 		}
 		state, stateErr = freshState, freshStateErr
-		if IsCode(resolveErr, "APPROVAL_PENDING") {
-			if stateErr != nil {
-				return s.Status(context.Background(), runID)
-			}
-			pending = true
-		} else if resolveErr != nil {
-			return RunStatus{}, resolveErr
-		} else {
-			installInput := installActionInput{
-				PlanBytes: admission.planBytes, Evidence: admission.evidence,
-				PlanDigest: admission.planDigest, Reference: admission.reference,
-				CommentID: admission.commentID,
-			}
-			authority := batonActionAuthority{
-				Release:     manifest.value.Release,
-				Plan:        proposal.authority.PriorPlan,
-				ReleaseHead: proposal.authority.ReleaseHead,
-				TargetRef:   proposal.authority.TargetRef,
-				TargetHead:  proposal.authority.TargetHead,
-				OwnerRef:    proposal.authority.ReleaseRef,
-				OwnerHead:   proposal.authority.ReleaseHead,
-				Before:      installWork,
-			}
-			action := func() (baton.ActionResult, error) {
-				return engine.installer.install(admission)
-			}
-			if _, err := s.runAction(
-				ownedCtx, engine, owner, installWork, "baton.install",
-				marshalActionCommand(authority, installInput), action,
-			); err != nil {
-				return RunStatus{}, err
-			}
-			state, stateErr = baton.ReadState(
-				engine.git, manifest.value.Release, engine.inertness)
+		admission := approvalAdmission{
+			planBytes:  proposal.plan.Bytes(),
+			planDigest: proposal.plan.Digest(),
+			reference:  proposal.plan.Metadata().ApprovalRef,
 		}
+		installInput := installActionInput{
+			PlanBytes: admission.planBytes, PlanDigest: admission.planDigest,
+			Reference: admission.reference,
+		}
+		authority := batonActionAuthority{
+			Release:     manifest.value.Release,
+			Plan:        proposal.authority.PriorPlan,
+			ReleaseHead: proposal.authority.ReleaseHead,
+			TargetRef:   proposal.authority.TargetRef,
+			TargetHead:  proposal.authority.TargetHead,
+			OwnerRef:    proposal.authority.ReleaseRef,
+			OwnerHead:   proposal.authority.ReleaseHead,
+			Before:      installWork,
+		}
+		action := func() (baton.ActionResult, error) {
+			return engine.installer.install(admission)
+		}
+		if _, err := s.runAction(
+			ownedCtx, engine, owner, installWork, "baton.install",
+			marshalActionCommand(engine.manifest.value.GitIdentity, authority, installInput), action,
+		); err != nil {
+			return RunStatus{}, err
+		}
+		state, stateErr = baton.ReadState(
+			engine.git, manifest.value.Release, engine.inertness)
 	}
 	if stateErr != nil {
-		if pending {
-			return s.Status(context.Background(), runID)
-		}
 		return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
 	}
-	runErr := s.driveLoop(ownedCtx, engine, owner, pending)
+	runErr := s.driveLoop(ownedCtx, engine, owner, false)
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		return RunStatus{}, runErr
 	}
 	return s.Status(context.Background(), runID)
+}
+
+func (s *Service) processCaptainPlannerContinuations(ctx context.Context, engine *engine, owner journal.OwnerLease) error {
+	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "planner.continue" || (effect.State != journal.Pending && effect.State != journal.Claimed) {
+			continue
+		}
+		stored, ok := commands[effect.ReplayKey]
+		if !ok || stored.Kind != "planner_continuation" {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		var continuation CaptainPlannerContinuationCommand
+		if json.Unmarshal(stored.Payload, &continuation) != nil || continuation.RunID != owner.RunID {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		delegation, err := currentCaptainDelegation(snapshot)
+		if err != nil || !delegation.Active || delegation.Digest != continuation.EnvelopeDigest || delegation.Epoch != continuation.EnvelopeEpoch {
+			return runtimeFail("CAPTAIN_DECISION_STALE", err)
+		}
+		if effect.State == journal.Pending {
+			if testCaptainCrashCut == "before_planner_continuation" {
+				return runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+			}
+			claim, claimErr := s.journal.ClaimOwned(ctx, owner, effect.ID, s.now().UTC(), effectLease)
+			if claimErr != nil {
+				return runtimeFail("CAPTAIN_DECISION_RECOVERY_PENDING", claimErr)
+			}
+			effect.CurrentClaim = claim.Token
+		}
+		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		var current *baton.State
+		if stateErr == nil {
+			current = &state
+		} else if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return runtimeFail("BATON_UNAVAILABLE", stateErr)
+		}
+		if err := s.proposePlanAttempt(ctx, engine, owner, current, continuation.PlanRevision, continuation.PlannerAttempt, continuation.DecisionReplayKey); err != nil {
+			return err
+		}
+		if err := s.journal.CompleteOwned(ctx, owner, journal.Completion{RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim, State: journal.Succeeded, Result: []byte("scheduled"), EventKind: "planner_replan_scheduled", EventBody: []byte(continuation.SupersededProposalReplayKey), At: s.now().UTC()}); err != nil {
+			return runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) watchOwner(ctx context.Context, owner journal.OwnerLease, cancel context.CancelFunc, done chan<- error) {

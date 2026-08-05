@@ -11,63 +11,75 @@ import (
 	"time"
 )
 
-func (s *Store) RegisterRun(ctx context.Context, run Run) error {
+func prepareRun(run Run) (string, error) {
 	if err := validateIdentity(run.ID, "run"); err != nil {
-		return err
+		return "", err
 	}
 	if err := validateIdentity(run.Release, "release"); err != nil {
-		return err
+		return "", err
 	}
 	if err := validateDigest(run.ManifestDigest); err != nil {
-		return err
+		return "", err
 	}
 	if !filepath.IsAbs(run.Repository) || filepath.Clean(run.Repository) != run.Repository {
-		return fail("INVALID_REPOSITORY", nil)
+		return "", fail("INVALID_REPOSITORY", nil)
 	}
 	if !strings.HasPrefix(run.TargetRef, "refs/heads/") ||
 		strings.ContainsAny(run.TargetRef, "\x00\n\r ") {
-		return fail("INVALID_TARGET_REF", nil)
+		return "", fail("INVALID_TARGET_REF", nil)
 	}
 	createdAt, err := canonicalTime(run.CreatedAt)
+	if err != nil {
+		return "", err
+	}
+	return createdAt, nil
+}
+
+func registerRunOnConnection(ctx context.Context, conn *sql.Conn, run Run, createdAt string) error {
+	_, err := conn.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO runs(
+				run_id, manifest_digest, repository, release_id, target_ref, created_at
+			) VALUES(?, ?, ?, ?, ?, ?)`,
+		run.ID, run.ManifestDigest, run.Repository, run.Release, run.TargetRef, createdAt,
+	)
+	if err != nil {
+		return dbError(err)
+	}
+	var observed Run
+	var observedAt string
+	if err := conn.QueryRowContext(
+		ctx,
+		`SELECT run_id, manifest_digest, repository, release_id, target_ref, created_at
+			 FROM runs WHERE run_id = ?`,
+		run.ID,
+	).Scan(
+		&observed.ID,
+		&observed.ManifestDigest,
+		&observed.Repository,
+		&observed.Release,
+		&observed.TargetRef,
+		&observedAt,
+	); err != nil {
+		return dbError(err)
+	}
+	if observed.ID != run.ID ||
+		observed.ManifestDigest != run.ManifestDigest ||
+		observed.Repository != run.Repository ||
+		observed.Release != run.Release ||
+		observed.TargetRef != run.TargetRef {
+		return fail("RUN_CONFLICT", nil)
+	}
+	return nil
+}
+
+func (s *Store) RegisterRun(ctx context.Context, run Run) error {
+	createdAt, err := prepareRun(run)
 	if err != nil {
 		return err
 	}
 	return s.immediate(ctx, func(conn *sql.Conn) error {
-		_, err := conn.ExecContext(
-			ctx,
-			`INSERT OR IGNORE INTO runs(
-				run_id, manifest_digest, repository, release_id, target_ref, created_at
-			) VALUES(?, ?, ?, ?, ?, ?)`,
-			run.ID, run.ManifestDigest, run.Repository, run.Release, run.TargetRef, createdAt,
-		)
-		if err != nil {
-			return dbError(err)
-		}
-		var observed Run
-		var observedAt string
-		if err := conn.QueryRowContext(
-			ctx,
-			`SELECT run_id, manifest_digest, repository, release_id, target_ref, created_at
-			 FROM runs WHERE run_id = ?`,
-			run.ID,
-		).Scan(
-			&observed.ID,
-			&observed.ManifestDigest,
-			&observed.Repository,
-			&observed.Release,
-			&observed.TargetRef,
-			&observedAt,
-		); err != nil {
-			return dbError(err)
-		}
-		if observed.ID != run.ID ||
-			observed.ManifestDigest != run.ManifestDigest ||
-			observed.Repository != run.Repository ||
-			observed.Release != run.Release ||
-			observed.TargetRef != run.TargetRef {
-			return fail("RUN_CONFLICT", nil)
-		}
-		return nil
+		return registerRunOnConnection(ctx, conn, run, createdAt)
 	})
 }
 
@@ -140,6 +152,83 @@ func (s *Store) RecordCommand(ctx context.Context, command Command) error {
 	}
 	return s.immediate(ctx, func(conn *sql.Conn) error {
 		return recordCommandOnConnection(ctx, conn, command, prepared)
+	})
+}
+
+// RecordCommandEffect records one immutable command and its first pending
+// effect in the same transaction. Callers must never treat the command alone
+// as evidence that the effect was admitted.
+func (s *Store) RecordCommandEffect(
+	ctx context.Context,
+	command Command,
+	effect Effect,
+) error {
+	preparedCommand, err := prepareCommand(command)
+	if err != nil {
+		return err
+	}
+	updatedAt, err := prepareEffect(effect)
+	if err != nil {
+		return err
+	}
+	if command.RunID != effect.RunID || command.ReplayKey != effect.ReplayKey {
+		return fail("COMMAND_EFFECT_CONFLICT", nil)
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := recordCommandOnConnection(
+			ctx,
+			conn,
+			command,
+			preparedCommand,
+		); err != nil {
+			return err
+		}
+		return ensureEffectOnConnection(ctx, conn, effect, updatedAt)
+	})
+}
+
+// RegisterRunCommandsEffect atomically establishes a run, its immutable
+// manifest, and the first authority effect. It is the delegated bootstrap
+// seam; no observer can see a registered delegated run without its pending
+// authority intent.
+func (s *Store) RegisterRunCommandsEffect(
+	ctx context.Context,
+	run Run,
+	manifest Command,
+	authority Command,
+	effect Effect,
+) error {
+	createdAt, err := prepareRun(run)
+	if err != nil {
+		return err
+	}
+	preparedManifest, err := prepareCommand(manifest)
+	if err != nil {
+		return err
+	}
+	preparedAuthority, err := prepareCommand(authority)
+	if err != nil {
+		return err
+	}
+	updatedAt, err := prepareEffect(effect)
+	if err != nil {
+		return err
+	}
+	if run.ID != manifest.RunID || run.ID != authority.RunID ||
+		authority.RunID != effect.RunID || authority.ReplayKey != effect.ReplayKey {
+		return fail("COMMAND_EFFECT_CONFLICT", nil)
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := registerRunOnConnection(ctx, conn, run, createdAt); err != nil {
+			return err
+		}
+		if err := recordCommandOnConnection(ctx, conn, manifest, preparedManifest); err != nil {
+			return err
+		}
+		if err := recordCommandOnConnection(ctx, conn, authority, preparedAuthority); err != nil {
+			return err
+		}
+		return ensureEffectOnConnection(ctx, conn, effect, updatedAt)
 	})
 }
 
@@ -341,6 +430,9 @@ func validateCompletion(completion Completion) error {
 	if completion.State != Succeeded && completion.State != OperationalFailed {
 		return fail("INVALID_COMPLETION", nil)
 	}
+	if completion.ExpectedEventOffset != nil && *completion.ExpectedEventOffset < 0 {
+		return fail("INVALID_COMPLETION", nil)
+	}
 	if len(completion.Result) > MaxPayloadBytes ||
 		len(completion.EventBody) > MaxEventBytes {
 		return fail("RESOURCE_LIMIT", nil)
@@ -405,6 +497,51 @@ func (s *Store) Complete(ctx context.Context, completion Completion) error {
 	})
 }
 
+// CompleteWithChild atomically completes one effect and admits at most one
+// deterministic child command/effect. It is used for outcome transitions whose
+// durable decision and next effect must never be observed separately.
+func (s *Store) CompleteWithChild(
+	ctx context.Context,
+	completion Completion,
+	childCommand *Command,
+	childEffect *Effect,
+) error {
+	if err := validateCompletion(completion); err != nil {
+		return err
+	}
+	if (childCommand == nil) != (childEffect == nil) {
+		return fail("COMMAND_EFFECT_CONFLICT", nil)
+	}
+	var prepared preparedCommand
+	var updatedAt string
+	var err error
+	if childCommand != nil {
+		prepared, err = prepareCommand(*childCommand)
+		if err != nil {
+			return err
+		}
+		updatedAt, err = prepareEffect(*childEffect)
+		if err != nil {
+			return err
+		}
+		if childCommand.RunID != completion.RunID || childEffect.RunID != completion.RunID || childCommand.RunID != childEffect.RunID || childCommand.ReplayKey != childEffect.ReplayKey {
+			return fail("COMMAND_EFFECT_CONFLICT", nil)
+		}
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		if err := completeOnConnection(ctx, conn, completion); err != nil {
+			return err
+		}
+		if childCommand == nil {
+			return nil
+		}
+		if err := recordCommandOnConnection(ctx, conn, *childCommand, prepared); err != nil {
+			return err
+		}
+		return ensureEffectOnConnection(ctx, conn, *childEffect, updatedAt)
+	})
+}
+
 func (s *Store) CompleteOwned(ctx context.Context, owner OwnerLease, completion Completion) error {
 	if err := validateCompletion(completion); err != nil {
 		return err
@@ -419,6 +556,19 @@ func (s *Store) CompleteOwned(ctx context.Context, owner OwnerLease, completion 
 
 func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Completion) error {
 	at, _ := canonicalTime(completion.At)
+	if completion.ExpectedEventOffset != nil {
+		var current int64
+		if err := conn.QueryRowContext(
+			ctx,
+			"SELECT COALESCE(max(event_offset), 0) FROM events WHERE run_id = ?",
+			completion.RunID,
+		).Scan(&current); err != nil {
+			return dbError(err)
+		}
+		if current != *completion.ExpectedEventOffset {
+			return fail("STALE_COMPLETION", nil)
+		}
+	}
 	resultDigest := digest(completion.Result)
 	result, err := conn.ExecContext(
 		ctx,
@@ -712,6 +862,68 @@ func (s *Store) AppendEvent(ctx context.Context, runID, kind string,
 	}
 	return s.immediate(ctx, func(conn *sql.Conn) error {
 		return appendEvent(ctx, conn, runID, kind, body, timestamp)
+	})
+}
+
+// AppendEventOnce atomically admits a deterministic identity command and its
+// informational event. The command replay key is the uniqueness boundary, so
+// concurrent recovery paths either append the exact event once or observe the
+// already-admitted fact without a check-then-append race.
+func (s *Store) AppendEventOnce(
+	ctx context.Context,
+	identity Command,
+	eventKind string,
+	eventBody []byte,
+	at time.Time,
+) error {
+	prepared, err := prepareCommand(identity)
+	if err != nil {
+		return err
+	}
+	if err := validateIdentity(eventKind, "event_kind"); err != nil {
+		return err
+	}
+	if len(eventBody) > MaxEventBytes {
+		return fail("RESOURCE_LIMIT", nil)
+	}
+	timestamp, err := canonicalTime(at)
+	if err != nil {
+		return err
+	}
+	return s.immediate(ctx, func(conn *sql.Conn) error {
+		result, insertErr := conn.ExecContext(
+			ctx,
+			`INSERT OR IGNORE INTO commands(
+				run_id, replay_key, kind, payload_digest, payload, created_at
+			) VALUES(?, ?, ?, ?, ?, ?)`,
+			identity.RunID, identity.ReplayKey, identity.Kind,
+			prepared.digest, prepared.body, prepared.createdAt,
+		)
+		if insertErr != nil {
+			return dbError(insertErr)
+		}
+		var kind, observedDigest string
+		var observedBody []byte
+		if queryErr := conn.QueryRowContext(
+			ctx,
+			`SELECT kind, payload_digest, payload FROM commands
+			 WHERE run_id = ? AND replay_key = ?`,
+			identity.RunID, identity.ReplayKey,
+		).Scan(&kind, &observedDigest, &observedBody); queryErr != nil {
+			return dbError(queryErr)
+		}
+		if kind != identity.Kind || observedDigest != prepared.digest ||
+			!bytes.Equal(observedBody, prepared.body) {
+			return fail("REPLAY_CONFLICT", nil)
+		}
+		inserted, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return dbError(rowsErr)
+		}
+		if inserted == 0 {
+			return nil
+		}
+		return appendEvent(ctx, conn, identity.RunID, eventKind, eventBody, timestamp)
 	})
 }
 

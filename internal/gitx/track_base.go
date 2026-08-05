@@ -39,6 +39,7 @@ type PrepareTrackBaseRequest struct {
 	TargetHead OID
 	// ApprovedTarget is the immutable plan base used for track composition.
 	ApprovedTarget     OID
+	Identity           Identity
 	Consumer           TrackKey
 	AuthoritySeed      OID
 	ConsumerBefore     *OID
@@ -101,6 +102,9 @@ func (w *Workspaces) validateTrackBaseRequest(
 		)
 	}
 	if err := validateTrackKey(request.Consumer); err != nil {
+		return "", OID{}, err
+	}
+	if err := ValidateIdentity(request.Identity); err != nil {
 		return "", OID{}, err
 	}
 	if request.Release != request.Consumer.Release {
@@ -299,6 +303,7 @@ func (w *Workspaces) expectedTrackBase(
 			Expected:         seed,
 			Candidate:        request.ApprovedTarget,
 			TargetRef:        consumerRef,
+			Identity:         request.Identity,
 			ProductAdmission: request.ProductAdmission,
 		},
 	)
@@ -329,6 +334,7 @@ func (w *Workspaces) expectedTrackBase(
 				Expected:         base,
 				Candidate:        input.PassReceipt,
 				TargetRef:        consumerRef,
+				Identity:         request.Identity,
 				ProductAdmission: request.ProductAdmission,
 			},
 			func() (OID, error) {

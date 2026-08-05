@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 )
 
-func TestLoadAdmitsExactRC13(t *testing.T) {
+func TestLoadAdmitsExactRC14(t *testing.T) {
 	t.Parallel()
 
 	pkg, err := Load()
@@ -24,7 +24,6 @@ func TestLoadAdmitsExactRC13(t *testing.T) {
 		TagObject:            TagObject,
 		Commit:               Commit,
 		Tree:                 Tree,
-		ArchiveSHA256:        ArchiveSHA256,
 		SupportPackageSHA256: SupportPackageSHA256,
 		ManifestSHA256:       ManifestSHA256,
 		AssetCount:           AssetCount,
@@ -45,7 +44,7 @@ func TestLoadAdmitsExactRC13(t *testing.T) {
 		t.Fatalf("VERSION = %q", version)
 	}
 	if _, err := pkg.ReadAsset("reference/board/presentation.mjs"); err != nil {
-		t.Fatal("RC13 board presentation dependency is absent:", err)
+		t.Fatal("RC14 board presentation dependency is absent:", err)
 	}
 }
 
@@ -53,28 +52,27 @@ func TestReleaseTagAndSnapshotSourceAreExactlyAndIndependentlyBound(t *testing.T
 	t.Parallel()
 
 	if ReleaseCommit != Commit || ReleaseTree != Tree {
-		t.Fatal("RC13 tag and snapshot do not bind the published merge tree")
+		t.Fatal("RC14 tag and snapshot do not bind the tagged tree")
 	}
 
 	release := readReleaseFile(t)
 	if release.Tag.PeeledCommit != ReleaseCommit ||
-		release.Tag.PeeledTree != ReleaseTree ||
-		release.Archive.EmbeddedCommit != ReleaseCommit {
-		t.Fatal("release metadata does not preserve the RC13 tag and archive identity")
+		release.Tag.PeeledTree != ReleaseTree {
+		t.Fatal("release metadata does not preserve the RC14 annotated tag identity")
 	}
 	if release.Snapshot.SourceCommit != Commit || release.Snapshot.SourceTree != Tree {
-		t.Fatal("release metadata does not bind the RC13 snapshot source")
+		t.Fatal("release metadata does not bind the RC14 snapshot source")
 	}
 
 	release.Tag.PeeledCommit = "other"
 	if err := validateReleaseIdentity(release); err == nil {
-		t.Fatal("release identity accepted a changed RC13 tag commit")
+		t.Fatal("release identity accepted a changed RC14 tag commit")
 	}
 
 	manifest := readAssetManifest(t)
 	manifest.Commit = "other"
 	if err := validateManifestIdentity(manifest); err == nil {
-		t.Fatal("manifest identity accepted a changed RC13 snapshot commit")
+		t.Fatal("manifest identity accepted a changed RC14 snapshot commit")
 	}
 }
 
@@ -212,17 +210,11 @@ func TestReleaseIdentityComparisonsAreIndependentlyEnforced(t *testing.T) {
 	tests := map[string]func(*releaseFile){
 		"schema":          func(value *releaseFile) { value.Schema = "other" },
 		"package version": func(value *releaseFile) { value.PackageVersion = "other" },
-		"source":          func(value *releaseFile) { value.SourceRepository = "other" },
-		"release URL":     func(value *releaseFile) { value.ReleaseURL = "other" },
-		"publication":     func(value *releaseFile) { value.PublishedAt = "other" },
 		"tag name":        func(value *releaseFile) { value.Tag.Name = "other" },
 		"tag object":      func(value *releaseFile) { value.Tag.Object = "other" },
 		"tag type":        func(value *releaseFile) { value.Tag.ObjectType = "commit" },
 		"tag commit":      func(value *releaseFile) { value.Tag.PeeledCommit = "other" },
 		"tag tree":        func(value *releaseFile) { value.Tag.PeeledTree = "other" },
-		"archive name":    func(value *releaseFile) { value.Archive.Name = "other" },
-		"archive digest":  func(value *releaseFile) { value.Archive.SHA256 = "other" },
-		"archive commit":  func(value *releaseFile) { value.Archive.EmbeddedCommit = "other" },
 		"support schema": func(value *releaseFile) {
 			value.GeneratedSupport.ManifestSchema = "other"
 		},

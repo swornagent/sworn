@@ -547,7 +547,7 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		ManifestDigest:     manifest.digest,
 		DriverConfigDigest: manifest.value.DriverConfigDigest,
 		RunID:              manifest.value.RunID,
-		Repository:         manifest.value.Approval.Repository,
+		Repository:         manifest.value.Authority.Project,
 		Release:            manifest.value.Release,
 		Intent:             manifest.value.Intent,
 		InvocationID: dispatchInvocationID(
@@ -899,7 +899,7 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -1204,7 +1204,7 @@ func newProductionImplementationRecoveryFixture(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -1253,7 +1253,7 @@ func newProductionImplementationRecoveryFixture(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release: state.Release, Slice: "S1",
 		Binds: slice.CurrentReceipt.OID, Before: before,
 		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
@@ -1570,7 +1570,7 @@ func runCandidateHeadRefreshDispatch(
 	_, parsed := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -1962,7 +1962,7 @@ func prepareCleanHeadRefreshRecovery(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release:     state.Release,
 		Slice:       "S1",
 		Binds:       slice.CurrentReceipt.OID,
@@ -2729,7 +2729,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)
@@ -2780,7 +2780,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	before := sliceFingerprint(state, "S1")
 	outerWork := workIdentity(before, "git.seal")
 	outerID := journal.AttemptEffectID(outerWork, 1, 1)
-	cycle := implementationCycle{
+	cycle := implementationCycle{GitIdentity: runtimeTestGitIdentity,
 		Release: state.Release, Slice: "S1",
 		Binds: slice.CurrentReceipt.OID, Before: before,
 		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,

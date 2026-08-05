@@ -8,12 +8,45 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/cockpit"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 type executeCall struct {
 	selection Selection
 	action    cockpit.Action
 	answer    string
+}
+
+func TestApprovalConfirmationShowsFullBindingAndRejectsOfferDrift(t *testing.T) {
+	selection := Selection{Release: "release-1", RunID: "run-1", Source: "source"}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	head := strings.Repeat("b", 40)
+	command := runtimepkg.ApprovalCommand{
+		SchemaVersion: runtimepkg.ApprovalCommandVersion,
+		RunID:         "run-1", ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+		Project: "project", Release: "release-1",
+		ReleaseRef:        "refs/heads/release-wt/release-1",
+		ProposalReplayKey: "proposal", PlanRevision: 1,
+		PlanDigest: digest, TargetRef: "refs/heads/main", TargetHead: head,
+		DecisionClass: runtimepkg.PlannerProposalClass,
+		Decision:      runtimepkg.ApprovalDecision,
+		ActorClass:    runtimepkg.ApprovalActorClass, ActorAuthority: "operator",
+	}
+	action := cockpit.Action{Kind: "approve", Approval: &command}
+	backend, m := readyBoardModel(selection, action)
+	updateModel(t, m, runeKey('a'))
+	updateModel(t, m, specialKey(tea.KeyEnter))
+	view := lipgloss.NewStyle().Render(m.renderConfirmation(34))
+	compact := strings.ReplaceAll(view, "\n", "")
+	if !strings.Contains(compact, digest) || !strings.Contains(compact, head) {
+		t.Fatalf("confirmation omitted full binding:\n%s", view)
+	}
+	drifted := command
+	drifted.TargetHead = strings.Repeat("d", 40)
+	m.board.Actions = []cockpit.Action{{Kind: "approve", Approval: &drifted}}
+	if command := updateModel(t, m, runeKey('y')); command != nil || len(backend.executed) != 0 {
+		t.Fatalf("stale confirmation executed: command=%v calls=%d", command != nil, len(backend.executed))
+	}
 }
 
 type fakeBackend struct {
@@ -244,7 +277,7 @@ func TestCancelConfirmationAndBoundedMultilineAttentionAnswer(t *testing.T) {
 }
 
 func TestRiskyActionsRequireConfirmation(t *testing.T) {
-	for _, kind := range []string{"start", "cancel", "retry", "takeover"} {
+	for _, kind := range []string{"start", "start_delegated", "cancel", "retry", "takeover", "captain_delegation_revoke", "captain_delegation_replace"} {
 		if !confirmAction(kind) {
 			t.Errorf("%s does not require confirmation", kind)
 		}
@@ -253,6 +286,50 @@ func TestRiskyActionsRequireConfirmation(t *testing.T) {
 		if confirmAction(kind) {
 			t.Errorf("%s unexpectedly requires confirmation", kind)
 		}
+	}
+}
+
+func TestCaptainAuthorityControlShowsFullBindingAndRejectsStaleOrNoncanonicalInput(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run-1", Source: "source"}
+	binding := &cockpit.CaptainDelegationAction{
+		Action: "revoke", RunID: "run-1",
+		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
+		ActorClass:     "external_authorizer", ActorAuthority: "release-owner",
+		CurrentEpoch: 3, CurrentDigest: "sha256:" + strings.Repeat("2", 64),
+	}
+	revoke := cockpit.Action{Kind: "captain_delegation_revoke", CaptainDelegation: binding}
+	backend, m := readyBoardModel(selection, revoke)
+	updateModel(t, m, runeKey('a'))
+	updateModel(t, m, specialKey(tea.KeyEnter))
+	view := m.View()
+	for _, exact := range []string{"release-owner", binding.ManifestDigest, binding.CurrentDigest, "Current epoch", "3"} {
+		if !strings.Contains(view, exact) {
+			t.Fatalf("Captain confirmation omitted %q:\n%s", exact, view)
+		}
+	}
+	drifted := revoke
+	driftedBinding := *binding
+	driftedBinding.CurrentEpoch = 4
+	drifted.CaptainDelegation = &driftedBinding
+	m.board.Actions = []cockpit.Action{drifted}
+	updateModel(t, m, runeKey('y'))
+	if len(backend.executed) != 0 {
+		t.Fatalf("stale Captain action executed: %#v", backend.executed)
+	}
+
+	replaceBinding := *binding
+	replaceBinding.Action = "replace"
+	replace := cockpit.Action{Kind: "captain_delegation_replace", CaptainDelegation: &replaceBinding}
+	_, m = readyBoardModel(selection, replace)
+	updateModel(t, m, runeKey('a'))
+	updateModel(t, m, specialKey(tea.KeyEnter))
+	if m.overlay != overlayAnswer {
+		t.Fatalf("replacement envelope input overlay = %d", m.overlay)
+	}
+	m.answer = "not canonical"
+	updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.overlay != overlayAnswer || m.executing {
+		t.Fatal("noncanonical replacement reached confirmation or execution")
 	}
 }
 

@@ -20,6 +20,10 @@ type CommandRuntime interface {
 		context.Context,
 		runtimepkg.AnswerAttentionCommand,
 	) (runtimepkg.RunStatus, error)
+	Approve(
+		context.Context,
+		runtimepkg.ApprovalCommand,
+	) (runtimepkg.ApprovalResult, error)
 }
 
 type NotificationRedeliverer interface {
@@ -30,6 +34,25 @@ type NotificationRedeliverer interface {
 		string,
 		time.Time,
 	) error
+}
+
+type captainDelegationRuntime interface {
+	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+}
+
+func (f *CommandFacade) CaptainDelegation(ctx context.Context, command runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error) {
+	if f == nil || ctx == nil {
+		return runtimepkg.CaptainDelegationResult{}, fail("INVALID_COMMAND")
+	}
+	runtime, ok := f.runtime.(captainDelegationRuntime)
+	if !ok {
+		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_UNAVAILABLE")
+	}
+	result, err := runtime.CaptainDelegation(ctx, command)
+	if err != nil {
+		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_REJECTED")
+	}
+	return result, nil
 }
 
 type AdmittedManifest struct {
@@ -57,6 +80,34 @@ func (m AdmittedManifest) RunID() string { return m.runID }
 
 type StartCommand struct {
 	ManifestDigest string `json:"manifest_digest"`
+}
+
+type StartDelegatedCommand struct {
+	ManifestDigest string `json:"manifest_digest"`
+	EnvelopeBytes  []byte `json:"envelope_bytes"`
+}
+
+type delegatedStarter interface {
+	StartWithCaptainDelegation(context.Context, []byte, []byte) (runtimepkg.RunStatus, error)
+}
+
+func (f *CommandFacade) StartDelegated(ctx context.Context, command StartDelegatedCommand) (runtimepkg.RunStatus, error) {
+	if f == nil || ctx == nil || command.ManifestDigest == "" || len(command.EnvelopeBytes) == 0 {
+		return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
+	}
+	manifest, ok := f.manifests[command.ManifestDigest]
+	if !ok {
+		return runtimepkg.RunStatus{}, fail("MANIFEST_NOT_ADMITTED")
+	}
+	runtime, ok := f.runtime.(delegatedStarter)
+	if !ok {
+		return runtimepkg.RunStatus{}, fail("COMMAND_UNAVAILABLE")
+	}
+	status, err := runtime.StartWithCaptainDelegation(ctx, manifest.body, command.EnvelopeBytes)
+	if err != nil {
+		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
+	}
+	return status, nil
 }
 
 type ControlCommand struct {
@@ -214,4 +265,28 @@ func (f *CommandFacade) AnswerAttention(
 		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
 	}
 	return status, nil
+}
+
+func (f *CommandFacade) Approve(
+	ctx context.Context,
+	command runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	if f == nil || ctx == nil {
+		return runtimepkg.ApprovalResult{}, fail("INVALID_COMMAND")
+	}
+	result, err := f.runtime.Approve(ctx, command)
+	if err != nil {
+		for _, code := range []string{
+			"APPROVAL_BINDING_MISMATCH", "APPROVAL_STALE",
+			"APPROVAL_AMBIGUOUS", "APPROVAL_AUTHORITY_MISSING",
+			"APPROVAL_AUTHORITY_INSUFFICIENT", "APPROVAL_AUTHORITY_CONFLICT",
+			"APPROVAL_REPLAY_CONFLICT", "APPROVAL_RECOVERY_PENDING",
+		} {
+			if runtimepkg.IsCode(err, code) {
+				return runtimepkg.ApprovalResult{}, fail(code)
+			}
+		}
+		return runtimepkg.ApprovalResult{}, fail("COMMAND_REJECTED")
+	}
+	return result, nil
 }

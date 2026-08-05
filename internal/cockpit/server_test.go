@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -67,6 +68,17 @@ type httpFakeCommands struct {
 	controlCalls int
 	answerCalls  int
 	redeliveries int
+	approveCalls int
+	captainCalls int
+	captain      runtimepkg.CaptainDelegationCommand
+}
+
+func (f *httpFakeCommands) CaptainDelegation(_ context.Context, command runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.captainCalls++
+	f.captain = command
+	return runtimepkg.CaptainDelegationResult{SchemaVersion: runtimepkg.CaptainDelegationResultVersion, State: "revoked"}, nil
 }
 
 type httpFakeTelemetry struct {
@@ -115,6 +127,127 @@ func (f *httpFakeCommands) AnswerAttention(
 	defer f.mu.Unlock()
 	f.answerCalls++
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
+func (f *httpFakeCommands) Approve(
+	context.Context,
+	runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.approveCalls++
+	return runtimepkg.ApprovalResult{
+		SchemaVersion:  runtimepkg.ApprovalResultVersion,
+		AdmissionState: "succeeded",
+	}, nil
+}
+
+func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
+	t.Parallel()
+	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	call := func(body string, remote string) *httptest.ResponseRecorder {
+		request := httpRequest(
+			http.MethodPost, testLocalOrigin+"/mcp", remote, []byte(body),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		return serve(handler, request)
+	}
+	initialize := call(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`, "127.0.0.1:41100")
+	if initialize.Code != http.StatusOK || !strings.Contains(initialize.Body.String(), mcpProtocolVersion) {
+		t.Fatalf("initialize = %d %s", initialize.Code, initialize.Body.String())
+	}
+	listed := call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, "127.0.0.1:41100")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), mcpApprovalTool) ||
+		!strings.Contains(listed.Body.String(), mcpCaptainDelegationTool) ||
+		!strings.Contains(listed.Body.String(), mcpStartDelegatedTool) ||
+		!strings.Contains(listed.Body.String(), `"additionalProperties":false`) {
+		t.Fatalf("tools/list = %d %s", listed.Code, listed.Body.String())
+	}
+	arguments := runtimepkg.ApprovalCommand{
+		SchemaVersion: runtimepkg.ApprovalCommandVersion,
+		RunID:         "run-1", ManifestDigest: "sha256:" + strings.Repeat("1", 64),
+		Project: "project", Release: "release-1",
+		ReleaseRef:        "refs/heads/release-wt/release-1",
+		ProposalReplayKey: "proposal", PlanRevision: 1,
+		PlanDigest: "sha256:" + strings.Repeat("2", 64),
+		TargetRef:  "refs/heads/main", TargetHead: strings.Repeat("3", 40),
+		DecisionClass: runtimepkg.PlannerProposalClass,
+		Decision:      runtimepkg.ApprovalDecision,
+		ActorClass:    runtimepkg.ApprovalActorClass, ActorAuthority: "operator",
+	}
+	argumentBody, _ := json.Marshal(arguments)
+	callBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": mcpApprovalTool, "arguments": json.RawMessage(argumentBody)},
+	})
+	called := call(string(callBody), "127.0.0.1:41100")
+	if called.Code != http.StatusOK || commands.approveCalls != 1 ||
+		!strings.Contains(called.Body.String(), `"admission_state":"succeeded"`) {
+		t.Fatalf("tools/call = %d calls=%d %s", called.Code, commands.approveCalls, called.Body.String())
+	}
+	unknownBody := strings.Replace(string(callBody), `"actor_authority":"operator"`, `"actor_authority":"operator","unknown":true`, 1)
+	unknown := call(unknownBody, "127.0.0.1:41100")
+	if unknown.Code != http.StatusOK || commands.approveCalls != 1 ||
+		!strings.Contains(unknown.Body.String(), `"code":-32602`) {
+		t.Fatalf("unknown input = %d calls=%d %s", unknown.Code, commands.approveCalls, unknown.Body.String())
+	}
+	captainCommand := runtimepkg.CaptainDelegationCommand{
+		SchemaVersion: runtimepkg.CaptainDelegationCommandVersion,
+		Action:        "revoke", RunID: "run-1",
+		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
+		ActorClass:     runtimepkg.CaptainDelegationActorClass,
+		ActorAuthority: "external-authorizer",
+		CurrentEpoch:   1, CurrentDigest: "sha256:" + strings.Repeat("2", 64),
+	}
+	captainArguments, _ := json.Marshal(captainCommand)
+	captainCall, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": mcpCaptainDelegationTool, "arguments": json.RawMessage(captainArguments)},
+	})
+	captainCalled := call(string(captainCall), "127.0.0.1:41100")
+	if captainCalled.Code != http.StatusOK || commands.captainCalls != 1 ||
+		commands.captain.ActorAuthority != "external-authorizer" ||
+		!strings.Contains(captainCalled.Body.String(), `"state":"revoked"`) {
+		t.Fatalf("captain tools/call = %d calls=%d %s", captainCalled.Code, commands.captainCalls, captainCalled.Body.String())
+	}
+	captainUnknown := strings.Replace(string(captainCall), `"actor_authority":"external-authorizer"`, `"actor_authority":"external-authorizer","unknown":true`, 1)
+	unknownCaptain := call(captainUnknown, "127.0.0.1:41100")
+	if unknownCaptain.Code != http.StatusOK || commands.captainCalls != 1 || !strings.Contains(unknownCaptain.Body.String(), `"code":-32602`) {
+		t.Fatalf("unknown Captain input = %d calls=%d %s", unknownCaptain.Code, commands.captainCalls, unknownCaptain.Body.String())
+	}
+	remote := call(string(callBody), "203.0.113.10:41100")
+	if remote.Code != http.StatusForbidden || commands.approveCalls != 1 {
+		t.Fatalf("public mutation = %d calls=%d", remote.Code, commands.approveCalls)
+	}
+}
+
+func TestLoopbackCockpitCaptainManagementUsesExactCommandAndRejectsRemoteMutation(t *testing.T) {
+	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	command := runtimepkg.CaptainDelegationCommand{
+		SchemaVersion: runtimepkg.CaptainDelegationCommandVersion,
+		Action:        "revoke", RunID: "run-1",
+		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
+		ActorClass:     runtimepkg.CaptainDelegationActorClass,
+		ActorAuthority: "external-authorizer", CurrentEpoch: 4,
+		CurrentDigest: "sha256:" + strings.Repeat("2", 64),
+	}
+	body, _ := json.Marshal(command)
+	target := testLocalOrigin + apiPathPrefix + "/runs/run-1/captain-delegation/manage"
+	local := httpRequest(http.MethodPost, target, "127.0.0.1:41100", body)
+	local.Header.Set("Content-Type", "application/json")
+	response := serve(handler, local)
+	if response.Code != http.StatusOK || commands.captainCalls != 1 ||
+		!reflect.DeepEqual(commands.captain, command) {
+		t.Fatalf("local management = %d calls=%d command=%#v body=%s", response.Code, commands.captainCalls, commands.captain, response.Body.String())
+	}
+	remote := httpRequest(http.MethodPost, target, "203.0.113.10:41100", body)
+	remote.Header.Set("Content-Type", "application/json")
+	remote.TLS = &tls.ConnectionState{}
+	remote.Header.Set("Authorization", "Bearer "+testHTTPToken)
+	response = serve(handler, remote)
+	if response.Code != http.StatusForbidden || commands.captainCalls != 1 {
+		t.Fatalf("remote management = %d calls=%d", response.Code, commands.captainCalls)
+	}
 }
 
 func httpSnapshot() Snapshot {
@@ -767,7 +900,10 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 	css := mustEmbeddedAsset(t, "web/app.css")
 	javascript := mustEmbeddedAsset(t, "web/app.js")
 	if strings.Count(index, `id="topology"`) != 1 ||
-		strings.Count(index, `id="handoff"`) != 1 {
+		strings.Count(index, `id="handoff"`) != 1 ||
+		strings.Count(index, `id="captain-dialog"`) != 1 ||
+		strings.Count(index, `id="captain-envelope"`) != 1 ||
+		!strings.Contains(index, "Confirm every current binding") {
 		t.Errorf("UI must have one topology and one handoff ribbon")
 	}
 	for _, forbidden := range []string{
@@ -803,6 +939,10 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"Sworn could not confirm the current Baton handoff records.",
 		"Sworn is carrying the next recorded Baton handoff.",
 		"new TextEncoder().encode(answer).byteLength",
+		"openCaptainDialog(action)",
+		"Current digest:",
+		"captain-delegation/manage",
+		"Use the exact canonical envelope, including its final newline",
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Errorf("JavaScript missing %q", required)

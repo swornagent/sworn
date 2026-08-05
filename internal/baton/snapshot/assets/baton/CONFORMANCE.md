@@ -31,11 +31,15 @@ Every implementation MUST:
     lifecycle cursor;
 11. reconcile duplicate dispatch, stale projection, interruption, and known Git
     effects without manufacturing trust facts; and
-12. compose and integrate only exact candidates covered by current `PASS`; and
+12. compose and integrate only exact candidates covered by current `PASS`;
 13. treat approved behavior, product surfaces, minimum checks, semantic limits,
-    authority, and real product dependencies as commitments while keeping
-    ancillary path discovery, additional checks, evidence correction, and
-    procedural recovery as candidate or engine facts.
+   authority, and real product dependencies as commitments while keeping
+   ancillary path discovery, additional checks, evidence correction, and
+   procedural recovery as candidate or engine facts; and
+14. require each record-writing engine to supply one bounded, valid Git author
+    and committer identity explicitly, without a provider-specific built-in or
+    Git-configuration fallback, while treating that identity as attribution
+    rather than Baton authority.
 
 `.baton/releases` is structurally reserved for Baton metadata: product code,
 build, test, package, deploy, hooks, and runtime MUST NOT read or depend on it;

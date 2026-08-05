@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	rc13ConformanceManifestSHA256 = "d125ebc409d2b9fcaec979741a1554cfec6b4c4159996a517d94fd9ec13dece1"
+	rc14ConformanceManifestSHA256 = "cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"
 	autonomousEngineProfile       = "autonomous_engine"
 )
 
@@ -36,7 +36,7 @@ type autonomousEngineResult struct {
 }
 
 // TestAutonomousEngineConformance is the single executable gate for the
-// autonomous-engine profile embedded in Baton RC13. Case identities are read
+// autonomous-engine profile embedded in Baton RC14. Case identities are read
 // from the admitted package at test time; the mapping below can neither omit
 // nor add a case without failing this test.
 func TestAutonomousEngineConformance(t *testing.T) {
@@ -51,8 +51,8 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != rc13ConformanceManifestSHA256 {
-		t.Fatalf("embedded RC13 conformance digest = %x", sum)
+	if hex.EncodeToString(sum[:]) != rc14ConformanceManifestSHA256 {
+		t.Fatalf("embedded RC14 conformance digest = %x", sum)
 	}
 	var manifest conformanceManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -174,7 +174,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 	}{
 		SchemaVersion:  "sworn.autonomous-conformance/v1",
 		BatonVersion:   manifest.BatonVersion,
-		ManifestSHA256: "sha256:" + rc13ConformanceManifestSHA256,
+		ManifestSHA256: "sha256:" + rc14ConformanceManifestSHA256,
 		Results:        results,
 	})
 	if err != nil {

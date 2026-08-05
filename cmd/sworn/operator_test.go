@@ -27,6 +27,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
@@ -150,6 +151,9 @@ func TestOperatorConfigFileAdmissionRejectsUnsafePathsAndReplacement(
 		t.Helper()
 		path := filepath.Join(root, name)
 		if err := os.WriteFile(path, body, mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
 			t.Fatal(err)
 		}
 		return path
@@ -480,6 +484,13 @@ func (f *fakeOperatorCommands) AnswerAttention(
 ) (runtimepkg.RunStatus, error) {
 	f.answerCalls++
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
+}
+
+func (f *fakeOperatorCommands) Approve(
+	context.Context,
+	runtimepkg.ApprovalCommand,
+) (runtimepkg.ApprovalResult, error) {
+	return runtimepkg.ApprovalResult{}, nil
 }
 
 func TestOperatorAuthorityGuardsEveryConsumerAndActivatesOnStart(
@@ -1158,6 +1169,7 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 		Model:   "fixture-model",
 	}
 	manifest := runtimepkg.Manifest{
+		GitIdentity:       gitx.Identity{Name: "Operator Test Engine", Email: "engine@example.test"},
 		SchemaVersion:     runtimepkg.ManifestVersion,
 		RunID:             runID,
 		Repository:        "/tmp/repository",
@@ -1165,11 +1177,8 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 		TargetRef:         "refs/heads/main",
 		Intent:            intent,
 		MaxParallelTracks: 1,
-		Approval: runtimepkg.ApprovalPolicy{
-			Repository:          "acme/repo",
-			Issue:               1,
-			AllowedAuthorIDs:    []int64{1},
-			AllowedAssociations: []string{"OWNER"},
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
 			Executable: "/bin/true",

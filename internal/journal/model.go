@@ -78,6 +78,9 @@ type Completion struct {
 	EventKind string
 	EventBody []byte
 	At        time.Time
+	// ExpectedEventOffset is an optional journal-wide CAS for transitions that
+	// must linearize authority against another completion.
+	ExpectedEventOffset *int64
 }
 
 type RecoveryDisposition string

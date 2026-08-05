@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -23,10 +24,6 @@ func main() {
 	request, err := driver.DecodeRequest(body)
 	if err != nil {
 		os.Exit(64)
-	}
-	if os.Getenv("SWORN_GITHUB_TOKEN") != "" ||
-		os.Getenv("GITHUB_TOKEN") != "" {
-		os.Exit(65)
 	}
 	for _, authority := range []string{".git", ".baton", ".sworn"} {
 		entries, err := os.ReadDir(filepath.Join(request.Workspace.Path, authority))
@@ -51,7 +48,8 @@ func main() {
 			name, content = "two.txt", "second track\n"
 		}
 		if strings.Contains(request.Model, "scope-escape") {
-			name, content = "outside.txt", "outside approved scope\n"
+			name = "outside.txt"
+			content = "outside approved scope " + strconv.Itoa(os.Getpid()) + "\n"
 		}
 		if err := os.WriteFile(
 			filepath.Join(request.Workspace.Path, name),

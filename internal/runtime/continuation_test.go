@@ -559,7 +559,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	planBytes, _ := runtimePlan(
 		t,
 		manifest.value.Release,
-		manifest.value.Approval.Repository,
+		manifest.value.Authority.Project,
 		manifest.value.TargetRef,
 		"approval-release-1-v1",
 	)

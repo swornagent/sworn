@@ -31,6 +31,7 @@ type AttemptFact struct {
 type EventFact struct {
 	Offset    int64
 	Kind      string
+	SafeBody  []byte
 	CreatedAt time.Time
 }
 
@@ -185,7 +186,7 @@ func recentEventFacts(
 ) ([]EventFact, error) {
 	rows, err := conn.QueryContext(
 		ctx,
-		`SELECT event_offset, kind, created_at
+		`SELECT event_offset, kind, CASE WHEN kind='captain_plan_decided' THEN body ELSE NULL END, created_at
 		 FROM events
 		 WHERE run_id=?
 		 ORDER BY event_offset DESC
@@ -201,7 +202,7 @@ func recentEventFacts(
 	for rows.Next() {
 		var fact EventFact
 		var createdAt string
-		if err := rows.Scan(&fact.Offset, &fact.Kind, &createdAt); err != nil {
+		if err := rows.Scan(&fact.Offset, &fact.Kind, &fact.SafeBody, &createdAt); err != nil {
 			return nil, dbError(err)
 		}
 		fact.CreatedAt, err = parseTime(createdAt)
@@ -436,7 +437,7 @@ func (s *Store) EventsAfter(
 		}
 		rows, err := conn.QueryContext(
 			ctx,
-			`SELECT event_offset, kind, created_at
+			`SELECT event_offset, kind, CASE WHEN kind='captain_plan_decided' THEN body ELSE NULL END, created_at
 			 FROM events
 			 WHERE run_id=? AND event_offset>?
 			 ORDER BY event_offset
@@ -452,7 +453,7 @@ func (s *Store) EventsAfter(
 		for rows.Next() {
 			var fact EventFact
 			var createdAt string
-			if err := rows.Scan(&fact.Offset, &fact.Kind, &createdAt); err != nil {
+			if err := rows.Scan(&fact.Offset, &fact.Kind, &fact.SafeBody, &createdAt); err != nil {
 				return dbError(err)
 			}
 			fact.CreatedAt, err = parseTime(createdAt)

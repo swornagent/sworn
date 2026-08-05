@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/cockpit"
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 const (
@@ -150,6 +151,7 @@ func (m *model) renderBoard(width, height int) string {
 	))}
 	for _, fact := range []struct{ label, value string }{
 		{"Status", m.board.Status},
+		{"Captain authority", m.board.CaptainAuthority},
 		{"Now", m.board.What},
 		{"Next", m.board.Next},
 		{"Needs you", m.board.NeedsYou},
@@ -361,6 +363,46 @@ func (m *model) renderActions(width, height int) string {
 }
 
 func (m *model) renderConfirmation(width int) string {
+	if m.pendingAction.Kind == "approve" && m.pendingAction.Approval != nil {
+		command := m.pendingAction.Approval
+		lines := []string{
+			titleStyle.Render("CONFIRM EXACT PLAN APPROVAL"),
+			"",
+		}
+		lines = append(lines, wrapFact("Release", command.Release, width)...)
+		lines = append(lines, wrapFact("Project", command.Project, width)...)
+		lines = append(lines, wrapFact(
+			"Revision", fmt.Sprintf("%d", command.PlanRevision), width,
+		)...)
+		lines = append(lines, wrapFact(
+			"Decision class", command.DecisionClass, width,
+		)...)
+		lines = append(lines, wrapExactFact("Plan digest", command.PlanDigest, width)...)
+		lines = append(lines, wrapExactFact("Target head", command.TargetHead, width)...)
+		lines = append(lines, "",
+			batonStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
+		return strings.Join(lines, "\n")
+	}
+	if binding := m.pendingAction.CaptainDelegation; binding != nil {
+		lines := []string{titleStyle.Render("CONFIRM CAPTAIN AUTHORITY"), ""}
+		lines = append(lines, wrapFact("Action", binding.Action, width)...)
+		lines = append(lines, wrapFact("Run", binding.RunID, width)...)
+		lines = append(lines, wrapExactFact("Manifest digest", binding.ManifestDigest, width)...)
+		lines = append(lines, wrapFact("Actor class", binding.ActorClass, width)...)
+		lines = append(lines, wrapFact("External authorizer", binding.ActorAuthority, width)...)
+		if binding.CurrentEpoch > 0 {
+			lines = append(lines, wrapFact("Current epoch", fmt.Sprintf("%d", binding.CurrentEpoch), width)...)
+			lines = append(lines, wrapExactFact("Current digest", binding.CurrentDigest, width)...)
+		}
+		if m.answer != "" {
+			if admitted, err := runtimepkg.ParseCaptainDelegation([]byte(m.answer)); err == nil {
+				lines = append(lines, wrapFact("New epoch", fmt.Sprintf("%d", admitted.Envelope.DelegationEpoch), width)...)
+				lines = append(lines, wrapExactFact("New digest", admitted.Digest, width)...)
+			}
+		}
+		lines = append(lines, "", batonStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
+		return strings.Join(lines, "\n")
+	}
 	copy := fmt.Sprintf("Confirm: %s?", m.actionLabel(m.pendingAction))
 	return strings.Join([]string{
 		titleStyle.Render("CONFIRM ACTION"),
@@ -372,6 +414,22 @@ func (m *model) renderConfirmation(width int) string {
 }
 
 func (m *model) renderAnswer(width, height int) string {
+	if m.pendingAction.Kind == "start_delegated" ||
+		m.pendingAction.Kind == "captain_delegation_replace" {
+		lines := []string{titleStyle.Render("CAPTAIN DELEGATION ENVELOPE")}
+		lines = append(lines, wrapText("Paste the exact canonical sworn.captain-delegation/v1 envelope. It will be parsed and rebound before confirmation.", width)...)
+		lines = append(lines, "", swornStyle.Render("CANONICAL JSON"))
+		answerLines := strings.Split(safeMultiline(m.answer)+"█", "\n")
+		budget := max(1, height-len(lines)-2)
+		if len(answerLines) > budget {
+			answerLines = answerLines[len(answerLines)-budget:]
+		}
+		for _, line := range answerLines {
+			lines = append(lines, truncate(line, width))
+		}
+		lines = append(lines, quietStyle.Render(fmt.Sprintf("%d / %d bytes · ctrl+s validates", len(m.answer), runtimepkg.MaxCaptainDelegationBytes)))
+		return strings.Join(lines, "\n")
+	}
 	question := "Answer the saved question so this work can continue."
 	for _, attention := range m.board.Attentions {
 		if attention.ID == m.pendingAction.AttentionID &&
@@ -402,6 +460,22 @@ func (m *model) renderAnswer(width, height int) string {
 
 func wrapFact(label, value string, width int) []string {
 	return wrapText(label+": "+safeText(value), width)
+}
+
+func wrapExactFact(label, value string, width int) []string {
+	label = safeText(label) + ":"
+	value = safeText(value)
+	if width < 1 {
+		return []string{label, value}
+	}
+	lines := []string{truncate(label, width)}
+	runes := []rune(value)
+	for len(runes) > 0 {
+		count := min(width, len(runes))
+		lines = append(lines, string(runes[:count]))
+		runes = runes[count:]
+	}
+	return lines
 }
 
 func diagnosticExplanation(code string) string {

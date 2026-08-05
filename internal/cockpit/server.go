@@ -27,6 +27,8 @@ const (
 	// bytes. The normal request allowance covers the bounded envelope.
 	maxAttentionAnswerRequestBytes = maxRequestBytes +
 		6*journal.MaxAttentionAnswerBytes
+	maxCaptainDelegationRequestBytes = maxRequestBytes +
+		6*runtimepkg.MaxCaptainDelegationBytes
 	defaultSSELimit     = 32
 	apiVersion          = "v2"
 	apiPathPrefix       = "/api/" + apiVersion
@@ -56,6 +58,10 @@ type CommandAPI interface {
 		AnswerAttentionCommand,
 	) (runtimepkg.RunStatus, error)
 	Redeliver(context.Context, RedeliveryCommand) error
+	Approve(
+		context.Context,
+		runtimepkg.ApprovalCommand,
+	) (runtimepkg.ApprovalResult, error)
 }
 
 const TelemetryHealthSchemaVersion = "sworn.telemetry-health/v1"
@@ -279,6 +285,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/mcp":
+		h.serveMCP(w, r)
+		return
 	case "/":
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return
@@ -317,6 +326,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case apiPathPrefix + "/start":
 		h.serveStart(w, r)
 		return
+	case apiPathPrefix + "/start-delegated":
+		h.serveStartDelegated(w, r)
+		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) == 2 && parts[0] == "runs" &&
@@ -343,6 +355,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 6 && parts[4] == "notifications" &&
 		parts[5] == "redeliver":
 		h.serveRedelivery(w, r, runID)
+	case len(parts) == 6 && parts[4] == "captain-delegation" &&
+		parts[5] == "manage":
+		h.serveCaptainDelegation(w, r, runID)
 	default:
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 	}
@@ -584,6 +599,62 @@ func (h *HTTPHandler) serveStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, status)
+}
+
+func (h *HTTPHandler) serveStartDelegated(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	commands, ok := h.commands.(interface {
+		StartDelegated(context.Context, StartDelegatedCommand) (runtimepkg.RunStatus, error)
+	})
+	if !ok {
+		writeHTTPError(w, http.StatusNotFound, "COMMAND_UNAVAILABLE")
+		return
+	}
+	var command StartDelegatedCommand
+	if !decodeRequestUpTo(w, r, &command, maxCaptainDelegationRequestBytes) {
+		return
+	}
+	status, err := commands.StartDelegated(r.Context(), command)
+	if err != nil {
+		writeHTTPError(w, http.StatusConflict, errorCode(err))
+		return
+	}
+	writeJSON(w, r, http.StatusOK, status)
+}
+
+func (h *HTTPHandler) serveCaptainDelegation(
+	w http.ResponseWriter,
+	r *http.Request,
+	runID string,
+) {
+	if r.Method != http.MethodPost || r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	commands, ok := h.commands.(interface {
+		CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+	})
+	if !ok {
+		writeHTTPError(w, http.StatusNotFound, "COMMAND_UNAVAILABLE")
+		return
+	}
+	var command runtimepkg.CaptainDelegationCommand
+	if !decodeRequestUpTo(w, r, &command, maxCaptainDelegationRequestBytes) {
+		return
+	}
+	if command.RunID != runID {
+		writeHTTPError(w, http.StatusBadRequest, "RUN_BINDING_MISMATCH")
+		return
+	}
+	result, err := commands.CaptainDelegation(r.Context(), command)
+	if err != nil {
+		writeHTTPError(w, http.StatusConflict, errorCode(err))
+		return
+	}
+	writeJSON(w, r, http.StatusOK, result)
 }
 
 func (h *HTTPHandler) serveControl(

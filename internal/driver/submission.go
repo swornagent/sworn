@@ -83,6 +83,7 @@ const (
 	ImplementerDesign         Responsibility = "implementer_design"
 	ImplementerImplementation Responsibility = "implementer_implementation"
 	CaptainReview             Responsibility = "captain_review"
+	CaptainPlanReview         Responsibility = "captain_plan_review"
 	WorkVerification          Responsibility = "work_verification"
 	AssemblyVerification      Responsibility = "assembly_verification"
 )
@@ -212,7 +213,7 @@ func ValidateSubmission(submission Submission) error {
 		if submission.Plan != nil || submission.Checks == nil || submission.Decision != nil {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
-	case CaptainReview:
+	case CaptainReview, CaptainPlanReview:
 		if submission.Plan != nil || submission.Checks != nil ||
 			submission.Decision == nil || !submission.Decision.Outcome.captain() {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
@@ -287,6 +288,7 @@ func (responsibility Responsibility) valid() bool {
 		ImplementerDesign,
 		ImplementerImplementation,
 		CaptainReview,
+		CaptainPlanReview,
 		WorkVerification,
 		AssemblyVerification:
 		return true
@@ -443,7 +445,7 @@ func validateResponsibility(descriptor PermissionDescriptor) error {
 		if descriptor.Role != RoleImplementer {
 			return fail("INVALID_PERMISSION")
 		}
-	case CaptainReview:
+	case CaptainReview, CaptainPlanReview:
 		if descriptor.Role != RoleCaptain {
 			return fail("INVALID_PERMISSION")
 		}

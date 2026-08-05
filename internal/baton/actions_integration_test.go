@@ -219,11 +219,11 @@ func actionEnvironment(repo string, extra ...string) []string {
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_AUTHOR_NAME=Golden Author",
-		"GIT_AUTHOR_EMAIL=golden@baton.invalid",
+		"GIT_AUTHOR_NAME=Golden Baton Engine",
+		"GIT_AUTHOR_EMAIL=engine@example.test",
 		"GIT_AUTHOR_DATE=1000000000 +0000",
-		"GIT_COMMITTER_NAME=Golden Author",
-		"GIT_COMMITTER_EMAIL=golden@baton.invalid",
+		"GIT_COMMITTER_NAME=Golden Baton Engine",
+		"GIT_COMMITTER_EMAIL=engine@example.test",
 		"GIT_COMMITTER_DATE=1000000000 +0000",
 	}
 	return append(base, extra...)
@@ -541,7 +541,7 @@ func createActionHarness(t *testing.T) (string, *gitx.Repository, *Actions) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := NewActions(UseGitRepository(repository), inertActionResolver)
+	actions, err := NewActions(UseGitRepository(repository), inertActionResolver, gitx.Identity{Name: "Golden Baton Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,6 +555,56 @@ func readActionState(t *testing.T, repository *gitx.Repository, release string) 
 		t.Fatal(err)
 	}
 	return state
+}
+
+func TestHistoricalMixedCommitIdentitiesReconstructExactly(t *testing.T) {
+	repoPath := createActionRepository(t, "sha1")
+	repository, err := gitx.Open(repoPath, actionTestGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstIdentity := gitx.Identity{Name: "First Engine", Email: "first@example.test"}
+	secondIdentity := gitx.Identity{Name: "Second Engine", Email: "second@example.test"}
+	first, err := NewActions(UseGitRepository(repository), inertActionResolver, firstIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := "mixed-historical-identities"
+	installed, err := first.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanRevisionBytes(release, 1, nil, []Track{{
+			ID: "T1", DependsOn: []string{}, Slices: []Slice{actionSlice("S1", "one.txt")},
+		}}),
+		Summary: "Approve mixed identity reconstruction.", Detail: []byte("approval"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewActions(UseGitRepository(repository), inertActionResolver, secondIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	design := appendActionReceipt(t, second, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design with a changed configured identity.", Detail: []byte("design"),
+	})
+	for commit, want := range map[string]gitx.Identity{
+		installed.Head:       firstIdentity,
+		design.ReceiptCommit: secondIdentity,
+	} {
+		oid, parseErr := gitx.ParseOID(repository.ObjectFormat(), commit)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		got, identityErr := repository.CommitIdentity(oid)
+		if identityErr != nil || got != want {
+			t.Fatalf("identity for %s = %#v, %v; want %#v", commit, got, identityErr, want)
+		}
+	}
+	state := readActionState(t, repository, release)
+	slice, ok := state.Slice("S1")
+	if !ok || slice.Stage != "design" || slice.NextRole != "captain" {
+		t.Fatalf("mixed-identity reconstructed slice = %#v", slice)
+	}
 }
 
 func TestUnverifiedCandidateHeadRefreshReturnsToImplementerWithoutVerdict(t *testing.T) {
@@ -667,7 +717,7 @@ func TestActionsMatchExactReferenceForSHA1AndSHA256(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver)
+			actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver, gitx.Identity{Name: "Golden Baton Engine", Email: "engine@example.test"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1188,7 +1238,7 @@ func TestActionsFailClosedBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver)
+	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver, gitx.Identity{Name: "Test Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1221,7 +1271,7 @@ func TestAttemptTransitionsAndDirectSingleTrackMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver)
+	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver, gitx.Identity{Name: "Test Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1327,7 +1377,7 @@ func TestPlanRevisionRetentionSelectiveInvalidationAndRetirement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver)
+	actions, err := NewActions(UseGitRepository(gitRepository), inertActionResolver, gitx.Identity{Name: "Test Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}

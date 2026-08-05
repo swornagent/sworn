@@ -1,9 +1,11 @@
 package baton
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/swornagent/sworn/internal/gitx"
 )
@@ -56,9 +58,16 @@ type refOperation struct {
 }
 
 type repository struct {
-	git     *gitx.Repository
-	record  *gitx.RecordPathAdmission
-	product *gitx.ProductExclusionAdmission
+	git        *gitx.Repository
+	record     *gitx.RecordPathAdmission
+	product    *gitx.ProductExclusionAdmission
+	identity   gitx.Identity
+	identities *historicalIdentityCache
+}
+
+type historicalIdentityCache struct {
+	mu     sync.Mutex
+	values map[string]gitx.Identity
 }
 
 // GitRepository is an admitted handle, not a raw command surface.
@@ -74,9 +83,19 @@ func (r GitRepository) repository() *gitx.Repository {
 	return r.value
 }
 
-func newRepository(value *gitx.Repository, resolver InertnessResolver) (*repository, error) {
+func newRepository(value *gitx.Repository, resolver InertnessResolver, identities ...gitx.Identity) (*repository, error) {
 	if value == nil {
 		return nil, recordFail("INVALID_REPOSITORY", "one admitted Git repository is required")
+	}
+	if len(identities) > 1 {
+		return nil, recordFail("INVALID_GIT_IDENTITY", "only one Git identity is accepted")
+	}
+	var identity gitx.Identity
+	if len(identities) == 1 {
+		identity = identities[0]
+		if err := gitx.ValidateIdentity(identity); err != nil {
+			return nil, recordWrap("INVALID_GIT_IDENTITY", "admit Git identity", err)
+		}
 	}
 	record, err := value.ResolveRecordPathAdmission()
 	if err != nil {
@@ -86,7 +105,10 @@ func newRepository(value *gitx.Repository, resolver InertnessResolver) (*reposit
 	if err != nil {
 		return nil, translateGitError("admit product exclusion", err)
 	}
-	return &repository{git: value, record: record, product: product}, nil
+	return &repository{
+		git: value, record: record, product: product, identity: identity,
+		identities: &historicalIdentityCache{values: make(map[string]gitx.Identity)},
+	}, nil
 }
 
 func (r *repository) root() string { return r.git.Root() }
@@ -189,6 +211,27 @@ func (r *repository) history(head string) ([]historyRow, error) {
 	}
 	result := make([]historyRow, len(rows))
 	for index, row := range rows {
+		engineCommit := bytes.HasPrefix(row.Message, []byte("baton(")) ||
+			bytes.HasPrefix(row.Message, []byte("Baton exact ")) ||
+			bytes.HasPrefix(row.Message, []byte("Baton engine-owned ")) ||
+			bytes.HasPrefix(row.Message, []byte("sworn("))
+		if engineCommit {
+			if row.AuthorIdentity != row.CommitterIdentity {
+				return nil, recordFail(
+					"INVALID_COMMIT_IDENTITY",
+					"historical engine author and committer identities differ",
+				)
+			}
+			if err := gitx.ValidateIdentity(row.AuthorIdentity); err != nil {
+				return nil, translateGitError("validate historical engine identity", err)
+			}
+		}
+		if row.AuthorIdentity == row.CommitterIdentity &&
+			gitx.ValidateIdentity(row.AuthorIdentity) == nil {
+			r.identities.mu.Lock()
+			r.identities.values[row.OID.String()] = row.AuthorIdentity
+			r.identities.mu.Unlock()
+		}
 		result[index] = historyRow{
 			OID: row.OID.String(), Tree: row.Tree.String(),
 			Message: append([]byte(nil), row.Message...),
@@ -199,6 +242,31 @@ func (r *repository) history(head string) ([]historyRow, error) {
 		}
 	}
 	return result, nil
+}
+
+func (r *repository) withHistoricalIdentity(commit string) (*repository, error) {
+	r.identities.mu.Lock()
+	identity, present := r.identities.values[commit]
+	r.identities.mu.Unlock()
+	if present {
+		copy := *r
+		copy.identity = identity
+		return &copy, nil
+	}
+	oid, err := r.oid(commit)
+	if err != nil {
+		return nil, err
+	}
+	identity, err = r.git.CommitIdentity(oid)
+	if err != nil {
+		return nil, translateGitError("recover historical Git identity", err)
+	}
+	copy := *r
+	copy.identity = identity
+	r.identities.mu.Lock()
+	r.identities.values[commit] = identity
+	r.identities.mu.Unlock()
+	return &copy, nil
 }
 
 func (r *repository) firstParentPathChange(head, path string) (string, error) {
@@ -322,6 +390,7 @@ func (r *repository) prepareRecord(parent, message string, changes map[string][]
 	}
 	prepared, err := r.git.PrepareRecordTransition(gitx.RecordTransitionRequest{
 		ExpectedHead: expected, Changes: values, Message: message,
+		Identity:        r.identity,
 		RecordAdmission: r.record, ProductAdmission: r.product,
 	})
 	if err != nil {
@@ -336,7 +405,7 @@ func (r *repository) prepareMetadata(parent string, message []byte) (preparedCom
 		return preparedCommit{}, err
 	}
 	prepared, err := r.git.PrepareMetadataCommit(gitx.MetadataRequest{
-		ExpectedHead: expected, Message: append([]byte(nil), message...),
+		ExpectedHead: expected, Message: append([]byte(nil), message...), Identity: r.identity,
 	})
 	if err != nil {
 		return preparedCommit{}, translateGitError("prepare metadata commit", err)
@@ -366,6 +435,7 @@ func (r *repository) prepareComposition(targetRef, expected, candidate string) (
 	}
 	prepared, err := r.git.PrepareComposition(gitx.CompositionRequest{
 		Expected: expectedOID, Candidate: candidateOID, TargetRef: targetRef,
+		Identity:         r.identity,
 		ProductAdmission: r.product,
 	})
 	if err != nil {
@@ -389,7 +459,7 @@ func (r *repository) prepareProductComposition(
 	prepared, err := r.git.PrepareProductComposition(
 		gitx.CompositionRequest{
 			Expected: expectedOID, Candidate: candidateOID,
-			TargetRef: targetRef, ProductAdmission: r.product,
+			TargetRef: targetRef, Identity: r.identity, ProductAdmission: r.product,
 		},
 		func() (gitx.OID, error) {
 			if resolveProductBase == nil {
@@ -428,7 +498,7 @@ func (r *repository) prepareApprovedTargetBase(
 	prepared, err := r.git.PrepareApprovedTargetBase(
 		gitx.CompositionRequest{
 			Expected: expectedOID, Candidate: targetOID,
-			TargetRef: targetRef, ProductAdmission: r.product,
+			TargetRef: targetRef, Identity: r.identity, ProductAdmission: r.product,
 		},
 	)
 	if err != nil {
