@@ -60,7 +60,7 @@ func TestAutonomousEngineConformance(t *testing.T) {
 	}
 	profile, ok := manifest.Profiles[autonomousEngineProfile]
 	if manifest.SchemaVersion != "baton.conformance-manifest/v2" ||
-		manifest.BatonVersion != baton.PackageVersion ||
+		manifest.BatonVersion != baton.LegacyBatonVersion ||
 		!ok || profile.Status != "NOT RUN" ||
 		len(profile.Cases) != 12 {
 		t.Fatalf(

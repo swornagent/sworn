@@ -1,10 +1,14 @@
 # Sworn
 
-> [Baton](https://github.com/sawy3r/baton) is how the work is handed off.
-> Sworn is the team that carries it.
+Sworn is a small deterministic delivery engine. It carries software work from
+a proposed plan through to a checked merge, and it is the sole active
+authority for that journey: no separate installation, release, version match,
+or certification of another product is required to build or run it.
 
-Together they carry software work from a proposed plan through to a checked
-merge.
+Sworn's design absorbed [Baton](https://github.com/sawy3r/baton)'s trust
+rules and recorded handoffs. Baton-authored history remains safely readable
+as legacy provenance, and its published receipt schema stays stable, but it
+is design heritage, not a product Sworn depends on at build or run time.
 
 Sworn gives each part of the job a clear owner:
 
@@ -12,7 +16,8 @@ Sworn gives each part of the job a clear owner:
 - the Implementer designs and writes the change;
 - the Captain reviews the design before implementation continues;
 - a fresh Verifier checks the finished candidate; and
-- Sworn performs the Git merge only after Baton records a passing result.
+- Sworn performs the Git merge only after its own recorded handoffs show a
+  passing result.
 
 ```text
 Planner
@@ -39,15 +44,17 @@ the same worker with an answer grounded in saved facts, ask the Captain for
 advice, retry an operational failure, or pause only that track for a human
 answer while independent work continues.
 
-The orchestrator is not a sixth Baton role. It cannot approve a plan, invent a
-Captain decision or Verifier verdict, or merge code. Only Baton's recorded
+The orchestrator is not a sixth role. It cannot approve a plan, invent a
+Captain decision or Verifier verdict, or merge code. Only Sworn's own recorded
 handoffs decide what advances.
 
 ## Current release candidate
 
-Sworn `1.0.0-rc.2-dev` includes Baton `1.0.0-rc.14`. Check the installed
-versions with `sworn version`, or use `sworn version --json` when another
-tool needs to read them.
+Sworn `1.0.0-rc.2-dev` embeds its own Planner, Implementer, Captain, and
+Verifier role assets; some of that prose and reference material still carries
+legacy Baton `1.0.0-rc.14` content verbatim. Check the installed version and
+embedded role-asset identity with `sworn version`, or use `sworn version
+--json` when another tool needs to read them.
 
 This candidate can:
 
@@ -55,8 +62,8 @@ This candidate can:
 - work on independent tracks in parallel while keeping changes on each track
   in order;
 - pause, resume, cancel, take over, and retry a saved run safely;
-- find the project's local Baton releases and saved Sworn runs in one terminal
-  view;
+- find the project's local delivery releases and saved Sworn runs in one
+  terminal view;
 - show the same saved facts in the terminal, JSON, and a local browser board;
 - use Codex CLI, Claude Code CLI, OpenAI Responses, OpenAI-compatible Chat
   Completions, DeepSeek, Gemini, and two Amazon Bedrock connection types; and
@@ -90,9 +97,10 @@ From anywhere inside a Git project, run:
 sworn
 ```
 
-In an interactive terminal, this opens the project view. It finds local Baton
-releases and saved Sworn runs, lets you move between their boards, and offers
-only the controls allowed by the current board. `sworn tui` opens the same
+In an interactive terminal, this opens the project view. It finds local
+delivery releases and saved Sworn runs, lets you move between their boards,
+and offers only the controls allowed by the current board. `sworn tui` opens
+the same
 view explicitly. When input or output is piped or redirected, bare `sworn`
 prints help instead. The full command line remains available for scripts and
 exact run control.

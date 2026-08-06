@@ -40,20 +40,15 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC14PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.14",
-		TagName:              "v1.0.0-rc.14",
-		TagObject:            "cf3a3822cebedf7e53a067f8966ecb17f238c8df",
-		Commit:               "efacafb2579e99b9d291b2ad27d41df26fbb9d79",
-		Tree:                 "a92479268e0874f0d262ad80703fee489b5d6572",
-		SupportPackageSHA256: "sha256:6a1528cbaf357eb9ffc9e494d55f1de86cbb43ee220848cc9fb65227b9fd0452",
-		ManifestSHA256:       "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
+		Version:        "sworn.role-assets/v1",
+		ManifestSHA256: "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}

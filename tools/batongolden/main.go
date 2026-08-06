@@ -121,7 +121,7 @@ func verifyCorpus(source fs.FS, root string, pkg baton.Package) (string, int, in
 	if err := decodeClosed(manifestBytes, &manifest); err != nil {
 		return "", 0, 0, fmt.Errorf("decode corpus manifest: %w", err)
 	}
-	if manifest.Schema != corpusSchema || manifest.Baton != baton.PackageVersion ||
+	if manifest.Schema != corpusSchema || manifest.Baton != baton.LegacyBatonVersion ||
 		manifest.Generator != "exact embedded Baton JavaScript reference" ||
 		manifest.OracleSHA256 != rawSHA256(oracleScript) {
 		return "", 0, 0, errors.New("corpus manifest has a foreign generator or Baton identity")

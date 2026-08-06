@@ -1,4 +1,6 @@
-// Package baton admits and exposes the exact Baton release used by Sworn.
+// Package baton admits and exposes Sworn's own embedded role-asset bundle:
+// the Planner, Implementer, Captain, and Verifier instructions and the
+// protocol reference material they cite.
 //
 // It owns compiled protocol bytes only. Runtime records remain in Git under
 // .baton/releases and are never embedded or read through this package.
@@ -6,7 +8,6 @@ package baton
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -25,21 +26,22 @@ import (
 )
 
 const (
-	PackageVersion = "1.0.0-rc.14"
-	TagName        = "v1.0.0-rc.14"
-	TagObject      = "cf3a3822cebedf7e53a067f8966ecb17f238c8df"
-	ReleaseCommit  = "efacafb2579e99b9d291b2ad27d41df26fbb9d79"
-	ReleaseTree    = "a92479268e0874f0d262ad80703fee489b5d6572"
-	Commit         = ReleaseCommit
-	Tree           = ReleaseTree
-	// SupportPackageSHA256 binds the generated support shipped by the tag.
-	SupportPackageSHA256 = "sha256:6a1528cbaf357eb9ffc9e494d55f1de86cbb43ee220848cc9fb65227b9fd0452"
-	ManifestSHA256       = "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e"
-	AssetCount           = 25
-	AssetBytes           = int64(379571)
+	// RoleAssetsVersion identifies this Sworn build's own bundle of role
+	// instructions and protocol reference material. Sworn bumps it as an
+	// ordinary product change; admission never requires a separately
+	// installed, tagged, checked-out, or certified Baton release.
+	RoleAssetsVersion = "sworn.role-assets/v1"
+	// LegacyBatonVersion and LegacyBatonCommit name the historical Baton
+	// package version and commit whose prose and reference material this
+	// bundle still carries verbatim. They are provenance facts recorded for
+	// truthful history, never an admission gate against an external product.
+	LegacyBatonVersion = "1.0.0-rc.14"
+	LegacyBatonCommit  = "efacafb2579e99b9d291b2ad27d41df26fbb9d79"
+	ManifestSHA256     = "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e"
+	AssetCount         = 25
+	AssetBytes         = int64(379571)
 
-	releaseDocumentSHA256 = "sha256:2995eca4ebd0d234b0a0c760dfb2aa3242072b05095a9ace5a421fd75793e003"
-	releaseSchema         = "sworn.baton-release/v2"
+	releaseDocumentSHA256 = "sha256:3317611171102ae37b842a828f57e960a4e87e2168318d09d53a09225db073eb"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -75,17 +77,15 @@ var expectedAssetPaths = []string{
 	"templates/plan.md",
 }
 
-// Identity is the immutable release identity reported by Sworn.
+// Identity is the immutable, Sworn-owned role-asset identity reported by
+// Sworn. It never asserts a separately installed, tagged, or certified
+// external Baton release.
 type Identity struct {
-	PackageVersion       string `json:"package_version"`
-	TagName              string `json:"tag_name"`
-	TagObject            string `json:"tag_object"`
-	Commit               string `json:"commit"`
-	Tree                 string `json:"tree"`
-	SupportPackageSHA256 string `json:"support_package_sha256"`
-	ManifestSHA256       string `json:"manifest_sha256"`
-	AssetCount           int    `json:"asset_count"`
-	AssetBytes           int64  `json:"asset_bytes"`
+	RoleAssetsVersion  string `json:"role_assets_version"`
+	LegacyBatonVersion string `json:"legacy_baton_version"`
+	ManifestSHA256     string `json:"manifest_sha256"`
+	AssetCount         int    `json:"asset_count"`
+	AssetBytes         int64  `json:"asset_bytes"`
 }
 
 // Package is a validated handle to the compiled Baton bytes.
@@ -141,26 +141,9 @@ func (pkg Package) ReadAsset(name string) ([]byte, error) {
 }
 
 type releaseFile struct {
-	Schema         string `json:"schema"`
-	PackageVersion string `json:"package_version"`
-	Tag            struct {
-		Name         string `json:"name"`
-		Object       string `json:"object"`
-		ObjectType   string `json:"object_type"`
-		PeeledCommit string `json:"peeled_commit"`
-		PeeledTree   string `json:"peeled_tree"`
-	} `json:"tag"`
-	TaggedBlobs      []taggedBlob `json:"tagged_blobs"`
-	GeneratedSupport struct {
-		ManifestSchema   string `json:"manifest_schema"`
-		GeneratorVersion string `json:"generator_version"`
-		OperationVersion string `json:"operation_version"`
-		PackageDigest    string `json:"package_digest"`
-	} `json:"generated_support"`
+	Schema   string `json:"schema"`
 	Snapshot struct {
 		ManifestSchema string `json:"manifest_schema"`
-		SourceCommit   string `json:"source_commit"`
-		SourceTree     string `json:"source_tree"`
 		ManifestSHA256 string `json:"manifest_sha256"`
 		AssetCount     int    `json:"asset_count"`
 		TotalBytes     int64  `json:"total_bytes"`
@@ -168,11 +151,6 @@ type releaseFile struct {
 	Operations []releaseOperation `json:"operations"`
 	Templates  []releaseTemplate  `json:"templates"`
 	Contracts  []releaseContract  `json:"contracts"`
-}
-
-type taggedBlob struct {
-	Path   string `json:"path"`
-	Object string `json:"object"`
 }
 
 type releaseOperation struct {
@@ -292,43 +270,24 @@ func validatePackage(source fs.FS) (Identity, map[string]struct{}, error) {
 		return Identity{}, nil, err
 	}
 	versionBody, err := fs.ReadFile(source, "snapshot/assets/VERSION")
-	if err != nil || string(versionBody) != PackageVersion+"\n" {
-		return Identity{}, nil, errors.New("compiled VERSION does not identify Baton RC14")
+	if err != nil || string(versionBody) != LegacyBatonVersion+"\n" {
+		return Identity{}, nil, errors.New("compiled VERSION does not identify the embedded legacy Baton content")
 	}
 
 	return Identity{
-		PackageVersion:       PackageVersion,
-		TagName:              TagName,
-		TagObject:            TagObject,
-		Commit:               Commit,
-		Tree:                 Tree,
-		SupportPackageSHA256: SupportPackageSHA256,
-		ManifestSHA256:       ManifestSHA256,
-		AssetCount:           AssetCount,
-		AssetBytes:           AssetBytes,
+		RoleAssetsVersion:  RoleAssetsVersion,
+		LegacyBatonVersion: LegacyBatonVersion,
+		ManifestSHA256:     ManifestSHA256,
+		AssetCount:         AssetCount,
+		AssetBytes:         AssetBytes,
 	}, paths, nil
 }
 
 func validateReleaseIdentity(release releaseFile) error {
-	if release.Schema != releaseSchema || release.PackageVersion != PackageVersion {
-		return errors.New("release metadata has an unexpected tag-native identity")
-	}
-	if release.Tag.Name != TagName ||
-		release.Tag.Object != TagObject ||
-		release.Tag.ObjectType != "tag" ||
-		release.Tag.PeeledCommit != ReleaseCommit ||
-		release.Tag.PeeledTree != ReleaseTree {
-		return errors.New("release metadata has an unexpected annotated tag identity")
-	}
-	if release.GeneratedSupport.ManifestSchema != "baton.skills-payload/v1" ||
-		release.GeneratedSupport.GeneratorVersion != "baton.skill-generator/v1" ||
-		release.GeneratedSupport.OperationVersion != operationVersion ||
-		release.GeneratedSupport.PackageDigest != SupportPackageSHA256 {
-		return errors.New("release metadata has an unexpected generated-support identity")
+	if release.Schema != RoleAssetsVersion {
+		return errors.New("release metadata has an unexpected Sworn role-assets identity")
 	}
 	if release.Snapshot.ManifestSchema != manifestSchema ||
-		release.Snapshot.SourceCommit != Commit ||
-		release.Snapshot.SourceTree != Tree ||
 		release.Snapshot.ManifestSHA256 != ManifestSHA256 ||
 		release.Snapshot.AssetCount != AssetCount ||
 		release.Snapshot.TotalBytes != AssetBytes {
@@ -338,7 +297,7 @@ func validateReleaseIdentity(release releaseFile) error {
 }
 
 func validateManifestIdentity(manifest assetManifest) error {
-	if manifest.Schema != manifestSchema || manifest.Commit != Commit {
+	if manifest.Schema != manifestSchema || manifest.Commit != LegacyBatonCommit {
 		return fmt.Errorf(
 			"asset manifest identifies %q at %q",
 			manifest.Schema,
@@ -376,15 +335,6 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 	if !slices.Equal(release.Contracts, expectedContracts) {
 		return errors.New("release contract bindings are not exact")
 	}
-	if !slices.Equal(release.TaggedBlobs, expectedTaggedBlobs) {
-		return errors.New("release tagged blob bindings are not exact")
-	}
-	for _, tagged := range release.TaggedBlobs {
-		body, err := fs.ReadFile(source, "snapshot/assets/"+tagged.Path)
-		if err != nil || gitBlobObject(body) != tagged.Object {
-			return fmt.Errorf("tagged blob %q does not bind an admitted asset", tagged.Path)
-		}
-	}
 	for _, operation := range release.Operations {
 		if digests[operation.Source] != operation.SHA256 {
 			return fmt.Errorf("operation %q does not bind an admitted asset", operation.Name)
@@ -409,41 +359,6 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 		}
 	}
 	return nil
-}
-
-func gitBlobObject(body []byte) string {
-	hash := sha1.New()
-	_, _ = io.WriteString(hash, "blob "+strconv.Itoa(len(body))+"\x00")
-	_, _ = hash.Write(body)
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-var expectedTaggedBlobs = []taggedBlob{
-	{"VERSION", "e899313dba810c02edaac0a1347eaa25199e75fd"},
-	{"baton/ASSURANCE.md", "86143d6e590879f36e2108d0ed223f060a08d284"},
-	{"baton/CONFORMANCE.md", "4e20f69bae93c23c97800f324578c55025aca5b9"},
-	{"baton/CORE.md", "2aaf79fb45b558484f0a3f140deb78af3968895e"},
-	{"baton/PROTOCOL.md", "1f67f0f966573019a2e4224a3e68285835a1f786"},
-	{"baton/RATIONALE.md", "611831de2770f85ef88447d3f65b4a508d63ee62"},
-	{"baton/README.md", "450656fe59398deff00cf7577cb0522dfc5797fb"},
-	{"conformance/engine-adapter.md", "f3edb12c57134baf022d14e8c1a3fe2df62c0047"},
-	{"conformance/manifest.json", "480ab7447c5d6a1c2a8da3858ece16af46aad609"},
-	{"operations/baton-design-review.md", "66665581b7ab38b582df88082863a8a8d2309c55"},
-	{"operations/baton-implement.md", "e4d27b28a1b1dd1609e1ed8a76b24ffb202d7878"},
-	{"operations/baton-merge.md", "acdf2c280c1f1e3df7891c84d8f83b32470e0bd6"},
-	{"operations/baton-plan.md", "a7a46bb6da6c876727a739041856642b3359e0cb"},
-	{"operations/baton-verify.md", "3f2d5a428f509bf3c585ce01d391129988975c78"},
-	{"reference/board/oracle.mjs", "d3db1e0eb9e35c41e13743208887ba33ff58566c"},
-	{"reference/board/presentation.mjs", "fe4ba5a620db1702ff403ac1cbbf856a427ce2d6"},
-	{"reference/board/terminal.mjs", "9410f7713f63a86672c592a7bfb851b99d4ed5c9"},
-	{"reference/board/web.mjs", "e86ac21731448f1b17aaa7f638227636168de89c"},
-	{"reference/records/README.md", "036c4b74d03861ae5544aa1faaf04a741210213b"},
-	{"reference/records/actions.mjs", "7b21f328138da39ae8fa7758d698f8705ff5ca04"},
-	{"reference/records/git.mjs", "2072b2dba72241ea21e655762eb075dce52fdbd0"},
-	{"reference/records/receipts.mjs", "04f119c152c42cdcef1fb6f98c4dd148f54e68c9"},
-	{"reference/records/state.mjs", "6863bb52c87ea31ba6117064d5a1a35e50a4628f"},
-	{"schemas/receipt-v1.json", "68a27a38b9a5be6118675efd9b5c7d67acd6df0d"},
-	{"templates/plan.md", "b6b1615101fcdf16d8dc831aefa5a3ff9766a8b0"},
 }
 
 func validateAssetPath(name string) error {

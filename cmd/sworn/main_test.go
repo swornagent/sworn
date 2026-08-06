@@ -34,15 +34,12 @@ func TestVersionJSONReportsExactBatonAdmission(t *testing.T) {
 	if got.Version != swornVersion || got.State != swornState {
 		t.Fatalf("version identity = %#v", got)
 	}
-	if got.Baton.PackageVersion != baton.PackageVersion ||
-		got.Baton.TagObject != baton.TagObject ||
-		got.Baton.Commit != baton.Commit ||
-		got.Baton.Tree != baton.Tree ||
-		got.Baton.SupportPackageSHA256 != baton.SupportPackageSHA256 ||
-		got.Baton.ManifestSHA256 != baton.ManifestSHA256 ||
-		got.Baton.AssetCount != baton.AssetCount ||
-		got.Baton.AssetBytes != baton.AssetBytes {
-		t.Fatalf("Baton identity = %#v", got.Baton)
+	if got.RoleAssets.RoleAssetsVersion != baton.RoleAssetsVersion ||
+		got.RoleAssets.LegacyBatonVersion != baton.LegacyBatonVersion ||
+		got.RoleAssets.ManifestSHA256 != baton.ManifestSHA256 ||
+		got.RoleAssets.AssetCount != baton.AssetCount ||
+		got.RoleAssets.AssetBytes != baton.AssetBytes {
+		t.Fatalf("role-asset identity = %#v", got.RoleAssets)
 	}
 	if strings.Contains(stdout.String(), `"commit":"unknown"`) {
 		t.Fatalf("version output reintroduced Sworn commit stamping: %s", stdout.String())
@@ -56,10 +53,11 @@ func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	want := "Sworn 1.0.0-rc.2-dev\nBaton 1.0.0-rc.14\n\n" +
+	want := "Sworn 1.0.0-rc.2-dev\n\n" +
 		"Technical details:\n" +
-		"  state: baton-rc14-admitted\n" +
-		"  baton commit: " + baton.Commit + "\n"
+		"  state: role-assets-admitted\n" +
+		"  role assets: " + baton.RoleAssetsVersion + "\n" +
+		"  legacy Baton content: " + baton.LegacyBatonVersion + "\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}

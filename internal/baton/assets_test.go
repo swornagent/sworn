@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 )
 
-func TestLoadAdmitsExactRC14(t *testing.T) {
+func TestLoadAdmitsSwornOwnedRoleAssets(t *testing.T) {
 	t.Parallel()
 
 	pkg, err := Load()
@@ -19,15 +19,11 @@ func TestLoadAdmitsExactRC14(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Identity{
-		PackageVersion:       PackageVersion,
-		TagName:              TagName,
-		TagObject:            TagObject,
-		Commit:               Commit,
-		Tree:                 Tree,
-		SupportPackageSHA256: SupportPackageSHA256,
-		ManifestSHA256:       ManifestSHA256,
-		AssetCount:           AssetCount,
-		AssetBytes:           AssetBytes,
+		RoleAssetsVersion:  RoleAssetsVersion,
+		LegacyBatonVersion: LegacyBatonVersion,
+		ManifestSHA256:     ManifestSHA256,
+		AssetCount:         AssetCount,
+		AssetBytes:         AssetBytes,
 	}
 	got, err := pkg.Identity()
 	if err != nil {
@@ -40,39 +36,44 @@ func TestLoadAdmitsExactRC14(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(version) != PackageVersion+"\n" {
+	if string(version) != LegacyBatonVersion+"\n" {
 		t.Fatalf("VERSION = %q", version)
 	}
 	if _, err := pkg.ReadAsset("reference/board/presentation.mjs"); err != nil {
-		t.Fatal("RC14 board presentation dependency is absent:", err)
+		t.Fatal("legacy board presentation dependency is absent:", err)
 	}
 }
 
-func TestReleaseTagAndSnapshotSourceAreExactlyAndIndependentlyBound(t *testing.T) {
+// TestAdmissionNeverBindsAnExternalTagCommitOrSupportPackage guards A1 and A5:
+// admitting the embedded bundle must never require matching a separately
+// tagged, installed, or certified external Baton release. The absence of
+// these fields on releaseFile is itself part of the regression proof.
+func TestAdmissionNeverBindsAnExternalTagCommitOrSupportPackage(t *testing.T) {
 	t.Parallel()
 
-	if ReleaseCommit != Commit || ReleaseTree != Tree {
-		t.Fatal("RC14 tag and snapshot do not bind the tagged tree")
+	shape := reflect.TypeOf(releaseFile{})
+	for _, forbidden := range []string{"Tag", "TaggedBlobs", "GeneratedSupport"} {
+		if _, ok := shape.FieldByName(forbidden); ok {
+			t.Fatalf("releaseFile reintroduced external package field %q", forbidden)
+		}
 	}
-
 	release := readReleaseFile(t)
-	if release.Tag.PeeledCommit != ReleaseCommit ||
-		release.Tag.PeeledTree != ReleaseTree {
-		t.Fatal("release metadata does not preserve the RC14 annotated tag identity")
+	if release.Schema != RoleAssetsVersion {
+		t.Fatalf("release.Schema = %q, want a Sworn-owned role-assets identity", release.Schema)
 	}
-	if release.Snapshot.SourceCommit != Commit || release.Snapshot.SourceTree != Tree {
-		t.Fatal("release metadata does not bind the RC14 snapshot source")
-	}
+}
 
-	release.Tag.PeeledCommit = "other"
-	if err := validateReleaseIdentity(release); err == nil {
-		t.Fatal("release identity accepted a changed RC14 tag commit")
-	}
+func TestManifestIdentityBindsLegacyProvenanceNotAdmission(t *testing.T) {
+	t.Parallel()
 
 	manifest := readAssetManifest(t)
+	if manifest.Commit != LegacyBatonCommit {
+		t.Fatal("asset manifest does not preserve the legacy Baton source commit as provenance")
+	}
+
 	manifest.Commit = "other"
 	if err := validateManifestIdentity(manifest); err == nil {
-		t.Fatal("manifest identity accepted a changed RC14 snapshot commit")
+		t.Fatal("manifest identity accepted a changed legacy snapshot commit")
 	}
 }
 
@@ -92,7 +93,7 @@ func TestReadAssetReturnsIndependentBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(second) != PackageVersion+"\n" {
+	if string(second) != LegacyBatonVersion+"\n" {
 		t.Fatalf("mutating returned bytes changed the package: %q", second)
 	}
 	if _, err := pkg.ReadAsset("../release.json"); err == nil {
@@ -114,8 +115,8 @@ func TestValidatePackageRejectsMutations(t *testing.T) {
 			file := files["release.json"]
 			file.Data = bytes.Replace(
 				file.Data,
-				[]byte(TagObject),
-				[]byte("0000000000000000000000000000000000000000"),
+				[]byte(RoleAssetsVersion),
+				[]byte("sworn.role-assets/v9"),
 				1,
 			)
 		},
@@ -123,7 +124,7 @@ func TestValidatePackageRejectsMutations(t *testing.T) {
 			file := files["snapshot/manifest.json"]
 			file.Data = bytes.Replace(
 				file.Data,
-				[]byte(Commit),
+				[]byte(LegacyBatonCommit),
 				[]byte("0000000000000000000000000000000000000000"),
 				1,
 			)
@@ -209,27 +210,7 @@ func TestReleaseIdentityComparisonsAreIndependentlyEnforced(t *testing.T) {
 
 	tests := map[string]func(*releaseFile){
 		"schema":          func(value *releaseFile) { value.Schema = "other" },
-		"package version": func(value *releaseFile) { value.PackageVersion = "other" },
-		"tag name":        func(value *releaseFile) { value.Tag.Name = "other" },
-		"tag object":      func(value *releaseFile) { value.Tag.Object = "other" },
-		"tag type":        func(value *releaseFile) { value.Tag.ObjectType = "commit" },
-		"tag commit":      func(value *releaseFile) { value.Tag.PeeledCommit = "other" },
-		"tag tree":        func(value *releaseFile) { value.Tag.PeeledTree = "other" },
-		"support schema": func(value *releaseFile) {
-			value.GeneratedSupport.ManifestSchema = "other"
-		},
-		"support generator": func(value *releaseFile) {
-			value.GeneratedSupport.GeneratorVersion = "other"
-		},
-		"support operation": func(value *releaseFile) {
-			value.GeneratedSupport.OperationVersion = "other"
-		},
-		"support digest": func(value *releaseFile) {
-			value.GeneratedSupport.PackageDigest = "other"
-		},
 		"snapshot schema": func(value *releaseFile) { value.Snapshot.ManifestSchema = "other" },
-		"snapshot commit": func(value *releaseFile) { value.Snapshot.SourceCommit = "other" },
-		"snapshot tree":   func(value *releaseFile) { value.Snapshot.SourceTree = "other" },
 		"manifest digest": func(value *releaseFile) { value.Snapshot.ManifestSHA256 = "other" },
 		"asset count":     func(value *releaseFile) { value.Snapshot.AssetCount++ },
 		"asset bytes":     func(value *releaseFile) { value.Snapshot.TotalBytes++ },
@@ -289,6 +270,37 @@ func TestManifestAndReleaseBindingComparisonsAreIndependentlyEnforced(t *testing
 				t.Fatal("validateReleaseBindings accepted a changed binding")
 			}
 		})
+	}
+}
+
+// TestOperationEvolutionNeedsOnlyThisRepositorysOwnSourceAndAssets is the
+// acceptance-linked A5 proof. validateReleaseBindings computes its expected
+// per-operation digests from a Go literal in this package, not from a
+// separately installed, tagged, or certified external Baton release; the
+// admitted digest for an operation always equals the exact bytes shipped in
+// this same commit. Evolving an operation's wording is therefore an ordinary,
+// self-contained Sworn change (edit the .md file, this literal, and the
+// asset manifest together), never a cross-repository or tag lookup.
+func TestOperationEvolutionNeedsOnlyThisRepositorysOwnSourceAndAssets(t *testing.T) {
+	t.Parallel()
+
+	release := readReleaseFile(t)
+	manifest := readAssetManifest(t)
+	digests := make(map[string]string, len(manifest.Assets))
+	for _, asset := range manifest.Assets {
+		digests[asset.Path] = asset.SHA256
+	}
+	for _, operation := range release.Operations {
+		body, err := fs.ReadFile(embeddedPackage, "snapshot/assets/"+operation.Source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if digest(body) != operation.SHA256 || digests[operation.Source] != operation.SHA256 {
+			t.Fatalf("operation %q digest is not bound to this repository's own committed bytes", operation.Name)
+		}
+	}
+	if err := validateReleaseBindings(embeddedPackage, release, digests); err != nil {
+		t.Fatalf("validateReleaseBindings rejected this repository's own committed operations: %v", err)
 	}
 }
 

@@ -454,8 +454,8 @@ func TestEndpointBlocksSubmitUntilExactlyOneCompletedResult(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor, err := client.Describe()
-			if err != nil || descriptor.Package.Version != "1.0.0-rc.14" ||
-				descriptor.Package.SupportPackageSHA256 == "" {
+			if err != nil || descriptor.Package.Version != "sworn.role-assets/v1" ||
+				descriptor.Package.ManifestSHA256 == "" {
 				t.Fatalf("descriptor = %#v, error = %v", descriptor, err)
 			}
 			body, err := EncodeSubmission(

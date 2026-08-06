@@ -1,8 +1,8 @@
 # Start and operate Sworn
 
-This guide covers a current Sworn `1.0.0-rc.2` production run. Baton defines
-the handoffs and approvals; Sworn carries the work, saves progress, and stops
-when it cannot continue safely.
+This guide covers a current Sworn `1.0.0-rc.2` production run. Sworn owns the
+handoffs and approvals, carries the work, saves progress, and stops when it
+cannot continue safely.
 
 ## What you need
 
@@ -227,7 +227,7 @@ an answer grounded in saved facts, ask the Captain for advice, retry an
 operational failure, or park only that track for a human answer. Independent
 tracks can continue.
 
-The orchestrator is not a sixth Baton role. It cannot approve a plan, invent a
+The orchestrator is not a sixth role. It cannot approve a plan, invent a
 Captain decision or Verifier verdict, or merge code. When it parks a track, the
 browser board provides an answer form. The equivalent command is:
 
