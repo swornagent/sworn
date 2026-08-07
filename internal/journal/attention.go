@@ -22,6 +22,7 @@ const (
 	AttentionRetiredEvent  = "attention_retired"
 
 	attentionCommandVersion = "sworn.attention-command/v1"
+	HumanTurnBindingVersion = "sworn.human-turn-binding/v1"
 )
 
 type AttentionState string
@@ -37,9 +38,80 @@ const (
 // cycle, turn, progress point, and lane. Ordinal is supplied by the runtime;
 // neither content nor a process-local counter contributes to the identity.
 type AttentionBinding struct {
-	ID       string          `json:"attention_id"`
-	Ordinal  int64           `json:"ordinal"`
-	Recovery RecoveryBinding `json:"recovery"`
+	ID        string            `json:"attention_id"`
+	Ordinal   int64             `json:"ordinal"`
+	Recovery  RecoveryBinding   `json:"recovery"`
+	HumanTurn *HumanTurnBinding `json:"human_turn,omitempty"`
+}
+
+// HumanTurnBinding classifies an attention as a human-only turn and binds it
+// to one exact production dispatch. It deliberately contains no answer or
+// authority-bearing payload.
+type HumanTurnBinding struct {
+	SchemaVersion         string `json:"schema_version"`
+	Kind                  string `json:"kind"`
+	RunID                 string `json:"run_id"`
+	Track                 string `json:"track"`
+	Slice                 string `json:"slice"`
+	Role                  string `json:"role"`
+	Responsibility        string `json:"responsibility"`
+	InvocationID          string `json:"invocation_id"`
+	BatonAttempt          int64  `json:"baton_attempt"`
+	PlanAuthorityDigest   string `json:"plan_authority_digest"`
+	TargetAuthorityDigest string `json:"target_authority_digest"`
+	WorkIdentity          string `json:"work_identity"`
+	CycleID               string `json:"cycle_id"`
+	TurnID                string `json:"turn_id"`
+	Ordinal               int64  `json:"ordinal"`
+	OpenGeneration        int64  `json:"open_generation"`
+}
+
+func equalAttentionBinding(left, right AttentionBinding) bool {
+	if left.ID != right.ID || left.Ordinal != right.Ordinal ||
+		left.Recovery != right.Recovery ||
+		(left.HumanTurn == nil) != (right.HumanTurn == nil) {
+		return false
+	}
+	return left.HumanTurn == nil || *left.HumanTurn == *right.HumanTurn
+}
+
+func validHumanTurnBinding(
+	value *HumanTurnBinding,
+	attention AttentionBinding,
+	runID string,
+) error {
+	if value == nil {
+		return nil
+	}
+	validRole := value.Role == "planner" || value.Role == "implementer" ||
+		value.Role == "captain" || value.Role == "verifier"
+	validResponsibility := value.Responsibility == "planner_proposal" ||
+		value.Responsibility == "implementer_design" ||
+		value.Responsibility == "implementer_implementation" ||
+		value.Responsibility == "captain_review" ||
+		value.Responsibility == "captain_plan_review" ||
+		value.Responsibility == "work_verification" ||
+		value.Responsibility == "assembly_verification"
+	if value.SchemaVersion != HumanTurnBindingVersion ||
+		(value.Kind != "human_choice" &&
+			value.Kind != "human_confirmation") ||
+		value.RunID != runID || value.RunID == "" ||
+		value.Track == "" || value.Slice == "" ||
+		!validRole || !validResponsibility ||
+		strings.TrimSpace(value.InvocationID) == "" ||
+		strings.ContainsRune(value.InvocationID, 0) ||
+		value.BatonAttempt < 1 ||
+		validateDigest(value.PlanAuthorityDigest) != nil ||
+		validateDigest(value.TargetAuthorityDigest) != nil ||
+		validateDigest(value.WorkIdentity) != nil ||
+		value.WorkIdentity != attention.Recovery.ProgressID ||
+		value.CycleID != attention.Recovery.CycleID ||
+		value.TurnID != attention.Recovery.TurnID ||
+		value.Ordinal != attention.Ordinal ||
+		value.OpenGeneration != 1 {
+		return fail("INVALID_ATTENTION_BINDING", nil)
+	}
+	return nil
 }
 
 type OpenAttentionCommand struct {
@@ -149,6 +221,13 @@ func validateAttentionRecord(value attentionCommandRecord) error {
 		return err
 	}
 	if err := validAttentionBinding(value.Attention); err != nil {
+		return err
+	}
+	if err := validHumanTurnBinding(
+		value.Attention.HumanTurn,
+		value.Attention,
+		value.RunID,
+	); err != nil {
 		return err
 	}
 	switch value.Kind {
@@ -284,7 +363,10 @@ func foldAttentionRecords(
 		})
 		projection := AttentionProjection{Attention: commands[0].Attention}
 		for _, command := range commands {
-			if command.Attention != projection.Attention ||
+			if !equalAttentionBinding(
+				command.Attention,
+				projection.Attention,
+			) ||
 				command.ExpectedGeneration != projection.Generation {
 				return nil, fail("CORRUPT_JOURNAL", nil)
 			}
@@ -391,7 +473,7 @@ func applyAttentionOnConnection(
 	}
 	if replayed {
 		if json.Unmarshal(result, &receipt) != nil ||
-			receipt.Attention != record.Attention ||
+			!equalAttentionBinding(receipt.Attention, record.Attention) ||
 			receipt.Generation != record.ExpectedGeneration+1 {
 			return AttentionReceipt{}, fail("CORRUPT_JOURNAL", nil)
 		}
@@ -423,7 +505,7 @@ func applyAttentionOnConnection(
 	if !found {
 		current = AttentionProjection{Attention: record.Attention}
 	}
-	if current.Attention != record.Attention ||
+	if !equalAttentionBinding(current.Attention, record.Attention) ||
 		current.Generation != record.ExpectedGeneration {
 		return AttentionReceipt{},
 			fail("STALE_ATTENTION_GENERATION", nil)

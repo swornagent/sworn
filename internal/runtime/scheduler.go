@@ -3206,6 +3206,59 @@ func (s *Service) prepareProductionImplementationCandidate(
 	return record, preparedClaim, nil
 }
 
+func (s *Service) claimedPreparedImplementation(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	cycle implementationCycle,
+) (sealedRecord, journal.Claim, bool, error) {
+	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, false,
+			runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	var prepared journal.Effect
+	var command journal.Command
+	effectFound := false
+	commandFound := false
+	for _, effect := range snapshot.Effects {
+		if effect.ID != cycle.PreparedEffect {
+			continue
+		}
+		if effectFound {
+			return sealedRecord{}, journal.Claim{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		prepared, effectFound = effect, true
+	}
+	for _, candidate := range snapshot.Commands {
+		if candidate.ReplayKey != cycle.PreparedEffect {
+			continue
+		}
+		if commandFound {
+			return sealedRecord{}, journal.Claim{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		command, commandFound = candidate, true
+	}
+	if !effectFound && !commandFound {
+		return sealedRecord{}, journal.Claim{}, false, nil
+	}
+	if !effectFound || !commandFound ||
+		prepared.State != journal.Claimed ||
+		prepared.CurrentClaim == "" {
+		return sealedRecord{}, journal.Claim{}, false,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	record, err := validatePreparedSealEnvelope(command, prepared, cycle)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, false, err
+	}
+	return record, journal.Claim{
+		RunID: owner.RunID, EffectID: prepared.ID,
+		Token: prepared.CurrentClaim,
+	}, true, nil
+}
+
 func (s *Service) runProductionImplementationDispatch(
 	ctx context.Context,
 	engine *engine,
@@ -3236,6 +3289,17 @@ func (s *Service) runProductionImplementationDispatch(
 		cycle.Before,
 		owner,
 		func(submission driver.Submission) error {
+			var found bool
+			var loadErr error
+			record, preparedClaim, found, loadErr =
+				s.claimedPreparedImplementation(
+					ctx,
+					owner,
+					cycle,
+				)
+			if loadErr != nil || found {
+				return loadErr
+			}
 			var prepareErr error
 			record, preparedClaim, prepareErr =
 				s.prepareProductionImplementationCandidate(
@@ -3253,53 +3317,15 @@ func (s *Service) runProductionImplementationDispatch(
 		return sealedRecord{}, journal.Claim{}, err
 	}
 	if preparedClaim.Token == "" {
-		snapshot, snapshotErr := s.journal.Snapshot(ctx, owner.RunID)
-		if snapshotErr != nil {
-			return sealedRecord{}, journal.Claim{},
-				runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		var found bool
+		record, preparedClaim, found, err =
+			s.claimedPreparedImplementation(ctx, owner, cycle)
+		if err != nil {
+			return sealedRecord{}, journal.Claim{}, err
 		}
-		var prepared journal.Effect
-		var command journal.Command
-		effectFound := false
-		commandFound := false
-		for _, effect := range snapshot.Effects {
-			if effect.ID != cycle.PreparedEffect {
-				continue
-			}
-			if effectFound {
-				return sealedRecord{}, journal.Claim{},
-					runtimeFail("CORRUPT_JOURNAL", nil)
-			}
-			prepared, effectFound = effect, true
-		}
-		for _, candidate := range snapshot.Commands {
-			if candidate.ReplayKey != cycle.PreparedEffect {
-				continue
-			}
-			if commandFound {
-				return sealedRecord{}, journal.Claim{},
-					runtimeFail("CORRUPT_JOURNAL", nil)
-			}
-			command, commandFound = candidate, true
-		}
-		if !effectFound || !commandFound ||
-			prepared.State != journal.Claimed ||
-			prepared.CurrentClaim == "" {
+		if !found {
 			return sealedRecord{}, journal.Claim{},
 				runtimeFail("CORRUPT_JOURNAL", nil)
-		}
-		record, snapshotErr = validatePreparedSealEnvelope(
-			command,
-			prepared,
-			cycle,
-		)
-		if snapshotErr != nil {
-			return sealedRecord{}, journal.Claim{}, snapshotErr
-		}
-		preparedClaim = journal.Claim{
-			RunID:    owner.RunID,
-			EffectID: prepared.ID,
-			Token:    prepared.CurrentClaim,
 		}
 	}
 	if preparedClaim.Token == "" ||
@@ -4557,6 +4583,11 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
 	if err != nil {
 		return true, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if recovered, err := s.recoverHumanParkCheckpoint(
+		ctx, engine, owner, snapshot,
+	); recovered || err != nil {
+		return recovered, err
 	}
 	attentions, err := s.journal.Attentions(ctx, owner.RunID)
 	if err != nil {

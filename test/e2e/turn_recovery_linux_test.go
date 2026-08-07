@@ -35,9 +35,13 @@ type recoveryE2EProvider struct {
 	t         *testing.T
 	planBytes []byte
 	recover   bool
+	human     bool
+	question  string
+	answer    string
 
-	mu    sync.Mutex
-	turns map[string]int
+	mu              sync.Mutex
+	turns           map[string]int
+	automationCalls int
 }
 
 type recoveryE2EModelPrompt struct {
@@ -118,6 +122,9 @@ func (provider *recoveryE2EProvider) serve(
 		turn := provider.nextTurn(invocationID)
 		toolName, arguments, err = provider.workerResponse(prompt, turn)
 	case "sworn.automation-prompt/v1":
+		provider.mu.Lock()
+		provider.automationCalls++
+		provider.mu.Unlock()
 		var prompt recoveryE2EAutomationPrompt
 		if err := json.Unmarshal([]byte(promptBody), &prompt); err != nil ||
 			prompt.Operation != "recovery" ||
@@ -227,15 +234,23 @@ func (provider *recoveryE2EProvider) workerResponse(
 	}
 	switch {
 	case turn == 1 && prompt.Recovery == nil:
+		kind := driver.YieldQuestion
+		if provider.human {
+			kind = driver.YieldHumanConfirmation
+		}
+		question := provider.question
+		if question == "" {
+			question = "Which exact approved value should I use?"
+		}
 		return "sworn_yield", map[string]any{"yield": map[string]any{
 			"schema_version": driver.YieldSchemaVersion,
 			"invocation_id":  prompt.InvocationID,
-			"kind":           driver.YieldQuestion,
-			"message":        "Which exact approved value should I use?",
+			"kind":           kind,
+			"message":        question,
 		}}, nil
 	case prompt.Recovery == nil ||
 		prompt.Recovery.Kind != driver.RecoverableInputAnswer ||
-		prompt.Recovery.Content != recoveryE2EAnswer:
+		prompt.Recovery.Content != provider.expectedAnswer():
 		return "", nil, fmt.Errorf(
 			"invalid implementation recovery turn=%d recovery=%#v",
 			turn,
@@ -246,12 +261,19 @@ func (provider *recoveryE2EProvider) workerResponse(
 			"path":    "/workspace/one.txt",
 			"content": recoveryE2EContent,
 		}, nil
-	case turn == 3:
+	case turn == 3 || provider.human && turn > 3:
 		arguments, err := provider.submissionArguments(prompt)
 		return "sworn_submit", arguments, err
 	default:
 		return "", nil, fmt.Errorf("implementation turn=%d", turn)
 	}
+}
+
+func (provider *recoveryE2EProvider) expectedAnswer() string {
+	if provider.answer != "" {
+		return provider.answer
+	}
+	return recoveryE2EAnswer
 }
 
 func (provider *recoveryE2EProvider) submissionArguments(
@@ -602,6 +624,498 @@ func runDirectTurnRecoveryBaseline(
 		productTree:    runGit(t, repository, "rev-parse", "main^{tree}"),
 		productContent: productContent,
 	}
+}
+
+func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
+	t *testing.T,
+) {
+	const (
+		runID          = "human-only-turn"
+		questionCanary = "HUMAN-QUESTION-CANARY-7f6f"
+		answerCanary   = "HUMAN-ANSWER-CANARY-approval-receipt-code"
+	)
+	repository := newProductRepository(t)
+	planBytes, plan := recoveryE2EPlan(t)
+	provider := &recoveryE2EProvider{
+		t: t, planBytes: planBytes, recover: true, human: true,
+		question: questionCanary, answer: answerCanary,
+		turns: make(map[string]int),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := recoveryE2EConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeManifest(
+		t,
+		root,
+		recoveryE2EManifest(t, runID, repository, loaded),
+	)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	environment := map[string]string{
+		"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret,
+	}
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath,
+		"--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" ||
+		!strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("human start stdout=%q stderr=%q", stdout, stderr)
+	}
+	authorizePlan(t, journalPath, runID, plan)
+	installApprovedPlan(t, repository, planBytes)
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"resume", "--run", runID, "--journal", journalPath,
+		"--command", "human-resume-1", "--generation", "0",
+		"--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("human park stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	boardBody, boardErr := runBinary(
+		t, swornBinary, 0,
+		"board", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if boardErr != "" || json.Unmarshal([]byte(boardBody), &board) != nil ||
+		len(board.Runtime.Attentions) != 1 {
+		t.Fatalf("human board body=%q stderr=%q", boardBody, boardErr)
+	}
+	attention := board.Runtime.Attentions[0]
+	if attention.State != "open" || attention.Generation != 1 ||
+		attention.Question != questionCanary || attention.HumanTurn == nil ||
+		attention.HumanTurn.Kind != string(driver.YieldHumanConfirmation) ||
+		attention.HumanTurn.RunID != runID ||
+		attention.HumanTurn.Track != "T1" ||
+		attention.HumanTurn.Slice != "S1" ||
+		attention.HumanTurn.Role != string(driver.RoleImplementer) ||
+		attention.HumanTurn.Responsibility !=
+			string(driver.ImplementerImplementation) ||
+		attention.HumanTurn.OpenGeneration != 1 {
+		t.Fatalf("human attention=%#v", attention)
+	}
+	var answerActions int
+	for _, action := range board.Actions {
+		if action.Kind != "answer_attention" {
+			continue
+		}
+		answerActions++
+		if action.RunID != runID || action.AttentionID != attention.ID ||
+			action.ExpectedGeneration != attention.Generation {
+			t.Fatalf("human answer action=%#v", action)
+		}
+	}
+	provider.mu.Lock()
+	automationCalls := provider.automationCalls
+	provider.mu.Unlock()
+	if answerActions != 1 || automationCalls != 0 {
+		t.Fatalf("answer actions=%d automation calls=%d", answerActions, automationCalls)
+	}
+
+	beforeAnswer := readBatonState(t, repository, "turn-recovery-release")
+	targetBefore := runGit(t, repository, "rev-parse", "main")
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"answer", "--run", runID, "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1",
+		"--answer", answerCanary, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("human answer stdout=%q stderr=%q", stdout, stderr)
+	}
+	finalState := readBatonState(t, repository, "turn-recovery-release")
+	if beforeAnswer.Plan.OID != finalState.Plan.OID ||
+		finalState.Assembly.Outcome != "merged" ||
+		runGit(t, repository, "rev-parse", "main") == targetBefore ||
+		runGit(t, repository, "show", "main:one.txt") !=
+			strings.TrimSuffix(recoveryE2EContent, "\n") {
+		t.Fatalf("human final state=%#v", finalState.Assembly)
+	}
+
+	ctx := context.Background()
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	snapshot, err := store.Snapshot(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opens, answers, resolves, terminalSubmissions int
+	for _, command := range snapshot.Commands {
+		switch command.Kind {
+		case "attention.open":
+			opens++
+		case "attention.answer":
+			answers++
+		case "attention.resolve":
+			resolves++
+		}
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "driver.dispatch" &&
+			effect.State == journal.Succeeded &&
+			strings.Contains(string(effect.Result),
+				`"responsibility":"implementer_implementation"`) {
+			terminalSubmissions++
+		}
+	}
+	for _, event := range snapshot.Events {
+		if strings.Contains(string(event.Body), questionCanary) ||
+			strings.Contains(string(event.Body), answerCanary) {
+			t.Fatalf("human content escaped into event %q", event.Kind)
+		}
+	}
+	var evaluationFacts []journal.EvaluationFact
+	_, err = store.VisitEvaluation(
+		ctx,
+		runID,
+		func(fact journal.EvaluationFact) {
+			evaluationFacts = append(evaluationFacts, fact)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluationBody, _ := json.Marshal(evaluationFacts)
+	if strings.Contains(string(evaluationBody), questionCanary) ||
+		strings.Contains(string(evaluationBody), answerCanary) {
+		t.Fatal("human content escaped into evaluation observation")
+	}
+	observation, err := store.ReadObservation(
+		ctx,
+		runID,
+		journal.MaxObservationAttempts,
+		journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notificationBody, _ := json.Marshal(observation.Notifications)
+	if strings.Contains(string(notificationBody), questionCanary) ||
+		strings.Contains(string(notificationBody), answerCanary) {
+		t.Fatal("human content escaped into notification observation")
+	}
+
+	statusReader, err := swornruntime.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(e2eGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector, err := cockpit.NewProjector(store, statusReader, stateReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := observe.NewEvaluator(store, projector, "1.0.0-rc.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(ctx, runID)
+	if err != nil || !changed {
+		t.Fatalf("human eval changed=%t error=%v", changed, err)
+	}
+	recordBody, _ := json.Marshal(record)
+	if strings.Contains(string(recordBody), questionCanary) ||
+		strings.Contains(string(recordBody), answerCanary) {
+		t.Fatal("human content escaped into telemetry record")
+	}
+
+	var captureMu sync.Mutex
+	var capturedOTLP [][]byte
+	otlpServer := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		defer request.Body.Close()
+		body, readErr := io.ReadAll(request.Body)
+		if readErr != nil {
+			t.Errorf("read OTLP body: %v", readErr)
+		}
+		captureMu.Lock()
+		capturedOTLP = append(capturedOTLP, body)
+		captureMu.Unlock()
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer otlpServer.Close()
+	telemetry, err := observe.NewOTLP(
+		ctx,
+		observe.Config{
+			SchemaVersion: observe.OTelConfigSchemaVersion,
+			Endpoint:      otlpServer.URL,
+			Headers:       map[string]string{},
+		},
+		"1.0.0-rc.2",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !telemetry.TryEnqueue(record) {
+		t.Fatal("human telemetry record was not accepted")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for telemetry.Status().Processed < 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if telemetry.Status().Processed != 1 {
+		t.Fatalf("human telemetry status=%#v", telemetry.Status())
+	}
+	shutdownCtx, cancelShutdown := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelShutdown()
+	if err := telemetry.Shutdown(shutdownCtx); err != nil {
+		t.Fatal(err)
+	}
+	captureMu.Lock()
+	gotOTLP := append([][]byte(nil), capturedOTLP...)
+	captureMu.Unlock()
+	if len(gotOTLP) != 2 {
+		t.Fatalf("captured OTLP requests=%d", len(gotOTLP))
+	}
+	for _, body := range gotOTLP {
+		if strings.Contains(string(body), questionCanary) ||
+			strings.Contains(string(body), answerCanary) {
+			t.Fatal("human content escaped into captured OTLP payload")
+		}
+	}
+	if opens != 1 || answers != 1 || resolves != 1 ||
+		terminalSubmissions != 1 {
+		t.Fatalf(
+			"open=%d answer=%d resolve=%d terminal=%d",
+			opens, answers, resolves, terminalSubmissions,
+		)
+	}
+}
+
+func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
+	t *testing.T,
+) {
+	buildRoot := t.TempDir()
+	normalBinary := filepath.Join(buildRoot, "sworn-normal")
+	buildBinary(t, normalBinary, "./cmd/sworn", "")
+	crashBinary := filepath.Join(buildRoot, "sworn-human-crash")
+	buildBinary(
+		t,
+		crashBinary,
+		"./cmd/sworn",
+		"-X=github.com/swornagent/sworn/internal/runtime.testHumanTurnCrash="+
+			"environment"+
+			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=300",
+	)
+	cuts := []string{
+		"before_park_commit",
+		"after_park_commit",
+		"after_answer_commit",
+		"after_owner_wake",
+		"after_continuation_rehydration",
+		"after_terminal_handoff",
+		"after_terminal_completion",
+	}
+	var cases sync.WaitGroup
+	for index, cut := range cuts {
+		index, cut := index, cut
+		cases.Add(1)
+		go func() {
+			defer cases.Done()
+			t.Run(cut, func(t *testing.T) {
+				runID := fmt.Sprintf("human-crash-%d", index+1)
+				repository := newProductRepository(t)
+				planBytes, plan := recoveryE2EPlan(t)
+				question := "QUESTION-CANARY-" + cut
+				answer := "ANSWER-CANARY-" + cut
+				provider := &recoveryE2EProvider{
+					t: t, planBytes: planBytes, recover: true, human: true,
+					question: question, answer: answer,
+					turns: make(map[string]int),
+				}
+				providerHTTP := httptest.NewServer(
+					http.HandlerFunc(provider.serve),
+				)
+				defer providerHTTP.Close()
+				root := t.TempDir()
+				configBody, loaded := recoveryE2EConfig(t, providerHTTP.URL)
+				configPath := filepath.Join(root, "drivers.json")
+				if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				manifestPath := writeManifest(
+					t,
+					root,
+					recoveryE2EManifest(t, runID, repository, loaded),
+				)
+				journalPath := filepath.Join(root, "run.sqlite")
+				environment := map[string]string{
+					"SWORN_TURN_RECOVERY_KEY":     recoveryE2ESecret,
+					"SWORN_TEST_HUMAN_TURN_CRASH": cut,
+				}
+				runBinaryWithEnvironment(
+					t, normalBinary, 0, environment,
+					"run", "--manifest", manifestPath,
+					"--journal", journalPath, "--config", configPath,
+				)
+				authorizePlan(t, journalPath, runID, plan)
+				installApprovedPlan(t, repository, planBytes)
+
+				crashDuringPark := cut == "before_park_commit" ||
+					cut == "after_park_commit"
+				if crashDuringPark {
+					runBinaryWithEnvironment(
+						t, crashBinary, 86, environment,
+						"resume", "--run", runID, "--journal", journalPath,
+						"--command", "resume-crash", "--generation", "0",
+						"--config", configPath,
+					)
+				} else {
+					stdout, stderr := runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"resume", "--run", runID, "--journal", journalPath,
+						"--command", "resume-park", "--generation", "0",
+						"--config", configPath,
+					)
+					if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+						t.Fatalf("pre-crash park stdout=%q stderr=%q", stdout, stderr)
+					}
+					boardBody, boardErr := runBinary(
+						t, normalBinary, 0,
+						"board", "--run", runID,
+						"--journal", journalPath, "--json",
+					)
+					var board cockpit.Snapshot
+					if boardErr != "" ||
+						json.Unmarshal([]byte(boardBody), &board) != nil ||
+						len(board.Runtime.Attentions) != 1 {
+						t.Fatalf("pre-crash board=%q stderr=%q", boardBody, boardErr)
+					}
+					runBinaryWithEnvironment(
+						t, crashBinary, 86, environment,
+						"answer", "--run", runID, "--journal", journalPath,
+						"--attention", board.Runtime.Attentions[0].ID,
+						"--generation", "1", "--answer", answer,
+						"--config", configPath,
+					)
+				}
+
+				if cut == "after_answer_commit" {
+					boardBody, _ := runBinary(
+						t, normalBinary, 0,
+						"board", "--run", runID,
+						"--journal", journalPath, "--json",
+					)
+					var board cockpit.Snapshot
+					if json.Unmarshal([]byte(boardBody), &board) != nil ||
+						len(board.Runtime.Attentions) != 1 {
+						t.Fatalf("answered board=%q", boardBody)
+					}
+					stdout, stderr := runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"answer", "--run", runID, "--journal", journalPath,
+						"--attention", board.Runtime.Attentions[0].ID,
+						"--generation", "1", "--answer", answer,
+						"--config", configPath,
+					)
+					if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+						t.Fatalf("answer replay stdout=%q stderr=%q", stdout, stderr)
+					}
+				} else {
+					time.Sleep(450 * time.Millisecond)
+					boardBody, boardErr := runBinary(
+						t, normalBinary, 0,
+						"board", "--run", runID,
+						"--journal", journalPath, "--json",
+					)
+					var board cockpit.Snapshot
+					if boardErr != "" ||
+						json.Unmarshal([]byte(boardBody), &board) != nil {
+						t.Fatalf("recovery board=%q stderr=%q", boardBody, boardErr)
+					}
+					stdout, stderr := runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"takeover", "--run", runID, "--journal", journalPath,
+						"--command", "takeover-after-crash",
+						"--generation", fmt.Sprint(board.Run.ControlGeneration),
+						"--config", configPath,
+					)
+					if crashDuringPark {
+						if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+							t.Fatalf("park takeover stdout=%q stderr=%q", stdout, stderr)
+						}
+						boardBody, _ = runBinary(
+							t, normalBinary, 0,
+							"board", "--run", runID,
+							"--journal", journalPath, "--json",
+						)
+						if json.Unmarshal([]byte(boardBody), &board) != nil ||
+							len(board.Runtime.Attentions) != 1 {
+							t.Fatalf("parked recovery board=%q", boardBody)
+						}
+						stdout, stderr = runBinaryWithEnvironment(
+							t, normalBinary, 0, environment,
+							"answer", "--run", runID,
+							"--journal", journalPath,
+							"--attention", board.Runtime.Attentions[0].ID,
+							"--generation", "1", "--answer", answer,
+							"--config", configPath,
+						)
+					}
+					if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+						t.Fatalf("crash recovery stdout=%q stderr=%q", stdout, stderr)
+					}
+				}
+
+				store, err := journal.OpenReadOnly(
+					context.Background(),
+					journalPath,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot, err := store.Snapshot(context.Background(), runID)
+				_ = store.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				var opens, answers, resolves, terminal int
+				for _, command := range snapshot.Commands {
+					switch command.Kind {
+					case "attention.open":
+						opens++
+					case "attention.answer":
+						answers++
+					case "attention.resolve":
+						resolves++
+					}
+				}
+				for _, effect := range snapshot.Effects {
+					if effect.Kind == "driver.dispatch" &&
+						effect.State == journal.Succeeded &&
+						strings.Contains(string(effect.Result),
+							`"responsibility":"implementer_implementation"`) {
+						terminal++
+					}
+				}
+				if opens != 1 || answers != 1 || resolves != 1 || terminal != 1 {
+					t.Fatalf(
+						"cut=%s open=%d answer=%d resolve=%d terminal=%d",
+						cut, opens, answers, resolves, terminal,
+					)
+				}
+			})
+		}()
+	}
+	cases.Wait()
 }
 
 func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(

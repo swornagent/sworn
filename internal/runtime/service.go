@@ -25,6 +25,7 @@ const effectLease = 5 * time.Minute
 var (
 	testCrashBeforeEffect string
 	testCrashAfterEffect  string
+	testHumanTurnCrash    string
 	testCaptainCrashCut   string
 	testOwnerLeaseMillis  string
 )
@@ -973,7 +974,11 @@ func (s *Service) AnswerAttention(
 		command.ExpectedGeneration != 1 {
 		return RunStatus{}, runtimeFail("INVALID_ATTENTION_COMMAND", nil)
 	}
-	manifest, _, err := s.loadRun(ctx, command.RunID)
+	snapshot, err := s.journal.Snapshot(ctx, command.RunID)
+	if err != nil {
+		return RunStatus{}, runtimeFail("RUN_NOT_FOUND", err)
+	}
+	manifest, _, err := loadRunSnapshot(snapshot, command.RunID)
 	if err != nil {
 		return RunStatus{}, err
 	}
@@ -988,6 +993,14 @@ func (s *Service) AnswerAttention(
 	if err != nil {
 		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
 	}
+	if err := validateHumanTurnAnswerAdmission(
+		snapshot,
+		manifest,
+		attention,
+		command.Answer,
+	); err != nil {
+		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
 	if _, err := s.journal.AnswerAttention(
 		ctx,
 		journal.AnswerAttentionCommand{
@@ -999,6 +1012,9 @@ func (s *Service) AnswerAttention(
 		s.now().UTC(),
 	); err != nil {
 		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	if attention.Attention.HumanTurn != nil {
+		crashHumanTurnBarrier("after_answer_commit")
 	}
 	control, err := s.journal.ControlProjection(ctx, command.RunID)
 	if err != nil {
@@ -1054,6 +1070,9 @@ func (s *Service) AnswerAttention(
 	}
 	if err != nil {
 		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	if attention.Attention.HumanTurn != nil {
+		crashHumanTurnBarrier("after_owner_wake")
 	}
 	return s.driveOwned(ctx, command.RunID, owner)
 }

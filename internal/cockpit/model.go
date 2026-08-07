@@ -96,12 +96,32 @@ type RuntimeView struct {
 }
 
 type AttentionView struct {
-	ID         string `json:"id"`
-	LaneID     string `json:"lane_id"`
-	State      string `json:"state"`
-	Generation int64  `json:"generation"`
-	Question   string `json:"question"`
-	Answer     string `json:"answer,omitempty"`
+	ID         string              `json:"id"`
+	LaneID     string              `json:"lane_id"`
+	State      string              `json:"state"`
+	Generation int64               `json:"generation"`
+	Question   string              `json:"question"`
+	Answer     string              `json:"answer,omitempty"`
+	HumanTurn  *HumanAttentionView `json:"human_turn,omitempty"`
+}
+
+type HumanAttentionView struct {
+	SchemaVersion         string `json:"schema_version"`
+	Kind                  string `json:"kind"`
+	RunID                 string `json:"run_id"`
+	Track                 string `json:"track"`
+	Slice                 string `json:"slice"`
+	Role                  string `json:"role"`
+	Responsibility        string `json:"responsibility"`
+	InvocationID          string `json:"invocation_id"`
+	BatonAttempt          int64  `json:"baton_attempt"`
+	PlanAuthorityDigest   string `json:"plan_authority_digest"`
+	TargetAuthorityDigest string `json:"target_authority_digest"`
+	WorkIdentity          string `json:"work_identity"`
+	CycleID               string `json:"cycle_id"`
+	TurnID                string `json:"turn_id"`
+	Ordinal               int64  `json:"ordinal"`
+	OpenGeneration        int64  `json:"open_generation"`
 }
 
 type OwnerView struct {
@@ -153,6 +173,7 @@ type Evidence struct {
 
 type Action struct {
 	Kind               string                      `json:"kind"`
+	RunID              string                      `json:"run_id,omitempty"`
 	ExpectedGeneration int64                       `json:"expected_generation"`
 	AttentionID        string                      `json:"attention_id,omitempty"`
 	WorkID             string                      `json:"work_id,omitempty"`

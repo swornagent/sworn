@@ -67,6 +67,7 @@ type httpFakeCommands struct {
 	startCalls   int
 	controlCalls int
 	answerCalls  int
+	answer       AnswerAttentionCommand
 	redeliveries int
 	approveCalls int
 	captainCalls int
@@ -120,12 +121,13 @@ func (f *httpFakeCommands) Redeliver(
 }
 
 func (f *httpFakeCommands) AnswerAttention(
-	context.Context,
-	AnswerAttentionCommand,
+	_ context.Context,
+	command AnswerAttentionCommand,
 ) (runtimepkg.RunStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answerCalls++
+	f.answer = command
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
@@ -144,7 +146,7 @@ func (f *httpFakeCommands) Approve(
 
 func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 	t.Parallel()
-	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	handler, projector, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
 	call := func(body string, remote string) *httptest.ResponseRecorder {
 		request := httpRequest(
 			http.MethodPost, testLocalOrigin+"/mcp", remote, []byte(body),
@@ -160,8 +162,62 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), mcpApprovalTool) ||
 		!strings.Contains(listed.Body.String(), mcpCaptainDelegationTool) ||
 		!strings.Contains(listed.Body.String(), mcpStartDelegatedTool) ||
+		!strings.Contains(listed.Body.String(), mcpAttentionsTool) ||
+		!strings.Contains(listed.Body.String(), mcpAnswerAttentionTool) ||
 		!strings.Contains(listed.Body.String(), `"additionalProperties":false`) {
 		t.Fatalf("tools/list = %d %s", listed.Code, listed.Body.String())
+	}
+	projector.snapshot.Runtime.Attentions = []AttentionView{{
+		ID: "attention-1", LaneID: "T1", State: "open", Generation: 1,
+		Question: "human-question-canary",
+		HumanTurn: &HumanAttentionView{
+			SchemaVersion:         "sworn.human-turn-binding/v1",
+			Kind:                  "human_confirmation",
+			RunID:                 "run-1",
+			Track:                 "T1",
+			Slice:                 "S1",
+			Role:                  "implementer",
+			Responsibility:        "implementer_implementation",
+			InvocationID:          "run-1/S1/implementer_implementation/1/1/1",
+			BatonAttempt:          1,
+			PlanAuthorityDigest:   "sha256:" + strings.Repeat("1", 64),
+			TargetAuthorityDigest: "sha256:" + strings.Repeat("2", 64),
+			WorkIdentity:          "sha256:" + strings.Repeat("3", 64),
+			CycleID:               "sha256:" + strings.Repeat("4", 64),
+			TurnID:                "sha256:" + strings.Repeat("5", 64),
+			Ordinal:               1,
+			OpenGeneration:        1,
+		},
+	}}
+	projector.snapshot.Actions = append(
+		projector.snapshot.Actions,
+		Action{
+			Kind: "answer_attention", RunID: "run-1",
+			AttentionID: "attention-1", ExpectedGeneration: 1,
+		},
+	)
+	attentionCall := call(`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"sworn_attentions","arguments":{}}}`, "127.0.0.1:41100")
+	if attentionCall.Code != http.StatusOK ||
+		!strings.Contains(attentionCall.Body.String(), "human-question-canary") ||
+		!strings.Contains(attentionCall.Body.String(), `"kind":"answer_attention"`) ||
+		!strings.Contains(attentionCall.Body.String(), `"run_id":"run-1"`) {
+		t.Fatalf("attention read = %d %s", attentionCall.Code, attentionCall.Body.String())
+	}
+	answerCommand := AnswerAttentionCommand{
+		RunID: "run-1", AttentionID: "attention-1",
+		ExpectedGeneration: 1, Answer: "human-answer-canary",
+	}
+	answerBody, _ := json.Marshal(answerCommand)
+	answerCallBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 21, "method": "tools/call",
+		"params": map[string]any{
+			"name": mcpAnswerAttentionTool, "arguments": json.RawMessage(answerBody),
+		},
+	})
+	answerCall := call(string(answerCallBody), "127.0.0.1:41100")
+	if answerCall.Code != http.StatusOK || commands.answerCalls != 1 ||
+		!reflect.DeepEqual(commands.answer, answerCommand) {
+		t.Fatalf("attention answer = %d calls=%d command=%#v body=%s", answerCall.Code, commands.answerCalls, commands.answer, answerCall.Body.String())
 	}
 	arguments := runtimepkg.ApprovalCommand{
 		SchemaVersion: runtimepkg.ApprovalCommandVersion,

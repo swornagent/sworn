@@ -1454,6 +1454,193 @@ func (s *Service) persistedDriverCommand(
 	return *found, true, nil
 }
 
+const humanHandoffCheckpointVersion = "sworn.human-handoff-checkpoint/v1"
+
+type humanHandoffCheckpoint struct {
+	SchemaVersion       string                   `json:"schema_version"`
+	ParentEffect        string                   `json:"parent_effect"`
+	AttentionID         string                   `json:"attention_id"`
+	AttentionGeneration int64                    `json:"attention_generation"`
+	AnswerDigest        string                   `json:"answer_digest"`
+	HumanTurn           journal.HumanTurnBinding `json:"human_turn"`
+	Observation         driver.Observation       `json:"observation"`
+}
+
+func humanHandoffCheckpointID(parentEffect string) string {
+	return parentEffect + "/human-handoff"
+}
+
+func expectedHumanHandoffCheckpoint(
+	parentEffect string,
+	attention journal.AttentionProjection,
+	observation driver.Observation,
+) (humanHandoffCheckpoint, error) {
+	if attention.Attention.HumanTurn == nil ||
+		attention.State != journal.AttentionAnswered ||
+		attention.Generation != 2 || observation.Handoff == nil ||
+		observation.Yield != nil ||
+		driver.Digest(observation.Handoff.SubmissionBytes) !=
+			observation.Handoff.SubmissionDigest {
+		return humanHandoffCheckpoint{},
+			runtimeFail("INVALID_HUMAN_HANDOFF", nil)
+	}
+	return humanHandoffCheckpoint{
+		SchemaVersion:       humanHandoffCheckpointVersion,
+		ParentEffect:        parentEffect,
+		AttentionID:         attention.Attention.ID,
+		AttentionGeneration: attention.Generation,
+		AnswerDigest:        driver.Digest([]byte(attention.Answer)),
+		HumanTurn:           *attention.Attention.HumanTurn,
+		Observation:         observation,
+	}, nil
+}
+
+func (s *Service) loadHumanHandoffCheckpoint(
+	ctx context.Context,
+	runID string,
+	parentEffect string,
+	attention journal.AttentionProjection,
+) (driver.Observation, bool, error) {
+	id := humanHandoffCheckpointID(parentEffect)
+	snapshot, err := s.journal.Snapshot(ctx, runID)
+	if err != nil {
+		return driver.Observation{}, false,
+			runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	var command *journal.Command
+	for index := range snapshot.Commands {
+		candidate := &snapshot.Commands[index]
+		if candidate.ReplayKey != id {
+			continue
+		}
+		if command != nil {
+			return driver.Observation{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		command = candidate
+	}
+	var effect *journal.Effect
+	for index := range snapshot.Effects {
+		candidate := &snapshot.Effects[index]
+		if candidate.ID != id {
+			continue
+		}
+		if effect != nil {
+			return driver.Observation{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effect = candidate
+	}
+	if command == nil && effect == nil {
+		return driver.Observation{}, false, nil
+	}
+	if command == nil || effect == nil ||
+		command.RunID != runID || command.Kind != "driver.handoff" ||
+		effect.RunID != runID || effect.ReplayKey != id ||
+		effect.Kind != command.Kind || effect.State != journal.Succeeded ||
+		effect.ResultDigest != sha256Digest(effect.Result) ||
+		!bytes.Equal(command.Payload, effect.Result) {
+		return driver.Observation{}, false,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var checkpoint humanHandoffCheckpoint
+	if json.Unmarshal(effect.Result, &checkpoint) != nil ||
+		!bytes.Equal(effect.Result, mustJSON(checkpoint)) {
+		return driver.Observation{}, false,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	expected, err := expectedHumanHandoffCheckpoint(
+		parentEffect,
+		attention,
+		checkpoint.Observation,
+	)
+	if err != nil ||
+		!bytes.Equal(mustJSON(checkpoint), mustJSON(expected)) {
+		return driver.Observation{}, false,
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return checkpoint.Observation, true, nil
+}
+
+func (s *Service) persistHumanHandoffCheckpoint(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	parentEffect string,
+	attention journal.AttentionProjection,
+	observation driver.Observation,
+) error {
+	checkpoint, err := expectedHumanHandoffCheckpoint(
+		parentEffect,
+		attention,
+		observation,
+	)
+	if err != nil {
+		return err
+	}
+	body := mustJSON(checkpoint)
+	id := humanHandoffCheckpointID(parentEffect)
+	now := s.now().UTC()
+	if err := s.journal.RecordCommandEffect(
+		ctx,
+		journal.Command{
+			RunID: owner.RunID, ReplayKey: id,
+			Kind: "driver.handoff", Payload: body, CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: owner.RunID, ID: id, ReplayKey: id,
+			Kind: "driver.handoff",
+			BeforeDigest: driver.Digest(
+				mustJSON(checkpoint.HumanTurn),
+			),
+			ExpectedDigest: sha256Digest(body), UpdatedAt: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	effect, err := s.journal.Effect(ctx, owner.RunID, id)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if effect.State == journal.Succeeded {
+		_, found, loadErr := s.loadHumanHandoffCheckpoint(
+			ctx,
+			owner.RunID,
+			parentEffect,
+			attention,
+		)
+		if loadErr != nil || !found {
+			return runtimeFail("CORRUPT_JOURNAL", loadErr)
+		}
+		return nil
+	}
+	if effect.State != journal.Pending {
+		return runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	claim, err := s.journal.ClaimOwned(
+		ctx,
+		owner,
+		id,
+		now,
+		effectLease,
+	)
+	if err != nil {
+		return runtimeFail("EFFECT_CLAIM_FAILED", err)
+	}
+	if err := s.journal.CompleteOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID: owner.RunID, EffectID: id, Token: claim.Token,
+			State: journal.Succeeded, Result: body,
+			EventKind: "human_turn.handoff_checkpointed",
+			EventBody: []byte(attention.Attention.ID), At: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
+}
+
 func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
@@ -1683,8 +1870,24 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		continuationFact    *continuationDispatchFact
 		invokeErr           error
 		recovered           bool
+		checkpointed        bool
 	)
-	if answered != nil {
+	if answered != nil && answered.Attention.HumanTurn != nil {
+		observation, checkpointed, invokeErr =
+			s.loadHumanHandoffCheckpoint(
+				ctx,
+				manifest.value.RunID,
+				replayKey,
+				*answered,
+			)
+		if checkpointed {
+			recovered = true
+		}
+	}
+	if checkpointed {
+		// The exact sealed handoff was already validated and checkpointed
+		// before a prior process died. Continue from those immutable bytes.
+	} else if answered != nil {
 		observation, pendingContinuation, recovered, invokeErr =
 			s.resumeAnsweredWorker(
 				ctx,
@@ -1905,6 +2108,17 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, runtimeFail("STALE_DISPATCH", nil)
 		}
 	}
+	if answered != nil && answered.Attention.HumanTurn != nil {
+		if err := s.persistHumanHandoffCheckpoint(
+			completionCtx,
+			owner,
+			replayKey,
+			*answered,
+			observation,
+		); err != nil {
+			return driver.Submission{}, preserveAnswered(err)
+		}
+	}
 	if prepareHandoff != nil {
 		if err := prepareHandoff(submission); err != nil {
 			if answered != nil {
@@ -1950,6 +2164,9 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			}
 			return driver.Submission{}, err
 		}
+	}
+	if answered != nil && answered.Attention.HumanTurn != nil {
+		crashHumanTurnBarrier("after_terminal_handoff")
 	}
 	if pendingContinuation != nil &&
 		coordinates.Responsibility == driver.WorkVerification &&
@@ -2041,6 +2258,9 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	pendingCommitted = true
+	if answered != nil && answered.Attention.HumanTurn != nil {
+		crashHumanTurnBarrier("after_terminal_completion")
+	}
 	if answered != nil {
 		if err := s.resolveAnsweredAttention(
 			completionCtx,

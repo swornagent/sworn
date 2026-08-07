@@ -43,6 +43,119 @@ func testRecoveryStep(
 	}
 }
 
+func TestHumanTurnAttentionBindingIsCompleteVersionedAndLegacyCompatible(
+	t *testing.T,
+) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := testRecoveryBinding("T1", "human-cycle", "human-turn", "human-work")
+	binding := testAttentionBinding(recovery, 1)
+	binding.HumanTurn = &HumanTurnBinding{
+		SchemaVersion:         HumanTurnBindingVersion,
+		Kind:                  "human_confirmation",
+		RunID:                 run.ID,
+		Track:                 "T1",
+		Slice:                 "S1",
+		Role:                  "implementer",
+		Responsibility:        "implementer_implementation",
+		InvocationID:          run.ID + "/S1/implementer_implementation/1/1/1",
+		BatonAttempt:          1,
+		PlanAuthorityDigest:   digest([]byte("plan-authority")),
+		TargetAuthorityDigest: digest([]byte("target-authority")),
+		WorkIdentity:          recovery.ProgressID,
+		CycleID:               recovery.CycleID,
+		TurnID:                recovery.TurnID,
+		Ordinal:               1,
+		OpenGeneration:        1,
+	}
+	command := OpenAttentionCommand{
+		RunID: run.ID, Attention: binding,
+		ExpectedGeneration: 0,
+		Question:           "Does this exactly match your intended meaning?",
+	}
+	opened, err := store.OpenAttention(ctx, owner, command, now)
+	if err != nil || opened.Generation != 1 ||
+		!equalAttentionBinding(opened.Attention, binding) {
+		t.Fatalf("human open = %#v, %v", opened, err)
+	}
+	replayed, err := store.OpenAttention(
+		ctx,
+		OwnerLease{},
+		command,
+		now.Add(time.Hour),
+	)
+	if err != nil || replayed.Generation != opened.Generation ||
+		replayed.State != opened.State ||
+		!equalAttentionBinding(replayed.Attention, opened.Attention) {
+		t.Fatalf("human replay = %#v, %v", replayed, err)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*HumanTurnBinding)
+	}{
+		{"schema_version", func(value *HumanTurnBinding) { value.SchemaVersion = "" }},
+		{"kind", func(value *HumanTurnBinding) { value.Kind = "question" }},
+		{"run_id", func(value *HumanTurnBinding) { value.RunID = "" }},
+		{"track", func(value *HumanTurnBinding) { value.Track = "" }},
+		{"slice", func(value *HumanTurnBinding) { value.Slice = "" }},
+		{"role", func(value *HumanTurnBinding) { value.Role = "merge" }},
+		{"responsibility", func(value *HumanTurnBinding) { value.Responsibility = "" }},
+		{"invocation_id", func(value *HumanTurnBinding) { value.InvocationID = "" }},
+		{"baton_attempt", func(value *HumanTurnBinding) { value.BatonAttempt = 0 }},
+		{"plan_authority", func(value *HumanTurnBinding) { value.PlanAuthorityDigest = "" }},
+		{"target_authority", func(value *HumanTurnBinding) { value.TargetAuthorityDigest = "" }},
+		{"work_identity", func(value *HumanTurnBinding) { value.WorkIdentity = digest([]byte("wrong-work")) }},
+		{"cycle_id", func(value *HumanTurnBinding) { value.CycleID = digest([]byte("wrong-cycle")) }},
+		{"turn_id", func(value *HumanTurnBinding) { value.TurnID = digest([]byte("wrong-turn")) }},
+		{"ordinal", func(value *HumanTurnBinding) { value.Ordinal++ }},
+		{"open_generation", func(value *HumanTurnBinding) { value.OpenGeneration++ }},
+	}
+	for index, mutation := range mutations {
+		t.Run("reject_"+mutation.name, func(t *testing.T) {
+			invalid := testAttentionBinding(recovery, int64(index+2))
+			invalidHuman := *binding.HumanTurn
+			invalidHuman.WorkIdentity = invalid.Recovery.ProgressID
+			invalidHuman.CycleID = invalid.Recovery.CycleID
+			invalidHuman.TurnID = invalid.Recovery.TurnID
+			invalidHuman.Ordinal = invalid.Ordinal
+			mutation.mutate(&invalidHuman)
+			invalid.HumanTurn = &invalidHuman
+			if _, err := store.OpenAttention(
+				ctx,
+				owner,
+				OpenAttentionCommand{
+					RunID: run.ID, Attention: invalid,
+					ExpectedGeneration: 0,
+					Question:           "Reject incomplete human binding.",
+				},
+				now,
+			); !IsCode(err, "INVALID_ATTENTION_BINDING") {
+				t.Fatalf("mutation %s error = %v", mutation.name, err)
+			}
+		})
+	}
+
+	legacy := testAttentionBinding(recovery, 3)
+	if _, err := store.OpenAttention(
+		ctx,
+		owner,
+		OpenAttentionCommand{
+			RunID: run.ID, Attention: legacy,
+			ExpectedGeneration: 0, Question: "Legacy recovery question.",
+		},
+		now,
+	); err != nil {
+		t.Fatalf("legacy attention = %v", err)
+	}
+}
+
 func TestAttentionLifecycleIsPerAttentionCASReplaySafeAndContentBounded(
 	t *testing.T,
 ) {

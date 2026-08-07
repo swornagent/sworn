@@ -275,6 +275,27 @@ func buildSnapshot(
 		result.Runtime.Attempts = append(result.Runtime.Attempts, view)
 	}
 	for _, attention := range observation.Attentions {
+		var humanTurn *HumanAttentionView
+		if human := attention.Attention.HumanTurn; human != nil {
+			humanTurn = &HumanAttentionView{
+				SchemaVersion:         human.SchemaVersion,
+				Kind:                  human.Kind,
+				RunID:                 human.RunID,
+				Track:                 human.Track,
+				Slice:                 human.Slice,
+				Role:                  human.Role,
+				Responsibility:        human.Responsibility,
+				InvocationID:          human.InvocationID,
+				BatonAttempt:          human.BatonAttempt,
+				PlanAuthorityDigest:   human.PlanAuthorityDigest,
+				TargetAuthorityDigest: human.TargetAuthorityDigest,
+				WorkIdentity:          human.WorkIdentity,
+				CycleID:               human.CycleID,
+				TurnID:                human.TurnID,
+				Ordinal:               human.Ordinal,
+				OpenGeneration:        human.OpenGeneration,
+			}
+		}
 		result.Runtime.Attentions = append(
 			result.Runtime.Attentions,
 			AttentionView{
@@ -284,11 +305,13 @@ func buildSnapshot(
 				Generation: attention.Generation,
 				Question:   attention.Question,
 				Answer:     attention.Answer,
+				HumanTurn:  humanTurn,
 			},
 		)
 		if attention.State == journal.AttentionOpen {
 			attentionActions = append(attentionActions, Action{
 				Kind:               "answer_attention",
+				RunID:              status.RunID,
 				ExpectedGeneration: attention.Generation,
 				AttentionID:        attention.Attention.ID,
 			})
