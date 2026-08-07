@@ -236,9 +236,13 @@ func swornSkillContent() []byte {
 			"writer, role instruction, verification verdict, or merge procedure of its\n"+
 			"own; Sworn's CLI, TUI, and MCP tools remain the sole authority for those\n"+
 			"decisions.\n\n"+
-			"1. Look for a Sworn-governed repository: a Git worktree containing\n"+
-			"   `.baton/releases` control records or an existing Sworn journal file.\n"+
-			"   If neither is present, this skill does not apply; say so and stop.\n"+
+			"1. Look for a Sworn-governed repository. The unit of work is a Git\n"+
+			"   worktree, recognized by `.git`. Inside one, check for these markers:\n"+
+			"   `.baton/releases` control records, an existing Sworn journal file, or\n"+
+			"   an initialized Sworn project directory `.sworn`. If the worktree\n"+
+			"   carries none of them, Sworn is simply not initialized here yet: run\n"+
+			"   `sworn init` and continue with the rest of this skill. Only outside a\n"+
+			"   Git worktree does this skill not apply; say so and stop.\n"+
 			"2. Prefer the local Sworn MCP service for headless operation. If it is not\n"+
 			"   already reachable, start it (for example with `sworn serve`, or the\n"+
 			"   project's documented equivalent) and connect to it before taking any\n"+
