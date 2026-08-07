@@ -2065,6 +2065,28 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		return driver.Submission{}, runtimeFail("INVALID_DRIVER_HANDOFF", err)
 	}
+	if planErr := s.validateHumanConfirmedPlannerHandoff(
+		completionCtx,
+		manifest,
+		coordinates,
+		replayKey,
+		submission,
+		answered,
+	); planErr != nil {
+		if answered != nil {
+			return driver.Submission{}, preserveAnswered(planErr)
+		}
+		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
+			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
+			State: journal.OperationalFailed, ErrorCode: "invalid_human_turn",
+			Attempt:   attempt,
+			EventKind: eventKind("dispatch_operational_failure"),
+			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
+		}); completeErr != nil {
+			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
+		}
+		return driver.Submission{}, planErr
+	}
 	if !prepared.fake {
 		currentBody, authorityErr := currentPreparedProductionBody(
 			completionCtx,

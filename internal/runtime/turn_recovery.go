@@ -1012,6 +1012,12 @@ func (s *Service) invokeRecoverableWorker(
 				BatonAttempt:   prepared.productionContext.Attempt,
 				Epoch:          prepared.productionContext.Epoch,
 				Try:            prepared.productionContext.Try,
+				// A replanned Planner attempt carries an invocation scope,
+				// and the scope is part of the invocation identity inside
+				// the persisted work context. Dropping it here made every
+				// resumed replan dispatch look stale against its own
+				// request.
+				InvocationScope: prepared.productionContext.InvocationScope,
 			},
 			before,
 			prepared,
@@ -1935,6 +1941,50 @@ func validateHumanParkAttention(
 		return runtimeFail("INVALID_HUMAN_TURN", nil)
 	}
 	return nil
+}
+
+// validateHumanConfirmedPlannerHandoff enforces summary-before-plan for the
+// production Planner. Approval-ready manifest and slice bytes may only leave
+// the responsibility that was resumed from an answered human-only turn, so a
+// first terminal that already carries a plan is refused. The turn itself is
+// whatever the Planner judged it to be — a presented summary to confirm, or
+// the one genuine meaning question — but there must be exactly one, it must be
+// bound to this exact dispatch effect through the durable park checkpoint, and
+// it must have been answered by a person.
+//
+// Nothing here inspects the wording of the summary or the question: this rule
+// is about which responsibility is allowed to emit plan bytes, not about the
+// shape of what the Planner says.
+func (s *Service) validateHumanConfirmedPlannerHandoff(
+	ctx context.Context,
+	manifest admittedManifest,
+	coordinates dispatchCoordinates,
+	effectID string,
+	submission driver.Submission,
+	answered *journal.AttentionProjection,
+) error {
+	if !manifest.value.production() ||
+		coordinates.Responsibility != driver.PlannerProposal ||
+		submission.Plan == nil {
+		return nil
+	}
+	if answered == nil || answered.Attention.HumanTurn == nil ||
+		answered.State != journal.AttentionAnswered {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	snapshot, err := s.journal.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	checkpoint, found, err := humanParkCheckpointForEffect(
+		manifest,
+		snapshot,
+		effectID,
+	)
+	if err != nil || !found {
+		return runtimeFail("INVALID_HUMAN_TURN", err)
+	}
+	return validateHumanParkAttention(checkpoint, *answered)
 }
 
 func (s *Service) recoverHumanParkCheckpoint(

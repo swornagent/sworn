@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,138 @@ func (invoke fixtureDriver) Invoke(
 	invocation driver.Invocation,
 ) (driver.Observation, error) {
 	return invoke(ctx, invocation)
+}
+
+// plannerSummaryAnswer and plannerSummaryQuestion are the one shared fixture
+// pair for the production summary-before-plan boundary.
+const (
+	plannerSummaryQuestion = "Here is the result, scope, acceptance, " +
+		"evidence, inputs, and limits I intend to plan. Confirm or correct."
+	plannerSummaryAnswer = "Confirmed as summarised."
+)
+
+// plannerSummaryDispatcher is the single test fixture every production planner
+// path now shares. It makes the production Planner behave the way the runtime
+// requires: its first terminal is the human-only summary turn, and the plan
+// bytes the wrapped terminal produces are emitted only by the responsibility
+// resumed from that answered turn. Every other role is passed straight
+// through, so a test that does not care about planning is unaffected.
+type plannerSummaryDispatcher struct {
+	terminal func(context.Context, driver.Invocation) (driver.Observation, error)
+}
+
+func (d *plannerSummaryDispatcher) Invoke(
+	ctx context.Context,
+	invocation driver.Invocation,
+) (driver.Observation, error) {
+	if invocation.Request.Role != driver.RolePlanner {
+		return d.terminal(ctx, invocation)
+	}
+	observation := driver.Observation{
+		TransportStatus: driver.Completed,
+		Usage: driver.UsageReceipt{
+			TokenStatus: driver.UsageUnavailable,
+			CostStatus:  driver.UsageUnavailable,
+		},
+		Diagnostic: driver.Diagnostic{Code: "none"},
+		Yield: &driver.Yield{
+			SchemaVersion: driver.YieldSchemaVersion,
+			InvocationID:  invocation.Request.InvocationID,
+			Kind:          driver.YieldHumanConfirmation,
+			Message:       plannerSummaryQuestion,
+		},
+	}
+	return observation, nil
+}
+
+func (d *plannerSummaryDispatcher) InvokeRecoverableTurn(
+	ctx context.Context,
+	invocation driver.Invocation,
+	_ driver.ContinuationBinding,
+	_ *driver.Continuation,
+	input *driver.RecoverableTurnInput,
+) (
+	driver.Observation,
+	*driver.Continuation,
+	driver.ContinuationResult,
+	error,
+) {
+	result := driver.ContinuationResult{
+		Mode:   driver.ContinuationModeFreshRehydrate,
+		Status: driver.ContinuationStatusCompleted,
+	}
+	if input == nil {
+		observation, err := d.Invoke(ctx, invocation)
+		return observation, nil, result, err
+	}
+	if invocation.Request.Role != driver.RolePlanner ||
+		input.SchemaVersion != driver.RecoverableTurnInputSchemaVersion ||
+		input.Kind != driver.RecoverableInputAnswer ||
+		input.Answer != plannerSummaryAnswer {
+		return driver.Observation{}, nil, driver.ContinuationResult{},
+			fmt.Errorf("unexpected planner resume input %#v", input)
+	}
+	observation, err := d.terminal(ctx, invocation)
+	return observation, nil, result, err
+}
+
+// openPlannerSummaryTurn returns the one open human-only Planner turn, if the
+// run is currently waiting on it.
+func openPlannerSummaryTurn(
+	ctx context.Context,
+	service *Service,
+	runID string,
+) (journal.AttentionProjection, bool, error) {
+	attentions, err := service.journal.Attentions(ctx, runID)
+	if err != nil {
+		return journal.AttentionProjection{}, false, err
+	}
+	for _, attention := range attentions {
+		human := attention.Attention.HumanTurn
+		if attention.State != journal.AttentionOpen || human == nil ||
+			human.Responsibility != string(driver.PlannerProposal) {
+			continue
+		}
+		return attention, true, nil
+	}
+	return journal.AttentionProjection{}, false, nil
+}
+
+// drivePlannerSummaryTurns answers every production Planner summary turn the
+// run stops on, using the same operator command a person would. It returns as
+// soon as the run stops for any other reason, so a caller that is proving a
+// crash cut still observes that cut's exact error.
+func drivePlannerSummaryTurns(
+	t *testing.T,
+	ctx context.Context,
+	service *Service,
+	runID string,
+	status RunStatus,
+	err error,
+) (RunStatus, error) {
+	t.Helper()
+	for range 8 {
+		if err != nil {
+			return status, err
+		}
+		attention, found, readErr := openPlannerSummaryTurn(
+			ctx, service, runID,
+		)
+		if readErr != nil {
+			t.Fatalf("planner summary attentions = %v", readErr)
+		}
+		if !found {
+			return status, nil
+		}
+		status, err = service.AnswerAttention(ctx, AnswerAttentionCommand{
+			RunID:              runID,
+			AttentionID:        attention.Attention.ID,
+			ExpectedGeneration: 1,
+			Answer:             plannerSummaryAnswer,
+		})
+	}
+	t.Fatal("production planner summary turns did not settle")
+	return RunStatus{}, nil
 }
 
 func runRuntimeGit(t *testing.T, repository string, arguments ...string) string {
@@ -842,6 +975,163 @@ func TestProductionContextInputRehydrationRejectsMismatchedAuthority(
 	}
 }
 
+// TestProductionPlannerCannotEmitPlanBytesBeforeItsHumanTurn is the direct
+// falsification of A2: a Planner that skips the summary boundary and hands
+// back approval-ready plan bytes on its very first terminal is refused, and
+// the run gains no proposal from it.
+func TestProductionPlannerCannotEmitPlanBytesBeforeItsHumanTurn(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(
+		config,
+		driver.DriverFactoryOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 7, 3, 4, 5, 0, time.UTC)
+	store, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "journal.sqlite"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release,
+		TargetRef:  manifest.value.TargetRef, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: manifest.value.RunID, ReplayKey: "manifest",
+		Kind: "start", Payload: manifest.raw, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.AcquireOwner(
+		ctx, manifest.value.RunID, now, time.Minute, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes, _ := runtimePlan(
+		t,
+		manifest.value.Release,
+		manifest.value.Authority.Project,
+		manifest.value.TargetRef,
+		"approval-release-1-v1",
+	)
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		submission := driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocation.Request.InvocationID,
+			Responsibility: driver.PlannerProposal,
+			Summary:        "Plan without asking anybody.",
+			Detail:         "Skips the human-only summary turn.",
+		}
+		submission.Plan, _ = driver.NewPlanBytes(planBytes)
+		body, encodeErr := driver.EncodeSubmission(submission)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		seal, encodeErr := json.Marshal(driver.Seal{
+			SchemaVersion:    driver.SealSchemaVersion,
+			InvocationID:     submission.InvocationID,
+			SubmissionDigest: driver.Digest(body),
+			Accepted:         true,
+			Code:             "accepted",
+		})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		seal = append(seal, '\n')
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  body,
+				SubmissionDigest: driver.Digest(body),
+				SealBytes:        seal,
+				SealDigest:       driver.Digest(seal),
+			},
+		}, nil
+	})
+	service := &Service{
+		journal: store, dispatcher: dispatcher, production: production,
+		gitExecutable: gitExecutable, now: func() time.Time { return now },
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	target, before := plannerProductionAuthority(t, engine)
+	workspace, err := engine.workspaces.OpenSnapshot(target.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspace.Close()
+	work := driverWorkIdentity(
+		manifest.digest, "", driver.PlannerProposal, 1, before,
+	)
+	_, err = service.runDriverEffect(
+		ctx,
+		engine,
+		workspace,
+		driver.RolePlanner,
+		dispatchCoordinates{
+			Responsibility: driver.PlannerProposal,
+			BatonAttempt:   1, Epoch: 1, Try: 1,
+		},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
+		before,
+		owner,
+	)
+	if !IsCode(err, "INVALID_HUMAN_TURN") {
+		t.Fatalf("unconfirmed plan bytes = %v", err)
+	}
+	effect, err := store.Effect(
+		ctx, manifest.value.RunID, journal.AttemptEffectID(work, 1, 1),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.OperationalFailed ||
+		effect.ErrorCode != "invalid_human_turn" {
+		t.Fatalf("refused planner effect = %#v", effect)
+	}
+	snapshot, err := store.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind == "planner_proposal" {
+			t.Fatalf("unconfirmed proposal recorded = %#v", command)
+		}
+	}
+}
+
 func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 	t *testing.T,
 ) {
@@ -904,7 +1194,7 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 		"approval-release-1-v1",
 	)
 	var observed driver.Invocation
-	dispatcher := fixtureDriver(func(
+	dispatcher := &plannerSummaryDispatcher{terminal: func(
 		_ context.Context,
 		invocation driver.Invocation,
 	) (driver.Observation, error) {
@@ -946,7 +1236,7 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 				SealDigest:       driver.Digest(sealBody),
 			},
 		}, nil
-	})
+	}}
 	service := &Service{
 		journal: store, dispatcher: dispatcher, production: production,
 		gitExecutable: gitExecutable, now: func() time.Time { return now },
@@ -975,16 +1265,44 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 		1,
 		before,
 	)
-	submission, err := service.runDriverEffect(
-		ctx,
-		engine,
-		workspace,
-		driver.RolePlanner,
-		coordinates,
-		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
-		before,
-		owner,
+	dispatch := func() (driver.Submission, error) {
+		return service.runDriverEffect(
+			ctx,
+			engine,
+			workspace,
+			driver.RolePlanner,
+			coordinates,
+			journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
+			before,
+			owner,
+		)
+	}
+	// A2: the production Planner's first terminal is the human-only summary
+	// turn, so this dispatch parks instead of emitting plan bytes.
+	if _, parkErr := dispatch(); !IsCode(parkErr, "EFFECT_PARKED") {
+		t.Fatalf("planner summary park = %v", parkErr)
+	}
+	attention, found, readErr := openPlannerSummaryTurn(
+		ctx, service, manifest.value.RunID,
 	)
+	if readErr != nil || !found ||
+		attention.Question != plannerSummaryQuestion ||
+		attention.Attention.HumanTurn.Kind !=
+			string(driver.YieldHumanConfirmation) {
+		t.Fatalf(
+			"planner summary attention=%#v found=%t err=%v",
+			attention, found, readErr,
+		)
+	}
+	if _, err := store.AnswerAttention(ctx, journal.AnswerAttentionCommand{
+		RunID:              manifest.value.RunID,
+		Attention:          attention.Attention,
+		ExpectedGeneration: attention.Generation,
+		Answer:             plannerSummaryAnswer,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	submission, err := dispatch()
 	if err != nil {
 		t.Fatal(err)
 	}
