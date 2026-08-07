@@ -16,6 +16,7 @@ const (
 	mcpApprovalTool          = "sworn_approve"
 	mcpCaptainDelegationTool = "sworn_captain_delegation"
 	mcpStartDelegatedTool    = "sworn_start_delegated"
+	mcpStatusTool            = "sworn_status"
 )
 
 type mcpRequest struct {
@@ -84,7 +85,7 @@ func (h *HTTPHandler) serveMCP(w http.ResponseWriter, r *http.Request) {
 			response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
 			break
 		}
-		response.Result = map[string]any{"tools": []any{approvalMCPTool(), captainDelegationMCPTool(), startDelegatedMCPTool()}}
+		response.Result = map[string]any{"tools": []any{approvalMCPTool(), captainDelegationMCPTool(), startDelegatedMCPTool(), statusMCPTool()}}
 	case "tools/call":
 		response = h.callMCPTool(r, request)
 	default:
@@ -95,6 +96,46 @@ func (h *HTTPHandler) serveMCP(w http.ResponseWriter, r *http.Request) {
 
 func startDelegatedMCPTool() map[string]any {
 	return map[string]any{"name": mcpStartDelegatedTool, "description": "Start an admitted manifest with one exact Captain delegation before Planner dispatch.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"manifest_digest": map[string]any{"type": "string"}, "envelope_bytes": map[string]any{"type": "string"}}, "required": []string{"manifest_digest", "envelope_bytes"}}}
+}
+
+// statusMCPTool describes the one read-only MCP capability: it returns
+// exactly the same Snapshot the local CLI, TUI, and browser surfaces read
+// through SnapshotAPI.Snapshot, including canonical manifest identity, each
+// slice's contract path/digest, and the touchpoint matrix. It has no write
+// or action authority; the actions it may report merely describe commands
+// available through the other tools, and invoking this tool cannot itself
+// move a ref or mutate any authority.
+func statusMCPTool() map[string]any {
+	return map[string]any{
+		"name": mcpStatusTool,
+		"description": "Read the current cockpit projection for one run: status, graph, " +
+			"canonical manifest identity, slice contract paths/digests, the touchpoint " +
+			"matrix, handoff, evidence, and diagnostics. Read-only.",
+		"inputSchema": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{"run_id": map[string]any{"type": "string"}},
+			"required":   []string{"run_id"},
+		},
+	}
+}
+
+func (h *HTTPHandler) callMCPStatus(r *http.Request, request mcpRequest, arguments json.RawMessage) mcpResponse {
+	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
+	var input struct {
+		RunID string `json:"run_id"`
+	}
+	if strictJSON(arguments, &input) != nil || input.RunID != h.runID {
+		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
+		return response
+	}
+	snapshot, err := h.projector.Snapshot(r.Context(), input.RunID)
+	if err != nil {
+		response.Result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": errorCode(err)}}}
+		return response
+	}
+	body, _ := json.Marshal(snapshot)
+	response.Result = map[string]any{"content": []any{map[string]any{"type": "text", "text": string(body)}}, "structuredContent": snapshot}
+	return response
 }
 
 func captainDelegationMCPTool() map[string]any {
@@ -132,6 +173,9 @@ func (h *HTTPHandler) callMCPTool(r *http.Request, request mcpRequest) mcpRespon
 	}
 	if call.Name == mcpApprovalTool {
 		return h.callMCPApproval(r, request)
+	}
+	if call.Name == mcpStatusTool {
+		return h.callMCPStatus(r, request, call.Arguments)
 	}
 	if call.Name == mcpStartDelegatedTool {
 		response := mcpResponse{JSONRPC: "2.0", ID: request.ID}

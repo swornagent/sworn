@@ -409,6 +409,18 @@ func safeNotificationError(value string) string {
 	}
 }
 
+// discoveredEvidence is best-effort: evidence is optional, non-authoritative
+// material, so any discovery error (an absent directory, a malformed or
+// tampered bundle) degrades to no evidence rather than surfacing an error or
+// diagnostic that could suppress this snapshot's controls.
+func discoveredEvidence(state baton.State, sliceID string) []BoundEvidenceItem {
+	items, err := DiscoverBoundEvidence(".", state, sliceID)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
 func projectHandoff(graph Graph) Handoff {
 	result := Handoff{
 		Nodes:            []string{},
@@ -481,6 +493,7 @@ func projectGraph(
 		}
 	}
 	result := Graph{
+		ManifestVersion: state.Plan.Metadata.SchemaVersion,
 		Nodes: []Node{{
 			ID:    "release:" + state.Release,
 			Kind:  "release",
@@ -488,6 +501,14 @@ func projectGraph(
 			State: runState,
 		}},
 		Edges: []Edge{},
+	}
+	if history := state.Plan.History; len(history) > 0 {
+		for _, relation := range history[len(history)-1].Plan.TouchpointMatrix() {
+			result.Touchpoints = append(result.Touchpoints, Touchpoint{
+				Left: relation.Left, Right: relation.Right, Path: relation.Path,
+				Ordered: relation.Ordered, Before: relation.Before,
+			})
+		}
 	}
 	addEdge := func(kind, from, to string) {
 		result.Edges = append(result.Edges, Edge{
@@ -537,6 +558,9 @@ func projectGraph(
 				NextResponsibility: slice.NextRole,
 				Attempt:            slice.Attempt,
 				HasBaton:           hasBaton,
+				ContractPath:       slice.Location.Slice.ContractPath,
+				ContractDigest:     state.Plan.Metadata.Contracts[slice.Location.Slice.ID],
+				BoundEvidence:      discoveredEvidence(state, slice.Location.Slice.ID),
 			})
 			addEdge("contains", trackID, sliceID)
 			if previous != "" {

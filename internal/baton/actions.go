@@ -440,58 +440,13 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	return result, nil
 }
 
-// verifyManifestContracts reads every sworn.release-manifest/v1 slice's
-// declared contract_path from the already-prepared source tree by exact
-// safe path and cross-validates each one against the manifest through the
-// canonical ResolveSliceContract before this action creates or moves any
-// Git object. Contract paths are ordinary product-tree content: validateManifestSlice
-// already refuses any contract_path under RecordRoot, and the record
-// transition below only ever writes plan.md under RecordRoot, so contract
-// bytes are never duplicated into Baton's own records; they are proven
-// in place, where a prior ordinary commit already put them, and only the
-// manifest that binds to them is recorded. Legacy baton.plan/v2 plans carry
-// their slice bodies inline and have no contract paths, so they never
-// consult source. A manifest that declares contract paths with no source,
-// or whose source is missing, substitutes, or mismatches any declared
-// path, fails closed here, before RecordPlanRevision touches any ref.
+// verifyManifestContracts proves, before this action creates or moves any
+// Git object, that every sworn.release-manifest/v1 slice's declared
+// contract_path is already present in the caller-prepared source tree and
+// agrees with the manifest's own declaration. See resolveManifestContracts
+// for the shared validator this and read-time discovery both use.
 func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
-	metadata := parsed.Metadata()
-	if metadata.SchemaVersion != ManifestVersion {
-		return nil
-	}
-	sliceByPath := make(map[string]string)
-	paths := make([]string, 0)
-	for _, track := range metadata.Tracks {
-		for _, slice := range track.Slices {
-			if slice.ContractPath == "" {
-				continue
-			}
-			sliceByPath[slice.ContractPath] = slice.ID
-			paths = append(paths, slice.ContractPath)
-		}
-	}
-	if len(paths) == 0 {
-		return nil
-	}
-	if source == "" {
-		return recordFail(
-			"CONTRACT_SOURCE_REQUIRED",
-			"manifest declares contract paths but no contract source was provided",
-		)
-	}
-	files, err := a.repository.files(source, paths)
-	if err != nil {
-		return err
-	}
-	for _, file := range files {
-		if !file.Present {
-			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
-		}
-		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
-			return err
-		}
-	}
-	return nil
+	return resolveManifestContracts(a.repository, parsed, source)
 }
 
 func assertPlanRevision(previous, next Plan, previousObject string) error {

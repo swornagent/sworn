@@ -649,6 +649,14 @@ function renderDetail() {
       snapshot.handoff.nodes.includes(node.id) ? "Ready" : "Not ready",
     ],
     ["Try", node.attempt ? String(node.attempt) : "Not recorded"],
+    ["Contract path", reported(node.contract_path)],
+    ["Contract digest", reported(node.contract_digest)],
+    [
+      "Evidence items",
+      node.bound_evidence && node.bound_evidence.length
+        ? String(node.bound_evidence.length)
+        : "Not recorded",
+    ],
     ["Technical ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
   elements.detail.replaceChildren(details.cloneNode(true));

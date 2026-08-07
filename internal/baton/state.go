@@ -302,6 +302,16 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		}
 		return State{}, recordFail("INVALID_HEAD_OBJECT", "target ref is not one direct commit")
 	}
+	// The current admitted manifest's declared contracts are ordinary
+	// product-tree content living at the exact captured target head, the same
+	// tree readState already treats as authoritative for everything else this
+	// release reads. Rereading and cross-validating them here, on every read,
+	// keeps repository discovery fail-closed against a contract that moved,
+	// was substituted, or disappeared after the manifest was recorded; legacy
+	// baton.plan/v2 plans have no contract paths and are unaffected.
+	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head); err != nil {
+		return State{}, err
+	}
 	for _, trackID := range historicalTrackOrder {
 		value := byRef[trackRef(release, trackID)]
 		if !directCommit(value) && !absentRef(value) {

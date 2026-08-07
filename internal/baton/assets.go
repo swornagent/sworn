@@ -37,11 +37,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "efacafb2579e99b9d291b2ad27d41df26fbb9d79"
-	ManifestSHA256     = "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e"
+	ManifestSHA256     = "sha256:d47a0325184d815636496534a14ca07db9e7fc47347f9ed2d482eb7fe50e597a"
 	AssetCount         = 25
-	AssetBytes         = int64(379571)
+	AssetBytes         = int64(380815)
 
-	releaseDocumentSHA256 = "sha256:3317611171102ae37b842a828f57e960a4e87e2168318d09d53a09225db073eb"
+	releaseDocumentSHA256 = "sha256:bb09cd538f94cb98098fbb21b2d83304aa5ff069337dd0d7c373e2f34f4108ca"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -319,7 +319,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},
 	}
 	expectedTemplates := []releaseTemplate{
-		{"plan", "templates/plan.md", "sha256:ec9571a105445875c3b94f6303035c2dfc9985f39972790ea6473d39e96c9ba5"},
+		{"plan", "templates/plan.md", "sha256:94d1eb841746ee073e80e50a4a9f2f73042358bf24b4abbbeac229c4f5076fe5"},
 	}
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"},

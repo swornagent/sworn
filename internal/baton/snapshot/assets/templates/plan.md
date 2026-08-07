@@ -1,6 +1,6 @@
-```baton-plan-v2
+```sworn-release-manifest-v1
 {
-  "schema_version": "baton.plan/v2",
+  "schema_version": "sworn.release-manifest/v1",
   "release": "release-id",
   "revision": 1,
   "previous_plan": null,
@@ -15,24 +15,38 @@
         {
           "id": "S1",
           "outcome": "One observable delivered outcome.",
-          "scope": {
-            "include": ["src/owned-surface"],
-            "exclude": []
-          },
-          "acceptance": [
-            {
-              "id": "A1",
-              "text": "The approved observable outcome is demonstrated."
-            }
-          ],
-          "checks": ["project-check-command"],
-          "constraints": ["Merge only the exact candidate that passes verification."],
+          "contract_path": "contracts/S1.json",
+          "digest": "sha256:e8daa14f604c694df7a6cb4b420722089c447c25cde549ad712ca86d23f7e817",
           "depends_on": [],
-          "consumes": []
+          "consumes": [],
+          "touchpoints": ["src/owned-surface"]
         }
       ]
     }
   ]
+}
+```
+
+`contracts/S1.json` is ordinary product-tree content, committed at `target_ref` before this
+revision is recorded — not a Baton record:
+
+```json
+{
+  "outcome": "One observable delivered outcome.",
+  "scope": {
+    "include": ["src/owned-surface"],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "The approved observable outcome is demonstrated."
+    }
+  ],
+  "checks": ["project-check-command"],
+  "constraints": ["Merge only the exact candidate that passes verification."],
+  "depends_on": [],
+  "consumes": []
 }
 ```
 
@@ -47,12 +61,30 @@ these exact bytes.
 
 For revision 1, set `previous_plan` to `null`. Every later revision increments
 `revision` and sets `previous_plan` to the exact Git blob object of the prior
-bytes at this same repository path.
+manifest bytes at this same repository path.
+
+# Manifest and contracts
+
+The manifest above names each slice's stable ID, one-line outcome, safe
+relative `contract_path`, and exact `digest`; everything else a slice
+promises — scope, acceptance, checks, constraints, dependencies, consumed
+products — lives only in the immutable contract file at that path. A slice's
+`digest` is the exact sha256 of its contract's canonical content; equivalent
+content always hashes the same regardless of key order or formatting.
+
+Commit each new or changed contract file as ordinary product-tree content at
+`target_ref` before proposing the revision that names it. A missing,
+substituted, or mismatched contract fails closed before approval.
+
+`touchpoints` names the same paths as the contract's `scope.include`; it lets
+the manifest expose parallel-track ownership without opening every contract
+file.
 
 # Scope
 
-Summarise the committed behavioral and product surfaces plus hard exclusions.
-Do not try to predict every ancillary test, oracle, support, or evidence path.
+Summarise the committed behavioral and product surfaces plus hard exclusions
+inside each slice's contract. Do not try to predict every ancillary test,
+oracle, support, or evidence path.
 
 # Acceptance
 

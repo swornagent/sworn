@@ -37,22 +37,39 @@ type RunView struct {
 }
 
 type Graph struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	ManifestVersion string       `json:"manifest_version,omitempty"`
+	Nodes           []Node       `json:"nodes"`
+	Edges           []Edge       `json:"edges"`
+	Touchpoints     []Touchpoint `json:"touchpoints,omitempty"`
 }
 
 type Node struct {
-	ID                 string `json:"id"`
-	Kind               string `json:"kind"`
-	Label              string `json:"label"`
-	Track              string `json:"track,omitempty"`
-	State              string `json:"state"`
-	RuntimeState       string `json:"runtime_state,omitempty"`
-	Stage              string `json:"stage,omitempty"`
-	Outcome            string `json:"outcome,omitempty"`
-	NextResponsibility string `json:"next_responsibility,omitempty"`
-	Attempt            int64  `json:"attempt,omitempty"`
-	HasBaton           bool   `json:"has_baton"`
+	ID                 string              `json:"id"`
+	Kind               string              `json:"kind"`
+	Label              string              `json:"label"`
+	Track              string              `json:"track,omitempty"`
+	State              string              `json:"state"`
+	RuntimeState       string              `json:"runtime_state,omitempty"`
+	Stage              string              `json:"stage,omitempty"`
+	Outcome            string              `json:"outcome,omitempty"`
+	NextResponsibility string              `json:"next_responsibility,omitempty"`
+	Attempt            int64               `json:"attempt,omitempty"`
+	HasBaton           bool                `json:"has_baton"`
+	ContractPath       string              `json:"contract_path,omitempty"`
+	ContractDigest     string              `json:"contract_digest,omitempty"`
+	BoundEvidence      []BoundEvidenceItem `json:"bound_evidence,omitempty"`
+}
+
+// Touchpoint is the cockpit's read-only presentation of one
+// baton.TouchpointRelation: a repository path two slices in independent
+// tracks both declare, and whether the plan's dependency closure orders
+// them. It carries no scheduling authority.
+type Touchpoint struct {
+	Left    string `json:"left"`
+	Right   string `json:"right"`
+	Path    string `json:"path"`
+	Ordered bool   `json:"ordered"`
+	Before  string `json:"before,omitempty"`
 }
 
 type Edge struct {

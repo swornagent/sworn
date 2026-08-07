@@ -48,7 +48,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 	}
 	if identity != (PackageIdentity{
 		Version:        "sworn.role-assets/v1",
-		ManifestSHA256: "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
+		ManifestSHA256: "sha256:d47a0325184d815636496534a14ca07db9e7fc47347f9ed2d482eb7fe50e597a",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}

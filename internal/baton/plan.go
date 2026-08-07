@@ -300,6 +300,58 @@ func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
 	return contract, nil
 }
 
+// resolveManifestContracts reads every sworn.release-manifest/v1 slice's
+// declared contract_path from source by exact safe path and cross-validates
+// each one against parsed's manifest declaration through ResolveSliceContract.
+// Contract paths are ordinary product-tree content (never under RecordRoot),
+// so this only proves the manifest and the real committed contracts agree; it
+// never reads or writes anything under RecordRoot. Legacy baton.plan/v2 plans
+// carry their slice bodies inline and have no contract paths, so they never
+// consult source. A manifest that declares contract paths with no source, or
+// whose source is missing, substitutes, or mismatches any declared path,
+// fails closed. Both write-time admission (RecordPlanRevision, against a
+// caller-prepared tree) and read-time discovery (readState, against the
+// exact captured target head) share this one validator.
+func resolveManifestContracts(repository *repository, parsed Plan, source string) error {
+	metadata := parsed.Metadata()
+	if metadata.SchemaVersion != ManifestVersion {
+		return nil
+	}
+	sliceByPath := make(map[string]string)
+	paths := make([]string, 0)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByPath[slice.ContractPath] = slice.ID
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	if source == "" {
+		return recordFail(
+			"CONTRACT_SOURCE_REQUIRED",
+			"manifest declares contract paths but no contract source was provided",
+		)
+	}
+	files, err := repository.files(source, paths)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if !file.Present {
+			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
+		}
+		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // TouchpointRelation records one repository path shared by two slices whose
 // tracks admission treats as independent. ParsePlan already fails closed on
 // any such overlap that the dependency closure does not order, so every

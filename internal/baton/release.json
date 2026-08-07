@@ -2,9 +2,9 @@
   "schema": "sworn.role-assets/v1",
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
+    "manifest_sha256": "sha256:d47a0325184d815636496534a14ca07db9e7fc47347f9ed2d482eb7fe50e597a",
     "asset_count": 25,
-    "total_bytes": 379571
+    "total_bytes": 380815
   },
   "operations": [
     {
@@ -42,7 +42,7 @@
     {
       "name": "plan",
       "source": "templates/plan.md",
-      "sha256": "sha256:ec9571a105445875c3b94f6303035c2dfc9985f39972790ea6473d39e96c9ba5"
+      "sha256": "sha256:94d1eb841746ee073e80e50a4a9f2f73042358bf24b4abbbeac229c4f5076fe5"
     }
   ],
   "contracts": [
