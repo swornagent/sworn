@@ -233,6 +233,53 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 	}
 }
 
+func TestMissingReleaseCatalogAndBoardUseSwornOwnedLanguage(t *testing.T) {
+	t.Parallel()
+
+	root, _ := projectRepositoryFixture(t)
+	manifestDir := filepath.Join(root, ".sworn", "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-1")
+
+	backend := newProjectTUIBackend(root, "", "", "")
+	catalog, err := backend.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Entries) != 1 {
+		t.Fatalf("catalog entries = %#v", catalog.Entries)
+	}
+	entry := catalog.Entries[0]
+	for _, field := range []string{entry.Status, entry.NeedsYou, entry.Checked} {
+		if strings.Contains(field, "Baton") {
+			t.Fatalf("catalog entry names Baton as active authority: %#v", entry)
+		}
+	}
+	if entry.Status != "Sworn release needs attention" ||
+		entry.NeedsYou != "Yes — review this release before delivery can start." {
+		t.Fatalf("catalog entry = %#v", entry)
+	}
+
+	board, err := backend.Board(context.Background(), entry.Selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTUIDiagnostic(board.Diagnostics, "BATON_UNAVAILABLE") {
+		t.Fatalf("board diagnostics = %#v", board.Diagnostics)
+	}
+	for _, field := range []string{board.What, board.Next, board.NeedsYou, board.Checked} {
+		if strings.Contains(field, "Baton") {
+			t.Fatalf("board names Baton as active authority: %#v", board)
+		}
+		lower := strings.ToLower(field)
+		if strings.Contains(lower, "restore") || strings.Contains(lower, "prepare") {
+			t.Fatalf("board instructs restoring or preparing a release: %#v", board)
+		}
+	}
+}
+
 func TestExactTUIActionRequiresEveryField(t *testing.T) {
 	t.Parallel()
 

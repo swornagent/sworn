@@ -86,7 +86,7 @@ func discoverProject(
 		baton.UseGitRepository(repository),
 	)
 	if err != nil {
-		return projectCatalog{}, errors.New("Baton release catalog is unavailable")
+		return projectCatalog{}, errors.New("Sworn release catalog is unavailable")
 	}
 	byRelease := make(map[string]*projectRelease, len(releaseRefs))
 	for _, releaseRef := range releaseRefs {

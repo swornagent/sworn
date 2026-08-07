@@ -767,7 +767,7 @@ func writeCommandFailure(
 	case "RUN_NOT_FOUND", "INVALID_RUN":
 		message = "Could not find that run in the saved record."
 	case "BATON_UNAVAILABLE":
-		message = "Could not confirm the current Baton handoff records."
+		message = "Could not confirm the current release records."
 	case "GIT_UNAVAILABLE":
 		message = "Could not find or use Git."
 	}

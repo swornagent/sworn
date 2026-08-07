@@ -40,14 +40,14 @@ func presentRelease(
 ) RunPresentation {
 	presentation := RunPresentation{
 		Status:   "Ready for Sworn",
-		What:     "Baton has recorded this release and its next step.",
+		What:     "Sworn has recorded this release and its next step.",
 		Next:     "Start Sworn when the run setup and AI connections are ready.",
 		NeedsYou: "Only if you want to start or change the release.",
-		Checked:  "The latest saved Baton release.",
+		Checked:  "The latest saved Sworn release.",
 	}
 	if len(diagnostics) > 0 {
 		presentation.Status = "Needs confirmation"
-		presentation.What = "Baton found a problem with this release."
+		presentation.What = "Sworn found a problem with this release."
 		presentation.Next = "Review the saved release before starting more work."
 		presentation.NeedsYou = "Yes — review the release."
 		return presentation
@@ -55,7 +55,7 @@ func presentRelease(
 	if state.Assembly.Status == "complete" &&
 		state.Assembly.Outcome == "merged" {
 		presentation.Status = "Complete"
-		presentation.What = "Baton records show that this release was merged."
+		presentation.What = "Sworn's records show that this release was merged."
 		presentation.Next = "No delivery work remains for this release."
 		presentation.NeedsYou = "No."
 		return presentation
@@ -73,7 +73,7 @@ func presentRelease(
 			roles = append(roles, humanRole(role))
 		}
 		presentation.Status = "Ready for " + strings.Join(roles, " and ")
-		presentation.What = "Baton has work ready to be handed over."
+		presentation.What = "Sworn has work ready to be handed over."
 		presentation.Next = "Start Sworn to carry the work forward."
 		presentation.NeedsYou = "Only if the next step asks for approval or judgment."
 		return presentation
