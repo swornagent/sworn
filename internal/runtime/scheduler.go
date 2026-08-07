@@ -1497,7 +1497,7 @@ func persistedBatonAction(engine *engine, kind string,
 			reference: input.Reference,
 		}
 		return func() (baton.ActionResult, error) {
-			return installer.install(admission)
+			return installer.install(admission, command.Authority.TargetHead)
 		}, nil, nil
 	default:
 		return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
@@ -6639,7 +6639,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			Before:      installWork,
 		}
 		action := func() (baton.ActionResult, error) {
-			return engine.installer.install(admission)
+			return engine.installer.install(
+				admission, proposal.authority.TargetHead,
+			)
 		}
 		if _, err := s.runAction(
 			ownedCtx, engine, owner, installWork, "baton.install",

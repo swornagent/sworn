@@ -719,7 +719,18 @@ func installDetail(admission approvalAdmission) []byte {
 }
 
 // install is the only runtime path authorized to call RecordPlanRevision.
-func (i *authorityInstaller) install(admission approvalAdmission) (baton.ActionResult, error) {
+//
+// contractTree is the exact target commit this install is authorized against.
+// A sworn.release-manifest/v1 plan keeps each slice contract in an ordinary
+// product path rather than inline, so admission has to read those real files
+// from a real tree; the authorized target head is that tree, and it is the
+// same value on the first attempt and on every journal replay because both
+// take it from the recorded action authority. A legacy baton.plan/v2 plan
+// carries its slices inline and never consults it.
+func (i *authorityInstaller) install(
+	admission approvalAdmission,
+	contractTree string,
+) (baton.ActionResult, error) {
 	if i == nil || i.actions == nil ||
 		!runtimeDigestPattern.MatchString(admission.planDigest) ||
 		sha256Digest(admission.planBytes) != admission.planDigest ||
@@ -727,8 +738,9 @@ func (i *authorityInstaller) install(admission approvalAdmission) (baton.ActionR
 		return baton.ActionResult{}, runtimeFail("APPROVAL_ADMISSION_REQUIRED", nil)
 	}
 	return i.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
-		PlanBytes: admission.planBytes,
-		Summary:   "Install the exact locally authorized plan.",
-		Detail:    installDetail(admission),
+		PlanBytes:    admission.planBytes,
+		Summary:      "Install the exact locally authorized plan.",
+		Detail:       installDetail(admission),
+		ContractTree: contractTree,
 	})
 }
