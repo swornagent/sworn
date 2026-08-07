@@ -24,10 +24,22 @@ func NewActions(gitRepository GitRepository, resolver InertnessResolver, identit
 	return &Actions{repository: repository}, nil
 }
 
+// RecordPlanRevisionInput admits one exact plan. ContractTree is required
+// only when PlanBytes admits a sworn.release-manifest/v1 manifest with at
+// least one slice: it names an already-prepared Git commit or tree, already
+// reachable in this repository's object store, from which every declared
+// contract_path is read by safe path and cross-validated against the
+// manifest before anything is recorded. Contract paths are ordinary
+// product-tree content (never under RecordRoot), so this only proves they
+// already exist and match the manifest; it never rewrites them, and the
+// record transition below still commits only the plan itself. Legacy
+// baton.plan/v2 plans carry their full slice bodies inline and ignore
+// ContractTree.
 type RecordPlanRevisionInput struct {
-	PlanBytes []byte
-	Summary   string
-	Detail    []byte
+	PlanBytes    []byte
+	Summary      string
+	Detail       []byte
+	ContractTree string
 }
 
 type AppendReceiptInput struct {
@@ -136,6 +148,9 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	}
 	detail, err := actionDetail(input.Detail)
 	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := a.verifyManifestContracts(parsed, input.ContractTree); err != nil {
 		return ActionResult{}, err
 	}
 	metadata := parsed.Metadata()
@@ -423,6 +438,60 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	result.ReceiptCommit, result.Receipt = preparedApproval.Commit, &receipt
 	result.Retirements = retirements
 	return result, nil
+}
+
+// verifyManifestContracts reads every sworn.release-manifest/v1 slice's
+// declared contract_path from the already-prepared source tree by exact
+// safe path and cross-validates each one against the manifest through the
+// canonical ResolveSliceContract before this action creates or moves any
+// Git object. Contract paths are ordinary product-tree content: validateManifestSlice
+// already refuses any contract_path under RecordRoot, and the record
+// transition below only ever writes plan.md under RecordRoot, so contract
+// bytes are never duplicated into Baton's own records; they are proven
+// in place, where a prior ordinary commit already put them, and only the
+// manifest that binds to them is recorded. Legacy baton.plan/v2 plans carry
+// their slice bodies inline and have no contract paths, so they never
+// consult source. A manifest that declares contract paths with no source,
+// or whose source is missing, substitutes, or mismatches any declared
+// path, fails closed here, before RecordPlanRevision touches any ref.
+func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
+	metadata := parsed.Metadata()
+	if metadata.SchemaVersion != ManifestVersion {
+		return nil
+	}
+	sliceByPath := make(map[string]string)
+	paths := make([]string, 0)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByPath[slice.ContractPath] = slice.ID
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	if source == "" {
+		return recordFail(
+			"CONTRACT_SOURCE_REQUIRED",
+			"manifest declares contract paths but no contract source was provided",
+		)
+	}
+	files, err := a.repository.files(source, paths)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if !file.Present {
+			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
+		}
+		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func assertPlanRevision(previous, next Plan, previousObject string) error {

@@ -72,8 +72,38 @@ func permissionFixture(
 	return permission, request
 }
 
+// validPlanBytes returns one complete, canonically admissible baton.plan/v2
+// body: NewPlanBytes/ValidateSubmission now delegate fully to
+// baton.ParsePlan, which requires every plan field and at least one track
+// and slice, not just a syntactically valid fenced JSON object.
 func validPlanBytes() []byte {
-	return []byte("```baton-plan-v2\n{\"schema_version\":\"baton.plan/v2\"}\n```\n# Plan\n")
+	return []byte("```baton-plan-v2\n" + `{
+  "schema_version": "baton.plan/v2",
+  "release": "fixture",
+  "revision": 1,
+  "previous_plan": null,
+  "repository": "fixture/repo",
+  "target_ref": "refs/heads/main",
+  "approval_ref": "fixture://approval/fixture/1",
+  "tracks": [
+    {
+      "id": "T1",
+      "depends_on": [],
+      "slices": [
+        {
+          "id": "S1",
+          "outcome": "Deliver S1.",
+          "scope": {"include": ["one.txt"], "exclude": []},
+          "acceptance": [{"id": "A-S1", "text": "S1 is exact."}],
+          "checks": ["check S1"],
+          "constraints": ["deterministic"],
+          "depends_on": [],
+          "consumes": []
+        }
+      ]
+    }
+  ]
+}` + "\n```\n# Plan\n")
 }
 
 func decisionFixture(t *testing.T, outcome DecisionOutcome) *Decision {

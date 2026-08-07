@@ -85,6 +85,17 @@ func DigestBytes(raw []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// IsAdmittedPlanVersion reports whether schemaVersion is one of the schema
+// identities ParsePlan can itself admit. Any Plan built by ParsePlan already
+// carries one of these two values in its Metadata, since validateMetadata
+// rejects every other schema_version at parse time; this lets consumers of
+// an already-admitted Plan recognize both supported formats without
+// hardcoding PlanVersion or ManifestVersion individually, so a future third
+// admitted schema does not silently strand them.
+func IsAdmittedPlanVersion(schemaVersion string) bool {
+	return schemaVersion == PlanVersion || schemaVersion == ManifestVersion
+}
+
 // ParsePlan admits either the legacy baton.plan/v2 fence (unchanged) or the
 // new sworn.release-manifest/v1 fence. Both fences remain fully readable;
 // dispatch is bounded to their fixed byte-zero prefixes so no third shape can
