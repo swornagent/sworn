@@ -9,7 +9,7 @@ cannot continue safely.
 Sworn does not yet create a delivery plan, run manifest, or AI connection file.
 The release or deployment process must provide:
 
-- a repository with the required Baton release records;
+- a repository with the required release records;
 - an approved, canonical `sworn.runtime-manifest/v3` file;
 - a canonical, secret-free `sworn.driver-config/v1` file whose digest matches
   the manifest; and
@@ -34,8 +34,8 @@ sworn
 ```
 
 In an interactive terminal, Sworn finds the project root and opens a list of
-its local Baton releases and saved Sworn runs. You can move between release
-boards, including Baton releases that do not have a Sworn run yet. When a run
+its local release records and saved Sworn runs. You can move between release
+boards, including releases that do not have a Sworn run yet. When a run
 does exist, its live state, questions, and available controls appear on that
 board.
 
