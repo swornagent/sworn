@@ -39,6 +39,12 @@ type journeyProvider struct {
 	replanBytes         []byte
 	captainPlanOutcomes []driver.DecisionOutcome
 	repair              bool
+	// slicePaths overrides the slice -> product path table this Planner's plan
+	// promises. It stays nil for the original production journey, which keeps
+	// using journeySlicePaths(); a journey whose plan declares different
+	// slices supplies its own table so the Implementer writes exactly the
+	// product path that plan's scope admits.
+	slicePaths map[string]string
 
 	mu               sync.Mutex
 	plannerFactReads int
@@ -188,7 +194,7 @@ func (provider *journeyProvider) serve(
 		if len(parts) != 6 {
 			err = fmt.Errorf("invalid implementation invocation")
 		} else {
-			pathValue, ok := journeySlicePaths()[parts[1]]
+			pathValue, ok := provider.paths()[parts[1]]
 			if !ok {
 				err = fmt.Errorf("unknown implementation slice %q", parts[1])
 			} else {
@@ -563,6 +569,14 @@ func (provider *journeyProvider) submissionArguments(
 func journeyCallID(invocationID string, turn int) string {
 	sum := sha256.Sum256([]byte(invocationID))
 	return fmt.Sprintf("call-%s-%d", hex.EncodeToString(sum[:6]), turn)
+}
+
+// paths is the slice -> product path table this provider's Planner promised.
+func (provider *journeyProvider) paths() map[string]string {
+	if provider.slicePaths != nil {
+		return provider.slicePaths
+	}
+	return journeySlicePaths()
 }
 
 func journeySlicePaths() map[string]string {
@@ -1042,6 +1056,10 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	}
 	if repair {
 		assertProductionRepairState(t, state)
+		// A4's direct-repair clause: the failed attempt and the repair are
+		// each recorded exactly once, and the merged product is the repaired
+		// attempt's, not the failed one's.
+		assertNoDuplicateVerdicts(t, state, "A1")
 	}
 
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)

@@ -1217,6 +1217,19 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						cut, opens, answers, resolves, terminal,
 					)
 				}
+				// A crash around a human park or answer is one of the
+				// interruptions the conformance profile's restart case
+				// promises to survive; this is where a real binary was
+				// observed doing it, through the command line and through
+				// the configured driver that was re-dispatched.
+				recordSwornConformance(
+					t, caseRestartRecovery, surfaceCLI,
+					"human-turn/"+cut+"/cli",
+				)
+				recordSwornConformance(
+					t, caseRestartRecovery, surfaceConfiguredDriver,
+					"human-turn/"+cut+"/configured-driver",
+				)
 			})
 		}()
 	}
