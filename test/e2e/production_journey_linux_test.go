@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
@@ -40,6 +41,7 @@ type journeyProvider struct {
 	repair              bool
 
 	mu               sync.Mutex
+	plannerFactReads int
 	turns            map[string]int
 	families         map[string]driver.ProfileFamily
 	models           map[string]string
@@ -54,7 +56,26 @@ type journeyPrompt struct {
 	Role           driver.Role           `json:"role"`
 	Workspace      driver.Workspace      `json:"workspace"`
 	Responsibility driver.Responsibility `json:"responsibility"`
+	Recovery       *struct {
+		Kind    driver.RecoverableInputKind `json:"kind"`
+		Content string                      `json:"content"`
+	} `json:"recovery,omitempty"`
 }
+
+// The journey Planner behaves the way A1 and A2 require of the production
+// Planner. Its first terminal reads the repository it was handed, then
+// presents a summary as a human-only turn; only the responsibility resumed
+// from the answered turn emits plan bytes. journeyRepositoryCanary is a fact
+// that exists only inside the repository: it reaches the plan because the
+// Planner read it, and journeySummaryAnswer deliberately does not contain it,
+// so a Planner that asked a person for a repository-discoverable fact instead
+// of reading it would fail this journey.
+const (
+	journeyRepositoryCanary = "REPO-FACT-CANARY-4c1f"
+	journeySummaryQuestion  = "Summary of the result, scope, acceptance, " +
+		"evidence, inputs, and limits I intend to promise. Confirm or correct."
+	journeySummaryAnswer = "Confirmed; plan exactly that."
+)
 
 type journeyGeminiContent struct {
 	Role  string `json:"role"`
@@ -95,6 +116,7 @@ func (provider *journeyProvider) serve(
 
 	family := driver.ProfileOpenAIHTTP
 	promptBody, model, err := openAIJourneyPrompt(request, body)
+	toolResults := openAIJourneyToolResults(body)
 	switch {
 	case strings.HasPrefix(request.URL.Path, "/openai/"):
 		if request.Header.Get("Authorization") !=
@@ -156,7 +178,11 @@ func (provider *journeyProvider) serve(
 
 	toolName := "sworn_submit"
 	arguments, err := provider.submissionArguments(prompt)
-	if prompt.Responsibility == driver.ImplementerImplementation &&
+	if prompt.Responsibility == driver.PlannerProposal {
+		toolName, arguments, err = provider.plannerResponse(
+			prompt, turn, toolResults,
+		)
+	} else if prompt.Responsibility == driver.ImplementerImplementation &&
 		turn == 1 {
 		parts := strings.Split(prompt.InvocationID, "/")
 		if len(parts) != 6 {
@@ -374,6 +400,90 @@ func journeyRoleSelection(
 	}
 }
 
+// plannerResponse is the journey Planner, and it behaves the way A1 and A2
+// require. Turn 1 reads the repository fact through the workspace tool
+// surface. Turn 2 refuses to continue unless that read actually returned the
+// fact, then presents its summary as a human-only turn. Plan bytes are only
+// emitted by the turn resumed from the operator's answer, and that answer must
+// not be where the repository fact came from.
+func (provider *journeyProvider) plannerResponse(
+	prompt journeyPrompt,
+	turn int,
+	toolResults []string,
+) (string, map[string]any, error) {
+	switch {
+	case turn == 1:
+		if prompt.Recovery != nil {
+			return "", nil, fmt.Errorf("planner turn 1 already resumed")
+		}
+		return "Read", map[string]any{
+			"path": prompt.Workspace.Path + "/REPOSITORY-FACT.md",
+		}, nil
+	case turn == 2:
+		read := ""
+		if len(toolResults) > 0 {
+			read = toolResults[len(toolResults)-1]
+		}
+		if !strings.Contains(read, journeyRepositoryCanary) {
+			return "", nil, fmt.Errorf(
+				"planner read did not return the repository fact: %q", read,
+			)
+		}
+		provider.mu.Lock()
+		provider.plannerFactReads++
+		provider.mu.Unlock()
+		return "sworn_yield", map[string]any{"yield": map[string]any{
+			"schema_version": driver.YieldSchemaVersion,
+			"invocation_id":  prompt.InvocationID,
+			"kind":           string(driver.YieldHumanConfirmation),
+			"message":        journeySummaryQuestion,
+		}}, nil
+	default:
+		if prompt.Recovery == nil ||
+			prompt.Recovery.Kind != driver.RecoverableInputAnswer ||
+			prompt.Recovery.Content != journeySummaryAnswer {
+			return "", nil, fmt.Errorf(
+				"planner resume turn=%d recovery=%#v", turn, prompt.Recovery,
+			)
+		}
+		if strings.Contains(
+			prompt.Recovery.Content, journeyRepositoryCanary,
+		) {
+			return "", nil, fmt.Errorf(
+				"the operator answer supplied a repository-discoverable fact",
+			)
+		}
+		arguments, err := provider.submissionArguments(prompt)
+		return "sworn_submit", arguments, err
+	}
+}
+
+// openAIJourneyToolResults returns, in order, the tool results already visible
+// to the model in this OpenAI conversation.
+func openAIJourneyToolResults(body []byte) []string {
+	var value struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(body, &value) != nil {
+		return nil
+	}
+	results := make([]string, 0, len(value.Messages))
+	for _, message := range value.Messages {
+		if message.Role != "tool" {
+			continue
+		}
+		var content string
+		if json.Unmarshal(message.Content, &content) != nil {
+			continue
+		}
+		results = append(results, content)
+	}
+	return results
+}
+
 func (provider *journeyProvider) submissionArguments(
 	prompt journeyPrompt,
 ) (map[string]any, error) {
@@ -516,7 +626,9 @@ func productionJourneyPlan(
 	}
 	body := []byte(
 		"```baton-plan-v2\n" + string(metadataBody) +
-			"\n```\n\nDeterministic production journey for " + repository + ".\n",
+			"\n```\n\nDeterministic production journey for " + repository +
+			".\nOwned surface read from the repository: " +
+			journeyRepositoryCanary + ".\n",
 	)
 	plan, err := baton.ParsePlan(body)
 	if err != nil {
@@ -670,6 +782,46 @@ func TestConfiguredProductionJourneyRepairsVerifierFailWithFreshPass(
 	runConfiguredProductionJourney(t, true)
 }
 
+// openPlannerSummaryAttention reads the board through the real binary and
+// returns the one open human-only Planner turn.
+func openPlannerSummaryAttention(
+	t *testing.T,
+	swornBinary, runID, journalPath string,
+) cockpit.AttentionView {
+	t.Helper()
+	body, stderr := runBinary(
+		t, swornBinary, 0,
+		"board", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if stderr != "" || json.Unmarshal([]byte(body), &board) != nil {
+		t.Fatalf("board body=%q stderr=%q", body, stderr)
+	}
+	var found []cockpit.AttentionView
+	for _, attention := range board.Runtime.Attentions {
+		if attention.State != "open" || attention.HumanTurn == nil {
+			continue
+		}
+		found = append(found, attention)
+	}
+	if len(found) != 1 {
+		t.Fatalf("open human turns = %#v", board.Runtime.Attentions)
+	}
+	attention := found[0]
+	if attention.Generation != 1 ||
+		attention.Question != journeySummaryQuestion ||
+		attention.HumanTurn.Kind != string(driver.YieldHumanConfirmation) ||
+		attention.HumanTurn.Responsibility !=
+			string(driver.PlannerProposal) ||
+		attention.HumanTurn.OpenGeneration != 1 {
+		t.Fatalf("planner summary attention = %#v", attention)
+	}
+	if strings.Contains(attention.Question, journeyRepositoryCanary) {
+		t.Fatal("the Planner asked a person for a repository-discoverable fact")
+	}
+	return attention
+}
+
 func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	t.Helper()
 	repository := newProductRepository(t)
@@ -709,9 +861,44 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
+	// A2: the Planner presented its summary and stopped; no plan exists yet.
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore {
 		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+	attention := openPlannerSummaryAttention(
+		t, swornBinary, "production-journey", journalPath,
+	)
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t,
+		swornBinary,
+		0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"answer",
+		"--run", "production-journey",
+		"--journal", journalPath,
+		"--attention", attention.ID,
+		"--generation", "1",
+		"--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
+		runGit(t, repository, "rev-parse", "main") != targetBefore {
+		t.Fatalf("production summary answer stdout=%q stderr=%q", stdout, stderr)
+	}
+	// A1: the fact the plan promises came out of the repository, and the
+	// operator's answer is not where it came from.
+	provider.mu.Lock()
+	factReads := provider.plannerFactReads
+	provider.mu.Unlock()
+	if factReads != 1 ||
+		!bytes.Contains(planBytes, []byte(journeyRepositoryCanary)) ||
+		strings.Contains(journeySummaryAnswer, journeyRepositoryCanary) {
+		t.Fatalf("planner repository reads = %d", factReads)
 	}
 	beforeRestart, err := os.ReadFile(configPath)
 	if err != nil {
@@ -989,11 +1176,14 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 			}
 		}
 	}
+	// The Planner spends two extra provider turns before its submission: one
+	// to read the repository, one to present its summary as a human-only
+	// turn.
 	wantInvocations := 18
-	wantHTTPCalls := 22
+	wantHTTPCalls := 24
 	if repair {
 		wantInvocations = 20
-		wantHTTPCalls = 25
+		wantHTTPCalls = 27
 	}
 	if len(driverEffects) != wantInvocations ||
 		len(contexts) != wantInvocations {
@@ -1026,9 +1216,9 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		inputTokens += *usage.InputTokens
 		outputTokens += *usage.OutputTokens
 	}
-	wantInputTokens, wantOutputTokens := int64(154), int64(110)
+	wantInputTokens, wantOutputTokens := int64(168), int64(120)
 	if repair {
-		wantInputTokens, wantOutputTokens = 175, 125
+		wantInputTokens, wantOutputTokens = 189, 135
 	}
 	if inputTokens != wantInputTokens ||
 		outputTokens != wantOutputTokens {

@@ -29,7 +29,52 @@ const (
 	recoveryE2ESecret  = "turn-recovery-e2e-secret"
 	recoveryE2EAnswer  = "Use the exact approved recovery fixture value."
 	recoveryE2EContent = "matched production outcome\n"
+	// The production Planner's summary boundary. Every production run in
+	// this file crosses it before a plan exists.
+	recoveryE2ESummaryQuestion = "Summary of the result, scope, acceptance, " +
+		"evidence, inputs, and limits I intend to promise."
+	recoveryE2ESummaryAnswer = "Confirmed; plan exactly that."
 )
+
+// answerRecoveryPlannerSummary answers the one open production Planner summary
+// turn through the real binary and returns the resulting stdout.
+func answerRecoveryPlannerSummary(
+	t *testing.T,
+	binary, runID, journalPath, configPath string,
+	environment map[string]string,
+) string {
+	t.Helper()
+	boardBody, boardErr := runBinary(
+		t, binary, 0,
+		"board", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if boardErr != "" ||
+		json.Unmarshal([]byte(boardBody), &board) != nil {
+		t.Fatalf("planner summary board=%q stderr=%q", boardBody, boardErr)
+	}
+	var open []cockpit.AttentionView
+	for _, attention := range board.Runtime.Attentions {
+		if attention.State == "open" && attention.HumanTurn != nil {
+			open = append(open, attention)
+		}
+	}
+	if len(open) != 1 ||
+		open[0].Question != recoveryE2ESummaryQuestion ||
+		open[0].HumanTurn.Responsibility != string(driver.PlannerProposal) {
+		t.Fatalf("planner summary attentions = %#v", board.Runtime.Attentions)
+	}
+	stdout, stderr := runBinaryWithEnvironment(
+		t, binary, 0, environment,
+		"answer", "--run", runID, "--journal", journalPath,
+		"--attention", open[0].ID, "--generation", "1",
+		"--answer", recoveryE2ESummaryAnswer, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("planner summary answer stdout=%q stderr=%q", stdout, stderr)
+	}
+	return stdout
+}
 
 type recoveryE2EProvider struct {
 	t         *testing.T
@@ -202,6 +247,9 @@ func (provider *recoveryE2EProvider) workerResponse(
 	prompt recoveryE2EModelPrompt,
 	turn int,
 ) (string, map[string]any, error) {
+	if prompt.Responsibility == driver.PlannerProposal {
+		return provider.plannerResponse(prompt, turn)
+	}
 	if prompt.Responsibility != driver.ImplementerImplementation {
 		if turn != 1 || prompt.Recovery != nil {
 			return "", nil, fmt.Errorf(
@@ -267,6 +315,32 @@ func (provider *recoveryE2EProvider) workerResponse(
 	default:
 		return "", nil, fmt.Errorf("implementation turn=%d", turn)
 	}
+}
+
+// plannerResponse crosses the summary-before-plan boundary: the Planner's
+// first terminal is the human-only summary turn, and only the responsibility
+// resumed from the answer emits plan bytes.
+func (provider *recoveryE2EProvider) plannerResponse(
+	prompt recoveryE2EModelPrompt,
+	turn int,
+) (string, map[string]any, error) {
+	if turn == 1 && prompt.Recovery == nil {
+		return "sworn_yield", map[string]any{"yield": map[string]any{
+			"schema_version": driver.YieldSchemaVersion,
+			"invocation_id":  prompt.InvocationID,
+			"kind":           string(driver.YieldHumanConfirmation),
+			"message":        recoveryE2ESummaryQuestion,
+		}}, nil
+	}
+	if prompt.Recovery == nil ||
+		prompt.Recovery.Kind != driver.RecoverableInputAnswer ||
+		prompt.Recovery.Content != recoveryE2ESummaryAnswer {
+		return "", nil, fmt.Errorf(
+			"planner resume turn=%d recovery=%#v", turn, prompt.Recovery,
+		)
+	}
+	arguments, err := provider.submissionArguments(prompt)
+	return "sworn_submit", arguments, err
 }
 
 func (provider *recoveryE2EProvider) expectedAnswer() string {
@@ -526,8 +600,15 @@ func runDirectTurnRecoveryBaseline(
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("direct start stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, "turn-recovery-direct", journalPath, configPath,
+		environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("direct summary answer stdout=%q", stdout)
 	}
 	authorizePlan(t, journalPath, "turn-recovery-direct", plan)
 	installApprovedPlan(t, repository, planBytes)
@@ -666,9 +747,14 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 		"run", "--manifest", manifestPath,
 		"--journal", journalPath, "--config", configPath,
 	)
-	if stderr != "" ||
-		!strings.Contains(stdout, "  state: awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("human start stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, runID, journalPath, configPath, environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("human summary answer stdout=%q", stdout)
 	}
 	authorizePlan(t, journalPath, runID, plan)
 	installApprovedPlan(t, repository, planBytes)
@@ -891,7 +977,9 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 			t.Fatal("human content escaped into captured OTLP payload")
 		}
 	}
-	if opens != 1 || answers != 1 || resolves != 1 ||
+	// The Planner's summary boundary and the implementation turn are two
+	// human turns; each is opened, answered, and resolved exactly once.
+	if opens != 2 || answers != 2 || resolves != 2 ||
 		terminalSubmissions != 1 {
 		t.Fatalf(
 			"open=%d answer=%d resolve=%d terminal=%d",
@@ -966,6 +1054,15 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 					"run", "--manifest", manifestPath,
 					"--journal", journalPath, "--config", configPath,
 				)
+				summary := answerRecoveryPlannerSummary(
+					t, normalBinary, runID, journalPath, configPath,
+					environment,
+				)
+				if !strings.Contains(
+					summary, "  state: awaiting_approval",
+				) {
+					t.Fatalf("summary answer stdout=%q", summary)
+				}
 				authorizePlan(t, journalPath, runID, plan)
 				installApprovedPlan(t, repository, planBytes)
 
@@ -1106,7 +1203,12 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						terminal++
 					}
 				}
-				if opens != 1 || answers != 1 || resolves != 1 || terminal != 1 {
+				// Two human turns now exist per run: the Planner's
+				// summary boundary and the implementation turn this cut
+				// interrupts. Each must still be opened, answered, and
+				// resolved exactly once.
+				if opens != 2 || answers != 2 || resolves != 2 ||
+					terminal != 1 {
 					t.Fatalf(
 						"cut=%s open=%d answer=%d resolve=%d terminal=%d",
 						cut, opens, answers, resolves, terminal,
@@ -1158,8 +1260,14 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--journal", journalPath,
 		"--config", configPath,
 	)
-	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("recovery start stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, "turn-recovery", journalPath, configPath, environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("recovery summary answer stdout=%q", stdout)
 	}
 
 	authorizePlan(t, journalPath, "turn-recovery", plan)
@@ -1367,7 +1475,9 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	if closeErr := store.Close(); err != nil || closeErr != nil {
 		t.Fatalf("visit evaluation error=%v close=%v", err, closeErr)
 	}
-	if parks != 1 || recovered != 1 || falseAcceptances != 0 ||
+	// Two parks now occur: the Planner's summary boundary and the
+	// implementation turn this test restarts across.
+	if parks != 2 || recovered != 2 || falseAcceptances != 0 ||
 		len(targetFacts) != 1 ||
 		!targetFacts[0].StartedAt.Before(parkAt) ||
 		!targetFacts[0].FinishedAt.After(parkAt) {
@@ -1427,8 +1537,8 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		targetFacts[0].StartedAt,
 	).Nanoseconds()
 	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
-		record.TurnRecovery.Recovered != 1 ||
-		record.TurnRecovery.HumanEscalations != 1 ||
+		record.TurnRecovery.Recovered != 2 ||
+		record.TurnRecovery.HumanEscalations != 2 ||
 		record.TurnRecovery.FalseAcceptances != 0 ||
 		len(implementationGroups) != 1 ||
 		implementationGroups[0].Attempts != 1 ||

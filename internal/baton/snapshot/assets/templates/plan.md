@@ -88,7 +88,15 @@ oracle, support, or evidence path.
 
 # Acceptance
 
-Explain how each acceptance identifier is observable.
+Explain how each acceptance identifier is observable. Every slice promises one
+independently reviewable result, and every acceptance boundary must be able to
+fail through the real product — never only through a stub, a mock, or a
+restatement of the contract. Name the minimum end-to-end proof that runs the
+real built product for that slice's outcome.
+
+Reuse the product's existing owners. A slice that introduces a parallel
+function, field, schema, or component beside one that already does the job
+needs an explicit justification here, or it does not belong in the plan.
 
 # Ordered tracks and slices
 

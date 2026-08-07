@@ -197,7 +197,16 @@ func newProductRepository(t *testing.T) string {
 	); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, repository, "add", "--", "base.txt")
+	// A repository-discoverable fact. A Planner is expected to read it, not
+	// ask a person for it.
+	if err := os.WriteFile(
+		filepath.Join(repository, "REPOSITORY-FACT.md"),
+		[]byte("The owned surface is "+journeyRepositoryCanary+".\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "add", "--", "base.txt", "REPOSITORY-FACT.md")
 	runGit(t, repository, "commit", "--quiet", "-m", "base")
 	return repository
 }
