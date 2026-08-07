@@ -25,7 +25,7 @@ func TestVerifyReportsExactBatonAdmission(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Schema != verificationSchema || got.Identity.PackageVersion != baton.PackageVersion ||
+	if got.Schema != verificationSchema || got.Identity.RoleAssetsVersion != baton.RoleAssetsVersion ||
 		got.VectorFiles != 4 || got.VectorBytes <= 0 ||
 		len(got.CorpusManifest) != len("sha256:")+64 {
 		t.Fatalf("verification = %#v", got)

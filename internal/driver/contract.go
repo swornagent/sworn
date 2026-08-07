@@ -78,13 +78,8 @@ type Operation struct {
 	Instructions string `json:"instructions"`
 }
 type PackageIdentity struct {
-	Version              string `json:"version"`
-	TagName              string `json:"tag_name"`
-	TagObject            string `json:"tag_object"`
-	Commit               string `json:"commit"`
-	Tree                 string `json:"tree"`
-	SupportPackageSHA256 string `json:"support_package_sha256"`
-	ManifestSHA256       string `json:"manifest_sha256"`
+	Version        string `json:"version"`
+	ManifestSHA256 string `json:"manifest_sha256"`
 }
 type WorkspaceAccess string
 
@@ -230,6 +225,11 @@ func CanonicalOperation(role Role) (Operation, error) {
 		Instructions: string(body),
 	}, nil
 }
+
+// admittedPackage loads Sworn's own embedded role-asset bundle. Admission is
+// self-consistency only: the compiled bundle must match its own recorded
+// digests. It never requires a separately installed, tagged, checked-out, or
+// certified external Baton release.
 func admittedPackage() (baton.Package, PackageIdentity, error) {
 	pkg, err := baton.Load()
 	if err != nil {
@@ -237,23 +237,13 @@ func admittedPackage() (baton.Package, PackageIdentity, error) {
 	}
 	identity, err := pkg.Identity()
 	if err != nil ||
-		identity.PackageVersion != baton.PackageVersion ||
-		identity.TagName != baton.TagName ||
-		identity.TagObject != baton.TagObject ||
-		identity.Commit != baton.Commit ||
-		identity.Tree != baton.Tree ||
-		identity.SupportPackageSHA256 != baton.SupportPackageSHA256 ||
+		identity.RoleAssetsVersion != baton.RoleAssetsVersion ||
 		identity.ManifestSHA256 != baton.ManifestSHA256 {
 		return baton.Package{}, PackageIdentity{}, fail("INVALID_PACKAGE")
 	}
 	return pkg, PackageIdentity{
-		Version:              identity.PackageVersion,
-		TagName:              identity.TagName,
-		TagObject:            identity.TagObject,
-		Commit:               identity.Commit,
-		Tree:                 identity.Tree,
-		SupportPackageSHA256: identity.SupportPackageSHA256,
-		ManifestSHA256:       identity.ManifestSHA256,
+		Version:        identity.RoleAssetsVersion,
+		ManifestSHA256: identity.ManifestSHA256,
 	}, nil
 }
 func NewRequest(

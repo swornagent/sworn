@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -25,8 +26,45 @@ func TestProjectReleaseUsesBatonGraphWithoutInventingRun(t *testing.T) {
 		t.Fatalf("release graph = %#v", snapshot.Graph)
 	}
 	if snapshot.Presentation.Status != "Ready for Implementer" ||
-		snapshot.Presentation.What != "Baton has work ready to be handed over." {
+		snapshot.Presentation.What != "Sworn has work ready to be handed over." {
 		t.Fatalf("presentation = %#v", snapshot.Presentation)
+	}
+}
+
+func TestProjectReleasePresentationNeverNamesBatonAsActiveAuthority(t *testing.T) {
+	for _, state := range []baton.State{
+		{Release: "not-started"},
+		{Release: "merged", Assembly: baton.AssemblyState{Status: "complete", Outcome: "merged"}},
+		{Release: "blocked", Assembly: baton.AssemblyState{Status: "blocked"}},
+		{
+			Release: "ready",
+			Tracks: []baton.TrackState{{
+				ID: "T1",
+				Slices: []*baton.SliceState{{
+					Location: baton.SliceLocation{Slice: baton.Slice{ID: "S1"}},
+					Status:   "ready", NextRole: "implementer",
+				}},
+			}},
+		},
+		{
+			Release: "broken",
+			Diagnostics: []baton.Diagnostic{{
+				Code: "INVALID_HISTORY", Track: "T1", Work: "S1",
+			}},
+		},
+	} {
+		presentation := ProjectRelease(state).Presentation
+		for _, field := range []string{
+			presentation.Status, presentation.What,
+			presentation.Next, presentation.NeedsYou, presentation.Checked,
+		} {
+			if strings.Contains(field, "Baton") {
+				t.Fatalf(
+					"release %q presentation names Baton as active authority: %#v",
+					state.Release, presentation,
+				)
+			}
+		}
 	}
 }
 

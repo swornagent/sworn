@@ -55,9 +55,9 @@ func (b *projectTUIBackend) Catalog(
 		release := project.releases[index]
 		run, hasRun := latestProjectRun(release)
 		runID := ""
-		status := "Baton release"
+		status := "Sworn release"
 		needsYou := "Open the board to see the next handoff."
-		checked := "The latest saved Baton release."
+		checked := "The latest saved Sworn release."
 		if hasRun {
 			runID = run.binding.ID
 			status = "Sworn run saved"
@@ -65,11 +65,11 @@ func (b *projectTUIBackend) Catalog(
 			checked = "Run " + runID
 		}
 		if release.diagnostic != "" {
-			status = "Baton release missing"
+			status = "Sworn release needs attention"
 			if hasRun {
-				status = "Sworn run · Baton release missing"
+				status = "Sworn run · release needs attention"
 			}
-			needsYou = "Yes — restore or prepare the local Baton release."
+			needsYou = "Yes — review this release before delivery can start."
 			checked = "Saved Sworn run information."
 		}
 		selection, err := newTUISelection(project, release, runID)
@@ -132,10 +132,10 @@ func (b *projectTUIBackend) Board(
 				Code: release.diagnostic,
 			}},
 			Status:   "Needs confirmation",
-			What:     "Sworn found saved run information, but its local Baton release is missing.",
-			Next:     "Restore or prepare that Baton release, then refresh.",
-			NeedsYou: "Yes — the local Baton release must be available before delivery can start.",
-			Checked:  "Saved run information and local Baton releases.",
+			What:     "Sworn found saved run information, but this release's saved state could not be read.",
+			Next:     "Review this release, then refresh.",
+			NeedsYou: "Yes — review this release before delivery can start.",
+			Checked:  "Saved run information and the local Sworn release record.",
 		}, nil
 	}
 
@@ -184,7 +184,7 @@ func (b *projectTUIBackend) Board(
 		presentation.What = "Sworn could not confirm the saved run records."
 		presentation.Next = "Restore the saved Sworn run record, then refresh this board."
 		presentation.NeedsYou = "Yes — delivery controls are disabled until the saved facts can be confirmed."
-		presentation.Checked = "The Baton release is visible, but the saved Sworn run record is unavailable."
+		presentation.Checked = "This release is visible, but the saved Sworn run record is unavailable."
 	}
 	return tui.Board{
 		Selection: selection, Graph: snapshot.Graph,

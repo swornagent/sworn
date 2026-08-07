@@ -40,20 +40,15 @@ func contractRequest(t *testing.T, role Role) Request {
 	return request
 }
 
-func TestCanonicalOperationsBindExactRC14PackageAndExcludeMerge(t *testing.T) {
+func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T) {
 	t.Parallel()
 	_, identity, err := admittedPackage()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity != (PackageIdentity{
-		Version:              "1.0.0-rc.14",
-		TagName:              "v1.0.0-rc.14",
-		TagObject:            "cf3a3822cebedf7e53a067f8966ecb17f238c8df",
-		Commit:               "efacafb2579e99b9d291b2ad27d41df26fbb9d79",
-		Tree:                 "a92479268e0874f0d262ad80703fee489b5d6572",
-		SupportPackageSHA256: "sha256:6a1528cbaf357eb9ffc9e494d55f1de86cbb43ee220848cc9fb65227b9fd0452",
-		ManifestSHA256:       "sha256:3ee5d18eb6bc38bc3694bfe6ad12a6d45dac3586378f4f4fd572b560aaa9755e",
+		Version:        "sworn.role-assets/v1",
+		ManifestSHA256: "sha256:ef70ae0560af52a0423b302bd971e26b376aa32086f79be5b6f6250e5e087cde",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -63,15 +58,15 @@ func TestCanonicalOperationsBindExactRC14PackageAndExcludeMerge(t *testing.T) {
 	}{
 		RolePlanner: {
 			"baton-plan",
-			"sha256:443f8bbce2914f2586de8ae7796b346554097421742071e8494d459673b82760",
+			"sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4",
 		},
 		RoleImplementer: {
 			"baton-implement",
-			"sha256:c274017d47d9dd7bc86ff1188cab1b688f7df73500b3bacdb4244bf496c8c473",
+			"sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760",
 		},
 		RoleCaptain: {
 			"baton-design-review",
-			"sha256:ecfecf92a1858db9a27de6105ccf647f5a15ec85ed76a346072182e22e99a6d5",
+			"sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f",
 		},
 		RoleVerifier: {
 			"baton-verify",

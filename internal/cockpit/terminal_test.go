@@ -21,7 +21,7 @@ func TestRenderTerminalPresentsTheTruthfulSnapshot(t *testing.T) {
 	for _, fact := range []string{
 		`SWORN DELIVERY BOARD`,
 		`Status: Sworn is working`,
-		`What's happening: Sworn is carrying the next recorded Baton handoff.`,
+		`What's happening: Sworn is carrying the next recorded handoff.`,
 		`Next: Sworn will continue with the next ready handoff.`,
 		`Needs you: No, unless Sworn asks a question.`,
 		`Checked: The latest saved run record.`,

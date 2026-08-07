@@ -93,9 +93,10 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 
 	renderer.section(
 		fmt.Sprintf(
-			"GRAPH nodes=%d edges=%d",
+			"GRAPH nodes=%d edges=%d manifest=%s",
 			len(snapshot.Graph.Nodes),
 			len(snapshot.Graph.Edges),
+			terminalQuote(snapshot.Graph.ManifestVersion),
 		),
 	)
 	if len(snapshot.Graph.Nodes) == 0 {
@@ -148,6 +149,24 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 				"next="+terminalQuote(node.NextResponsibility),
 			)
 		}
+		if node.ContractPath != "" {
+			nodeFields = append(
+				nodeFields,
+				"contract_path="+terminalQuote(node.ContractPath),
+			)
+		}
+		if node.ContractDigest != "" {
+			nodeFields = append(
+				nodeFields,
+				"contract_digest="+terminalQuote(node.ContractDigest),
+			)
+		}
+		if len(node.BoundEvidence) > 0 {
+			nodeFields = append(
+				nodeFields,
+				"evidence_items="+strconv.Itoa(len(node.BoundEvidence)),
+			)
+		}
 		renderer.line(2, fields(nodeFields...))
 	}
 	for _, edge := range snapshot.Graph.Edges {
@@ -159,6 +178,25 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 				"from="+terminalQuote(edge.From),
 				"kind="+terminalQuote(edge.Kind),
 				"to="+terminalQuote(edge.To),
+			),
+		)
+	}
+
+	renderer.section(
+		fmt.Sprintf("TOUCHPOINTS count=%d", len(snapshot.Graph.Touchpoints)),
+	)
+	if len(snapshot.Graph.Touchpoints) == 0 {
+		renderer.none()
+	}
+	for _, touchpoint := range snapshot.Graph.Touchpoints {
+		renderer.line(
+			2,
+			fields(
+				"left="+terminalQuote(touchpoint.Left),
+				"right="+terminalQuote(touchpoint.Right),
+				"path="+terminalQuote(touchpoint.Path),
+				"ordered="+strconv.FormatBool(touchpoint.Ordered),
+				"before="+terminalQuote(touchpoint.Before),
 			),
 		)
 	}

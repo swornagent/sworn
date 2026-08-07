@@ -334,18 +334,18 @@ func reportProjectReleases(out io.Writer, root string) {
 	}
 	refs, err := baton.ListReleaseRefs(baton.UseGitRepository(repository))
 	if err != nil {
-		fmt.Fprintln(out, "\nBaton releases: could not be read.")
+		fmt.Fprintln(out, "\nDelivery releases: could not be read.")
 		return
 	}
 	if len(refs) == 0 {
-		fmt.Fprintln(out, "\nBaton releases: none in this project.")
+		fmt.Fprintln(out, "\nDelivery releases: none in this project.")
 		fmt.Fprintln(
 			out,
-			"Sworn carries work that Baton has already planned, so a release must exist first.",
+			"Sworn needs an approved release recorded under .baton/releases before a run can start.",
 		)
 		return
 	}
-	fmt.Fprintf(out, "\nBaton releases: %d\n", len(refs))
+	fmt.Fprintf(out, "\nDelivery releases: %d\n", len(refs))
 	for _, ref := range refs {
 		fmt.Fprintf(out, "  %s\n", ref.Release)
 	}

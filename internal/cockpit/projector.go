@@ -275,6 +275,27 @@ func buildSnapshot(
 		result.Runtime.Attempts = append(result.Runtime.Attempts, view)
 	}
 	for _, attention := range observation.Attentions {
+		var humanTurn *HumanAttentionView
+		if human := attention.Attention.HumanTurn; human != nil {
+			humanTurn = &HumanAttentionView{
+				SchemaVersion:         human.SchemaVersion,
+				Kind:                  human.Kind,
+				RunID:                 human.RunID,
+				Track:                 human.Track,
+				Slice:                 human.Slice,
+				Role:                  human.Role,
+				Responsibility:        human.Responsibility,
+				InvocationID:          human.InvocationID,
+				BatonAttempt:          human.BatonAttempt,
+				PlanAuthorityDigest:   human.PlanAuthorityDigest,
+				TargetAuthorityDigest: human.TargetAuthorityDigest,
+				WorkIdentity:          human.WorkIdentity,
+				CycleID:               human.CycleID,
+				TurnID:                human.TurnID,
+				Ordinal:               human.Ordinal,
+				OpenGeneration:        human.OpenGeneration,
+			}
+		}
 		result.Runtime.Attentions = append(
 			result.Runtime.Attentions,
 			AttentionView{
@@ -284,11 +305,13 @@ func buildSnapshot(
 				Generation: attention.Generation,
 				Question:   attention.Question,
 				Answer:     attention.Answer,
+				HumanTurn:  humanTurn,
 			},
 		)
 		if attention.State == journal.AttentionOpen {
 			attentionActions = append(attentionActions, Action{
 				Kind:               "answer_attention",
+				RunID:              status.RunID,
 				ExpectedGeneration: attention.Generation,
 				AttentionID:        attention.Attention.ID,
 			})
@@ -409,6 +432,18 @@ func safeNotificationError(value string) string {
 	}
 }
 
+// discoveredEvidence is best-effort: evidence is optional, non-authoritative
+// material, so any discovery error (an absent directory, a malformed or
+// tampered bundle) degrades to no evidence rather than surfacing an error or
+// diagnostic that could suppress this snapshot's controls.
+func discoveredEvidence(state baton.State, sliceID string) []BoundEvidenceItem {
+	items, err := DiscoverBoundEvidence(".", state, sliceID)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
 func projectHandoff(graph Graph) Handoff {
 	result := Handoff{
 		Nodes:            []string{},
@@ -481,6 +516,7 @@ func projectGraph(
 		}
 	}
 	result := Graph{
+		ManifestVersion: state.Plan.Metadata.SchemaVersion,
 		Nodes: []Node{{
 			ID:    "release:" + state.Release,
 			Kind:  "release",
@@ -488,6 +524,14 @@ func projectGraph(
 			State: runState,
 		}},
 		Edges: []Edge{},
+	}
+	if history := state.Plan.History; len(history) > 0 {
+		for _, relation := range history[len(history)-1].Plan.TouchpointMatrix() {
+			result.Touchpoints = append(result.Touchpoints, Touchpoint{
+				Left: relation.Left, Right: relation.Right, Path: relation.Path,
+				Ordered: relation.Ordered, Before: relation.Before,
+			})
+		}
 	}
 	addEdge := func(kind, from, to string) {
 		result.Edges = append(result.Edges, Edge{
@@ -537,6 +581,9 @@ func projectGraph(
 				NextResponsibility: slice.NextRole,
 				Attempt:            slice.Attempt,
 				HasBaton:           hasBaton,
+				ContractPath:       slice.Location.Slice.ContractPath,
+				ContractDigest:     state.Plan.Metadata.Contracts[slice.Location.Slice.ID],
+				BoundEvidence:      discoveredEvidence(state, slice.Location.Slice.ID),
 			})
 			addEdge("contains", trackID, sliceID)
 			if previous != "" {

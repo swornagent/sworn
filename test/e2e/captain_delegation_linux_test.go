@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -152,32 +153,20 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 	}()
 	telemetryParityWaitHealth(t, address, func(cockpit.TelemetryHealth) bool { return true })
 
-	requestBody, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{
-			"name": "sworn_start_delegated",
-			"arguments": map[string]any{
-				"manifest_digest": envelope.ManifestDigest,
-				"envelope_bytes":  envelopeBytes,
-			},
-		},
-	})
-	requestContext, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, "http://"+address+"/mcp", bytes.NewReader(requestBody))
-	if err != nil {
-		t.Fatal(err)
+	// A9: the client is a coding-agent host that knows only what the server
+	// advertises. It discovers the tool names, then drives the whole serial
+	// loop through them, reconnecting with a fresh transport at every
+	// boundary.
+	advertised := journeyMCPTools(t, address)
+	for _, required := range []string{
+		"sworn_start_delegated", "sworn_status",
+		"sworn_attentions", "sworn_answer_attention",
+	} {
+		if !advertised[required] {
+			t.Fatalf("advertised MCP tools = %#v", advertised)
+		}
 	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Origin", "http://"+address)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	responseBody, _ := io.ReadAll(response.Body)
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusOK || bytes.Contains(responseBody, []byte(`"isError":true`)) || !bytes.Contains(responseBody, []byte(`"state":"complete"`)) {
+	diagnose := func(label string, body []byte) {
 		var diagnostic journal.Snapshot
 		if diagnosticStore, openErr := journal.OpenReadOnly(context.Background(), journalPath); openErr == nil {
 			diagnostic, _ = diagnosticStore.Snapshot(context.Background(), "production-journey")
@@ -195,7 +184,51 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 		for _, event := range diagnostic.Events {
 			events = append(events, event.Kind)
 		}
-		t.Fatalf("delegated MCP start = %d %s\ncommands=%#v\neffects=%#v\nevents=%#v\nserve stderr=%s", response.StatusCode, responseBody, commands, effects, events, stderr.String())
+		t.Fatalf("%s = %s\ncommands=%#v\neffects=%#v\nevents=%#v\nserve stderr=%s", label, body, commands, effects, events, stderr.String())
+	}
+	responseBody := journeyMCPCall(t, address, "sworn_start_delegated", map[string]any{
+		"manifest_digest": envelope.ManifestDigest,
+		"envelope_bytes":  envelopeBytes,
+	})
+	if bytes.Contains(responseBody, []byte(`"isError":true`)) ||
+		!bytes.Contains(responseBody, []byte(`"state":"parked"`)) {
+		diagnose("delegated MCP start", responseBody)
+	}
+	// Each summary turn is read and answered through a freshly connected
+	// client. Answering the same turn twice must not duplicate any authority.
+	answered := 0
+	for range 4 {
+		attention, found := journeyMCPOpenHumanTurn(t, address)
+		if !found {
+			break
+		}
+		answered++
+		responseBody = journeyMCPCall(t, address, "sworn_answer_attention", map[string]any{
+			"run_id": "production-journey", "attention_id": attention,
+			"expected_generation": 1, "answer": journeySummaryAnswer,
+		})
+		if bytes.Contains(responseBody, []byte(`"isError":true`)) {
+			diagnose("delegated MCP answer", responseBody)
+		}
+		replayed := journeyMCPCall(t, address, "sworn_answer_attention", map[string]any{
+			"run_id": "production-journey", "attention_id": attention,
+			"expected_generation": 1, "answer": journeySummaryAnswer,
+		})
+		if !bytes.Contains(replayed, []byte(`"isError":true`)) {
+			diagnose("replayed MCP answer was admitted", replayed)
+		}
+	}
+	if answered != 2 {
+		diagnose("delegated MCP human turns = "+strconv.Itoa(answered), responseBody)
+	}
+	if !bytes.Contains(responseBody, []byte(`"state":"complete"`)) {
+		diagnose("delegated MCP completion", responseBody)
+	}
+	status := journeyMCPCall(t, address, "sworn_status", map[string]any{
+		"run_id": "production-journey",
+	})
+	if bytes.Contains(status, []byte(`"isError":true`)) {
+		diagnose("delegated MCP status", status)
 	}
 
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -245,4 +278,110 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 	if stdout.String() != "sworn serve: ready\n" || stderr.Len() != 0 {
 		t.Fatalf("serve output stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
+}
+
+// journeyMCPPost issues one JSON-RPC request over a freshly built transport,
+// so every call in a journey behaves like a reconnecting client.
+func journeyMCPPost(t *testing.T, address string, body []byte) []byte {
+	t.Helper()
+	requestContext, cancel := context.WithTimeout(
+		context.Background(), 300*time.Second,
+	)
+	defer cancel()
+	request, err := http.NewRequestWithContext(
+		requestContext,
+		http.MethodPost,
+		"http://"+address+"/mcp",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Origin", "http://"+address)
+	client := &http.Client{Transport: &http.Transport{}}
+	defer client.CloseIdleConnections()
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("POST /mcp = %d %s", response.StatusCode, responseBody)
+	}
+	return responseBody
+}
+
+func journeyMCPTools(t *testing.T, address string) map[string]bool {
+	t.Helper()
+	body := journeyMCPPost(t, address, []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`,
+	))
+	var listing struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(body, &listing) != nil {
+		t.Fatalf("tools/list = %s", body)
+	}
+	advertised := make(map[string]bool, len(listing.Result.Tools))
+	for _, tool := range listing.Result.Tools {
+		advertised[tool.Name] = true
+	}
+	return advertised
+}
+
+func journeyMCPCall(
+	t *testing.T,
+	address, name string,
+	arguments map[string]any,
+) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": name, "arguments": arguments},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return journeyMCPPost(t, address, body)
+}
+
+// journeyMCPOpenHumanTurn reads the one open human-only turn through the
+// advertised read tool and returns its identity.
+func journeyMCPOpenHumanTurn(t *testing.T, address string) (string, bool) {
+	t.Helper()
+	body := journeyMCPCall(t, address, "sworn_attentions", map[string]any{})
+	var envelope struct {
+		Result struct {
+			StructuredContent struct {
+				Attentions []cockpit.AttentionView `json:"attentions"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(body, &envelope) != nil {
+		t.Fatalf("sworn_attentions = %s", body)
+	}
+	var open []cockpit.AttentionView
+	for _, attention := range envelope.Result.StructuredContent.Attentions {
+		if attention.State != "open" || attention.HumanTurn == nil {
+			continue
+		}
+		open = append(open, attention)
+	}
+	if len(open) == 0 {
+		return "", false
+	}
+	if len(open) != 1 ||
+		open[0].Question != journeySummaryQuestion ||
+		open[0].HumanTurn.Responsibility != string(driver.PlannerProposal) ||
+		open[0].HumanTurn.Kind != string(driver.YieldHumanConfirmation) {
+		t.Fatalf("open human turns = %#v", open)
+	}
+	return open[0].ID, true
 }

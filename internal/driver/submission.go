@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/baton"
 )
 
 const (
@@ -254,29 +256,16 @@ func validateSubmissionDetail(detail string) error {
 	return nil
 }
 
+// validatePlanBytes delegates plan admission to the one canonical parser
+// shared with plan recording: any bytes a Planner submission carries must be
+// exactly what baton.ParsePlan would later admit, whether that is the legacy
+// baton.plan/v2 fence or a sworn.release-manifest/v1 manifest. This drops the
+// prior driver-local fence/JSON precheck, which duplicated and could drift
+// from that authority. The wire-facing code stays INVALID_PLAN_BYTES for
+// every rejection, matching this package's existing certification mapping
+// and tests.
 func validatePlanBytes(body []byte) error {
-	const (
-		openFence  = "```baton-plan-v2\n"
-		closeFence = "\n```\n"
-	)
-	if len(body) == 0 || len(body) > MaxPlanBytes || !utf8.Valid(body) ||
-		!bytes.HasPrefix(body, []byte(openFence)) {
-		return fail("INVALID_PLAN_BYTES")
-	}
-	metadataStart := len(openFence)
-	closeAt := bytes.Index(body[metadataStart:], []byte(closeFence))
-	if closeAt < 0 {
-		return fail("INVALID_PLAN_BYTES")
-	}
-	closeAt += metadataStart
-	if bytes.Contains(body[closeAt+len(closeFence):], []byte(closeFence)) {
-		return fail("INVALID_PLAN_BYTES")
-	}
-	metadata, err := decodeStrict(body[metadataStart:closeAt], MaxPlanBytes)
-	if err != nil {
-		return fail("INVALID_PLAN_BYTES")
-	}
-	if _, ok := metadata.(map[string]any); !ok {
+	if _, err := baton.ParsePlan(body); err != nil {
 		return fail("INVALID_PLAN_BYTES")
 	}
 	return nil

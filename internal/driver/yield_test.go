@@ -37,6 +37,38 @@ func TestYieldCodecIsClosedBoundedAndBindsOneNonBatonTerminal(t *testing.T) {
 	}
 }
 
+func TestYieldCodecAdmitsOnlyTheTwoTypedHumanTurnKinds(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []YieldKind{
+		YieldHumanChoice,
+		YieldHumanConfirmation,
+	} {
+		value := Yield{
+			SchemaVersion: YieldSchemaVersion,
+			InvocationID:  "human-turn-1",
+			Kind:          kind,
+			Message:       "Confirm the exact intended meaning.",
+		}
+		body, err := EncodeYield(value)
+		if err != nil {
+			t.Fatalf("%s encode: %v", kind, err)
+		}
+		decoded, err := DecodeYield(body)
+		if err != nil || decoded != value {
+			t.Fatalf("%s decoded = %#v, error = %v", kind, decoded, err)
+		}
+	}
+	invalid := Yield{
+		SchemaVersion: YieldSchemaVersion,
+		InvocationID:  "human-turn-1",
+		Kind:          "human_approval",
+		Message:       "Approve this plan.",
+	}
+	if err := ValidateYield(invalid); !IsCode(err, "INVALID_YIELD_KIND") {
+		t.Fatalf("authority-shaped kind error = %v", err)
+	}
+}
+
 func TestObservationRejectsSubmissionAndYieldTogether(t *testing.T) {
 	t.Parallel()
 	invocation, adapter, handoff := memoryInvocationFixture(t)

@@ -19,7 +19,7 @@ import (
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-const usage = `Sworn carries software work through Baton's recorded handoffs.
+const usage = `Sworn carries software work through its own recorded handoffs.
 
 Commands:
   init      Set this project up to work with Sworn.
@@ -36,7 +36,8 @@ Commands:
   approve   Admit one exact plan approval (low-level recovery/scripting).
   status    Return the stable machine-readable run record.
   driver    Check configured AI connections.
-  version   Show the Sworn and Baton versions.
+  skill     Install or upgrade the one supported Sworn agent skill.
+  version   Show the Sworn version and embedded role-asset identity.
   help      Show this help.
 
 Exact syntax:
@@ -53,17 +54,18 @@ Exact syntax:
   sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+  sworn skill install [--home ABS]
 `
 
 const (
 	swornVersion = "1.0.0-rc.2-dev"
-	swornState   = "baton-rc14-admitted"
+	swornState   = "role-assets-admitted"
 )
 
 type versionInfo struct {
-	Version string         `json:"version"`
-	State   string         `json:"state"`
-	Baton   baton.Identity `json:"baton"`
+	Version    string         `json:"version"`
+	State      string         `json:"state"`
+	RoleAssets baton.Identity `json:"role_assets"`
 }
 
 func main() {
@@ -90,6 +92,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runStart(args[1:], stdout, stderr)
 	case "driver":
 		return runDriver(args[1:], stdout, stderr)
+	case "skill":
+		return runSkill(args[1:], stdout, stderr)
 	case "resume":
 		return runControl(journal.Resume, args[1:], stdout, stderr)
 	case "pause":
@@ -205,22 +209,22 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 		writeCommandFailure(
 			stderr,
 			"version",
-			"Could not read the included Baton package.",
+			"Could not read Sworn's embedded role assets.",
 			err,
 		)
 		return 1
 	}
-	batonIdentity, err := pkg.Identity()
+	roleAssets, err := pkg.Identity()
 	if err != nil {
 		writeCommandFailure(
 			stderr,
 			"version",
-			"Could not confirm the included Baton identity.",
+			"Could not confirm Sworn's embedded role-asset identity.",
 			err,
 		)
 		return 1
 	}
-	if err := writeVersion(stdout, asJSON, batonIdentity); err != nil {
+	if err := writeVersion(stdout, asJSON, roleAssets); err != nil {
 		fmt.Fprintln(stderr, "sworn version: Could not write the version result.")
 		return 1
 	}
@@ -702,11 +706,11 @@ func writeStatusText(out io.Writer, status runtimepkg.RunStatus) error {
 	return err
 }
 
-func writeVersion(out io.Writer, asJSON bool, batonIdentity baton.Identity) error {
+func writeVersion(out io.Writer, asJSON bool, roleAssets baton.Identity) error {
 	info := versionInfo{
-		Version: swornVersion,
-		State:   swornState,
-		Baton:   batonIdentity,
+		Version:    swornVersion,
+		State:      swornState,
+		RoleAssets: roleAssets,
 	}
 	if asJSON {
 		encoder := json.NewEncoder(out)
@@ -715,15 +719,15 @@ func writeVersion(out io.Writer, asJSON bool, batonIdentity baton.Identity) erro
 	}
 	_, err := fmt.Fprintf(
 		out,
-		"Sworn %s\n"+
-			"Baton %s\n\n"+
+		"Sworn %s\n\n"+
 			"Technical details:\n"+
 			"  state: %s\n"+
-			"  baton commit: %s\n",
+			"  role assets: %s\n"+
+			"  legacy Baton content: %s\n",
 		info.Version,
-		info.Baton.PackageVersion,
 		info.State,
-		info.Baton.Commit,
+		info.RoleAssets.RoleAssetsVersion,
+		info.RoleAssets.LegacyBatonVersion,
 	)
 	return err
 }
@@ -763,7 +767,7 @@ func writeCommandFailure(
 	case "RUN_NOT_FOUND", "INVALID_RUN":
 		message = "Could not find that run in the saved record."
 	case "BATON_UNAVAILABLE":
-		message = "Could not confirm the current Baton handoff records."
+		message = "Could not confirm the current release records."
 	case "GIT_UNAVAILABLE":
 		message = "Could not find or use Git."
 	}

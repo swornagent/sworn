@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -64,9 +65,14 @@ func (f *httpFakeProjector) Events(
 
 type httpFakeCommands struct {
 	mu           sync.Mutex
+	startErr     error
+	controlErr   error
+	start        StartCommand
+	control      ControlCommand
 	startCalls   int
 	controlCalls int
 	answerCalls  int
+	answer       AnswerAttentionCommand
 	redeliveries int
 	approveCalls int
 	captainCalls int
@@ -90,22 +96,30 @@ func (f httpFakeTelemetry) TelemetryHealth() TelemetryHealth {
 }
 
 func (f *httpFakeCommands) Start(
-	context.Context,
-	StartCommand,
+	_ context.Context,
+	command StartCommand,
 ) (runtimepkg.RunStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.startCalls++
+	f.start = command
+	if f.startErr != nil {
+		return runtimepkg.RunStatus{}, f.startErr
+	}
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
 func (f *httpFakeCommands) Control(
-	context.Context,
-	ControlCommand,
+	_ context.Context,
+	command ControlCommand,
 ) (runtimepkg.RunStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.controlCalls++
+	f.control = command
+	if f.controlErr != nil {
+		return runtimepkg.RunStatus{}, f.controlErr
+	}
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
@@ -120,12 +134,13 @@ func (f *httpFakeCommands) Redeliver(
 }
 
 func (f *httpFakeCommands) AnswerAttention(
-	context.Context,
-	AnswerAttentionCommand,
+	_ context.Context,
+	command AnswerAttentionCommand,
 ) (runtimepkg.RunStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answerCalls++
+	f.answer = command
 	return runtimepkg.RunStatus{RunID: "run-1"}, nil
 }
 
@@ -144,7 +159,7 @@ func (f *httpFakeCommands) Approve(
 
 func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 	t.Parallel()
-	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	handler, projector, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
 	call := func(body string, remote string) *httptest.ResponseRecorder {
 		request := httpRequest(
 			http.MethodPost, testLocalOrigin+"/mcp", remote, []byte(body),
@@ -157,11 +172,154 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 		t.Fatalf("initialize = %d %s", initialize.Code, initialize.Body.String())
 	}
 	listed := call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, "127.0.0.1:41100")
-	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), mcpApprovalTool) ||
-		!strings.Contains(listed.Body.String(), mcpCaptainDelegationTool) ||
-		!strings.Contains(listed.Body.String(), mcpStartDelegatedTool) ||
-		!strings.Contains(listed.Body.String(), `"additionalProperties":false`) {
+	// A8: the advertised surface is exact. Every serial-loop capability must
+	// be present, and nothing beyond them may appear.
+	var listing struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					AdditionalProperties *bool    `json:"additionalProperties"`
+					Required             []string `json:"required"`
+				} `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if listed.Code != http.StatusOK ||
+		json.Unmarshal(listed.Body.Bytes(), &listing) != nil {
 		t.Fatalf("tools/list = %d %s", listed.Code, listed.Body.String())
+	}
+	advertised := make([]string, 0, len(listing.Result.Tools))
+	for _, tool := range listing.Result.Tools {
+		advertised = append(advertised, tool.Name)
+		if tool.InputSchema.AdditionalProperties == nil ||
+			*tool.InputSchema.AdditionalProperties {
+			t.Fatalf("tool %s accepts unknown fields", tool.Name)
+		}
+	}
+	sort.Strings(advertised)
+	wantTools := []string{
+		mcpAnswerAttentionTool, mcpApprovalTool, mcpAttentionsTool,
+		mcpCaptainDelegationTool, mcpControlTool, mcpStartTool,
+		mcpStartDelegatedTool, mcpStatusTool,
+	}
+	sort.Strings(wantTools)
+	if !reflect.DeepEqual(advertised, wantTools) {
+		t.Fatalf("advertised tools = %v, want %v", advertised, wantTools)
+	}
+	startCommand := StartCommand{
+		ManifestDigest: "sha256:" + strings.Repeat("4", 64),
+	}
+	startBody, _ := json.Marshal(startCommand)
+	startCallBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+		"params": map[string]any{
+			"name": mcpStartTool, "arguments": json.RawMessage(startBody),
+		},
+	})
+	started := call(string(startCallBody), "127.0.0.1:41100")
+	if started.Code != http.StatusOK || commands.startCalls != 1 ||
+		!reflect.DeepEqual(commands.start, startCommand) ||
+		!strings.Contains(started.Body.String(), `"run_id":"run-1"`) {
+		t.Fatalf(
+			"start = %d calls=%d command=%#v body=%s",
+			started.Code, commands.startCalls, commands.start,
+			started.Body.String(),
+		)
+	}
+	controlCommand := ControlCommand{
+		RunID: "run-1", CommandID: "control-1",
+		Kind: journal.Pause, ExpectedGeneration: 0,
+	}
+	controlBody, _ := json.Marshal(controlCommand)
+	controlCallBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 11, "method": "tools/call",
+		"params": map[string]any{
+			"name": mcpControlTool, "arguments": json.RawMessage(controlBody),
+		},
+	})
+	controlled := call(string(controlCallBody), "127.0.0.1:41100")
+	if controlled.Code != http.StatusOK || commands.controlCalls != 1 ||
+		!reflect.DeepEqual(commands.control, controlCommand) {
+		t.Fatalf(
+			"control = %d calls=%d command=%#v body=%s",
+			controlled.Code, commands.controlCalls, commands.control,
+			controlled.Body.String(),
+		)
+	}
+	// An unavailable authority transition must surface the owner's exact
+	// code as a tool error, never as a silent success.
+	commands.controlErr = fail("OWNER_TRANSITION_PENDING")
+	refused := call(string(controlCallBody), "127.0.0.1:41100")
+	if refused.Code != http.StatusOK || commands.controlCalls != 2 ||
+		!strings.Contains(refused.Body.String(), `"isError":true`) ||
+		!strings.Contains(refused.Body.String(), "OWNER_TRANSITION_PENDING") {
+		t.Fatalf("refused control = %d %s", refused.Code, refused.Body.String())
+	}
+	commands.controlErr = nil
+	unknownField := call(
+		`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"sworn_control","arguments":{"run_id":"run-1","command_id":"c","kind":"pause","expected_generation":0,"surprise":1}}}`,
+		"127.0.0.1:41100",
+	)
+	if unknownField.Code != http.StatusOK || commands.controlCalls != 2 ||
+		!strings.Contains(unknownField.Body.String(), "Invalid params") {
+		t.Fatalf(
+			"strict control input = %d calls=%d %s",
+			unknownField.Code, commands.controlCalls,
+			unknownField.Body.String(),
+		)
+	}
+	projector.snapshot.Runtime.Attentions = []AttentionView{{
+		ID: "attention-1", LaneID: "T1", State: "open", Generation: 1,
+		Question: "human-question-canary",
+		HumanTurn: &HumanAttentionView{
+			SchemaVersion:         "sworn.human-turn-binding/v1",
+			Kind:                  "human_confirmation",
+			RunID:                 "run-1",
+			Track:                 "T1",
+			Slice:                 "S1",
+			Role:                  "implementer",
+			Responsibility:        "implementer_implementation",
+			InvocationID:          "run-1/S1/implementer_implementation/1/1/1",
+			BatonAttempt:          1,
+			PlanAuthorityDigest:   "sha256:" + strings.Repeat("1", 64),
+			TargetAuthorityDigest: "sha256:" + strings.Repeat("2", 64),
+			WorkIdentity:          "sha256:" + strings.Repeat("3", 64),
+			CycleID:               "sha256:" + strings.Repeat("4", 64),
+			TurnID:                "sha256:" + strings.Repeat("5", 64),
+			Ordinal:               1,
+			OpenGeneration:        1,
+		},
+	}}
+	projector.snapshot.Actions = append(
+		projector.snapshot.Actions,
+		Action{
+			Kind: "answer_attention", RunID: "run-1",
+			AttentionID: "attention-1", ExpectedGeneration: 1,
+		},
+	)
+	attentionCall := call(`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"sworn_attentions","arguments":{}}}`, "127.0.0.1:41100")
+	if attentionCall.Code != http.StatusOK ||
+		!strings.Contains(attentionCall.Body.String(), "human-question-canary") ||
+		!strings.Contains(attentionCall.Body.String(), `"kind":"answer_attention"`) ||
+		!strings.Contains(attentionCall.Body.String(), `"run_id":"run-1"`) {
+		t.Fatalf("attention read = %d %s", attentionCall.Code, attentionCall.Body.String())
+	}
+	answerCommand := AnswerAttentionCommand{
+		RunID: "run-1", AttentionID: "attention-1",
+		ExpectedGeneration: 1, Answer: "human-answer-canary",
+	}
+	answerBody, _ := json.Marshal(answerCommand)
+	answerCallBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 21, "method": "tools/call",
+		"params": map[string]any{
+			"name": mcpAnswerAttentionTool, "arguments": json.RawMessage(answerBody),
+		},
+	})
+	answerCall := call(string(answerCallBody), "127.0.0.1:41100")
+	if answerCall.Code != http.StatusOK || commands.answerCalls != 1 ||
+		!reflect.DeepEqual(commands.answer, answerCommand) {
+		t.Fatalf("attention answer = %d calls=%d command=%#v body=%s", answerCall.Code, commands.answerCalls, commands.answer, answerCall.Body.String())
 	}
 	arguments := runtimepkg.ApprovalCommand{
 		SchemaVersion: runtimepkg.ApprovalCommandVersion,
@@ -936,8 +1094,8 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		`"Not recorded"`,
 		"This run does not have a delivery plan to show yet.",
 		"Sworn has not recorded any activity for this run yet.",
-		"Sworn could not confirm the current Baton handoff records.",
-		"Sworn is carrying the next recorded Baton handoff.",
+		"Sworn could not confirm the current handoff records.",
+		"Sworn is carrying the next recorded handoff.",
 		"new TextEncoder().encode(answer).byteLength",
 		"openCaptainDialog(action)",
 		"Current digest:",

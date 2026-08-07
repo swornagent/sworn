@@ -49,6 +49,45 @@ func TestApprovalConfirmationShowsFullBindingAndRejectsOfferDrift(t *testing.T) 
 	}
 }
 
+func TestEmptyCatalogUsesSwornOwnedLanguage(t *testing.T) {
+	m := &model{ctx: context.Background(), version: "test", screen: screenCatalog}
+	view := lipgloss.NewStyle().Render(m.renderCatalog(100, 10))
+	if !strings.Contains(view, "No Sworn releases found in this project.") {
+		t.Fatalf("empty catalog view = %q", view)
+	}
+	if strings.Contains(view, "Baton") {
+		t.Fatalf("empty catalog view names Baton as active authority: %q", view)
+	}
+}
+
+func TestMissingReleaseBoardUsesSwornOwnedLanguage(t *testing.T) {
+	selection := Selection{Release: "release-1", Source: "source"}
+	m := &model{
+		ctx: context.Background(), version: "test", screen: screenBoard,
+		selection: selection,
+		board: Board{
+			Selection:   selection,
+			Diagnostics: []cockpit.Diagnostic{{Code: "BATON_UNAVAILABLE"}},
+			Status:      "Needs confirmation",
+			What:        "Sworn found saved run information, but this release's saved state could not be read.",
+			Next:        "Review this release, then refresh.",
+			NeedsYou:    "Yes — review this release before delivery can start.",
+			Checked:     "Saved run information and the local Sworn release record.",
+		},
+	}
+	view := lipgloss.NewStyle().Render(m.renderBoard(100, 30))
+	if strings.Contains(view, "Baton") {
+		t.Fatalf("missing-release board names Baton as active authority: %q", view)
+	}
+	lower := strings.ToLower(view)
+	if strings.Contains(lower, "restore") || strings.Contains(lower, "prepare") {
+		t.Fatalf("missing-release board instructs restoring or preparing a release: %q", view)
+	}
+	if !strings.Contains(view, "Sworn could not read the current release record.") {
+		t.Fatalf("missing-release board omitted the diagnostic explanation: %q", view)
+	}
+}
+
 type fakeBackend struct {
 	catalog      Catalog
 	boards       map[Selection]Board

@@ -101,7 +101,7 @@ func (m *model) renderFooter(width int) string {
 func (m *model) renderCatalog(width, height int) string {
 	lines := []string{titleStyle.Render(truncate("RELEASES", width))}
 	if len(m.catalog.Entries) == 0 {
-		copy := "No Baton releases found in this project."
+		copy := "No Sworn releases found in this project."
 		if m.loading {
 			copy = "Loading project releases…"
 		}
@@ -255,7 +255,7 @@ func graphNodeLine(node cockpit.Node) string {
 		parts = append(parts, "next "+safeText(node.NextResponsibility))
 	}
 	if node.HasBaton {
-		parts = append(parts, "BATON")
+		parts = append(parts, "HANDOFF")
 	}
 	return prefix + strings.Join(parts, " · ")
 }
@@ -286,7 +286,7 @@ func (m *model) detailLines(width, height int) []string {
 		}
 	}
 	if node.HasBaton {
-		lines = append(lines, batonStyle.Render(truncate("Baton handoff recorded", width)))
+		lines = append(lines, batonStyle.Render(truncate("Handoff recorded", width)))
 	}
 	if m.board.Stale {
 		lines = append(lines, faultStyle.Render(truncate("Controls disabled while stale", width)))
@@ -489,7 +489,7 @@ func diagnosticExplanation(code string) string {
 	case "STALE_ASSEMBLY":
 		return "The combined candidate needs to be rebuilt from current work."
 	case "BATON_UNAVAILABLE":
-		return "Sworn could not read the current Baton release."
+		return "Sworn could not read the current release record."
 	case "SWORN_UNAVAILABLE":
 		return "Sworn could not read the saved run record."
 	case "ATTENTIONS_TRUNCATED":

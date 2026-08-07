@@ -17,6 +17,7 @@ import (
 	stdruntime "runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,8 +56,28 @@ func cleanEnvironment(overrides map[string]string) []string {
 	return result
 }
 
-func buildBinary(t *testing.T, output, source, ldflags string) {
-	t.Helper()
+// binaryCacheEntry is one (source, ldflags) build, produced at most once per
+// test binary and then linked into each caller's own directory.
+type binaryCacheEntry struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+var (
+	binaryCacheMutex   sync.Mutex
+	binaryCacheEntries = map[string]*binaryCacheEntry{}
+	binaryCacheDir     string
+	binaryCacheSerial  int
+)
+
+// compileBinary performs the real `go build`. It is the only place that spends
+// compiler time.
+func compileBinary(output, source, ldflags string) error {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		return err
+	}
 	args := []string{
 		"build", "-mod=readonly", "-buildvcs=false", "-trimpath",
 		"-o", output,
@@ -66,15 +87,70 @@ func buildBinary(t *testing.T, output, source, ldflags string) {
 	}
 	args = append(args, source)
 	command := exec.Command(filepath.Join(stdruntime.GOROOT(), "bin", "go"), args...)
-	command.Dir = moduleRoot(t)
+	command.Dir = root
 	command.Env = cleanEnvironment(map[string]string{
 		"CGO_ENABLED": "0",
 		"GOFLAGS":     "-buildvcs=false",
 		"GOTOOLCHAIN": "local",
 		"GOWORK":      "off",
 	})
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build %s: %v\n%s", source, err, output)
+	if combined, runErr := command.CombinedOutput(); runErr != nil {
+		return fmt.Errorf("build %s: %w\n%s", source, runErr, combined)
+	}
+	return nil
+}
+
+// cachedBinary returns the shared build for one (source, ldflags) pair. The
+// build inputs are identical for every caller of a given key, so producing it
+// once is a scheduling change only: each caller still executes a real binary
+// compiled from this exact tree with exactly its own ldflags.
+func cachedBinary(source, ldflags string) (string, error) {
+	key := source + "\x00" + ldflags
+	binaryCacheMutex.Lock()
+	entry, present := binaryCacheEntries[key]
+	if !present {
+		entry = &binaryCacheEntry{}
+		binaryCacheEntries[key] = entry
+	}
+	binaryCacheSerial++
+	serial := binaryCacheSerial
+	directory := binaryCacheDir
+	binaryCacheMutex.Unlock()
+
+	entry.once.Do(func() {
+		if directory == "" {
+			entry.err = errors.New("binary cache directory is unset")
+			return
+		}
+		path := filepath.Join(directory, fmt.Sprintf("binary-%d", serial))
+		if err := compileBinary(path, source, ldflags); err != nil {
+			entry.err = err
+			return
+		}
+		entry.path = path
+	})
+	return entry.path, entry.err
+}
+
+func buildBinary(t *testing.T, output, source, ldflags string) {
+	t.Helper()
+	cached, err := cachedBinary(source, ldflags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(output)
+	if err := os.Link(cached, output); err == nil {
+		return
+	}
+	body, err := os.ReadFile(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, body, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -197,7 +273,16 @@ func newProductRepository(t *testing.T) string {
 	); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, repository, "add", "--", "base.txt")
+	// A repository-discoverable fact. A Planner is expected to read it, not
+	// ask a person for it.
+	if err := os.WriteFile(
+		filepath.Join(repository, "REPOSITORY-FACT.md"),
+		[]byte("The owned surface is "+journeyRepositoryCanary+".\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "add", "--", "base.txt", "REPOSITORY-FACT.md")
 	runGit(t, repository, "commit", "--quiet", "-m", "base")
 	return repository
 }

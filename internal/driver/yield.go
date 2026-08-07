@@ -12,13 +12,17 @@ const (
 	MaxYieldMessageBytes = 8_192
 )
 
-const swornYieldInputSchema = `{"type":"object","properties":{"yield":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.yield/v1"]},"invocation_id":{"type":"string"},"kind":{"type":"string","enum":["question","blocked"]},"message":{"type":"string"}},"required":["schema_version","invocation_id","kind","message"],"additionalProperties":false}},"required":["yield"],"additionalProperties":false}`
+const swornYieldInputSchema = `{"type":"object","properties":{"yield":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.yield/v1"]},"invocation_id":{"type":"string"},"kind":{"type":"string","enum":["question","blocked","human_choice","human_confirmation"]},"message":{"type":"string"}},"required":["schema_version","invocation_id","kind","message"],"additionalProperties":false}},"required":["yield"],"additionalProperties":false}`
 
 type YieldKind string
 
 const (
 	YieldQuestion YieldKind = "question"
 	YieldBlocked  YieldKind = "blocked"
+	// Human-only yields are durable operator turn boundaries. Recovery
+	// automation and Captain advisory must never answer them.
+	YieldHumanChoice       YieldKind = "human_choice"
+	YieldHumanConfirmation YieldKind = "human_confirmation"
 )
 
 // Yield is a non-authoritative worker terminal. It can ask for help or report
@@ -77,7 +81,9 @@ func ValidateYield(value Yield) error {
 	if err := validateIdentity(value.InvocationID); err != nil {
 		return err
 	}
-	if value.Kind != YieldQuestion && value.Kind != YieldBlocked {
+	if value.Kind != YieldQuestion && value.Kind != YieldBlocked &&
+		value.Kind != YieldHumanChoice &&
+		value.Kind != YieldHumanConfirmation {
 		return fail("INVALID_YIELD_KIND")
 	}
 	if !utf8.ValidString(value.Message) ||

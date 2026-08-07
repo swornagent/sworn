@@ -517,7 +517,7 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 		submissions[invocationID(manifest.RunID, script)] = encoded
 	}
 	plannerDispatches, captainDispatches := 0, 0
-	dispatcher := fixtureDriver(func(_ context.Context, invocation driver.Invocation) (driver.Observation, error) {
+	terminal := func(_ context.Context, invocation driver.Invocation) (driver.Observation, error) {
 		if attemptExhaustion && invocation.Request.Role == driver.RoleCaptain {
 			return driver.Observation{}, errors.New("bounded Captain transport failure")
 		}
@@ -564,7 +564,13 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 			t.Fatalf("unexpected invocation %s", invocation.Request.InvocationID)
 		}
 		return driver.Observation{TransportStatus: driver.Completed, Usage: driver.UsageReceipt{TokenStatus: driver.UsageUnavailable, CostStatus: driver.UsageUnavailable}, Diagnostic: driver.Diagnostic{Code: "none"}, Handoff: &driver.SealedHandoff{SubmissionBytes: submission, SubmissionDigest: driver.Digest(submission)}}, nil
-	})
+	}
+	// Only the production variant crosses the summary-before-plan boundary;
+	// the scripted variants keep the plain dispatcher they always had.
+	var dispatcher driver.Driver = fixtureDriver(terminal)
+	if reviseRecovery {
+		dispatcher = &plannerSummaryDispatcher{terminal: terminal}
+	}
 	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "delegated.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -574,6 +580,11 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 	testCaptainCrashCut = crashCut
 	defer func() { testCaptainCrashCut = "" }()
 	status, err := service.StartWithCaptainDelegation(ctx, body, envelopeBytes)
+	if reviseRecovery {
+		status, err = drivePlannerSummaryTurns(
+			t, ctx, service, manifest.RunID, status, err,
+		)
+	}
 	if crashCut != "" {
 		if !IsCode(err, "TEST_CAPTAIN_CRASH_CUT") {
 			t.Fatalf("cut %s = %#v, %v", crashCut, status, err)
@@ -591,6 +602,11 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 			}
 		}
 		status, err = service.StartWithCaptainDelegation(ctx, body, envelopeBytes)
+		if reviseRecovery {
+			status, err = drivePlannerSummaryTurns(
+				t, ctx, service, manifest.RunID, status, err,
+			)
+		}
 	}
 	if err != nil {
 		t.Fatal(err)

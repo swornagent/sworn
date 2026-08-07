@@ -1,0 +1,86 @@
+{
+  "schema_version": "sworn.conformance-profile/v1",
+  "profile": "sworn_delivery_contract",
+  "subject": "sworn",
+  "surfaces": [
+    {
+      "id": "installed_skill_mcp",
+      "text": "An agent that entered through the installed sworn skill and followed its literal instructions to the local MCP service."
+    },
+    {
+      "id": "direct_mcp",
+      "text": "A client speaking JSON-RPC to sworn serve /mcp with no skill involved."
+    },
+    {
+      "id": "tui",
+      "text": "A person at the sworn tui board on an interactive terminal."
+    },
+    {
+      "id": "cli",
+      "text": "A shell invoking the sworn command verbs directly."
+    },
+    {
+      "id": "configured_driver",
+      "text": "The configured agent driver Sworn dispatches role work to."
+    }
+  ],
+  "cases": [
+    {
+      "id": "run-state-read-parity",
+      "text": "Every surface reports the same run identity and the same lifecycle state for the same run at the same moment.",
+      "surfaces": [
+        "installed_skill_mcp",
+        "direct_mcp",
+        "tui",
+        "cli",
+        "configured_driver"
+      ]
+    },
+    {
+      "id": "open-human-turn-visibility-parity",
+      "text": "While a human-only turn is open, every surface a person can reach reports that the same one turn is waiting, with the same question.",
+      "surfaces": [
+        "installed_skill_mcp",
+        "direct_mcp",
+        "tui",
+        "cli"
+      ]
+    },
+    {
+      "id": "human-turn-answer-admitted-once",
+      "text": "Answering the open human-only turn through any surface admits exactly one answer and advances the run identically.",
+      "surfaces": [
+        "installed_skill_mcp",
+        "direct_mcp",
+        "tui",
+        "cli"
+      ]
+    },
+    {
+      "id": "stale-answer-refused",
+      "text": "Replaying an already-admitted answer, or answering against a superseded generation, is refused on every surface without changing run state.",
+      "surfaces": [
+        "installed_skill_mcp",
+        "direct_mcp",
+        "tui",
+        "cli"
+      ]
+    },
+    {
+      "id": "unavailable-transition-refused",
+      "text": "A transition the run does not currently offer is refused, with no partial effect.",
+      "surfaces": [
+        "direct_mcp",
+        "cli"
+      ]
+    },
+    {
+      "id": "restart-recovers-one-continuation",
+      "text": "After an interruption the run recovers to exactly one authorized continuation, and the recovered state reads identically on every surface.",
+      "surfaces": [
+        "cli",
+        "configured_driver"
+      ]
+    }
+  ]
+}

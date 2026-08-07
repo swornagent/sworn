@@ -270,7 +270,7 @@ type captainSliceShape struct {
 
 func CaptainPlanStructuralProjection(plan baton.Plan) ([]byte, string, error) {
 	metadata := plan.Metadata()
-	if metadata.SchemaVersion != baton.PlanVersion || len(metadata.Tracks) > 64 {
+	if !baton.IsAdmittedPlanVersion(metadata.SchemaVersion) || len(metadata.Tracks) > 64 {
 		return nil, "", runtimeFail("CAPTAIN_PLAN_POLICY_REFUSED", nil)
 	}
 	shape := captainPlanShape{SchemaVersion: "sworn.captain-plan-structure/v1", Repository: metadata.Repository, TargetRef: metadata.TargetRef, Tracks: make([]captainTrackShape, len(metadata.Tracks)), ContractKeys: make([]string, 0, len(metadata.Contracts))}

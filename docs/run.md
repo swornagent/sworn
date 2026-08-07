@@ -1,15 +1,15 @@
 # Start and operate Sworn
 
-This guide covers a current Sworn `1.0.0-rc.2` production run. Baton defines
-the handoffs and approvals; Sworn carries the work, saves progress, and stops
-when it cannot continue safely.
+This guide covers a current Sworn `1.0.0-rc.2` production run. Sworn owns the
+handoffs and approvals, carries the work, saves progress, and stops when it
+cannot continue safely.
 
 ## What you need
 
 Sworn does not yet create a delivery plan, run manifest, or AI connection file.
 The release or deployment process must provide:
 
-- a repository with the required Baton release records;
+- a repository with the required release records;
 - an approved, canonical `sworn.runtime-manifest/v3` file;
 - a canonical, secret-free `sworn.driver-config/v1` file whose digest matches
   the manifest; and
@@ -34,8 +34,8 @@ sworn
 ```
 
 In an interactive terminal, Sworn finds the project root and opens a list of
-its local Baton releases and saved Sworn runs. You can move between release
-boards, including Baton releases that do not have a Sworn run yet. When a run
+its local release records and saved Sworn runs. You can move between release
+boards, including releases that do not have a Sworn run yet. When a run
 does exist, its live state, questions, and available controls appear on that
 board.
 
@@ -227,7 +227,7 @@ an answer grounded in saved facts, ask the Captain for advice, retry an
 operational failure, or park only that track for a human answer. Independent
 tracks can continue.
 
-The orchestrator is not a sixth Baton role. It cannot approve a plan, invent a
+The orchestrator is not a sixth role. It cannot approve a plan, invent a
 Captain decision or Verifier verdict, or merge code. When it parks a track, the
 browser board provides an answer form. The equivalent command is:
 

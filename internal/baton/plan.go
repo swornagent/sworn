@@ -13,10 +13,13 @@ import (
 )
 
 const (
-	PlanVersion = "baton.plan/v2"
-	planOpen    = "```baton-plan-v2\n"
-	planClose   = "\n```\n"
-	RecordRoot  = ".baton/releases"
+	PlanVersion     = "baton.plan/v2"
+	ManifestVersion = "sworn.release-manifest/v1"
+	planOpen        = "```baton-plan-v2\n"
+	planClose       = "\n```\n"
+	manifestOpen    = "```sworn-release-manifest-v1\n"
+	manifestClose   = "\n```\n"
+	RecordRoot      = ".baton/releases"
 )
 
 var (
@@ -36,14 +39,15 @@ type Scope struct {
 }
 
 type Slice struct {
-	ID          string      `json:"id"`
-	Outcome     string      `json:"outcome"`
-	Scope       Scope       `json:"scope"`
-	Acceptance  []Criterion `json:"acceptance"`
-	Checks      []string    `json:"checks"`
-	Constraints []string    `json:"constraints"`
-	DependsOn   []string    `json:"depends_on"`
-	Consumes    []string    `json:"consumes"`
+	ID           string      `json:"id"`
+	Outcome      string      `json:"outcome"`
+	Scope        Scope       `json:"scope"`
+	Acceptance   []Criterion `json:"acceptance"`
+	Checks       []string    `json:"checks"`
+	Constraints  []string    `json:"constraints"`
+	DependsOn    []string    `json:"depends_on"`
+	Consumes     []string    `json:"consumes"`
+	ContractPath string      `json:"contract_path,omitempty"`
 }
 
 type Track struct {
@@ -81,17 +85,42 @@ func DigestBytes(raw []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// IsAdmittedPlanVersion reports whether schemaVersion is one of the schema
+// identities ParsePlan can itself admit. Any Plan built by ParsePlan already
+// carries one of these two values in its Metadata, since validateMetadata
+// rejects every other schema_version at parse time; this lets consumers of
+// an already-admitted Plan recognize both supported formats without
+// hardcoding PlanVersion or ManifestVersion individually, so a future third
+// admitted schema does not silently strand them.
+func IsAdmittedPlanVersion(schemaVersion string) bool {
+	return schemaVersion == PlanVersion || schemaVersion == ManifestVersion
+}
+
+// ParsePlan admits either the legacy baton.plan/v2 fence (unchanged) or the
+// new sworn.release-manifest/v1 fence. Both fences remain fully readable;
+// dispatch is bounded to their fixed byte-zero prefixes so no third shape can
+// be silently admitted.
 func ParsePlan(raw []byte) (Plan, error) {
 	if len(raw) > MaxPlanBytes {
 		return Plan{}, recordFail("RESOURCE_LIMIT", fmt.Sprintf("plan exceeds %d bytes", MaxPlanBytes))
 	}
-	if !bytes.HasPrefix(raw, []byte(planOpen)) {
-		return Plan{}, recordFail("INVALID_PLAN_FENCE", "plan must begin at byte zero")
+	switch {
+	case bytes.HasPrefix(raw, []byte(planOpen)):
+		return parseFencedPlan(raw, planOpen, planClose, "baton-plan-v2", validatePlanMetadata)
+	case bytes.HasPrefix(raw, []byte(manifestOpen)):
+		return parseFencedPlan(raw, manifestOpen, manifestClose, "sworn-release-manifest-v1", validateManifestMetadata)
+	default:
+		return Plan{}, recordFail("INVALID_PLAN_FENCE", "plan must begin at byte zero with a known schema fence")
 	}
-	body := raw[len(planOpen):]
-	closeAt := bytes.Index(body, []byte(planClose))
-	if closeAt < 0 || bytes.Index(body[closeAt+len(planClose):], []byte(planClose)) >= 0 {
-		return Plan{}, recordFail("INVALID_PLAN_FENCE", "plan must contain one closed baton-plan-v2 block")
+}
+
+func parseFencedPlan(
+	raw []byte, open, closeSeq, fenceLabel string, validate func(map[string]any) (Metadata, error),
+) (Plan, error) {
+	body := raw[len(open):]
+	closeAt := bytes.Index(body, []byte(closeSeq))
+	if closeAt < 0 || bytes.Index(body[closeAt+len(closeSeq):], []byte(closeSeq)) >= 0 {
+		return Plan{}, recordFail("INVALID_PLAN_FENCE", "plan must contain one closed "+fenceLabel+" block")
 	}
 	metadataValue, err := strictParseJSON(body[:closeAt], "plan metadata", MaxPlanBytes)
 	if err != nil {
@@ -101,11 +130,11 @@ func ParsePlan(raw []byte) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	metadata, err := validatePlanMetadata(object)
+	metadata, err := validate(object)
 	if err != nil {
 		return Plan{}, err
 	}
-	markdownBytes := body[closeAt+len(planClose):]
+	markdownBytes := body[closeAt+len(closeSeq):]
 	if !utf8.Valid(markdownBytes) {
 		return Plan{}, recordFail("INVALID_UTF8", "plan Markdown is not valid UTF-8")
 	}
@@ -228,7 +257,236 @@ func (p Plan) Contract(id string) (string, bool) {
 	return value, ok
 }
 
+// ResolveSliceContract parses raw immutable slice-contract bytes and proves
+// they exactly match this plan's manifest declaration for sliceID: the
+// recomputed contract digest, outcome, dependencies, consumed products, and
+// touchpoints must all agree with what plan admission already used to build
+// the dependency graph and touchpoint overlap. Any divergence fails closed,
+// so a manifest cannot admit against one declaration and later resolve
+// against different real content.
+func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
+	admission, err := p.require()
+	if err != nil {
+		return Slice{}, err
+	}
+	track, declared, ok := p.FindSlice(sliceID)
+	if !ok {
+		return Slice{}, recordFail("SLICE_NOT_FOUND", "plan has no slice "+sliceID)
+	}
+	expectedDigest, ok := admission.metadata.Contracts[sliceID]
+	if !ok {
+		return Slice{}, recordFail("SLICE_NOT_FOUND", "plan has no contract for "+sliceID)
+	}
+	contract, digest, err := ParseSliceContract(raw, declared.ID, track.ID)
+	if err != nil {
+		return Slice{}, err
+	}
+	if digest != expectedDigest {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract does not match its declared digest")
+	}
+	if contract.Outcome != declared.Outcome {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract outcome does not match its manifest declaration")
+	}
+	if !sameStringSet(contract.DependsOn, declared.DependsOn) {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract dependencies do not match its manifest declaration")
+	}
+	if !sameStringSet(contract.Consumes, declared.Consumes) {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract consumed products do not match its manifest declaration")
+	}
+	if !sameStringSet(contract.Scope.Include, declared.Scope.Include) {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract touchpoints do not match its manifest declaration")
+	}
+	contract.ContractPath = declared.ContractPath
+	return contract, nil
+}
+
+// resolveManifestContracts reads every sworn.release-manifest/v1 slice's
+// declared contract_path from source by exact safe path and cross-validates
+// each one against parsed's manifest declaration through ResolveSliceContract.
+// Contract paths are ordinary product-tree content (never under RecordRoot),
+// so this only proves the manifest and the real committed contracts agree; it
+// never reads or writes anything under RecordRoot. Legacy baton.plan/v2 plans
+// carry their slice bodies inline and have no contract paths, so they never
+// consult source. A manifest that declares contract paths with no source, or
+// whose source is missing, substitutes, or mismatches any declared path,
+// fails closed. Both write-time admission (RecordPlanRevision, against a
+// caller-prepared tree) and read-time discovery (readState, against the
+// exact captured target head) share this one validator.
+func resolveManifestContracts(repository *repository, parsed Plan, source string) error {
+	metadata := parsed.Metadata()
+	if metadata.SchemaVersion != ManifestVersion {
+		return nil
+	}
+	sliceByPath := make(map[string]string)
+	paths := make([]string, 0)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByPath[slice.ContractPath] = slice.ID
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	if source == "" {
+		return recordFail(
+			"CONTRACT_SOURCE_REQUIRED",
+			"manifest declares contract paths but no contract source was provided",
+		)
+	}
+	files, err := repository.files(source, paths)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if !file.Present {
+			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
+		}
+		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TouchpointRelation records one repository path shared by two slices whose
+// tracks admission treats as independent. ParsePlan already fails closed on
+// any such overlap that the dependency closure does not order, so every
+// relation TouchpointMatrix returns is, by construction, ordered: Before
+// names whichever slice the plan requires to complete first.
+type TouchpointRelation struct {
+	Left    string
+	Right   string
+	Path    string
+	Ordered bool
+	Before  string
+}
+
+// TouchpointMatrix exposes the exact actual-slice-pair, prefix-aware overlap
+// and dependency-closure order comparison that plan admission already
+// performs. It is a read-only projection for presentation and ownership
+// review; it adds no scheduling authority and cannot itself be used to admit
+// or reject a plan.
+func (p Plan) TouchpointMatrix() []TouchpointRelation {
+	if p.admission == nil {
+		return nil
+	}
+	tracks := p.admission.metadata.Tracks
+	var sliceIDs []string
+	for _, track := range tracks {
+		for _, slice := range track.Slices {
+			sliceIDs = append(sliceIDs, slice.ID)
+		}
+	}
+	closures := dependencyClosures(sliceIDs, deliveryGraph(tracks))
+	var relations []TouchpointRelation
+	for leftIndex := 0; leftIndex < len(tracks); leftIndex++ {
+		for rightIndex := leftIndex + 1; rightIndex < len(tracks); rightIndex++ {
+			left, right := tracks[leftIndex], tracks[rightIndex]
+			for _, leftSlice := range left.Slices {
+				for _, rightSlice := range right.Slices {
+					leftDependsOnRight := closures[leftSlice.ID][rightSlice.ID]
+					rightDependsOnLeft := closures[rightSlice.ID][leftSlice.ID]
+					before := ""
+					switch {
+					case leftDependsOnRight:
+						before = rightSlice.ID
+					case rightDependsOnLeft:
+						before = leftSlice.ID
+					}
+					for _, leftPath := range leftSlice.Scope.Include {
+						for _, rightPath := range rightSlice.Scope.Include {
+							if !pathsOverlap(leftPath, rightPath) {
+								continue
+							}
+							relations = append(relations, TouchpointRelation{
+								Left: leftSlice.ID, Right: rightSlice.ID, Path: leftPath,
+								Ordered: before != "", Before: before,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	return relations
+}
+
+// deliveryGraph recomputes, from already-admitted tracks, the exact edges
+// plan admission used to order serial slices, track handoffs, and explicit
+// slice dependencies. It assumes every dependency reference is valid, which
+// ParsePlan already guarantees for any Metadata it produced.
+func deliveryGraph(tracks []Track) map[string][]string {
+	edges := make(map[string][]string)
+	tracksByID := make(map[string]Track, len(tracks))
+	for _, track := range tracks {
+		tracksByID[track.ID] = track
+		for _, slice := range track.Slices {
+			edges[slice.ID] = unique(append(append([]string(nil), slice.DependsOn...), slice.Consumes...))
+		}
+	}
+	for _, track := range tracks {
+		for index := range track.Slices {
+			if index > 0 {
+				edges[track.Slices[index].ID] = unique(append(
+					edges[track.Slices[index].ID], track.Slices[index-1].ID,
+				))
+			}
+		}
+		if len(track.Slices) == 0 {
+			continue
+		}
+		first := track.Slices[0].ID
+		for _, dependency := range track.DependsOn {
+			prior := tracksByID[dependency]
+			if len(prior.Slices) == 0 {
+				continue
+			}
+			edges[first] = unique(append(edges[first], prior.Slices[len(prior.Slices)-1].ID))
+		}
+	}
+	return edges
+}
+
+// sameStringSet compares two string lists as sets, ignoring order: manifest
+// and contract dependency/consume/touchpoint lists are graph edges, not
+// sequences, so a harmless reordering must not read as an inconsistency.
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	set := make(map[string]bool, len(left))
+	for _, value := range left {
+		set[value] = true
+	}
+	for _, value := range right {
+		if !set[value] {
+			return false
+		}
+	}
+	return true
+}
+
+// sliceEntryValidator parses one track's raw slice entry into its Slice
+// projection and exact contract digest. validateSlice implements this for
+// the legacy inline baton.plan/v2 shape; validateManifestSlice implements it
+// for the compact sworn.release-manifest/v1 shape. Both feed the identical
+// dependency-graph and touchpoint-overlap admission below, so a Sworn
+// manifest is validated exactly as strictly as a legacy plan.
+type sliceEntryValidator func(value any, trackID, label string) (Slice, string, error)
+
 func validatePlanMetadata(value map[string]any) (Metadata, error) {
+	return validateMetadata(value, PlanVersion, validateSlice)
+}
+
+func validateManifestMetadata(value map[string]any) (Metadata, error) {
+	return validateMetadata(value, ManifestVersion, validateManifestSlice)
+}
+
+func validateMetadata(value map[string]any, schemaVersion string, validateSliceEntry sliceEntryValidator) (Metadata, error) {
 	required := []string{
 		"schema_version", "release", "revision", "previous_plan",
 		"repository", "target_ref", "approval_ref", "tracks",
@@ -240,8 +498,8 @@ func validatePlanMetadata(value map[string]any) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, err
 	}
-	if schema != PlanVersion {
-		return Metadata{}, recordFail("INVALID_FIELD", "plan.schema_version must be "+PlanVersion)
+	if schema != schemaVersion {
+		return Metadata{}, recordFail("INVALID_FIELD", "plan.schema_version must be "+schemaVersion)
 	}
 	release, err := identity(value["release"], "plan.release")
 	if err != nil {
@@ -288,6 +546,7 @@ func validatePlanMetadata(value map[string]any) (Metadata, error) {
 	tracks := make([]Track, 0, len(rawTracks))
 	trackIDs := make(map[string]bool, len(rawTracks))
 	sliceIDs := make(map[string]bool)
+	contractPaths := make(map[string]bool)
 	contracts := make(map[string]string)
 	totalSlices := 0
 	for trackIndex, rawTrack := range rawTracks {
@@ -318,7 +577,7 @@ func validatePlanMetadata(value map[string]any) (Metadata, error) {
 		slices := make([]Slice, 0, len(rawSlices))
 		for sliceIndex, rawSlice := range rawSlices {
 			sliceLabel := fmt.Sprintf("%s.slices[%d]", label, sliceIndex)
-			slice, contract, err := validateSlice(rawSlice, id, sliceLabel)
+			slice, contract, err := validateSliceEntry(rawSlice, id, sliceLabel)
 			if err != nil {
 				return Metadata{}, err
 			}
@@ -326,6 +585,12 @@ func validatePlanMetadata(value map[string]any) (Metadata, error) {
 				return Metadata{}, recordFail("DUPLICATE_IDENTITY", "plan repeats slice "+slice.ID)
 			}
 			sliceIDs[slice.ID] = true
+			if slice.ContractPath != "" {
+				if contractPaths[slice.ContractPath] {
+					return Metadata{}, recordFail("DUPLICATE_IDENTITY", "plan repeats contract path "+slice.ContractPath)
+				}
+				contractPaths[slice.ContractPath] = true
+			}
 			contracts[slice.ID] = contract
 			slices = append(slices, slice)
 			totalSlices++
@@ -422,6 +687,9 @@ func validatePlanMetadata(value map[string]any) (Metadata, error) {
 
 type stringValidator func(any, string) (string, error)
 
+// validateSlice parses one legacy baton.plan/v2 inline slice entry: the
+// slice's own "id" is embedded in the object alongside its full contract
+// content.
 func validateSlice(value any, trackID, label string) (Slice, string, error) {
 	object, err := asObject(value, label)
 	if err != nil {
@@ -438,6 +706,31 @@ func validateSlice(value any, trackID, label string) (Slice, string, error) {
 	if err != nil {
 		return Slice{}, "", err
 	}
+	return validateSliceBody(object, id, trackID, label)
+}
+
+// validateContractBody parses one standalone sworn.release-manifest/v1 slice
+// contract file. The slice ID is not repeated inside the contract; the
+// caller supplies it from the manifest entry that references this file by
+// path, so ParseSliceContract passes it through here.
+func validateContractBody(value any, id, trackID, label string) (Slice, string, error) {
+	object, err := asObject(value, label)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	required := []string{
+		"outcome", "scope", "acceptance", "checks", "constraints", "depends_on", "consumes",
+	}
+	if err := exactKeys(object, required, nil, label); err != nil {
+		return Slice{}, "", err
+	}
+	return validateSliceBody(object, id, trackID, label)
+}
+
+// validateSliceBody builds the exact canonical contract payload and digest
+// shared by both slice shapes above, so semantically equivalent legacy and
+// Sworn-native content always hashes to the identical contract digest.
+func validateSliceBody(object map[string]any, id, trackID, label string) (Slice, string, error) {
 	outcome, err := requiredString(object["outcome"], label+".outcome", 1, 4_096)
 	if err != nil {
 		return Slice{}, "", err
@@ -542,6 +835,97 @@ func criteriaAny(criteria []Criterion) []any {
 		result[index] = map[string]any{"id": criterion.ID, "text": criterion.Text}
 	}
 	return result
+}
+
+// validateManifestSlice parses one compact sworn.release-manifest/v1 slice
+// entry. It carries only enough to admit the plan's dependency graph and
+// touchpoint overlap without opening every immutable contract file: the
+// full outcome/scope/acceptance/checks/constraints prose lives solely in the
+// contract at contract_path, resolved later via ParseSliceContract and
+// cross-checked with Plan.ResolveSliceContract. The declared digest is
+// trusted structurally here; it is proven against real contract bytes only
+// when a contract is resolved.
+func validateManifestSlice(value any, trackID, label string) (Slice, string, error) {
+	object, err := asObject(value, label)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	required := []string{
+		"id", "outcome", "contract_path", "digest", "depends_on", "consumes", "touchpoints",
+	}
+	if err := exactKeys(object, required, nil, label); err != nil {
+		return Slice{}, "", err
+	}
+	id, err := identity(object["id"], label+".id")
+	if err != nil {
+		return Slice{}, "", err
+	}
+	outcome, err := requiredString(object["outcome"], label+".outcome", 1, 4_096)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	if strings.ContainsAny(outcome, "\n\r") {
+		return Slice{}, "", recordFail("INVALID_FIELD", label+".outcome must be one line")
+	}
+	contractPath, err := repositoryPath(object["contract_path"], label+".contract_path")
+	if err != nil {
+		return Slice{}, "", err
+	}
+	if contractPath == RecordRoot || strings.HasPrefix(contractPath, RecordRoot+"/") {
+		return Slice{}, "", recordFail(
+			"RESERVED_RECORD_ROOT",
+			label+".contract_path cannot name reserved Baton records at "+contractPath,
+		)
+	}
+	digest, err := digestString(object["digest"], label+".digest")
+	if err != nil {
+		return Slice{}, "", err
+	}
+	depends, err := uniqueStringList(object["depends_on"], label+".depends_on", identity)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	consumes, err := uniqueStringList(object["consumes"], label+".consumes", identity)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	touchpoints, err := uniqueStringList(object["touchpoints"], label+".touchpoints", repositoryPath)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	if len(touchpoints) == 0 {
+		return Slice{}, "", recordFail("INVALID_FIELD", label+".touchpoints cannot be empty")
+	}
+	for _, touchpoint := range touchpoints {
+		if touchpoint == RecordRoot || strings.HasPrefix(touchpoint, RecordRoot+"/") {
+			return Slice{}, "", recordFail(
+				"RESERVED_RECORD_ROOT",
+				label+".touchpoints cannot name reserved Baton records at "+touchpoint,
+			)
+		}
+	}
+	slice := Slice{
+		ID: id, Outcome: outcome, Scope: Scope{Include: touchpoints},
+		DependsOn: depends, Consumes: consumes, ContractPath: contractPath,
+	}
+	return slice, digest, nil
+}
+
+// ParseSliceContract admits one immutable Sworn slice contract file. The
+// caller supplies the slice ID and owning track ID from the manifest entry
+// that referenced this file by path; the contract bytes carry only outcome,
+// scope, acceptance, checks, constraints, depends_on, and consumes.
+// Equivalent content always hashes to the same digest as a legacy inline
+// slice via the shared validateSliceBody canonicalization.
+func ParseSliceContract(raw []byte, id, trackID string) (Slice, string, error) {
+	if len(raw) > MaxPlanBytes {
+		return Slice{}, "", recordFail("RESOURCE_LIMIT", fmt.Sprintf("slice contract exceeds %d bytes", MaxPlanBytes))
+	}
+	value, err := strictParseJSON(raw, "slice contract", MaxPlanBytes)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	return validateContractBody(value, id, trackID, "slice contract")
 }
 
 func identity(value any, label string) (string, error) {

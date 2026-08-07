@@ -24,7 +24,7 @@ func PresentRunState(state string) RunPresentation {
 		presentation.NeedsYou = "Only if you want to start the run."
 	case "running":
 		presentation.Status = "Sworn is working"
-		presentation.What = "Sworn is carrying the next recorded Baton handoff."
+		presentation.What = "Sworn is carrying the next recorded handoff."
 		presentation.Next = "Sworn will continue with the next ready handoff."
 		presentation.NeedsYou = "No, unless Sworn asks a question."
 	case "awaiting_approval":
@@ -44,7 +44,7 @@ func PresentRunState(state string) RunPresentation {
 		presentation.NeedsYou = "Yes — review project authority."
 	case "invalid_authority":
 		presentation.Status = "Invalid authority"
-		presentation.What = "Saved project authority does not bind the exact approved Baton plan."
+		presentation.What = "Saved project authority does not bind the exact approved plan."
 		presentation.Next = "Correct the project authority or migrate the saved run."
 		presentation.NeedsYou = "Yes — review project authority."
 	case "pausing":
@@ -84,7 +84,7 @@ func PresentRunState(state string) RunPresentation {
 		presentation.NeedsYou = "Yes — confirm or recover the last action."
 	case "complete":
 		presentation.Status = "Complete"
-		presentation.What = "Baton records show that the checked release was merged."
+		presentation.What = "Release records show that the checked release was merged."
 		presentation.Next = "No delivery work remains."
 		presentation.NeedsYou = "No."
 	default:
@@ -105,10 +105,10 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 			continue
 		}
 		presentation.Status = "Needs confirmation"
-		presentation.What = "Sworn could not confirm the current Baton handoff records."
+		presentation.What = "Sworn could not confirm the current handoff records."
 		presentation.Next = "Restore access to the repository and refresh before continuing."
 		presentation.NeedsYou = "Yes — the delivery controls are disabled until the facts can be confirmed."
-		presentation.Checked = "The saved run record was available, but Baton records could not be confirmed."
+		presentation.Checked = "The saved run record was available, but release records could not be confirmed."
 		return presentation
 	}
 	for _, attention := range snapshot.Runtime.Attentions {

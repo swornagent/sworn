@@ -13,7 +13,7 @@ const RUN_PRESENTATIONS = {
   },
   running: {
     status: "Sworn is working",
-    doing: "Sworn is carrying the next recorded Baton handoff.",
+    doing: "Sworn is carrying the next recorded handoff.",
     next: "Sworn will continue with the next ready handoff.",
     needs: "No, unless Sworn asks a question.",
   },
@@ -67,7 +67,7 @@ const RUN_PRESENTATIONS = {
   },
   complete: {
     status: "Complete",
-    doing: "Baton records show that the checked release was merged.",
+    doing: "Release records show that the checked release was merged.",
     next: "No delivery work remains.",
     needs: "No.",
   },
@@ -159,7 +159,7 @@ function presentSnapshot(snapshot) {
   )) {
     presentation = {
       status: "Needs confirmation",
-      doing: "Sworn could not confirm the current Baton handoff records.",
+      doing: "Sworn could not confirm the current handoff records.",
       next: "Restore repository access and refresh before continuing.",
       needs: "Yes — controls are disabled until the facts can be confirmed.",
     };
@@ -485,7 +485,7 @@ function showEmpty(eyebrow, title, copy) {
 function renderDiagnosticStatus() {
   if (hasUnconfirmedState()) {
     showStatusNotice(
-      "Sworn could not confirm the current Baton handoff records. Controls are disabled until the facts can be checked.",
+      "Sworn could not confirm the current handoff records. Controls are disabled until the facts can be checked.",
     );
   }
 }
@@ -588,11 +588,11 @@ function nodeButton(node, handoffNodes) {
   if (handoffNodes.has(node.id)) {
     const joint = document.createElement("span");
     joint.className = "node-handoff";
-    const baton = document.createElement("span");
-    baton.textContent = "Baton";
+    const recorded = document.createElement("span");
+    recorded.textContent = "Recorded";
     const sworn = document.createElement("span");
     sworn.textContent = "Sworn";
-    joint.append(baton, sworn);
+    joint.append(recorded, sworn);
     button.append(joint);
   }
   button.addEventListener("click", () => selectNode(node.id, button));
@@ -649,6 +649,14 @@ function renderDetail() {
       snapshot.handoff.nodes.includes(node.id) ? "Ready" : "Not ready",
     ],
     ["Try", node.attempt ? String(node.attempt) : "Not recorded"],
+    ["Contract path", reported(node.contract_path)],
+    ["Contract digest", reported(node.contract_digest)],
+    [
+      "Evidence items",
+      node.bound_evidence && node.bound_evidence.length
+        ? String(node.bound_evidence.length)
+        : "Not recorded",
+    ],
     ["Technical ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
   elements.detail.replaceChildren(details.cloneNode(true));

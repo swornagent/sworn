@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -10,9 +13,44 @@ import (
 	"github.com/swornagent/sworn/internal/journal"
 )
 
+func crashHumanTurnBarrier(name string) {
+	if testHumanTurnCrash == name ||
+		testHumanTurnCrash == "environment" &&
+			os.Getenv("SWORN_TEST_HUMAN_TURN_CRASH") == name {
+		os.Exit(86)
+	}
+}
+
 const (
 	turnRecoveryRecoveredEvent = "turn_recovery.outcome.recovered"
+	humanParkCheckpointVersion = "sworn.human-park-checkpoint/v1"
 )
+
+type humanParkCheckpoint struct {
+	SchemaVersion string                               `json:"schema_version"`
+	ParentEffect  string                               `json:"parent_effect"`
+	Command       journal.ParkRecoveryAttentionCommand `json:"command"`
+}
+
+func humanParkCheckpointID(parentEffect string) string {
+	return parentEffect + "/human-park"
+}
+
+func expectedHumanParkCheckpoint(
+	parentEffect string,
+	command journal.ParkRecoveryAttentionCommand,
+) (humanParkCheckpoint, error) {
+	if parentEffect == "" || command.Attention.Attention.HumanTurn == nil ||
+		command.Attention.RunID == "" ||
+		command.Attention.ExpectedGeneration != 0 {
+		return humanParkCheckpoint{}, runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	return humanParkCheckpoint{
+		SchemaVersion: humanParkCheckpointVersion,
+		ParentEffect:  parentEffect,
+		Command:       command,
+	}, nil
+}
 
 type turnRecoveryCycle struct {
 	binding    journal.RecoveryBinding
@@ -223,12 +261,24 @@ func recoveryAuthorityDigests(
 	prepared preparedDriverDispatch,
 	before string,
 ) (string, string) {
+	return recoveryAuthorityDigestsForContext(
+		manifest,
+		prepared.productionContext,
+		before,
+	)
+}
+
+func recoveryAuthorityDigestsForContext(
+	manifest admittedManifest,
+	work *productionWorkContext,
+	before string,
+) (string, string) {
 	plan := recoveryPlanAuthority{ManifestDigest: manifest.digest}
 	target := recoveryTargetAuthority{
 		Before:    before,
 		TargetRef: manifest.value.TargetRef,
 	}
-	if work := prepared.productionContext; work != nil {
+	if work != nil {
 		if work.Plan != nil {
 			plan.PlanOID = work.Plan.OID
 			plan.PlanDigest = work.Plan.Digest
@@ -248,6 +298,224 @@ func recoveryAuthorityDigests(
 		)
 	}
 	return driver.Digest(mustJSON(plan)), driver.Digest(mustJSON(target))
+}
+
+func humanTurnLane(work productionWorkContext) (string, string) {
+	track, slice := work.Track, work.Slice
+	if track == "" {
+		track = "release"
+	}
+	if slice == "" {
+		slice = "release"
+	}
+	return track, slice
+}
+
+func humanTurnBindingForContext(
+	manifest admittedManifest,
+	work productionWorkContext,
+	cycle *turnRecoveryCycle,
+	kind driver.YieldKind,
+	ordinal int64,
+) (journal.HumanTurnBinding, error) {
+	role, validRole := roleForResponsibility(work.Responsibility)
+	track, slice := humanTurnLane(work)
+	planDigest, targetDigest := recoveryAuthorityDigestsForContext(
+		manifest,
+		&work,
+		work.Before,
+	)
+	if cycle == nil || !validRole || role != work.Role ||
+		(kind != driver.YieldHumanChoice &&
+			kind != driver.YieldHumanConfirmation) ||
+		work.RunID != manifest.value.RunID ||
+		work.InvocationID == "" || work.Attempt < 1 ||
+		cycle.automation.RunID != work.RunID ||
+		cycle.automation.TrackID != track ||
+		cycle.automation.Slice != slice ||
+		cycle.automation.BatonAttempt != work.Attempt ||
+		cycle.automation.PlanAuthorityDigest != planDigest ||
+		cycle.automation.TargetAuthorityDigest != targetDigest ||
+		cycle.binding.CycleID == "" || cycle.binding.TurnID == "" ||
+		ordinal < 1 {
+		return journal.HumanTurnBinding{},
+			runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	return journal.HumanTurnBinding{
+		SchemaVersion:         journal.HumanTurnBindingVersion,
+		Kind:                  string(kind),
+		RunID:                 work.RunID,
+		Track:                 track,
+		Slice:                 slice,
+		Role:                  string(work.Role),
+		Responsibility:        string(work.Responsibility),
+		InvocationID:          work.InvocationID,
+		BatonAttempt:          work.Attempt,
+		PlanAuthorityDigest:   planDigest,
+		TargetAuthorityDigest: targetDigest,
+		WorkIdentity:          cycle.automation.WorkIdentity,
+		CycleID:               cycle.binding.CycleID,
+		TurnID:                cycle.binding.TurnID,
+		Ordinal:               ordinal,
+		OpenGeneration:        1,
+	}, nil
+}
+
+func humanTurnBindingForPrepared(
+	manifest admittedManifest,
+	prepared preparedDriverDispatch,
+	cycle *turnRecoveryCycle,
+	kind driver.YieldKind,
+	ordinal int64,
+) (journal.HumanTurnBinding, error) {
+	if prepared.productionContext == nil {
+		return journal.HumanTurnBinding{},
+			runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	descriptor, err := prepared.permission.Describe()
+	work := *prepared.productionContext
+	role, validRole := roleForResponsibility(work.Responsibility)
+	if err != nil || !validRole || role != work.Role ||
+		descriptor.Role != work.Role ||
+		descriptor.Responsibility != work.Responsibility ||
+		descriptor.InvocationID != work.InvocationID ||
+		prepared.request.Role != work.Role ||
+		prepared.request.InvocationID != work.InvocationID {
+		return journal.HumanTurnBinding{},
+			runtimeFail("INVALID_HUMAN_TURN", err)
+	}
+	return humanTurnBindingForContext(
+		manifest,
+		work,
+		cycle,
+		kind,
+		ordinal,
+	)
+}
+
+func validateHumanTurn(
+	actual *journal.HumanTurnBinding,
+	expected journal.HumanTurnBinding,
+) error {
+	if actual == nil || *actual != expected {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	return nil
+}
+
+func validateHumanTurnAnswerAdmission(
+	snapshot journal.Snapshot,
+	manifest admittedManifest,
+	attention journal.AttentionProjection,
+	answer string,
+) error {
+	human := attention.Attention.HumanTurn
+	if human == nil {
+		return nil
+	}
+	exactReplay := attention.State == journal.AttentionAnswered &&
+		attention.Generation == human.OpenGeneration+1 &&
+		attention.Answer == answer
+	if (attention.State != journal.AttentionOpen ||
+		attention.Generation != human.OpenGeneration) && !exactReplay ||
+		human.OpenGeneration != 1 ||
+		human.RunID != snapshot.Run.ID ||
+		human.RunID != manifest.value.RunID {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		if _, duplicate := effects[effect.ID]; duplicate {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effects[effect.ID] = effect
+	}
+	matches := 0
+	var expected journal.HumanTurnBinding
+	var parentEffect string
+	for _, command := range snapshot.Commands {
+		if command.Kind != "driver.dispatch" ||
+			!strings.HasPrefix(
+				command.ReplayKey,
+				"attempt/"+
+					strings.TrimPrefix(human.WorkIdentity, "sha256:")+
+					"/e",
+			) {
+			continue
+		}
+		effect, found := effects[command.ReplayKey]
+		if !found || command.RunID != human.RunID ||
+			effect.RunID != human.RunID ||
+			effect.ID != command.ReplayKey ||
+			effect.ReplayKey != command.ReplayKey ||
+			effect.Kind != command.Kind ||
+			effect.State != journal.Claimed ||
+			effect.CurrentClaim == "" {
+			continue
+		}
+		persisted, err := parseProductionDispatchCommand(
+			manifest,
+			command.Payload,
+		)
+		if err != nil {
+			return err
+		}
+		work := persisted.Context
+		if command.ReplayKey != journal.AttemptEffectID(
+			human.WorkIdentity,
+			work.Epoch,
+			work.Try,
+		) || work.InvocationID != human.InvocationID ||
+			string(work.Role) != human.Role ||
+			string(work.Responsibility) != human.Responsibility ||
+			work.Attempt != human.BatonAttempt {
+			continue
+		}
+		track, slice := humanTurnLane(work)
+		if track != human.Track || slice != human.Slice {
+			continue
+		}
+		cycle := turnRecoveryCycle{
+			binding: attention.Attention.Recovery,
+			automation: driver.AutomationBinding{
+				RunID:                 work.RunID,
+				TrackID:               track,
+				Slice:                 slice,
+				BatonAttempt:          work.Attempt,
+				PlanAuthorityDigest:   human.PlanAuthorityDigest,
+				TargetAuthorityDigest: human.TargetAuthorityDigest,
+				WorkIdentity:          human.WorkIdentity,
+				ProgressIdentity:      human.WorkIdentity,
+			},
+		}
+		expected, err = humanTurnBindingForContext(
+			manifest,
+			work,
+			&cycle,
+			driver.YieldKind(human.Kind),
+			attention.Attention.Ordinal,
+		)
+		if err != nil {
+			return err
+		}
+		parentEffect = command.ReplayKey
+		matches++
+	}
+	if matches != 1 {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	if err := validateHumanTurn(human, expected); err != nil {
+		return err
+	}
+	checkpoint, found, err := humanParkCheckpointForEffect(
+		manifest,
+		snapshot,
+		parentEffect,
+	)
+	if err != nil || !found {
+		return runtimeFail("INVALID_HUMAN_TURN", err)
+	}
+	return validateHumanParkAttention(checkpoint, attention)
 }
 
 func turnRecoveryCycleForDispatch(
@@ -744,6 +1012,12 @@ func (s *Service) invokeRecoverableWorker(
 				BatonAttempt:   prepared.productionContext.Attempt,
 				Epoch:          prepared.productionContext.Epoch,
 				Try:            prepared.productionContext.Try,
+				// A replanned Planner attempt carries an invocation scope,
+				// and the scope is part of the invocation identity inside
+				// the persisted work context. Dropping it here made every
+				// resumed replan dispatch look stale against its own
+				// request.
+				InvocationScope: prepared.productionContext.InvocationScope,
 			},
 			before,
 			prepared,
@@ -1028,6 +1302,22 @@ func (s *Service) continueYieldedWorkerReplacing(
 		return driver.Observation{}, pending, false, err
 	}
 	for observation.Yield != nil {
+		if observation.Yield.Kind == driver.YieldHumanChoice ||
+			observation.Yield.Kind == driver.YieldHumanConfirmation {
+			parkErr := s.parkHumanTurnRecoveryReplacing(
+				ctx,
+				engine.manifest,
+				prepared,
+				owner,
+				cycle,
+				effectID,
+				*observation.Yield,
+				pending,
+				replaced,
+				&totals,
+			)
+			return driver.Observation{}, nil, recovered, parkErr
+		}
 		budget, err := s.journal.RecoveryBudget(
 			ctx,
 			owner.RunID,
@@ -1279,6 +1569,16 @@ func (s *Service) resumeAnsweredWorker(
 	bool,
 	error,
 ) {
+	if err := s.validateHumanTurnResume(
+		ctx,
+		engine.manifest,
+		prepared,
+		cycle,
+		effectID,
+		attention,
+	); err != nil {
+		return driver.Observation{}, nil, false, err
+	}
 	budget, err := s.journal.RecoveryBudget(
 		ctx,
 		owner.RunID,
@@ -1303,6 +1603,9 @@ func (s *Service) resumeAnsweredWorker(
 		return driver.Observation{}, nil, false, err
 	}
 	pending := s.takeRecoverableContinuation(owner.RunID, effectID)
+	if attention.Attention.HumanTurn != nil {
+		crashHumanTurnBarrier("after_continuation_rehydration")
+	}
 	observation, retained, invokeErr := s.invokeRecoverableWorker(
 		ctx,
 		engine,
@@ -1354,6 +1657,46 @@ func (s *Service) resumeAnsweredWorker(
 		&attention,
 		&totals,
 	)
+}
+
+func (s *Service) validateHumanTurnResume(
+	ctx context.Context,
+	manifest admittedManifest,
+	prepared preparedDriverDispatch,
+	cycle *turnRecoveryCycle,
+	effectID string,
+	attention journal.AttentionProjection,
+) error {
+	human := attention.Attention.HumanTurn
+	if human == nil {
+		return nil
+	}
+	expected, err := humanTurnBindingForPrepared(
+		manifest,
+		prepared,
+		cycle,
+		driver.YieldKind(human.Kind),
+		attention.Attention.Ordinal,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateHumanTurn(human, expected); err != nil {
+		return err
+	}
+	snapshot, err := s.journal.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	checkpoint, found, err := humanParkCheckpointForEffect(
+		manifest,
+		snapshot,
+		effectID,
+	)
+	if err != nil || !found {
+		return runtimeFail("INVALID_HUMAN_TURN", err)
+	}
+	return validateHumanParkAttention(checkpoint, attention)
 }
 
 func activeAttentionForWork(
@@ -1436,6 +1779,314 @@ func (s *Service) resolveAnsweredAttention(
 	return nil
 }
 
+func (s *Service) persistHumanParkCheckpoint(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	parentEffect string,
+	command journal.ParkRecoveryAttentionCommand,
+) error {
+	checkpoint, err := expectedHumanParkCheckpoint(parentEffect, command)
+	if err != nil {
+		return err
+	}
+	body := mustJSON(checkpoint)
+	id := humanParkCheckpointID(parentEffect)
+	now := s.now().UTC()
+	if err := s.journal.RecordCommandEffect(
+		ctx,
+		journal.Command{
+			RunID: owner.RunID, ReplayKey: id,
+			Kind: "runtime.human_park", Payload: body, CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: owner.RunID, ID: id, ReplayKey: id,
+			Kind:           "runtime.human_park",
+			BeforeDigest:   sha256Digest([]byte(parentEffect)),
+			ExpectedDigest: sha256Digest(body), UpdatedAt: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	effect, err := s.journal.Effect(ctx, owner.RunID, id)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if effect.State == journal.Succeeded {
+		if effect.ResultDigest != sha256Digest(effect.Result) ||
+			!bytes.Equal(effect.Result, body) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		return nil
+	}
+	if effect.State != journal.Pending {
+		return runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	claim, err := s.journal.ClaimOwned(
+		ctx, owner, id, now, effectLease,
+	)
+	if err != nil {
+		return runtimeFail("EFFECT_CLAIM_FAILED", err)
+	}
+	if err := s.journal.CompleteOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID: owner.RunID, EffectID: id, Token: claim.Token,
+			State: journal.Succeeded, Result: body,
+			EventKind: "human_turn.park_checkpointed",
+			EventBody: []byte(command.Attention.Attention.ID), At: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
+}
+
+func validateHumanParkCheckpoint(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	command journal.Command,
+	effect journal.Effect,
+) (humanParkCheckpoint, error) {
+	if command.RunID != snapshot.Run.ID ||
+		command.Kind != "runtime.human_park" ||
+		effect.RunID != snapshot.Run.ID || effect.ID != command.ReplayKey ||
+		effect.ReplayKey != command.ReplayKey || effect.Kind != command.Kind ||
+		effect.State != journal.Succeeded ||
+		effect.BeforeDigest == "" ||
+		effect.ExpectedDigest != sha256Digest(command.Payload) ||
+		effect.ResultDigest != sha256Digest(effect.Result) ||
+		!bytes.Equal(command.Payload, effect.Result) {
+		return humanParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var checkpoint humanParkCheckpoint
+	if json.Unmarshal(effect.Result, &checkpoint) != nil ||
+		!bytes.Equal(effect.Result, mustJSON(checkpoint)) ||
+		checkpoint.SchemaVersion != humanParkCheckpointVersion ||
+		command.ReplayKey != humanParkCheckpointID(checkpoint.ParentEffect) ||
+		effect.BeforeDigest != sha256Digest([]byte(checkpoint.ParentEffect)) {
+		return humanParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	expected, err := expectedHumanParkCheckpoint(
+		checkpoint.ParentEffect,
+		checkpoint.Command,
+	)
+	if err != nil || !bytes.Equal(mustJSON(checkpoint), mustJSON(expected)) ||
+		checkpoint.Command.Attention.RunID != manifest.value.RunID ||
+		checkpoint.Command.Step.RunID != manifest.value.RunID {
+		return humanParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return checkpoint, nil
+}
+
+func humanParkCheckpointForEffect(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	parentEffect string,
+) (humanParkCheckpoint, bool, error) {
+	id := humanParkCheckpointID(parentEffect)
+	var command *journal.Command
+	for index := range snapshot.Commands {
+		candidate := &snapshot.Commands[index]
+		if candidate.ReplayKey != id {
+			continue
+		}
+		if command != nil {
+			return humanParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		command = candidate
+	}
+	var effect *journal.Effect
+	for index := range snapshot.Effects {
+		candidate := &snapshot.Effects[index]
+		if candidate.ID != id {
+			continue
+		}
+		if effect != nil {
+			return humanParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effect = candidate
+	}
+	if command == nil && effect == nil {
+		return humanParkCheckpoint{}, false, nil
+	}
+	if command == nil || effect == nil {
+		return humanParkCheckpoint{}, false,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	checkpoint, err := validateHumanParkCheckpoint(
+		manifest,
+		snapshot,
+		*command,
+		*effect,
+	)
+	if err != nil || checkpoint.ParentEffect != parentEffect {
+		return humanParkCheckpoint{}, false,
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return checkpoint, true, nil
+}
+
+func validateHumanParkAttention(
+	checkpoint humanParkCheckpoint,
+	attention journal.AttentionProjection,
+) error {
+	if checkpoint.Command.Attention.RunID == "" ||
+		!bytes.Equal(
+			mustJSON(checkpoint.Command.Attention.Attention),
+			mustJSON(attention.Attention),
+		) {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	return nil
+}
+
+// validateHumanConfirmedPlannerHandoff enforces summary-before-plan for the
+// production Planner. Approval-ready manifest and slice bytes may only leave
+// the responsibility that was resumed from an answered human-only turn, so a
+// first terminal that already carries a plan is refused. The turn itself is
+// whatever the Planner judged it to be — a presented summary to confirm, or
+// the one genuine meaning question — but there must be exactly one, it must be
+// bound to this exact dispatch effect through the durable park checkpoint, and
+// it must have been answered by a person.
+//
+// Nothing here inspects the wording of the summary or the question: this rule
+// is about which responsibility is allowed to emit plan bytes, not about the
+// shape of what the Planner says.
+func (s *Service) validateHumanConfirmedPlannerHandoff(
+	ctx context.Context,
+	manifest admittedManifest,
+	coordinates dispatchCoordinates,
+	effectID string,
+	submission driver.Submission,
+	answered *journal.AttentionProjection,
+) error {
+	if !manifest.value.production() ||
+		coordinates.Responsibility != driver.PlannerProposal ||
+		submission.Plan == nil {
+		return nil
+	}
+	if answered == nil || answered.Attention.HumanTurn == nil ||
+		answered.State != journal.AttentionAnswered {
+		return runtimeFail("INVALID_HUMAN_TURN", nil)
+	}
+	snapshot, err := s.journal.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	checkpoint, found, err := humanParkCheckpointForEffect(
+		manifest,
+		snapshot,
+		effectID,
+	)
+	if err != nil || !found {
+		return runtimeFail("INVALID_HUMAN_TURN", err)
+	}
+	return validateHumanParkAttention(checkpoint, *answered)
+}
+
+func (s *Service) recoverHumanParkCheckpoint(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	snapshot journal.Snapshot,
+) (bool, error) {
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		if _, duplicate := effects[effect.ID]; duplicate {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effects[effect.ID] = effect
+	}
+	attentions, err := s.journal.Attentions(ctx, owner.RunID)
+	if err != nil {
+		return false, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	active, err := activeAttentionWork(attentions)
+	if err != nil {
+		return false, err
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commands[command.ReplayKey] = command
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind != "runtime.human_park" {
+			continue
+		}
+		effect, found := effects[command.ReplayKey]
+		if !found {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		checkpoint, err := validateHumanParkCheckpoint(
+			engine.manifest, snapshot, command, effect,
+		)
+		if err != nil {
+			return false, err
+		}
+		parentCommand, commandFound := commands[checkpoint.ParentEffect]
+		parent, parentFound := effects[checkpoint.ParentEffect]
+		if !commandFound || !parentFound ||
+			parentCommand.Kind != "driver.dispatch" ||
+			parent.Kind != parentCommand.Kind ||
+			parent.ID != parentCommand.ReplayKey ||
+			parent.ReplayKey != parentCommand.ReplayKey {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if parent.State != journal.Claimed {
+			if parent.State == journal.Succeeded ||
+				parent.State == journal.OperationalFailed {
+				continue
+			}
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		human := checkpoint.Command.Attention.Attention.HumanTurn
+		if parked, found := active[human.WorkIdentity]; found {
+			if parked.Attention.ID != checkpoint.Command.Attention.Attention.ID ||
+				validateHumanTurn(parked.Attention.HumanTurn, *human) != nil {
+				return false, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			continue
+		}
+		projection := journal.AttentionProjection{
+			Attention:  checkpoint.Command.Attention.Attention,
+			Generation: 1,
+			State:      journal.AttentionOpen,
+		}
+		if err := validateHumanTurnAnswerAdmission(
+			snapshot, engine.manifest, projection, "",
+		); err != nil {
+			return false, err
+		}
+		dispatch, err := validateDriverRecoveryCommand(
+			engine.manifest, parentCommand, parent,
+		)
+		if err != nil || dispatch.production == nil {
+			return false, runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		if err := validateCurrentProductionDispatchContext(
+			ctx, engine, dispatch,
+		); err != nil {
+			return false, err
+		}
+		if _, err := s.journal.ParkRecoveryAttention(
+			context.WithoutCancel(ctx),
+			owner,
+			checkpoint.Command,
+			s.now().UTC(),
+		); err != nil {
+			return false, runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (s *Service) parkTurnRecovery(
 	ctx context.Context,
 	owner journal.OwnerLease,
@@ -1466,6 +2117,65 @@ func (s *Service) parkTurnRecoveryReplacing(
 	replaced *journal.AttentionProjection,
 	accounting *turnRecoveryTotals,
 ) (resultErr error) {
+	return s.parkTurnRecoveryReplacingBound(
+		ctx,
+		owner,
+		cycle,
+		effectID,
+		question,
+		pending,
+		replaced,
+		accounting,
+		nil,
+	)
+}
+
+type humanTurnParkBinding struct {
+	manifest admittedManifest
+	prepared preparedDriverDispatch
+	kind     driver.YieldKind
+}
+
+func (s *Service) parkHumanTurnRecoveryReplacing(
+	ctx context.Context,
+	manifest admittedManifest,
+	prepared preparedDriverDispatch,
+	owner journal.OwnerLease,
+	cycle *turnRecoveryCycle,
+	effectID string,
+	yield driver.Yield,
+	pending *retainedContinuation,
+	replaced *journal.AttentionProjection,
+	accounting *turnRecoveryTotals,
+) error {
+	return s.parkTurnRecoveryReplacingBound(
+		ctx,
+		owner,
+		cycle,
+		effectID,
+		yield.Message,
+		pending,
+		replaced,
+		accounting,
+		&humanTurnParkBinding{
+			manifest: manifest,
+			prepared: prepared,
+			kind:     yield.Kind,
+		},
+	)
+}
+
+func (s *Service) parkTurnRecoveryReplacingBound(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	cycle *turnRecoveryCycle,
+	effectID string,
+	question string,
+	pending *retainedContinuation,
+	replaced *journal.AttentionProjection,
+	accounting *turnRecoveryTotals,
+	human *humanTurnParkBinding,
+) (resultErr error) {
 	defer func() {
 		resultErr = errors.Join(
 			resultErr,
@@ -1492,6 +2202,19 @@ func (s *Service) parkTurnRecoveryReplacing(
 		binding.Recovery,
 		binding.Ordinal,
 	)
+	if human != nil {
+		humanBinding, bindErr := humanTurnBindingForPrepared(
+			human.manifest,
+			human.prepared,
+			cycle,
+			human.kind,
+			step.Ordinal,
+		)
+		if bindErr != nil {
+			return bindErr
+		}
+		binding.HumanTurn = &humanBinding
+	}
 	if strings.TrimSpace(question) == "" {
 		question = "Automatic recovery stopped. What should the worker do next?"
 	}
@@ -1511,6 +2234,17 @@ func (s *Service) parkTurnRecoveryReplacing(
 			ExpectedGeneration: replaced.Generation,
 		}
 	}
+	if human != nil {
+		if err := s.persistHumanParkCheckpoint(
+			context.WithoutCancel(ctx),
+			owner,
+			effectID,
+			command,
+		); err != nil {
+			return err
+		}
+		crashHumanTurnBarrier("before_park_commit")
+	}
 	if _, parkErr := s.journal.ParkRecoveryAttention(
 		context.WithoutCancel(ctx),
 		owner,
@@ -1518,6 +2252,9 @@ func (s *Service) parkTurnRecoveryReplacing(
 		s.now().UTC(),
 	); parkErr != nil {
 		return runtimeFail("JOURNAL_WRITE_FAILED", parkErr)
+	}
+	if human != nil {
+		crashHumanTurnBarrier("after_park_commit")
 	}
 	if pending != nil && pending.handle != nil {
 		if storeErr := s.storeRecoverableContinuation(

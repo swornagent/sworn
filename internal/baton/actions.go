@@ -24,10 +24,22 @@ func NewActions(gitRepository GitRepository, resolver InertnessResolver, identit
 	return &Actions{repository: repository}, nil
 }
 
+// RecordPlanRevisionInput admits one exact plan. ContractTree is required
+// only when PlanBytes admits a sworn.release-manifest/v1 manifest with at
+// least one slice: it names an already-prepared Git commit or tree, already
+// reachable in this repository's object store, from which every declared
+// contract_path is read by safe path and cross-validated against the
+// manifest before anything is recorded. Contract paths are ordinary
+// product-tree content (never under RecordRoot), so this only proves they
+// already exist and match the manifest; it never rewrites them, and the
+// record transition below still commits only the plan itself. Legacy
+// baton.plan/v2 plans carry their full slice bodies inline and ignore
+// ContractTree.
 type RecordPlanRevisionInput struct {
-	PlanBytes []byte
-	Summary   string
-	Detail    []byte
+	PlanBytes    []byte
+	Summary      string
+	Detail       []byte
+	ContractTree string
 }
 
 type AppendReceiptInput struct {
@@ -136,6 +148,9 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	}
 	detail, err := actionDetail(input.Detail)
 	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := a.verifyManifestContracts(parsed, input.ContractTree); err != nil {
 		return ActionResult{}, err
 	}
 	metadata := parsed.Metadata()
@@ -423,6 +438,15 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	result.ReceiptCommit, result.Receipt = preparedApproval.Commit, &receipt
 	result.Retirements = retirements
 	return result, nil
+}
+
+// verifyManifestContracts proves, before this action creates or moves any
+// Git object, that every sworn.release-manifest/v1 slice's declared
+// contract_path is already present in the caller-prepared source tree and
+// agrees with the manifest's own declaration. See resolveManifestContracts
+// for the shared validator this and read-time discovery both use.
+func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
+	return resolveManifestContracts(a.repository, parsed, source)
 }
 
 func assertPlanRevision(previous, next Plan, previousObject string) error {
