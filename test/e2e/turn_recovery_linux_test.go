@@ -683,9 +683,12 @@ func runDirectTurnRecoveryBaseline(
 			implementationGroups = append(implementationGroups, group)
 		}
 	}
+	// The baseline still crosses the Planner's summary boundary - that is one
+	// human escalation every production run now has - but its implementation
+	// turn is direct, which is what this baseline exists to measure.
 	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
-		record.TurnRecovery.Recovered != 0 ||
-		record.TurnRecovery.HumanEscalations != 0 ||
+		record.TurnRecovery.Recovered != 1 ||
+		record.TurnRecovery.HumanEscalations != 1 ||
 		record.TurnRecovery.FalseAcceptances != 0 ||
 		len(implementationGroups) != 1 ||
 		implementationGroups[0].Attempts != 1 ||
