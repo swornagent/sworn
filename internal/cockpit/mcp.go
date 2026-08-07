@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -15,7 +16,9 @@ const (
 	mcpProtocolVersion       = "2025-03-26"
 	mcpApprovalTool          = "sworn_approve"
 	mcpCaptainDelegationTool = "sworn_captain_delegation"
+	mcpStartTool             = "sworn_start"
 	mcpStartDelegatedTool    = "sworn_start_delegated"
+	mcpControlTool           = "sworn_control"
 	mcpStatusTool            = "sworn_status"
 	mcpAttentionsTool        = "sworn_attentions"
 	mcpAnswerAttentionTool   = "sworn_answer_attention"
@@ -104,11 +107,96 @@ func mcpToolDescriptors() []any {
 	return []any{
 		approvalMCPTool(),
 		captainDelegationMCPTool(),
+		startMCPTool(),
 		startDelegatedMCPTool(),
+		controlMCPTool(),
 		statusMCPTool(),
 		attentionsMCPTool(),
 		answerAttentionMCPTool(),
 	}
+}
+
+func startMCPTool() map[string]any {
+	return map[string]any{
+		"name": mcpStartTool,
+		"description": "Start or attach to the run of one admitted manifest " +
+			"and return its current status.",
+		"inputSchema": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{
+				"manifest_digest": map[string]any{"type": "string"},
+			},
+			"required": []string{"manifest_digest"},
+		},
+	}
+}
+
+func controlMCPTool() map[string]any {
+	return map[string]any{
+		"name": mcpControlTool,
+		"description": "Apply one exact operator control transition - pause, " +
+			"resume, cancel, takeover, or retry - to a run.",
+		"inputSchema": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{
+				"run_id":     map[string]any{"type": "string"},
+				"command_id": map[string]any{"type": "string"},
+				"kind": map[string]any{"type": "string", "enum": []string{
+					string(journal.Pause), string(journal.Resume),
+					string(journal.Cancel), string(journal.Takeover),
+					string(journal.Retry),
+				}},
+				"expected_generation": map[string]any{
+					"type": "integer", "minimum": 0,
+				},
+				"work_id": map[string]any{"type": "string"},
+				"expected_epoch": map[string]any{
+					"type": "integer", "minimum": 0,
+				},
+			},
+			"required": []string{
+				"run_id", "command_id", "kind", "expected_generation",
+			},
+		},
+	}
+}
+
+func (h *HTTPHandler) callMCPStart(
+	r *http.Request,
+	request mcpRequest,
+	arguments json.RawMessage,
+) mcpResponse {
+	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
+	var command StartCommand
+	if strictJSON(arguments, &command) != nil {
+		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
+		return response
+	}
+	result, err := h.commands.Start(r.Context(), command)
+	if err != nil {
+		response.Result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": errorCode(err)}}}
+		return response
+	}
+	return mcpStructuredResult(response, result)
+}
+
+func (h *HTTPHandler) callMCPControl(
+	r *http.Request,
+	request mcpRequest,
+	arguments json.RawMessage,
+) mcpResponse {
+	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
+	var command ControlCommand
+	if strictJSON(arguments, &command) != nil {
+		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
+		return response
+	}
+	result, err := h.commands.Control(r.Context(), command)
+	if err != nil {
+		response.Result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": errorCode(err)}}}
+		return response
+	}
+	return mcpStructuredResult(response, result)
 }
 
 func startDelegatedMCPTool() map[string]any {
@@ -273,6 +361,12 @@ func (h *HTTPHandler) callMCPTool(r *http.Request, request mcpRequest) mcpRespon
 	}
 	if call.Name == mcpApprovalTool {
 		return h.callMCPApproval(r, request)
+	}
+	if call.Name == mcpStartTool {
+		return h.callMCPStart(r, request, call.Arguments)
+	}
+	if call.Name == mcpControlTool {
+		return h.callMCPControl(r, request, call.Arguments)
 	}
 	if call.Name == mcpStatusTool {
 		return h.callMCPStatus(r, request, call.Arguments)
