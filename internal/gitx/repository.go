@@ -30,7 +30,7 @@ const (
 	MaxTreeBytes           = 64 * 1024 * 1024
 	MaxChangedPaths        = 100_000
 	MaxHistory             = 4_096
-	MaxMessageBytes        = 12_288
+	MaxMessageBytes        = 2_097_152
 	MaxRepositoryPath      = 1000
 	MaxCommandOutput       = 64 * 1024 * 1024
 	MaxDiagnostic          = 512 * 1024

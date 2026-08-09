@@ -8,7 +8,10 @@ import (
 )
 
 const (
-	MaxProviderTurns         = 32
+	// MaxProviderTurns is a runaway-loop guard, not a work budget. A careful
+	// implementer pass over this repo needs ~30 tool turns, so any value that
+	// could bind honest work is too low; recap only from eval evidence.
+	MaxProviderTurns         = 1_000
 	MaxProviderRequestBytes  = 1_048_576
 	MaxProviderResponseBytes = 1_048_576
 )

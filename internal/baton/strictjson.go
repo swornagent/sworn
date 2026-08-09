@@ -15,9 +15,9 @@ import (
 const (
 	MaxJSONDepth     = 64
 	MaxPlanBytes     = 1_048_576
-	MaxReceiptBytes  = 2_048
-	MaxDetailBytes   = 8_192
-	MaxMessageBytes  = 12_288
+	MaxReceiptBytes  = 1_048_576
+	MaxDetailBytes   = 1_048_576
+	MaxMessageBytes  = 2_097_152
 	MaxEvidenceBytes = 1_048_576
 	MaxTracks        = 64
 	MaxSlices        = 1_024
