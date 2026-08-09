@@ -12,11 +12,16 @@ import (
 )
 
 const (
-	MaxRecoveryCorrectionsPerTurn   = int64(2)
-	MaxRecoveryNudgesPerTurn        = int64(1)
-	MaxRecoveryAdvisoriesPerCycle   = int64(1)
-	MaxRecoveryDecisionsPerProgress = int64(2)
-	MaxRecoveryAutomaticPerCycle    = int64(4)
+	// Recovery budgets are runaway guards at turn-budget scale, not
+	// per-type allowances: a weak or local model may need many nudges and
+	// corrections to complete, and each reserved step is durable eval data
+	// (nudges-per-completion is a model quality metric, not a failure).
+	// The invocation turn budget and timeout are the real bounds.
+	MaxRecoveryCorrectionsPerTurn   = int64(1_000)
+	MaxRecoveryNudgesPerTurn        = int64(1_000)
+	MaxRecoveryAdvisoriesPerCycle   = int64(100)
+	MaxRecoveryDecisionsPerProgress = int64(100)
+	MaxRecoveryAutomaticPerCycle    = int64(10_000)
 
 	RecoveryStepReservedEvent     = "turn_recovery_step_reserved"
 	RecoveryResumeWorkerEvent     = "turn_recovery.action.resume_worker"

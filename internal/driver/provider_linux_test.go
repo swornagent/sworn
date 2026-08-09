@@ -236,11 +236,12 @@ func TestProviderWorkerYieldIsTerminalWithoutSealedBatonAuthority(t *testing.T) 
 	}
 }
 
-func TestProviderMalformedSubmissionGetsExactlyTwoSameSessionCorrections(
+func TestProviderMalformedSubmissionsAreCorrectedUntilValid(
 	t *testing.T,
 ) {
 	t.Parallel()
 	const invocationID = "provider-submit-corrections"
+	const correctionRounds = 5
 	valid := submissionToolArguments(t, submissionFixture(
 		t,
 		invocationID,
@@ -254,7 +255,7 @@ func TestProviderMalformedSubmissionGetsExactlyTwoSameSessionCorrections(
 	) {
 		turn := turns.Add(1)
 		arguments := `{"submission":{}}`
-		if turn == int64(MaxSubmissionCorrections+1) {
+		if turn == int64(correctionRounds+1) {
 			arguments = valid
 		}
 		writeJSONResponse(t, writer, responsesToolCallResponse(
@@ -312,8 +313,8 @@ func TestProviderMalformedSubmissionGetsExactlyTwoSameSessionCorrections(
 	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 	if err != nil || observation.Handoff == nil ||
 		observation.Yield != nil ||
-		turns.Load() != int64(MaxSubmissionCorrections+1) ||
-		reservations.Load() != int64(MaxSubmissionCorrections) {
+		turns.Load() != int64(correctionRounds+1) ||
+		reservations.Load() != int64(correctionRounds) {
 		t.Fatalf(
 			"observation = %#v, turns=%d, error=%v",
 			observation,
@@ -323,22 +324,29 @@ func TestProviderMalformedSubmissionGetsExactlyTwoSameSessionCorrections(
 	}
 }
 
-func TestProviderProseNudgeIsReservedOnceAndFailClosed(t *testing.T) {
+func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 	tests := []struct {
-		name         string
-		refuse       bool
-		secondProse  bool
-		wantRequests int64
-		wantCode     string
+		name             string
+		refuse           bool
+		secondProse      bool
+		wantRequests     int64
+		wantReservations int64
+		wantCode         string
 	}{
-		{name: "submit_after_nudge", wantRequests: 2},
+		{name: "submit_after_nudge", wantRequests: 2, wantReservations: 1},
 		{
 			name: "reservation_refused", refuse: true,
-			wantRequests: 1, wantCode: "RECOVERY_STEP_REFUSED",
+			wantRequests: 1, wantReservations: 1,
+			wantCode: "RECOVERY_STEP_REFUSED",
 		},
+		// A model that answers in prose forever is nudged every turn, each
+		// nudge durably reserved as eval data, until the turn budget - the
+		// only bound - ends the invocation.
 		{
-			name: "second_prose_stops", secondProse: true,
-			wantRequests: 2, wantCode: "MISSING_SUBMISSION",
+			name: "prose_forever_is_nudged_to_the_turn_budget", secondProse: true,
+			wantRequests:     int64(MaxProviderTurns),
+			wantReservations: int64(MaxProviderTurns),
+			wantCode:         "RESOURCE_LIMIT",
 		},
 	}
 	for _, test := range tests {
@@ -447,7 +455,7 @@ func TestProviderProseNudgeIsReservedOnceAndFailClosed(t *testing.T) {
 			observation, invokeErr :=
 				(Dispatcher{}).Invoke(context.Background(), invocation)
 			if requests.Load() != test.wantRequests ||
-				reservations.Load() != 1 {
+				reservations.Load() != test.wantReservations {
 				t.Fatalf(
 					"requests=%d reservations=%d",
 					requests.Load(),

@@ -427,9 +427,10 @@ func (adapter *loopAdapter) runConversation(
 			usageAvailable = true
 		}
 		if len(providerTurn.Calls) == 0 {
-			if !providerTurn.Prose || proseNudges >= 1 {
-				return Observation{}, nil, fail("MISSING_SUBMISSION")
-			}
+			// A call-less turn is nudged, never failed: some models need
+			// many nudges to land a tool call, and every nudge is durably
+			// accounted as eval data. The turn budget and timeout are the
+			// only bounds on how long that patience lasts.
 			if err := reserveRecoveryStep(
 				ctx,
 				invocation.RecoveryStepHook,

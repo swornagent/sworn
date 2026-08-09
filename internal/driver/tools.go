@@ -16,6 +16,9 @@ import (
 
 const (
 	MaxToolCalls             = 256
+	// MaxSessionToolCalls is a cumulative runaway guard sized so it never
+	// binds before the invocation turn budget for a patient worker.
+	MaxSessionToolCalls      = 10_000
 	MaxToolArgumentBytes     = 262_144
 	MaxToolResultBytes       = 262_144
 	MaxToolPathBytes         = 4_096
@@ -24,7 +27,9 @@ const (
 	MaxBashCombinedOutput    = 262_144
 	MaxToolWalkEntries       = 4_096
 	MaxToolScanBytes         = 4_194_304
-	MaxSubmissionCorrections = 2
+	// Corrections are bounded by the invocation's turn budget and timeout,
+	// not by a per-type allowance; each one is durably accounted.
+	MaxSubmissionCorrections = 1_000
 )
 
 const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
@@ -146,7 +151,7 @@ func (session *toolSession) execute(
 		return result
 	}
 	session.calls++
-	if session.calls > MaxToolCalls {
+	if session.calls > MaxSessionToolCalls {
 		session.terminal = true
 		session.submitErr = fail("RESOURCE_LIMIT")
 		session.mu.Unlock()
