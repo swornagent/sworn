@@ -381,6 +381,21 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 		if group.Usage.InputTokens != nil {
 			usageKnown = "reported"
 		}
+		cacheKnown := "unavailable"
+		if group.Usage.CacheReadTokens != nil ||
+			group.Usage.CacheWriteTokens != nil {
+			cacheKnown = "reported"
+		}
+		effortReported := ""
+		if group.Usage.EffortReported != nil {
+			effortReported = *group.Usage.EffortReported
+		}
+		finishReason := ""
+		if group.Usage.FinishReason != nil {
+			finishReason = *group.Usage.FinishReason
+		}
+		truncated := group.Usage.Truncated != nil &&
+			*group.Usage.Truncated
 		labels := []telemetryAttribute{
 			stringTelemetryAttribute("sworn.role", group.Role),
 			stringTelemetryAttribute(
@@ -391,6 +406,10 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			stringTelemetryAttribute("sworn.transport", group.Transport),
 			stringTelemetryAttribute("sworn.outcome", group.Outcome),
 			stringTelemetryAttribute("sworn.usage_known", usageKnown),
+			stringTelemetryAttribute("sworn.cache_known", cacheKnown),
+			stringTelemetryAttribute("sworn.effort_reported", effortReported),
+			stringTelemetryAttribute("sworn.finish_reason", finishReason),
+			boolTelemetryAttribute("sworn.truncated", truncated),
 		}
 		r.metrics.record(
 			"sworn.eval.attempts",
@@ -428,6 +447,18 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			observedAt,
 			labels,
 		)
+		r.metrics.record(
+			"sworn.eval.cache_coverage.numerator",
+			*group.Usage.CacheCoverage.Numerator,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.cache_coverage.denominator",
+			*group.Usage.CacheCoverage.Denominator,
+			observedAt,
+			labels,
+		)
 		if group.Usage.InputTokens != nil {
 			r.metrics.record(
 				"sworn.eval.input_tokens",
@@ -438,6 +469,22 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			r.metrics.record(
 				"sworn.eval.output_tokens",
 				*group.Usage.OutputTokens,
+				observedAt,
+				labels,
+			)
+		}
+		if group.Usage.CacheReadTokens != nil {
+			r.metrics.record(
+				"sworn.eval.cache_read_tokens",
+				*group.Usage.CacheReadTokens,
+				observedAt,
+				labels,
+			)
+		}
+		if group.Usage.CacheWriteTokens != nil {
+			r.metrics.record(
+				"sworn.eval.cache_write_tokens",
+				*group.Usage.CacheWriteTokens,
 				observedAt,
 				labels,
 			)
@@ -522,6 +569,11 @@ func segmentAttributes(record Record) []telemetryAttribute {
 			"sworn.usage_known",
 			record.Usage.InputTokens != nil,
 		),
+		boolTelemetryAttribute(
+			"sworn.cache_known",
+			record.Usage.CacheReadTokens != nil ||
+				record.Usage.CacheWriteTokens != nil,
+		),
 	}
 	if record.Usage.InputTokens != nil {
 		result = append(
@@ -533,6 +585,60 @@ func segmentAttributes(record Record) []telemetryAttribute {
 			int64TelemetryAttribute(
 				"sworn.output_tokens",
 				*record.Usage.OutputTokens,
+			),
+		)
+	}
+	if record.Usage.CacheReadTokens != nil {
+		result = append(
+			result,
+			int64TelemetryAttribute(
+				"sworn.cache_read_tokens",
+				*record.Usage.CacheReadTokens,
+			),
+		)
+	}
+	if record.Usage.CacheWriteTokens != nil {
+		result = append(
+			result,
+			int64TelemetryAttribute(
+				"sworn.cache_write_tokens",
+				*record.Usage.CacheWriteTokens,
+			),
+		)
+	}
+	if record.Usage.EffortRequested != nil {
+		result = append(
+			result,
+			stringTelemetryAttribute(
+				"sworn.effort_requested",
+				*record.Usage.EffortRequested,
+			),
+		)
+	}
+	if record.Usage.EffortReported != nil {
+		result = append(
+			result,
+			stringTelemetryAttribute(
+				"sworn.effort_reported",
+				*record.Usage.EffortReported,
+			),
+		)
+	}
+	if record.Usage.FinishReason != nil {
+		result = append(
+			result,
+			stringTelemetryAttribute(
+				"sworn.finish_reason",
+				*record.Usage.FinishReason,
+			),
+		)
+	}
+	if record.Usage.Truncated != nil {
+		result = append(
+			result,
+			boolTelemetryAttribute(
+				"sworn.truncated",
+				*record.Usage.Truncated,
 			),
 		)
 	}

@@ -379,6 +379,13 @@ func validOpenAIReasoningEffort(value string) bool {
 	}
 }
 
+func (conversation *openAIConversation) declaredReasoningEffort() string {
+	if conversation == nil {
+		return ""
+	}
+	return conversation.reasoningEffort
+}
+
 func (conversation *openAIConversation) accept(body []byte) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
@@ -390,13 +397,22 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	root, err := closedObject(value, nil, []string{
 		"id", "object", "created", "model", "choices", "usage", "error",
-		"system_fingerprint", "service_tier",
+		"system_fingerprint", "service_tier", "reasoning_effort",
 	})
 	if err != nil {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
+	}
+	var effort *string
+	if effortValue, present := root["reasoning_effort"]; present &&
+		effortValue != nil {
+		effortText, ok := effortValue.(string)
+		if !ok || validateText(effortText, 128, false) != nil {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+		effort = &effortText
 	}
 	rawChoices, ok := root["choices"].([]any)
 	if !ok || len(rawChoices) != 1 {
@@ -411,9 +427,29 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	finishReason, finishOK := choice["finish_reason"].(string)
-	if !finishOK ||
-		(finishReason != "tool_calls" && finishReason != "stop") {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
+	if !finishOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if finishReason != "tool_calls" && finishReason != "stop" {
+		if finishReason != "length" {
+			return providerTurn{}, fail("MISSING_SUBMISSION")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		turn := providerTurn{
+			ReasoningEffort: effort,
+			FinishReason:    &finishReason,
+			Truncated:       true,
+		}
+		if usageValue, present := root["usage"]; present && usageValue != nil {
+			usage, usageErr := openAIUsage(usageValue)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = usage
+		}
+		return turn, nil
 	}
 	rawMessage, err := closedObject(
 		choice["message"],
@@ -558,25 +594,56 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	conversation.messages = append(conversation.messages, message)
 	conversation.pending = append([]providerToolCall(nil), calls...)
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
+	if effort != nil {
+		turn.ReasoningEffort = effort
+	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := closedObject(
-			usageValue,
-			[]string{"prompt_tokens", "completion_tokens"},
-			[]string{
-				"total_tokens", "prompt_tokens_details", "completion_tokens_details",
-				"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
-			},
-		)
-		input, inputOK := safeJSONInt(usage["prompt_tokens"])
-		output, outputOK := safeJSONInt(usage["completion_tokens"])
-		if usageErr != nil || !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
+		usage, usageErr := openAIUsage(usageValue)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		turn.Usage = &Usage{
-			InputTokens: input, OutputTokens: output,
-		}
+		turn.Usage = usage
 	}
 	return turn, nil
+}
+
+// openAIUsage parses the chat-completions usage object into the normalized
+// turn accounting. The OpenAI cache vocabulary (prompt_cache_hit_tokens ->
+// read, prompt_cache_miss_tokens -> write) is surfaced instead of discarded;
+// each side stays nil when the provider omits it.
+func openAIUsage(value any) (*Usage, error) {
+	usage, err := closedObject(
+		value,
+		[]string{"prompt_tokens", "completion_tokens"},
+		[]string{
+			"total_tokens", "prompt_tokens_details", "completion_tokens_details",
+			"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+		},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(usage["prompt_tokens"])
+	output, outputOK := safeJSONInt(usage["completion_tokens"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: output}
+	if _, present := usage["prompt_cache_hit_tokens"]; present {
+		read, readOK := safeJSONInt(usage["prompt_cache_hit_tokens"])
+		if !readOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheReadTokens = &read
+	}
+	if _, present := usage["prompt_cache_miss_tokens"]; present {
+		write, writeOK := safeJSONInt(usage["prompt_cache_miss_tokens"])
+		if !writeOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheWriteTokens = &write
+	}
+	return result, nil
 }
 
 func (conversation *openAIConversation) appendInstruction(body []byte) error {

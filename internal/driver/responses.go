@@ -139,8 +139,48 @@ func (conversation *responsesConversation) accept(
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
 	}
-	if root["status"] != "completed" {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
+	var effort *string
+	// The Responses root is deliberately not closed-object validated (it
+	// carries many provider-specific fields), so reasoning.effort is read
+	// leniently: a malformed measurement is ignored rather than failing the
+	// run, in line with "measurement never becomes a gate".
+	if reasoningValue, present := root["reasoning"]; present &&
+		reasoningValue != nil {
+		if reasoning, reasoningOK := reasoningValue.(map[string]any); reasoningOK {
+			if effortValue, present := reasoning["effort"]; present &&
+				effortValue != nil {
+				if effortText, effortOK := effortValue.(string); effortOK &&
+					validateText(effortText, 128, false) == nil {
+					effort = &effortText
+				}
+			}
+		}
+	}
+	status, statusOK := root["status"].(string)
+	if !statusOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if status != "completed" {
+		if status != "incomplete" || !responsesTruncated(root) {
+			return providerTurn{}, fail("MISSING_SUBMISSION")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		reason := "max_output_tokens"
+		turn := providerTurn{
+			ReasoningEffort: effort,
+			FinishReason:    &reason,
+			Truncated:       true,
+		}
+		if usageValue, present := root["usage"]; present && usageValue != nil {
+			usage, usageErr := responsesUsage(usageValue)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = usage
+		}
+		return turn, nil
 	}
 	output, ok := root["output"].([]any)
 	if !ok || len(output) == 0 ||
@@ -194,23 +234,70 @@ func (conversation *responsesConversation) accept(
 	}
 	conversation.pending = append([]providerToolCall(nil), calls...)
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
+	if effort != nil {
+		turn.ReasoningEffort = effort
+	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := closedObject(
-			usageValue,
-			[]string{"input_tokens", "output_tokens", "total_tokens"},
-			[]string{"input_tokens_details", "output_tokens_details"},
-		)
-		input, inputOK := safeJSONInt(usage["input_tokens"])
-		outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
-		if usageErr != nil || !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
+		usage, usageErr := responsesUsage(usageValue)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		turn.Usage = &Usage{
-			InputTokens:  input,
-			OutputTokens: outputTokens,
-		}
+		turn.Usage = usage
 	}
 	return turn, nil
+}
+
+// responsesTruncated reports whether an incomplete Responses response was cut
+// by the provider's output-token ceiling (incomplete_details.reason
+// "max_output_tokens"). The root object is not closed-object validated, so
+// the detail is read leniently; any other incompletion keeps the prior
+// MISSING_SUBMISSION behavior.
+func responsesTruncated(root map[string]any) bool {
+	details, present := root["incomplete_details"]
+	if !present {
+		return false
+	}
+	detailsObject, ok := details.(map[string]any)
+	if !ok {
+		return false
+	}
+	reason, ok := detailsObject["reason"].(string)
+	return ok && reason == "max_output_tokens"
+}
+
+// responsesUsage parses the Responses usage object, surfacing the cached-token
+// detail (input_tokens_details.cached_tokens) as cache reads instead of
+// discarding it. The details object carries provider-specific breakdown fields
+// (audio, image, text tokens), so only cached_tokens is extracted and a
+// malformed detail never fails the run.
+func responsesUsage(value any) (*Usage, error) {
+	usage, err := closedObject(
+		value,
+		[]string{"input_tokens", "output_tokens", "total_tokens"},
+		[]string{"input_tokens_details", "output_tokens_details"},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(usage["input_tokens"])
+	outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
+	if detailsValue, present := usage["input_tokens_details"]; present &&
+		detailsValue != nil {
+		details, detailsOK := detailsValue.(map[string]any)
+		if detailsOK {
+			if cachedValue, present := details["cached_tokens"]; present {
+				cached, cachedOK := safeJSONInt(cachedValue)
+				if cachedOK {
+					result.CacheReadTokens = &cached
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 func (conversation *responsesConversation) appendInstruction(body []byte) error {
@@ -383,6 +470,13 @@ func (conversation *responsesConversation) close() {
 	conversation.input = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func (conversation *responsesConversation) declaredReasoningEffort() string {
+	if conversation == nil {
+		return ""
+	}
+	return conversation.reasoningEffort
 }
 
 func clearResponsesTools(tools []responsesTool) {

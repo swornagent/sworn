@@ -92,6 +92,16 @@ type UsageSummary struct {
 	Costs         []CostTotal `json:"costs"`
 	TokenCoverage Ratio       `json:"token_coverage"`
 	CostCoverage  Ratio       `json:"cost_coverage"`
+	// CacheReadTokens and CacheWriteTokens are the summed canonical cache
+	// pair. A vocabulary that reports only reads (Gemini, the Responses API)
+	// leaves CacheWriteTokens nil rather than turning absence into zero.
+	CacheReadTokens  *int64  `json:"cache_read_tokens"`
+	CacheWriteTokens *int64  `json:"cache_write_tokens"`
+	CacheCoverage    Ratio   `json:"cache_coverage"`
+	EffortRequested  *string `json:"effort_requested"`
+	EffortReported   *string `json:"effort_reported"`
+	FinishReason     *string `json:"finish_reason"`
+	Truncated        *bool   `json:"truncated"`
 }
 
 type AttemptGroup struct {
@@ -243,6 +253,16 @@ type usageAggregate struct {
 	input      int64
 	output     int64
 	costs      map[string]int64
+
+	cacheKnown      int64
+	cacheReadKnown  int64
+	cacheWriteKnown int64
+	cacheRead       int64
+	cacheWrite      int64
+	effortRequested *string
+	effortReported  *string
+	finishReason    *string
+	truncated       *bool
 }
 
 func newAggregate() *aggregate {
@@ -377,7 +397,56 @@ func (u *usageAggregate) add(receipt driver.UsageReceipt) error {
 			u.costs[*receipt.Currency],
 			*receipt.CostMicroUnits,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+	}
+	if receipt.CacheStatus == driver.UsageReported {
+		var err error
+		u.cacheKnown, err = safeAdd(u.cacheKnown, 1)
+		if err != nil {
+			return err
+		}
+		if receipt.CacheReadTokens != nil {
+			u.cacheReadKnown, err = safeAdd(u.cacheReadKnown, 1)
+			if err != nil {
+				return err
+			}
+			u.cacheRead, err = safeAdd(u.cacheRead, *receipt.CacheReadTokens)
+			if err != nil {
+				return err
+			}
+		}
+		if receipt.CacheWriteTokens != nil {
+			u.cacheWriteKnown, err = safeAdd(u.cacheWriteKnown, 1)
+			if err != nil {
+				return err
+			}
+			u.cacheWrite, err = safeAdd(u.cacheWrite, *receipt.CacheWriteTokens)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// Group-level aggregation is deterministic last-reported-wins: attempts
+	// arrive in journal order, so the last non-nil value is the most recent
+	// reported fact. Truncation is carried as any-non-nil (the only non-nil
+	// value in practice is true).
+	if receipt.EffortRequested != nil {
+		value := *receipt.EffortRequested
+		u.effortRequested = &value
+	}
+	if receipt.EffortReported != nil {
+		value := *receipt.EffortReported
+		u.effortReported = &value
+	}
+	if receipt.FinishReason != nil {
+		value := *receipt.FinishReason
+		u.finishReason = &value
+	}
+	if receipt.Truncated != nil {
+		value := *receipt.Truncated
+		u.truncated = &value
 	}
 	return nil
 }
@@ -454,6 +523,7 @@ func (u usageAggregate) summary(denominator int64) UsageSummary {
 	result := UsageSummary{
 		TokenCoverage: knownRatio(u.inputKnown, denominator),
 		CostCoverage:  knownRatio(u.costKnown, denominator),
+		CacheCoverage: knownRatio(u.cacheKnown, denominator),
 	}
 	if u.inputKnown != 0 {
 		result.InputTokens = int64Pointer(u.input)
@@ -470,6 +540,30 @@ func (u usageAggregate) summary(denominator int64) UsageSummary {
 		sort.Slice(result.Costs, func(left, right int) bool {
 			return result.Costs[left].Currency < result.Costs[right].Currency
 		})
+	}
+	if u.cacheKnown != 0 {
+		if u.cacheReadKnown != 0 {
+			result.CacheReadTokens = int64Pointer(u.cacheRead)
+		}
+		if u.cacheWriteKnown != 0 {
+			result.CacheWriteTokens = int64Pointer(u.cacheWrite)
+		}
+	}
+	if u.effortRequested != nil {
+		value := *u.effortRequested
+		result.EffortRequested = &value
+	}
+	if u.effortReported != nil {
+		value := *u.effortReported
+		result.EffortReported = &value
+	}
+	if u.finishReason != nil {
+		value := *u.finishReason
+		result.FinishReason = &value
+	}
+	if u.truncated != nil {
+		value := *u.truncated
+		result.Truncated = &value
 	}
 	return result
 }
