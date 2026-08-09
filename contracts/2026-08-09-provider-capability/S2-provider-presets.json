@@ -1,0 +1,54 @@
+{
+  "outcome": "Providers are configuration, not code: the adapter union is keyed by wire protocol rather than by vendor, and a new OpenAI-compatible provider is added as a preset with no new Go type.",
+  "scope": {
+    "include": [
+      "internal/driver/config.go",
+      "internal/driver/factory.go",
+      "internal/driver/bedrock.go",
+      "internal/driver/aws_chain.go"
+    ],
+    "exclude": [
+      "native CLI drivers and their certification",
+      "the Gemini and native Bedrock wire protocols, which stay distinct",
+      "porting any platform-gated file to a non-Linux host",
+      "changes to the receipt or plan record formats"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Adding an OpenAI-compatible provider requires zero new Go types, proven by adding at least three as configuration only, including one reached over plain HTTP on loopback and one reached over HTTPS with bearer auth."
+    },
+    {
+      "id": "A2",
+      "text": "Authentication is an explicit per-profile mode covering at least bearer, AWS SigV4 and none; a loopback endpoint needing no credential is configurable without inventing a placeholder secret, and a profile that omits its auth mode fails closed."
+    },
+    {
+      "id": "A3",
+      "text": "The vendor-named Mantle and DeepSeek adapter kinds no longer exist as distinct types, and every configuration that admitted before this slice either admits unchanged or is migrated by one deterministic, recorded mapping that names each rewritten field."
+    },
+    {
+      "id": "A4",
+      "text": "Genuinely distinct wire protocols keep their own adapters, and a profile cannot silently borrow another protocol's request shape; a mismatched flavour and endpoint pairing fails closed at admission."
+    },
+    {
+      "id": "A5",
+      "text": "A profile whose base URL is not a fixed constant, such as one carrying a workspace or region identifier, is expressible without string surgery at call time."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "One canonical OpenAI-compatible transport owns every consumer; do not add a parallel adapter, validator, or request builder.",
+    "A vendor name may appear in a preset's identity but never in the type system or in control flow.",
+    "Existing admitted configurations must continue to admit or be migrated deterministically, with the mapping recorded.",
+    "Capability is declared per profile and per model, never inferred from the endpoint or the vendor name."
+  ],
+  "depends_on": ["S1-capability-axes"],
+  "consumes": ["S1-capability-axes"]
+}
