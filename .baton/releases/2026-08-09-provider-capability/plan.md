@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-09-provider-capability",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "0e4569d5aec9738e79f9e9020c8209bdf470452c",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-09-provider-capability/1",
+  "approval_ref": "operator://2026-08-09-provider-capability/2",
   "tracks": [
     {
       "id": "T1-provider",
@@ -97,7 +97,12 @@ something measurable instead of something asserted.
 # Authority
 
 Approved by the human operator against these exact bytes under
-`operator://2026-08-09-provider-capability/1`. Planning did not approve itself.
+`operator://2026-08-09-provider-capability/2`. Planning did not approve itself.
+
+Revision 2 changes no slice, contract, or dependency. It re-binds the same
+approved work to the advanced target head, which now carries the
+expression-cap removal (67d6b938) that revision 1's first real-model run
+proved necessary; the adoption gate correctly refused the moved target.
 
 The three slices form one serial track because they share the same production
 files; nothing here is eligible for concurrent execution. Each slice keeps the
