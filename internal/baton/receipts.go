@@ -157,7 +157,7 @@ func validateReceiptMap(value map[string]any) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	summary, err := requiredString(value["summary"], "receipt.summary", 1, 280)
+	summary, err := requiredString(value["summary"], "receipt.summary", 1, 262_144)
 	if err != nil {
 		return Receipt{}, err
 	}

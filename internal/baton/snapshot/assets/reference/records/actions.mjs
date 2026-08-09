@@ -31,8 +31,8 @@ import {
 } from './state.mjs';
 
 const RECORD_ROOT = '.baton/releases';
-const MAX_SUMMARY = 280;
-const MAX_DETAIL = 8_192;
+const MAX_SUMMARY = 262_144;
+const MAX_DETAIL = 1_048_576;
 const MAX_CHECK_RESULTS = 1_048_576;
 const MAX_CANDIDATE_LINEAGE = 4096;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
