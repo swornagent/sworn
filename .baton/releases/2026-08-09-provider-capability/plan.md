@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-09-provider-capability",
-  "revision": 3,
-  "previous_plan": "e5609d97db9793edcaab63cb45c47f35cadb7c74",
+  "revision": 4,
+  "previous_plan": "7c304713c36ed4d68d7bed68aea8c3cfca9f8906",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-09-provider-capability/3",
+  "approval_ref": "operator://2026-08-09-provider-capability/4",
   "tracks": [
     {
       "id": "T1-provider",
@@ -97,13 +97,15 @@ something measurable instead of something asserted.
 # Authority
 
 Approved by the human operator against these exact bytes under
-`operator://2026-08-09-provider-capability/3`. Planning did not approve itself.
+`operator://2026-08-09-provider-capability/4`. Planning did not approve itself.
 
-Revision 3 changes no slice, contract, or dependency. It re-binds the same
+Revision 4 changes no slice, contract, or dependency. It re-binds the same
 approved work to the advanced target head, which now also removes the
-receipt-layer summary cap (dd9616c3) that parked revision 2's run after
-the driver had already accepted the design; the adoption gate correctly
-refused each moved target.
+recovery-budget expression caps (d72e0747): reasoning-size and
+continuation-step limits that killed live worker turns, and per-type
+nudge/correction allowances replaced by turn-budget-scale runaway guards
+with durable per-step accounting. The adoption gate correctly refused
+each moved target.
 
 The three slices form one serial track because they share the same production
 files; nothing here is eligible for concurrent execution. Each slice keeps the
