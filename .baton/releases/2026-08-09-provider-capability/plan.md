@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-09-provider-capability",
-  "revision": 4,
-  "previous_plan": "7c304713c36ed4d68d7bed68aea8c3cfca9f8906",
+  "revision": 5,
+  "previous_plan": "3b5d44f49a1909d7e5b10b42dfa18c55abe76cd1",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-09-provider-capability/4",
+  "approval_ref": "operator://2026-08-09-provider-capability/5",
   "tracks": [
     {
       "id": "T1-provider",
@@ -15,22 +15,19 @@
         {
           "id": "S1-capability-axes",
           "outcome": "A driver profile declares the API flavour, reasoning effort and endpoint its model actually supports, so every OpenAI-compatible provider Sworn can reach is usable at its real capability without changing code.",
-          "contract_path": "contracts/2026-08-09-provider-capability/S1-capability-axes.json",
-          "digest": "sha256:8396c802dd75f169b2596bafbae4a8ce665abe7992186967ece067d4848dc68f",
+          "contract_path": "contracts/2026-08-09-provider-capability/rev5/S1-capability-axes.json",
+          "digest": "sha256:a0e55d070df1e59f5e95ad4ec8f764b4a3f72db831639c68bd36ffb627271835",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
-            "internal/driver/openai.go",
-            "internal/driver/responses.go",
-            "internal/driver/mantle.go",
-            "internal/driver/http.go"
+            "internal/driver"
           ]
         },
         {
           "id": "S2-provider-presets",
           "outcome": "Providers are configuration, not code: the adapter union is keyed by wire protocol rather than by vendor, and a new OpenAI-compatible provider is added as a preset with no new Go type.",
-          "contract_path": "contracts/2026-08-09-provider-capability/S2-provider-presets.json",
-          "digest": "sha256:c5dd2947e690f4c02817c7c1be19768edc8359c858b4812550a30993c8ee0542",
+          "contract_path": "contracts/2026-08-09-provider-capability/rev5/S2-provider-presets.json",
+          "digest": "sha256:758ff36f52a64fe98b463a8e236b97a832c26c46f4fe16cc742bb52a72c336b5",
           "depends_on": [
             "S1-capability-axes"
           ],
@@ -38,17 +35,14 @@
             "S1-capability-axes"
           ],
           "touchpoints": [
-            "internal/driver/config.go",
-            "internal/driver/factory.go",
-            "internal/driver/bedrock.go",
-            "internal/driver/aws_chain.go"
+            "internal/driver"
           ]
         },
         {
           "id": "S3-provider-observability",
           "outcome": "Every provider invocation reports what it actually cost and how it actually behaved - cache reuse, reasoning effort applied, and truncation - as normalized nullable facts that reach the operator surfaces and OpenTelemetry.",
-          "contract_path": "contracts/2026-08-09-provider-capability/S3-provider-observability.json",
-          "digest": "sha256:1f1c85b9a9a82f7025bcdd6db045d782d998bc910f4e0376bfca3e1c6c4a31fa",
+          "contract_path": "contracts/2026-08-09-provider-capability/rev5/S3-provider-observability.json",
+          "digest": "sha256:9b38bb75cbb730c36c8ea534092672c1eb55d4095cd2773bc8f89b2a289bd969",
           "depends_on": [
             "S2-provider-presets"
           ],
@@ -56,8 +50,7 @@
             "S2-provider-presets"
           ],
           "touchpoints": [
-            "internal/driver/usage.go",
-            "internal/driver/provider.go",
+            "internal/driver",
             "internal/observe"
           ]
         }
@@ -97,15 +90,16 @@ something measurable instead of something asserted.
 # Authority
 
 Approved by the human operator against these exact bytes under
-`operator://2026-08-09-provider-capability/4`. Planning did not approve itself.
+`operator://2026-08-09-provider-capability/5`. Planning did not approve itself.
 
-Revision 4 changes no slice, contract, or dependency. It re-binds the same
-approved work to the advanced target head, which now also removes the
-recovery-budget expression caps (d72e0747): reasoning-size and
-continuation-step limits that killed live worker turns, and per-type
-nudge/correction allowances replaced by turn-budget-scale runaway guards
-with durable per-step accounting. The adoption gate correctly refused
-each moved target.
+Revision 5 widens each slice's scope from an enumerated file list to the
+owning package directory and adds an evidence-placement constraint. The
+first real implementation attempts proved the enumerated scopes
+unsatisfiable: acceptance requires changing behavior that existing tests
+pin, so the tests are part of the deliverable, and the scope gate
+rightly rejected candidates the contract had made impossible. Behavioral
+exclusions are unchanged; the boundary moves from individual files to
+the package that owns the promised behavior.
 
 The three slices form one serial track because they share the same production
 files; nothing here is eligible for concurrent execution. Each slice keeps the
