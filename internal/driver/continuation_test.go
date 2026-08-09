@@ -52,10 +52,9 @@ func TestAPIContinuationModesAreTruthful(t *testing.T) {
 	t.Parallel()
 	for dialect, expected := range map[providerDialect]ContinuationMode{
 		providerDialectOpenAIChat:      ContinuationModeTranscriptReplay,
-		providerDialectMantleChat:      ContinuationModeTranscriptReplay,
 		providerDialectOpenAIResponses: ContinuationModeOpaqueReplay,
 		providerDialectOpenRouterChat:  ContinuationModeOpaqueReplay,
-		providerDialectDeepSeekChat:    ContinuationModeOpaqueReplay,
+		providerDialectOpaqueChat:      ContinuationModeOpaqueReplay,
 		providerDialectGemini:          ContinuationModeOpaqueReplay,
 		providerDialectBedrockConverse: ContinuationModeOpaqueReplay,
 	} {
@@ -68,14 +67,14 @@ func TestAPIContinuationModesAreTruthful(t *testing.T) {
 	}
 }
 
-func TestDeepSeekReplaysReasoningAndExactToolCorrelation(t *testing.T) {
+func TestOpaqueChatReplaysReasoningAndExactToolCorrelation(t *testing.T) {
 	t.Parallel()
 	conversation, err := newOpenAIConversation(
 		"https://api.example.invalid/chat/completions",
 		"deepseek-reasoner",
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
-		providerDialectDeepSeekChat,
+		providerDialectOpaqueChat,
 		"",
 	)
 	if err != nil {
@@ -383,6 +382,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 		resolver,
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -393,6 +393,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 			API:               OpenRouterChatCompletionsAPI,
 		},
 		resolver,
+		nil,
 		nil,
 		nil,
 	)
@@ -551,8 +552,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 
 	for _, dialect := range []providerDialect{
 		providerDialectOpenAIChat,
-		providerDialectDeepSeekChat,
-		providerDialectMantleChat,
+		providerDialectOpaqueChat,
 	} {
 		foreign, foreignErr := newOpenAIConversation(
 			base.Endpoint,

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 )
 
 const (
@@ -22,11 +23,31 @@ var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`
 
 // DriverConfig is the canonical, secret-free configured-driver document.
 // Credential values are resolved lazily and never enter this document.
+// Presets express OpenAI-compatible providers as configuration only; Variables
+// bound the named endpoint-template placeholders used by preset base URLs and
+// adapter endpoints.
 type DriverConfig struct {
 	SchemaVersion string                   `json:"schema_version"`
 	Credentials   []DriverCredentialSource `json:"credentials"`
 	Adapters      []DriverAdapterConfig    `json:"adapters"`
 	Profiles      []DriverProfile          `json:"profiles"`
+	Presets       []DriverPreset           `json:"presets,omitempty"`
+	Variables     map[string]string        `json:"variables,omitempty"`
+}
+
+// DriverPreset is one configuration-only OpenAI-compatible provider. A vendor
+// name may appear in a preset's identity but never in the type system or in
+// control flow; the adapter union stays keyed by wire protocol.
+type DriverPreset struct {
+	Key              string    `json:"key"`
+	API              OpenAIAPI `json:"api"`
+	BaseURL          string    `json:"base_url"`
+	Auth             AuthMode  `json:"auth"`
+	CredentialHeader string    `json:"credential_header"`
+	CredentialPrefix string    `json:"credential_prefix"`
+	ResponseBytes    int       `json:"response_bytes"`
+	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
+	OpaqueReasoning  bool      `json:"opaque_reasoning,omitempty"`
 }
 
 type CredentialSourceKind string
@@ -50,23 +71,22 @@ type DriverProcessAdapterConfig struct {
 	Executable ExecutableIdentity `json:"executable"`
 }
 
-// DriverAdapterConfig is a closed union over the existing adapter
-// constructors. Exactly one field is present. A Mantle entry's Endpoint is
-// the exact POST URL, not a base URL.
+// DriverAdapterConfig is a closed union keyed by wire protocol over the
+// existing adapter constructors. Exactly one field is present. Endpoints are
+// exact POST URLs, never base URLs.
 type DriverAdapterConfig struct {
-	Process  *DriverProcessAdapterConfig `json:"process,omitempty"`
-	Native   *NativeAdapterConfig        `json:"native,omitempty"`
-	OpenAI   *OpenAIProfileConfig        `json:"openai,omitempty"`
-	DeepSeek *HTTPProfileConfig          `json:"deepseek,omitempty"`
-	Gemini   *HTTPProfileConfig          `json:"gemini,omitempty"`
-	Bedrock  *BedrockProfileConfig       `json:"bedrock,omitempty"`
-	Mantle   *BedrockMantleProfileConfig `json:"mantle,omitempty"`
+	Process *DriverProcessAdapterConfig `json:"process,omitempty"`
+	Native  *NativeAdapterConfig        `json:"native,omitempty"`
+	OpenAI  *OpenAIProfileConfig        `json:"openai,omitempty"`
+	Gemini  *HTTPProfileConfig          `json:"gemini,omitempty"`
+	Bedrock *BedrockProfileConfig       `json:"bedrock,omitempty"`
 }
 
 type DriverProfile struct {
 	Key                 string        `json:"key"`
 	Adapter             string        `json:"adapter"`
 	Network             NetworkPolicy `json:"network"`
+	AuthMode            *AuthMode     `json:"auth_mode,omitempty"`
 	CredentialSource    *string       `json:"credential_source"`
 	CertificationModels []string      `json:"certification_models"`
 }
@@ -107,10 +127,8 @@ const (
 	driverAdapterProcess driverAdapterKind = iota + 1
 	driverAdapterNative
 	driverAdapterOpenAI
-	driverAdapterDeepSeek
 	driverAdapterGemini
 	driverAdapterBedrock
-	driverAdapterMantle
 )
 
 type driverAdapterDescriptor struct {
@@ -122,6 +140,7 @@ type driverAdapterDescriptor struct {
 	surface ProfileSurface
 	refs    []string
 	sources []CredentialSourceKind
+	auth    AuthMode
 }
 
 func EncodeDriverConfig(config DriverConfig) ([]byte, error) {
@@ -137,10 +156,31 @@ func DecodeDriverConfig(body []byte) (LoadedDriverConfig, error) {
 		body,
 		MaxDriverConfigBytes,
 		[]string{"schema_version", "credentials", "adapters", "profiles"},
-		nil,
+		[]string{"presets", "variables"},
 		&config,
 	); err != nil {
-		return LoadedDriverConfig{}, err
+		// The new closed union rejects vendor-named adapter kinds before the
+		// production decode can run. When the document instead parses through
+		// the legacy-aware shadow shape, migrate it deterministically; the
+		// migrated canonical is the new identity. Byte-preserving semantics
+		// are untouched for every document without legacy entries.
+		legacy, legacyErr := decodeLegacyDriverConfig(body)
+		if legacyErr != nil {
+			return LoadedDriverConfig{}, err
+		}
+		migrated, migrationErr := migrateDriverConfig(legacy)
+		if migrationErr != nil {
+			return LoadedDriverConfig{}, migrationErr
+		}
+		canonical, encodeErr := EncodeDriverConfig(migrated)
+		if encodeErr != nil {
+			return LoadedDriverConfig{}, encodeErr
+		}
+		return LoadedDriverConfig{
+			config:    migrated,
+			canonical: append([]byte(nil), canonical...),
+			digest:    Digest(canonical),
+		}, nil
 	}
 	canonical, err := EncodeDriverConfig(config)
 	if err != nil {
@@ -215,8 +255,8 @@ func (loaded LoadedDriverConfig) BuildRegistry(
 	return loaded.build(selected, options, false)
 }
 
-// BuildAllRegistry constructs all profiles and requires every existing family
-// plus both Bedrock surfaces.
+// BuildAllRegistry constructs all profiles and requires every production
+// family plus the Bedrock Converse surface.
 func (loaded LoadedDriverConfig) BuildAllRegistry(
 	options DriverFactoryOptions,
 ) (ConfiguredDriverRegistry, error) {
@@ -237,7 +277,11 @@ func (loaded LoadedDriverConfig) build(
 		return ConfiguredDriverRegistry{}, fail("INVALID_DRIVER_CONFIG")
 	}
 	credentials := credentialSourceMap(loaded.config.Credentials)
-	adapters, err := describeAdapters(loaded.config.Adapters)
+	presets, err := presetMap(loaded.config.Presets)
+	if err != nil {
+		return ConfiguredDriverRegistry{}, err
+	}
+	adapters, err := describeAdapters(loaded.config)
 	if err != nil {
 		return ConfiguredDriverRegistry{}, err
 	}
@@ -256,6 +300,7 @@ func (loaded LoadedDriverConfig) build(
 			Key:           profile.Key,
 			Adapter:       profile.Adapter,
 			Network:       profile.Network,
+			AuthMode:      descriptor.auth,
 			CredentialRef: cloneString(profile.CredentialSource),
 		})
 		for _, model := range profile.CertificationModels {
@@ -269,17 +314,30 @@ func (loaded LoadedDriverConfig) build(
 	}
 
 	built := make([]Adapter, 0, len(neededAdapters))
-	for _, config := range loaded.config.Adapters {
-		descriptor, err := config.descriptor()
-		if err != nil {
-			return ConfiguredDriverRegistry{}, err
+	for _, raw := range loaded.config.Adapters {
+		resolved, resolveErr := resolvePreset(
+			raw,
+			presets,
+			loaded.config.Variables,
+		)
+		if resolveErr != nil {
+			return ConfiguredDriverRegistry{}, resolveErr
+		}
+		descriptor, descriptorErr := resolved.descriptor()
+		if descriptorErr != nil {
+			return ConfiguredDriverRegistry{}, descriptorErr
 		}
 		if _, needed := neededAdapters[descriptor.key]; !needed {
 			continue
 		}
-		adapter, err := buildConfiguredAdapter(config, descriptor, credentials, options)
-		if err != nil {
-			return ConfiguredDriverRegistry{}, err
+		adapter, buildErr := buildConfiguredAdapter(
+			resolved,
+			descriptor,
+			credentials,
+			options,
+		)
+		if buildErr != nil {
+			return ConfiguredDriverRegistry{}, buildErr
 		}
 		built = append(built, adapter)
 	}
@@ -324,46 +382,21 @@ func buildConfiguredAdapter(
 		return NewOpenAIAdapter(
 			value,
 			headerSourceResolver(sources, options),
-			probe,
-			roundTripper,
-		)
-	case driverAdapterDeepSeek, driverAdapterGemini:
-		var source HTTPProfileConfig
-		switch descriptor.kind {
-		case driverAdapterDeepSeek:
-			source = *config.DeepSeek
-		case driverAdapterGemini:
-			source = *config.Gemini
-		}
-		value := cloneHTTPProfileConfig(source)
-		resolver := headerSourceResolver(sources, options)
-		switch descriptor.kind {
-		case driverAdapterDeepSeek:
-			return NewDeepSeekAdapter(value, resolver, probe, roundTripper)
-		default:
-			return NewGeminiAdapter(value, resolver, probe, roundTripper)
-		}
-	case driverAdapterBedrock:
-		return NewBedrockAdapter(
-			cloneBedrockProfileConfig(*config.Bedrock),
 			awsSourceResolver(sources, options),
 			probe,
 			roundTripper,
 		)
-	case driverAdapterMantle:
-		value := cloneMantleProfileConfig(*config.Mantle)
-		if value.AuthMode == BedrockMantleAPIKey {
-			return NewBedrockMantleAdapter(
-				value,
-				headerSourceResolver(sources, options),
-				nil,
-				probe,
-				roundTripper,
-			)
-		}
-		return NewBedrockMantleAdapter(
+	case driverAdapterGemini:
+		value := cloneHTTPProfileConfig(*config.Gemini)
+		return NewGeminiAdapter(
 			value,
-			nil,
+			headerSourceResolver(sources, options),
+			probe,
+			roundTripper,
+		)
+	case driverAdapterBedrock:
+		return NewBedrockAdapter(
+			cloneBedrockProfileConfig(*config.Bedrock),
 			awsSourceResolver(sources, options),
 			probe,
 			roundTripper,
@@ -424,10 +457,15 @@ func awsSourceResolver(
 
 func validateDriverConfig(config DriverConfig) error {
 	if config.SchemaVersion != DriverConfigSchemaVersion ||
-		len(config.Credentials) == 0 ||
 		len(config.Adapters) == 0 ||
 		len(config.Profiles) == 0 {
 		return fail("INVALID_DRIVER_CONFIG")
+	}
+	if err := validateConfigVariables(config.Variables); err != nil {
+		return err
+	}
+	if err := validatePresets(config.Presets, config.Variables); err != nil {
+		return err
 	}
 	credentials := make(map[string]DriverCredentialSource, len(config.Credentials))
 	previous := ""
@@ -440,7 +478,7 @@ func validateDriverConfig(config DriverConfig) error {
 		previous = source.Key
 		credentials[source.Key] = source
 	}
-	adapters, err := describeAdapters(config.Adapters)
+	adapters, err := describeAdapters(config)
 	if err != nil {
 		return err
 	}
@@ -482,14 +520,141 @@ func validateDriverConfig(config DriverConfig) error {
 	return nil
 }
 
-func describeAdapters(
-	configs []DriverAdapterConfig,
-) (map[string]driverAdapterDescriptor, error) {
-	result := make(map[string]driverAdapterDescriptor, len(configs))
+// validatePresets admits a closed, canonical preset list. Static fields are
+// checked here; BaseURL templates are resolved and admitted here too, so an
+// unreferenced preset still cannot smuggle an invalid endpoint into a
+// document. Presets are configuration only: no vendor name enters control flow.
+func validatePresets(presets []DriverPreset, variables map[string]string) error {
 	previous := ""
-	for _, config := range configs {
-		descriptor, err := config.descriptor()
-		if err != nil || (previous != "" && descriptor.key <= previous) {
+	for _, preset := range presets {
+		if !providerKeyPattern.MatchString(preset.Key) ||
+			(previous != "" && preset.Key <= previous) {
+			return fail("INVALID_DRIVER_CONFIG")
+		}
+		previous = preset.Key
+		if !preset.API.valid() ||
+			!preset.Auth.valid() ||
+			!validReasoningEfforts(preset.ReasoningEfforts) ||
+			preset.ResponseBytes < 1 ||
+			preset.ResponseBytes > MaxProviderResponseBytes ||
+			(preset.Auth == AuthModeBearer &&
+				(!httpToken(preset.CredentialHeader) ||
+					len(preset.CredentialPrefix) > 64)) ||
+			(preset.Auth != AuthModeBearer &&
+				(preset.CredentialHeader != "" ||
+					preset.CredentialPrefix != "")) {
+			return fail("INVALID_DRIVER_CONFIG")
+		}
+		resolved, err := resolveEndpointTemplate(preset.BaseURL, variables)
+		if err != nil || !validResolvedEndpoint(resolved) {
+			return fail("INVALID_ENDPOINT")
+		}
+	}
+	return nil
+}
+
+// validResolvedEndpoint admits a fully resolved exact POST URL: absolute,
+// loopback-or-https, and free of query strings and fragments.
+func validResolvedEndpoint(value string) bool {
+	parsed, err := url.Parse(value)
+	if validateEndpoint(value) != nil || err != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	return true
+}
+
+func presetMap(presets []DriverPreset) (map[string]DriverPreset, error) {
+	result := make(map[string]DriverPreset, len(presets))
+	for _, preset := range presets {
+		if _, duplicate := result[preset.Key]; duplicate {
+			return nil, fail("INVALID_DRIVER_CONFIG")
+		}
+		result[preset.Key] = preset
+	}
+	return result, nil
+}
+
+// resolvePreset turns an adapter document into its effective configuration
+// exactly once at admission. An OpenAI adapter that names a preset inherits
+// the preset's wire defaults; per-adapter fields override. Both the inherited
+// preset base URL and an adapter's own endpoint are resolved from the declared
+// document variables into exact absolute URLs before validation.
+func resolvePreset(
+	config DriverAdapterConfig,
+	presets map[string]DriverPreset,
+	variables map[string]string,
+) (DriverAdapterConfig, error) {
+	if config.OpenAI == nil {
+		return config, nil
+	}
+	clone := cloneOpenAIProfileConfig(*config.OpenAI)
+	if clone.Preset != "" {
+		preset, ok := presets[clone.Preset]
+		if !ok {
+			return DriverAdapterConfig{}, fail("UNKNOWN_PRESET")
+		}
+		baseURL, err := resolveEndpointTemplate(preset.BaseURL, variables)
+		if err != nil || !validResolvedEndpoint(baseURL) {
+			return DriverAdapterConfig{}, fail("INVALID_ENDPOINT")
+		}
+		if clone.Endpoint == "" {
+			clone.Endpoint = baseURL
+		}
+		if clone.API == "" {
+			clone.API = preset.API
+		}
+		if clone.AuthMode == "" {
+			clone.AuthMode = preset.Auth
+		}
+		if clone.CredentialHeader == "" {
+			clone.CredentialHeader = preset.CredentialHeader
+		}
+		if clone.CredentialPrefix == "" {
+			clone.CredentialPrefix = preset.CredentialPrefix
+		}
+		if clone.ResponseBytes == 0 {
+			clone.ResponseBytes = preset.ResponseBytes
+		}
+		if len(clone.ReasoningEfforts) == 0 {
+			clone.ReasoningEfforts = append(
+				[]string(nil),
+				preset.ReasoningEfforts...,
+			)
+		}
+		if clone.OpaqueReasoning == nil {
+			value := preset.OpaqueReasoning
+			clone.OpaqueReasoning = &value
+		}
+	}
+	if strings.Contains(clone.Endpoint, "{") {
+		resolved, err := resolveEndpointTemplate(clone.Endpoint, variables)
+		if err != nil {
+			return DriverAdapterConfig{}, err
+		}
+		clone.Endpoint = resolved
+	}
+	config.OpenAI = &clone
+	return config, nil
+}
+
+func describeAdapters(
+	config DriverConfig,
+) (map[string]driverAdapterDescriptor, error) {
+	presets, err := presetMap(config.Presets)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]driverAdapterDescriptor, len(config.Adapters))
+	previous := ""
+	for _, raw := range config.Adapters {
+		resolved, resolveErr := resolvePreset(raw, presets, config.Variables)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		descriptor, descriptorErr := resolved.descriptor()
+		if descriptorErr != nil ||
+			(previous != "" && descriptor.key <= previous) {
 			return nil, fail("INVALID_DRIVER_CONFIG")
 		}
 		if _, duplicate := result[descriptor.key]; duplicate {
@@ -526,37 +691,38 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 		case OpenRouterChatCompletionsAPI:
 			surface = ProfileSurfaceOpenRouterChat
 		}
+		auth := config.OpenAI.effectiveAuth()
+		var sources []CredentialSourceKind
+		switch auth {
+		case AuthModeBearer:
+			sources = []CredentialSourceKind{
+				CredentialEnvironment,
+				CredentialFile,
+			}
+		case AuthModeAWSSigV4:
+			sources = []CredentialSourceKind{CredentialAWS}
+		}
 		descriptors = append(descriptors, driverAdapterDescriptor{
 			kind: driverAdapterOpenAI, key: config.OpenAI.Key,
 			id: config.OpenAI.ID, version: config.OpenAI.Version,
 			family:  ProfileOpenAIHTTP,
 			surface: surface,
 			refs:    config.OpenAI.CredentialRefs,
+			sources: sources,
+			auth:    auth,
+		})
+	}
+	if config.Gemini != nil {
+		descriptors = append(descriptors, driverAdapterDescriptor{
+			kind: driverAdapterGemini, key: config.Gemini.Key,
+			id: config.Gemini.ID, version: config.Gemini.Version,
+			family: ProfileGemini, refs: config.Gemini.CredentialRefs,
 			sources: []CredentialSourceKind{
 				CredentialEnvironment,
 				CredentialFile,
 			},
+			auth: AuthModeBearer,
 		})
-	}
-	for _, candidate := range []struct {
-		config *HTTPProfileConfig
-		kind   driverAdapterKind
-		family ProfileFamily
-	}{
-		{config.DeepSeek, driverAdapterDeepSeek, ProfileDeepSeek},
-		{config.Gemini, driverAdapterGemini, ProfileGemini},
-	} {
-		if candidate.config != nil {
-			descriptors = append(descriptors, driverAdapterDescriptor{
-				kind: candidate.kind, key: candidate.config.Key,
-				id: candidate.config.ID, version: candidate.config.Version,
-				family: candidate.family, refs: candidate.config.CredentialRefs,
-				sources: []CredentialSourceKind{
-					CredentialEnvironment,
-					CredentialFile,
-				},
-			})
-		}
 	}
 	if config.Bedrock != nil {
 		descriptors = append(descriptors, driverAdapterDescriptor{
@@ -566,22 +732,7 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 			surface: ProfileSurfaceBedrockRuntimeConverse,
 			refs:    config.Bedrock.CredentialRefs,
 			sources: []CredentialSourceKind{CredentialAWS},
-		})
-	}
-	if config.Mantle != nil {
-		sources := []CredentialSourceKind{
-			CredentialEnvironment,
-			CredentialFile,
-		}
-		if config.Mantle.AuthMode == BedrockMantleAWS {
-			sources = []CredentialSourceKind{CredentialAWS}
-		}
-		descriptors = append(descriptors, driverAdapterDescriptor{
-			kind: driverAdapterMantle, key: config.Mantle.Key,
-			id: config.Mantle.ID, version: config.Mantle.Version,
-			family:  ProfileBedrock,
-			surface: ProfileSurfaceBedrockMantleChat,
-			refs:    config.Mantle.CredentialRefs, sources: sources,
+			auth:    AuthModeAWSSigV4,
 		})
 	}
 	if len(descriptors) != 1 {
@@ -599,17 +750,12 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 			descriptor.family != ProfileCodex &&
 			descriptor.family != ProfileClaude) ||
 		(descriptor.kind != driverAdapterProcess &&
+			descriptor.auth != AuthModeNone &&
 			!validCredentialRefs(descriptor.refs)) ||
 		(descriptor.kind == driverAdapterProcess &&
 			len(descriptor.refs) != 0) ||
 		(descriptor.kind == driverAdapterOpenAI &&
-			!config.OpenAI.valid()) ||
-		(descriptor.kind == driverAdapterMantle &&
-			(!config.Mantle.AuthMode.valid() ||
-				(config.Mantle.AuthMode == BedrockMantleAPIKey &&
-					config.Mantle.Chain != nil) ||
-				(config.Mantle.AuthMode == BedrockMantleAWS &&
-					config.Mantle.Chain == nil))) ||
+			(!config.OpenAI.valid() || !validOpenAIAuth(config.OpenAI))) ||
 		validateAdapterDocumentEndpoint(config, descriptor.kind) != nil {
 		return driverAdapterDescriptor{}, fail("INVALID_ADAPTER")
 	}
@@ -624,14 +770,10 @@ func validateAdapterDocumentEndpoint(
 	switch kind {
 	case driverAdapterOpenAI:
 		endpoint = config.OpenAI.Endpoint
-	case driverAdapterDeepSeek:
-		endpoint = config.DeepSeek.Endpoint
 	case driverAdapterGemini:
 		endpoint = config.Gemini.Endpoint
 	case driverAdapterBedrock:
 		endpoint = config.Bedrock.Endpoint
-	case driverAdapterMantle:
-		return validateMantleEndpoint(config.Mantle.Endpoint)
 	default:
 		return nil
 	}
@@ -698,7 +840,56 @@ func validateDriverProfile(
 		}
 		return nil
 	}
-	if profile.Network != NetworkRequired || profile.CredentialSource == nil ||
+	if profile.Network != NetworkRequired {
+		return fail("INVALID_PROFILE")
+	}
+	// Native and process adapters carry file or no credentials and are exempt
+	// from the HTTP auth-mode cross-check, so fixtures that omit auth_mode and
+	// use file credentials admit unchanged.
+	if adapter.kind == driverAdapterNative {
+		if profile.CredentialSource == nil ||
+			!slices.Contains(adapter.refs, *profile.CredentialSource) {
+			return fail("INVALID_PROFILE")
+		}
+		source, ok := credentials[*profile.CredentialSource]
+		if !ok {
+			return fail("UNKNOWN_CREDENTIAL_SOURCE")
+		}
+		if !slices.Contains(adapter.sources, source.Kind) {
+			return fail("INVALID_CREDENTIAL_SOURCE")
+		}
+		return nil
+	}
+	// Network adapters admit an explicit per-profile auth mode. Omission keeps
+	// the legacy deterministic default derived from the credential kind, and a
+	// credential-less profile without an explicit none mode fails closed.
+	effective := AuthMode("")
+	if profile.AuthMode != nil {
+		effective = *profile.AuthMode
+		if !effective.valid() {
+			return fail("INVALID_PROFILE")
+		}
+	} else if profile.CredentialSource != nil {
+		source, ok := credentials[*profile.CredentialSource]
+		if !ok {
+			return fail("UNKNOWN_CREDENTIAL_SOURCE")
+		}
+		if source.Kind == CredentialAWS {
+			effective = AuthModeAWSSigV4
+		} else {
+			effective = AuthModeBearer
+		}
+	}
+	if effective == "" || effective != adapter.auth {
+		return fail("INVALID_PROFILE")
+	}
+	if effective == AuthModeNone {
+		if profile.CredentialSource != nil {
+			return fail("INVALID_PROFILE")
+		}
+		return nil
+	}
+	if profile.CredentialSource == nil ||
 		!slices.Contains(adapter.refs, *profile.CredentialSource) {
 		return fail("INVALID_PROFILE")
 	}
@@ -745,6 +936,14 @@ func cloneHTTPProfileConfig(config HTTPProfileConfig) HTTPProfileConfig {
 func cloneOpenAIProfileConfig(config OpenAIProfileConfig) OpenAIProfileConfig {
 	config.HTTPProfileConfig = cloneHTTPProfileConfig(config.HTTPProfileConfig)
 	config.ReasoningEfforts = append([]string(nil), config.ReasoningEfforts...)
+	if config.Chain != nil {
+		chain := cloneAWSChainSpec(*config.Chain)
+		config.Chain = &chain
+	}
+	if config.OpaqueReasoning != nil {
+		value := *config.OpaqueReasoning
+		config.OpaqueReasoning = &value
+	}
 	return config
 }
 
@@ -758,16 +957,5 @@ func cloneAWSChainSpec(spec AWSChainSpec) AWSChainSpec {
 func cloneBedrockProfileConfig(config BedrockProfileConfig) BedrockProfileConfig {
 	config.CredentialRefs = append([]string(nil), config.CredentialRefs...)
 	config.Chain = cloneAWSChainSpec(config.Chain)
-	return config
-}
-
-func cloneMantleProfileConfig(
-	config BedrockMantleProfileConfig,
-) BedrockMantleProfileConfig {
-	config.CredentialRefs = append([]string(nil), config.CredentialRefs...)
-	if config.Chain != nil {
-		chain := cloneAWSChainSpec(*config.Chain)
-		config.Chain = &chain
-	}
 	return config
 }

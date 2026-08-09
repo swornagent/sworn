@@ -309,7 +309,20 @@ func TestW8SharedProductionCorpusHasExactSeventyPassRecords(t *testing.T) {
 			ProfileSurfaceOpenAIResponses,
 			w8ResponsesCodec,
 		),
-		w8NewProviderTarget(t, "deepseek", ProfileDeepSeek, "", w8OpenAICodec),
+		w8NewProviderTarget(
+			t,
+			"openai-chat",
+			ProfileOpenAIHTTP,
+			ProfileSurfaceOpenAIChat,
+			w8OpenAICodec,
+		),
+		w8NewProviderTarget(
+			t,
+			"openai-opaque",
+			ProfileOpenAIHTTP,
+			ProfileSurfaceOpenAIChat,
+			w8OpenAICodec,
+		),
 		w8NewProviderTarget(t, "gemini", ProfileGemini, "", w8GeminiCodec),
 		w8NewProviderTarget(
 			t,
@@ -317,13 +330,6 @@ func TestW8SharedProductionCorpusHasExactSeventyPassRecords(t *testing.T) {
 			ProfileBedrock,
 			ProfileSurfaceBedrockRuntimeConverse,
 			w8BedrockCodec,
-		),
-		w8NewProviderTarget(
-			t,
-			"mantle",
-			ProfileBedrock,
-			ProfileSurfaceBedrockMantleChat,
-			w8OpenAICodec,
 		),
 	}
 	cases := []struct {
@@ -953,19 +959,44 @@ func w8NewProviderTarget(
 			},
 			w8HeaderCredential,
 			nil,
+			nil,
 			transport,
 		)
-	case "deepseek":
-		adapter, err = NewDeepSeekAdapter(
-			HTTPProfileConfig{
-				Key: key, ID: id, Version: "1.0.0",
-				Endpoint:         "http://localhost/deepseek/chat/completions",
-				CredentialHeader: "Authorization",
-				CredentialPrefix: "Bearer ",
-				CredentialRefs:   []string{ref},
-				ResponseBytes:    MaxProviderResponseBytes,
+	case "openai-chat":
+		adapter, err = NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: key, ID: id, Version: "1.0.0",
+					Endpoint:         "http://localhost/openai-chat/chat/completions",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{ref},
+					ResponseBytes:    MaxProviderResponseBytes,
+				},
+				API: OpenAIChatCompletionsAPI,
 			},
 			w8HeaderCredential,
+			nil,
+			nil,
+			transport,
+		)
+	case "openai-opaque":
+		opaque := true
+		adapter, err = NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: key, ID: id, Version: "1.0.0",
+					Endpoint:         "http://localhost/openai-opaque/chat/completions",
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{ref},
+					ResponseBytes:    MaxProviderResponseBytes,
+				},
+				API:             OpenAIChatCompletionsAPI,
+				OpaqueReasoning: &opaque,
+			},
+			w8HeaderCredential,
+			nil,
 			nil,
 			transport,
 		)
@@ -1020,20 +1051,6 @@ func w8NewProviderTarget(
 				}
 			})
 		}
-	case "mantle":
-		adapter, err = NewBedrockMantleAdapter(
-			BedrockMantleProfileConfig{
-				Key: key, ID: id, Version: "1.0.0",
-				Endpoint:       "http://localhost/mantle/v1/chat/completions",
-				CredentialRefs: []string{ref},
-				ResponseBytes:  MaxProviderResponseBytes,
-				AuthMode:       BedrockMantleAPIKey,
-			},
-			w8HeaderCredential,
-			nil,
-			nil,
-			transport,
-		)
 	default:
 		t.Fatalf("unknown W8 provider target %q", name)
 	}

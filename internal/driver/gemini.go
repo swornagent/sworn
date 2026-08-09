@@ -62,7 +62,13 @@ func NewGeminiAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
+	transport, err := newHTTPTransport(
+		config,
+		AuthModeBearer,
+		resolver,
+		probe,
+		roundTripper,
+	)
 	if err != nil {
 		return nil, err
 	}

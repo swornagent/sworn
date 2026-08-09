@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 )
 
@@ -54,35 +55,146 @@ const (
 	OpenRouterChatCompletionsAPI OpenAIAPI = "openrouter_chat_completions"
 )
 
+func (api OpenAIAPI) valid() bool {
+	switch api {
+	case OpenAIResponsesAPI,
+		OpenAIChatCompletionsAPI,
+		OpenRouterChatCompletionsAPI:
+		return true
+	default:
+		return false
+	}
+}
+
 type OpenAIProfileConfig struct {
 	HTTPProfileConfig
-	API              OpenAIAPI `json:"api"`
-	ReasoningEffort  string    `json:"reasoning_effort,omitempty"`
-	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
+	API              OpenAIAPI     `json:"api"`
+	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string      `json:"reasoning_efforts,omitempty"`
+	Preset           string        `json:"preset,omitempty"`
+	AuthMode         AuthMode      `json:"auth_mode,omitempty"`
+	Chain            *AWSChainSpec `json:"chain,omitempty"`
+	OpaqueReasoning  *bool         `json:"opaque_reasoning,omitempty"`
+}
+
+// effectiveAuth returns the admission-time authentication mode of a unified
+// OpenAI-compatible adapter. Omission keeps the legacy deterministic default:
+// a configured AWS chain means SigV4, everything else means bearer. The
+// explicit none mode is the only way to obtain a credential-less adapter.
+func (config OpenAIProfileConfig) effectiveAuth() AuthMode {
+	if config.AuthMode != "" {
+		return config.AuthMode
+	}
+	if config.Chain != nil {
+		return AuthModeAWSSigV4
+	}
+	return AuthModeBearer
+}
+
+// validOpenAIAuth is fail-closed over the authentication surface: bearer and
+// SigV4 require credential references, SigV4 requires an AWS chain and forbids
+// header auth, and none requires the absence of every credential artifact.
+func validOpenAIAuth(config *OpenAIProfileConfig) bool {
+	if config == nil {
+		return false
+	}
+	switch config.effectiveAuth() {
+	case AuthModeNone:
+		return len(config.CredentialRefs) == 0 &&
+			config.CredentialHeader == "" &&
+			config.CredentialPrefix == "" &&
+			config.Chain == nil
+	case AuthModeBearer:
+		return len(config.CredentialRefs) > 0 && config.Chain == nil
+	case AuthModeAWSSigV4:
+		return len(config.CredentialRefs) > 0 &&
+			config.Chain != nil &&
+			config.CredentialHeader == "" &&
+			config.CredentialPrefix == ""
+	default:
+		return false
+	}
 }
 
 func NewOpenAIAdapter(
 	config OpenAIProfileConfig,
 	resolver HeaderCredentialResolver,
+	awsResolver AWSRuntimeResolver,
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	if !config.valid() {
+	if !config.valid() || !validOpenAIAuth(&config) {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	transport, err := newHTTPTransport(
-		config.HTTPProfileConfig,
-		resolver,
-		probe,
-		roundTripper,
-	)
-	if err != nil {
-		return nil, err
+	var transport providerTransport
+	switch config.effectiveAuth() {
+	case AuthModeNone:
+		httpTransport, err := newHTTPTransport(
+			config.HTTPProfileConfig,
+			AuthModeNone,
+			nil,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		config.CredentialRefs = append(
+			[]string(nil),
+			httpTransport.config.CredentialRefs...,
+		)
+		transport = httpTransport
+	case AuthModeBearer:
+		httpTransport, err := newHTTPTransport(
+			config.HTTPProfileConfig,
+			AuthModeBearer,
+			resolver,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		config.HTTPProfileConfig = httpTransport.config
+		transport = httpTransport
+	case AuthModeAWSSigV4:
+		bedrockTransport, err := newBedrockTransport(
+			BedrockProfileConfig{
+				Key:            config.Key,
+				ID:             config.ID,
+				Version:        config.Version,
+				Endpoint:       config.Endpoint,
+				CredentialRefs: append([]string(nil), config.CredentialRefs...),
+				ResponseBytes:  config.ResponseBytes,
+				Chain:          *config.Chain,
+			},
+			// The transport-level signing surface stays internal: the
+			// adapter's reported surface remains the OpenAI chat surface
+			// while Bedrock Mantle signs the Chat Completions payload.
+			ProfileSurfaceBedrockMantleChat,
+			awsResolver,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		chain := bedrockTransport.config.Chain
+		config.Chain = &chain
+		config.CredentialRefs = append(
+			[]string(nil),
+			bedrockTransport.config.CredentialRefs...,
+		)
+		transport = bedrockTransport
+	default:
+		return nil, fail("INVALID_ADAPTER")
 	}
-	config.HTTPProfileConfig = transport.config
 	var factory providerConversationFactory
 	surface := ProfileSurfaceOpenAIChat
 	dialect := providerDialectOpenAIChat
+	if config.OpaqueReasoning != nil && *config.OpaqueReasoning {
+		dialect = providerDialectOpaqueChat
+	}
 	switch config.API {
 	case OpenAIResponsesAPI:
 		surface = ProfileSurfaceOpenAIResponses
@@ -139,49 +251,10 @@ func NewOpenAIAdapter(
 	)
 }
 
-func NewDeepSeekAdapter(
-	config HTTPProfileConfig,
-	resolver HeaderCredentialResolver,
-	probe ProfileLiveProbe,
-	roundTripper http.RoundTripper,
-) (Adapter, error) {
-	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
-	if err != nil {
-		return nil, err
-	}
-	factory := func(
-		prompt []byte,
-		model string,
-		tools []providerToolDefinition,
-	) (providerConversation, error) {
-		return newOpenAIConversation(
-			config.Endpoint,
-			model,
-			tools,
-			prompt,
-			providerDialectDeepSeekChat,
-			"",
-		)
-	}
-	configuration := struct {
-		HTTPProfileConfig
-		Family ProfileFamily
-	}{transport.config, ProfileDeepSeek}
-	return newLoopAdapter(
-		config.Key,
-		config.ID,
-		config.Version,
-		ProfileDeepSeek,
-		"",
-		providerDialectDeepSeekChat,
-		configuration,
-		factory,
-		transport,
-	)
-}
-
 func (config OpenAIProfileConfig) valid() bool {
+	parsed, err := url.Parse(config.Endpoint)
 	if validateEndpoint(config.Endpoint) != nil ||
+		err != nil || parsed.RawQuery != "" ||
 		!validReasoningEfforts(config.ReasoningEfforts) {
 		return false
 	}
@@ -232,8 +305,7 @@ func newOpenAIConversation(
 		validateText(model, 500, false) != nil ||
 		(dialect != providerDialectOpenAIChat &&
 			dialect != providerDialectOpenRouterChat &&
-			dialect != providerDialectDeepSeekChat &&
-			dialect != providerDialectMantleChat) {
+			dialect != providerDialectOpaqueChat) {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := openAITools(definitions)
@@ -398,7 +470,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	if reasoningValue, present := rawMessage["reasoning_content"]; present &&
 		reasoningValue != nil {
-		if conversation.dialect != providerDialectDeepSeekChat {
+		if conversation.dialect != providerDialectOpaqueChat {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		reasoning, ok := reasoningValue.(string)

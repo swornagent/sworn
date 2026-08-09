@@ -115,6 +115,7 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 				resolver,
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -214,6 +215,7 @@ func TestProviderWorkerYieldIsTerminalWithoutSealedBatonAuthority(t *testing.T) 
 		},
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +286,7 @@ func TestProviderMalformedSubmissionsAreCorrectedUntilValid(
 		func(context.Context, string) ([]byte, error) {
 			return []byte("secret"), nil
 		},
+		nil,
 		nil,
 		nil,
 	)
@@ -425,6 +428,7 @@ func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 				},
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -559,6 +563,7 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -640,6 +645,7 @@ func TestProviderChatCompletionsCarriesDeclaredReasoningEffort(t *testing.T) {
 		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -713,6 +719,7 @@ func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T
 				},
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -741,9 +748,9 @@ func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T
 	}
 }
 
-func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
-	t.Run("DeepSeek reasoning replay", func(t *testing.T) {
-		invocationID := "deepseek-replay"
+func TestOpenAIOpaqueChatAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
+	t.Run("opaque chat reasoning replay", func(t *testing.T) {
+		invocationID := "opaque-chat-replay"
 		submission := submissionFixture(
 			t,
 			invocationID,
@@ -768,7 +775,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 							"role": "assistant", "content": nil,
 							"reasoning_content": "provider-private-reasoning",
 							"tool_calls": []any{openAIToolCallFixture(
-								"deepseek-read",
+								"opaque-chat-read",
 								"Read",
 								`{"path":"/workspace/input.txt"}`,
 							)},
@@ -779,11 +786,11 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 				return
 			}
 			if !bytes.Contains(body, []byte(`"reasoning_content":"provider-private-reasoning"`)) ||
-				!bytes.Contains(body, []byte(`"tool_call_id":"deepseek-read"`)) {
-				t.Errorf("DeepSeek continuation not replayed: %s", body)
+				!bytes.Contains(body, []byte(`"tool_call_id":"opaque-chat-read"`)) {
+				t.Errorf("opaque chat continuation not replayed: %s", body)
 			}
 			writeJSONResponse(t, writer, openAIToolCallResponse(
-				"deepseek-submit",
+				"opaque-chat-submit",
 				"sworn_submit",
 				submissionToolArguments(t, submission),
 				3,
@@ -791,15 +798,24 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 			))
 		}))
 		defer server.Close()
-		adapter, err := NewDeepSeekAdapter(
-			HTTPProfileConfig{
-				Key: "deepseek-adapter", ID: "sworn.deepseek", Version: "1.0.0",
-				Endpoint:         server.URL + "/chat/completions",
-				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-				CredentialRefs: []string{"credential-ref"},
-				ResponseBytes:  MaxProviderResponseBytes,
+		opaque := true
+		adapter, err := NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: "opaque-chat-adapter", ID: "sworn.opaque.chat",
+					Version:          "1.0.0",
+					Endpoint:         server.URL + "/chat/completions",
+					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+				},
+				API:             OpenAIChatCompletionsAPI,
+				OpaqueReasoning: &opaque,
 			},
-			func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+			func(context.Context, string) ([]byte, error) {
+				return []byte("secret"), nil
+			},
+			nil,
 			nil,
 			nil,
 		)
@@ -809,7 +825,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 		invocation := productionInvocationFixture(
 			t,
 			adapter,
-			ProfileDeepSeek,
+			ProfileOpenAIHTTP,
 			invocationID,
 			RoleImplementer,
 			ImplementerImplementation,
@@ -824,7 +840,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 		}
 		observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 		if err != nil || observation.Handoff == nil || requests.Load() != 2 {
-			t.Fatalf("DeepSeek observation = %#v, error=%v", observation, err)
+			t.Fatalf("opaque chat observation = %#v, error=%v", observation, err)
 		}
 		observationBody, _ := json.Marshal(observation)
 		if bytes.Contains(observationBody, []byte("provider-private-reasoning")) {
