@@ -2,10 +2,7 @@
   "outcome": "A driver profile declares the API flavour, reasoning effort and endpoint its model actually supports, so every OpenAI-compatible provider Sworn can reach is usable at its real capability without changing code.",
   "scope": {
     "include": [
-      "internal/driver/openai.go",
-      "internal/driver/responses.go",
-      "internal/driver/mantle.go",
-      "internal/driver/http.go"
+      "internal/driver"
     ],
     "exclude": [
       "new per-vendor adapter types",
@@ -47,7 +44,8 @@
     "Capability is declared per profile and per model, never inferred from the endpoint or the vendor name.",
     "Limits bound resources, not expression: add no new cap on what a provider or role may return.",
     "One canonical OpenAI-compatible transport owns every consumer; do not add a parallel adapter, validator, or request builder.",
-    "Existing admitted configurations must continue to admit unchanged."
+    "Existing admitted configurations must continue to admit unchanged.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
   ],
   "depends_on": [],
   "consumes": []

@@ -2,8 +2,7 @@
   "outcome": "Every provider invocation reports what it actually cost and how it actually behaved - cache reuse, reasoning effort applied, and truncation - as normalized nullable facts that reach the operator surfaces and OpenTelemetry.",
   "scope": {
     "include": [
-      "internal/driver/usage.go",
-      "internal/driver/provider.go",
+      "internal/driver",
       "internal/observe"
     ],
     "exclude": [
@@ -46,8 +45,13 @@
     "Facts are nullable with honest absence; a missing provider fact never becomes zero.",
     "Reuse the existing availability pattern on UsageReceipt rather than inventing a second shape for unavailable data.",
     "One canonical projection feeds every operator surface; do not add a second telemetry path.",
-    "Measurement never becomes a gate: record the facts, fail no run on them."
+    "Measurement never becomes a gate: record the facts, fail no run on them.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
   ],
-  "depends_on": ["S2-provider-presets"],
-  "consumes": ["S2-provider-presets"]
+  "depends_on": [
+    "S2-provider-presets"
+  ],
+  "consumes": [
+    "S2-provider-presets"
+  ]
 }
