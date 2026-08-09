@@ -348,6 +348,25 @@ func maximum(left, right int) int {
 	return right
 }
 
+func hostGoModuleCache() string {
+	cache := os.Getenv("GOMODCACHE")
+	if cache == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		cache = filepath.Join(home, "go", "pkg", "mod")
+	}
+	if !filepath.IsAbs(cache) || filepath.Clean(cache) != cache {
+		return ""
+	}
+	info, err := os.Stat(cache)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return cache
+}
+
 func runToolBash(
 	ctx context.Context,
 	invocation Invocation,
@@ -404,6 +423,17 @@ func runToolBash(
 		} else {
 			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
+	}
+	// The workspace has no network, so Go workers must find the module
+	// cache and any go.mod-required toolchain offline. The host cache is
+	// public, read-only content mounted at the guest's default GOMODCACHE;
+	// GOPROXY=off makes a genuinely missing dependency fail fast instead
+	// of stalling on dead DNS.
+	if moduleCache := hostGoModuleCache(); moduleCache != "" {
+		arguments = append(arguments,
+			"--ro-bind", moduleCache, "/home/sworn/go/pkg/mod",
+			"--setenv", "GOPROXY", "off",
+		)
 	}
 	arguments = append(arguments,
 		"--ro-bind-fd", "4", GuestInputPath,

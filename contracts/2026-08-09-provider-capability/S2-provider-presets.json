@@ -2,10 +2,7 @@
   "outcome": "Providers are configuration, not code: the adapter union is keyed by wire protocol rather than by vendor, and a new OpenAI-compatible provider is added as a preset with no new Go type.",
   "scope": {
     "include": [
-      "internal/driver/config.go",
-      "internal/driver/factory.go",
-      "internal/driver/bedrock.go",
-      "internal/driver/aws_chain.go"
+      "internal/driver"
     ],
     "exclude": [
       "native CLI drivers and their certification",
@@ -47,8 +44,13 @@
     "One canonical OpenAI-compatible transport owns every consumer; do not add a parallel adapter, validator, or request builder.",
     "A vendor name may appear in a preset's identity but never in the type system or in control flow.",
     "Existing admitted configurations must continue to admit or be migrated deterministically, with the mapping recorded.",
-    "Capability is declared per profile and per model, never inferred from the endpoint or the vendor name."
+    "Capability is declared per profile and per model, never inferred from the endpoint or the vendor name.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
   ],
-  "depends_on": ["S1-capability-axes"],
-  "consumes": ["S1-capability-axes"]
+  "depends_on": [
+    "S1-capability-axes"
+  ],
+  "consumes": [
+    "S1-capability-axes"
+  ]
 }
