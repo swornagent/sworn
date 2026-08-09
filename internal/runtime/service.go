@@ -1185,6 +1185,11 @@ func stableErrorCode(err error) string {
 		runtimeIdentityPattern.MatchString(gitErr.Code) {
 		return gitErr.Code
 	}
+	var contractErr *driver.ContractError
+	if errors.As(err, &contractErr) &&
+		runtimeIdentityPattern.MatchString(contractErr.Code) {
+		return contractErr.Code
+	}
 	return "operational_failure"
 }
 

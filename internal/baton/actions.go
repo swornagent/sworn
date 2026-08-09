@@ -10,7 +10,7 @@ import (
 	"github.com/swornagent/sworn/internal/gitx"
 )
 
-const maxSummaryBytes = 280
+const maxSummaryBytes = 262_144
 
 type Actions struct {
 	repository *repository

@@ -36,12 +36,12 @@ const (
 	// bundle still carries verbatim. They are provenance facts recorded for
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
-	LegacyBatonCommit  = "efacafb2579e99b9d291b2ad27d41df26fbb9d79"
-	ManifestSHA256     = "sha256:ef70ae0560af52a0423b302bd971e26b376aa32086f79be5b6f6250e5e087cde"
+	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
+	ManifestSHA256     = "sha256:9d1a65537f362954741179cccb554e857bf7b62f1ecb1b025d0346224d80dd8e"
 	AssetCount         = 25
-	AssetBytes         = int64(383701)
+	AssetBytes         = int64(383732)
 
-	releaseDocumentSHA256 = "sha256:1c60d09c5f0d97cc4426d9399bdd9c5b457c8fa11a643d0217e35254c2146fdd"
+	releaseDocumentSHA256 = "sha256:066ed4defdf2e447a251ece6ea4b587933c66d79a674e080de4d241d2cd5501d"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -324,7 +324,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"},
 		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"},
-		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"},
+		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:c11071b87da672b9238cbf7131ae0dcddb2fc87d6d029ad47c878afafd6b9c2e"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {
 		return errors.New("release operation bindings are not exact")

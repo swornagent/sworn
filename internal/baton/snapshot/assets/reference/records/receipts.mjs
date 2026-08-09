@@ -6,9 +6,9 @@ export const RECEIPT_TRAILER = 'Baton-Receipt: ';
 export const DETAIL_BEGIN = 'Baton-Detail-Begin';
 export const DETAIL_END = 'Baton-Detail-End';
 export const RECEIPT_LIMITS = Object.freeze({
-  receiptBytes: 2_048,
-  detailBytes: 8_192,
-  messageBytes: 12_288,
+  receiptBytes: 1_048_576,
+  detailBytes: 1_048_576,
+  messageBytes: 2_097_152,
   planBytes: 1_048_576,
   depth: 64,
   tracks: 64,
@@ -733,7 +733,7 @@ export function validateReceipt(value) {
     plan: objectID(value.plan, 'receipt.plan'),
     binds: objectID(value.binds, 'receipt.binds'),
     detail: digest(value.detail, 'receipt.detail'),
-    summary: string(value.summary, 'receipt.summary', { max: 280 }),
+    summary: string(value.summary, 'receipt.summary', { max: 262_144 }),
   };
   const hasSlice = Object.hasOwn(value, 'slice');
   for (const field of ['slice', 'attempt', 'contract']) {

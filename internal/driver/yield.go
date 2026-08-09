@@ -9,7 +9,7 @@ import (
 
 const (
 	YieldSchemaVersion   = "sworn.yield/v1"
-	MaxYieldMessageBytes = 8_192
+	MaxYieldMessageBytes = 262_144
 )
 
 const swornYieldInputSchema = `{"type":"object","properties":{"yield":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.yield/v1"]},"invocation_id":{"type":"string"},"kind":{"type":"string","enum":["question","blocked","human_choice","human_confirmation"]},"message":{"type":"string"}},"required":["schema_version","invocation_id","kind","message"],"additionalProperties":false}},"required":["yield"],"additionalProperties":false}`

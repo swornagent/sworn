@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -794,51 +795,41 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reserve := func(
+		binding RecoveryBinding,
+		ordinal int64,
+		kind RecoveryStepKind,
+	) error {
+		_, err := store.ReserveRecoveryStep(
+			ctx,
+			owner,
+			testRecoveryStep(run.ID, binding, ordinal, kind),
+			now,
+		)
+		return err
+	}
 
 	t.Run("correction_per_turn", func(t *testing.T) {
 		binding := testRecoveryBinding(
 			"T-correction", "correction-cycle", "turn-1", "progress",
 		)
-		for ordinal := int64(1); ordinal <= 2; ordinal++ {
-			if _, err := store.ReserveRecoveryStep(
-				ctx,
-				owner,
-				testRecoveryStep(
-					run.ID,
-					binding,
-					ordinal,
-					RecoveryMalformedCorrection,
-				),
-				now,
+		// Corrections must flow far past the old two-per-turn allowance;
+		// walking to the full runaway guard is a multi-minute journal
+		// exercise, so depth is asserted at resilience scale instead.
+		const correctionDepth = int64(25)
+		for ordinal := int64(1); ordinal <= correctionDepth; ordinal++ {
+			if err := reserve(
+				binding, ordinal, RecoveryMalformedCorrection,
 			); err != nil {
-				t.Fatal(err)
+				t.Fatalf("correction %d = %v", ordinal, err)
 			}
-		}
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				binding,
-				3,
-				RecoveryMalformedCorrection,
-			),
-			now,
-		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
-			t.Fatalf("third same-turn correction = %v", err)
 		}
 		nextTurn := binding
 		nextTurn.TurnID = digest([]byte("turn-2"))
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				nextTurn,
-				3,
-				RecoveryMalformedCorrection,
-			),
-			now,
+		if err := reserve(
+			nextTurn,
+			correctionDepth+1,
+			RecoveryMalformedCorrection,
 		); err != nil {
 			t.Fatalf("first correction in next turn: %v", err)
 		}
@@ -848,65 +839,33 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 		binding := testRecoveryBinding(
 			"T-nudge", "nudge-cycle", "turn", "progress",
 		)
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				binding,
-				1,
-				RecoveryProseNudge,
-			),
-			now,
-		); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				binding,
-				2,
-				RecoveryProseNudge,
-			),
-			now,
-		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
-			t.Fatalf("second same-turn nudge = %v", err)
+		const nudgeDepth = int64(25)
+		for ordinal := int64(1); ordinal <= nudgeDepth; ordinal++ {
+			if err := reserve(binding, ordinal, RecoveryProseNudge); err != nil {
+				t.Fatalf("nudge %d = %v", ordinal, err)
+			}
 		}
 	})
 
 	t.Run("advisory_per_cycle", func(t *testing.T) {
 		binding := testRecoveryBinding(
-			"T-advisory", "advisory-cycle", "turn", "progress-1",
+			"T-advisory", "advisory-cycle", "turn", "progress-0",
 		)
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				binding,
-				1,
-				RecoveryAskCaptain,
-			),
-			now,
-		); err != nil {
-			t.Fatal(err)
+		for ordinal := int64(1); ordinal <= MaxRecoveryAdvisoriesPerCycle; ordinal++ {
+			next := binding
+			next.ProgressID = digest([]byte(fmt.Sprintf("progress-%d", ordinal)))
+			if err := reserve(next, ordinal, RecoveryAskCaptain); err != nil {
+				t.Fatalf("advisory %d = %v", ordinal, err)
+			}
 		}
-		nextProgress := binding
-		nextProgress.ProgressID = digest([]byte("progress-2"))
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				nextProgress,
-				2,
-				RecoveryAskCaptain,
-			),
-			now,
+		over := binding
+		over.ProgressID = digest([]byte("progress-over"))
+		if err := reserve(
+			over,
+			MaxRecoveryAdvisoriesPerCycle+1,
+			RecoveryAskCaptain,
 		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
-			t.Fatalf("second cycle advisory = %v", err)
+			t.Fatalf("over-budget cycle advisory = %v", err)
 		}
 	})
 
@@ -914,49 +873,30 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 		binding := testRecoveryBinding(
 			"T-decision", "decision-cycle", "turn", "progress-1",
 		)
-		for ordinal, kind := range []RecoveryStepKind{
+		kinds := []RecoveryStepKind{
 			RecoveryResumeWorker,
 			RecoveryRetryOperationally,
-		} {
-			if _, err := store.ReserveRecoveryStep(
-				ctx,
-				owner,
-				testRecoveryStep(
-					run.ID,
-					binding,
-					int64(ordinal+1),
-					kind,
-				),
-				now,
+		}
+		for ordinal := int64(1); ordinal <= MaxRecoveryDecisionsPerProgress; ordinal++ {
+			if err := reserve(
+				binding, ordinal, kinds[int(ordinal)%len(kinds)],
 			); err != nil {
-				t.Fatal(err)
+				t.Fatalf("decision %d = %v", ordinal, err)
 			}
 		}
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				binding,
-				3,
-				RecoveryResumeWorker,
-			),
-			now,
+		if err := reserve(
+			binding,
+			MaxRecoveryDecisionsPerProgress+1,
+			RecoveryResumeWorker,
 		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
-			t.Fatalf("third same-progress decision = %v", err)
+			t.Fatalf("over-budget same-progress decision = %v", err)
 		}
 		nextProgress := binding
 		nextProgress.ProgressID = digest([]byte("progress-2"))
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				nextProgress,
-				3,
-				RecoveryResumeWorker,
-			),
-			now,
+		if err := reserve(
+			nextProgress,
+			MaxRecoveryDecisionsPerProgress+1,
+			RecoveryResumeWorker,
 		); err != nil {
 			t.Fatalf("first next-progress decision: %v", err)
 		}
@@ -964,44 +904,23 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 
 	t.Run("automatic_per_cycle", func(t *testing.T) {
 		binding := testRecoveryBinding(
-			"T-total", "total-cycle", "turn-1", "progress-1",
+			"T-total", "total-cycle", "turn-0", "progress-0",
 		)
+		// The per-cycle guard sits at runaway scale; assert mixed automatic
+		// actions keep flowing well past the old four-per-cycle allowance.
+		const automaticDepth = int64(25)
 		kinds := []RecoveryStepKind{
 			RecoveryMalformedCorrection,
-			RecoveryMalformedCorrection,
 			RecoveryProseNudge,
-			RecoveryResumeWorker,
 		}
-		for index, kind := range kinds {
-			if _, err := store.ReserveRecoveryStep(
-				ctx,
-				owner,
-				testRecoveryStep(
-					run.ID,
-					binding,
-					int64(index+1),
-					kind,
-				),
-				now,
+		for ordinal := int64(1); ordinal <= automaticDepth; ordinal++ {
+			step := binding
+			step.TurnID = digest([]byte(fmt.Sprintf("turn-%d", ordinal)))
+			if err := reserve(
+				step, ordinal, kinds[int(ordinal)%len(kinds)],
 			); err != nil {
-				t.Fatal(err)
+				t.Fatalf("automatic action %d = %v", ordinal, err)
 			}
-		}
-		changed := binding
-		changed.TurnID = digest([]byte("turn-2"))
-		changed.ProgressID = digest([]byte("progress-2"))
-		if _, err := store.ReserveRecoveryStep(
-			ctx,
-			owner,
-			testRecoveryStep(
-				run.ID,
-				changed,
-				5,
-				RecoveryResumeWorker,
-			),
-			now,
-		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
-			t.Fatalf("fifth automatic action = %v", err)
 		}
 	})
 }
@@ -1320,15 +1239,18 @@ func TestHumanWakeDoesNotReplenishOrConsumeAutomaticBudget(t *testing.T) {
 		resume,
 		now,
 	)
+	// Four automatic steps were reserved before the park; the park and the
+	// post-answer resume must neither consume nor replenish that count.
+	const reservedAutomatic = int64(4)
 	if err != nil ||
-		receipt.AutomaticActions != MaxRecoveryAutomaticPerCycle ||
+		receipt.AutomaticActions != reservedAutomatic ||
 		receipt.SameProgress != 1 ||
 		receipt.Parked {
 		t.Fatalf("human wake receipt = %#v, %v", receipt, err)
 	}
 	projection, err := store.RecoveryBudget(ctx, run.ID, binding)
 	if err != nil ||
-		projection.AutomaticActions != MaxRecoveryAutomaticPerCycle ||
+		projection.AutomaticActions != reservedAutomatic ||
 		projection.SameProgress != 1 ||
 		projection.Parked {
 		t.Fatalf("human wake replay = %#v, %v", projection, err)

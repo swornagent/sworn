@@ -8,7 +8,10 @@ import (
 )
 
 const (
-	MaxProviderTurns         = 32
+	// MaxProviderTurns is a runaway-loop guard, not a work budget. A careful
+	// implementer pass over this repo needs ~30 tool turns, so any value that
+	// could bind honest work is too low; recap only from eval evidence.
+	MaxProviderTurns         = 1_000
 	MaxProviderRequestBytes  = 1_048_576
 	MaxProviderResponseBytes = 1_048_576
 )
@@ -424,9 +427,10 @@ func (adapter *loopAdapter) runConversation(
 			usageAvailable = true
 		}
 		if len(providerTurn.Calls) == 0 {
-			if !providerTurn.Prose || proseNudges >= 1 {
-				return Observation{}, nil, fail("MISSING_SUBMISSION")
-			}
+			// A call-less turn is nudged, never failed: some models need
+			// many nudges to land a tool call, and every nudge is durably
+			// accounted as eval data. The turn budget and timeout are the
+			// only bounds on how long that patience lasts.
 			if err := reserveRecoveryStep(
 				ctx,
 				invocation.RecoveryStepHook,
