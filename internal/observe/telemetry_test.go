@@ -151,8 +151,15 @@ func testTelemetryRecord(sentinel string) Record {
 			Currency:   "AUD",
 			MicroUnits: 70,
 		}},
-		TokenCoverage: knownRatio(1, 2),
-		CostCoverage:  knownRatio(1, 2),
+		TokenCoverage:    knownRatio(1, 2),
+		CostCoverage:     knownRatio(1, 2),
+		CacheReadTokens:  int64Pointer(80),
+		CacheWriteTokens: int64Pointer(20),
+		CacheCoverage:    knownRatio(1, 2),
+		EffortRequested:  textPointer("high"),
+		EffortReported:   textPointer("high"),
+		FinishReason:     textPointer("stop"),
+		Truncated:        boolPointer(false),
 	}
 	return Record{
 		SchemaVersion: EvalSchemaVersion,
@@ -296,6 +303,13 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 			"sworn.usage_known",
 			"sworn.input_tokens",
 			"sworn.output_tokens",
+			"sworn.cache_known",
+			"sworn.cache_read_tokens",
+			"sworn.cache_write_tokens",
+			"sworn.effort_requested",
+			"sworn.effort_reported",
+			"sworn.finish_reason",
+			"sworn.truncated",
 		),
 		"sworn.recovery": stringSet(
 			"sworn.measurement",
@@ -333,6 +347,10 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 		"sworn.transport",
 		"sworn.outcome",
 		"sworn.usage_known",
+		"sworn.cache_known",
+		"sworn.effort_reported",
+		"sworn.finish_reason",
+		"sworn.truncated",
 	)
 	allowedMetricAttributes := map[string]map[string]bool{
 		"sworn.eval.events":                     stringSet("sworn.outcome"),
@@ -349,6 +367,10 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 		"sworn.eval.output_tokens":              groupLabels,
 		"sworn.eval.usage_coverage.numerator":   groupLabels,
 		"sworn.eval.usage_coverage.denominator": groupLabels,
+		"sworn.eval.cache_read_tokens":          groupLabels,
+		"sworn.eval.cache_write_tokens":         groupLabels,
+		"sworn.eval.cache_coverage.numerator":   groupLabels,
+		"sworn.eval.cache_coverage.denominator": groupLabels,
 		"sworn.eval.quality.numerator":          stringSet("sworn.quality"),
 		"sworn.eval.quality.denominator":        stringSet("sworn.quality"),
 	}

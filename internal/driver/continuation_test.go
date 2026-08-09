@@ -52,10 +52,9 @@ func TestAPIContinuationModesAreTruthful(t *testing.T) {
 	t.Parallel()
 	for dialect, expected := range map[providerDialect]ContinuationMode{
 		providerDialectOpenAIChat:      ContinuationModeTranscriptReplay,
-		providerDialectMantleChat:      ContinuationModeTranscriptReplay,
 		providerDialectOpenAIResponses: ContinuationModeOpaqueReplay,
 		providerDialectOpenRouterChat:  ContinuationModeOpaqueReplay,
-		providerDialectDeepSeekChat:    ContinuationModeOpaqueReplay,
+		providerDialectOpaqueChat:      ContinuationModeOpaqueReplay,
 		providerDialectGemini:          ContinuationModeOpaqueReplay,
 		providerDialectBedrockConverse: ContinuationModeOpaqueReplay,
 	} {
@@ -68,14 +67,14 @@ func TestAPIContinuationModesAreTruthful(t *testing.T) {
 	}
 }
 
-func TestDeepSeekReplaysReasoningAndExactToolCorrelation(t *testing.T) {
+func TestOpaqueChatReplaysReasoningAndExactToolCorrelation(t *testing.T) {
 	t.Parallel()
 	conversation, err := newOpenAIConversation(
 		"https://api.example.invalid/chat/completions",
 		"deepseek-reasoner",
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
-		providerDialectDeepSeekChat,
+		providerDialectOpaqueChat,
 		"",
 	)
 	if err != nil {
@@ -295,20 +294,28 @@ func TestOpenAIAPIConfigurationIsExplicit(t *testing.T) {
 		ResponseBytes:  MaxProviderResponseBytes,
 	}
 	for _, test := range []struct {
-		name   string
-		api    OpenAIAPI
-		path   string
-		effort string
-		valid  bool
+		name    string
+		api     OpenAIAPI
+		path    string
+		effort  string
+		efforts []string
+		valid   bool
 	}{
-		{"Responses custom route", OpenAIResponsesAPI, "/deployments/model/responses", "medium", true},
-		{"Responses needs effort", OpenAIResponsesAPI, "/v1/responses", "", false},
-		{"Chat compatibility", OpenAIChatCompletionsAPI, "/chat/completions", "", true},
-		{"Chat disables reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "none", true},
-		{"Chat rejects reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "low", false},
-		{"OpenRouter explicit", OpenRouterChatCompletionsAPI, "/v1/chat/completions", "", true},
-		{"OpenRouter rejects generic effort", OpenRouterChatCompletionsAPI, "/v1/chat/completions", "none", false},
-		{"Unknown dialect", OpenAIAPI("unknown"), "/v1/responses", "medium", false},
+		{"Responses custom route", OpenAIResponsesAPI, "/deployments/model/responses", "medium", nil, true},
+		{"Responses needs effort", OpenAIResponsesAPI, "/v1/responses", "", nil, false},
+		{"Chat compatibility", OpenAIChatCompletionsAPI, "/chat/completions", "", nil, true},
+		{"Chat disables reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "none", nil, true},
+		{"Chat admits generic reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "low", nil, true},
+		{"Chat admits declared reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "high", []string{"high", "max"}, true},
+		{"Chat admits declared minimal outside global set", OpenAIChatCompletionsAPI, "/v1/chat/completions", "minimal", []string{"minimal"}, true},
+		{"Chat rejects undeclared reasoning", OpenAIChatCompletionsAPI, "/v1/chat/completions", "minimal", []string{"low", "medium"}, false},
+		{"Chat rejects unsorted declared vocabulary", OpenAIChatCompletionsAPI, "/v1/chat/completions", "high", []string{"max", "high"}, false},
+		{"OpenRouter explicit", OpenRouterChatCompletionsAPI, "/v1/chat/completions", "", nil, true},
+		{"OpenRouter admits generic effort", OpenRouterChatCompletionsAPI, "/v1/chat/completions", "none", nil, true},
+		{"OpenRouter admits declared reasoning", OpenRouterChatCompletionsAPI, "/v1/chat/completions", "high", []string{"high"}, true},
+		{"Responses admits declared minimal", OpenAIResponsesAPI, "/v1/responses", "minimal", []string{"minimal"}, true},
+		{"Responses rejects undeclared reasoning", OpenAIResponsesAPI, "/v1/responses", "minimal", []string{"low", "medium"}, false},
+		{"Unknown dialect", OpenAIAPI("unknown"), "/v1/responses", "medium", nil, false},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -316,12 +323,42 @@ func TestOpenAIAPIConfigurationIsExplicit(t *testing.T) {
 				HTTPProfileConfig: base,
 				API:               test.api,
 				ReasoningEffort:   test.effort,
+				ReasoningEfforts:  append([]string(nil), test.efforts...),
 			}
 			config.Endpoint = "https://api.example.invalid" + test.path
 			if config.valid() != test.valid {
 				t.Fatalf("valid = %t, want %t", config.valid(), test.valid)
 			}
 		})
+	}
+}
+
+func TestOpenAIConversationCarriesExactDeclaredReasoningEffort(t *testing.T) {
+	t.Parallel()
+	conversation, err := newOpenAIConversation(
+		"https://api.example.invalid/chat/completions",
+		"exact-model",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectOpenAIChat,
+		"high",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	request, err := conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoning_effort"`
+	}
+	if json.Unmarshal(request.Body, &envelope) != nil ||
+		envelope.Model != "exact-model" ||
+		envelope.ReasoningEffort != "high" {
+		t.Fatalf("chat request = %s", request.Body)
 	}
 }
 
@@ -345,6 +382,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 		resolver,
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -355,6 +393,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 			API:               OpenRouterChatCompletionsAPI,
 		},
 		resolver,
+		nil,
 		nil,
 		nil,
 	)
@@ -513,8 +552,7 @@ func TestOpenRouterDialectIsExplicitDigestBoundAndClosed(t *testing.T) {
 
 	for _, dialect := range []providerDialect{
 		providerDialectOpenAIChat,
-		providerDialectDeepSeekChat,
-		providerDialectMantleChat,
+		providerDialectOpaqueChat,
 	} {
 		foreign, foreignErr := newOpenAIConversation(
 			base.Endpoint,

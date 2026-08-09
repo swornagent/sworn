@@ -23,6 +23,10 @@ var telemetryMetricNames = []string{
 	"sworn.eval.output_tokens",
 	"sworn.eval.usage_coverage.numerator",
 	"sworn.eval.usage_coverage.denominator",
+	"sworn.eval.cache_read_tokens",
+	"sworn.eval.cache_write_tokens",
+	"sworn.eval.cache_coverage.numerator",
+	"sworn.eval.cache_coverage.denominator",
 	"sworn.eval.quality.numerator",
 	"sworn.eval.quality.denominator",
 }

@@ -118,6 +118,13 @@ type Request struct {
 type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
+	// CacheReadTokens and CacheWriteTokens are the normalized cache-accounting
+	// pair surfaced from provider responses. Each side is nil (omitted) when
+	// the provider vocabulary reports only one side (Gemini and the Responses
+	// API report reads only); a nil side is honest absence, never a measured
+	// zero.
+	CacheReadTokens  *int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
 }
 type TransportStatus string
 
@@ -404,6 +411,16 @@ func ValidateResult(result Result, expected ResultBinding) error {
 			result.Usage.OutputTokens < 0 || result.Usage.OutputTokens > MaxSafeInteger {
 			return fail("INVALID_USAGE")
 		}
+		if result.Usage.CacheReadTokens != nil &&
+			(*result.Usage.CacheReadTokens < 0 ||
+				*result.Usage.CacheReadTokens > MaxSafeInteger) {
+			return fail("INVALID_USAGE")
+		}
+		if result.Usage.CacheWriteTokens != nil &&
+			(*result.Usage.CacheWriteTokens < 0 ||
+				*result.Usage.CacheWriteTokens > MaxSafeInteger) {
+			return fail("INVALID_USAGE")
+		}
 	}
 	if result.Cost != nil {
 		if err := validateCostObservation(*result.Cost); err != nil {
@@ -448,7 +465,11 @@ func DecodeResult(body []byte, expected ResultBinding) (Result, error) {
 		return Result{}, err
 	}
 	if usage, present := root["usage"]; present {
-		if _, err := closedObject(usage, []string{"input_tokens", "output_tokens"}, nil); err != nil {
+		if _, err := closedObject(
+			usage,
+			[]string{"input_tokens", "output_tokens"},
+			[]string{"cache_read_tokens", "cache_write_tokens"},
+		); err != nil {
 			return Result{}, err
 		}
 	}

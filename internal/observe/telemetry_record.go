@@ -1,6 +1,9 @@
 package observe
 
-import "github.com/swornagent/sworn/internal/journal"
+import (
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/journal"
+)
 
 func validTelemetryRecord(record Record) bool {
 	if record.SchemaVersion != EvalSchemaVersion ||
@@ -92,16 +95,32 @@ func validDurationRatio(value Ratio, attempts int64) bool {
 func validUsageSummary(value UsageSummary, attempts int64) bool {
 	if !validCoverageRatio(value.TokenCoverage, attempts) ||
 		!validCoverageRatio(value.CostCoverage, attempts) ||
+		!validCoverageRatio(value.CacheCoverage, attempts) ||
 		(value.InputTokens == nil) != (value.OutputTokens == nil) ||
 		(value.InputTokens == nil) !=
 			(*value.TokenCoverage.Numerator == 0) ||
 		len(value.Costs) > 32 ||
 		(len(value.Costs) == 0) !=
-			(*value.CostCoverage.Numerator == 0) {
+			(*value.CostCoverage.Numerator == 0) ||
+		(value.CacheReadTokens == nil && value.CacheWriteTokens == nil) !=
+			(*value.CacheCoverage.Numerator == 0) ||
+		!validNullableText(value.EffortRequested) ||
+		!validNullableText(value.EffortReported) ||
+		!validNullableText(value.FinishReason) {
 		return false
 	}
 	if value.InputTokens != nil &&
 		(*value.InputTokens < 0 || *value.OutputTokens < 0) {
+		return false
+	}
+	if value.CacheReadTokens != nil &&
+		(*value.CacheReadTokens < 0 ||
+			*value.CacheReadTokens > driver.MaxSafeInteger) {
+		return false
+	}
+	if value.CacheWriteTokens != nil &&
+		(*value.CacheWriteTokens < 0 ||
+			*value.CacheWriteTokens > driver.MaxSafeInteger) {
 		return false
 	}
 	for _, cost := range value.Costs {
@@ -122,6 +141,24 @@ func validCoverageRatio(value Ratio, attempts int64) bool {
 		*value.Numerator >= 0 &&
 		*value.Numerator <= *value.Denominator &&
 		*value.Denominator == attempts
+}
+
+// validNullableText bounds the canonical string facts carried on a telemetry
+// record. Values originate from validated profile vocabularies and strictly
+// parsed provider responses, so any non-bounded value is rejected.
+func validNullableText(value *string) bool {
+	if value == nil {
+		return true
+	}
+	if len(*value) < 1 || len(*value) > 128 {
+		return false
+	}
+	for _, character := range *value {
+		if character <= 0x1f || (character >= 0x7f && character <= 0x9f) {
+			return false
+		}
+	}
+	return true
 }
 
 func telemetryAdd(left, right int64) (int64, error) {
@@ -176,8 +213,39 @@ func cloneUsage(value UsageSummary) UsageSummary {
 		result.InputTokens = int64Pointer(*value.InputTokens)
 		result.OutputTokens = int64Pointer(*value.OutputTokens)
 	}
+	if value.CacheReadTokens != nil {
+		result.CacheReadTokens = int64Pointer(*value.CacheReadTokens)
+	}
+	if value.CacheWriteTokens != nil {
+		result.CacheWriteTokens = int64Pointer(*value.CacheWriteTokens)
+	}
+	if value.EffortRequested != nil {
+		result.EffortRequested = cloneText(value.EffortRequested)
+	}
+	if value.EffortReported != nil {
+		result.EffortReported = cloneText(value.EffortReported)
+	}
+	if value.FinishReason != nil {
+		result.FinishReason = cloneText(value.FinishReason)
+	}
+	if value.Truncated != nil {
+		result.Truncated = boolPointer(*value.Truncated)
+	}
 	result.Costs = append([]CostTotal(nil), value.Costs...)
 	result.TokenCoverage = cloneRatio(value.TokenCoverage)
 	result.CostCoverage = cloneRatio(value.CostCoverage)
+	result.CacheCoverage = cloneRatio(value.CacheCoverage)
 	return result
 }
+
+func cloneText(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func boolPointer(value bool) *bool { return &value }
+
+func textPointer(value string) *string { return &value }

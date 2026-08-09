@@ -28,6 +28,15 @@ type providerTurn struct {
 	Calls []providerToolCall
 	Usage *Usage
 	Prose bool
+	// ReasoningEffort is the value the provider reported for this turn, when
+	// the response carries one; nil is honest absence.
+	ReasoningEffort *string
+	// FinishReason and Truncated are set by an adapter when the provider's
+	// own output-ceiling finish reason ended the invocation, so the run
+	// reports an explicit PROVIDER_TRUNCATED failure instead of an empty
+	// successful result.
+	FinishReason *string
+	Truncated    bool
 }
 
 type providerConversation interface {
@@ -36,6 +45,10 @@ type providerConversation interface {
 	appendResults([]providerToolResult) error
 	appendInstruction([]byte) error
 	resume([]byte, []providerToolDefinition) error
+	// declaredReasoningEffort returns the exact effort value this
+	// conversation serializes into its requests; an empty string is honest
+	// absence for dialects that have no reasoning-effort vocabulary.
+	declaredReasoningEffort() string
 	close()
 }
 
@@ -56,19 +69,18 @@ const (
 	providerDialectOpenAIResponses providerDialect = "openai_responses"
 	providerDialectOpenAIChat      providerDialect = "openai_chat"
 	providerDialectOpenRouterChat  providerDialect = "openrouter_chat"
-	providerDialectDeepSeekChat    providerDialect = "deepseek_chat"
+	providerDialectOpaqueChat      providerDialect = "opaque_chat"
 	providerDialectGemini          providerDialect = "gemini"
 	providerDialectBedrockConverse providerDialect = "bedrock_converse"
-	providerDialectMantleChat      providerDialect = "mantle_chat"
 )
 
 func (dialect providerDialect) continuationMode() ContinuationMode {
 	switch dialect {
-	case providerDialectOpenAIChat, providerDialectMantleChat:
+	case providerDialectOpenAIChat:
 		return ContinuationModeTranscriptReplay
 	case providerDialectOpenAIResponses,
 		providerDialectOpenRouterChat,
-		providerDialectDeepSeekChat,
+		providerDialectOpaqueChat,
 		providerDialectGemini,
 		providerDialectBedrockConverse:
 		return ContinuationModeOpaqueReplay
@@ -385,6 +397,8 @@ func (adapter *loopAdapter) runConversation(
 	}()
 	var total Usage
 	usageAvailable := false
+	effortRequested := conversation.declaredReasoningEffort()
+	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
 	for turn := 0; turn < MaxProviderTurns; turn++ {
@@ -417,14 +431,37 @@ func (adapter *loopAdapter) runConversation(
 			return Observation{}, nil, err
 		}
 		if providerTurn.Usage != nil {
-			if providerTurn.Usage.InputTokens < 0 || providerTurn.Usage.OutputTokens < 0 ||
-				total.InputTokens > math.MaxInt64-providerTurn.Usage.InputTokens ||
-				total.OutputTokens > math.MaxInt64-providerTurn.Usage.OutputTokens {
-				return Observation{}, nil, fail("INVALID_USAGE")
+			if err := addTurnUsage(&total, providerTurn.Usage); err != nil {
+				return Observation{}, nil, err
 			}
-			total.InputTokens += providerTurn.Usage.InputTokens
-			total.OutputTokens += providerTurn.Usage.OutputTokens
 			usageAvailable = true
+		}
+		if providerTurn.ReasoningEffort != nil {
+			value := *providerTurn.ReasoningEffort
+			effortReported = &value
+		}
+		if providerTurn.Truncated {
+			usage, err := NormalizeUsage(nil, nil)
+			if usageAvailable {
+				usage, err = NormalizeUsage(&total, nil)
+			}
+			if err != nil {
+				return Observation{}, nil, err
+			}
+			applyInvocationFacts(
+				&usage,
+				effortRequested,
+				effortReported,
+				providerTurn.FinishReason,
+				true,
+			)
+			observation := Observation{
+				TransportStatus: RunnerError,
+				DurationMillis:  time.Since(started).Milliseconds(),
+				Usage:           usage,
+				Diagnostic:      Diagnostic{Code: "provider_truncated"},
+			}
+			return observation, nil, fail("PROVIDER_TRUNCATED")
 		}
 		if len(providerTurn.Calls) == 0 {
 			// A call-less turn is nudged, never failed: some models need
@@ -485,6 +522,13 @@ func (adapter *loopAdapter) runConversation(
 			if err != nil {
 				return Observation{}, nil, err
 			}
+			applyInvocationFacts(
+				&usage,
+				effortRequested,
+				effortReported,
+				nil,
+				false,
+			)
 			observation := completedToolObservation(started, usage, session.handoff())
 			if yielded := session.yielded(); yielded != nil {
 				observation = completedYieldObservation(started, usage, yielded)
@@ -602,6 +646,80 @@ func completedYieldObservation(
 		Diagnostic:      Diagnostic{Code: "none"},
 		Yield:           yield,
 		Events:          events,
+	}
+}
+
+// addTurnUsage accumulates one provider turn's reported accounting into the
+// invocation total. Cache reads and writes are summed exactly like tokens;
+// each side is carried independently so a read-only vocabulary (Gemini, the
+// Responses API) never fabricates a zero on the side it does not report.
+func addTurnUsage(total *Usage, turn *Usage) error {
+	if turn == nil || total == nil ||
+		turn.InputTokens < 0 || turn.OutputTokens < 0 ||
+		total.InputTokens > math.MaxInt64-turn.InputTokens ||
+		total.OutputTokens > math.MaxInt64-turn.OutputTokens {
+		return fail("INVALID_USAGE")
+	}
+	total.InputTokens += turn.InputTokens
+	total.OutputTokens += turn.OutputTokens
+	if turn.CacheReadTokens != nil {
+		if *turn.CacheReadTokens < 0 {
+			return fail("INVALID_USAGE")
+		}
+		if total.CacheReadTokens == nil {
+			read := *turn.CacheReadTokens
+			total.CacheReadTokens = &read
+		} else if *total.CacheReadTokens > math.MaxInt64-*turn.CacheReadTokens {
+			return fail("INVALID_USAGE")
+		} else {
+			*total.CacheReadTokens += *turn.CacheReadTokens
+		}
+	}
+	if turn.CacheWriteTokens != nil {
+		if *turn.CacheWriteTokens < 0 {
+			return fail("INVALID_USAGE")
+		}
+		if total.CacheWriteTokens == nil {
+			write := *turn.CacheWriteTokens
+			total.CacheWriteTokens = &write
+		} else if *total.CacheWriteTokens > math.MaxInt64-*turn.CacheWriteTokens {
+			return fail("INVALID_USAGE")
+		} else {
+			*total.CacheWriteTokens += *turn.CacheWriteTokens
+		}
+	}
+	return nil
+}
+
+// applyInvocationFacts stamps the invocation-level facts onto a receipt. The
+// requested effort is the exact value the conversation serialized; the
+// reported effort is the last value a provider echoed; finish reason and
+// truncation are carried on the explicit PROVIDER_TRUNCATED failure.
+func applyInvocationFacts(
+	usage *UsageReceipt,
+	effortRequested string,
+	effortReported *string,
+	finishReason *string,
+	truncated bool,
+) {
+	if usage == nil {
+		return
+	}
+	if effortRequested != "" {
+		value := effortRequested
+		usage.EffortRequested = &value
+	}
+	if effortReported != nil {
+		value := *effortReported
+		usage.EffortReported = &value
+	}
+	if finishReason != nil {
+		value := *finishReason
+		usage.FinishReason = &value
+	}
+	if truncated {
+		value := true
+		usage.Truncated = &value
 	}
 }
 

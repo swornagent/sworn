@@ -407,6 +407,7 @@ func apiContinuationChatAdapter(
 		},
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

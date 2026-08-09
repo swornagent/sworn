@@ -74,8 +74,8 @@ func TestDriverConfigCodecDigestAndPrivacyAreStrict(t *testing.T) {
 	}
 	withSecretField := bytes.Replace(
 		body,
-		[]byte(`"reference":"BEDROCK_MANTLE_API_KEY"`),
-		[]byte(`"reference":"BEDROCK_MANTLE_API_KEY","value":"credential-secret-canary"`),
+		[]byte(`"reference":"OPENAI_API_KEY"`),
+		[]byte(`"reference":"OPENAI_API_KEY","value":"credential-secret-canary"`),
 		1,
 	)
 	if _, err := DecodeDriverConfig(withSecretField); !IsCode(err, "UNKNOWN_FIELD") {
@@ -92,6 +92,54 @@ func TestDriverConfigCodecDigestAndPrivacyAreStrict(t *testing.T) {
 	}
 	if _, err := LoadDriverConfig("relative.json"); !IsCode(err, "INVALID_CONFIG_PATH") {
 		t.Fatalf("relative path error = %v", err)
+	}
+}
+
+func TestOpenAIProfileDeclaredReasoningVocabularyCanonicalizes(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	for index := range config.Adapters {
+		if config.Adapters[index].OpenAI != nil {
+			config.Adapters[index].OpenAI.ReasoningEffort = "high"
+			config.Adapters[index].OpenAI.ReasoningEfforts = []string{"high", "max"}
+		}
+	}
+	body, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"reasoning_efforts":["high","max"]`)) {
+		t.Fatalf("declared vocabulary missing from canonical form: %s", body)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ConfigurationDigest() != Digest(body) ||
+		!bytes.Equal(loaded.CanonicalJSON(), body) {
+		t.Fatalf(
+			"declared vocabulary digest=%s canonical=%s",
+			loaded.ConfigurationDigest(),
+			loaded.CanonicalJSON(),
+		)
+	}
+
+	empty := completeDriverConfigFixture(t)
+	emptyBody, err := EncodeDriverConfig(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(emptyBody, []byte("reasoning_efforts")) {
+		t.Fatalf("empty declared vocabulary leaked into canonical form: %s", emptyBody)
+	}
+
+	unsorted := config
+	for index := range unsorted.Adapters {
+		if unsorted.Adapters[index].OpenAI != nil {
+			unsorted.Adapters[index].OpenAI.ReasoningEfforts = []string{"max", "high"}
+		}
+	}
+	if _, err := EncodeDriverConfig(unsorted); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+		t.Fatalf("unsorted declared vocabulary error = %v", err)
 	}
 }
 
@@ -164,34 +212,38 @@ func TestDriverConfigFactoryBuildsSubsetAndEveryFamilyWithoutResolvingSecrets(t 
 		)
 	}
 	classic := all.Inspect(context.Background(), "bedrock", "model-bedrock")
-	mantleAPI := all.Inspect(context.Background(), "mantle-api", "model-mantle-api")
-	mantleAWS := all.Inspect(context.Background(), "mantle-aws", "model-mantle-aws")
+	chat := all.Inspect(context.Background(), "openai-chat", "model-openai-chat")
+	opaque := all.Inspect(context.Background(), "openai-opaque", "model-openai-opaque")
+	aws := all.Inspect(context.Background(), "openai-aws", "model-openai-aws")
 	openAI := all.Inspect(context.Background(), "openai", "model-openai")
 	if openAI.Family != ProfileOpenAIHTTP ||
 		openAI.Surface != ProfileSurfaceOpenAIResponses ||
 		classic.Family != ProfileBedrock ||
 		classic.Surface != ProfileSurfaceBedrockRuntimeConverse ||
-		mantleAPI.Family != ProfileBedrock ||
-		mantleAPI.Surface != ProfileSurfaceBedrockMantleChat ||
-		mantleAWS.Family != ProfileBedrock ||
-		mantleAWS.Surface != ProfileSurfaceBedrockMantleChat {
+		chat.Family != ProfileOpenAIHTTP ||
+		chat.Surface != ProfileSurfaceOpenAIChat ||
+		opaque.Family != ProfileOpenAIHTTP ||
+		opaque.Surface != ProfileSurfaceOpenAIChat ||
+		aws.Family != ProfileOpenAIHTTP ||
+		aws.Surface != ProfileSurfaceOpenAIChat {
 		t.Fatalf(
-			"reports openai=%#v classic=%#v api=%#v aws=%#v",
+			"reports openai=%#v classic=%#v chat=%#v opaque=%#v aws=%#v",
 			openAI,
 			classic,
-			mantleAPI,
-			mantleAWS,
+			chat,
+			opaque,
+			aws,
 		)
 	}
 	reportBody, err := canonicalJSON([]ProfileReport{
-		openAI, classic, mantleAPI, mantleAWS,
+		openAI, classic, chat, opaque, aws,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, private := range []string{
 		"AWS_RUNTIME_SOURCE",
-		"BEDROCK_MANTLE_API_KEY",
+		"AWS_OPENAI_SOURCE",
 		"/credentials/",
 	} {
 		if bytes.Contains(reportBody, []byte(private)) {
@@ -245,10 +297,9 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 		{Key: "aws", Kind: CredentialAWS, Reference: "AWS_RUNTIME_SOURCE"},
 		{Key: "claude-file", Kind: CredentialFile, Reference: filepath.Join(root, "credentials", "claude.json")},
 		{Key: "codex-file", Kind: CredentialFile, Reference: filepath.Join(root, "credentials", "codex.json")},
-		{Key: "deepseek-env", Kind: CredentialEnvironment, Reference: "DEEPSEEK_API_KEY"},
 		{Key: "gemini-file", Kind: CredentialFile, Reference: filepath.Join(root, "credentials", "gemini.key")},
-		{Key: "mantle-aws", Kind: CredentialAWS, Reference: "AWS_MANTLE_SOURCE"},
-		{Key: "mantle-env", Kind: CredentialEnvironment, Reference: "BEDROCK_MANTLE_API_KEY"},
+		{Key: "openai-aws", Kind: CredentialAWS, Reference: "AWS_OPENAI_SOURCE"},
+		{Key: "openai-chat-env", Kind: CredentialEnvironment, Reference: "OPENAI_CHAT_API_KEY"},
 		{Key: "openai-env", Kind: CredentialEnvironment, Reference: "OPENAI_API_KEY"},
 	}
 	native := func(
@@ -274,6 +325,7 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 			MaxCredentialBytes:     1_048_576,
 		}
 	}
+	opaqueReasoningTrue := true
 	adapters := []DriverAdapterConfig{
 		{Bedrock: &BedrockProfileConfig{
 			Key: "a-bedrock", ID: "sworn.bedrock", Version: "1.0.0",
@@ -303,13 +355,6 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 				CodexCredentialTarget,
 			),
 		},
-		{DeepSeek: &HTTPProfileConfig{
-			Key: "a-deepseek", ID: "sworn.deepseek", Version: "1.0.0",
-			Endpoint:         "http://localhost:4102/chat/completions",
-			CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-			CredentialRefs: []string{"deepseek-env"},
-			ResponseBytes:  MaxProviderResponseBytes,
-		}},
 		{Process: &DriverProcessAdapterConfig{
 			Key: "a-fake", ID: FakeDriverID, Version: FakeDriverVersion,
 			Executable: executable("fake", Digest([]byte("fake"))),
@@ -321,19 +366,6 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 			CredentialRefs: []string{"gemini-file"},
 			ResponseBytes:  MaxProviderResponseBytes,
 		}},
-		{Mantle: &BedrockMantleProfileConfig{
-			Key: "a-mantle-api", ID: "sworn.bedrock.mantle.api", Version: "1.0.0",
-			Endpoint:       "http://localhost:4104/v1/chat/completions",
-			CredentialRefs: []string{"mantle-env"},
-			ResponseBytes:  MaxProviderResponseBytes, AuthMode: BedrockMantleAPIKey,
-		}},
-		{Mantle: &BedrockMantleProfileConfig{
-			Key: "a-mantle-aws", ID: "sworn.bedrock.mantle.aws", Version: "1.0.0",
-			Endpoint:       "http://localhost:4105/v1/chat/completions",
-			CredentialRefs: []string{"mantle-aws"},
-			ResponseBytes:  MaxProviderResponseBytes, AuthMode: BedrockMantleAWS,
-			Chain: &awsChain,
-		}},
 		{OpenAI: &OpenAIProfileConfig{
 			HTTPProfileConfig: HTTPProfileConfig{
 				Key: "a-openai", ID: "sworn.openai", Version: "1.0.0",
@@ -343,6 +375,38 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 				ResponseBytes:  MaxProviderResponseBytes,
 			},
 			API: OpenAIResponsesAPI, ReasoningEffort: "medium",
+		}},
+		{OpenAI: &OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "a-openai-aws", ID: "sworn.openai.aws", Version: "1.0.0",
+				Endpoint:       "http://localhost:4104/v1/chat/completions",
+				CredentialRefs: []string{"openai-aws"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:      OpenAIChatCompletionsAPI,
+			AuthMode: AuthModeAWSSigV4,
+			Chain:    &awsChain,
+		}},
+		{OpenAI: &OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "a-openai-chat", ID: "sworn.openai.chat", Version: "1.0.0",
+				Endpoint:         "http://localhost:4105/v1/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"openai-chat-env"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API: OpenAIChatCompletionsAPI,
+		}},
+		{OpenAI: &OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "a-openai-opaque", ID: "sworn.openai.opaque", Version: "1.0.0",
+				Endpoint:         "http://localhost:4107/v1/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"openai-chat-env"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIChatCompletionsAPI,
+			OpaqueReasoning: &opaqueReasoningTrue,
 		}},
 	}
 	profile := func(
@@ -359,15 +423,15 @@ func completeDriverConfigFixture(t *testing.T) DriverConfig {
 		profile("bedrock", "a-bedrock", "aws", "model-bedrock"),
 		profile("claude", "a-claude", "claude-file", "model-claude"),
 		profile("codex", "a-codex", "codex-file", "model-codex"),
-		profile("deepseek", "a-deepseek", "deepseek-env", "model-deepseek"),
 		{
 			Key: "fake", Adapter: "a-fake", Network: NetworkNone,
 			CredentialSource: nil, CertificationModels: []string{"model-fake"},
 		},
 		profile("gemini", "a-gemini", "gemini-file", "model-gemini"),
-		profile("mantle-api", "a-mantle-api", "mantle-env", "model-mantle-api"),
-		profile("mantle-aws", "a-mantle-aws", "mantle-aws", "model-mantle-aws"),
 		profile("openai", "a-openai", "openai-env", "model-openai"),
+		profile("openai-aws", "a-openai-aws", "openai-aws", "model-openai-aws"),
+		profile("openai-chat", "a-openai-chat", "openai-chat-env", "model-openai-chat"),
+		profile("openai-opaque", "a-openai-opaque", "openai-chat-env", "model-openai-opaque"),
 	}
 	return DriverConfig{
 		SchemaVersion: DriverConfigSchemaVersion,

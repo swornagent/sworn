@@ -294,6 +294,8 @@ func (*automationTestConversation) resume(
 	return fail("CONTINUATION_INVALID")
 }
 
+func (*automationTestConversation) declaredReasoningEffort() string { return "" }
+
 func (*automationTestConversation) close() {}
 
 type automationTestTransport struct{}

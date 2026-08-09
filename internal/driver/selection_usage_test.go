@@ -452,16 +452,19 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	}
 	if unavailable.TokenStatus != UsageUnavailable ||
 		unavailable.CostStatus != UsageUnavailable ||
+		unavailable.CacheStatus != UsageUnavailable ||
 		unavailable.InputTokens != nil || unavailable.OutputTokens != nil ||
 		unavailable.CostMicroUnits != nil || unavailable.Currency != nil ||
-		unavailable.Source != nil {
+		unavailable.Source != nil ||
+		unavailable.CacheReadTokens != nil ||
+		unavailable.CacheWriteTokens != nil {
 		t.Fatalf("unavailable = %#v", unavailable)
 	}
 	unavailableBody, err := EncodeUsageReceipt(unavailable)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(unavailableBody) != `{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}` {
+	if string(unavailableBody) != `{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"unavailable"}` {
 		t.Fatalf("unavailable receipt = %s", unavailableBody)
 	}
 	zero, err := NormalizeUsage(
@@ -476,6 +479,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if zero.TokenStatus != UsageReported || zero.CostStatus != UsageReported ||
+		zero.CacheStatus != UsageUnavailable ||
 		zero.InputTokens == nil || *zero.InputTokens != 0 ||
 		zero.OutputTokens == nil || *zero.OutputTokens != 0 ||
 		zero.CostMicroUnits == nil || *zero.CostMicroUnits != 0 {
@@ -485,8 +489,59 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"reported","cost_micro_units":0,"currency":"USD","source":"provider_reported"}` {
+	if string(body) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"reported","cost_micro_units":0,"currency":"USD","source":"provider_reported","cache_status":"unavailable"}` {
 		t.Fatalf("receipt = %s", body)
+	}
+	// A provider-reported cache pair surfaces as the canonical reported
+	// family with both sides, never as zeros on the token side or absent.
+	read := int64(40)
+	write := int64(60)
+	cached, err := NormalizeUsage(
+		&Usage{
+			InputTokens:      0,
+			OutputTokens:     0,
+			CacheReadTokens:  &read,
+			CacheWriteTokens: &write,
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.CacheStatus != UsageReported ||
+		cached.CacheReadTokens == nil || *cached.CacheReadTokens != 40 ||
+		cached.CacheWriteTokens == nil || *cached.CacheWriteTokens != 60 {
+		t.Fatalf("cached = %#v", cached)
+	}
+	cachedBody, err := EncodeUsageReceipt(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cachedBody) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40,"cache_write_tokens":60}` {
+		t.Fatalf("cached receipt = %s", cachedBody)
+	}
+	// A read-only vocabulary (Gemini, the Responses API) reports the read
+	// side alone; the missing write side stays nil instead of becoming zero.
+	onlyRead, err := NormalizeUsage(&Usage{
+		InputTokens:      5,
+		OutputTokens:     5,
+		CacheReadTokens:  &read,
+		CacheWriteTokens: nil,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onlyRead.CacheStatus != UsageReported ||
+		onlyRead.CacheReadTokens == nil || *onlyRead.CacheReadTokens != 40 ||
+		onlyRead.CacheWriteTokens != nil {
+		t.Fatalf("read-only cache = %#v", onlyRead)
+	}
+	readOnlyBody, err := EncodeUsageReceipt(onlyRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(readOnlyBody) != `{"token_status":"reported","input_tokens":5,"output_tokens":5,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40}` {
+		t.Fatalf("read-only receipt = %s", readOnlyBody)
 	}
 	for name, cost := range map[string]CostObservation{
 		"negative":  {MicroUnits: -1, Currency: "USD", Source: CostSourceProviderReported},
@@ -527,6 +582,37 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 			CostMicroUnits: &one,
 			Currency:       &usd,
 			Source:         &source,
+		},
+		"reported cache missing values": {
+			TokenStatus: UsageUnavailable,
+			CostStatus:  UsageUnavailable,
+			CacheStatus: UsageReported,
+		},
+		"unavailable cache with values": {
+			TokenStatus:     UsageUnavailable,
+			CostStatus:      UsageUnavailable,
+			CacheStatus:     UsageUnavailable,
+			CacheReadTokens: &one,
+		},
+		"absent cache with values": {
+			TokenStatus:     UsageUnavailable,
+			CostStatus:      UsageUnavailable,
+			CacheReadTokens: &one,
+		},
+		"invalid cache status": {
+			TokenStatus: UsageUnavailable,
+			CostStatus:  UsageUnavailable,
+			CacheStatus: Availability("bogus"),
+		},
+		"negative cache value": {
+			TokenStatus:     UsageUnavailable,
+			CostStatus:      UsageUnavailable,
+			CacheStatus:     UsageReported,
+			CacheReadTokens: &one,
+			CacheWriteTokens: func() *int64 {
+				negative := int64(-1)
+				return &negative
+			}(),
 		},
 	} {
 		if _, err := EncodeUsageReceipt(receipt); err == nil {
