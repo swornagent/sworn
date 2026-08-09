@@ -3,7 +3,6 @@ package driver
 import (
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 // BedrockMantleAuthMode is closed to the two authentication surfaces exposed
@@ -20,15 +19,14 @@ func (mode BedrockMantleAuthMode) valid() bool {
 }
 
 // BedrockMantleProfileConfig describes one OpenAI-compatible Chat Completions
-// endpoint. Endpoint is the exact POST URL and must end
-// /v1/chat/completions; it is not a base URL. Chain is present only for
-// standard AWS-chain/SigV4 mode; API-key mode always uses Authorization:
-// Bearer.
+// endpoint. Endpoint is the exact POST URL; it is not a base URL. Chain is
+// present only for standard AWS-chain/SigV4 mode; API-key mode always uses
+// Authorization: Bearer.
 type BedrockMantleProfileConfig struct {
 	Key     string `json:"key"`
 	ID      string `json:"id"`
 	Version string `json:"version"`
-	// Endpoint is the exact POST URL ending /v1/chat/completions.
+	// Endpoint is the exact POST URL.
 	Endpoint       string                `json:"endpoint"`
 	CredentialRefs []string              `json:"credential_refs"`
 	ResponseBytes  int                   `json:"response_bytes"`
@@ -151,8 +149,7 @@ func validateMantleEndpoint(value string) error {
 		return fail("INVALID_ENDPOINT")
 	}
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.RawQuery != "" ||
-		!strings.HasSuffix(parsed.Path, "/v1/chat/completions") {
+	if err != nil || parsed.RawQuery != "" {
 		return fail("INVALID_ENDPOINT")
 	}
 	return nil

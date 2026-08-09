@@ -52,7 +52,7 @@ type DriverProcessAdapterConfig struct {
 
 // DriverAdapterConfig is a closed union over the existing adapter
 // constructors. Exactly one field is present. A Mantle entry's Endpoint is
-// the exact POST URL ending /v1/chat/completions, not a base URL.
+// the exact POST URL, not a base URL.
 type DriverAdapterConfig struct {
 	Process  *DriverProcessAdapterConfig `json:"process,omitempty"`
 	Native   *NativeAdapterConfig        `json:"native,omitempty"`
@@ -744,6 +744,7 @@ func cloneHTTPProfileConfig(config HTTPProfileConfig) HTTPProfileConfig {
 
 func cloneOpenAIProfileConfig(config OpenAIProfileConfig) OpenAIProfileConfig {
 	config.HTTPProfileConfig = cloneHTTPProfileConfig(config.HTTPProfileConfig)
+	config.ReasoningEfforts = append([]string(nil), config.ReasoningEfforts...)
 	return config
 }
 

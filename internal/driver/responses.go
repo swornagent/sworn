@@ -38,8 +38,7 @@ func newResponsesConversation(
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
-		reasoningEffort == "" ||
-		!validOpenAIReasoningEffort(reasoningEffort) {
+		reasoningEffort == "" {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := responsesTools(definitions)

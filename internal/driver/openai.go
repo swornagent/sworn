@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 )
 
 type openAIConversation struct {
@@ -55,8 +56,9 @@ const (
 
 type OpenAIProfileConfig struct {
 	HTTPProfileConfig
-	API             OpenAIAPI `json:"api"`
-	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	API              OpenAIAPI `json:"api"`
+	ReasoningEffort  string    `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
 }
 
 func NewOpenAIAdapter(
@@ -179,19 +181,44 @@ func NewDeepSeekAdapter(
 }
 
 func (config OpenAIProfileConfig) valid() bool {
-	if validateEndpoint(config.Endpoint) != nil {
+	if validateEndpoint(config.Endpoint) != nil ||
+		!validReasoningEfforts(config.ReasoningEfforts) {
 		return false
 	}
-	if config.API == OpenAIChatCompletionsAPI {
+	switch config.API {
+	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
 		return config.ReasoningEffort == "" ||
-			config.ReasoningEffort == "none"
+			config.declaresReasoningEffort(config.ReasoningEffort)
+	case OpenAIResponsesAPI:
+		return config.ReasoningEffort != "" &&
+			config.declaresReasoningEffort(config.ReasoningEffort)
+	default:
+		return false
 	}
-	if config.API == OpenRouterChatCompletionsAPI {
-		return config.ReasoningEffort == ""
+}
+
+// declaresReasoningEffort reports whether value is admitted by this profile.
+// A declared per-profile vocabulary wins; when none is declared the global
+// backward-compatibility set is the vocabulary.
+func (config OpenAIProfileConfig) declaresReasoningEffort(value string) bool {
+	if len(config.ReasoningEfforts) != 0 {
+		return slices.Contains(config.ReasoningEfforts, value)
 	}
-	return config.API == OpenAIResponsesAPI &&
-		config.ReasoningEffort != "" &&
-		validOpenAIReasoningEffort(config.ReasoningEffort)
+	return validOpenAIReasoningEffort(value)
+}
+
+// validReasoningEfforts requires a canonical per-profile vocabulary: values
+// are non-empty bounded text, strictly increasing, and never duplicated, so
+// two profiles declaring the same capability canonicalize identically.
+func validReasoningEfforts(values []string) bool {
+	for index, value := range values {
+		if value == "" ||
+			validateText(value, 128, false) != nil ||
+			(index > 0 && values[index-1] >= value) {
+			return false
+		}
+	}
+	return true
 }
 
 func newOpenAIConversation(
@@ -206,11 +233,7 @@ func newOpenAIConversation(
 		(dialect != providerDialectOpenAIChat &&
 			dialect != providerDialectOpenRouterChat &&
 			dialect != providerDialectDeepSeekChat &&
-			dialect != providerDialectMantleChat) ||
-		(reasoningEffort != "" && reasoningEffort != "none") {
-		return nil, fail("INVALID_ADAPTER")
-	}
-	if dialect != providerDialectOpenAIChat && reasoningEffort != "" {
+			dialect != providerDialectMantleChat) {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := openAITools(definitions)

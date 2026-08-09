@@ -588,6 +588,86 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 	}
 }
 
+func TestProviderChatCompletionsCarriesDeclaredReasoningEffort(t *testing.T) {
+	const invocationID = "provider-chat-effort"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var chatEnvelope struct {
+			ReasoningEffort string `json:"reasoning_effort"`
+		}
+		if json.Unmarshal(body, &chatEnvelope) != nil ||
+			chatEnvelope.ReasoningEffort != "high" {
+			t.Errorf("chat reasoning effort = %s", body)
+		}
+		writeJSONResponse(t, writer, openAIToolCallResponse(
+			"chat-effort-submit",
+			"sworn_submit",
+			submitArguments,
+			5,
+			7,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-chat-effort", ID: "sworn.openai.chat.effort",
+				Version: "1.0.0", Endpoint: server.URL + "/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:              OpenAIChatCompletionsAPI,
+			ReasoningEffort:  "high",
+			ReasoningEfforts: []string{"high", "max"},
+		},
+		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil || requests.Load() != 1 ||
+		observation.Usage.InputTokens == nil ||
+		*observation.Usage.InputTokens != 5 ||
+		observation.Usage.OutputTokens == nil ||
+		*observation.Usage.OutputTokens != 7 {
+		t.Fatalf(
+			"observation = %#v, requests=%d, error=%v",
+			observation,
+			requests.Load(),
+			err,
+		)
+	}
+}
+
 func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T) {
 	for _, test := range []struct {
 		name    string

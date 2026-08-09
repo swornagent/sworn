@@ -338,7 +338,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	if _, err := NewBedrockMantleAdapter(
 		BedrockMantleProfileConfig{
 			Key: "invalid-endpoint", ID: "sworn.invalid.endpoint", Version: "1.0.0",
-			Endpoint: server.URL, CredentialRefs: []string{"credential-ref"},
+			Endpoint: server.URL + "?api-version=1", CredentialRefs: []string{"credential-ref"},
 			ResponseBytes: MaxProviderResponseBytes,
 			AuthMode:      BedrockMantleAPIKey,
 		},
@@ -347,7 +347,51 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		nil,
 		nil,
 	); !IsCode(err, "INVALID_ADAPTER") {
-		t.Fatalf("Mantle base URL was accepted as the POST endpoint: %v", err)
+		t.Fatalf("Mantle query-string endpoint was accepted as the POST endpoint: %v", err)
+	}
+}
+
+func TestBedrockMantleEndpointAdmissionRestsOnURLShapeNotPathSuffix(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		valid    bool
+	}{
+		{"DeepSeek-style chat path without v1", "https://api.example.invalid/chat/completions", true},
+		{"Gemini-style v1beta openai path", "https://generativelanguage.example.invalid/v1beta/openai/chat/completions", true},
+		{"Canonical v1 chat path", "https://api.example.invalid/v1/chat/completions", true},
+		{"Bare host is a valid exact POST URL", "https://api.example.invalid", true},
+		{"Query string is rejected", "https://api.example.invalid/chat/completions?key=value", false},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			adapter, err := NewBedrockMantleAdapter(
+				BedrockMantleProfileConfig{
+					Key: "mantle-paths", ID: "sworn.bedrock.mantle.paths",
+					Version: "1.0.0", Endpoint: test.endpoint,
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+					AuthMode:       BedrockMantleAPIKey,
+				},
+				func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+				nil,
+				nil,
+				nil,
+			)
+			if test.valid && err != nil {
+				t.Fatalf("endpoint %q rejected: %v", test.endpoint, err)
+			}
+			if !test.valid && !IsCode(err, "INVALID_ADAPTER") {
+				t.Fatalf("endpoint %q error = %v, want INVALID_ADAPTER", test.endpoint, err)
+			}
+			if adapter != nil {
+				loop := adapter.(*loopAdapter)
+				if loop.dialect != providerDialectMantleChat ||
+					loop.surface != ProfileSurfaceBedrockMantleChat {
+					t.Fatalf("Mantle path surface = %#v", loop)
+				}
+			}
+		})
 	}
 }
 

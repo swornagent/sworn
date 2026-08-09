@@ -95,6 +95,54 @@ func TestDriverConfigCodecDigestAndPrivacyAreStrict(t *testing.T) {
 	}
 }
 
+func TestOpenAIProfileDeclaredReasoningVocabularyCanonicalizes(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	for index := range config.Adapters {
+		if config.Adapters[index].OpenAI != nil {
+			config.Adapters[index].OpenAI.ReasoningEffort = "high"
+			config.Adapters[index].OpenAI.ReasoningEfforts = []string{"high", "max"}
+		}
+	}
+	body, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"reasoning_efforts":["high","max"]`)) {
+		t.Fatalf("declared vocabulary missing from canonical form: %s", body)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ConfigurationDigest() != Digest(body) ||
+		!bytes.Equal(loaded.CanonicalJSON(), body) {
+		t.Fatalf(
+			"declared vocabulary digest=%s canonical=%s",
+			loaded.ConfigurationDigest(),
+			loaded.CanonicalJSON(),
+		)
+	}
+
+	empty := completeDriverConfigFixture(t)
+	emptyBody, err := EncodeDriverConfig(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(emptyBody, []byte("reasoning_efforts")) {
+		t.Fatalf("empty declared vocabulary leaked into canonical form: %s", emptyBody)
+	}
+
+	unsorted := config
+	for index := range unsorted.Adapters {
+		if unsorted.Adapters[index].OpenAI != nil {
+			unsorted.Adapters[index].OpenAI.ReasoningEfforts = []string{"max", "high"}
+		}
+	}
+	if _, err := EncodeDriverConfig(unsorted); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+		t.Fatalf("unsorted declared vocabulary error = %v", err)
+	}
+}
+
 func TestDriverConfigFactoryBuildsSubsetAndEveryFamilyWithoutResolvingSecrets(t *testing.T) {
 	config := completeDriverConfigFixture(t)
 	body, err := EncodeDriverConfig(config)
