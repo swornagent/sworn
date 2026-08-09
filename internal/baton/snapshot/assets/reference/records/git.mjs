@@ -2179,13 +2179,13 @@ export function unsafePrepareMetadataCommit(repo, {
   const input = Buffer.from(message);
   if (
     input.byteLength === 0
-    || input.byteLength > 12_288
+    || input.byteLength > 2_097_152
     || input.includes(0)
     || input.includes(0x0d)
   ) {
     throw new GitRecordError(
       'INVALID_COMMIT_MESSAGE',
-      'metadata commit message must be 1-12288 bytes of LF-only data without NUL',
+      'metadata commit message must be 1-2097152 bytes of LF-only data without NUL',
     );
   }
   const tree = runGit(repo, ['rev-parse', '--verify', `${expected}^{tree}`], {

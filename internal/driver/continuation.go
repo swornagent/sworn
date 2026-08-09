@@ -11,9 +11,16 @@ import (
 )
 
 const (
-	MaxContinuationSteps        = 32
+	// MaxContinuationSteps matches MaxProviderTurns: the ledger's byte
+	// guards bound the resource; the step count must never end a
+	// conversation the turn budget still allows.
+	MaxContinuationSteps        = 1_000
 	MaxCorrelationIDBytes       = 256
-	MaxOpaqueFieldBytes         = 262_144
+	// MaxOpaqueFieldBytes must never bind before MaxProviderResponseBytes:
+	// a reasoning model may legitimately think for hundreds of kilobytes
+	// (observed: 279KB in one GLM-5.2 turn), and capping the field kills the
+	// turn over content Sworn does not even retain.
+	MaxOpaqueFieldBytes         = 1_048_576
 	MaxOpaqueStepBytes          = 524_288
 	MaxOpaqueInvocationBytes    = 1_048_576
 	MaxDecodedOpaqueBinaryBytes = 196_608

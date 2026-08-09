@@ -224,6 +224,13 @@ func (factory *ProductionDriverFactory) certificationInvocation(
 			Input: input,
 			Bytes: instruction,
 		}},
+		// Certification grants the driver's own bounded recovery budgets
+		// (one prose nudge, MaxSubmissionCorrections); with no hook a model
+		// that opens in prose fails RECOVERY_STEP_REFUSED instead of being
+		// nudged, which made certification flaky for reasoning models.
+		RecoveryStepHook: func(context.Context, RecoveryStepKind) error {
+			return nil
+		},
 	}, nil
 }
 

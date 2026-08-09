@@ -68,7 +68,7 @@
     "summary": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 280
+      "maxLength": 262144
     },
     "target": {
       "$ref": "#/$defs/object"

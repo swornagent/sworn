@@ -17,7 +17,7 @@ const (
 	CaptainDecisionEventVersion   = "sworn.captain-plan-decision-event/v1"
 	CaptainRefusalEventVersion    = "sworn.captain-plan-refusal-event/v1"
 	captainDecisionEffectKind     = "captain.decision"
-	MaxCaptainDecisionDetailBytes = 4096
+	MaxCaptainDecisionDetailBytes = 1_048_576
 )
 
 type CaptainDecisionCommand struct {

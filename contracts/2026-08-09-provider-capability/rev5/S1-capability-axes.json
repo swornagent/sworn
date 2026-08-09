@@ -1,0 +1,52 @@
+{
+  "outcome": "A driver profile declares the API flavour, reasoning effort and endpoint its model actually supports, so every OpenAI-compatible provider Sworn can reach is usable at its real capability without changing code.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "new per-vendor adapter types",
+      "streaming",
+      "provider-side conversation state",
+      "changes to the receipt or plan record formats"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A profile declaring the chat-completions flavour with a non-empty reasoning effort is admitted, and the request the production adapter emits carries that exact reasoning_effort value; today such a profile is rejected by OpenAIProfileConfig.valid() even though the request struct already serialises the field."
+    },
+    {
+      "id": "A2",
+      "text": "The reasoning-effort values a profile may use are declared by that profile rather than by one global list; an undeclared value fails closed at admission naming the profile, and a declared value outside the current hardcoded set (for example minimal) is admitted."
+    },
+    {
+      "id": "A3",
+      "text": "Endpoint admission is consistent across adapters and rests on absolute-URL and no-query-string grounds alone, never on a path suffix: validateMantleEndpoint's requirement that the path end /v1/chat/completions is removed, so the same provider is configurable through any adapter that speaks its protocol. Providers whose paths are /chat/completions with no /v1 segment, or /v1beta/openai/chat/completions, are configurable through every applicable adapter, and the path is never used to infer the API flavour."
+    },
+    {
+      "id": "A4",
+      "text": "A real request through the production adapter succeeds against at least two providers with different path shapes and different effort vocabularies, and each observed response is parsed without loss under the existing strict validation."
+    },
+    {
+      "id": "A5",
+      "text": "A provider that ignores or rejects a declared capability produces an explicit, named failure rather than a silent downgrade or an empty result."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Capability is declared per profile and per model, never inferred from the endpoint or the vendor name.",
+    "Limits bound resources, not expression: add no new cap on what a provider or role may return.",
+    "One canonical OpenAI-compatible transport owns every consumer; do not add a parallel adapter, validator, or request builder.",
+    "Existing admitted configurations must continue to admit unchanged.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}
