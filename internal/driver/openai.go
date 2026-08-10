@@ -71,10 +71,17 @@ type OpenAIProfileConfig struct {
 	API              OpenAIAPI     `json:"api"`
 	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
 	ReasoningEfforts []string      `json:"reasoning_efforts,omitempty"`
-	Preset           string        `json:"preset,omitempty"`
-	AuthMode         AuthMode      `json:"auth_mode,omitempty"`
-	Chain            *AWSChainSpec `json:"chain,omitempty"`
-	OpaqueReasoning  *bool         `json:"opaque_reasoning,omitempty"`
+	// Stream enables SSE streaming on the responses flavour: events render
+	// live while the terminal event's embedded response object feeds the
+	// exact non-streaming validation path.
+	Stream bool `json:"stream,omitempty"`
+	// EnableThinking is Qwen's thinking toggle on the responses flavour,
+	// carried verbatim when set.
+	EnableThinking  *bool         `json:"enable_thinking,omitempty"`
+	Preset          string        `json:"preset,omitempty"`
+	AuthMode        AuthMode      `json:"auth_mode,omitempty"`
+	Chain           *AWSChainSpec `json:"chain,omitempty"`
+	OpaqueReasoning *bool         `json:"opaque_reasoning,omitempty"`
 }
 
 // effectiveAuth returns the admission-time authentication mode of a unified
@@ -210,6 +217,8 @@ func NewOpenAIAdapter(
 				tools,
 				prompt,
 				config.ReasoningEffort,
+				config.EnableThinking,
+				config.Stream,
 			)
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
@@ -258,10 +267,13 @@ func (config OpenAIProfileConfig) valid() bool {
 		!validReasoningEfforts(config.ReasoningEfforts) {
 		return false
 	}
+	// Streaming is a responses-flavour capability only; the chat flavours
+	// keep the exact non-streaming request shape.
 	switch config.API {
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
-		return config.ReasoningEffort == "" ||
-			config.declaresReasoningEffort(config.ReasoningEffort)
+		return !config.Stream &&
+			(config.ReasoningEffort == "" ||
+				config.declaresReasoningEffort(config.ReasoningEffort))
 	case OpenAIResponsesAPI:
 		return config.ReasoningEffort != "" &&
 			config.declaresReasoningEffort(config.ReasoningEffort)

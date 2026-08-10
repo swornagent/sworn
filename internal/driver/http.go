@@ -174,6 +174,9 @@ func (transport *httpTransport) roundTrip(
 			transport.config.CredentialPrefix+string(secret),
 		)
 	}
+	if request.Stream {
+		httpRequest.Header.Set("Accept", "text/event-stream")
+	}
 	response, err := transport.client.Do(httpRequest)
 	if err != nil {
 		if isContextError(ctx.Err()) {
@@ -182,6 +185,19 @@ func (transport *httpTransport) roundTrip(
 		return nil, fail("PROVIDER_TRANSPORT_FAILED")
 	}
 	defer response.Body.Close()
+	if request.Stream && response.StatusCode >= 200 && response.StatusCode <= 299 {
+		body, streamErr := readStreamedResponse(
+			response.Body,
+			transport.config.ResponseBytes,
+		)
+		if streamErr != nil {
+			if isContextError(ctx.Err()) {
+				return nil, ctx.Err()
+			}
+			return nil, streamErr
+		}
+		return body, nil
+	}
 	reader := io.LimitReader(response.Body, int64(transport.config.ResponseBytes)+1)
 	body, readErr := io.ReadAll(reader)
 	if readErr != nil {

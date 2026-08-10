@@ -6,6 +6,8 @@ type responsesConversation struct {
 	endpoint        string
 	model           string
 	reasoningEffort string
+	enableThinking  *bool
+	stream          bool
 	tools           []responsesTool
 	input           []json.RawMessage
 	pending         []providerToolCall
@@ -35,6 +37,8 @@ func newResponsesConversation(
 	definitions []providerToolDefinition,
 	prompt []byte,
 	reasoningEffort string,
+	enableThinking *bool,
+	stream bool,
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -56,6 +60,8 @@ func newResponsesConversation(
 		endpoint:        endpoint,
 		model:           model,
 		reasoningEffort: reasoningEffort,
+		enableThinking:  enableThinking,
+		stream:          stream,
 		tools:           tools,
 		input:           []json.RawMessage{initial},
 		ledger:          newContinuationLedger(),
@@ -97,6 +103,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		ToolChoice        string             `json:"tool_choice"`
 		ParallelToolCalls bool               `json:"parallel_tool_calls"`
 		Reasoning         responsesReasoning `json:"reasoning"`
+		EnableThinking    *bool              `json:"enable_thinking,omitempty"`
 		Store             bool               `json:"store"`
 		Stream            bool               `json:"stream"`
 	}{
@@ -106,8 +113,9 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		ToolChoice:        "auto",
 		ParallelToolCalls: true,
 		Reasoning:         responsesReasoning{Effort: conversation.reasoningEffort},
+		EnableThinking:    conversation.enableThinking,
 		Store:             false,
-		Stream:            false,
+		Stream:            conversation.stream,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -118,6 +126,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		URL:         conversation.endpoint,
 		ContentType: "application/json",
 		Body:        body,
+		Stream:      conversation.stream,
 	}, nil
 }
 
@@ -126,6 +135,7 @@ func (conversation *responsesConversation) accept(
 ) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
+		liveStream.driverError("accept-site-1", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
@@ -134,6 +144,7 @@ func (conversation *responsesConversation) accept(
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
+		liveStream.driverError("accept-site-2", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
@@ -185,6 +196,7 @@ func (conversation *responsesConversation) accept(
 	output, ok := root["output"].([]any)
 	if !ok || len(output) == 0 ||
 		len(output) > MaxToolCalls+MaxContinuationSteps {
+		liveStream.driverError("accept-site-3", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	var rawResponse struct {
@@ -192,6 +204,7 @@ func (conversation *responsesConversation) accept(
 	}
 	if json.Unmarshal(body, &rawResponse) != nil ||
 		len(rawResponse.Output) != len(output) {
+		liveStream.driverError("accept-site-4", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	calls := make([]providerToolCall, 0, len(output))
@@ -200,15 +213,18 @@ func (conversation *responsesConversation) accept(
 		item, itemOK := output[index].(map[string]any)
 		itemType, typeOK := item["type"].(string)
 		if !itemOK || !typeOK {
+			liveStream.driverError("accept-site-5", nil)
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		switch itemType {
 		case "reasoning":
 			if validateResponsesReasoningItem(item) != nil {
+				liveStream.driverError("accept-site-6", nil)
 				return providerTurn{}, fail("CONTINUATION_INVALID")
 			}
 		case "message":
 			if !validResponsesMessageItem(item) {
+				liveStream.driverError("accept-site-7", nil)
 				return providerTurn{}, fail("CONTINUATION_INVALID")
 			}
 		case "function_call":
@@ -218,6 +234,7 @@ func (conversation *responsesConversation) accept(
 			}
 			calls = append(calls, call)
 		default:
+			liveStream.driverError("accept-site-8", nil)
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		retainedFields = append(retainedFields, opaqueField{
@@ -271,10 +288,12 @@ func responsesTruncated(root map[string]any) bool {
 // (audio, image, text tokens), so only cached_tokens is extracted and a
 // malformed detail never fails the run.
 func responsesUsage(value any) (*Usage, error) {
+	// x_details is Qwen's provider-specific usage annex on the responses
+	// flavour; it is tolerated and ignored rather than failing the turn.
 	usage, err := closedObject(
 		value,
 		[]string{"input_tokens", "output_tokens", "total_tokens"},
-		[]string{"input_tokens_details", "output_tokens_details"},
+		[]string{"input_tokens_details", "output_tokens_details", "x_details"},
 	)
 	if err != nil {
 		return nil, fail("INVALID_USAGE")
@@ -319,11 +338,47 @@ func (conversation *responsesConversation) appendInstruction(body []byte) error 
 }
 
 func validateResponsesReasoningItem(item map[string]any) error {
-	encrypted, encryptedOK := item["encrypted_content"].(string)
-	if item["type"] != "reasoning" || !encryptedOK ||
-		len(encrypted) == 0 || len(encrypted) > MaxOpaqueFieldBytes ||
-		!validOpaqueText([]byte(encrypted)) {
+	if item["type"] != "reasoning" {
 		return fail("CONTINUATION_INVALID")
+	}
+	if encrypted, encryptedOK := item["encrypted_content"].(string); encryptedOK {
+		if len(encrypted) == 0 || len(encrypted) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(encrypted)) {
+			return fail("CONTINUATION_INVALID")
+		}
+		return nil
+	}
+	// DeepSeek's Responses dialect carries plaintext reasoning as
+	// content parts of type reasoning_text instead of encrypted_content;
+	// Qwen's carries a summary list of summary_text parts with null content.
+	if parts, partsOK := item["content"].([]any); partsOK && len(parts) > 0 {
+		for _, rawPart := range parts {
+			part, partOK := rawPart.(map[string]any)
+			if !partOK || part["type"] != "reasoning_text" {
+				return fail("CONTINUATION_INVALID")
+			}
+			text, textOK := part["text"].(string)
+			if !textOK || len(text) > MaxOpaqueFieldBytes ||
+				!validOpaqueText([]byte(text)) {
+				return fail("CONTINUATION_INVALID")
+			}
+		}
+		return nil
+	}
+	summary, summaryOK := item["summary"].([]any)
+	if !summaryOK || len(summary) == 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	for _, rawPart := range summary {
+		part, partOK := rawPart.(map[string]any)
+		if !partOK || part["type"] != "summary_text" {
+			return fail("CONTINUATION_INVALID")
+		}
+		text, textOK := part["text"].(string)
+		if !textOK || len(text) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(text)) {
+			return fail("CONTINUATION_INVALID")
+		}
 	}
 	return nil
 }
