@@ -70,6 +70,12 @@ type productionCandidateBinding struct {
 	Receipt     string `json:"receipt"`
 	Commit      string `json:"commit"`
 	ProductTree string `json:"product_tree,omitempty"`
+	// Base is the commit the candidate was built on, and Chain spells the
+	// ancestry out so a verifier checks bindings instead of reconstructing
+	// them: base -> candidate (the diff under verification) -> candidate
+	// receipt (the receipted head this dispatch's prepared_base names).
+	Base  string `json:"base,omitempty"`
+	Chain string `json:"chain,omitempty"`
 }
 
 type productionEvidenceBinding struct {
@@ -282,11 +288,24 @@ func candidateBinding(
 	if entry.Receipt.ProductTree != nil {
 		productTree = *entry.Receipt.ProductTree
 	}
-	return &productionCandidateBinding{
+	base := ""
+	if entry.Receipt.Base != nil {
+		base = *entry.Receipt.Base
+	}
+	binding := &productionCandidateBinding{
 		Receipt:     entry.OID,
 		Commit:      *entry.Receipt.Candidate,
 		ProductTree: productTree,
-	}, nil
+		Base:        base,
+	}
+	if base != "" {
+		binding.Chain = "base " + base +
+			" -> candidate " + binding.Commit +
+			" (the diff under verification) -> candidate receipt " +
+			binding.Receipt +
+			" (the receipted track head; this dispatch's prepared_base names this receipted head, not the build base)"
+	}
+	return binding, nil
 }
 
 func sliceEvidence(

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -28,7 +29,34 @@ var (
 	testHumanTurnCrash    string
 	testCaptainCrashCut   string
 	testOwnerLeaseMillis  string
+	testHooksFromEnv      string
 )
+
+// Test hooks are link-time constants: a production binary carries no runtime
+// crash knob because nothing sets these vars. A test build may instead link
+// only testHooksFromEnv=1, which transfers each hook from the process
+// environment once at startup — one hook-enabled binary then serves every
+// crash-cut permutation instead of one link per permutation. The gate itself
+// remains reachable only through ldflags.
+func init() {
+	if testHooksFromEnv != "1" {
+		return
+	}
+	for _, hook := range []struct {
+		target *string
+		name   string
+	}{
+		{&testCrashBeforeEffect, "SWORN_TEST_CRASH_BEFORE_EFFECT"},
+		{&testCrashAfterEffect, "SWORN_TEST_CRASH_AFTER_EFFECT"},
+		{&testHumanTurnCrash, "SWORN_TEST_HUMAN_TURN_CRASH"},
+		{&testCaptainCrashCut, "SWORN_TEST_CAPTAIN_CRASH_CUT"},
+		{&testOwnerLeaseMillis, "SWORN_TEST_OWNER_LEASE_MILLIS"},
+	} {
+		if value := os.Getenv(hook.name); value != "" {
+			*hook.target = value
+		}
+	}
+}
 
 type Service struct {
 	journal            *journal.Store

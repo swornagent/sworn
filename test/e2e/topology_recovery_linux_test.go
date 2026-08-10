@@ -785,9 +785,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	swornBinary := filepath.Join(buildRoot, "sworn")
 	buildBinary(t, swornBinary, "./cmd/sworn", "")
 	preActionCrashBinary := filepath.Join(buildRoot, "sworn-before-action")
-	buildBinary(t, preActionCrashBinary, "./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.testCrashBeforeEffect=baton.append_receipt"+
-			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+	buildBinary(t, preActionCrashBinary, "./cmd/sworn", hookGateLDFlags)
+	preActionCrashEnvironment := map[string]string{
+		"SWORN_TEST_CRASH_BEFORE_EFFECT": "baton.append_receipt",
+		"SWORN_TEST_OWNER_LEASE_MILLIS":  testLeaseMillis,
+	}
 
 	t.Run("parked_lane_does_not_stop_independent_track_and_exact_retry_recovers", func(t *testing.T) {
 		repository, root := newProductRepository(t), t.TempDir()
@@ -1100,7 +1102,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, preActionCrashBinary, 86,
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		claimed := claimedAppendAction(t, journalPath, runID)
@@ -1113,7 +1116,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 		runGit(t, repository, "add", "--", "target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
@@ -1151,7 +1154,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, preActionCrashBinary, 86,
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		claimed := claimedAppendAction(t, journalPath, runID)
@@ -1160,7 +1164,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"pause", "--run", runID, "--journal", journalPath,
 			"--command", "pause-1", "--generation", "1")
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
@@ -1222,7 +1226,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, preActionCrashBinary, 86,
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		claimed := claimedAppendAction(t, journalPath, runID)
@@ -1250,7 +1255,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		stdout, _ := runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
@@ -1299,9 +1304,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 
 	t.Run("claimed_all_new_install_completes_without_replay_after_target_move", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-install-all-new-target-move")
-		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.install"+
-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+		crashEnvironment := map[string]string{
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.install",
+			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+		}
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "install-all-new-target-move"
@@ -1323,7 +1330,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, crashBinary, 86,
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		store, err := journal.OpenReadOnly(
@@ -1355,7 +1362,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 		runGit(t, repository, "add", "--", "install-target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "move target after install")
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		stdout, _ := runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
@@ -1395,8 +1402,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	})
 
 	sealCrashCuts := []struct {
-		name   string
-		binary string
+		name        string
+		binary      string
+		environment map[string]string
 	}{
 		{name: "git.seal.prepared"},
 		{name: "git.seal"},
@@ -1405,9 +1413,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		cut := &sealCrashCuts[index]
 		cut.binary = filepath.Join(
 			buildRoot, "sworn-stale-"+strings.ReplaceAll(cut.name, ".", "-"))
-		buildBinary(t, cut.binary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+cut.name+
-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+		buildBinary(t, cut.binary, "./cmd/sworn", hookGateLDFlags)
+		cut.environment = map[string]string{
+			"SWORN_TEST_CRASH_AFTER_EFFECT": cut.name,
+			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+		}
 	}
 	for _, authorityKind := range []string{"target", "plan"} {
 		for cutIndex, crash := range sealCrashCuts {
@@ -1449,7 +1459,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					runBinary(t, swornBinary, 0,
 						"run", "--manifest", manifestPath, "--journal", journalPath)
 					authorizePlan(t, journalPath, runID, initialPlan)
-					runBinary(t, crash.binary, 86,
+					runBinaryWithEnvironment(t, crash.binary, 86,
+						crash.environment,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-1", "--generation", "0")
 					claimed := claimedSeal(t, journalPath, runID)
@@ -1507,7 +1518,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						t.Fatal("unknown authority fixture")
 					}
 
-					time.Sleep(1800 * time.Millisecond)
+					leaseExpiryWait()
 					stdout, _ := runBinary(
 						t, swornBinary, 0,
 						"takeover", "--run", runID, "--journal", journalPath,
@@ -1582,7 +1593,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, sealCrashCuts[1].binary, 86,
+		runBinaryWithEnvironment(t, sealCrashCuts[1].binary, 86,
+			sealCrashCuts[1].environment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		claimed := claimedSeal(t, journalPath, runID)
@@ -1664,7 +1676,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			third,
 			claimed.Candidate,
 		)
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		_, stderr := runBinary(
 			t, swornBinary, 1,
 			"takeover", "--run", runID, "--journal", journalPath,
@@ -1797,11 +1809,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			runBinary(t, swornBinary, 0,
 				"run", "--manifest", manifestPath, "--journal", journalPath)
 			authorizePlan(t, journalPath, runID, initialPlan)
-			crashBinary := sealCrashCuts[0].binary
+			crashCut := &sealCrashCuts[0]
 			if preparedCase.crash == "git.seal" {
-				crashBinary = sealCrashCuts[1].binary
+				crashCut = &sealCrashCuts[1]
 			}
-			runBinary(t, crashBinary, 86,
+			runBinaryWithEnvironment(t, crashCut.binary, 86,
+				crashCut.environment,
 				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "resume-1", "--generation", "0")
 			claimed := claimedSeal(t, journalPath, runID)
@@ -1843,7 +1856,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			time.Sleep(1800 * time.Millisecond)
+			leaseExpiryWait()
 			wantExit := 0
 			if preparedCase.parentMode == "succeeded" {
 				wantExit = 1
@@ -1959,9 +1972,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				buildRoot,
 				"sworn-"+strings.ReplaceAll(name+cut, ".", "-"),
 			)
-			buildBinary(t, crashBinary, "./cmd/sworn",
-				"-X=github.com/swornagent/sworn/internal/runtime."+hook+"="+cut+
-					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			crashEnvironment := map[string]string{
+				crashHookEnvironmentName(t, hook): cut,
+				"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
+			}
 			repository, root := newProductRepository(t), t.TempDir()
 			journalPath := filepath.Join(root, "run.sqlite")
 			runID := fmt.Sprintf("topology-crash-%d", index)
@@ -1978,7 +1993,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			manifestPath := writeManifest(t, root, append(body, '\n'))
 			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 			authorizePlan(t, journalPath, runID, plan)
-			runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
+			runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "resume-1", "--generation", "0")
 			store, err := journal.OpenReadOnly(context.Background(), journalPath)
 			if err != nil {
@@ -1997,7 +2013,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					"%s claimed crash cuts = %v, want exactly one: %v",
 					cut, claimedIDs, err)
 			}
-			time.Sleep(1800 * time.Millisecond)
+			leaseExpiryWait()
 			stdout, _ := runBinary(t, swornBinary, 0, "takeover", "--run", runID,
 				"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
 			if !strings.Contains(stdout, "  state: complete") {
@@ -2254,9 +2270,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 
 	t.Run("driver_crash_is_quiescent_uncertain_and_never_retried", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-driver-crash")
-		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+		crashEnvironment := map[string]string{
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "driver.dispatch",
+			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+		}
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID, release = "topology-driver-crash", "topology-driver-crash-release"
@@ -2273,7 +2291,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
 		targetBefore := runGit(t, repository, "rev-parse", "main")
-		runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
 		if err != nil {
@@ -2299,7 +2318,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatalf("crashed driver effect = %q", crashed[0])
 		}
 		workID := "sha256:" + parts[1]
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		runBinary(t, swornBinary, 0, "takeover", "--run", runID,
 			"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
 		status, _ := runBinary(t, swornBinary, 0, "status", "--run", runID,
@@ -2331,9 +2350,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 
 	t.Run("forward_target_claimed_driver_is_terminalized_before_fresh_dispatch", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-driver-stale-crash")
-		buildBinary(t, crashBinary, "./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
+		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+		crashEnvironment := map[string]string{
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "driver.dispatch",
+			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+		}
 		repository, root := newProductRepository(t), t.TempDir()
 		journalPath := filepath.Join(root, "run.sqlite")
 		const runID = "topology-driver-stale"
@@ -2354,7 +2375,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinary(t, crashBinary, 86,
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
 
@@ -2390,7 +2411,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "add", "--", "target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
 
-		time.Sleep(1800 * time.Millisecond)
+		leaseExpiryWait()
 		stdout, _ := runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
