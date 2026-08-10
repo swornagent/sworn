@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-10-engine-recording",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "279a674ed37ebe908de3a3ba060c1125743db636",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-10-engine-recording/1",
+  "approval_ref": "operator://2026-08-10-engine-recording/2",
   "tracks": [
     {
       "id": "T1-engine",
@@ -103,7 +103,21 @@ bounced because a model cannot transcribe 7.5KB of base64 verbatim), F11
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-10-engine-recording/1`. Planning did not approve itself.
+`operator://2026-08-10-engine-recording/2`. Planning did not approve itself.
+
+Revision 2 exists because the reference patches moved. Revision 1's patches
+were generated while three files were still in unmerged index state after
+the three-way rebase, so Git produced combined diffs that silently omitted
+changes: S1 lost the `newResponsesConversation` signature change that its
+own test calls, and would not have compiled. The corrected patches were
+verified cumulatively at the track base - each slice builds and tests on
+top of its predecessors, and the three together reconstruct the operator
+tree byte for byte - then committed, which moved the target head. Bootstrap
+authority binds an approval to an exact target head, so the engine refused
+the stale approval and the operator must grant a new one. The slice
+contracts, their digests, and every acceptance criterion are unchanged from
+revision 1; only the patch bytes the implementers must land, and the target
+they land on, have moved.
 
 The three slices form one serial track because S1 and S2 share
 internal/driver and the exact product base must stay linear; nothing here is
