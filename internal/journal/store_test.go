@@ -1127,3 +1127,128 @@ func TestRetryEpochRequiresExactThreeTryExhaustion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAnySucceededTryClosesRefusedPaymentBypass(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	work := digest([]byte("single-payment-work"))
+	ensure := func(try int64) error {
+		id := AttemptEffectID(work, 1, try)
+		command := Command{RunID: run.ID, ReplayKey: id, Kind: "driver.dispatch",
+			Payload: []byte("attempt"), CreatedAt: now}
+		effect := Effect{RunID: run.ID, ID: id, ReplayKey: id, Kind: command.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now}
+		return store.EnsureAttempt(ctx, command, effect,
+			EffectAttempt{WorkID: work, Epoch: 1, Try: try})
+	}
+	succeed := func(try int64) {
+		id := AttemptEffectID(work, 1, try)
+		claim, err := store.Claim(ctx, run.ID, id, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: id,
+			Token: claim.Token, State: Succeeded, Result: []byte("paid"),
+			EventKind: "succeeded", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// t1 succeeds; the driver's recovery/replay path re-ensures the same
+	// try, which must stay idempotent (the current effect is excluded from
+	// the any-succeeded-try scan).
+	if err := ensure(1); err != nil {
+		t.Fatal(err)
+	}
+	succeed(1)
+	if err := ensure(1); err != nil {
+		t.Fatalf("replay of succeeded try = %v", err)
+	}
+
+	// A second try in the same epoch is refused by the any-succeeded-try
+	// guard before it journals (and before the previous-try rule, which
+	// would have reported PREVIOUS_ATTEMPT_NOT_RETRYABLE instead).
+	if err := ensure(2); !IsCode(err, "WORK_ALREADY_SUCCEEDED") {
+		t.Fatalf("try two after success = %v", err)
+	}
+
+	// The bypass the guard closes: t2 was refused before journaling any
+	// effect row, so t3's previous attempt is absent and the
+	// immediately-previous-try rule alone would retry it and re-pay; the
+	// any-succeeded-try scan sees t1's success and refuses instead.
+	if err := ensure(3); !IsCode(err, "WORK_ALREADY_SUCCEEDED") {
+		t.Fatalf("try three after refused absent try = %v", err)
+	}
+}
+
+func TestAnySucceededTryGuardAllowsNormalRetryAndDerivedEffects(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	ensure := func(work string, try int64) error {
+		id := AttemptEffectID(work, 1, try)
+		command := Command{RunID: run.ID, ReplayKey: id, Kind: "driver.dispatch",
+			Payload: []byte("attempt"), CreatedAt: now}
+		effect := Effect{RunID: run.ID, ID: id, ReplayKey: id, Kind: command.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now}
+		return store.EnsureAttempt(ctx, command, effect,
+			EffectAttempt{WorkID: work, Epoch: 1, Try: try})
+	}
+	fail := func(work string, try int64) {
+		id := AttemptEffectID(work, 1, try)
+		claim, err := store.Claim(ctx, run.ID, id, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: id,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Operational failures never trip the guard: every later try within the
+	// budget still retries normally.
+	work := digest([]byte("retry-work"))
+	for try := int64(1); try <= 3; try++ {
+		if err := ensure(work, try); err != nil {
+			t.Fatalf("try %d after operational failures = %v", try, err)
+		}
+		fail(work, try)
+	}
+
+	// A derived effect hanging off an attempt id as a longer path (for
+	// example the human-park checkpoint) that succeeded must not block its
+	// own cycle's later work: the guard counts try-level effects only.
+	derivedWork := digest([]byte("derived-work"))
+	childID := AttemptEffectID(derivedWork, 1, 1) + "/human-park"
+	if err := store.RecordCommandEffect(ctx,
+		Command{RunID: run.ID, ReplayKey: childID,
+			Kind: "runtime.human_park", Payload: []byte("park"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: childID, ReplayKey: childID,
+			Kind: "runtime.human_park", BeforeDigest: digest([]byte("parent")),
+			ExpectedDigest: digest([]byte("park")), UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	childClaim, err := store.Claim(ctx, run.ID, childID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: childID,
+		Token: childClaim.Token, State: Succeeded, Result: []byte("park"),
+		EventKind: "park_checkpointed", At: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensure(derivedWork, 1); err != nil {
+		t.Fatalf("try one with succeeded derived child = %v", err)
+	}
+	fail(derivedWork, 1)
+	if err := ensure(derivedWork, 2); err != nil {
+		t.Fatalf("try two with succeeded derived child = %v", err)
+	}
+}

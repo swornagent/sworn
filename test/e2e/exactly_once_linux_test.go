@@ -60,11 +60,12 @@ func exactlyOnceCuts() []exactlyOnceCut {
 // its own coverage in topology_recovery_linux_test.go; asserting completion
 // for it here would assert the opposite of the contract.
 
-// exactlyOnceLease keeps the crash and recovery binaries in the same owner
-// lease regime the existing recovery journeys already run under, so a
-// recovery here is compared against the same timing the rest of the suite was
-// verified with.
-const exactlyOnceLease = " -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500"
+// exactlyOnceEnvironment keeps the crash and recovery processes in the same
+// short owner-lease regime the recovery journeys run under, so a takeover
+// only has to wait out leaseExpiryWait rather than a production lease.
+var exactlyOnceEnvironment = map[string]string{
+	"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+}
 
 // assertExactlyOnce is the whole cardinality claim, read out of the real
 // journal and the real repository after recovery.
@@ -196,18 +197,18 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 	// The recovery binary is an ordinary Sworn: no crash seam at all. Only the
 	// owner lease is pinned, to the value the existing recovery journeys use.
 	recoveryBinary := filepath.Join(buildRoot, "sworn-recovery")
-	buildBinary(t, recoveryBinary, "./cmd/sworn", strings.TrimSpace(exactlyOnceLease))
+	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags)
 
 	for _, cut := range exactlyOnceCuts() {
 		t.Run(strings.ReplaceAll(cut.effect, ".", "_"), func(t *testing.T) {
 			crashBinary := filepath.Join(
 				buildRoot, "sworn-cut-"+strings.ReplaceAll(cut.effect, ".", "-"),
 			)
-			buildBinary(
-				t, crashBinary, "./cmd/sworn",
-				"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+
-					cut.effect+exactlyOnceLease,
-			)
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			crashEnvironment := map[string]string{
+				"SWORN_TEST_CRASH_AFTER_EFFECT": cut.effect,
+				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+			}
 
 			repository := newProductRepository(t)
 			runRoot := t.TempDir()
@@ -222,8 +223,8 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			// The proposal phase runs on an ordinary binary. Every seam in
 			// the table belongs to the authorized part of the lifecycle,
 			// which begins at the resume below, so the cut lands there.
-			runBinary(
-				t, recoveryBinary, 0,
+			runBinaryWithEnvironment(
+				t, recoveryBinary, 0, exactlyOnceEnvironment,
 				"run", "--manifest", manifestPath, "--journal", journalPath,
 			)
 			authorizePlan(t, journalPath, runID, plan)
@@ -231,8 +232,8 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			seedHead := runGit(t, repository, "rev-parse", "main")
 
 			// The cut. The run dies at the seam with the world already moved.
-			runBinary(
-				t, crashBinary, 86,
+			runBinaryWithEnvironment(
+				t, crashBinary, 86, crashEnvironment,
 				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "cut-resume-1", "--generation", "0",
 			)
@@ -246,9 +247,9 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 
 			// The restart. An ordinary binary, after the dead owner's lease
 			// has expired, must reach exactly one continuation.
-			time.Sleep(1800 * time.Millisecond)
+			leaseExpiryWait()
 			stdout, stderr := runBinaryWithEnvironmentTimeout(
-				t, recoveryBinary, 0, nil, 600*time.Second,
+				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "cut-takeover-1", "--generation", "1",
 			)

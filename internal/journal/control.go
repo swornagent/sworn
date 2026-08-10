@@ -558,17 +558,75 @@ func (s *Store) EnsureAttempt(ctx context.Context, command Command, effect Effec
 		if err != nil {
 			return err
 		}
-		epoch := projection.RetryEpochs[attempt.WorkID]
-		if epoch == 0 {
-			epoch = 1
+		epoch, retried := projection.RetryEpochs[attempt.WorkID]
+		if !retried {
+			// A work with no retry history follows its first writer's epoch:
+			// derived works (such as seal preparation) inherit their parent
+			// cycle's epoch after a retry, and the exclusive owner lease
+			// already serializes writers. A conflicting earlier epoch on
+			// disk still fails closed below.
+			var conflicting int
+			if err := conn.QueryRowContext(ctx,
+				`SELECT count(*) FROM effects
+				  WHERE run_id = ? AND effect_id LIKE ?
+				    AND effect_id NOT LIKE ?`,
+				command.RunID,
+				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+"/%",
+				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+
+					"/e"+strconv.FormatInt(attempt.Epoch, 10)+"/%",
+			).Scan(&conflicting); err != nil {
+				return dbError(err)
+			}
+			if conflicting != 0 {
+				return fail("STALE_RETRY_EPOCH", nil)
+			}
+			epoch = attempt.Epoch
 		}
 		if epoch != attempt.Epoch {
 			return fail("STALE_RETRY_EPOCH", nil)
 		}
+		// Any-succeeded-try guard: a work admits no further tries in an
+		// epoch once any of its try-level effects has succeeded. The
+		// immediately-previous-try rule alone leaves a bypass open: a
+		// refused try journals no effect row, so one try later the previous
+		// try is absent and retryable again, re-opening payment. Only
+		// try-level effects are counted — derived effects hang off an
+		// attempt id as a longer path (attempt/<work>/e1/t1/human-park) and
+		// must not block their own cycle's later work — the current effect
+		// is excluded so replay of an already-succeeded try stays
+		// idempotent, and the scan can only over-block, never admit a
+		// payment. The LIKE-prefix scan also over-matches higher epochs
+		// sharing a prefix (e1/% vs e10/), which is fail-closed and
+		// implausible within the per-epoch try budget.
+		var alreadySucceeded int64
+		epochPrefix := "attempt/" + strings.TrimPrefix(attempt.WorkID, "sha256:") +
+			"/e" + strconv.FormatInt(attempt.Epoch, 10) + "/t"
+		if err := conn.QueryRowContext(ctx,
+			`SELECT count(*) FROM effects
+			  WHERE run_id = ? AND effect_id LIKE ?
+			    AND effect_id NOT LIKE ? AND effect_id != ?
+			    AND state = 'succeeded'`,
+			command.RunID,
+			epochPrefix+"%",
+			epochPrefix+"%/%",
+			effect.ID,
+		).Scan(&alreadySucceeded); err != nil {
+			return dbError(err)
+		}
+		if alreadySucceeded != 0 {
+			return fail("WORK_ALREADY_SUCCEEDED", nil)
+		}
 		if attempt.Try > 1 {
 			previous, err := effectOnConnection(ctx, conn, command.RunID,
 				AttemptEffectID(attempt.WorkID, attempt.Epoch, attempt.Try-1))
-			if err != nil || previous.State != OperationalFailed {
+			// An absent previous attempt is retryable: the earlier try died
+			// before journaling intent for this effect, so it can have had
+			// no side effects at this stage. Only a previous attempt that
+			// exists in a non-failed state blocks the retry.
+			if err != nil && !IsCode(err, "EFFECT_NOT_FOUND") {
+				return err
+			}
+			if err == nil && previous.State != OperationalFailed {
 				return fail("PREVIOUS_ATTEMPT_NOT_RETRYABLE", nil)
 			}
 		}
