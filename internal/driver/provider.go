@@ -11,8 +11,13 @@ const (
 	// MaxProviderTurns is a runaway-loop guard, not a work budget. A careful
 	// implementer pass over this repo needs ~30 tool turns, so any value that
 	// could bind honest work is too low; recap only from eval evidence.
-	MaxProviderTurns         = 1_000
-	MaxProviderRequestBytes  = 1_048_576
+	MaxProviderTurns = 1_000
+	// MaxProviderRequestBytes must never end a conversation the provider's
+	// own context window still accepts: a large implementation transcript
+	// crosses 1MB of request JSON at roughly 250K tokens, observed live on
+	// S2's build. The provider is the authority on its window; this guard
+	// only bounds pathological growth. Context compaction is the real fix.
+	MaxProviderRequestBytes  = 8_388_608
 	MaxProviderResponseBytes = 1_048_576
 )
 
@@ -22,6 +27,10 @@ type providerRequest struct {
 	ContentType string
 	Headers     map[string]string
 	Body        []byte
+	// Stream marks a request whose response arrives as SSE events; the
+	// transport renders them live and returns the terminal event's embedded
+	// response object as the body, so validation is unchanged.
+	Stream bool
 }
 
 type providerTurn struct {
@@ -322,10 +331,12 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 		state.bytes < 1 || state.bytes > MaxProviderRequestBytes ||
 		invocation.Selected.Adapter != adapter.identity ||
 		invocation.Selected.Profile.Network != NetworkRequired {
+		liveStream.driverError("resume-binding", nil)
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	prompt, err := modelPrompt(invocation)
 	if err != nil {
+		liveStream.driverError("resume-prompt", err)
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	err = state.conversation.resume(
@@ -334,12 +345,14 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 	)
 	clearBytes(prompt)
 	if err != nil {
+		liveStream.driverError("resume-conversation", err)
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	request, err := state.conversation.request()
 	if err != nil || len(request.Body) < 1 ||
 		len(request.Body) > MaxProviderRequestBytes {
 		clearBytes(request.Body)
+		liveStream.driverError("resume-request", err)
 		return Observation{}, nil, fail("CONTINUATION_INVALID")
 	}
 	defer clearBytes(request.Body)
@@ -414,6 +427,7 @@ func (adapter *loopAdapter) runConversation(
 		}
 		if err != nil || len(request.Body) > MaxProviderRequestBytes {
 			clearBytes(request.Body)
+			liveStream.driverError("request-build", err)
 			return Observation{}, nil, fail("CONTINUATION_INVALID")
 		}
 		response, err := adapter.transport.roundTrip(
@@ -423,11 +437,13 @@ func (adapter *loopAdapter) runConversation(
 		)
 		clearBytes(request.Body)
 		if err != nil {
+			liveStream.driverError("transport", err)
 			return Observation{}, nil, err
 		}
 		providerTurn, err := conversation.accept(response)
 		clearBytes(response)
 		if err != nil {
+			liveStream.driverError("accept", err)
 			return Observation{}, nil, err
 		}
 		if providerTurn.Usage != nil {
@@ -498,7 +514,8 @@ func (adapter *loopAdapter) runConversation(
 		}
 		results := make([]providerToolResult, 0, len(providerTurn.Calls))
 		for _, call := range providerTurn.Calls {
-			if validateProviderToolCall(call, seenIDs) != nil {
+			if callErr := validateProviderToolCall(call, seenIDs); callErr != nil {
+				liveStream.driverError("tool-call "+call.Name, callErr)
 				return Observation{}, nil, fail("CONTINUATION_INVALID")
 			}
 			results = append(results, session.execute(ctx, call))
@@ -509,6 +526,7 @@ func (adapter *loopAdapter) runConversation(
 			}
 			if retain {
 				if err := conversation.appendResults(results); err != nil {
+					liveStream.driverError("append-results-terminal", err)
 					return Observation{}, nil, err
 				}
 			}
@@ -553,6 +571,7 @@ func (adapter *loopAdapter) runConversation(
 			}, nil
 		}
 		if err := conversation.appendResults(results); err != nil {
+			liveStream.driverError("append-results", err)
 			return Observation{}, nil, err
 		}
 	}
@@ -752,7 +771,7 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Inputs:         invocation.Request.Inputs,
 		Responsibility: descriptor.Responsibility,
 		ResultFields:   submissionResultFields(descriptor.Responsibility),
-		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
+		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Scratch output such as check logs belongs under the workspace tmp/ directory, which never enters the submitted candidate; every other workspace change must stay inside the slice scope, because the candidate is judged on its full diff. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
 	}
 	if invocation.recoverableInput != nil {
 		if err := ValidateRecoverableTurnInput(

@@ -1,0 +1,547 @@
+diff --cc internal/driver/http.go
+index 367f83e4,586c479b..00000000
+--- a/internal/driver/http.go
++++ b/internal/driver/http.go
+@@@ -162,18 -119,13 +162,21 @@@ func (transport *httpTransport) roundTr
+  		}
+  		httpRequest.Header.Set(name, value)
+  	}
+ -	httpRequest.Header.Set(
+ -		transport.config.CredentialHeader,
+ -		transport.config.CredentialPrefix+string(secret),
+ -	)
+ +	if transport.auth == AuthModeBearer {
+ +		secret, err := transport.resolve(ctx, *ref)
+ +		if err != nil || len(secret) == 0 || len(secret) > 65_536 {
+ +			clearBytes(secret)
+ +			return nil, fail("CREDENTIAL_UNAVAILABLE")
+ +		}
+ +		defer clearBytes(secret)
+ +		httpRequest.Header.Set(
+ +			transport.config.CredentialHeader,
+ +			transport.config.CredentialPrefix+string(secret),
+ +		)
+ +	}
++ 	if request.Stream {
++ 		httpRequest.Header.Set("Accept", "text/event-stream")
++ 	}
+  	response, err := transport.client.Do(httpRequest)
+  	if err != nil {
+  		if isContextError(ctx.Err()) {
+diff --cc internal/driver/openai.go
+index eadbb5cc,6679bd0b..00000000
+--- a/internal/driver/openai.go
++++ b/internal/driver/openai.go
+@@@ -55,65 -53,17 +55,72 @@@ const 
+  	OpenRouterChatCompletionsAPI OpenAIAPI = "openrouter_chat_completions"
+  )
+  
+ +func (api OpenAIAPI) valid() bool {
+ +	switch api {
+ +	case OpenAIResponsesAPI,
+ +		OpenAIChatCompletionsAPI,
+ +		OpenRouterChatCompletionsAPI:
+ +		return true
+ +	default:
+ +		return false
+ +	}
+ +}
+ +
+  type OpenAIProfileConfig struct {
+  	HTTPProfileConfig
+ -	API             OpenAIAPI `json:"api"`
+ -	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+ +	API              OpenAIAPI     `json:"api"`
+ +	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
+ +	ReasoningEfforts []string      `json:"reasoning_efforts,omitempty"`
+- 	Preset           string        `json:"preset,omitempty"`
+- 	AuthMode         AuthMode      `json:"auth_mode,omitempty"`
+- 	Chain            *AWSChainSpec `json:"chain,omitempty"`
+- 	OpaqueReasoning  *bool         `json:"opaque_reasoning,omitempty"`
++ 	// Stream enables SSE streaming on the responses flavour: events render
++ 	// live while the terminal event's embedded response object feeds the
++ 	// exact non-streaming validation path.
++ 	Stream bool `json:"stream,omitempty"`
++ 	// EnableThinking is Qwen's thinking toggle on the responses flavour,
++ 	// carried verbatim when set.
+ -	EnableThinking *bool `json:"enable_thinking,omitempty"`
+++	EnableThinking  *bool         `json:"enable_thinking,omitempty"`
+++	Preset          string        `json:"preset,omitempty"`
+++	AuthMode        AuthMode      `json:"auth_mode,omitempty"`
+++	Chain           *AWSChainSpec `json:"chain,omitempty"`
+++	OpaqueReasoning *bool         `json:"opaque_reasoning,omitempty"`
+ +}
+ +
+ +// effectiveAuth returns the admission-time authentication mode of a unified
+ +// OpenAI-compatible adapter. Omission keeps the legacy deterministic default:
+ +// a configured AWS chain means SigV4, everything else means bearer. The
+ +// explicit none mode is the only way to obtain a credential-less adapter.
+ +func (config OpenAIProfileConfig) effectiveAuth() AuthMode {
+ +	if config.AuthMode != "" {
+ +		return config.AuthMode
+ +	}
+ +	if config.Chain != nil {
+ +		return AuthModeAWSSigV4
+ +	}
+ +	return AuthModeBearer
+ +}
+ +
+ +// validOpenAIAuth is fail-closed over the authentication surface: bearer and
+ +// SigV4 require credential references, SigV4 requires an AWS chain and forbids
+ +// header auth, and none requires the absence of every credential artifact.
+ +func validOpenAIAuth(config *OpenAIProfileConfig) bool {
+ +	if config == nil {
+ +		return false
+ +	}
+ +	switch config.effectiveAuth() {
+ +	case AuthModeNone:
+ +		return len(config.CredentialRefs) == 0 &&
+ +			config.CredentialHeader == "" &&
+ +			config.CredentialPrefix == "" &&
+ +			config.Chain == nil
+ +	case AuthModeBearer:
+ +		return len(config.CredentialRefs) > 0 && config.Chain == nil
+ +	case AuthModeAWSSigV4:
+ +		return len(config.CredentialRefs) > 0 &&
+ +			config.Chain != nil &&
+ +			config.CredentialHeader == "" &&
+ +			config.CredentialPrefix == ""
+ +	default:
+ +		return false
+ +	}
+  }
+  
+  func NewOpenAIAdapter(
+@@@ -251,47 -146,62 +260,50 @@@
+  	)
+  }
+  
+ -func NewDeepSeekAdapter(
+ -	config HTTPProfileConfig,
+ -	resolver HeaderCredentialResolver,
+ -	probe ProfileLiveProbe,
+ -	roundTripper http.RoundTripper,
+ -) (Adapter, error) {
+ -	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
+ -	if err != nil {
+ -		return nil, err
+ -	}
+ -	factory := func(
+ -		prompt []byte,
+ -		model string,
+ -		tools []providerToolDefinition,
+ -	) (providerConversation, error) {
+ -		return newOpenAIConversation(
+ -			config.Endpoint,
+ -			model,
+ -			tools,
+ -			prompt,
+ -			providerDialectDeepSeekChat,
+ -			"",
+ -		)
+ -	}
+ -	configuration := struct {
+ -		HTTPProfileConfig
+ -		Family ProfileFamily
+ -	}{transport.config, ProfileDeepSeek}
+ -	return newLoopAdapter(
+ -		config.Key,
+ -		config.ID,
+ -		config.Version,
+ -		ProfileDeepSeek,
+ -		"",
+ -		providerDialectDeepSeekChat,
+ -		configuration,
+ -		factory,
+ -		transport,
+ -	)
+ -}
+ -
+  func (config OpenAIProfileConfig) valid() bool {
+ -	if validateEndpoint(config.Endpoint) != nil {
+ +	parsed, err := url.Parse(config.Endpoint)
+ +	if validateEndpoint(config.Endpoint) != nil ||
+ +		err != nil || parsed.RawQuery != "" ||
+ +		!validReasoningEfforts(config.ReasoningEfforts) {
+  		return false
+  	}
+ -	if config.API == OpenAIChatCompletionsAPI {
+++	// Streaming is a responses-flavour capability only; the chat flavours
+++	// keep the exact non-streaming request shape.
+ +	switch config.API {
+ +	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
+- 		return config.ReasoningEffort == "" ||
+- 			config.declaresReasoningEffort(config.ReasoningEffort)
++ 		return !config.Stream &&
++ 			(config.ReasoningEffort == "" ||
+ -				config.ReasoningEffort == "none")
+++				config.declaresReasoningEffort(config.ReasoningEffort))
+ +	case OpenAIResponsesAPI:
+ +		return config.ReasoningEffort != "" &&
+ +			config.declaresReasoningEffort(config.ReasoningEffort)
+ +	default:
+ +		return false
+  	}
+ -	if config.API == OpenRouterChatCompletionsAPI {
+ -		return !config.Stream && config.ReasoningEffort == ""
+ +}
+ +
+ +// declaresReasoningEffort reports whether value is admitted by this profile.
+ +// A declared per-profile vocabulary wins; when none is declared the global
+ +// backward-compatibility set is the vocabulary.
+ +func (config OpenAIProfileConfig) declaresReasoningEffort(value string) bool {
+ +	if len(config.ReasoningEfforts) != 0 {
+ +		return slices.Contains(config.ReasoningEfforts, value)
+ +	}
+ +	return validOpenAIReasoningEffort(value)
+ +}
+ +
+ +// validReasoningEfforts requires a canonical per-profile vocabulary: values
+ +// are non-empty bounded text, strictly increasing, and never duplicated, so
+ +// two profiles declaring the same capability canonicalize identically.
+ +func validReasoningEfforts(values []string) bool {
+ +	for index, value := range values {
+ +		if value == "" ||
+ +			validateText(value, 128, false) != nil ||
+ +			(index > 0 && values[index-1] >= value) {
+ +			return false
+ +		}
+  	}
+ -	return config.API == OpenAIResponsesAPI &&
+ -		config.ReasoningEffort != "" &&
+ -		validOpenAIReasoningEffort(config.ReasoningEffort)
+ +	return true
+  }
+  
+  func newOpenAIConversation(
+diff --cc internal/driver/responses.go
+index 9a67d6a8,ce6df9cb..00000000
+--- a/internal/driver/responses.go
++++ b/internal/driver/responses.go
+@@@ -247,59 -231,6 +264,61 @@@ func (conversation *responsesConversati
+  	return turn, nil
+  }
+  
+ +// responsesTruncated reports whether an incomplete Responses response was cut
+ +// by the provider's output-token ceiling (incomplete_details.reason
+ +// "max_output_tokens"). The root object is not closed-object validated, so
+ +// the detail is read leniently; any other incompletion keeps the prior
+ +// MISSING_SUBMISSION behavior.
+ +func responsesTruncated(root map[string]any) bool {
+ +	details, present := root["incomplete_details"]
+ +	if !present {
+ +		return false
+ +	}
+ +	detailsObject, ok := details.(map[string]any)
+ +	if !ok {
+ +		return false
+ +	}
+ +	reason, ok := detailsObject["reason"].(string)
+ +	return ok && reason == "max_output_tokens"
+ +}
+ +
+ +// responsesUsage parses the Responses usage object, surfacing the cached-token
+ +// detail (input_tokens_details.cached_tokens) as cache reads instead of
+ +// discarding it. The details object carries provider-specific breakdown fields
+ +// (audio, image, text tokens), so only cached_tokens is extracted and a
+ +// malformed detail never fails the run.
+ +func responsesUsage(value any) (*Usage, error) {
+++	// x_details is Qwen's provider-specific usage annex on the responses
+++	// flavour; it is tolerated and ignored rather than failing the turn.
+ +	usage, err := closedObject(
+ +		value,
+ +		[]string{"input_tokens", "output_tokens", "total_tokens"},
+- 		[]string{"input_tokens_details", "output_tokens_details"},
+++		[]string{"input_tokens_details", "output_tokens_details", "x_details"},
+ +	)
+ +	if err != nil {
+ +		return nil, fail("INVALID_USAGE")
+ +	}
+ +	input, inputOK := safeJSONInt(usage["input_tokens"])
+ +	outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
+ +	if !inputOK || !outputOK {
+ +		return nil, fail("INVALID_USAGE")
+ +	}
+ +	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
+ +	if detailsValue, present := usage["input_tokens_details"]; present &&
+ +		detailsValue != nil {
+ +		details, detailsOK := detailsValue.(map[string]any)
+ +		if detailsOK {
+ +			if cachedValue, present := details["cached_tokens"]; present {
+ +				cached, cachedOK := safeJSONInt(cachedValue)
+ +				if cachedOK {
+ +					result.CacheReadTokens = &cached
+ +				}
+ +			}
+ +		}
+ +	}
+ +	return result, nil
+ +}
+ +
+  func (conversation *responsesConversation) appendInstruction(body []byte) error {
+  	if conversation == nil || len(conversation.pending) != 0 ||
+  		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
+diff --git a/internal/driver/stream.go b/internal/driver/stream.go
+new file mode 100644
+index 00000000..13301635
+--- /dev/null
++++ b/internal/driver/stream.go
+@@ -0,0 +1,258 @@
++package driver
++
++import (
++	"bufio"
++	"bytes"
++	"encoding/json"
++	"fmt"
++	"io"
++	"os"
++	"strings"
++	"sync"
++)
++
++// MaxStreamBytes bounds the raw SSE byte stream for one turn. Deltas
++// duplicate the terminal response's content, so the guard sits well above
++// MaxProviderResponseBytes without ever binding an honest stream.
++const MaxStreamBytes = 16_777_216
++
++// streamRenderer writes a live, human-readable rendering of Responses-API
++// SSE events to stderr. It is presentation only: nothing here feeds
++// validation, and rendering failures are ignored.
++type streamRenderer struct {
++	mu        sync.Mutex
++	out       io.Writer
++	color     bool
++	inThought bool
++	inText    bool
++}
++
++var liveStream = newStreamRenderer()
++
++func newStreamRenderer() *streamRenderer {
++	renderer := &streamRenderer{out: os.Stderr}
++	if info, err := os.Stderr.Stat(); err == nil {
++		renderer.color = info.Mode()&os.ModeCharDevice != 0
++	}
++	return renderer
++}
++
++func (renderer *streamRenderer) dim(text string) string {
++	if renderer.color {
++		return "\x1b[2m" + text + "\x1b[0m"
++	}
++	return text
++}
++
++func (renderer *streamRenderer) bold(text string) string {
++	if renderer.color {
++		return "\x1b[1m" + text + "\x1b[0m"
++	}
++	return text
++}
++
++func (renderer *streamRenderer) breakFlow() {
++	if renderer.inThought || renderer.inText {
++		fmt.Fprintln(renderer.out)
++		renderer.inThought, renderer.inText = false, false
++	}
++}
++
++func (renderer *streamRenderer) event(name string, data []byte) {
++	renderer.mu.Lock()
++	defer renderer.mu.Unlock()
++	switch name {
++	case "response.created":
++		var envelope struct {
++			Response struct {
++				Model     string `json:"model"`
++				Reasoning struct {
++					Effort string `json:"effort"`
++				} `json:"reasoning"`
++			} `json:"response"`
++		}
++		_ = json.Unmarshal(data, &envelope)
++		renderer.breakFlow()
++		fmt.Fprintf(renderer.out, "%s\n", renderer.bold(fmt.Sprintf(
++			"── %s turn (effort %s) ──",
++			envelope.Response.Model,
++			envelope.Response.Reasoning.Effort,
++		)))
++	case "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
++		var event struct {
++			Delta string `json:"delta"`
++		}
++		if json.Unmarshal(data, &event) == nil && event.Delta != "" {
++			if !renderer.inThought {
++				renderer.breakFlow()
++				fmt.Fprint(renderer.out, renderer.dim("· "))
++				renderer.inThought = true
++			}
++			fmt.Fprint(renderer.out, renderer.dim(event.Delta))
++		}
++	case "response.output_text.delta":
++		var event struct {
++			Delta string `json:"delta"`
++		}
++		if json.Unmarshal(data, &event) == nil && event.Delta != "" {
++			if !renderer.inText {
++				renderer.breakFlow()
++				renderer.inText = true
++			}
++			fmt.Fprint(renderer.out, event.Delta)
++		}
++	case "response.output_item.added":
++		var event struct {
++			Item struct {
++				Type string `json:"type"`
++				Name string `json:"name"`
++			} `json:"item"`
++		}
++		if json.Unmarshal(data, &event) == nil &&
++			event.Item.Type == "function_call" {
++			renderer.breakFlow()
++			fmt.Fprintf(
++				renderer.out,
++				"%s ",
++				renderer.bold("⚙ "+event.Item.Name),
++			)
++		}
++	case "response.function_call_arguments.delta":
++		var event struct {
++			Delta string `json:"delta"`
++		}
++		if json.Unmarshal(data, &event) == nil {
++			fmt.Fprint(renderer.out, event.Delta)
++		}
++	case "response.function_call_arguments.done":
++		renderer.breakFlow()
++		fmt.Fprintln(renderer.out)
++	case "response.completed", "response.incomplete", "response.failed":
++		var envelope struct {
++			Response struct {
++				Status string `json:"status"`
++				Usage  *struct {
++					InputTokens       int64 `json:"input_tokens"`
++					OutputTokens      int64 `json:"output_tokens"`
++					InputTokenDetails *struct {
++						CachedTokens int64 `json:"cached_tokens"`
++					} `json:"input_tokens_details"`
++					OutputTokenDetails *struct {
++						ReasoningTokens int64 `json:"reasoning_tokens"`
++					} `json:"output_tokens_details"`
++				} `json:"usage"`
++			} `json:"response"`
++		}
++		_ = json.Unmarshal(data, &envelope)
++		renderer.breakFlow()
++		summary := "status=" + envelope.Response.Status
++		if usage := envelope.Response.Usage; usage != nil {
++			summary += fmt.Sprintf(
++				" in=%d out=%d",
++				usage.InputTokens,
++				usage.OutputTokens,
++			)
++			if usage.InputTokenDetails != nil {
++				summary += fmt.Sprintf(
++					" cached=%d",
++					usage.InputTokenDetails.CachedTokens,
++				)
++			}
++			if usage.OutputTokenDetails != nil {
++				summary += fmt.Sprintf(
++					" reasoning=%d",
++					usage.OutputTokenDetails.ReasoningTokens,
++				)
++			}
++		}
++		fmt.Fprintf(renderer.out, "%s\n", renderer.dim("── "+summary+" ──"))
++	}
++}
++
++// driverError surfaces a driver-side rejection into the live stream so an
++// operator watching the log sees why a turn died, not just that it stopped.
++func (renderer *streamRenderer) driverError(stage string, err error) {
++	renderer.mu.Lock()
++	defer renderer.mu.Unlock()
++	renderer.breakFlow()
++	detail := "unspecified"
++	if err != nil {
++		detail = err.Error()
++	}
++	fmt.Fprintf(
++		renderer.out,
++		"%s\n",
++		renderer.bold("── driver "+stage+" error: "+detail+" ──"),
++	)
++}
++
++// readStreamedResponse consumes one SSE stream, renders every event live,
++// and returns the terminal event's embedded response object. The stream
++// ends at response.completed / response.incomplete / response.failed; there
++// is no data: [DONE] sentinel in this dialect.
++func readStreamedResponse(body io.Reader, maximumBytes int) ([]byte, error) {
++	scanner := bufio.NewScanner(io.LimitReader(body, MaxStreamBytes+1))
++	scanner.Buffer(make([]byte, 0, 64*1024), MaxStreamBytes)
++	var eventName string
++	var data bytes.Buffer
++	var terminal []byte
++	total := 0
++	flush := func() error {
++		if eventName == "" && data.Len() == 0 {
++			return nil
++		}
++		payload := append([]byte(nil), data.Bytes()...)
++		name := eventName
++		eventName = ""
++		data.Reset()
++		if name == "" || len(payload) == 0 {
++			return nil
++		}
++		liveStream.event(name, payload)
++		switch name {
++		case "response.completed", "response.incomplete", "response.failed":
++			var envelope struct {
++				Response json.RawMessage `json:"response"`
++			}
++			if json.Unmarshal(payload, &envelope) != nil ||
++				len(envelope.Response) == 0 {
++				return fail("CONTINUATION_INVALID")
++			}
++			if len(envelope.Response) > maximumBytes {
++				return fail("OUTPUT_OVERFLOW")
++			}
++			terminal = append([]byte(nil), envelope.Response...)
++		}
++		return nil
++	}
++	for scanner.Scan() {
++		line := scanner.Text()
++		total += len(line) + 1
++		if total > MaxStreamBytes {
++			return nil, fail("OUTPUT_OVERFLOW")
++		}
++		switch {
++		case line == "":
++			if err := flush(); err != nil {
++				return nil, err
++			}
++		case strings.HasPrefix(line, "event:"):
++			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
++		case strings.HasPrefix(line, "data:"):
++			if data.Len() > 0 {
++				data.WriteByte('\n')
++			}
++			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
++		}
++	}
++	if err := scanner.Err(); err != nil {
++		return nil, fail("PROVIDER_TRANSPORT_FAILED")
++	}
++	if err := flush(); err != nil {
++		return nil, err
++	}
++	if len(terminal) == 0 {
++		return nil, fail("PROVIDER_TRANSPORT_FAILED")
++	}
++	return terminal, nil
++}

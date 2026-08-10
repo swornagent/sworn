@@ -1,0 +1,154 @@
+diff --git a/internal/gitx/workspaces.go b/internal/gitx/workspaces.go
+index fc24c334..1e5592e2 100644
+--- a/internal/gitx/workspaces.go
++++ b/internal/gitx/workspaces.go
+@@ -1121,6 +1121,15 @@ func (w *Workspaces) sealTrackWithClaim(
+ 				"INVALID_REF_TRANSACTION", "guard seal authority", nil)
+ 		}
+ 	}
++	// tmp/ is declared scratch: workers redirect check output and other
++	// ephemera there, and the worker is finished by seal time, so scratch
++	// is deleted before staging and never reaches the candidate or the
++	// slice scope gate. (Exclude pathspecs cannot express this: the git
++	// wrapper deliberately sets GIT_LITERAL_PATHSPECS=1, and a per-worktree
++	// info/exclude is ignored because git reads the common dir's copy.)
++	if err := os.RemoveAll(filepath.Join(lease.path, "tmp")); err != nil {
++		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "clear workspace scratch", err)
++	}
+ 	if _, err := w.repository.runAt(
+ 		lease.path,
+ 		nil,
+diff --git a/internal/gitx/workspaces_test.go b/internal/gitx/workspaces_test.go
+index bdf981ef..fb1d6f42 100644
+--- a/internal/gitx/workspaces_test.go
++++ b/internal/gitx/workspaces_test.go
+@@ -6,6 +6,7 @@ import (
+ 	"os/exec"
+ 	"path/filepath"
+ 	"reflect"
++	"strings"
+ 	"testing"
+ )
+ 
+@@ -1268,3 +1269,68 @@ func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
+ 		t.Fatal("authority escape moved the track")
+ 	}
+ }
++
++func TestSealDeletesWorkspaceScratchBeforeStaging(t *testing.T) {
++	t.Parallel()
++
++	repository, base := newRepository(t, SHA1)
++	key := TrackKey{Release: "release-scratch", Track: "T1"}
++	createTrack(t, repository, key, base)
++	workspaces, err := NewWorkspaces(repository, testIdentity)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer workspaces.Close()
++
++	implementation, err := workspaces.OpenTrack(key, ImplementationView)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(
++		filepath.Join(implementation.Path(), "product.txt"),
++		[]byte("candidate\n"),
++		0o644,
++	); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(
++		filepath.Join(implementation.Path(), "tmp", "nested"),
++		0o755,
++	); err != nil {
++		t.Fatal(err)
++	}
++	for _, scratch := range []string{"tmp/checks.log", "tmp/nested/e2e.txt"} {
++		if err := os.WriteFile(
++			filepath.Join(implementation.Path(), filepath.FromSlash(scratch)),
++			[]byte("scratch\n"),
++			0o644,
++		); err != nil {
++			t.Fatal(err)
++		}
++	}
++	sealed, err := workspaces.SealTrack(implementation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	rawPaths, err := repository.run(
++		nil, nil, "ls-tree", "-r", "--name-only", sealed.Candidate.String(),
++	)
++	if err != nil {
++		t.Fatal(err)
++	}
++	paths := strings.Fields(string(rawPaths))
++	for _, path := range paths {
++		if path == "tmp" || strings.HasPrefix(path, "tmp/") {
++			t.Fatalf("candidate contains scratch path %q", path)
++		}
++	}
++	found := false
++	for _, path := range paths {
++		if path == "product.txt" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("candidate lost the product change: %v", paths)
++	}
++}
+diff --git a/internal/journal/control.go b/internal/journal/control.go
+index 9d57a56c..0f8ec7f6 100644
+--- a/internal/journal/control.go
++++ b/internal/journal/control.go
+@@ -558,9 +558,29 @@ func (s *Store) EnsureAttempt(ctx context.Context, command Command, effect Effec
+ 		if err != nil {
+ 			return err
+ 		}
+-		epoch := projection.RetryEpochs[attempt.WorkID]
+-		if epoch == 0 {
+-			epoch = 1
++		epoch, retried := projection.RetryEpochs[attempt.WorkID]
++		if !retried {
++			// A work with no retry history follows its first writer's epoch:
++			// derived works (such as seal preparation) inherit their parent
++			// cycle's epoch after a retry, and the exclusive owner lease
++			// already serializes writers. A conflicting earlier epoch on
++			// disk still fails closed below.
++			var conflicting int
++			if err := conn.QueryRowContext(ctx,
++				`SELECT count(*) FROM effects
++				  WHERE run_id = ? AND effect_id LIKE ?
++				    AND effect_id NOT LIKE ?`,
++				command.RunID,
++				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+"/%",
++				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+
++					"/e"+strconv.FormatInt(attempt.Epoch, 10)+"/%",
++			).Scan(&conflicting); err != nil {
++				return dbError(err)
++			}
++			if conflicting != 0 {
++				return fail("STALE_RETRY_EPOCH", nil)
++			}
++			epoch = attempt.Epoch
+ 		}
+ 		if epoch != attempt.Epoch {
+ 			return fail("STALE_RETRY_EPOCH", nil)
+@@ -568,7 +588,14 @@ func (s *Store) EnsureAttempt(ctx context.Context, command Command, effect Effec
+ 		if attempt.Try > 1 {
+ 			previous, err := effectOnConnection(ctx, conn, command.RunID,
+ 				AttemptEffectID(attempt.WorkID, attempt.Epoch, attempt.Try-1))
+-			if err != nil || previous.State != OperationalFailed {
++			// An absent previous attempt is retryable: the earlier try died
++			// before journaling intent for this effect, so it can have had
++			// no side effects at this stage. Only a previous attempt that
++			// exists in a non-failed state blocks the retry.
++			if err != nil && !IsCode(err, "EFFECT_NOT_FOUND") {
++				return err
++			}
++			if err == nil && previous.State != OperationalFailed {
+ 				return fail("PREVIOUS_ATTEMPT_NOT_RETRYABLE", nil)
+ 			}
+ 		}

@@ -177,6 +177,8 @@ func TestResponsesReplaysEncryptedReasoningAndExactToolCorrelation(t *testing.T)
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
 		"medium",
+		nil,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
