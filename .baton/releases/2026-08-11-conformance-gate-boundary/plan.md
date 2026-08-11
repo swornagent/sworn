@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-11-conformance-gate-boundary",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "8c338801708fc45b9a6c1dfafd13858d97dc71dd",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-11-conformance-gate-boundary/1",
+  "approval_ref": "operator://2026-08-11-conformance-gate-boundary/2",
   "tracks": [
     {
       "id": "T1-gate",
@@ -15,20 +15,21 @@
         {
           "id": "S1-declared-checks",
           "outcome": "A slice contract can declare a check that requires containment, and the engine executes it at the host boundary, journals its exit code and bounded output, and binds the result as evidence a verifier reads rather than re-runs - with provenance explicit enough that host-executed evidence can never be mistaken for in-worker evidence.",
-          "contract_path": "contracts/2026-08-11-conformance-gate-boundary/S1-declared-checks.json",
-          "digest": "sha256:985f14476db6c20ea8a085569e15754b609919e5959782362e94229d1d4043a1",
+          "contract_path": "contracts/2026-08-11-conformance-gate-boundary/rev2/S1-declared-checks.json",
+          "digest": "sha256:804c5bcb6ab9278139777673fe86626af797e628a205217cb326cc610c98d2bd",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/runtime",
             "internal/baton",
-            "internal/journal"
+            "internal/journal",
+            "internal/driver"
           ]
         },
         {
           "id": "S2-test-only-uncontained-dispatch",
           "outcome": "End-to-end tests that exercise scheduling, journal semantics, exactly-once and crash recovery run inside a worker sandbox through a test-only uncontained dispatch mode, while tests that prove isolation keep real containment - and no production binary can reach the uncontained path at all.",
-          "contract_path": "contracts/2026-08-11-conformance-gate-boundary/S2-test-only-uncontained-dispatch.json",
+          "contract_path": "contracts/2026-08-11-conformance-gate-boundary/rev2/S2-test-only-uncontained-dispatch.json",
           "digest": "sha256:3f48eb7fe0e79cc92aa681d19d82f261a8d5f30735b2817997ca2ffd3b59cdf8",
           "depends_on": [
             "S1-declared-checks"
