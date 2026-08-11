@@ -1,0 +1,49 @@
+{
+  "outcome": "A slice contract can declare a check that requires containment, and the engine executes it at the host boundary, journals its exit code and bounded output, and binds the result as evidence a verifier reads rather than re-runs - with provenance explicit enough that host-executed evidence can never be mistaken for in-worker evidence.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/baton",
+      "internal/journal"
+    ],
+    "exclude": [
+      "executing anything not declared in an approved contract",
+      "weakening or bypassing worker containment",
+      "changing what the existing checks assert"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A contract check marked as requiring containment is executed by the engine on the host at a defined boundary; its exit code and bounded output are journaled as a durable effect bound to the exact slice, candidate and contract digest."
+    },
+    {
+      "id": "A2",
+      "text": "Recorded check evidence carries explicit provenance naming the host boundary, and a verifier reading it can distinguish host-executed evidence from evidence a role produced itself; unlabelled or absent provenance fails closed."
+    },
+    {
+      "id": "A3",
+      "text": "The runner executes only checks declared in the approved contract for the slice under delivery. An input that is not such a declared check is refused, and the refusal is journaled."
+    },
+    {
+      "id": "A4",
+      "text": "Check output is bounded with truthful truncation markers and the run is bounded by a timeout; a check that times out or overflows is recorded as a failure with its diagnostic, never as a pass or as absent."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The host runner is privileged surface: it may execute only checks declared in an approved contract, never arbitrary or model-supplied input.",
+    "Host-executed evidence is labelled as such at the point of recording, not inferred downstream.",
+    "Worker containment is unchanged; no production binary gains an uncontained dispatch path.",
+    "The e2e check in this slice's own list is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}
