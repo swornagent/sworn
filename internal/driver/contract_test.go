@@ -48,7 +48,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 	}
 	if identity != (PackageIdentity{
 		Version:        "sworn.role-assets/v1",
-		ManifestSHA256: "sha256:9d1a65537f362954741179cccb554e857bf7b62f1ecb1b025d0346224d80dd8e",
+		ManifestSHA256: "sha256:57bddcc421794a5660281aaad2928eedc895ebc2c767f907b8916adc26a8570d",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -70,7 +70,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 		},
 		RoleVerifier: {
 			"baton-verify",
-			"sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014",
+			"sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d",
 		},
 	}
 	for role, want := range expected {
