@@ -14,15 +14,31 @@ const (
 	// MaxContinuationSteps matches MaxProviderTurns: the ledger's byte
 	// guards bound the resource; the step count must never end a
 	// conversation the turn budget still allows.
-	MaxContinuationSteps        = 1_000
-	MaxCorrelationIDBytes       = 256
+	MaxContinuationSteps  = 1_000
+	MaxCorrelationIDBytes = 256
 	// MaxOpaqueFieldBytes must never bind before MaxProviderResponseBytes:
 	// a reasoning model may legitimately think for hundreds of kilobytes
 	// (observed: 279KB in one GLM-5.2 turn), and capping the field kills the
 	// turn over content Sworn does not even retain.
-	MaxOpaqueFieldBytes         = 1_048_576
-	MaxOpaqueStepBytes          = 524_288
-	MaxOpaqueInvocationBytes    = 1_048_576
+	MaxOpaqueFieldBytes = 1_048_576
+	// A step must hold at least one maximal field with room beside it, or
+	// the reasoning the per-field budget exists to admit is refused one
+	// level up.
+	//
+	// There is deliberately no cumulative per-invocation budget. Retained
+	// opaque fields accumulate across every turn of a conversation, so any
+	// fixed total is a limit on how long a model may think before the run
+	// dies mid-delivery over content Sworn does not read. The previous
+	// one-megabyte total, against a thousand permitted steps, allowed about
+	// a kilobyte of reasoning per step: a high-effort model exhausted it
+	// within a handful of turns and every later retain failed
+	// CONTINUATION_INVALID, which parked three real releases. The real
+	// bounds remain and are physical rather than arbitrary: a single field
+	// and a single step are bounded above, the assembled request is bounded
+	// by MaxProviderRequestBytes, and continuation state is bounded by
+	// maxContinuationStateBytes. Runaway growth still fails, and it fails
+	// where the resource actually is.
+	MaxOpaqueStepBytes          = 8_388_608
 	MaxDecodedOpaqueBinaryBytes = 196_608
 	maxContinuationStateBytes   = 67_108_864
 	maxContinuationLifetime     = 24 * time.Hour
@@ -688,8 +704,7 @@ func (ledger *continuationLedger) retain(fields ...opaqueField) ([][]byte, error
 			return nil, fail("CONTINUATION_INVALID")
 		}
 		stepBytes += len(field.body)
-		if stepBytes > MaxOpaqueStepBytes ||
-			ledger.total > MaxOpaqueInvocationBytes-stepBytes {
+		if stepBytes > MaxOpaqueStepBytes {
 			clearRetained(retained)
 			return nil, fail("CONTINUATION_INVALID")
 		}
