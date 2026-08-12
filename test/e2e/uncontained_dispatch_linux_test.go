@@ -446,8 +446,19 @@ func TestProductionBinaryRefusesUncontainedDispatch(t *testing.T) {
 	if refused == 0 {
 		t.Fatal("no journaled UNCONTAINED_DISPATCH_REFUSED operational failure")
 	}
-	state := readBatonState(t, repository, release)
-	if state.Assembly.Outcome == "merged" {
-		t.Fatal("refused run advanced assembly")
+	// A run refused at its first dispatch parks before any baton authority
+	// effect, so it must leave no authority refs behind. Assert that directly
+	// with git (mirroring the A2 planner-pause pattern) rather than reading
+	// baton state, which REF_NOT_FOUNDs because the release-wt ref was never
+	// created.
+	for _, ref := range []string{
+		"refs/heads/release-wt/" + release,
+		"refs/heads/track/" + release + "/T1",
+		"refs/heads/track/" + release + "/T2",
+	} {
+		command := exec.Command(e2eGit, "-C", repository, "show-ref", "--verify", "--quiet", ref)
+		if err := command.Run(); err == nil {
+			t.Fatalf("refused run created authority ref %s", ref)
+		}
 	}
 }
