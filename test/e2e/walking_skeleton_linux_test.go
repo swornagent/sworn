@@ -160,6 +160,25 @@ func buildBinary(t *testing.T, output, source, ldflags string) {
 // previously each permutation was its own link.
 const hookGateLDFlags = "-X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1"
 
+// uncontainedGateLDFlags links the test-only uncontained dispatch gate into a
+// binary. Like hookGateLDFlags it is reachable only through ldflags; a
+// production build links the zero value and refuses the uncontained request
+// (SWORN_TEST_UNCONTAINED_DISPATCH=1) before any dispatch.
+const uncontainedGateLDFlags = "-X=github.com/swornagent/sworn/internal/driver.testUncontainedDispatch=1"
+
+// uncontainedDispatchLDFlags returns the ldflags a test needs to run the
+// orchestration subset through the uncontained dispatch path: the uncontained
+// gate, combined with the runtime hook gate exactly when the run asks for
+// uncontained dispatch. Every other e2e test keeps the exact production link
+// flags, so containment-requiring isolation tests are never gate-linked.
+func uncontainedDispatchLDFlags() string {
+	flags := uncontainedGateLDFlags
+	if os.Getenv("SWORN_TEST_UNCONTAINED_DISPATCH") == "1" {
+		flags = hookGateLDFlags + " " + flags
+	}
+	return flags
+}
+
 // testLeaseMillis is the shortest owner lease ownerDuration admits. Only
 // tests that deliberately wait out a claim set it; every other test keeps
 // the production 30s lease so a loaded machine cannot expire a live claim

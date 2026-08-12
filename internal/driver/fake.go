@@ -30,6 +30,36 @@ func (profile FakeProfile) valid() bool {
 	return profile == FakeCompleted || profile == FakeTransportError ||
 		profile == FakeTimeout || profile == FakeCancelled || profile == FakeRunnerError
 }
+
+// EffectiveWorkspacePath resolves the guest workspace path through the
+// engine-set test-only override when an uncontained dispatch is active, and
+// otherwise returns the canonical guest workspace path unchanged. The override
+// is present only in the controlled environment the engine builds for the
+// gate-linked uncontained dispatch branch; the contained path never carries it.
+func EffectiveWorkspacePath(guest string) string {
+	if override := os.Getenv(testUncontainedGuestWorkspaceEnv); override != "" {
+		return override
+	}
+	return guest
+}
+
+// EffectiveInputPath resolves the guest input projection root through the
+// engine-set test-only override when an uncontained dispatch is active, and
+// otherwise returns the canonical guest input path unchanged.
+func EffectiveInputPath() string {
+	if override := os.Getenv(testUncontainedGuestInputsEnv); override != "" {
+		return override
+	}
+	return GuestInputPath
+}
+
+// UncontainedDispatchMarker reports whether this process is executing inside a
+// gate-linked uncontained dispatch. The marker travels only in the controlled
+// environment the engine builds for that branch, so it can never be set in the
+// contained path.
+func UncontainedDispatchMarker() bool {
+	return os.Getenv(testUncontainedDispatchEnv) == "1"
+}
 func FakeInfo() DriverInfo {
 	return DriverInfo{
 		ContractVersion: DriverContractVersion,
@@ -77,8 +107,9 @@ func readFakeScript(request Request) (fakeScript, bool, error) {
 		if input.Name != "fake-script" {
 			continue
 		}
-		target := filepath.Join(GuestInputPath, filepath.FromSlash(input.Path))
-		if !pathBeneath(GuestInputPath, target) {
+		inputsRoot := EffectiveInputPath()
+		target := filepath.Join(inputsRoot, filepath.FromSlash(input.Path))
+		if !pathBeneath(inputsRoot, target) {
 			return fakeScript{}, false, fail("INVALID_FAKE_SCRIPT")
 		}
 		info, err := os.Lstat(target)
@@ -153,7 +184,10 @@ func executeFakeScript(request Request, script fakeScript) (<-chan error, error)
 			time.Sleep(time.Hour)
 		}
 	case "attempt_workspace_write":
-		if err := os.WriteFile(filepath.Join(request.Workspace.Path, ".sworn-fake-write-canary"), []byte("write\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(
+			EffectiveWorkspacePath(request.Workspace.Path),
+			".sworn-fake-write-canary",
+		), []byte("write\n"), 0o600); err != nil {
 			return nil, fail("FAKE_WRITE_REFUSED")
 		}
 	case "malformed_submission_frame":

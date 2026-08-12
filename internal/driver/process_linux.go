@@ -18,6 +18,45 @@ import (
 
 const processTerminationGrace = 250 * time.Millisecond
 
+const (
+	// testUncontainedDispatchEnv is the sole environment signal for the
+	// test-only uncontained dispatch mode. It is a request, never a route: a
+	// binary that did not link the gate refuses it in platformInvoke before
+	// any driver or sandbox interaction, so the environment value alone can
+	// never enable the uncontained branch.
+	testUncontainedDispatchEnv = "SWORN_TEST_UNCONTAINED_DISPATCH"
+	// testUncontainedGuestWorkspaceEnv and testUncontainedGuestInputsEnv are
+	// the engine-set guest-path overrides that let a fake driver resolve the
+	// guest paths (/workspace and /sworn/inputs) it cannot otherwise see in an
+	// uncontained dispatch. They exist only in the controlled environment the
+	// engine builds for the gate-linked uncontained branch; the contained
+	// branch's --clearenv plus fixed --setenv list never carries them.
+	testUncontainedGuestWorkspaceEnv = "SWORN_TEST_GUEST_WORKSPACE"
+	testUncontainedGuestInputsEnv    = "SWORN_TEST_GUEST_INPUTS"
+)
+
+// testUncontainedDispatch is the link-time test-only gate for the uncontained
+// dispatch branch, mirroring the established runtime.testHooksFromEnv pattern.
+// A production build links the zero value (""), which has no manifest, config,
+// environment, or argument route: the uncontained branch is reached only when
+// this gate is linked, the process asks for it, and the selected adapter is
+// the fake driver.
+var testUncontainedDispatch string
+
+// uncontainedDispatchEnabled reports whether this binary is allowed to take
+// the test-only uncontained dispatch branch. Both the linked gate and the
+// environment request are required; the environment alone is refused.
+func uncontainedDispatchEnabled() bool {
+	return testUncontainedDispatch == "1" && os.Getenv(testUncontainedDispatchEnv) == "1"
+}
+
+// uncontainedDispatchRequested reports whether the process asked for the
+// test-only uncontained dispatch mode. A binary without the gate refuses the
+// request before any dispatch.
+func uncontainedDispatchRequested() bool {
+	return os.Getenv(testUncontainedDispatchEnv) == "1"
+}
+
 var (
 	bubblewrapProbeOnce sync.Once
 	bubblewrapProbeErr  error
@@ -28,6 +67,13 @@ func platformInvoke(
 	invocation Invocation,
 	executable ExecutableIdentity,
 ) (Observation, error) {
+	// A request for the test-only uncontained dispatch mode is refused by any
+	// binary that did not link the gate. The environment signal is a request,
+	// never a route: it can never enable dispatch on its own, and the refusal
+	// happens before any driver or sandbox interaction.
+	if uncontainedDispatchRequested() && !uncontainedDispatchEnabled() {
+		return Observation{}, fail("UNCONTAINED_DISPATCH_REFUSED")
+	}
 	if err := validateExecutableIdentity(executable); err != nil {
 		return Observation{}, err
 	}
@@ -82,25 +128,44 @@ func platformInvoke(
 	}
 	defer statusReader.Close()
 	defer statusWriter.Close()
-	bwrap, err := trustedBubblewrap()
-	if err != nil {
-		return Observation{}, fail("ISOLATION_UNAVAILABLE")
+	// The uncontained branch is a test-only dispatch mode, reachable only
+	// through the linked gate plus the environment request plus the fake
+	// driver adapter. Every other invocation keeps real containment.
+	uncontained := uncontainedDispatchEnabled() &&
+		invocation.Selected.Adapter.ID == FakeDriverID
+	var command *exec.Cmd
+	if uncontained {
+		command, err = uncontainedCommand(
+			invocation,
+			executable,
+			projection,
+			requestBody,
+			childEndpoint,
+		)
+		if err != nil {
+			return Observation{}, err
+		}
+	} else {
+		bwrap, err := trustedBubblewrap()
+		if err != nil {
+			return Observation{}, fail("ISOLATION_UNAVAILABLE")
+		}
+		args, err := bubblewrapArguments(invocation)
+		if err != nil {
+			return Observation{}, err
+		}
+		command = exec.Command(bwrap, args...)
+		command.Stdin = bytes.NewReader(requestBody)
+		command.Env = []string{}
+		command.ExtraFiles = []*os.File{
+			childEndpoint,
+			executableFile,
+			workspaceFile,
+			projectionFile,
+			statusWriter,
+		}
+		command.SysProcAttr = linuxSandboxProcessAttributes()
 	}
-	args, err := bubblewrapArguments(invocation)
-	if err != nil {
-		return Observation{}, err
-	}
-	command := exec.Command(bwrap, args...)
-	command.Stdin = bytes.NewReader(requestBody)
-	command.Env = []string{}
-	command.ExtraFiles = []*os.File{
-		childEndpoint,
-		executableFile,
-		workspaceFile,
-		projectionFile,
-		statusWriter,
-	}
-	command.SysProcAttr = linuxSandboxProcessAttributes()
 	var done = make(chan struct{})
 	terminationDone := make(chan struct{})
 	var terminateOnce sync.Once
@@ -169,18 +234,25 @@ func platformInvoke(
 	var status struct {
 		ChildPID int `json:"child-pid"`
 	}
-	decodeErr := json.NewDecoder(statusReader).Decode(&status)
-	group, groupErr := syscall.Getpgid(status.ChildPID)
-	deadline := time.Now().Add(processTerminationGrace)
-	for groupErr == nil && group == command.Process.Pid && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-		group, groupErr = syscall.Getpgid(status.ChildPID)
-	}
-	if decodeErr != nil || groupErr != nil || status.ChildPID <= 0 ||
-		group <= 0 || group == command.Process.Pid {
-		arbiter.fail("process_status_failed", fail("PROCESS_START_FAILED"), fatalTransport)
+	if uncontained {
+		// The uncontained driver is its own process-group leader (Setpgid),
+		// so there is no sandbox indirection and no status-pipe handshake:
+		// the engine's process group is the child pid itself.
+		sandboxProcessGroup.Store(int64(command.Process.Pid))
 	} else {
-		sandboxProcessGroup.Store(int64(group))
+		decodeErr := json.NewDecoder(statusReader).Decode(&status)
+		group, groupErr := syscall.Getpgid(status.ChildPID)
+		deadline := time.Now().Add(processTerminationGrace)
+		for groupErr == nil && group == command.Process.Pid && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+			group, groupErr = syscall.Getpgid(status.ChildPID)
+		}
+		if decodeErr != nil || groupErr != nil || status.ChildPID <= 0 ||
+			group <= 0 || group == command.Process.Pid {
+			arbiter.fail("process_status_failed", fail("PROCESS_START_FAILED"), fatalTransport)
+		} else {
+			sandboxProcessGroup.Store(int64(group))
+		}
 	}
 	_ = statusReader.Close()
 	endpointResult := make(chan error, 1)
@@ -190,8 +262,16 @@ func platformInvoke(
 	waitErr := command.Wait()
 	waitStatus := command.ProcessState.Sys().(syscall.WaitStatus)
 	exitCode := waitStatus.ExitStatus()
-	engineExit := waitStatus.Exited() &&
-		(exitCode == 128+int(syscall.SIGTERM) || exitCode == 128+int(syscall.SIGKILL))
+	// An engine stop surfaces as either form depending on how the process was
+	// launched: under bubblewrap the sandboxed child is wrapped, so the
+	// observed process exits with 128+signal; on the uncontained direct-exec
+	// path the driver itself is signalled, so the observed status is
+	// Signaled(SIGTERM|SIGKILL). Both are engine stops, never spontaneous
+	// exits.
+	engineExit := (waitStatus.Exited() &&
+		(exitCode == 128+int(syscall.SIGTERM) || exitCode == 128+int(syscall.SIGKILL))) ||
+		(waitStatus.Signaled() &&
+			(waitStatus.Signal() == syscall.SIGTERM || waitStatus.Signal() == syscall.SIGKILL))
 	close(done)
 	arbiter.processDone(waitErr, engineExit)
 	terminate()
@@ -363,6 +443,47 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 		"/sworn/driver", "run",
 	)
 	return arguments, nil
+}
+
+// uncontainedCommand builds the direct-exec command for the test-only
+// uncontained dispatch mode. The driver runs outside any sandbox as its own
+// process-group leader, with a fully controlled environment that carries the
+// submission protocol, the fake profile, the uncontained marker, and the
+// engine-set guest-path overrides that let the fake driver resolve the guest
+// paths it could not otherwise see. The contained branch's --clearenv plus
+// fixed --setenv list never acquires these variables, so the invariant that
+// the parent environment never reaches the child is preserved.
+func uncontainedCommand(
+	invocation Invocation,
+	executable ExecutableIdentity,
+	projection *InputProjection,
+	requestBody []byte,
+	childEndpoint *os.File,
+) (*exec.Cmd, error) {
+	if invocation.Selected.Adapter.ID != FakeDriverID {
+		return nil, fail("UNCONTAINED_DISPATCH_REFUSED")
+	}
+	command := exec.Command(executable.Path, "run")
+	command.Dir = invocation.HostWorkspace
+	command.Stdin = bytes.NewReader(requestBody)
+	command.Env = []string{
+		"HOME=/home/sworn",
+		"TMPDIR=/tmp",
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+		"TZ=UTC",
+		"PATH=/usr/bin:/bin",
+		"PWD=" + invocation.HostWorkspace,
+		SubmissionProtocolEnvironment + "=" + SubmissionControlVersion,
+		SubmissionFDEnvironment + "=3",
+		"BATON_FAKE_PROFILE=" + string(invocation.FakeProfile),
+		testUncontainedDispatchEnv + "=1",
+		testUncontainedGuestWorkspaceEnv + "=" + invocation.HostWorkspace,
+		testUncontainedGuestInputsEnv + "=" + projection.Root(),
+	}
+	command.ExtraFiles = []*os.File{childEndpoint}
+	command.SysProcAttr = linuxSandboxProcessAttributes()
+	return command, nil
 }
 func openPinnedDirectory(name string) (*os.File, error) {
 	pathInfo, err := os.Lstat(name)
