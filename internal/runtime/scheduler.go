@@ -1816,6 +1816,24 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 	return baton.ActionResult{}, runtimeFail("EFFECT_PARKED", nil)
 }
 
+func sliceAttempt(state baton.State, sliceID string) int64 {
+	slice, ok := state.Slice(sliceID)
+	if !ok || slice.Attempt < 1 {
+		return 0
+	}
+	return slice.Attempt
+}
+
+func planFromState(state baton.State) (baton.Plan, error) {
+	for _, history := range state.Plan.History {
+		if history.OID != state.Plan.OID {
+			continue
+		}
+		return history.Plan, nil
+	}
+	return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
+}
+
 func sliceFingerprint(state baton.State, sliceID string) string {
 	slice, ok := state.Slice(sliceID)
 	if !ok {
@@ -2200,6 +2218,37 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		checks, err := exactBytes(submission.Checks)
 		if err != nil {
 			return discardVerifier(err)
+		}
+		// For a host-check slice, the engine rebuilds the verifier's checks
+		// evidence as a provenance manifest: it reuses the exactly-once
+		// journaled host-boundary results (never re-running them in a worker)
+		// and references the verifier's own submitted worker-runnable check
+		// bytes by digest. The verifier's submission stays non-empty even when
+		// the contract declares no worker-runnable checks at all, because the
+		// projected host evidence is its checks bytes.
+		plan, planErr := planFromState(state)
+		if planErr != nil {
+			return discardVerifier(planErr)
+		}
+		hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
+			engine, plan, sliceID, state.Refs.Target.Head)
+		if resolveErr != nil {
+			return discardVerifier(resolveErr)
+		}
+		if len(hostChecks) > 0 {
+			hostResults, runErr := s.runHostChecks(
+				ctx, engine, owner, plan, sliceID,
+				candidate, state.Refs.Target.Head)
+			if runErr != nil {
+				return discardVerifier(runErr)
+			}
+			manifest, buildErr := buildHostCheckResultsManifest(
+				state.Release, sliceID, slice.Attempt, candidate,
+				contractDigest, hostResults, baton.DigestBytes(checks))
+			if buildErr != nil {
+				return discardVerifier(buildErr)
+			}
+			checks = manifest
 		}
 		appendErr := s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
 			Release: state.Release, Slice: sliceID, Role: "verifier",
@@ -3041,6 +3090,33 @@ func (s *Service) claimPreparedImplementation(
 		Result: "candidate", Summary: submission.Summary,
 		Detail: []byte(submission.Detail), Candidate: record.Candidate,
 		Base: cycle.Base, CheckResults: checks,
+	}
+	// A contract that declares containment-requiring checks is executed here
+	// at the host boundary: the engine runs each declared check against the
+	// exact sealed candidate, journals the results exactly-once, and binds the
+	// engine-built provenance manifest as the candidate's checks evidence. A
+	// failed, timed-out, or overflowed declared host check blocks the seal, so
+	// it can never flow to the verifier as a pass or be absent.
+	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
+		engine, plan, cycle.Slice, state.Refs.Target.Head)
+	if resolveErr != nil {
+		return sealedRecord{}, journal.Claim{}, resolveErr
+	}
+	if len(hostChecks) > 0 {
+		hostResults, runErr := s.runHostChecks(
+			ctx, engine, owner, plan, cycle.Slice,
+			record.Candidate, state.Refs.Target.Head)
+		if runErr != nil {
+			return sealedRecord{}, journal.Claim{}, runErr
+		}
+		manifest, buildErr := buildHostCheckResultsManifest(
+			state.Release, cycle.Slice, sliceAttempt(state, cycle.Slice),
+			record.Candidate, contractDigest, hostResults,
+			baton.DigestBytes(checks))
+		if buildErr != nil {
+			return sealedRecord{}, journal.Claim{}, buildErr
+		}
+		record.Receipt.CheckResults = manifest
 	}
 	if requireDispatchProof {
 		if err := s.validateImplementationDispatchProof(
@@ -5193,6 +5269,14 @@ func (s *Service) recoverClaimedEffects(
 			continue
 		}
 		recovered, err = s.recoverStaleClaimedDispatches(
+			ctx, engine, owner)
+		if err != nil {
+			return err
+		}
+		if recovered {
+			continue
+		}
+		recovered, err = s.recoverHostCheckClaims(
 			ctx, engine, owner)
 		if err != nil {
 			return err

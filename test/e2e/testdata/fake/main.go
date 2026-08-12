@@ -25,10 +25,19 @@ func main() {
 	if err != nil {
 		os.Exit(64)
 	}
-	for _, authority := range []string{".git", ".baton", ".sworn"} {
-		entries, err := os.ReadDir(filepath.Join(request.Workspace.Path, authority))
-		if err == nil && len(entries) != 0 {
-			os.Exit(66)
+	workspacePath := driver.EffectiveWorkspacePath(request.Workspace.Path)
+	// The reserved-authority visibility check is a defensive fixture guard on
+	// the contained path, where /workspace masks .git/.baton/.sworn with empty
+	// tmpfs. In an uncontained dispatch the real worktree (including
+	// .baton/releases) is directly visible, so the check is skipped only when
+	// the engine-set uncontained marker is present; the marker never appears in
+	// a contained child environment.
+	if !driver.UncontainedDispatchMarker() {
+		for _, authority := range []string{".git", ".baton", ".sworn"} {
+			entries, err := os.ReadDir(filepath.Join(workspacePath, authority))
+			if err == nil && len(entries) != 0 {
+				os.Exit(66)
+			}
 		}
 	}
 	if strings.Contains(request.InvocationID, "/implementer_implementation/") {
@@ -52,7 +61,7 @@ func main() {
 			content = "outside approved scope " + strconv.Itoa(os.Getpid()) + "\n"
 		}
 		if err := os.WriteFile(
-			filepath.Join(request.Workspace.Path, name),
+			filepath.Join(workspacePath, name),
 			[]byte(content),
 			0o644,
 		); err != nil {
