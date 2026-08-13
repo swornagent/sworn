@@ -70,7 +70,10 @@ type historicalIdentityCache struct {
 	values map[string]gitx.Identity
 }
 
-// GitRepository is an admitted handle, not a raw command surface.
+// GitRepository is an admitted handle, not a raw command surface. It exposes
+// no methods by design (TestExternalActionSurfaceIsExactlyTheFourBatonFacades
+// pins the zero-method surface); contract reads go through free functions and
+// Plan.ResolveSliceContractAt.
 type GitRepository struct {
 	value *gitx.Repository
 }
@@ -81,6 +84,41 @@ func UseGitRepository(value *gitx.Repository) GitRepository {
 
 func (r GitRepository) repository() *gitx.Repository {
 	return r.value
+}
+
+// readGitFileAt returns the exact bytes of one path at an exact commit, with a
+// present flag distinguishing a missing path from an I/O failure. It is the
+// read-only surface the host-check runner uses to resolve the human-approved
+// slice contract at the exact captured head: the bytes it returns are then
+// proven against the plan's declared digest through
+// Plan.ResolveSliceContract, never trusted on their own. It performs no
+// mutation and admits nothing.
+func readGitFileAt(repository GitRepository, commit, path string) ([]byte, bool, error) {
+	if repository.value == nil {
+		return nil, false, recordFail("INVALID_REPOSITORY", "one admitted Git repository is required")
+	}
+	oid, err := gitx.ParseOID(repository.value.ObjectFormat(), commit)
+	if err != nil {
+		return nil, false, translateGitError("parse commit identity", err)
+	}
+	entries, err := repository.value.ListTree(oid)
+	if err != nil {
+		return nil, false, translateGitError("inventory tree", err)
+	}
+	for _, entry := range entries {
+		if entry.Path != path {
+			continue
+		}
+		if entry.Type != "blob" {
+			return nil, false, recordFail("NONREGULAR_RECORD", "path "+path+" is not a blob")
+		}
+		body, err := repository.value.ReadBlob(oid, path)
+		if err != nil {
+			return nil, false, translateGitError("read file", err)
+		}
+		return append([]byte(nil), body...), true, nil
+	}
+	return nil, false, nil
 }
 
 func newRepository(value *gitx.Repository, resolver InertnessResolver, identities ...gitx.Identity) (*repository, error) {

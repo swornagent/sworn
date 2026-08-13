@@ -37,11 +37,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256     = "sha256:9d1a65537f362954741179cccb554e857bf7b62f1ecb1b025d0346224d80dd8e"
+	ManifestSHA256     = "sha256:57bddcc421794a5660281aaad2928eedc895ebc2c767f907b8916adc26a8570d"
 	AssetCount         = 25
-	AssetBytes         = int64(383732)
+	AssetBytes         = int64(384567)
 
-	releaseDocumentSHA256 = "sha256:066ed4defdf2e447a251ece6ea4b587933c66d79a674e080de4d241d2cd5501d"
+	releaseDocumentSHA256 = "sha256:c28e1f43a7052b9ac41d4e44d2d34f6b5986e0707e43dda9840856ec3580390d"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -315,7 +315,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"},
 		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760"},
 		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d"},
 		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},
 	}
 	expectedTemplates := []releaseTemplate{
