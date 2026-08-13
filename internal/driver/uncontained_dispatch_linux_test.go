@@ -208,19 +208,19 @@ func TestUncontainedCommandUsesControlledEnvironmentAndOwnProcessGroup(t *testin
 		t.Fatalf("sysprocattr = %#v", command.SysProcAttr)
 	}
 	expected := map[string]string{
-		"HOME":                            "/home/sworn",
-		"TMPDIR":                          "/tmp",
-		"LANG":                            "C.UTF-8",
-		"LC_ALL":                          "C.UTF-8",
-		"TZ":                              "UTC",
-		"PATH":                            "/usr/bin:/bin",
-		"PWD":                             invocation.HostWorkspace,
-		SubmissionProtocolEnvironment:     SubmissionControlVersion,
-		SubmissionFDEnvironment:           "3",
-		"BATON_FAKE_PROFILE":              string(invocation.FakeProfile),
-		testUncontainedDispatchEnv:        "1",
-		testUncontainedGuestWorkspaceEnv:  invocation.HostWorkspace,
-		testUncontainedGuestInputsEnv:     projection.Root(),
+		"HOME":                           "/home/sworn",
+		"TMPDIR":                         "/tmp",
+		"LANG":                           "C.UTF-8",
+		"LC_ALL":                         "C.UTF-8",
+		"TZ":                             "UTC",
+		"PATH":                           "/usr/bin:/bin",
+		"PWD":                            invocation.HostWorkspace,
+		SubmissionProtocolEnvironment:    SubmissionControlVersion,
+		SubmissionFDEnvironment:          "3",
+		"BATON_FAKE_PROFILE":             string(invocation.FakeProfile),
+		testUncontainedDispatchEnv:       "1",
+		testUncontainedGuestWorkspaceEnv: invocation.HostWorkspace,
+		testUncontainedGuestInputsEnv:    projection.Root(),
 	}
 	if len(command.Env) != len(expected) {
 		t.Fatalf("environment length = %d, want %d: %q", len(command.Env), len(expected), command.Env)
