@@ -68,9 +68,9 @@ func (api OpenAIAPI) valid() bool {
 
 type OpenAIProfileConfig struct {
 	HTTPProfileConfig
-	API              OpenAIAPI     `json:"api"`
-	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
-	ReasoningEfforts []string      `json:"reasoning_efforts,omitempty"`
+	API              OpenAIAPI `json:"api"`
+	ReasoningEffort  string    `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
 	// Stream enables SSE streaming on the responses flavour: events render
 	// live while the terminal event's embedded response object feeds the
 	// exact non-streaming validation path.

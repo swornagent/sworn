@@ -17,18 +17,18 @@ import (
 )
 
 const (
-	MaxToolCalls             = 256
+	MaxToolCalls = 256
 	// MaxSessionToolCalls is a cumulative runaway guard sized so it never
 	// binds before the invocation turn budget for a patient worker.
-	MaxSessionToolCalls      = 10_000
-	MaxToolArgumentBytes     = 262_144
-	MaxToolResultBytes       = 262_144
-	MaxToolPathBytes         = 4_096
-	MaxToolMatches           = 256
-	MaxBashScriptBytes       = 131_072
-	MaxBashCombinedOutput    = 262_144
-	MaxToolWalkEntries       = 4_096
-	MaxToolScanBytes         = 4_194_304
+	MaxSessionToolCalls   = 10_000
+	MaxToolArgumentBytes  = 262_144
+	MaxToolResultBytes    = 262_144
+	MaxToolPathBytes      = 4_096
+	MaxToolMatches        = 256
+	MaxBashScriptBytes    = 131_072
+	MaxBashCombinedOutput = 262_144
+	MaxToolWalkEntries    = 4_096
+	MaxToolScanBytes      = 4_194_304
 	// Corrections are bounded by the invocation's turn budget and timeout,
 	// not by a per-type allowance; each one is durably accounted.
 	MaxSubmissionCorrections = 1_000
