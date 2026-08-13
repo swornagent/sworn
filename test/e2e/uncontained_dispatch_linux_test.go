@@ -130,6 +130,98 @@ func runSwornInWorkerSandbox(
 	return stdout.String(), stderr.String()
 }
 
+// assertUncontainedRerunReplacesStaleProposal proves the exactly-once cut of
+// the orchestration subset inside a worker sandbox: once the proposal target
+// moves, a rerun of the same manifest replaces the stale proposal and installs
+// nothing. It owns its repository and journal so the replacement dispatch does
+// not leak into a caller's dispatch-order evidence.
+func assertUncontainedRerunReplacesStaleProposal(
+	t *testing.T,
+	swornBinary, fakeBinary, fakeDigest string,
+) {
+	t.Helper()
+	repository := newProductRepository(t)
+	runRoot := t.TempDir()
+	journalPath := filepath.Join(runRoot, "run.sqlite")
+	const (
+		runID   = "e2e-uncontained-drift"
+		release = "e2e-uncontained-drift-release"
+	)
+	manifestBody, _, _ := e2eManifest(
+		t,
+		runID,
+		repository,
+		release,
+		fakeBinary,
+		fakeDigest,
+		"verifier-model",
+	)
+	manifestPath := writeManifest(t, runRoot, manifestBody)
+	run := func() string {
+		stdout, _ := runSwornInWorkerSandbox(
+			t,
+			swornBinary,
+			fakeBinary,
+			repository,
+			runRoot,
+			manifestPath,
+			journalPath,
+			0,
+			nil,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
+		)
+		return stdout
+	}
+	run()
+	if err := os.WriteFile(
+		filepath.Join(repository, "proposal-drift.txt"),
+		[]byte("new target authority\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "add", "--", "proposal-drift.txt")
+	runGit(t, repository, "commit", "--quiet", "-m", "move proposal target")
+	if stdout := run(); !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("replacement proposal status = %q", stdout)
+	}
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(context.Background(), runID)
+	_ = store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposals, plannerEffects, installs := 0, 0, 0
+	for _, command := range snapshot.Commands {
+		if command.Kind == "planner_proposal" {
+			proposals++
+		}
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "baton.install" && effect.State == journal.Succeeded {
+			installs++
+		}
+		if effect.Kind != "driver.dispatch" ||
+			effect.State != journal.Succeeded {
+			continue
+		}
+		submission, decodeErr := driver.DecodeSubmission(effect.Result)
+		if decodeErr == nil &&
+			submission.Responsibility == driver.PlannerProposal {
+			plannerEffects++
+		}
+	}
+	if proposals != 2 || plannerEffects != 2 || installs != 0 {
+		t.Fatalf(
+			"exactly-once evidence: proposals=%d planners=%d installs=%d",
+			proposals, plannerEffects, installs,
+		)
+	}
+}
+
 // TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox is the A2
 // end-to-end check, declared per ADR 0010 and executed at the host boundary
 // (it requires bwrap and git). It proves the orchestration subset —
@@ -200,56 +292,17 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			}
 		}
 
-		// Exactly-once: rerunning the same manifest inside the sandbox
-		// replaces the stale initial proposal at the same revision instead of
-		// duplicating authority.
-		runSwornInWorkerSandbox(
-			t,
-			swornBinary,
-			fakeBinary,
-			repository,
-			runRoot,
-			manifestPath,
-			journalPath,
-			0,
-			nil,
-			"run", "--manifest", manifestPath, "--journal", journalPath,
+		// Exactly-once: a rerun after the proposal target moves replaces the
+		// stale proposal rather than duplicating authority. The drift is what
+		// makes the first proposal stale — without it a rerun is correctly a
+		// no-op, since declining to re-propose at an unchanged revision is
+		// the same invariant. This cut runs against its own repository and
+		// journal: a replacement proposal is a second planner dispatch, and
+		// leaving it in the shared journal would falsify the dispatch order
+		// asserted below.
+		assertUncontainedRerunReplacesStaleProposal(
+			t, swornBinary, fakeBinary, fakeDigest,
 		)
-		store, err := journal.OpenReadOnly(context.Background(), journalPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		snapshot, err := store.Snapshot(context.Background(), runID)
-		_ = store.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		proposals, plannerEffects, installs := 0, 0, 0
-		for _, command := range snapshot.Commands {
-			if command.Kind == "planner_proposal" {
-				proposals++
-			}
-		}
-		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.install" && effect.State == journal.Succeeded {
-				installs++
-			}
-			if effect.Kind != "driver.dispatch" ||
-				effect.State != journal.Succeeded {
-				continue
-			}
-			submission, decodeErr := driver.DecodeSubmission(effect.Result)
-			if decodeErr == nil &&
-				submission.Responsibility == driver.PlannerProposal {
-				plannerEffects++
-			}
-		}
-		if proposals != 2 || plannerEffects != 2 || installs != 0 {
-			t.Fatalf(
-				"exactly-once evidence: proposals=%d planners=%d installs=%d",
-				proposals, plannerEffects, installs,
-			)
-		}
 
 		// Journal semantics + scheduling: authorize and install the disjoint
 		// component at the host boundary, then resume inside the sandbox and
