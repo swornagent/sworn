@@ -263,6 +263,97 @@ func TestLoadHostPathsRefusesRelativeAndGuestOverrides(t *testing.T) {
 	}
 }
 
+// writeExecutable creates a small executable regular file and returns its
+// canonical absolute path, so ResolveShellExecutable admission can accept it.
+func writeExecutable(t *testing.T, pathValue string) string {
+	t.Helper()
+	if err := os.WriteFile(pathValue, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(pathValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(canonical)
+}
+
+func TestResolveShellExecutableHonorsOverride(t *testing.T) {
+	shell := writeExecutable(t, filepath.Join(t.TempDir(), "fake-shell"))
+	t.Setenv(EnvShell, shell)
+	resolved, err := ResolveShellExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != shell {
+		t.Fatalf("resolved shell = %q, want override %q", resolved, shell)
+	}
+}
+
+func TestResolveShellExecutableRefusesInvalidOverride(t *testing.T) {
+	t.Setenv(EnvShell, "sh") // relative: never an absolute layout literal
+	if _, err := ResolveShellExecutable(); err == nil {
+		t.Fatal("relative SWORN_SH admitted")
+	} else {
+		var typed *Error
+		if !errors.As(err, &typed) || typed.Code != "SHELL_UNAVAILABLE" {
+			t.Fatalf("error = %v, want SHELL_UNAVAILABLE", err)
+		}
+	}
+	t.Setenv(EnvShell, filepath.Join(t.TempDir(), "missing-shell"))
+	if _, err := ResolveShellExecutable(); err == nil {
+		t.Fatal("missing SWORN_SH admitted")
+	} else {
+		var typed *Error
+		if !errors.As(err, &typed) || typed.Code != "SHELL_UNAVAILABLE" {
+			t.Fatalf("error = %v, want SHELL_UNAVAILABLE", err)
+		}
+	}
+}
+
+func TestResolveShellExecutableDiscoversFromPath(t *testing.T) {
+	dir := t.TempDir()
+	shell := writeExecutable(t, filepath.Join(dir, "sh"))
+	t.Setenv(EnvShell, "")
+	t.Setenv("PATH", dir)
+	resolved, err := ResolveShellExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != shell {
+		t.Fatalf("discovered shell = %q, want %q", resolved, shell)
+	}
+}
+
+func TestResolveShellExecutableRefusesNoShell(t *testing.T) {
+	t.Setenv(EnvShell, "")
+	t.Setenv("PATH", t.TempDir())
+	if _, err := ResolveShellExecutable(); err == nil {
+		t.Fatal("no-shell host admitted a shell")
+	} else {
+		var typed *Error
+		if !errors.As(err, &typed) || typed.Code != "SHELL_UNAVAILABLE" {
+			t.Fatalf("error = %v, want SHELL_UNAVAILABLE", err)
+		}
+	}
+}
+
+func TestValidateHostPathValueAndRefuseGuestPathValue(t *testing.T) {
+	if err := ValidateHostPathValue("/ok/path", EnvNativeSessionRoot); err != nil {
+		t.Fatalf("valid host path rejected: %v", err)
+	}
+	for _, bad := range []string{"relative", "/", ""} {
+		if err := ValidateHostPathValue(bad, EnvNativeSessionRoot); err == nil {
+			t.Fatalf("invalid host path %q admitted", bad)
+		}
+	}
+	if err := RefuseGuestPathValue("/workspace", EnvNativeSessionRoot); err == nil {
+		t.Fatal("guest workspace value admitted as a host path")
+	}
+	if err := RefuseGuestPathValue("/home/sworn/.local/state/sworn/tmp", EnvNativeSessionRoot); err != nil {
+		t.Fatalf("legitimate host path refused: %v", err)
+	}
+}
+
 func TestRefuseProjectScopeOverridesNamesEachField(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{EnvRecordsRoot, EnvJournalsRoot, EnvContractsRoot, EnvCommitPrefix} {

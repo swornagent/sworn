@@ -117,14 +117,12 @@ func hostCheckTimeout(engine *engine) time.Duration {
 }
 
 // hostShell returns the POSIX shell the host runner uses, resolved from
-// configuration or discovery (SWORN_SH override, else /bin/sh, else
-// LookPath("sh")) so a minimal or non-Debian host works without patching.
-func hostShell() string {
-	path, err := gitx.ResolveShellExecutable()
-	if err != nil {
-		return "/bin/sh"
-	}
-	return path
+// configuration or discovery (SWORN_SH override, else LookPath("sh")) so a
+// minimal or non-Debian host works without patching. A resolution failure is
+// propagated: a missing or invalid configured shell refuses loudly instead
+// of silently restoring a hardcoded literal.
+func hostShell() (string, error) {
+	return gitx.ResolveShellExecutable()
 }
 
 // runHostCommand executes one approved check command via the fixed
@@ -139,7 +137,11 @@ func runHostCommand(dir, check string, outputBytes int64, timeout time.Duration)
 		ExitCode:   -1,
 		Diagnostic: "command did not start",
 	}
-	shell := hostShell()
+	shell, err := hostShell()
+	if err != nil {
+		result.Diagnostic = "host runner requires a POSIX shell: " + err.Error()
+		return result
+	}
 	if _, err := os.Stat(shell); err != nil {
 		result.Diagnostic = "host runner requires a POSIX shell: " + err.Error()
 		return result

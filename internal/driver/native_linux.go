@@ -33,13 +33,94 @@ const (
 )
 
 // nativeSessionMemoryRoot is where native continuation sessions park their
-// crash-recovery roots. It is the configured machine/user temp root
-// (SWORN_TEMP_ROOT override, else the XDG-conformant $XDG_STATE_HOME/sworn/tmp
-// default) so it never resolves from a hardcoded literal (A2). The root must
-// be memory-backed (tmpfs) for crash-recovery; a temp root that is not a
-// tmpfs fails loudly in session validation rather than silently degrading.
-func nativeSessionMemoryRoot() string {
-	return tempRoot()
+// crash-recovery roots. Crash recovery trusts that the state lives on a
+// memory-backed filesystem (tmpfs), so this root resolves to a memory-backed
+// location and never to the general (often disk-backed) temp root. Resolution
+// order: the SWORN_NATIVE_SESSION_ROOT override; else the configured
+// machine/user temp root (SWORN_TEMP_ROOT or the XDG-conformant default) when
+// that root is itself memory-backed; else a discovered memory-backed
+// directory (the effective TMPDIR when on tmpfs, /dev/shm, then the host's
+// tmpfs mounts). A resolution failure is an error: no consumer may silently
+// fall back to the process/system temp directory.
+func nativeSessionMemoryRoot() (string, error) {
+	if value := os.Getenv(gitx.EnvNativeSessionRoot); value != "" {
+		if err := gitx.ValidateHostPathValue(value, gitx.EnvNativeSessionRoot); err != nil {
+			return "", err
+		}
+		if err := gitx.RefuseGuestPathValue(value, gitx.EnvNativeSessionRoot); err != nil {
+			return "", err
+		}
+		return filepath.Clean(value), nil
+	}
+	if paths, err := gitx.LoadHostPaths(); err == nil &&
+		nativeMemoryBackedPath(paths.TempRoot) {
+		return paths.TempRoot, nil
+	}
+	for _, candidate := range nativeSessionMemoryCandidates() {
+		if candidate == string(filepath.Separator) ||
+			!nativeMemoryBackedPath(candidate) || !writableDirectory(candidate) {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fail("CONTINUATION_INVALID")
+}
+
+// nativeSessionMemoryCandidates returns the host locations probed for a
+// memory-backed directory when no configured root qualifies: the effective
+// process temp directory (honoring TMPDIR), the conventional /dev/shm tmpfs,
+// and every tmpfs mount reported by the kernel in stable order. This is
+// discovery, not a layout assumption: each candidate is admitted only when it
+// is an actual writable tmpfs, so a nix, homebrew or minimal host still
+// resolves a memory-backed default without patching.
+func nativeSessionMemoryCandidates() []string {
+	candidates := []string{gitx.HostTempDir(), "/dev/shm"}
+	candidates = append(candidates, discoveredTmpfsMounts()...)
+	return candidates
+}
+
+// discoveredTmpfsMounts returns the host's tmpfs mount points from
+// /proc/mounts in stable sorted order. The filesystem root and the device
+// tree are never candidates: the root of a container can itself be a tmpfs
+// but is not a sane home for session state, and /dev holds device nodes (the
+// conventional /dev/shm subdirectory is the memory surface, probed
+// separately).
+func discoveredTmpfsMounts() []string {
+	raw, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var mounts []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[2] != "tmpfs" {
+			continue
+		}
+		mount := fields[1]
+		if mount == "" || mount == "/" || mount == "/dev" || seen[mount] {
+			continue
+		}
+		seen[mount] = true
+		mounts = append(mounts, mount)
+	}
+	sort.Strings(mounts)
+	return mounts
+}
+
+// writableDirectory reports whether pathValue is an existing directory the
+// current user can write to.
+func writableDirectory(pathValue string) bool {
+	if pathValue == "" || !filepath.IsAbs(pathValue) {
+		return false
+	}
+	info, err := os.Lstat(pathValue)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	// W_OK for access(2); the syscall package does not name it.
+	const writeOK = 0x2
+	return syscall.Access(pathValue, writeOK) == nil
 }
 
 var nativeSessionIDPattern = regexp.MustCompile(
@@ -271,11 +352,15 @@ func (state *nativeContinuationState) closeContinuation() error {
 func newNativeContinuationState(
 	config NativeAdapterConfig,
 ) (*nativeContinuationState, error) {
+	memoryRoot, err := nativeSessionMemoryRoot()
+	if err != nil {
+		return nil, fail("CONTINUATION_CLEANUP_FAILED")
+	}
 	if reapNativeSessionRoots() != nil {
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
 	root, err := os.MkdirTemp(
-		nativeSessionMemoryRoot(),
+		memoryRoot,
 		nativeSessionRootPrefix,
 	)
 	if err != nil {
@@ -654,10 +739,11 @@ func boundedNativeSessionSize(root string) (int64, error) {
 }
 
 func reapNativeSessionRoots() error {
-	if !nativeMemoryBackedPath(nativeSessionMemoryRoot()) {
+	memoryRoot, err := nativeSessionMemoryRoot()
+	if err != nil || !nativeMemoryBackedPath(memoryRoot) {
 		return fail("CONTINUATION_INVALID")
 	}
-	entries, err := os.ReadDir(nativeSessionMemoryRoot())
+	entries, err := os.ReadDir(memoryRoot)
 	if err != nil {
 		return err
 	}
@@ -667,7 +753,7 @@ func reapNativeSessionRoots() error {
 				!strings.HasPrefix(entry.Name(), nativeSessionParkedPrefix)) {
 			continue
 		}
-		root := filepath.Join(nativeSessionMemoryRoot(), entry.Name())
+		root := filepath.Join(memoryRoot, entry.Name())
 		if !validNativeSessionRoot(root) {
 			continue
 		}
@@ -722,8 +808,12 @@ func staleNativeSessionRoot(root string) bool {
 }
 
 func validNativeSessionRoot(root string) bool {
+	memoryRoot, err := nativeSessionMemoryRoot()
+	if err != nil {
+		return false
+	}
 	if root == "" || !filepath.IsAbs(root) ||
-		filepath.Dir(root) != nativeSessionMemoryRoot() ||
+		filepath.Dir(root) != memoryRoot ||
 		!nativeMemoryBackedPath(root) {
 		return false
 	}
@@ -788,11 +878,15 @@ func removeNativeSessionRoot(root string) error {
 }
 
 func parkNativeSessionRoot(root string) {
-	if !validNativeSessionRoot(root) {
+	memoryRoot, err := nativeSessionMemoryRoot()
+	if err != nil {
+		return
+	}
+	if !validNativeSessionRoot(root) || filepath.Dir(root) != memoryRoot {
 		return
 	}
 	parked, err := os.MkdirTemp(
-		nativeSessionMemoryRoot(),
+		memoryRoot,
 		nativeSessionParkedPrefix,
 	)
 	if err == nil {
@@ -1550,7 +1644,11 @@ func nativeCaptureCredential(
 		return "", func() {}, err
 	}
 	defer clearBytes(body)
-	root, err := os.MkdirTemp(tempRoot(), "sworn-native-capture-")
+	temp, err := tempRoot()
+	if err != nil {
+		return "", func() {}, err
+	}
+	root, err := os.MkdirTemp(temp, "sworn-native-capture-")
 	if err != nil {
 		return "", func() {}, fail("NATIVE_NOT_CERTIFIED")
 	}

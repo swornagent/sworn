@@ -83,12 +83,13 @@ These resolve from environment overrides with XDG-conformant defaults under a
 so an unconfigured host places ephemeral state in the XDG locations rather
 than hardcoded literals.
 
-| Location        | Override               | Default (XDG)                                  |
-|-----------------|------------------------|------------------------------------------------|
-| Workspace root  | `SWORN_WORKSPACE_ROOT` | `$XDG_STATE_HOME/sworn/workspaces`             |
-| Temp root       | `SWORN_TEMP_ROOT`      | `$XDG_STATE_HOME/sworn/tmp`                    |
-| Credentials dir | `SWORN_CREDENTIALS_DIR`| `$XDG_CONFIG_HOME/sworn`                       |
-| Artefact home   | `SWORN_ARTEFACT_HOME`  | `$XDG_DATA_HOME/sworn`                         |
+| Location           | Override                        | Default (XDG)                                  |
+|--------------------|---------------------------------|------------------------------------------------|
+| Workspace root     | `SWORN_WORKSPACE_ROOT`          | `$XDG_STATE_HOME/sworn/workspaces`             |
+| Temp root          | `SWORN_TEMP_ROOT`               | `$XDG_STATE_HOME/sworn/tmp`                    |
+| Credentials dir    | `SWORN_CREDENTIALS_DIR`         | `$XDG_CONFIG_HOME/sworn`                       |
+| Artefact home      | `SWORN_ARTEFACT_HOME`           | `$XDG_DATA_HOME/sworn`                         |
+| Native session root | `SWORN_NATIVE_SESSION_ROOT`    | configured temp root when tmpfs, else a discovered memory-backed (tmpfs) directory |
 
 Where an XDG variable is unset, the conventional fallback applies
 (`~/.local/state`, `~/.cache`, `~/.config`, `~/.local/share`). Overrides must
@@ -97,10 +98,14 @@ be clean absolute paths; a relative, empty or root path is refused.
 - **Workspace root**: the engine's workspace factory root (worktrees, leases).
 - **Temp root**: all ephemeral scratch — certification roots, input
   projections, invocation scratch, Git homes/indexes/contexts, native
-  captures. The native session memory root is the same configured temp root;
-  because it must be memory-backed for crash recovery, a temp root that is
-  not a tmpfs fails loudly in session validation rather than silently
-  degrading.
+  captures.
+- **Native session root**: where native continuation parks its
+  crash-recovery state. Crash recovery trusts a memory-backed filesystem
+  (tmpfs), so this root is the configured temp root only when that root is
+  itself a tmpfs; otherwise it discovers a memory-backed directory (the
+  effective `TMPDIR` when on tmpfs, `/dev/shm`, then the host's tmpfs mounts)
+  and fails loudly rather than degrading to ordinary disk. Override it with
+  `SWORN_NATIVE_SESSION_ROOT` when a specific tmpfs is preferred.
 - **Credentials dir**: where Sworn looks for agent credential files
   (`$XDG_CONFIG_HOME/sworn/.codex/auth.json` and
   `$XDG_CONFIG_HOME/sworn/.claude/.credentials.json` by default). The XDG
@@ -123,7 +128,14 @@ works without patching source.
 |------------------|---------------|---------------------------------------------|
 | Git              | `SWORN_GIT`   | override, else `exec.LookPath("git")`       |
 | Containment binary | `SWORN_BWRAP` | override, else `exec.LookPath("bwrap")`   |
-| POSIX shell      | `SWORN_SH`    | override, else `/bin/sh`, else `LookPath("sh")` |
+| POSIX shell      | `SWORN_SH`    | override, else `exec.LookPath("sh")`        |
+
+A host tool override must name an absolute, regular, executable file; an
+override that cannot be admitted, or a host with no discoverable tool, is
+refused with a named error rather than silently falling back to a hardcoded
+path. For the POSIX shell this means an unconfigured host discovers `sh` from
+`PATH` (typically `/usr/bin/sh` or `/bin/sh` on a Debian host, and wherever
+nix or homebrew keep it on any other host) with no absolute layout literal.
 
 The containment binary's trust requirements are unchanged: it must be an
 absolute, regular, executable file owned by `uid 0` with no group or world
@@ -147,7 +159,8 @@ error (`PROJECT_SCOPE_OVERRIDE_REFUSED`) rather than silently honoured:
 Two operators of one repository therefore always resolve the same records,
 journals, contracts and commit prefixes. Host-path overrides
 (`SWORN_WORKSPACE_ROOT`, `SWORN_TEMP_ROOT`, `SWORN_CREDENTIALS_DIR`,
-`SWORN_ARTEFACT_HOME`) are machine/user-scoped by design and are not refused.
+`SWORN_ARTEFACT_HOME`, `SWORN_NATIVE_SESSION_ROOT`) are machine/user-scoped
+by design and are not refused.
 
 ## Guest paths stay fixed
 

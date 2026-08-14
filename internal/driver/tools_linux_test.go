@@ -9,7 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
+
+// TestNewToolSessionRefusesUnavailableTempRoot is the A2 consumer proof for
+// the invocation session: an invalid configured temp root fails session
+// creation instead of silently staging scratch in the process/system temp
+// directory.
+func TestNewToolSessionRefusesUnavailableTempRoot(t *testing.T) {
+	t.Setenv(gitx.EnvTempRoot, "relative-tmp")
+	invocation, _, _ := memoryInvocationFixture(t)
+	if _, err := newToolSession(invocation); err == nil {
+		t.Fatal("invalid temp root silently escaped for the invocation session")
+	}
+}
 
 func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
 	definitions := toolDefinitions(ReadOnly)

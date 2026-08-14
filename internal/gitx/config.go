@@ -68,6 +68,13 @@ const (
 	EnvTempRoot       = "SWORN_TEMP_ROOT"
 	EnvCredentialsDir = "SWORN_CREDENTIALS_DIR"
 	EnvArtefactHome   = "SWORN_ARTEFACT_HOME"
+	// EnvNativeSessionRoot overrides the machine/user memory-backed root where
+	// native continuation sessions park their crash-recovery state. It is
+	// machine/user-scoped like the other host locations; its default is a
+	// discovered memory-backed (tmpfs) directory rather than the general temp
+	// root, because crash recovery trusts a memory-backed filesystem and the
+	// general temp root usually lives on ordinary disk.
+	EnvNativeSessionRoot = "SWORN_NATIVE_SESSION_ROOT"
 	// Environment variable names for host tool resolution.
 	EnvGitExecutable = "SWORN_GIT"
 	EnvBubblewrap    = "SWORN_BWRAP"
@@ -402,6 +409,36 @@ func validateHostPath(value, name string) error {
 	return nil
 }
 
+// ValidateHostPathValue validates one machine/user host-path value (an
+// environment override): it must be a clean absolute path that is not the
+// filesystem root. It is the shared validator for every machine/user-scoped
+// location, including overrides resolved outside LoadHostPaths such as the
+// native-session memory root.
+func ValidateHostPathValue(value, name string) error {
+	return validateHostPath(value, name)
+}
+
+// RefuseGuestPathValue rejects a machine/user host-path value that names a
+// fixed guest path inside containment, so no host location Sworn writes can
+// be pointed at the guest filesystem.
+func RefuseGuestPathValue(value, name string) error {
+	if isGuestPathValue(value) {
+		return fail("HOST_PATHS_INVALID", "resolve host paths",
+			fmt.Errorf("%s %q names a fixed guest path inside containment", name, value))
+	}
+	return nil
+}
+
+// HostTempDir returns the effective process temp directory (honoring
+// TMPDIR). It is the single host-location surface that may resolve from the
+// system temp directory: machine/user location resolvers probe it as a
+// memory-backed candidate (for example the native-session memory root) so an
+// operator with TMPDIR on a tmpfs gets a sensible memory-backed default
+// without a layout literal in the consumer.
+func HostTempDir() string {
+	return os.TempDir()
+}
+
 // ResolveTempRoot returns the configured machine/user temp root, creating it
 // (0700) when it does not yet exist so os.MkdirTemp consumers find a usable
 // parent on a fresh machine.
@@ -456,26 +493,31 @@ func ResolveGitExecutable() (string, error) {
 }
 
 // ResolveShellExecutable resolves the POSIX shell from the SWORN_SH
-// environment override or discovery, preferring /bin/sh and falling back to
-// LookPath("sh") on minimal hosts.
+// environment override or discovery (exec.LookPath("sh")), returning an
+// absolute canonical path. It never consults an absolute layout literal, so
+// a nix, homebrew or minimal host with sh elsewhere on PATH works without
+// patching. A configured override that cannot be admitted, or a host with no
+// discoverable sh, is refused with a named error rather than silently
+// falling back to a hardcoded path.
 func ResolveShellExecutable() (string, error) {
 	if value := os.Getenv(EnvShell); value != "" {
-		if value, err := canonicalExecutable(value); err != nil {
-			return "", fail("SHELL_UNAVAILABLE", "resolve shell executable", err)
-		} else {
-			return value, nil
+		resolved, err := canonicalExecutable(value)
+		if err != nil {
+			return "", fail("SHELL_UNAVAILABLE", "resolve shell executable",
+				fmt.Errorf("SWORN_SH %q is not an executable absolute path: %w", value, err))
 		}
+		return resolved, nil
 	}
-	if value, err := canonicalExecutable("/bin/sh"); err == nil {
-		return value, nil
+	path, err := exec.LookPath("sh")
+	if err != nil {
+		return "", fail("SHELL_UNAVAILABLE", "resolve shell executable",
+			errors.New("no POSIX shell found on PATH; set SWORN_SH to an absolute shell path"))
 	}
-	if path, err := exec.LookPath("sh"); err == nil {
-		if value, err := canonicalExecutable(path); err == nil {
-			return value, nil
-		}
+	resolved, err := canonicalExecutable(path)
+	if err != nil {
+		return "", fail("SHELL_UNAVAILABLE", "resolve shell executable", err)
 	}
-	return "", fail("SHELL_UNAVAILABLE", "resolve shell executable",
-		errors.New("no POSIX shell found"))
+	return resolved, nil
 }
 
 func canonicalExecutable(value string) (string, error) {

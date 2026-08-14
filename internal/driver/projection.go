@@ -56,7 +56,11 @@ func StageInputProjection(
 	if len(requestInputs) != len(contents) {
 		return nil, fail("INPUT_BINDING_MISMATCH")
 	}
-	root, err := os.MkdirTemp(tempRoot(), "sworn-inputs-v1-")
+	temp, err := tempRoot()
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.MkdirTemp(temp, "sworn-inputs-v1-")
 	if err != nil {
 		return nil, fail("INPUT_STAGE_FAILED")
 	}

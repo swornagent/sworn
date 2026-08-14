@@ -2,11 +2,14 @@ package runtime
 
 import (
 	"context"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 func TestRunHostCommandPassFailAndOverflow(t *testing.T) {
@@ -45,6 +48,56 @@ func TestRunHostCommandPassFailAndOverflow(t *testing.T) {
 		}
 		if len(result.Output) > 8192 {
 			t.Fatalf("overflow output exceeds bound: %d", len(result.Output))
+		}
+	})
+}
+
+// TestRunHostCommandFailsLoudlyWithoutResolvableShell is the A3 consumer
+// proof at the actual host-check runner: a missing shell on PATH or an
+// invalid SWORN_SH override refuses the check with a diagnostic instead of
+// silently restoring a hardcoded /bin/sh literal.
+func TestRunHostCommandFailsLoudlyWithoutResolvableShell(t *testing.T) {
+	t.Run("no shell on PATH", func(t *testing.T) {
+		t.Setenv(gitx.EnvShell, "")
+		t.Setenv("PATH", t.TempDir())
+		result := runHostCommand(
+			t.TempDir(), "true", hostCheckOutputBytes, 5*time.Second,
+		)
+		if result.Outcome != baton.CheckOutcomeFail || result.ExitCode != -1 {
+			t.Fatalf("no-shell result = %#v", result)
+		}
+		if !strings.Contains(result.Diagnostic, "POSIX shell") {
+			t.Fatalf("no-shell diagnostic = %q", result.Diagnostic)
+		}
+	})
+	t.Run("invalid override refused", func(t *testing.T) {
+		t.Setenv(gitx.EnvShell, filepath.Join(t.TempDir(), "missing-shell"))
+		result := runHostCommand(
+			t.TempDir(), "true", hostCheckOutputBytes, 5*time.Second,
+		)
+		if result.Outcome != baton.CheckOutcomeFail || result.ExitCode != -1 {
+			t.Fatalf("invalid-override result = %#v", result)
+		}
+		if !strings.Contains(result.Diagnostic, "POSIX shell") {
+			t.Fatalf("invalid-override diagnostic = %q", result.Diagnostic)
+		}
+	})
+	t.Run("override honored at the runner", func(t *testing.T) {
+		realShell, err := exec.LookPath("sh")
+		if err != nil {
+			t.Skip("no sh discoverable to override with")
+		}
+		if canonical, err := filepath.EvalSymlinks(realShell); err == nil {
+			realShell = canonical
+		}
+		t.Setenv(gitx.EnvShell, realShell)
+		// Discovery would fail here; only the override can satisfy the run.
+		t.Setenv("PATH", t.TempDir())
+		result := runHostCommand(
+			t.TempDir(), "printf 'ok\\n'", hostCheckOutputBytes, 5*time.Second,
+		)
+		if result.Outcome != baton.CheckOutcomePass || result.ExitCode != 0 {
+			t.Fatalf("override result = %#v", result)
 		}
 	})
 }

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 // TestPresetProvidersAreConfigurationOnly drives three OpenAI-compatible
@@ -653,6 +655,30 @@ func TestLegacyMigrationBuildsAndInspects(t *testing.T) {
 			opaque,
 			aws,
 		)
+	}
+}
+
+// TestProductionDriverFactoryRefusesUnavailableTempRoot is the A2 consumer
+// proof for the host factory: an uncreatable configured temp root fails
+// factory construction instead of silently creating the certification root in
+// the process/system temp directory.
+func TestProductionDriverFactoryRefusesUnavailableTempRoot(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(gitx.EnvTempRoot, filepath.Join(blocker, "tmp"))
+	config := completeDriverConfigFixture(t)
+	body, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewProductionDriverFactory(loaded); err == nil {
+		t.Fatal("uncreatable temp root silently escaped for the driver factory")
 	}
 }
 
