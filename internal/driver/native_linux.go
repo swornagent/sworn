@@ -19,17 +19,33 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
 	nativeSessionRootPrefix   = "sworn-native-session-v1-"
 	nativeSessionParkedPrefix = "sworn-native-session-parked-v1-"
-	nativeSessionMemoryRoot   = "/dev/shm"
 	nativeAutomationHostRoot  = "/nonexistent/sworn-native-automation"
 	nativeTmpfsMagic          = 0x01021994
 	nativeSessionMaxEntries   = 4_096
 	nativeSessionMaxDepth     = 32
 )
+
+// nativeSessionMemoryRoot is where native continuation sessions park their
+// crash-recovery roots. It resolves from the machine/user temp-root override
+// (SWORN_TEMP_ROOT) and otherwise keeps today's memory-backed /dev/shm
+// default, which the session validation requires to be a tmpfs. Relocating
+// it to a non-memory-backed path is an explicit operator choice and fails
+// loudly in validNativeSessionRoot rather than silently degrading.
+var nativeSessionMemoryRoot = resolveNativeSessionMemoryRoot()
+
+func resolveNativeSessionMemoryRoot() string {
+	if value := os.Getenv(gitx.EnvTempRoot); value != "" {
+		return filepath.Clean(value)
+	}
+	return "/dev/shm"
+}
 
 var nativeSessionIDPattern = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
@@ -1539,7 +1555,7 @@ func nativeCaptureCredential(
 		return "", func() {}, err
 	}
 	defer clearBytes(body)
-	root, err := os.MkdirTemp("", "sworn-native-capture-")
+	root, err := os.MkdirTemp(tempRoot(), "sworn-native-capture-")
 	if err != nil {
 		return "", func() {}, fail("NATIVE_NOT_CERTIFIED")
 	}
@@ -2247,8 +2263,13 @@ func certifyNativeRuntime(
 	if _, err := os.Stat(root + GuestInputPath); !os.IsNotExist(err) {
 		return fail("NATIVE_SURFACE_INVALID")
 	}
-	if _, err := os.Stat(root + "/usr/bin/sh"); !os.IsNotExist(err) {
-		return fail("NATIVE_SURFACE_INVALID")
+	// Native sessions must be shell-free: the resolved host shell (which
+	// follows SWORN_SH and otherwise canonicalizes to /usr/bin/sh) must never
+	// be present inside the guest root.
+	if shell, shellErr := gitx.ResolveShellExecutable(); shellErr == nil {
+		if _, err := os.Stat(root + shell); !os.IsNotExist(err) {
+			return fail("NATIVE_SURFACE_INVALID")
+		}
 	}
 	var configBodies [][]byte
 	defer func() {

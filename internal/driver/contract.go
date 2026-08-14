@@ -535,6 +535,14 @@ func validateWorkspace(workspace Workspace) error {
 	}
 	return nil
 }
+// validateRepositoryPath admits guest-relative input and evidence paths. It
+// rejects the fixed reserved workspace names as a first-line guard. This is
+// an input-path check (inputs are staged under /sworn/inputs and never touch
+// the workspace), so it keeps the fixed default names; the configured
+// records/journals root protection that follows a relocated root is enforced
+// at the guest mask sites (bubblewrapArguments, runToolBash) and the
+// workspace-boundary symlink guard, which read the engine-computed
+// MaskNames.
 func validateRepositoryPath(value string) error {
 	if value == "" || len([]byte(value)) > 1000 || !utf8.ValidString(value) ||
 		containsControlCharacter(value) || strings.Contains(value, `\`) ||

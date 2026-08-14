@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	recordRoot             = ".baton/releases"
+	recordRoot             = DefaultRecordsRoot
 	MaxHeadRefs            = 128
 	MaxBatchPaths          = 1025
 	MaxFileBytes           = 262_144
@@ -116,6 +116,14 @@ type RecordPathAdmission struct {
 	root       string
 }
 
+// Root returns the admitted records root for this admission.
+func (a *RecordPathAdmission) Root() string {
+	if a == nil {
+		return ""
+	}
+	return a.root
+}
+
 type ProductExclusionAdmission struct {
 	repository string
 	root       string
@@ -140,6 +148,17 @@ type Repository struct {
 	refFault   *refFault
 	identityMu sync.Mutex
 	identities map[string]Identity
+	// recordRoot is the configured records root (default DefaultRecordsRoot),
+	// resolved from the committed project config at Open. Every reserved-root
+	// admission, exclusion and mask site reads this field so a configured
+	// records root is honored everywhere.
+	recordRoot string
+	// config is the resolved project configuration (defaults when the
+	// project file is absent); configured reports whether a project file was
+	// present so commit-prefix consumers can preserve their unconfigured
+	// subjects exactly.
+	config     ProjectConfig
+	configured bool
 }
 
 // Open admits one canonical repository and literal absolute Git executable.
@@ -201,7 +220,50 @@ func Open(repository, gitExecutable string) (*Repository, error) {
 		return nil, fail("INVALID_REPOSITORY", "inspect Git common directory", err)
 	}
 	repo.commonDir = filepath.Clean(common)
+	config, configured, err := LoadProjectConfig(repo.root)
+	if err != nil {
+		return nil, fail("INVALID_PROJECT_CONFIG", "load project configuration", err)
+	}
+	repo.config = config
+	repo.configured = configured
+	repo.recordRoot = config.RecordsRoot
 	return repo, nil
+}
+
+// ProjectConfig returns the resolved project configuration for this
+// repository (documented defaults when the committed project file is absent).
+func (r *Repository) ProjectConfig() ProjectConfig {
+	if r == nil {
+		return DefaultProjectConfig()
+	}
+	return r.config
+}
+
+// CommitPrefix returns the configured commit-message prefix for plan and
+// receipt actions. An unconfigured repository keeps today's "baton" prefix.
+func (r *Repository) CommitPrefix() string {
+	if r == nil || !r.configured {
+		return DefaultCommitPrefix
+	}
+	return r.config.CommitPrefix
+}
+
+// CandidateCommitPrefix returns the prefix for engine implementation-candidate
+// commits. An unconfigured repository keeps today's "sworn" subject exactly;
+// a configured repository follows the configured prefix so a configured
+// prefix never yields a mixed git log.
+func (r *Repository) CandidateCommitPrefix() string {
+	if r == nil || !r.configured {
+		return candidateCommitPrefixDefault
+	}
+	return r.config.CommitPrefix
+}
+
+// ReservedNames returns the workspace-relative names the containment mask
+// must protect for this repository, derived from its resolved project
+// configuration.
+func (r *Repository) ReservedNames() []string {
+	return ReservedNames(r.ProjectConfig())
 }
 func admitGitExecutable(value string) (string, error) {
 	if value == "" || !filepath.IsAbs(value) {
@@ -317,7 +379,12 @@ func (r *Repository) runOutcome(
 	result.exitCode = -1
 	ownedHome := home == ""
 	if ownedHome {
-		home, result.waitErr = os.MkdirTemp("", "sworn-git-home-*")
+		tempRoot, tempErr := ResolveTempRoot()
+		if tempErr != nil {
+			result.waitErr = tempErr
+			return
+		}
+		home, result.waitErr = os.MkdirTemp(tempRoot, "sworn-git-home-*")
 		if result.waitErr != nil {
 			return
 		}
@@ -450,7 +517,7 @@ func ValidatePath(value string, allowRoot bool) error {
 
 func (r *Repository) ResolveRecordPathAdmission() (*RecordPathAdmission, error) {
 	cursor := r.root
-	for _, part := range strings.Split(recordRoot, "/") {
+	for _, part := range strings.Split(r.recordRoot, "/") {
 		cursor = filepath.Join(cursor, part)
 		info, err := os.Lstat(cursor)
 		if errors.Is(err, os.ErrNotExist) {
@@ -463,21 +530,21 @@ func (r *Repository) ResolveRecordPathAdmission() (*RecordPathAdmission, error) 
 			return nil, fail("SYMLINKED_RECORD_ROOT", "inspect record root", fmt.Errorf("%s is a symlink", cursor))
 		}
 	}
-	return &RecordPathAdmission{repository: r.root, root: recordRoot}, nil
+	return &RecordPathAdmission{repository: r.root, root: r.recordRoot}, nil
 }
 
 func (r *Repository) ResolveProductExclusion(
 	record *RecordPathAdmission,
 	resolver InertnessResolver,
 ) (*ProductExclusionAdmission, error) {
-	if record == nil || record.repository != r.root || record.root != recordRoot {
+	if record == nil || record.repository != r.root || record.root != r.recordRoot {
 		return nil, fail("RECORD_PATH_ADMISSION_REQUIRED", "admit product exclusion", errors.New("fixed record-path admission required"))
 	}
 	if resolver == nil {
 		return nil, fail("RECORD_ROOT_POLICY_REQUIRED", "admit product exclusion", errors.New("trusted inertness resolver required"))
 	}
 	return &ProductExclusionAdmission{
-		repository: r.root, root: recordRoot, record: record, resolver: resolver,
+		repository: r.root, root: r.recordRoot, record: record, resolver: resolver,
 		decisions: make(map[string]RecordRootDecision),
 	}, nil
 }
@@ -486,7 +553,7 @@ func (r *Repository) requireRecordAdmission(admission *RecordPathAdmission) erro
 	if admission == nil {
 		return fail("RECORD_PATH_ADMISSION_REQUIRED", "use record path", errors.New("fixed record-path admission required"))
 	}
-	if admission.repository != r.root || admission.root != recordRoot {
+	if admission.repository != r.root || admission.root != r.recordRoot {
 		return fail("RECORD_ROOT_ADMISSION_MISMATCH", "use record path", errors.New("admission belongs to another repository"))
 	}
 	return nil
@@ -496,7 +563,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 	if admission == nil {
 		return fail("PRODUCT_EXCLUSION_ADMISSION_REQUIRED", "exclude record root", errors.New("policy-bound admission required"))
 	}
-	if admission.repository != r.root || admission.root != recordRoot ||
+	if admission.repository != r.root || admission.root != r.recordRoot ||
 		admission.record == nil || admission.record.repository != r.root {
 		return fail("RECORD_ROOT_ADMISSION_MISMATCH", "exclude record root", errors.New("admission belongs to another repository"))
 	}
@@ -509,7 +576,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 	if !ok {
 		request := RecordRootRequest{
 			Kind: "baton.record-root-inertness/v1", Repository: r.root,
-			RecordRoot: recordRoot, Commit: commit.String(),
+			RecordRoot: r.recordRoot, Commit: commit.String(),
 		}
 		var err error
 		decision, err = admission.resolver(request)
@@ -524,7 +591,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 		admission.decisions[commit.String()] = decision
 	}
 	if decision.Decision != "inert" {
-		return fail("RECORD_ROOT_CONSUMED", "exclude record root", fmt.Errorf("%s affects product behavior at %s", recordRoot, commit.String()))
+		return fail("RECORD_ROOT_CONSUMED", "exclude record root", fmt.Errorf("%s affects product behavior at %s", r.recordRoot, commit.String()))
 	}
 	return nil
 }
@@ -533,7 +600,7 @@ func (r *Repository) assertRecordRootAt(commit OID, allowMissing bool) error {
 	if err := r.validateOID(commit); err != nil {
 		return err
 	}
-	parts := strings.Split(recordRoot, "/")
+	parts := strings.Split(r.recordRoot, "/")
 	for index := range parts {
 		prefix := strings.Join(parts[:index+1], "/")
 		raw, err := r.run(nil, nil, "ls-tree", "-z", commit.String(), "--", prefix)
@@ -544,7 +611,7 @@ func (r *Repository) assertRecordRootAt(commit OID, allowMissing bool) error {
 			return nil
 		}
 		if len(raw) == 0 {
-			return fail("RECORD_ROOT_NOT_FOUND", "inspect record root", fmt.Errorf("%s is absent", recordRoot))
+			return fail("RECORD_ROOT_NOT_FOUND", "inspect record root", fmt.Errorf("%s is absent", r.recordRoot))
 		}
 		if raw[len(raw)-1] != 0 || bytes.Count(raw, []byte{0}) != 1 {
 			return fail("MALFORMED_GIT_TREE", "inspect record root", errors.New("ambiguous tree entry"))
@@ -717,7 +784,7 @@ func (r *Repository) ProductTreeIdentity(
 	hasher := sha256.New()
 	productEntries := make([]TreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Path == recordRoot || strings.HasPrefix(entry.Path, recordRoot+"/") {
+		if entry.Path == r.recordRoot || strings.HasPrefix(entry.Path, r.recordRoot+"/") {
 			continue
 		}
 		productEntries = append(productEntries, entry)
@@ -887,7 +954,7 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 		nil,
 		nil,
 		"diff-tree", "--no-commit-id", "--raw", "-z",
-		base.String(), candidate.String(), "--", recordRoot,
+		base.String(), candidate.String(), "--", r.recordRoot,
 	)
 	if err != nil {
 		return err
@@ -902,7 +969,7 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 			fmt.Errorf(
 				"candidate %s changes reserved record root %s from base %s",
 				candidate.String(),
-				recordRoot,
+				r.recordRoot,
 				base.String(),
 			),
 		)

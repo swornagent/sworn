@@ -67,6 +67,13 @@ type Invocation struct {
 	Inputs           []InputContent
 	FakeProfile      FakeProfile
 	RecoveryStepHook RecoveryStepHook
+	// MaskNames are the workspace-relative names the containment mask must
+	// always protect, derived by the engine from the configured project roots
+	// (records and journals) plus .git. They are computed by the engine and
+	// never model-configurable; an empty value means the driver uses the
+	// fixed defaults. The mask follows the configured roots so a relocated
+	// records or journals root is never left unprotected.
+	MaskNames        []string
 	recoverableInput *RecoverableTurnInput
 }
 type Diagnostic struct {

@@ -15,8 +15,8 @@ func trackRef(release, track string) string {
 	return "refs/heads/track/" + release + "/" + track
 }
 
-func planPath(release string) string {
-	return RecordRoot + "/" + release + "/plan.md"
+func planPath(recordRoot, release string) string {
+	return recordRoot + "/" + release + "/plan.md"
 }
 
 func validateObjectForFormat(format, value, label string) error {
@@ -154,8 +154,12 @@ func ValidateSliceCandidateScope(
 	if err != nil {
 		return err
 	}
+	// The reserved-root check follows the configured records root so a
+	// relocated root is never left unprotected; the default .baton/releases
+	// remains the first line for standalone parsers without a repository.
+	reservedRoot := repository.recordRoot()
 	for _, changedPath := range paths {
-		if changedPath == RecordRoot || strings.HasPrefix(changedPath, RecordRoot+"/") {
+		if changedPath == reservedRoot || strings.HasPrefix(changedPath, reservedRoot+"/") {
 			return recordFail(
 				"RESERVED_RECORD_ROOT_CHANGED",
 				"candidate changes reserved Baton records at "+changedPath,

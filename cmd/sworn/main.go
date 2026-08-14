@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -622,15 +622,7 @@ func openRuntimeService(
 }
 
 func resolveGitExecutable() (string, error) {
-	executable, err := exec.LookPath("git")
-	if err != nil {
-		return "", err
-	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(executable)
+	return gitx.ResolveGitExecutable()
 }
 
 func readManifest(path string) ([]byte, error) {

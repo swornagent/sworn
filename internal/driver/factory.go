@@ -44,7 +44,7 @@ func NewProductionDriverFactory(
 	}
 	clearBytes(body)
 
-	root, err := os.MkdirTemp("", "sworn-driver-certification-v1-")
+	root, err := os.MkdirTemp(tempRoot(), "sworn-driver-certification-v1-")
 	if err != nil {
 		return nil, fail("FACTORY_UNAVAILABLE")
 	}

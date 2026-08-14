@@ -116,17 +116,15 @@ func hostCheckTimeout(engine *engine) time.Duration {
 	return time.Duration(engine.manifest.value.Limits.TimeoutMillis) * time.Millisecond
 }
 
-// hostShell returns the fixed POSIX shell the host runner uses. The canonical
-// surface is /bin/sh; when a minimal host lacks it, the system sh is used so
-// the runner never accepts an arbitrary interpreter from input.
+// hostShell returns the POSIX shell the host runner uses, resolved from
+// configuration or discovery (SWORN_SH override, else /bin/sh, else
+// LookPath("sh")) so a minimal or non-Debian host works without patching.
 func hostShell() string {
-	if _, err := os.Stat("/bin/sh"); err == nil {
+	path, err := gitx.ResolveShellExecutable()
+	if err != nil {
 		return "/bin/sh"
 	}
-	if path, err := exec.LookPath("sh"); err == nil {
-		return path
-	}
-	return "/bin/sh"
+	return path
 }
 
 // runHostCommand executes one approved check command via the fixed

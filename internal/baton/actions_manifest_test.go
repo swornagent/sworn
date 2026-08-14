@@ -112,7 +112,7 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 		t.Fatalf("result = %#v, err = %v", result, err)
 	}
 
-	planFile, err := actions.repository.file(result.Head, planPath(release))
+	planFile, err := actions.repository.file(result.Head, planPath(RecordRoot, release))
 	if err != nil || !planFile.Present || !bytes.Equal(planFile.Bytes, planBytes) {
 		t.Fatalf("plan file = %#v, err = %v", planFile, err)
 	}
@@ -133,8 +133,8 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 	// Recording touches only the manifest: the pre-existing contract is
 	// proven in place, never duplicated into a new blob under RecordRoot.
 	changed := strings.Fields(actionGit(t, repoPath, nil, nil, "diff", "--name-only", result.Target, result.Head))
-	if len(changed) != 1 || changed[0] != planPath(release) {
-		t.Fatalf("changed paths at admission = %v, want exactly [%s]", changed, planPath(release))
+	if len(changed) != 1 || changed[0] != planPath(RecordRoot, release) {
+		t.Fatalf("changed paths at admission = %v, want exactly [%s]", changed, planPath(RecordRoot, release))
 	}
 }
 
@@ -281,7 +281,7 @@ func TestRecordPlanRevisionLegacyV2IgnoresContractTree(t *testing.T) {
 		t.Fatalf("result = %#v, err = %v", result, err)
 	}
 	changed := strings.Fields(actionGit(t, repoPath, nil, nil, "diff", "--name-only", result.Target, result.Head))
-	if len(changed) != 1 || changed[0] != planPath(release) {
-		t.Fatalf("changed paths = %v, want exactly [%s]", changed, planPath(release))
+	if len(changed) != 1 || changed[0] != planPath(RecordRoot, release) {
+		t.Fatalf("changed paths = %v, want exactly [%s]", changed, planPath(RecordRoot, release))
 	}
 }

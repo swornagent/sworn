@@ -24,7 +24,6 @@ const (
 	workspaceRootSchema   = "sworn.workspace-root/v2"
 	workspaceLeaseSchema  = "sworn.workspace-lease/v2"
 	workspaceWriterSchema = "sworn.workspace-writer/v1"
-	workspaceBaseName     = "sworn-workspaces-v2"
 	workspaceWriterBase   = "sworn-workspace-writers-v1"
 )
 
@@ -248,12 +247,14 @@ func workspaceWriterIdentity(commonDir string, key TrackKey) string {
 }
 
 func workspaceBase() (string, error) {
-	temp, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil || !filepath.IsAbs(temp) || filepath.Clean(temp) == string(filepath.Separator) {
+	base, err := ResolveWorkspaceRoot()
+	if err != nil {
 		return "", fail("WORKSPACE_CREATE_FAILED", "resolve workspace base", err)
 	}
-	base := filepath.Join(filepath.Clean(temp), fmt.Sprintf("%s-%d", workspaceBaseName, os.Geteuid()))
-	return base, nil
+	if !filepath.IsAbs(base) || filepath.Clean(base) == string(filepath.Separator) {
+		return "", fail("WORKSPACE_CREATE_FAILED", "resolve workspace base", nil)
+	}
+	return filepath.Clean(base), nil
 }
 
 func ensurePrivateDirectory(path string) error {
@@ -1164,7 +1165,7 @@ func (w *Workspaces) sealTrackWithClaim(
 		if err := ValidatePath(name, false); err != nil {
 			return SealedCandidate{}, err
 		}
-		if name == recordRoot || strings.HasPrefix(name, recordRoot+"/") {
+		if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") {
 			return SealedCandidate{}, fail("AUTHORITY_PATH_CHANGED", "seal candidate", nil)
 		}
 		workspaceChanged = append(workspaceChanged, name)
@@ -1201,7 +1202,8 @@ func (w *Workspaces) sealTrackWithClaim(
 			return SealedCandidate{}, timestampErr
 		}
 		message := fmt.Sprintf(
-			"sworn(%s/%s): implementation candidate\n",
+			"%s(%s/%s): implementation candidate\n",
+			w.repository.CandidateCommitPrefix(),
 			lease.key.Release,
 			lease.key.Track,
 		)
@@ -1242,7 +1244,7 @@ func (w *Workspaces) sealTrackWithClaim(
 			if err := ValidatePath(name, false); err != nil {
 				return SealedCandidate{}, err
 			}
-			if name == recordRoot || strings.HasPrefix(name, recordRoot+"/") {
+			if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") {
 				return SealedCandidate{}, fail(
 					"AUTHORITY_PATH_CHANGED",
 					"seal refreshed candidate",
@@ -1459,7 +1461,11 @@ func (r *Repository) runAt(
 	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != directory {
 		return nil, fail("INVALID_WORKSPACE", "run Git in workspace", nil)
 	}
-	home, err := os.MkdirTemp("", "sworn-git-home-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return nil, fail("GIT_EXECUTION_FAILED", "create Git home", err)
+	}
+	home, err := os.MkdirTemp(tempRoot, "sworn-git-home-*")
 	if err != nil {
 		return nil, fail("GIT_EXECUTION_FAILED", "create Git home", err)
 	}

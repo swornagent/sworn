@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -241,13 +240,7 @@ func OpenStatusService(ctx context.Context, path string) (*Service, error) {
 }
 
 func resolveGitExecutable() (string, error) {
-	value, err := exec.LookPath("git")
-	if err == nil {
-		value, err = filepath.Abs(value)
-	}
-	if err == nil {
-		value, err = filepath.EvalSymlinks(value)
-	}
+	value, err := gitx.ResolveGitExecutable()
 	if err != nil {
 		return "", runtimeFail("GIT_UNAVAILABLE", nil)
 	}

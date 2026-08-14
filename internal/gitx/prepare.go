@@ -126,7 +126,11 @@ func (r *Repository) prepareRecord(request RecordRequest) (PreparedCommit, error
 	if total > MaxBatchBytes {
 		return PreparedCommit{}, fail("RESOURCE_LIMIT", "prepare record", fmt.Errorf("changes exceed %d bytes", MaxBatchBytes))
 	}
-	temp, err := os.MkdirTemp("", "sworn-git-index-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return PreparedCommit{}, fail("GIT_EXECUTION_FAILED", "prepare record index", err)
+	}
+	temp, err := os.MkdirTemp(tempRoot, "sworn-git-index-*")
 	if err != nil {
 		return PreparedCommit{}, fail("GIT_EXECUTION_FAILED", "prepare record index", err)
 	}
@@ -195,8 +199,8 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 		return PreparedCommit{}, fail("EMPTY_RECORD_TRANSITION", "prepare record transition", errors.New("one bounded change set is required"))
 	}
 	for _, change := range request.Changes {
-		if change.Path == recordRoot || !strings.HasPrefix(change.Path, recordRoot+"/") {
-			return PreparedCommit{}, fail("NON_RECORD_CHANGE", "prepare record transition", fmt.Errorf("%s is outside %s", change.Path, recordRoot))
+		if change.Path == r.recordRoot || !strings.HasPrefix(change.Path, r.recordRoot+"/") {
+			return PreparedCommit{}, fail("NON_RECORD_CHANGE", "prepare record transition", fmt.Errorf("%s is outside %s", change.Path, r.recordRoot))
 		}
 	}
 	if strings.TrimSpace(request.Message) == "" || len([]byte(strings.TrimSpace(request.Message))) > 1_000 {
@@ -321,7 +325,11 @@ func (r *Repository) repositoryObjectDirectory() (string, error) {
 	return objects, nil
 }
 func (r *Repository) newCompositionContext() (*compositionContext, error) {
-	directory, err := os.MkdirTemp("", "sworn-git-context-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return nil, fail("GIT_EXECUTION_FAILED", "create composition context", err)
+	}
+	directory, err := os.MkdirTemp(tempRoot, "sworn-git-context-*")
 	if err != nil {
 		return nil, fail("GIT_EXECUTION_FAILED", "create composition context", err)
 	}

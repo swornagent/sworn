@@ -304,6 +304,11 @@ func isIsolated(request driver.Request) bool {
 		bytes.Contains(body, []byte("git-canary")) {
 		return false
 	}
+	// The fake driver verifies the default mask (records .baton and journals
+	// .sworn) worked inside the guest for the uncontained test harness. The
+	// configured-root mask that follows a relocated records/journals root is
+	// proven by the driver's containment-mask unit test against
+	// bubblewrapArguments; the fake driver runs only the default harness.
 	for _, reserved := range []string{".baton", ".sworn"} {
 		entries, err := os.ReadDir(filepath.Join(request.Workspace.Path, reserved))
 		if err == nil && len(entries) != 0 {

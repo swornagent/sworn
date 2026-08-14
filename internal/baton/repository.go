@@ -151,6 +151,37 @@ func newRepository(value *gitx.Repository, resolver InertnessResolver, identitie
 
 func (r *repository) root() string { return r.git.Root() }
 
+// commitPrefix returns the configured commit-message prefix for plan and
+// receipt actions, defaulting to today's "baton" for an unconfigured
+// repository so existing history and subjects stay byte-for-byte identical.
+func (r *repository) commitPrefix() string {
+	if r == nil || r.git == nil {
+		return gitx.DefaultCommitPrefix
+	}
+	return r.git.CommitPrefix()
+}
+
+// recordRoot returns the configured records root (the committed project
+// config when present, else the default .baton/releases), resolved from the
+// same RecordPathAdmission the gitx repository used at admission.
+func (r *repository) recordRoot() string {
+	if r == nil || r.record == nil {
+		return RecordRoot
+	}
+	return r.record.Root()
+}
+
+// contractsRoot returns the configured contracts root (the committed project
+// config when present, else the default "contracts"). Declared contract
+// paths are enforced to live beneath it so a configured contracts root is
+// honored at both write-time and read-time contract resolution.
+func (r *repository) contractsRoot() string {
+	if r == nil || r.git == nil {
+		return gitx.DefaultContractsRoot
+	}
+	return r.git.ProjectConfig().ContractsRoot
+}
+
 func (r *repository) objectFormat() string { return string(r.git.ObjectFormat()) }
 
 func (r *repository) oid(value string) (gitx.OID, error) {

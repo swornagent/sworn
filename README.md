@@ -190,6 +190,13 @@ internal/tui      interactive navigation across project releases and runs
 internal/observe  local evaluation and optional telemetry
 ```
 
-`.baton/releases` contains delivery control records, not product source.
-Earlier releases and retired protocol lines remain unchanged as historical
-evidence.
+`.baton/releases` is the default records root: it contains delivery control
+records, not product source. Every host location Sworn reads or writes is
+configurable — project-scoped locations (records, journals, contracts root
+and the commit-message prefix) come from the committed
+`docs/sworn/sworn.json`, and machine/user locations (workspace factory root,
+temp roots, credentials directory, artefact home) resolve from `SWORN_*`
+environment variables with XDG-conformant defaults. See
+[docs/sworn/config.md](docs/sworn/config.md) for the schema, the defaults,
+and the refusal rules. Earlier releases and retired protocol lines remain
+unchanged as historical evidence.

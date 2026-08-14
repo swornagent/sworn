@@ -178,7 +178,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		if metadata.Revision != 1 || metadata.PreviousPlan != nil {
 			return ActionResult{}, recordFail("INVALID_PLAN_REVISION", "a new release must begin at plan revision 1")
 		}
-		existing, err := a.repository.file(target.Head, planPath(release))
+		existing, err := a.repository.file(target.Head, planPath(a.repository.recordRoot(), release))
 		if err != nil {
 			return ActionResult{}, err
 		}
@@ -323,13 +323,13 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 
 	preparedPlan, err := a.repository.prepareRecord(
 		parent,
-		fmt.Sprintf("baton(%s): plan revision %d", release, metadata.Revision),
-		map[string][]byte{planPath(release): parsed.Bytes()},
+		fmt.Sprintf("%s(%s): plan revision %d", a.repository.commitPrefix(), release, metadata.Revision),
+		map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()},
 	)
 	if err != nil {
 		return ActionResult{}, err
 	}
-	planFile, err := a.repository.file(preparedPlan.Commit, planPath(release))
+	planFile, err := a.repository.file(preparedPlan.Commit, planPath(a.repository.recordRoot(), release))
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -342,7 +342,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		Plan: planFile.Object, Binds: planCommitOID, Detail: DigestBytes(nil),
 		Summary: summary, Target: &targetOID,
 	}
-	approvalMessage, err := RenderReceiptCommit("baton("+release+"): approve plan", detail, approvalReceipt)
+	approvalMessage, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"): approve plan", detail, approvalReceipt)
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -383,7 +383,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 				Detail:  DigestBytes(nil),
 				Summary: fmt.Sprintf("Retired %s under approved plan revision %d.", sliceID, metadata.Revision),
 			}
-			message, err := RenderReceiptCommit("baton("+release+"/"+sliceID+"): retire slice", nil, retirement)
+			message, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"/"+sliceID+"): retire slice", nil, retirement)
 			if err != nil {
 				return ActionResult{}, err
 			}
@@ -845,7 +845,7 @@ func (a *Actions) appendReceipt(
 		return ActionResult{}, err
 	}
 
-	subject := fmt.Sprintf("baton(%s", release)
+	subject := fmt.Sprintf("%s(%s", a.repository.commitPrefix(), release)
 	if sliceID != "" {
 		subject += "/" + sliceID
 	}

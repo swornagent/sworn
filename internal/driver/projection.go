@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -45,7 +47,7 @@ func StageInputProjection(workspace string, requestInputs []Input, contents []In
 	if len(requestInputs) != len(contents) {
 		return nil, fail("INPUT_BINDING_MISMATCH")
 	}
-	root, err := os.MkdirTemp("", "sworn-inputs-v1-")
+	root, err := os.MkdirTemp(tempRoot(), "sworn-inputs-v1-")
 	if err != nil {
 		return nil, fail("INPUT_STAGE_FAILED")
 	}
@@ -144,7 +146,16 @@ func pathBeneath(root, target string) bool {
 	relative, err := filepath.Rel(root, target)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
-func validateWorkspaceBoundary(root string) error {
+func validateWorkspaceBoundary(root string, reserved ...[]string) error {
+	reservedNames := gitx.ReservedNames(gitx.DefaultProjectConfig())
+	if len(reserved) != 0 && len(reserved[0]) != 0 {
+		reservedNames = reserved[0]
+	}
+	reservedSet := make(map[string]bool, len(reservedNames)+1)
+	for _, name := range reservedNames {
+		reservedSet[name] = true
+	}
+	reservedSet["sworn/inputs"] = true
 	return filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return fail("WORKSPACE_INSPECTION_FAILED")
@@ -165,8 +176,7 @@ func validateWorkspaceBoundary(root string) error {
 			return fail("UNSAFE_WORKSPACE_SYMLINK")
 		}
 		first := strings.Split(filepath.ToSlash(relative), "/")[0]
-		if first == ".git" || first == ".baton" || first == ".sworn" ||
-			strings.HasPrefix(filepath.ToSlash(relative), "sworn/inputs") {
+		if reservedSet[first] {
 			return fail("UNSAFE_WORKSPACE_SYMLINK")
 		}
 		return nil

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -328,6 +330,17 @@ func (p Plan) ResolveSliceContractAt(
 	if declared.ContractPath == "" {
 		return declared, nil
 	}
+	contractsRoot := gitx.DefaultContractsRoot
+	if repository.repository() != nil {
+		contractsRoot = repository.repository().ProjectConfig().ContractsRoot
+	}
+	if declared.ContractPath != contractsRoot &&
+		!strings.HasPrefix(declared.ContractPath, contractsRoot+"/") {
+		return Slice{}, recordFail(
+			"CONTRACT_OUTSIDE_ROOT",
+			"contract source "+declared.ContractPath+" is outside the configured contracts root "+contractsRoot,
+		)
+	}
 	if commit == "" {
 		return Slice{}, recordFail("CONTRACT_SOURCE_REQUIRED", "manifest declares contract paths but no commit was provided")
 	}
@@ -371,6 +384,15 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 	}
 	if len(paths) == 0 {
 		return nil
+	}
+	contractsRoot := repository.contractsRoot()
+	for _, path := range paths {
+		if path != contractsRoot && !strings.HasPrefix(path, contractsRoot+"/") {
+			return recordFail(
+				"CONTRACT_OUTSIDE_ROOT",
+				"contract source "+path+" is outside the configured contracts root "+contractsRoot,
+			)
+		}
 	}
 	if source == "" {
 		return recordFail(

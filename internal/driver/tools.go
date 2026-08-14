@@ -102,7 +102,7 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	// between tool calls) and are destroyed with the session. The isolation
 	// boundary is between invocations and roles, never between consecutive
 	// commands of the same worker.
-	session.scratch, err = os.MkdirTemp("", "sworn-invocation-scratch-")
+	session.scratch, err = os.MkdirTemp(tempRoot(), "sworn-invocation-scratch-")
 	if err != nil {
 		return nil, fail("PROCESS_START_FAILED")
 	}

@@ -439,15 +439,28 @@ func agentReportedVersion(
 }
 
 func agentCredentialSource(family driver.ProfileFamily) string {
-	home, err := os.UserHomeDir()
+	// The configured machine/user credentials directory (SWORN_CREDENTIALS_DIR
+	// or the XDG-conformant default) is the base where Sworn looks for agent
+	// credential files. When the operator has not relocated it, Sworn keeps
+	// reading the agent-owned files at their standard locations under the
+	// user home so a signed-in agent is always found.
+	base, err := gitx.LoadHostPaths()
 	if err != nil {
-		return ""
+		base = gitx.HostPaths{}
+	}
+	credentialsBase := base.CredentialsDir
+	if os.Getenv(gitx.EnvCredentialsDir) == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		credentialsBase = home
 	}
 	switch family {
 	case driver.ProfileCodex:
-		return filepath.Join(home, ".codex", "auth.json")
+		return filepath.Join(credentialsBase, ".codex", "auth.json")
 	default:
-		return filepath.Join(home, ".claude", ".credentials.json")
+		return filepath.Join(credentialsBase, ".claude", ".credentials.json")
 	}
 }
 

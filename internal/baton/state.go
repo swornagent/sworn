@@ -758,7 +758,7 @@ func planInstallResult(
 }
 
 func planAt(repository *repository, release, commit string) (planEntry, error) {
-	file, err := repository.file(commit, planPath(release))
+	file, err := repository.file(commit, planPath(repository.recordRoot(), release))
 	if err != nil {
 		return planEntry{}, err
 	}
@@ -950,7 +950,7 @@ func readReleaseReceiptHistory(
 			receipt.Release != release {
 			continue
 		}
-		file, err := repository.file(entry.OID, planPath(release))
+		file, err := repository.file(entry.OID, planPath(repository.recordRoot(), release))
 		if err != nil {
 			return receiptHistory{}, err
 		}
@@ -1020,7 +1020,7 @@ func readReleaseReceiptHistory(
 					" does not install directly above its target",
 			)
 		}
-		atFloor, err := repository.file(*receipt.Target, planPath(release))
+		atFloor, err := repository.file(*receipt.Target, planPath(repository.recordRoot(), release))
 		if err != nil {
 			return receiptHistory{}, err
 		}
@@ -1033,7 +1033,7 @@ func readReleaseReceiptHistory(
 		}
 		priorChange, err := repository.firstParentPathChange(
 			*receipt.Target,
-			planPath(release),
+			planPath(repository.recordRoot(), release),
 		)
 		if err != nil {
 			return receiptHistory{}, err
@@ -1268,7 +1268,7 @@ func matchingApproval(
 		))
 	}
 	approval := matches[0]
-	file, err := repository.file(approval.OID, planPath(release))
+	file, err := repository.file(approval.OID, planPath(repository.recordRoot(), release))
 	if err != nil {
 		return ReceiptEntry{}, err
 	}
@@ -1313,7 +1313,7 @@ func planChain(
 		if approval == nil {
 			return nil, nil, recordFail("INVALID_PLAN_HISTORY", "previous plan "+*previous+" has no approval")
 		}
-		file, err := repository.file(approval.OID, planPath(release))
+		file, err := repository.file(approval.OID, planPath(repository.recordRoot(), release))
 		if err != nil {
 			return nil, nil, err
 		}

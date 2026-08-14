@@ -193,7 +193,7 @@ func TestReleaseEpochCannotBeMovedByReinstallingRevisionOne(t *testing.T) {
 		base,
 		"test: add unrelated release record",
 		map[string][]byte{
-			planPath("anchor"): []byte("unrelated release record\n"),
+			planPath(RecordRoot, "anchor"): []byte("unrelated release record\n"),
 		},
 	)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestReleaseEpochCannotBeMovedByReinstallingRevisionOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := planPath(release)
+	path := planPath(RecordRoot, release)
 	deleted, err := actions.repository.prepareRecord(
 		original.Head,
 		"test: delete the installed plan path",

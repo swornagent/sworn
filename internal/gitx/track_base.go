@@ -184,7 +184,7 @@ func (w *Workspaces) validateTrackBaseRequest(
 func (w *Workspaces) validatePlanAtRelease(
 	request PrepareTrackBaseRequest,
 ) error {
-	path := recordRoot + "/" + request.Release + "/plan.md"
+	path := w.repository.recordRoot + "/" + request.Release + "/plan.md"
 	entries, err := w.repository.ListTree(request.ReleaseHead)
 	if err != nil {
 		return err
