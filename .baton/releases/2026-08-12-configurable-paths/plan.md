@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-12-configurable-paths",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "2b12a47fa6313c78771d0249f434c907625d4493",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-12-configurable-paths/1",
+  "approval_ref": "operator://2026-08-12-configurable-paths/2",
   "tracks": [
     {
       "id": "T1-paths",
@@ -15,15 +15,19 @@
         {
           "id": "S1-project-config-and-paths",
           "outcome": "Every host location Sworn reads or writes comes from configuration with a sensible default, so an operator can place records, journals, workspaces, credentials, artefacts and host tools wherever their machine and project require - while the synthetic guest filesystem inside containment stays fixed and unconfigurable.",
-          "contract_path": "contracts/2026-08-12-configurable-paths/S1-project-config-and-paths.json",
-          "digest": "sha256:5ad7cd8120a8cf8a0867f2a74d1c6ebcff587c85ce1069b0258f25b5ba268763",
+          "contract_path": "contracts/2026-08-12-configurable-paths/rev2/S1-project-config-and-paths.json",
+          "digest": "sha256:ea06663148144bba647d276596beae27cfd2c9ccee0c11201730ae8efed42c00",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/runtime",
             "internal/gitx",
             "internal/driver",
-            "cmd/sworn"
+            "internal/baton",
+            "internal/skill",
+            "cmd/sworn",
+            "docs",
+            "README.md"
           ]
         },
         {
@@ -86,7 +90,29 @@ it is the only tracked one.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-12-configurable-paths/1`. Planning did not approve itself.
+`operator://2026-08-12-configurable-paths/2`. Planning did not approve itself.
+
+# Revision 2
+
+Revision 1 was internally inconsistent: S1's acceptance required evidence in
+places its scope forbade. The artefact home (A2) lives in `internal/skill`,
+threading the records root reaches `internal/baton`, and the committed
+project file and its documentation live under `docs/` and `README.md`. The
+implementer built a complete candidate and the seal gate correctly refused it
+three times with `CANDIDATE_SCOPE_FAILED`; the gate held, the contract was
+wrong.
+
+This revision widens S1's scope to the union of packages the acceptance
+criteria actually reach, derived from the refused candidate's file list
+rather than re-estimated. The revised contract lives at a new path
+(`rev2/`) because recorded revisions resolve contracts by path at target
+head; the original bytes remain at the original path. Nothing else changes:
+acceptance, checks, constraints and S2 are byte-identical to revision 1.
+
+The same defect class parked the previous release at its revision 1. The
+lesson recorded there ("scopes are package directories") was necessary but
+not sufficient - scope must be derived from where every acceptance
+criterion's evidence lands, not from where the feature lives.
 
 Two slices in one serial track. S2 consumes S1 because the records root, the
 documents root and the commit prefix are read through the configuration
