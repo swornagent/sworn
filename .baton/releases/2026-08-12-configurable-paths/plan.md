@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-12-configurable-paths",
-  "revision": 2,
-  "previous_plan": "2b12a47fa6313c78771d0249f434c907625d4493",
+  "revision": 3,
+  "previous_plan": "c5a1d4a65d0fb4e7934b9022282745044705bf3d",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-12-configurable-paths/2",
+  "approval_ref": "operator://2026-08-12-configurable-paths/3",
   "tracks": [
     {
       "id": "T1-paths",
@@ -33,8 +33,8 @@
         {
           "id": "S2-sworn-owned-project-surfaces",
           "outcome": "A Sworn project separates what people read from what the engine runs on: reviewable specifications live under docs/sworn/, machine-written authority and run state live under .sworn/, commit messages carry a configured prefix rather than a hardcoded foreign project name, and every release recorded before the move stays readable.",
-          "contract_path": "contracts/2026-08-12-configurable-paths/S2-sworn-owned-project-surfaces.json",
-          "digest": "sha256:a1dadbd3685e3927a32a5677f091c779e2221c3378b189f5f96441df74dfa8f0",
+          "contract_path": "contracts/2026-08-12-configurable-paths/rev3/S2-sworn-owned-project-surfaces.json",
+          "digest": "sha256:bb09d9421ec187b9f61454507993f183324bcf88187e8eca225d363151c77117",
           "depends_on": [
             "S1-project-config-and-paths"
           ],
@@ -45,7 +45,16 @@
             "internal/baton",
             "internal/gitx",
             "internal/driver",
-            "internal/runtime"
+            "internal/runtime",
+            "cmd/sworn",
+            "internal/skill",
+            "docs",
+            "README.md",
+            ".gitignore",
+            ".gitattributes",
+            "test/e2e",
+            ".baton",
+            ".sworn"
           ]
         }
       ]
@@ -90,7 +99,41 @@ it is the only tracked one.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-12-configurable-paths/2`. Planning did not approve itself.
+`operator://2026-08-12-configurable-paths/3`. Planning did not approve itself.
+
+# Revision 3
+
+S1 is delivered: implemented by DeepSeek across two runs, verified PASS by
+gpt-5.6-sol, receipt appended. Nothing about S1 changes; its rev2 contract
+is byte-identical.
+
+S2's contract carried two defects the engine surfaced in sequence. First,
+the same under-derived scope recorded in Revision 2 for S1: A5's repository
+migration and A1's user-facing surfaces land in docs/, README.md,
+.gitignore, .gitattributes, cmd/sworn, internal/skill, test/e2e and the
+migration paths .baton/ and .sworn/, while scope admitted only the four
+packages. Second, and structural: A5 relocates .baton/releases, which is
+the reserved records root the engine's own protection refuses to let any
+ordinary candidate touch (RESERVED_RECORD_ROOT_CHANGED). A contract that
+requires what the engine forbids is unsatisfiable, however wide its scope.
+
+The revised S2 contract at the rev3 path widens scope to the thirteen-path
+union of acceptance evidence and adds constraints pinning: (1) the records
+root relocation as a one-time, operator-gated engine pathway - never a
+silent side effect of a slice candidate, with reserved-root protection
+relaxed for nothing else; (2) recorded slice contracts stay at the paths
+their recorded plans bind; (3) the embedded protocol reference assets are
+updated in the same candidate to describe the configured records root and
+the historical fallback.
+
+This revision was proposed by the planner role inside run r5 (proposal
+receipt digest sha256:354fcd4e12fb2ab01c6e4abce9fe1c60255fddb82451d9f2c85f
+3c27d0f29ebb, recorded in the r5 journal). The proposal's exact bytes died
+with its sandbox because tool results are not captured in the wire log
+(sworn#195); this document re-authors it, adopting the proposed manifest
+verbatim - same contract digest, same scope, same constraints intent - so
+approval binds to bytes the operator can actually read. The proposal was
+not an approval, and neither is this document.
 
 # Revision 2
 
