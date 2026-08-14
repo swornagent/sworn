@@ -1,0 +1,1341 @@
+diff --git a/internal/driver/tools.go b/internal/driver/tools.go
+index cda3d56d..117a7dd7 100644
+--- a/internal/driver/tools.go
++++ b/internal/driver/tools.go
+@@ -1,7 +1,9 @@
+ package driver
+ 
+ import (
++	"bytes"
+ 	"context"
++	"encoding/base64"
+ 	"encoding/json"
+ 	"errors"
+ 	"os"
+@@ -32,7 +34,7 @@ const (
+ 	MaxSubmissionCorrections = 1_000
+ )
+ 
+-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
++const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+ 
+ type toolPathEntry struct {
+ 	Relative  string
+@@ -72,6 +74,7 @@ type toolSession struct {
+ 	submission        []byte
+ 	seal              []byte
+ 	yield             *Yield
++	scratch           string
+ 	closed            bool
+ }
+ 
+@@ -89,8 +92,27 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
+ 	defer func() {
+ 		if !ok {
+ 			_ = projection.Close()
++			if session.scratch != "" {
++				_ = os.RemoveAll(session.scratch)
++			}
+ 		}
+ 	}()
++	// One read-write scratch surface per invocation: /home/sworn and /tmp
++	// persist across every command of this invocation (build caches survive
++	// between tool calls) and are destroyed with the session. The isolation
++	// boundary is between invocations and roles, never between consecutive
++	// commands of the same worker.
++	session.scratch, err = os.MkdirTemp("", "sworn-invocation-scratch-")
++	if err != nil {
++		return nil, fail("PROCESS_START_FAILED")
++	}
++	for _, surface := range []string{"home", "tmp"} {
++		if err := os.Mkdir(
++			filepath.Join(session.scratch, surface), 0o700,
++		); err != nil {
++			return nil, fail("PROCESS_START_FAILED")
++		}
++	}
+ 	if invocation.Request.Workspace.Access == ReadOnly {
+ 		session.before, err = captureWorkspaceManifest(invocation.HostWorkspace)
+ 		if err != nil {
+@@ -132,7 +154,7 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
+ 		},
+ 		providerToolDefinition{
+ 			Name:        "sworn_submit",
+-			Description: "Include only the prompt's result_fields. For plan/checks use decoded byte_count, sha256:<64 lowercase hex> digest, and base64 bytes; detail may be empty.",
++			Description: "Include only the prompt's result_fields. For plan/checks declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty.",
+ 			InputSchema: json.RawMessage(swornSubmitInputSchema),
+ 		},
+ 	)
+@@ -177,7 +199,11 @@ func (session *toolSession) execute(
+ 	case "Grep":
+ 		body, err = session.grep(call.Arguments)
+ 	case "Bash":
+-		body, err = session.bash(ctx, call.Arguments)
++		var exitCode int
++		body, exitCode, err = session.bash(ctx, call.Arguments)
++		if err == nil && exitCode != 0 {
++			return bashFailureResult(result, body, exitCode)
++		}
+ 	case "sworn_submit":
+ 		body, err = session.submit(ctx, call.Arguments)
+ 	case "sworn_yield":
+@@ -198,6 +224,24 @@ func (session *toolSession) execute(
+ 	return result
+ }
+ 
++// bashFailureResult carries a completed-but-failing command's exit code and
++// captured output back to the model as a failed tool result. Discarding them
++// (the pre-F9 behavior) left the worker blind to why its own command failed.
++func bashFailureResult(
++	result providerToolResult,
++	body []byte,
++	exitCode int,
++) providerToolResult {
++	header := []byte("error:PROCESS_FAILED exit_code=" + itoa(exitCode) + "\n")
++	body = bytes.ToValidUTF8(body, []byte("�"))
++	if len(header)+len(body) > MaxToolResultBytes {
++		body = bytes.ToValidUTF8(body[:MaxToolResultBytes-len(header)], nil)
++	}
++	result.Content = append(header, body...)
++	result.Failed = true
++	return result
++}
++
+ func (session *toolSession) read(arguments []byte) ([]byte, error) {
+ 	var request struct {
+ 		Path string `json:"path"`
+@@ -345,16 +389,22 @@ func (session *toolSession) grep(arguments []byte) ([]byte, error) {
+ 	return []byte(strings.Join(matches, "\n")), nil
+ }
+ 
+-func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte, error) {
++func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte, int, error) {
+ 	var request struct {
+ 		Script string `json:"script"`
+ 	}
+ 	if err := decodeToolArguments(arguments, []string{"script"}, &request); err != nil ||
+ 		request.Script == "" || len(request.Script) > MaxBashScriptBytes ||
+ 		!utf8.ValidString(request.Script) {
+-		return nil, fail("INVALID_TOOL_ARGUMENT")
++		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
+ 	}
+-	return runToolBash(ctx, session.invocation, session.projection.Root(), request.Script)
++	return runToolBash(
++		ctx,
++		session.invocation,
++		session.projection.Root(),
++		session.scratch,
++		request.Script,
++	)
+ }
+ 
+ func (session *toolSession) submit(
+@@ -369,6 +419,9 @@ func (session *toolSession) submit(
+ 	if err != nil {
+ 		return nil, session.rejectSubmission(ctx, err)
+ 	}
++	if err := session.materializeExactBytesPaths(root["submission"]); err != nil {
++		return nil, session.rejectSubmission(ctx, err)
++	}
+ 	submission, err := decodeToolSubmission(root["submission"])
+ 	if err != nil {
+ 		return nil, session.rejectSubmission(ctx, err)
+@@ -453,6 +506,89 @@ func (session *toolSession) yieldTurn(arguments []byte) ([]byte, error) {
+ 	return []byte("accepted"), nil
+ }
+ 
++// materializeExactBytesPaths lets a submission's plan/checks member name a
++// file instead of inlining base64: {byte_count, digest, path} is replaced by
++// {byte_count, digest, bytes} with the bytes read by the engine itself. The
++// commitment is unchanged — the declared digest and byte count still bind
++// the content through validateExactBytes — but the bytes no longer travel
++// through the model's own token stream, which measurably corrupts multi-KB
++// base64 (F10). Paths may name the workspace, projected inputs, or the
++// invocation's persistent scratch surfaces (/tmp, /home/sworn).
++func (session *toolSession) materializeExactBytesPaths(value any) error {
++	submission, ok := value.(map[string]any)
++	if !ok {
++		return nil
++	}
++	for _, name := range []string{"plan", "checks"} {
++		member, ok := submission[name].(map[string]any)
++		if !ok {
++			continue
++		}
++		pathValue, present := member["path"]
++		if !present {
++			continue
++		}
++		guest, ok := pathValue.(string)
++		if _, inline := member["bytes"]; !ok || inline {
++			return fail("INVALID_EXACT_BYTES")
++		}
++		body, err := session.readExactBytesFile(guest)
++		if err != nil {
++			return err
++		}
++		member["bytes"] = base64.StdEncoding.EncodeToString(body)
++		clearBytes(body)
++		delete(member, "path")
++	}
++	return nil
++}
++
++func (session *toolSession) readExactBytesFile(guest string) ([]byte, error) {
++	if validateToolText(guest) != nil || !path.IsAbs(guest) ||
++		path.Clean(guest) != guest {
++		return nil, fail("TOOL_PATH_INVALID")
++	}
++	var host, root string
++	switch {
++	case guest == "/tmp" || strings.HasPrefix(guest, "/tmp/"):
++		root = filepath.Join(session.scratch, "tmp")
++		host = filepath.Join(root, strings.TrimPrefix(guest, "/tmp"))
++	case guest == "/home/sworn" || strings.HasPrefix(guest, "/home/sworn/"):
++		root = filepath.Join(session.scratch, "home")
++		host = filepath.Join(root, strings.TrimPrefix(guest, "/home/sworn"))
++	default:
++		target, resolvedRoot, _, err := session.resolve(guest, false, false)
++		if err != nil {
++			return nil, err
++		}
++		host, root = target, resolvedRoot
++	}
++	if root == "" || !pathBeneath(root, host) {
++		return nil, fail("TOOL_PATH_INVALID")
++	}
++	// The scratch surfaces are worker-writable, so a symlink there could
++	// point the engine at host content the worker itself cannot read.
++	// Resolve and re-check containment before trusting the path.
++	resolved, err := filepath.EvalSymlinks(host)
++	if err != nil {
++		return nil, fail("TOOL_PATH_INVALID")
++	}
++	resolvedRoot, err := filepath.EvalSymlinks(root)
++	if err != nil || !pathBeneath(resolvedRoot, resolved) {
++		return nil, fail("TOOL_PATH_INVALID")
++	}
++	info, err := os.Lstat(resolved)
++	if err != nil || !info.Mode().IsRegular() ||
++		info.Size() < 1 || info.Size() > MaxPlanBytes {
++		return nil, fail("INVALID_EXACT_BYTES")
++	}
++	body, err := os.ReadFile(resolved)
++	if err != nil || int64(len(body)) != info.Size() {
++		return nil, fail("INVALID_EXACT_BYTES")
++	}
++	return body, nil
++}
++
+ func decodeToolSubmission(value any) (Submission, error) {
+ 	root, err := closedObject(
+ 		value,
+@@ -591,6 +727,11 @@ func (session *toolSession) Close() error {
+ 	if err := session.projection.Close(); err != nil && result == nil {
+ 		result = err
+ 	}
++	if session.scratch != "" {
++		if err := os.RemoveAll(session.scratch); err != nil && result == nil {
++			result = err
++		}
++	}
+ 	return result
+ }
+ 
+diff --git a/internal/driver/tools_linux.go b/internal/driver/tools_linux.go
+index e0d89779..0a8eabf3 100644
+--- a/internal/driver/tools_linux.go
++++ b/internal/driver/tools_linux.go
+@@ -10,6 +10,7 @@ import (
+ 	"os/exec"
+ 	"path/filepath"
+ 	"sort"
++	"strings"
+ 	"syscall"
+ 	"unicode/utf8"
+ )
+@@ -367,24 +368,60 @@ func hostGoModuleCache() string {
+ 	return cache
+ }
+ 
++// readOnlyGitBinds resolves the worktree's git plumbing so a read-only
++// workspace can run git against real history: the .git pointer file stays
++// in place and the common git directory is bound read-only at the absolute
++// path the pointer names.
++func readOnlyGitBinds(hostWorkspace string) ([]string, error) {
++	pointerPath := filepath.Join(hostWorkspace, ".git")
++	pointer, err := os.ReadFile(pointerPath)
++	if err != nil {
++		return nil, err
++	}
++	line := strings.TrimSpace(string(pointer))
++	gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
++	if gitDir == "" || !filepath.IsAbs(gitDir) ||
++		filepath.Clean(gitDir) != gitDir {
++		return nil, fail("UNSAFE_WORKSPACE_SURFACE")
++	}
++	// The worktree git dir carries a commondir file naming the shared
++	// object store; binding the common .git directory covers both.
++	commonRaw, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
++	if err != nil {
++		return nil, err
++	}
++	commonDir := strings.TrimSpace(string(commonRaw))
++	if !filepath.IsAbs(commonDir) {
++		commonDir = filepath.Clean(filepath.Join(gitDir, commonDir))
++	}
++	if info, err := os.Stat(commonDir); err != nil || !info.IsDir() {
++		return nil, fail("UNSAFE_WORKSPACE_SURFACE")
++	}
++	return []string{
++		"--ro-bind", commonDir, commonDir,
++		"--ro-bind", gitDir, gitDir,
++	}, nil
++}
++
+ func runToolBash(
+ 	ctx context.Context,
+ 	invocation Invocation,
+ 	projectionRoot string,
++	scratch string,
+ 	script string,
+-) ([]byte, error) {
++) ([]byte, int, error) {
+ 	bwrap, err := trustedBubblewrap()
+ 	if err != nil {
+-		return nil, err
++		return nil, 0, err
+ 	}
+ 	workspace, err := openPinnedDirectory(invocation.HostWorkspace)
+ 	if err != nil {
+-		return nil, err
++		return nil, 0, err
+ 	}
+ 	defer workspace.Close()
+ 	inputs, err := openPinnedDirectory(projectionRoot)
+ 	if err != nil {
+-		return nil, err
++		return nil, 0, err
+ 	}
+ 	defer inputs.Close()
+ 	arguments := []string{
+@@ -393,10 +430,24 @@ func runToolBash(
+ 		"--unshare-all", "--unshare-user", "--disable-userns",
+ 		"--cap-drop", "ALL", "--clearenv",
+ 		"--proc", "/proc", "--remount-ro", "/proc",
+-		"--dev", "/dev", "--tmpfs", "/tmp",
+-		"--dir", "/home", "--dir", "/home/sworn", "--dir", "/sworn",
++		"--dev", "/dev",
++		"--dir", "/home", "--dir", "/sworn",
+ 		"--ro-bind", "/usr", "/usr",
+ 	}
++	// /home/sworn and /tmp are the invocation's persistent scratch: the same
++	// host directories are bound for every command of this invocation, so
++	// build caches and staged state survive between tool calls. Isolation
++	// holds at the invocation boundary — the session deletes them on Close.
++	if scratch != "" {
++		arguments = append(arguments,
++			"--bind", filepath.Join(scratch, "home"), "/home/sworn",
++			"--bind", filepath.Join(scratch, "tmp"), "/tmp",
++		)
++	} else {
++		arguments = append(arguments,
++			"--dir", "/home/sworn", "--tmpfs", "/tmp",
++		)
++	}
+ 	for _, systemPath := range []string{"/lib", "/lib64"} {
+ 		if _, statErr := os.Stat(systemPath); statErr == nil {
+ 			arguments = append(arguments, "--ro-bind", systemPath, systemPath)
+@@ -407,13 +458,26 @@ func runToolBash(
+ 	} else {
+ 		arguments = append(arguments, "--bind-fd", "3", GuestWorkspacePath)
+ 	}
+-	for _, reserved := range []string{".git", ".baton", ".sworn"} {
++	// Read-only workspaces expose read-only git: a verifier's job is to
++	// re-prove custody from the evidence graph, so it may read all history
++	// and write none. Read-write workers keep .git masked so no candidate
++	// can rewrite records. .baton and .sworn stay masked for everyone.
++	masked := []string{".git", ".baton", ".sworn"}
++	if invocation.Request.Workspace.Access == ReadOnly {
++		masked = []string{".baton", ".sworn"}
++		if gitArguments, err := readOnlyGitBinds(
++			invocation.HostWorkspace,
++		); err == nil {
++			arguments = append(arguments, gitArguments...)
++		}
++	}
++	for _, reserved := range masked {
+ 		info, statErr := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
+ 		if os.IsNotExist(statErr) {
+ 			continue
+ 		}
+ 		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
++			return nil, 0, fail("UNSAFE_WORKSPACE_SURFACE")
+ 		}
+ 		target := filepath.Join(GuestWorkspacePath, reserved)
+ 		if info.IsDir() {
+@@ -421,7 +485,7 @@ func runToolBash(
+ 		} else if info.Mode().IsRegular() {
+ 			arguments = append(arguments, "--ro-bind", "/dev/null", target)
+ 		} else {
+-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
++			return nil, 0, fail("UNSAFE_WORKSPACE_SURFACE")
+ 		}
+ 	}
+ 	// The workspace has no network, so Go workers must find the module
+@@ -450,7 +514,7 @@ func runToolBash(
+ 	command.Env = []string{}
+ 	statusReader, statusWriter, err := os.Pipe()
+ 	if err != nil {
+-		return nil, fail("PROCESS_START_FAILED")
++		return nil, 0, fail("PROCESS_START_FAILED")
+ 	}
+ 	defer statusReader.Close()
+ 	defer statusWriter.Close()
+@@ -463,7 +527,7 @@ func runToolBash(
+ 	command.Stdout = &output
+ 	command.Stderr = &output
+ 	if err := command.Start(); err != nil {
+-		return nil, fail("PROCESS_START_FAILED")
++		return nil, 0, fail("PROCESS_START_FAILED")
+ 	}
+ 	_ = statusWriter.Close()
+ 	_, group, statusErr := readSandboxProcessGroup(
+@@ -474,31 +538,39 @@ func runToolBash(
+ 	if statusErr != nil {
+ 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+ 		_ = command.Wait()
+-		return nil, fail("PROCESS_START_FAILED")
++		return nil, 0, fail("PROCESS_START_FAILED")
+ 	}
+ 	runErr := command.Wait()
+ 	_ = syscall.Kill(-group, syscall.SIGTERM)
+ 	groupErr := waitProcessGroup(group)
+ 	body, _, overflow := output.snapshot()
+ 	if overflow {
+-		return nil, fail("OUTPUT_OVERFLOW")
++		return nil, 0, fail("OUTPUT_OVERFLOW")
+ 	}
+ 	if groupErr != nil {
+ 		clearBytes(body)
+-		return nil, groupErr
++		return nil, 0, groupErr
+ 	}
+ 	if runErr != nil {
+ 		if isContextError(ctx.Err()) {
+-			return nil, ctx.Err()
++			return nil, 0, ctx.Err()
+ 		}
+ 		var exitErr *exec.ExitError
+ 		if !errorsAs(runErr, &exitErr) {
+-			return nil, fail("PROCESS_FAILED")
++			return nil, 0, fail("PROCESS_FAILED")
+ 		}
+-		clearBytes(body)
+-		return nil, fail("PROCESS_FAILED")
++		// A non-zero exit is a fact the worker needs, not a harness
++		// fault: the command ran to completion and said no. Its exit
++		// code and captured output travel back to the model; only
++		// starts, kills and overflows remain contract errors.
++		code := exitErr.ExitCode()
++		if code < 0 {
++			clearBytes(body)
++			return nil, 0, fail("PROCESS_FAILED")
++		}
++		return bytes.TrimSuffix(body, []byte("\n")), code, nil
+ 	}
+-	return bytes.TrimSuffix(body, []byte("\n")), nil
++	return bytes.TrimSuffix(body, []byte("\n")), 0, nil
+ }
+ 
+ func errorsAs(err error, target any) bool {
+diff --git a/internal/driver/tools_linux_test.go b/internal/driver/tools_linux_test.go
+index 400bd5be..fb89f1ee 100644
+--- a/internal/driver/tools_linux_test.go
++++ b/internal/driver/tools_linux_test.go
+@@ -416,6 +416,151 @@ printf 'isolated'`,
+ 	}
+ }
+ 
++func TestToolBashScratchPersistsAcrossCommandsWithinInvocationOnly(
++	t *testing.T,
++) {
++	invocation, _, _ := memoryInvocationFixture(t)
++	session, err := newToolSession(invocation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer session.Close()
++	first := executeToolJSON(t, session, "bash-stash", "Bash", map[string]any{
++		"script": `printf cache > /tmp/cache-canary
++mkdir -p "$HOME/.cache" && printf home > "$HOME/.cache/home-canary"`,
++	})
++	if first.Failed {
++		t.Fatalf("stash = %#v", first)
++	}
++	second := executeToolJSON(t, session, "bash-reuse", "Bash", map[string]any{
++		"script": `cat /tmp/cache-canary "$HOME/.cache/home-canary"`,
++	})
++	if second.Failed || string(second.Content) != "cachehome" {
++		t.Fatalf("scratch did not persist across commands = %#v", second)
++	}
++	scratch := session.scratch
++	if scratch == "" {
++		t.Fatal("session has no scratch directory")
++	}
++	if err := session.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
++		t.Fatalf("scratch survived Close: %v", err)
++	}
++	fresh, err := newToolSession(invocation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer fresh.Close()
++	leak := executeToolJSON(t, fresh, "bash-leak", "Bash", map[string]any{
++		"script": `test ! -e /tmp/cache-canary && test ! -e "$HOME/.cache/home-canary" && printf clean`,
++	})
++	if leak.Failed || string(leak.Content) != "clean" {
++		t.Fatalf("scratch leaked into a fresh invocation = %#v", leak)
++	}
++}
++
++func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
++	invocation, _, _ := memoryInvocationFixture(t)
++	session, err := newToolSession(invocation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer session.Close()
++	plan := validPlanBytes()
++	if err := os.WriteFile(
++		filepath.Join(session.scratch, "tmp", "plan.md"), plan, 0o600,
++	); err != nil {
++		t.Fatal(err)
++	}
++	result := executeToolJSON(t, session, "submit-by-path", "sworn_submit",
++		map[string]any{"submission": map[string]any{
++			"schema_version": SubmissionSchemaVersion,
++			"invocation_id":  invocation.Request.InvocationID,
++			"responsibility": string(PlannerProposal),
++			"summary":        "Compact responsibility summary.",
++			"detail":         "",
++			"plan": map[string]any{
++				"byte_count": len(plan),
++				"digest":     Digest(plan),
++				"path":       "/tmp/plan.md",
++			},
++		}},
++	)
++	submitted, submitErr := session.submitted()
++	if result.Failed || !submitted || submitErr != nil ||
++		session.handoff() == nil {
++		t.Fatalf(
++			"path submission = %#v, submitted=%v, error=%v",
++			result, submitted, submitErr,
++		)
++	}
++}
++
++func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
++	invocation, _, _ := memoryInvocationFixture(t)
++	invocation.RecoveryStepHook = func(
++		context.Context, RecoveryStepKind,
++	) error {
++		return nil
++	}
++	session, err := newToolSession(invocation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer session.Close()
++	if err := os.Symlink(
++		"/etc/hostname", filepath.Join(session.scratch, "tmp", "escape"),
++	); err != nil {
++		t.Fatal(err)
++	}
++	plan := validPlanBytes()
++	result := executeToolJSON(t, session, "submit-escape", "sworn_submit",
++		map[string]any{"submission": map[string]any{
++			"schema_version": SubmissionSchemaVersion,
++			"invocation_id":  invocation.Request.InvocationID,
++			"responsibility": string(PlannerProposal),
++			"summary":        "Compact responsibility summary.",
++			"detail":         "",
++			"plan": map[string]any{
++				"byte_count": len(plan),
++				"digest":     Digest(plan),
++				"path":       "/tmp/escape",
++			},
++		}},
++	)
++	if !result.Failed ||
++		!strings.Contains(string(result.Content), "TOOL_PATH_INVALID") {
++		t.Fatalf("symlink escape submission = %#v", result)
++	}
++}
++
++func TestToolBashNonZeroExitReturnsOutputAndExitCode(t *testing.T) {
++	invocation, _, _ := memoryInvocationFixture(t)
++	session, err := newToolSession(invocation)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer session.Close()
++	result := executeToolJSON(t, session, "bash-exit", "Bash", map[string]any{
++		"script": `printf 'stdout-evidence\n'
++printf 'stderr-evidence\n' >&2
++exit 42`,
++	})
++	if !result.Failed {
++		t.Fatalf("non-zero exit result = %#v", result)
++	}
++	content := string(result.Content)
++	if !strings.HasPrefix(content, "error:PROCESS_FAILED exit_code=42\n") {
++		t.Fatalf("non-zero exit content = %q", content)
++	}
++	if !strings.Contains(content, "stdout-evidence") ||
++		!strings.Contains(content, "stderr-evidence") {
++		t.Fatalf("non-zero exit output discarded = %q", content)
++	}
++}
++
+ func TestReadOnlyToolSurfaceOmitsAndRejectsMutation(t *testing.T) {
+ 	invocation, _, _ := memoryInvocationFixture(t)
+ 	request, err := NewRequest(
+diff --git a/internal/driver/tools_other.go b/internal/driver/tools_other.go
+index 34204499..6e5a906b 100644
+--- a/internal/driver/tools_other.go
++++ b/internal/driver/tools_other.go
+@@ -30,6 +30,8 @@ func clearToolEntries(entries []toolPathEntry) {
+ 	}
+ }
+ 
+-func runToolBash(context.Context, Invocation, string, string) ([]byte, error) {
+-	return nil, fail("UNSUPPORTED_HOST")
++func runToolBash(
++	context.Context, Invocation, string, string, string,
++) ([]byte, int, error) {
++	return nil, 0, fail("UNSUPPORTED_HOST")
+ }
+diff --git a/internal/runtime/production_dispatch.go b/internal/runtime/production_dispatch.go
+index 2a212df4..3959a4b2 100644
+--- a/internal/runtime/production_dispatch.go
++++ b/internal/runtime/production_dispatch.go
+@@ -70,6 +70,12 @@ type productionCandidateBinding struct {
+ 	Receipt     string `json:"receipt"`
+ 	Commit      string `json:"commit"`
+ 	ProductTree string `json:"product_tree,omitempty"`
++	// Base is the commit the candidate was built on, and Chain spells the
++	// ancestry out so a verifier checks bindings instead of reconstructing
++	// them: base -> candidate (the diff under verification) -> candidate
++	// receipt (the receipted head this dispatch's prepared_base names).
++	Base  string `json:"base,omitempty"`
++	Chain string `json:"chain,omitempty"`
+ }
+ 
+ type productionEvidenceBinding struct {
+@@ -282,11 +288,24 @@ func candidateBinding(
+ 	if entry.Receipt.ProductTree != nil {
+ 		productTree = *entry.Receipt.ProductTree
+ 	}
+-	return &productionCandidateBinding{
++	base := ""
++	if entry.Receipt.Base != nil {
++		base = *entry.Receipt.Base
++	}
++	binding := &productionCandidateBinding{
+ 		Receipt:     entry.OID,
+ 		Commit:      *entry.Receipt.Candidate,
+ 		ProductTree: productTree,
+-	}, nil
++		Base:        base,
++	}
++	if base != "" {
++		binding.Chain = "base " + base +
++			" -> candidate " + binding.Commit +
++			" (the diff under verification) -> candidate receipt " +
++			binding.Receipt +
++			" (the receipted track head; this dispatch's prepared_base names this receipted head, not the build base)"
++	}
++	return binding, nil
+ }
+ 
+ func sliceEvidence(
+diff --git a/internal/runtime/service.go b/internal/runtime/service.go
+index bc0b870d..13e59e97 100644
+--- a/internal/runtime/service.go
++++ b/internal/runtime/service.go
+@@ -7,6 +7,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"os/exec"
+ 	"path/filepath"
+ 	"strconv"
+@@ -28,8 +29,35 @@ var (
+ 	testHumanTurnCrash    string
+ 	testCaptainCrashCut   string
+ 	testOwnerLeaseMillis  string
++	testHooksFromEnv      string
+ )
+ 
++// Test hooks are link-time constants: a production binary carries no runtime
++// crash knob because nothing sets these vars. A test build may instead link
++// only testHooksFromEnv=1, which transfers each hook from the process
++// environment once at startup — one hook-enabled binary then serves every
++// crash-cut permutation instead of one link per permutation. The gate itself
++// remains reachable only through ldflags.
++func init() {
++	if testHooksFromEnv != "1" {
++		return
++	}
++	for _, hook := range []struct {
++		target *string
++		name   string
++	}{
++		{&testCrashBeforeEffect, "SWORN_TEST_CRASH_BEFORE_EFFECT"},
++		{&testCrashAfterEffect, "SWORN_TEST_CRASH_AFTER_EFFECT"},
++		{&testHumanTurnCrash, "SWORN_TEST_HUMAN_TURN_CRASH"},
++		{&testCaptainCrashCut, "SWORN_TEST_CAPTAIN_CRASH_CUT"},
++		{&testOwnerLeaseMillis, "SWORN_TEST_OWNER_LEASE_MILLIS"},
++	} {
++		if value := os.Getenv(hook.name); value != "" {
++			*hook.target = value
++		}
++	}
++}
++
+ type Service struct {
+ 	journal            *journal.Store
+ 	dispatcher         driver.Driver
+diff --git a/test/e2e/exactly_once_linux_test.go b/test/e2e/exactly_once_linux_test.go
+index 13850a41..3bddd986 100644
+--- a/test/e2e/exactly_once_linux_test.go
++++ b/test/e2e/exactly_once_linux_test.go
+@@ -60,11 +60,12 @@ func exactlyOnceCuts() []exactlyOnceCut {
+ // its own coverage in topology_recovery_linux_test.go; asserting completion
+ // for it here would assert the opposite of the contract.
+ 
+-// exactlyOnceLease keeps the crash and recovery binaries in the same owner
+-// lease regime the existing recovery journeys already run under, so a
+-// recovery here is compared against the same timing the rest of the suite was
+-// verified with.
+-const exactlyOnceLease = " -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500"
++// exactlyOnceEnvironment keeps the crash and recovery processes in the same
++// short owner-lease regime the recovery journeys run under, so a takeover
++// only has to wait out leaseExpiryWait rather than a production lease.
++var exactlyOnceEnvironment = map[string]string{
++	"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++}
+ 
+ // assertExactlyOnce is the whole cardinality claim, read out of the real
+ // journal and the real repository after recovery.
+@@ -196,18 +197,18 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
+ 	// The recovery binary is an ordinary Sworn: no crash seam at all. Only the
+ 	// owner lease is pinned, to the value the existing recovery journeys use.
+ 	recoveryBinary := filepath.Join(buildRoot, "sworn-recovery")
+-	buildBinary(t, recoveryBinary, "./cmd/sworn", strings.TrimSpace(exactlyOnceLease))
++	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags)
+ 
+ 	for _, cut := range exactlyOnceCuts() {
+ 		t.Run(strings.ReplaceAll(cut.effect, ".", "_"), func(t *testing.T) {
+ 			crashBinary := filepath.Join(
+ 				buildRoot, "sworn-cut-"+strings.ReplaceAll(cut.effect, ".", "-"),
+ 			)
+-			buildBinary(
+-				t, crashBinary, "./cmd/sworn",
+-				"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+
+-					cut.effect+exactlyOnceLease,
+-			)
++			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++			crashEnvironment := map[string]string{
++				"SWORN_TEST_CRASH_AFTER_EFFECT": cut.effect,
++				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++			}
+ 
+ 			repository := newProductRepository(t)
+ 			runRoot := t.TempDir()
+@@ -222,8 +223,8 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
+ 			// The proposal phase runs on an ordinary binary. Every seam in
+ 			// the table belongs to the authorized part of the lifecycle,
+ 			// which begins at the resume below, so the cut lands there.
+-			runBinary(
+-				t, recoveryBinary, 0,
++			runBinaryWithEnvironment(
++				t, recoveryBinary, 0, exactlyOnceEnvironment,
+ 				"run", "--manifest", manifestPath, "--journal", journalPath,
+ 			)
+ 			authorizePlan(t, journalPath, runID, plan)
+@@ -231,8 +232,8 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
+ 			seedHead := runGit(t, repository, "rev-parse", "main")
+ 
+ 			// The cut. The run dies at the seam with the world already moved.
+-			runBinary(
+-				t, crashBinary, 86,
++			runBinaryWithEnvironment(
++				t, crashBinary, 86, crashEnvironment,
+ 				"resume", "--run", runID, "--journal", journalPath,
+ 				"--command", "cut-resume-1", "--generation", "0",
+ 			)
+@@ -246,9 +247,9 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
+ 
+ 			// The restart. An ordinary binary, after the dead owner's lease
+ 			// has expired, must reach exactly one continuation.
+-			time.Sleep(1800 * time.Millisecond)
++			leaseExpiryWait()
+ 			stdout, stderr := runBinaryWithEnvironmentTimeout(
+-				t, recoveryBinary, 0, nil, 600*time.Second,
++				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
+ 				"takeover", "--run", runID, "--journal", journalPath,
+ 				"--command", "cut-takeover-1", "--generation", "1",
+ 			)
+diff --git a/test/e2e/topology_recovery_linux_test.go b/test/e2e/topology_recovery_linux_test.go
+index 64192cf4..ca67f7d5 100644
+--- a/test/e2e/topology_recovery_linux_test.go
++++ b/test/e2e/topology_recovery_linux_test.go
+@@ -785,9 +785,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 	swornBinary := filepath.Join(buildRoot, "sworn")
+ 	buildBinary(t, swornBinary, "./cmd/sworn", "")
+ 	preActionCrashBinary := filepath.Join(buildRoot, "sworn-before-action")
+-	buildBinary(t, preActionCrashBinary, "./cmd/sworn",
+-		"-X=github.com/swornagent/sworn/internal/runtime.testCrashBeforeEffect=baton.append_receipt"+
+-			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++	buildBinary(t, preActionCrashBinary, "./cmd/sworn", hookGateLDFlags)
++	preActionCrashEnvironment := map[string]string{
++		"SWORN_TEST_CRASH_BEFORE_EFFECT": "baton.append_receipt",
++		"SWORN_TEST_OWNER_LEASE_MILLIS":  testLeaseMillis,
++	}
+ 
+ 	t.Run("parked_lane_does_not_stop_independent_track_and_exact_retry_recovers", func(t *testing.T) {
+ 		repository, root := newProductRepository(t), t.TempDir()
+@@ -1100,7 +1102,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, preActionCrashBinary, 86,
++		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
++			preActionCrashEnvironment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		claimed := claimedAppendAction(t, journalPath, runID)
+@@ -1113,7 +1116,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		}
+ 		runGit(t, repository, "add", "--", "target-moved.txt")
+ 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		stdout, _ := runBinary(t, swornBinary, 0,
+ 			"takeover", "--run", runID, "--journal", journalPath,
+ 			"--command", "takeover-1", "--generation", "1")
+@@ -1151,7 +1154,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, preActionCrashBinary, 86,
++		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
++			preActionCrashEnvironment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		claimed := claimedAppendAction(t, journalPath, runID)
+@@ -1160,7 +1164,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"pause", "--run", runID, "--journal", journalPath,
+ 			"--command", "pause-1", "--generation", "1")
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		runBinary(t, swornBinary, 0,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+@@ -1222,7 +1226,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, preActionCrashBinary, 86,
++		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
++			preActionCrashEnvironment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		claimed := claimedAppendAction(t, journalPath, runID)
+@@ -1250,7 +1255,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		}); err != nil {
+ 			t.Fatal(err)
+ 		}
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		stdout, _ := runBinary(t, swornBinary, 0,
+ 			"takeover", "--run", runID, "--journal", journalPath,
+ 			"--command", "takeover-1", "--generation", "1")
+@@ -1299,9 +1304,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 
+ 	t.Run("claimed_all_new_install_completes_without_replay_after_target_move", func(t *testing.T) {
+ 		crashBinary := filepath.Join(buildRoot, "sworn-install-all-new-target-move")
+-		buildBinary(t, crashBinary, "./cmd/sworn",
+-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.install"+
+-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++		crashEnvironment := map[string]string{
++			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.install",
++			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++		}
+ 		repository, root := newProductRepository(t), t.TempDir()
+ 		journalPath := filepath.Join(root, "run.sqlite")
+ 		const runID = "install-all-new-target-move"
+@@ -1323,7 +1330,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, crashBinary, 86,
++		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		store, err := journal.OpenReadOnly(
+@@ -1355,7 +1362,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		}
+ 		runGit(t, repository, "add", "--", "install-target-moved.txt")
+ 		runGit(t, repository, "commit", "--quiet", "-m", "move target after install")
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		stdout, _ := runBinary(
+ 			t, swornBinary, 0,
+ 			"takeover", "--run", runID, "--journal", journalPath,
+@@ -1395,8 +1402,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 	})
+ 
+ 	sealCrashCuts := []struct {
+-		name   string
+-		binary string
++		name        string
++		binary      string
++		environment map[string]string
+ 	}{
+ 		{name: "git.seal.prepared"},
+ 		{name: "git.seal"},
+@@ -1405,9 +1413,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		cut := &sealCrashCuts[index]
+ 		cut.binary = filepath.Join(
+ 			buildRoot, "sworn-stale-"+strings.ReplaceAll(cut.name, ".", "-"))
+-		buildBinary(t, cut.binary, "./cmd/sworn",
+-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect="+cut.name+
+-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++		buildBinary(t, cut.binary, "./cmd/sworn", hookGateLDFlags)
++		cut.environment = map[string]string{
++			"SWORN_TEST_CRASH_AFTER_EFFECT": cut.name,
++			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++		}
+ 	}
+ 	for _, authorityKind := range []string{"target", "plan"} {
+ 		for cutIndex, crash := range sealCrashCuts {
+@@ -1449,7 +1459,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 					runBinary(t, swornBinary, 0,
+ 						"run", "--manifest", manifestPath, "--journal", journalPath)
+ 					authorizePlan(t, journalPath, runID, initialPlan)
+-					runBinary(t, crash.binary, 86,
++					runBinaryWithEnvironment(t, crash.binary, 86,
++						crash.environment,
+ 						"resume", "--run", runID, "--journal", journalPath,
+ 						"--command", "resume-1", "--generation", "0")
+ 					claimed := claimedSeal(t, journalPath, runID)
+@@ -1507,7 +1518,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 						t.Fatal("unknown authority fixture")
+ 					}
+ 
+-					time.Sleep(1800 * time.Millisecond)
++					leaseExpiryWait()
+ 					stdout, _ := runBinary(
+ 						t, swornBinary, 0,
+ 						"takeover", "--run", runID, "--journal", journalPath,
+@@ -1582,7 +1593,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, sealCrashCuts[1].binary, 86,
++		runBinaryWithEnvironment(t, sealCrashCuts[1].binary, 86,
++			sealCrashCuts[1].environment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		claimed := claimedSeal(t, journalPath, runID)
+@@ -1664,7 +1676,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 			third,
+ 			claimed.Candidate,
+ 		)
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		_, stderr := runBinary(
+ 			t, swornBinary, 1,
+ 			"takeover", "--run", runID, "--journal", journalPath,
+@@ -1797,11 +1809,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 			runBinary(t, swornBinary, 0,
+ 				"run", "--manifest", manifestPath, "--journal", journalPath)
+ 			authorizePlan(t, journalPath, runID, initialPlan)
+-			crashBinary := sealCrashCuts[0].binary
++			crashCut := &sealCrashCuts[0]
+ 			if preparedCase.crash == "git.seal" {
+-				crashBinary = sealCrashCuts[1].binary
++				crashCut = &sealCrashCuts[1]
+ 			}
+-			runBinary(t, crashBinary, 86,
++			runBinaryWithEnvironment(t, crashCut.binary, 86,
++				crashCut.environment,
+ 				"resume", "--run", runID, "--journal", journalPath,
+ 				"--command", "resume-1", "--generation", "0")
+ 			claimed := claimedSeal(t, journalPath, runID)
+@@ -1843,7 +1856,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 			if err != nil {
+ 				t.Fatal(err)
+ 			}
+-			time.Sleep(1800 * time.Millisecond)
++			leaseExpiryWait()
+ 			wantExit := 0
+ 			if preparedCase.parentMode == "succeeded" {
+ 				wantExit = 1
+@@ -1959,9 +1972,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 				buildRoot,
+ 				"sworn-"+strings.ReplaceAll(name+cut, ".", "-"),
+ 			)
+-			buildBinary(t, crashBinary, "./cmd/sworn",
+-				"-X=github.com/swornagent/sworn/internal/runtime."+hook+"="+cut+
+-					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++			crashEnvironment := map[string]string{
++				crashHookEnvironmentName(t, hook): cut,
++				"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
++			}
+ 			repository, root := newProductRepository(t), t.TempDir()
+ 			journalPath := filepath.Join(root, "run.sqlite")
+ 			runID := fmt.Sprintf("topology-crash-%d", index)
+@@ -1978,7 +1993,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 			manifestPath := writeManifest(t, root, append(body, '\n'))
+ 			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+ 			authorizePlan(t, journalPath, runID, plan)
+-			runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
++			runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
++				"resume", "--run", runID, "--journal", journalPath,
+ 				"--command", "resume-1", "--generation", "0")
+ 			store, err := journal.OpenReadOnly(context.Background(), journalPath)
+ 			if err != nil {
+@@ -1997,7 +2013,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 					"%s claimed crash cuts = %v, want exactly one: %v",
+ 					cut, claimedIDs, err)
+ 			}
+-			time.Sleep(1800 * time.Millisecond)
++			leaseExpiryWait()
+ 			stdout, _ := runBinary(t, swornBinary, 0, "takeover", "--run", runID,
+ 				"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
+ 			if !strings.Contains(stdout, "  state: complete") {
+@@ -2254,9 +2270,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 
+ 	t.Run("driver_crash_is_quiescent_uncertain_and_never_retried", func(t *testing.T) {
+ 		crashBinary := filepath.Join(buildRoot, "sworn-driver-crash")
+-		buildBinary(t, crashBinary, "./cmd/sworn",
+-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
+-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++		crashEnvironment := map[string]string{
++			"SWORN_TEST_CRASH_AFTER_EFFECT": "driver.dispatch",
++			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++		}
+ 		repository, root := newProductRepository(t), t.TempDir()
+ 		journalPath := filepath.Join(root, "run.sqlite")
+ 		const runID, release = "topology-driver-crash", "topology-driver-crash-release"
+@@ -2273,7 +2291,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, plan)
+ 		targetBefore := runGit(t, repository, "rev-parse", "main")
+-		runBinary(t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
++		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
++			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
+ 		if err != nil {
+@@ -2299,7 +2318,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 			t.Fatalf("crashed driver effect = %q", crashed[0])
+ 		}
+ 		workID := "sha256:" + parts[1]
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		runBinary(t, swornBinary, 0, "takeover", "--run", runID,
+ 			"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
+ 		status, _ := runBinary(t, swornBinary, 0, "status", "--run", runID,
+@@ -2331,9 +2350,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 
+ 	t.Run("forward_target_claimed_driver_is_terminalized_before_fresh_dispatch", func(t *testing.T) {
+ 		crashBinary := filepath.Join(buildRoot, "sworn-driver-stale-crash")
+-		buildBinary(t, crashBinary, "./cmd/sworn",
+-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=driver.dispatch"+
+-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500")
++		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++		crashEnvironment := map[string]string{
++			"SWORN_TEST_CRASH_AFTER_EFFECT": "driver.dispatch",
++			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++		}
+ 		repository, root := newProductRepository(t), t.TempDir()
+ 		journalPath := filepath.Join(root, "run.sqlite")
+ 		const runID = "topology-driver-stale"
+@@ -2354,7 +2375,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runBinary(t, swornBinary, 0,
+ 			"run", "--manifest", manifestPath, "--journal", journalPath)
+ 		authorizePlan(t, journalPath, runID, initialPlan)
+-		runBinary(t, crashBinary, 86,
++		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+ 			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0")
+ 
+@@ -2390,7 +2411,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
+ 		runGit(t, repository, "add", "--", "target-moved.txt")
+ 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
+ 
+-		time.Sleep(1800 * time.Millisecond)
++		leaseExpiryWait()
+ 		stdout, _ := runBinary(
+ 			t, swornBinary, 0,
+ 			"takeover", "--run", runID, "--journal", journalPath,
+diff --git a/test/e2e/track_base_linux_test.go b/test/e2e/track_base_linux_test.go
+index dc81d4f2..fd46e261 100644
+--- a/test/e2e/track_base_linux_test.go
++++ b/test/e2e/track_base_linux_test.go
+@@ -6,13 +6,11 @@ import (
+ 	"context"
+ 	"encoding/base64"
+ 	"encoding/json"
+-	"fmt"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+-	"time"
+ 
+ 	"github.com/swornagent/sworn/internal/baton"
+ 	"github.com/swornagent/sworn/internal/driver"
+@@ -265,15 +263,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 			runID := "e2e-consumed-" + crash.name
+ 			release := runID + "-release"
+ 			crashBinary := filepath.Join(buildRoot, "sworn-"+crash.name)
+-			buildBinary(
+-				t,
+-				crashBinary,
+-				"./cmd/sworn",
+-				fmt.Sprintf(
+-					"-X=github.com/swornagent/sworn/internal/runtime.%s=git.prepare_track_base -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
+-					crash.cut,
+-				),
+-			)
++			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++			crashEnvironment := map[string]string{
++				crashHookEnvironmentName(t, crash.cut): "git.prepare_track_base",
++				"SWORN_TEST_OWNER_LEASE_MILLIS":        testLeaseMillis,
++			}
+ 			repository, journalPath, _ := prepareConsumedBaseRun(
+ 				t,
+ 				crashBinary,
+@@ -282,10 +276,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 				runID,
+ 				release,
+ 			)
+-			runBinary(
++			runBinaryWithEnvironment(
+ 				t,
+ 				crashBinary,
+ 				86,
++				crashEnvironment,
+ 				"resume",
+ 				"--run",
+ 				runID,
+@@ -314,7 +309,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 					crash.wantRefSet,
+ 				)
+ 			}
+-			time.Sleep(1800 * time.Millisecond)
++			leaseExpiryWait()
+ 			stdout, _ := runBinary(
+ 				t,
+ 				normalBinary,
+@@ -355,13 +350,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 				buildRoot,
+ 				"sworn-crash-after-stale-prepared-base",
+ 			)
+-			buildBinary(
+-				t,
+-				crashBinary,
+-				"./cmd/sworn",
+-				"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=git.prepare_track_base"+
+-					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
+-			)
++			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++			crashEnvironment := map[string]string{
++				"SWORN_TEST_CRASH_AFTER_EFFECT": "git.prepare_track_base",
++				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++			}
+ 			repository := newProductRepository(t)
+ 			runRoot := t.TempDir()
+ 			journalPath := filepath.Join(runRoot, "run.sqlite")
+@@ -379,10 +372,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 				runRoot,
+ 				manifestBody,
+ 			)
+-			stdout, _ := runBinary(
++			stdout, _ := runBinaryWithEnvironment(
+ 				t,
+ 				crashBinary,
+ 				0,
++				crashEnvironment,
+ 				"run",
+ 				"--manifest",
+ 				manifestPath,
+@@ -399,10 +393,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 				release,
+ 				initialBytes,
+ 			)
+-			runBinary(
++			runBinaryWithEnvironment(
+ 				t,
+ 				crashBinary,
+ 				86,
++				crashEnvironment,
+ 				"resume",
+ 				"--run",
+ 				runID,
+@@ -450,7 +445,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
+ 				"-m",
+ 				"external target movement",
+ 			)
+-			time.Sleep(1800 * time.Millisecond)
++			leaseExpiryWait()
+ 			stdout, _ = runBinary(
+ 				t,
+ 				normalBinary,
+diff --git a/test/e2e/turn_recovery_linux_test.go b/test/e2e/turn_recovery_linux_test.go
+index bcaaccb7..70164a42 100644
+--- a/test/e2e/turn_recovery_linux_test.go
++++ b/test/e2e/turn_recovery_linux_test.go
+@@ -998,14 +998,7 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
+ 	normalBinary := filepath.Join(buildRoot, "sworn-normal")
+ 	buildBinary(t, normalBinary, "./cmd/sworn", "")
+ 	crashBinary := filepath.Join(buildRoot, "sworn-human-crash")
+-	buildBinary(
+-		t,
+-		crashBinary,
+-		"./cmd/sworn",
+-		"-X=github.com/swornagent/sworn/internal/runtime.testHumanTurnCrash="+
+-			"environment"+
+-			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=300",
+-	)
++	buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+ 	cuts := []string{
+ 		"before_park_commit",
+ 		"after_park_commit",
+@@ -1049,8 +1042,9 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
+ 				)
+ 				journalPath := filepath.Join(root, "run.sqlite")
+ 				environment := map[string]string{
+-					"SWORN_TURN_RECOVERY_KEY":     recoveryE2ESecret,
+-					"SWORN_TEST_HUMAN_TURN_CRASH": cut,
++					"SWORN_TURN_RECOVERY_KEY":       recoveryE2ESecret,
++					"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++					"SWORN_TEST_HUMAN_TURN_CRASH":   cut,
+ 				}
+ 				runBinaryWithEnvironment(
+ 					t, normalBinary, 0, environment,
+diff --git a/test/e2e/walking_skeleton_linux_test.go b/test/e2e/walking_skeleton_linux_test.go
+index 64aedf04..8a60a186 100644
+--- a/test/e2e/walking_skeleton_linux_test.go
++++ b/test/e2e/walking_skeleton_linux_test.go
+@@ -154,6 +154,40 @@ func buildBinary(t *testing.T, output, source, ldflags string) {
+ 	}
+ }
+ 
++// hookGateLDFlags links the single test-hook gate into a binary; the hooks
++// themselves travel per-process as SWORN_TEST_* environment values. One
++// shared binary therefore serves every crash-cut and lease permutation —
++// previously each permutation was its own link.
++const hookGateLDFlags = "-X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1"
++
++// testLeaseMillis is the shortest owner lease ownerDuration admits. Only
++// tests that deliberately wait out a claim set it; every other test keeps
++// the production 30s lease so a loaded machine cannot expire a live claim
++// mid-dispatch.
++const testLeaseMillis = "300"
++
++// leaseExpiryWait outlasts testLeaseMillis with scheduling slack.
++func leaseExpiryWait() { time.Sleep(450 * time.Millisecond) }
++
++// crashHookEnvironmentName maps a runtime hook variable name (the historic
++// ldflags spelling some tables still parameterize over) to its SWORN_TEST_*
++// environment equivalent.
++func crashHookEnvironmentName(t *testing.T, variable string) string {
++	t.Helper()
++	switch variable {
++	case "testCrashBeforeEffect":
++		return "SWORN_TEST_CRASH_BEFORE_EFFECT"
++	case "testCrashAfterEffect":
++		return "SWORN_TEST_CRASH_AFTER_EFFECT"
++	case "testHumanTurnCrash":
++		return "SWORN_TEST_HUMAN_TURN_CRASH"
++	case "testCaptainCrashCut":
++		return "SWORN_TEST_CAPTAIN_CRASH_CUT"
++	}
++	t.Fatalf("unknown crash hook variable %q", variable)
++	return ""
++}
++
+ func fileDigest(t *testing.T, path string) string {
+ 	t.Helper()
+ 	body, err := os.ReadFile(path)
+@@ -903,13 +937,11 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
+ 
+ 	t.Run("post_merge_crash_reconstructs_all_new", func(t *testing.T) {
+ 		crashBinary := filepath.Join(buildRoot, "sworn-crash")
+-		buildBinary(
+-			t,
+-			crashBinary,
+-			"./cmd/sworn",
+-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge"+
+-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
+-		)
++		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
++		crashEnvironment := map[string]string{
++			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.merge",
++			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
++		}
+ 		repository := newProductRepository(t)
+ 		runRoot := t.TempDir()
+ 		journalPath := filepath.Join(runRoot, "run.sqlite")
+@@ -922,13 +954,15 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
+ 			fakeBinary, fakeDigest, "verifier-model")
+ 
+ 		manifestPath := writeManifest(t, runRoot, manifestBody)
+-		runBinary(
+-			t, crashBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
++		runBinaryWithEnvironment(
++			t, crashBinary, 0, crashEnvironment,
++			"run", "--manifest", manifestPath, "--journal", journalPath,
+ 		)
+ 		authorizePlan(t, journalPath, runID, plan)
+ 		installAndPassComponent(t, repository, release, planBytes)
+-		runBinary(
+-			t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
++		runBinaryWithEnvironment(
++			t, crashBinary, 86, crashEnvironment,
++			"resume", "--run", runID, "--journal", journalPath,
+ 			"--command", "resume-1", "--generation", "0",
+ 		)
+ 		stateAfterCrash := readBatonState(t, repository, release)
+@@ -951,9 +985,10 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
+ 		if snapshotErr != nil || mergeEffect.State != journal.Claimed {
+ 			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
+ 		}
+-		time.Sleep(1800 * time.Millisecond)
+-		stdout, _ := runBinary(
+-			t, crashBinary, 0, "takeover", "--run", runID, "--journal", journalPath,
++		leaseExpiryWait()
++		stdout, _ := runBinaryWithEnvironment(
++			t, crashBinary, 0, crashEnvironment,
++			"takeover", "--run", runID, "--journal", journalPath,
+ 			"--command", "takeover-1", "--generation", "1",
+ 		)
+ 		if !strings.Contains(stdout, "  state: complete") {

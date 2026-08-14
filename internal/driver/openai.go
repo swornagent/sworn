@@ -3,6 +3,8 @@ package driver
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"slices"
 )
 
 type openAIConversation struct {
@@ -53,34 +55,153 @@ const (
 	OpenRouterChatCompletionsAPI OpenAIAPI = "openrouter_chat_completions"
 )
 
+func (api OpenAIAPI) valid() bool {
+	switch api {
+	case OpenAIResponsesAPI,
+		OpenAIChatCompletionsAPI,
+		OpenRouterChatCompletionsAPI:
+		return true
+	default:
+		return false
+	}
+}
+
 type OpenAIProfileConfig struct {
 	HTTPProfileConfig
-	API             OpenAIAPI `json:"api"`
-	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	API              OpenAIAPI `json:"api"`
+	ReasoningEffort  string    `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
+	// Stream enables SSE streaming on the responses flavour: events render
+	// live while the terminal event's embedded response object feeds the
+	// exact non-streaming validation path.
+	Stream bool `json:"stream,omitempty"`
+	// EnableThinking is Qwen's thinking toggle on the responses flavour,
+	// carried verbatim when set.
+	EnableThinking  *bool         `json:"enable_thinking,omitempty"`
+	Preset          string        `json:"preset,omitempty"`
+	AuthMode        AuthMode      `json:"auth_mode,omitempty"`
+	Chain           *AWSChainSpec `json:"chain,omitempty"`
+	OpaqueReasoning *bool         `json:"opaque_reasoning,omitempty"`
+}
+
+// effectiveAuth returns the admission-time authentication mode of a unified
+// OpenAI-compatible adapter. Omission keeps the legacy deterministic default:
+// a configured AWS chain means SigV4, everything else means bearer. The
+// explicit none mode is the only way to obtain a credential-less adapter.
+func (config OpenAIProfileConfig) effectiveAuth() AuthMode {
+	if config.AuthMode != "" {
+		return config.AuthMode
+	}
+	if config.Chain != nil {
+		return AuthModeAWSSigV4
+	}
+	return AuthModeBearer
+}
+
+// validOpenAIAuth is fail-closed over the authentication surface: bearer and
+// SigV4 require credential references, SigV4 requires an AWS chain and forbids
+// header auth, and none requires the absence of every credential artifact.
+func validOpenAIAuth(config *OpenAIProfileConfig) bool {
+	if config == nil {
+		return false
+	}
+	switch config.effectiveAuth() {
+	case AuthModeNone:
+		return len(config.CredentialRefs) == 0 &&
+			config.CredentialHeader == "" &&
+			config.CredentialPrefix == "" &&
+			config.Chain == nil
+	case AuthModeBearer:
+		return len(config.CredentialRefs) > 0 && config.Chain == nil
+	case AuthModeAWSSigV4:
+		return len(config.CredentialRefs) > 0 &&
+			config.Chain != nil &&
+			config.CredentialHeader == "" &&
+			config.CredentialPrefix == ""
+	default:
+		return false
+	}
 }
 
 func NewOpenAIAdapter(
 	config OpenAIProfileConfig,
 	resolver HeaderCredentialResolver,
+	awsResolver AWSRuntimeResolver,
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	if !config.valid() {
+	if !config.valid() || !validOpenAIAuth(&config) {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	transport, err := newHTTPTransport(
-		config.HTTPProfileConfig,
-		resolver,
-		probe,
-		roundTripper,
-	)
-	if err != nil {
-		return nil, err
+	var transport providerTransport
+	switch config.effectiveAuth() {
+	case AuthModeNone:
+		httpTransport, err := newHTTPTransport(
+			config.HTTPProfileConfig,
+			AuthModeNone,
+			nil,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		config.CredentialRefs = append(
+			[]string(nil),
+			httpTransport.config.CredentialRefs...,
+		)
+		transport = httpTransport
+	case AuthModeBearer:
+		httpTransport, err := newHTTPTransport(
+			config.HTTPProfileConfig,
+			AuthModeBearer,
+			resolver,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		config.HTTPProfileConfig = httpTransport.config
+		transport = httpTransport
+	case AuthModeAWSSigV4:
+		bedrockTransport, err := newBedrockTransport(
+			BedrockProfileConfig{
+				Key:            config.Key,
+				ID:             config.ID,
+				Version:        config.Version,
+				Endpoint:       config.Endpoint,
+				CredentialRefs: append([]string(nil), config.CredentialRefs...),
+				ResponseBytes:  config.ResponseBytes,
+				Chain:          *config.Chain,
+			},
+			// The transport-level signing surface stays internal: the
+			// adapter's reported surface remains the OpenAI chat surface
+			// while Bedrock Mantle signs the Chat Completions payload.
+			ProfileSurfaceBedrockMantleChat,
+			awsResolver,
+			probe,
+			roundTripper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		chain := bedrockTransport.config.Chain
+		config.Chain = &chain
+		config.CredentialRefs = append(
+			[]string(nil),
+			bedrockTransport.config.CredentialRefs...,
+		)
+		transport = bedrockTransport
+	default:
+		return nil, fail("INVALID_ADAPTER")
 	}
-	config.HTTPProfileConfig = transport.config
 	var factory providerConversationFactory
 	surface := ProfileSurfaceOpenAIChat
 	dialect := providerDialectOpenAIChat
+	if config.OpaqueReasoning != nil && *config.OpaqueReasoning {
+		dialect = providerDialectOpaqueChat
+	}
 	switch config.API {
 	case OpenAIResponsesAPI:
 		surface = ProfileSurfaceOpenAIResponses
@@ -96,6 +217,8 @@ func NewOpenAIAdapter(
 				tools,
 				prompt,
 				config.ReasoningEffort,
+				config.EnableThinking,
+				config.Stream,
 			)
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
@@ -137,61 +260,50 @@ func NewOpenAIAdapter(
 	)
 }
 
-func NewDeepSeekAdapter(
-	config HTTPProfileConfig,
-	resolver HeaderCredentialResolver,
-	probe ProfileLiveProbe,
-	roundTripper http.RoundTripper,
-) (Adapter, error) {
-	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
-	if err != nil {
-		return nil, err
-	}
-	factory := func(
-		prompt []byte,
-		model string,
-		tools []providerToolDefinition,
-	) (providerConversation, error) {
-		return newOpenAIConversation(
-			config.Endpoint,
-			model,
-			tools,
-			prompt,
-			providerDialectDeepSeekChat,
-			"",
-		)
-	}
-	configuration := struct {
-		HTTPProfileConfig
-		Family ProfileFamily
-	}{transport.config, ProfileDeepSeek}
-	return newLoopAdapter(
-		config.Key,
-		config.ID,
-		config.Version,
-		ProfileDeepSeek,
-		"",
-		providerDialectDeepSeekChat,
-		configuration,
-		factory,
-		transport,
-	)
-}
-
 func (config OpenAIProfileConfig) valid() bool {
-	if validateEndpoint(config.Endpoint) != nil {
+	parsed, err := url.Parse(config.Endpoint)
+	if validateEndpoint(config.Endpoint) != nil ||
+		err != nil || parsed.RawQuery != "" ||
+		!validReasoningEfforts(config.ReasoningEfforts) {
 		return false
 	}
-	if config.API == OpenAIChatCompletionsAPI {
-		return config.ReasoningEffort == "" ||
-			config.ReasoningEffort == "none"
+	// Streaming is a responses-flavour capability only; the chat flavours
+	// keep the exact non-streaming request shape.
+	switch config.API {
+	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
+		return !config.Stream &&
+			(config.ReasoningEffort == "" ||
+				config.declaresReasoningEffort(config.ReasoningEffort))
+	case OpenAIResponsesAPI:
+		return config.ReasoningEffort != "" &&
+			config.declaresReasoningEffort(config.ReasoningEffort)
+	default:
+		return false
 	}
-	if config.API == OpenRouterChatCompletionsAPI {
-		return config.ReasoningEffort == ""
+}
+
+// declaresReasoningEffort reports whether value is admitted by this profile.
+// A declared per-profile vocabulary wins; when none is declared the global
+// backward-compatibility set is the vocabulary.
+func (config OpenAIProfileConfig) declaresReasoningEffort(value string) bool {
+	if len(config.ReasoningEfforts) != 0 {
+		return slices.Contains(config.ReasoningEfforts, value)
 	}
-	return config.API == OpenAIResponsesAPI &&
-		config.ReasoningEffort != "" &&
-		validOpenAIReasoningEffort(config.ReasoningEffort)
+	return validOpenAIReasoningEffort(value)
+}
+
+// validReasoningEfforts requires a canonical per-profile vocabulary: values
+// are non-empty bounded text, strictly increasing, and never duplicated, so
+// two profiles declaring the same capability canonicalize identically.
+func validReasoningEfforts(values []string) bool {
+	for index, value := range values {
+		if value == "" ||
+			validateText(value, 128, false) != nil ||
+			(index > 0 && values[index-1] >= value) {
+			return false
+		}
+	}
+	return true
 }
 
 func newOpenAIConversation(
@@ -205,12 +317,7 @@ func newOpenAIConversation(
 		validateText(model, 500, false) != nil ||
 		(dialect != providerDialectOpenAIChat &&
 			dialect != providerDialectOpenRouterChat &&
-			dialect != providerDialectDeepSeekChat &&
-			dialect != providerDialectMantleChat) ||
-		(reasoningEffort != "" && reasoningEffort != "none") {
-		return nil, fail("INVALID_ADAPTER")
-	}
-	if dialect != providerDialectOpenAIChat && reasoningEffort != "" {
+			dialect != providerDialectOpaqueChat) {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := openAITools(definitions)
@@ -284,6 +391,13 @@ func validOpenAIReasoningEffort(value string) bool {
 	}
 }
 
+func (conversation *openAIConversation) declaredReasoningEffort() string {
+	if conversation == nil {
+		return ""
+	}
+	return conversation.reasoningEffort
+}
+
 func (conversation *openAIConversation) accept(body []byte) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
@@ -295,13 +409,22 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	root, err := closedObject(value, nil, []string{
 		"id", "object", "created", "model", "choices", "usage", "error",
-		"system_fingerprint", "service_tier",
+		"system_fingerprint", "service_tier", "reasoning_effort",
 	})
 	if err != nil {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
+	}
+	var effort *string
+	if effortValue, present := root["reasoning_effort"]; present &&
+		effortValue != nil {
+		effortText, ok := effortValue.(string)
+		if !ok || validateText(effortText, 128, false) != nil {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+		effort = &effortText
 	}
 	rawChoices, ok := root["choices"].([]any)
 	if !ok || len(rawChoices) != 1 {
@@ -316,9 +439,29 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	finishReason, finishOK := choice["finish_reason"].(string)
-	if !finishOK ||
-		(finishReason != "tool_calls" && finishReason != "stop") {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
+	if !finishOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if finishReason != "tool_calls" && finishReason != "stop" {
+		if finishReason != "length" {
+			return providerTurn{}, fail("MISSING_SUBMISSION")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		turn := providerTurn{
+			ReasoningEffort: effort,
+			FinishReason:    &finishReason,
+			Truncated:       true,
+		}
+		if usageValue, present := root["usage"]; present && usageValue != nil {
+			usage, usageErr := openAIUsage(usageValue)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = usage
+		}
+		return turn, nil
 	}
 	rawMessage, err := closedObject(
 		choice["message"],
@@ -375,7 +518,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	}
 	if reasoningValue, present := rawMessage["reasoning_content"]; present &&
 		reasoningValue != nil {
-		if conversation.dialect != providerDialectDeepSeekChat {
+		if conversation.dialect != providerDialectOpaqueChat {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		reasoning, ok := reasoningValue.(string)
@@ -463,25 +606,56 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	conversation.messages = append(conversation.messages, message)
 	conversation.pending = append([]providerToolCall(nil), calls...)
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
+	if effort != nil {
+		turn.ReasoningEffort = effort
+	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := closedObject(
-			usageValue,
-			[]string{"prompt_tokens", "completion_tokens"},
-			[]string{
-				"total_tokens", "prompt_tokens_details", "completion_tokens_details",
-				"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
-			},
-		)
-		input, inputOK := safeJSONInt(usage["prompt_tokens"])
-		output, outputOK := safeJSONInt(usage["completion_tokens"])
-		if usageErr != nil || !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
+		usage, usageErr := openAIUsage(usageValue)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		turn.Usage = &Usage{
-			InputTokens: input, OutputTokens: output,
-		}
+		turn.Usage = usage
 	}
 	return turn, nil
+}
+
+// openAIUsage parses the chat-completions usage object into the normalized
+// turn accounting. The OpenAI cache vocabulary (prompt_cache_hit_tokens ->
+// read, prompt_cache_miss_tokens -> write) is surfaced instead of discarded;
+// each side stays nil when the provider omits it.
+func openAIUsage(value any) (*Usage, error) {
+	usage, err := closedObject(
+		value,
+		[]string{"prompt_tokens", "completion_tokens"},
+		[]string{
+			"total_tokens", "prompt_tokens_details", "completion_tokens_details",
+			"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+		},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(usage["prompt_tokens"])
+	output, outputOK := safeJSONInt(usage["completion_tokens"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: output}
+	if _, present := usage["prompt_cache_hit_tokens"]; present {
+		read, readOK := safeJSONInt(usage["prompt_cache_hit_tokens"])
+		if !readOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheReadTokens = &read
+	}
+	if _, present := usage["prompt_cache_miss_tokens"]; present {
+		write, writeOK := safeJSONInt(usage["prompt_cache_miss_tokens"])
+		if !writeOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheWriteTokens = &write
+	}
+	return result, nil
 }
 
 func (conversation *openAIConversation) appendInstruction(body []byte) error {

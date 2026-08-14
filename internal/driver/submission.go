@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	SubmissionSchemaVersion   = "sworn.submission/v1"
-	PermissionSchemaVersion   = "sworn.submission-permission/v1"
-	SealSchemaVersion         = "sworn.submission-seal/v1"
-	MaxFrameBytes             = 4_194_304
-	MaxSubmissionBytes        = 2_097_152
+	SubmissionSchemaVersion = "sworn.submission/v1"
+	PermissionSchemaVersion = "sworn.submission-permission/v1"
+	SealSchemaVersion       = "sworn.submission-seal/v1"
+	MaxFrameBytes           = 4_194_304
+	MaxSubmissionBytes      = 2_097_152
 	// Summary and detail are bounded only by the tool-argument transport
 	// guard (MaxToolArgumentBytes); expression caps below it are removed and
 	// may return only from quantitative eval evidence.

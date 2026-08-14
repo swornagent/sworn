@@ -987,6 +987,7 @@ func recoverableProviderAdapter(t *testing.T, endpoint string) Adapter {
 		},
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

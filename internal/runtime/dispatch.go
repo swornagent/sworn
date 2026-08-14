@@ -1415,6 +1415,19 @@ func rehydrateProductionContextInputs(
 		)
 		persisted.DesignReceipt = &binding
 	}
+	if persisted.HostEvidence != nil {
+		if current.HostEvidence == nil ||
+			current.HostEvidence.Input != persisted.HostEvidence.Input {
+			return productionWorkContext{},
+				runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		binding := *persisted.HostEvidence
+		binding.body = append(
+			[]byte(nil),
+			current.HostEvidence.body...,
+		)
+		persisted.HostEvidence = &binding
+	}
 	return persisted, nil
 }
 

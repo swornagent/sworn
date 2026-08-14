@@ -6,3 +6,10 @@
 /internal/baton/snapshot/** -text diff
 /.baton/releases export-ignore
 /.baton/releases/** export-ignore
+# Reference patches are unified diffs: context lines are space-then-tab by
+# format, which git diff --check reports as a whitespace error. They are
+# recorded commitments, not source.
+*.patch -whitespace -text
+# Markdown hard line breaks are two trailing spaces by specification, so a
+# whitespace check on prose flags valid syntax rather than a defect.
+*.md -whitespace

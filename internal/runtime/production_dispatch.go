@@ -70,6 +70,12 @@ type productionCandidateBinding struct {
 	Receipt     string `json:"receipt"`
 	Commit      string `json:"commit"`
 	ProductTree string `json:"product_tree,omitempty"`
+	// Base is the commit the candidate was built on, and Chain spells the
+	// ancestry out so a verifier checks bindings instead of reconstructing
+	// them: base -> candidate (the diff under verification) -> candidate
+	// receipt (the receipted head this dispatch's prepared_base names).
+	Base  string `json:"base,omitempty"`
+	Chain string `json:"chain,omitempty"`
 }
 
 type productionEvidenceBinding struct {
@@ -80,6 +86,41 @@ type productionEvidenceBinding struct {
 	ProductTree      string `json:"product_tree"`
 	SourceRef        string `json:"source_ref"`
 	SourceHead       string `json:"source_head"`
+}
+
+const (
+	productionHostEvidencePath    = "baton/host-evidence.json"
+	productionHostEvidenceVersion = "sworn.host-evidence/v1"
+)
+
+// productionHostEvidence projects the engine's recorded host-boundary check
+// evidence into a verifier's work context for a host-check slice. It is the
+// read-don't-rerun surface: the verifier reads these journaled results
+// instead of executing the declared containment-requiring checks itself, and
+// ManifestDigest proves the projected results are the exact bytes the
+// candidate receipt's Checks digest covered. It is optional and additive; a
+// slice without host checks never carries it, so persisted v2 work contexts
+// stay byte-compatible.
+type productionHostEvidence struct {
+	SchemaVersion  string                      `json:"schema_version"`
+	Slice          string                      `json:"slice"`
+	Candidate      string                      `json:"candidate"`
+	ContractDigest string                      `json:"contract_digest"`
+	ManifestDigest string                      `json:"manifest_digest"`
+	Results        []productionHostCheckResult `json:"results"`
+	Input          driver.Input                `json:"input"`
+	body           []byte
+}
+
+type productionHostCheckResult struct {
+	Check        string `json:"check"`
+	Outcome      string `json:"outcome"`
+	ExitCode     int    `json:"exit_code"`
+	OutputDigest string `json:"output_digest"`
+	Output       string `json:"output"`
+	Truncated    bool   `json:"truncated"`
+	Diagnostic   string `json:"diagnostic,omitempty"`
+	HostEffect   string `json:"host_effect"`
 }
 
 type productionCaptainPlanBinding struct {
@@ -124,6 +165,7 @@ type productionWorkContext struct {
 	DesignReceipt      *productionReceiptBinding     `json:"design_receipt,omitempty"`
 	Candidate          *productionCandidateBinding   `json:"candidate,omitempty"`
 	Evidence           []productionEvidenceBinding   `json:"evidence"`
+	HostEvidence       *productionHostEvidence       `json:"host_evidence,omitempty"`
 	CaptainPlan        *productionCaptainPlanBinding `json:"captain_plan,omitempty"`
 }
 
@@ -282,11 +324,24 @@ func candidateBinding(
 	if entry.Receipt.ProductTree != nil {
 		productTree = *entry.Receipt.ProductTree
 	}
-	return &productionCandidateBinding{
+	base := ""
+	if entry.Receipt.Base != nil {
+		base = *entry.Receipt.Base
+	}
+	binding := &productionCandidateBinding{
 		Receipt:     entry.OID,
 		Commit:      *entry.Receipt.Candidate,
 		ProductTree: productTree,
-	}, nil
+		Base:        base,
+	}
+	if base != "" {
+		binding.Chain = "base " + base +
+			" -> candidate " + binding.Commit +
+			" (the diff under verification) -> candidate receipt " +
+			binding.Receipt +
+			" (the receipted track head; this dispatch's prepared_base names this receipted head, not the build base)"
+	}
+	return binding, nil
 }
 
 func sliceEvidence(
@@ -713,8 +768,127 @@ func captureBatonWorkContext(
 		if err != nil {
 			return err
 		}
+		if err := captureHostEvidence(
+			ctx, engine, state, slice, workContext,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// captureHostEvidence projects the recorded host-boundary evidence into a
+// WorkVerification work context when the slice's approved contract declares
+// containment-requiring checks. It reads the journaled check.host effects for
+// the exact candidate (never re-running them in a worker), rebuilds the
+// host-boundary portion of the receipt manifest, and proves the projected
+// bytes are exactly what the candidate receipt's Checks digest covered. A
+// declared host check whose journaled evidence is missing or not succeeded
+// fails closed, so a verifier can never be handed incomplete host evidence.
+func captureHostEvidence(
+	ctx context.Context,
+	engine *engine,
+	state baton.State,
+	slice *baton.SliceState,
+	workContext *productionWorkContext,
+) error {
+	if engine == nil || slice == nil || workContext == nil ||
+		slice.Candidate == nil || slice.Candidate.Receipt.Candidate == nil {
+		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	if workContext.Plan == nil {
+		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	plan, err := baton.ParsePlan(workContext.Plan.body)
+	if err != nil || plan.Digest() != workContext.Plan.Digest {
+		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
+	}
+	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
+		engine, plan, workContext.Slice, state.Refs.Target.Head)
+	if resolveErr != nil {
+		return resolveErr
+	}
+	if len(hostChecks) == 0 {
+		return nil
+	}
+	candidate := *slice.Candidate.Receipt.Candidate
+	results, readErr := readJournaledHostResults(
+		ctx, engine, workContext.Slice, candidate, contractDigest, hostChecks)
+	if readErr != nil {
+		return readErr
+	}
+	roleDigest := ""
+	if slice.Candidate.Receipt.Checks != nil {
+		roleDigest = *slice.Candidate.Receipt.Checks
+	}
+	body := mustJSON(productionHostEvidence{
+		SchemaVersion:  productionHostEvidenceVersion,
+		Slice:          workContext.Slice,
+		Candidate:      candidate,
+		ContractDigest: contractDigest,
+		ManifestDigest: roleDigest,
+		Results:        productionHostResults(results),
+	})
+	workContext.HostEvidence = &productionHostEvidence{
+		SchemaVersion:  productionHostEvidenceVersion,
+		Slice:          workContext.Slice,
+		Candidate:      candidate,
+		ContractDigest: contractDigest,
+		ManifestDigest: roleDigest,
+		Results:        productionHostResults(results),
+		Input: driver.Input{
+			Name:   "host-evidence",
+			Path:   productionHostEvidencePath,
+			Digest: driver.Digest(body),
+		},
+		body: body,
+	}
+	return nil
+}
+
+func productionHostResults(
+	results []hostCheckResult,
+) []productionHostCheckResult {
+	projected := make([]productionHostCheckResult, len(results))
+	for index, result := range results {
+		projected[index] = productionHostCheckResult{
+			Check: result.Check, Outcome: result.Outcome,
+			ExitCode: result.ExitCode, OutputDigest: result.OutputDigest,
+			Output: result.Output, Truncated: result.Truncated,
+			Diagnostic: result.Diagnostic, HostEffect: result.EffectID,
+		}
+	}
+	return projected
+}
+
+// readJournaledHostResults reads the exactly-once journaled check.host
+// effects for the declared host checks of one exact candidate. It never
+// executes anything; a missing or non-succeeded effect fails closed.
+func readJournaledHostResults(
+	ctx context.Context,
+	engine *engine,
+	sliceID, candidate, contractDigest string,
+	hostChecks []string,
+) ([]hostCheckResult, error) {
+	results := make([]hostCheckResult, 0, len(hostChecks))
+	for _, check := range hostChecks {
+		work := hostCheckWork(sliceID, candidate, contractDigest, check)
+		effectID := hostCheckEffectID(work)
+		effect, err := engine.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+		if err != nil {
+			return nil, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		if effect.Kind != "check.host" || effect.State != journal.Succeeded {
+			return nil, runtimeFail("HOST_CHECK_EVIDENCE_MISSING", nil)
+		}
+		result, err := parseHostCheckResult(
+			sliceID, candidate, contractDigest, check, effectID, effect.Result)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 func currentImplementationDesignReceipt(
@@ -817,7 +991,8 @@ func validateProductionWorkContext(
 	if workContext.SchemaVersion == productionWorkContextVersionV1 &&
 		(workContext.Track != "" ||
 			workContext.PreparedBase != "" ||
-			workContext.DesignReceipt != nil) {
+			workContext.DesignReceipt != nil ||
+			workContext.HostEvidence != nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	expectedAccess := driver.ReadOnly
@@ -870,6 +1045,36 @@ func validateProductionWorkContext(
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		seenEvidence[evidence.Slice] = struct{}{}
+	}
+	if workContext.HostEvidence != nil {
+		evidence := workContext.HostEvidence
+		if evidence.SchemaVersion != productionHostEvidenceVersion ||
+			evidence.Slice != workContext.Slice ||
+			evidence.Slice == "" ||
+			!validGitObjectID(evidence.Candidate) ||
+			!runtimeDigestPattern.MatchString(evidence.ContractDigest) ||
+			!runtimeDigestPattern.MatchString(evidence.ManifestDigest) ||
+			evidence.Input.Name != "host-evidence" ||
+			evidence.Input.Path != productionHostEvidencePath ||
+			!runtimeDigestPattern.MatchString(evidence.Input.Digest) ||
+			len(evidence.Results) == 0 ||
+			workContext.Responsibility != driver.WorkVerification ||
+			workContext.Candidate == nil ||
+			workContext.Candidate.Commit != evidence.Candidate {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		seen := make(map[string]struct{}, len(evidence.Results))
+		for _, result := range evidence.Results {
+			if result.Check == "" || !runtimeIdentityPattern.MatchString(result.Outcome) ||
+				!runtimeDigestPattern.MatchString(result.OutputDigest) ||
+				result.HostEffect == "" {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if _, duplicate := seen[result.Check]; duplicate {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			seen[result.Check] = struct{}{}
+		}
 	}
 	if workContext.Candidate != nil &&
 		(workContext.Candidate.Receipt == "" ||
@@ -1022,6 +1227,7 @@ func productionWorkContextV1(
 	workContext.Track = ""
 	workContext.PreparedBase = ""
 	workContext.DesignReceipt = nil
+	workContext.HostEvidence = nil
 	if err := validateProductionWorkContext(
 		manifest,
 		workContext,
@@ -1176,6 +1382,9 @@ func productionRequestForContextFreshness(
 			workContext.DesignReceipt.DetailInput,
 		)
 	}
+	if workContext.HostEvidence != nil {
+		inputs = append(inputs, workContext.HostEvidence.Input)
+	}
 	if workContext.CaptainPlan != nil {
 		inputs = append(inputs, workContext.CaptainPlan.EnvelopeInput, workContext.CaptainPlan.ProposalInput)
 	}
@@ -1271,6 +1480,16 @@ func productionInputContents(
 			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 		}
 		contents = append(contents, driver.InputContent{Input: binding.EnvelopeInput, Bytes: append([]byte(nil), binding.envelopeBody...)}, driver.InputContent{Input: binding.ProposalInput, Bytes: append([]byte(nil), binding.proposalBody...)})
+	}
+	if workContext.HostEvidence != nil {
+		evidence := workContext.HostEvidence
+		if driver.Digest(evidence.body) != evidence.Input.Digest {
+			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		contents = append(contents, driver.InputContent{
+			Input: evidence.Input,
+			Bytes: append([]byte(nil), evidence.body...),
+		})
 	}
 	return contents, nil
 }

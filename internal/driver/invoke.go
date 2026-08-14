@@ -202,6 +202,7 @@ func validDiagnosticCode(code string) bool {
 	case "none",
 		"submission_rejected",
 		"submission_absent",
+		"provider_truncated",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -234,6 +235,7 @@ func validFatalDiagnosticCode(code string) bool {
 		"extra_stdout",
 		"invalid_driver_result",
 		"driver_transport_failed",
+		"provider_truncated",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -305,6 +307,15 @@ func sanitizeFailedObservation(observation Observation) Observation {
 		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
 		sanitized.Diagnostic = observation.Diagnostic
 	}
+	// A provider-reported truncation is the one adapter failure that carries
+	// measured facts: the accumulated receipt with the provider's own finish
+	// reason and cache/effort accounting. Preserve it when it is canonical so
+	// the operator surfaces can evaluate what the invocation actually cost.
+	if observation.Diagnostic.Code == "provider_truncated" {
+		if _, err := EncodeUsageReceipt(observation.Usage); err == nil {
+			sanitized.Usage = observation.Usage
+		}
+	}
 	if len(observation.Events) <= 1_024 {
 		sanitized.Events = make([]TerminalEvent, 0, len(observation.Events))
 		for index, event := range observation.Events {
@@ -351,6 +362,7 @@ func validAdapterErrorCode(code string) bool {
 		"ENDPOINT_UNAVAILABLE",
 		"PROCESS_START_FAILED",
 		"ISOLATION_UNAVAILABLE",
+		"UNCONTAINED_DISPATCH_REFUSED",
 		"INVALID_NETWORK_POLICY",
 		"UNSAFE_WORKSPACE_SURFACE",
 		"OUTPUT_OVERFLOW",
@@ -406,6 +418,7 @@ func validAdapterErrorCode(code string) bool {
 		"UNSUPPORTED_HOST",
 		"MISSING_SUBMISSION",
 		"PROVIDER_ERROR",
+		"PROVIDER_TRUNCATED",
 		"PROVIDER_AUTHORIZATION_FAILED",
 		"PROVIDER_LIMITED",
 		"PROVIDER_REQUEST_REJECTED",

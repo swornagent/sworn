@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"unicode/utf8"
 )
@@ -367,24 +368,60 @@ func hostGoModuleCache() string {
 	return cache
 }
 
+// readOnlyGitBinds resolves the worktree's git plumbing so a read-only
+// workspace can run git against real history: the .git pointer file stays
+// in place and the common git directory is bound read-only at the absolute
+// path the pointer names.
+func readOnlyGitBinds(hostWorkspace string) ([]string, error) {
+	pointerPath := filepath.Join(hostWorkspace, ".git")
+	pointer, err := os.ReadFile(pointerPath)
+	if err != nil {
+		return nil, err
+	}
+	line := strings.TrimSpace(string(pointer))
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+	if gitDir == "" || !filepath.IsAbs(gitDir) ||
+		filepath.Clean(gitDir) != gitDir {
+		return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+	}
+	// The worktree git dir carries a commondir file naming the shared
+	// object store; binding the common .git directory covers both.
+	commonRaw, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return nil, err
+	}
+	commonDir := strings.TrimSpace(string(commonRaw))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Clean(filepath.Join(gitDir, commonDir))
+	}
+	if info, err := os.Stat(commonDir); err != nil || !info.IsDir() {
+		return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+	}
+	return []string{
+		"--ro-bind", commonDir, commonDir,
+		"--ro-bind", gitDir, gitDir,
+	}, nil
+}
+
 func runToolBash(
 	ctx context.Context,
 	invocation Invocation,
 	projectionRoot string,
+	scratch string,
 	script string,
-) ([]byte, error) {
+) ([]byte, int, error) {
 	bwrap, err := trustedBubblewrap()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	workspace, err := openPinnedDirectory(invocation.HostWorkspace)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer workspace.Close()
 	inputs, err := openPinnedDirectory(projectionRoot)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer inputs.Close()
 	arguments := []string{
@@ -393,9 +430,23 @@ func runToolBash(
 		"--unshare-all", "--unshare-user", "--disable-userns",
 		"--cap-drop", "ALL", "--clearenv",
 		"--proc", "/proc", "--remount-ro", "/proc",
-		"--dev", "/dev", "--tmpfs", "/tmp",
-		"--dir", "/home", "--dir", "/home/sworn", "--dir", "/sworn",
+		"--dev", "/dev",
+		"--dir", "/home", "--dir", "/sworn",
 		"--ro-bind", "/usr", "/usr",
+	}
+	// /home/sworn and /tmp are the invocation's persistent scratch: the same
+	// host directories are bound for every command of this invocation, so
+	// build caches and staged state survive between tool calls. Isolation
+	// holds at the invocation boundary — the session deletes them on Close.
+	if scratch != "" {
+		arguments = append(arguments,
+			"--bind", filepath.Join(scratch, "home"), "/home/sworn",
+			"--bind", filepath.Join(scratch, "tmp"), "/tmp",
+		)
+	} else {
+		arguments = append(arguments,
+			"--dir", "/home/sworn", "--tmpfs", "/tmp",
+		)
 	}
 	for _, systemPath := range []string{"/lib", "/lib64"} {
 		if _, statErr := os.Stat(systemPath); statErr == nil {
@@ -407,13 +458,26 @@ func runToolBash(
 	} else {
 		arguments = append(arguments, "--bind-fd", "3", GuestWorkspacePath)
 	}
-	for _, reserved := range []string{".git", ".baton", ".sworn"} {
+	// Read-only workspaces expose read-only git: a verifier's job is to
+	// re-prove custody from the evidence graph, so it may read all history
+	// and write none. Read-write workers keep .git masked so no candidate
+	// can rewrite records. .baton and .sworn stay masked for everyone.
+	masked := []string{".git", ".baton", ".sworn"}
+	if invocation.Request.Workspace.Access == ReadOnly {
+		masked = []string{".baton", ".sworn"}
+		if gitArguments, err := readOnlyGitBinds(
+			invocation.HostWorkspace,
+		); err == nil {
+			arguments = append(arguments, gitArguments...)
+		}
+	}
+	for _, reserved := range masked {
 		info, statErr := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
 		if os.IsNotExist(statErr) {
 			continue
 		}
 		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+			return nil, 0, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
 		target := filepath.Join(GuestWorkspacePath, reserved)
 		if info.IsDir() {
@@ -421,7 +485,7 @@ func runToolBash(
 		} else if info.Mode().IsRegular() {
 			arguments = append(arguments, "--ro-bind", "/dev/null", target)
 		} else {
-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+			return nil, 0, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
 	}
 	// The workspace has no network, so Go workers must find the module
@@ -450,7 +514,7 @@ func runToolBash(
 	command.Env = []string{}
 	statusReader, statusWriter, err := os.Pipe()
 	if err != nil {
-		return nil, fail("PROCESS_START_FAILED")
+		return nil, 0, fail("PROCESS_START_FAILED")
 	}
 	defer statusReader.Close()
 	defer statusWriter.Close()
@@ -463,7 +527,7 @@ func runToolBash(
 	command.Stdout = &output
 	command.Stderr = &output
 	if err := command.Start(); err != nil {
-		return nil, fail("PROCESS_START_FAILED")
+		return nil, 0, fail("PROCESS_START_FAILED")
 	}
 	_ = statusWriter.Close()
 	_, group, statusErr := readSandboxProcessGroup(
@@ -474,31 +538,39 @@ func runToolBash(
 	if statusErr != nil {
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
-		return nil, fail("PROCESS_START_FAILED")
+		return nil, 0, fail("PROCESS_START_FAILED")
 	}
 	runErr := command.Wait()
 	_ = syscall.Kill(-group, syscall.SIGTERM)
 	groupErr := waitProcessGroup(group)
 	body, _, overflow := output.snapshot()
 	if overflow {
-		return nil, fail("OUTPUT_OVERFLOW")
+		return nil, 0, fail("OUTPUT_OVERFLOW")
 	}
 	if groupErr != nil {
 		clearBytes(body)
-		return nil, groupErr
+		return nil, 0, groupErr
 	}
 	if runErr != nil {
 		if isContextError(ctx.Err()) {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
 		var exitErr *exec.ExitError
 		if !errorsAs(runErr, &exitErr) {
-			return nil, fail("PROCESS_FAILED")
+			return nil, 0, fail("PROCESS_FAILED")
 		}
-		clearBytes(body)
-		return nil, fail("PROCESS_FAILED")
+		// A non-zero exit is a fact the worker needs, not a harness
+		// fault: the command ran to completion and said no. Its exit
+		// code and captured output travel back to the model; only
+		// starts, kills and overflows remain contract errors.
+		code := exitErr.ExitCode()
+		if code < 0 {
+			clearBytes(body)
+			return nil, 0, fail("PROCESS_FAILED")
+		}
+		return bytes.TrimSuffix(body, []byte("\n")), code, nil
 	}
-	return bytes.TrimSuffix(body, []byte("\n")), nil
+	return bytes.TrimSuffix(body, []byte("\n")), 0, nil
 }
 
 func errorsAs(err error, target any) bool {

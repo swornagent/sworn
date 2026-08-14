@@ -126,10 +126,14 @@ func (adapter *ProcessAdapter) invoke(
 
 // ProfileConfig chooses an adapter and public launch policy. CredentialRef is
 // an opaque, explicit lookup key; adapters never perform ambient fallback.
+// AuthMode carries the admitted per-profile authentication surface into
+// registry-level admission so a credential-less none profile is distinguishable
+// from a fail-closed omission.
 type ProfileConfig struct {
 	Key           string        `json:"key"`
 	Adapter       string        `json:"adapter"`
 	Network       NetworkPolicy `json:"network"`
+	AuthMode      AuthMode      `json:"auth_mode,omitempty"`
 	CredentialRef *string       `json:"credential_ref"`
 }
 
@@ -352,6 +356,9 @@ func validateProfileConfig(config ProfileConfig) error {
 	}
 	if config.Network != NetworkNone && config.Network != NetworkRequired {
 		return fail("INVALID_NETWORK_POLICY")
+	}
+	if config.AuthMode != "" && !config.AuthMode.valid() {
+		return fail("INVALID_PROFILE")
 	}
 	if config.CredentialRef != nil &&
 		!providerKeyPattern.MatchString(*config.CredentialRef) {

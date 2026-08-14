@@ -1121,6 +1121,15 @@ func (w *Workspaces) sealTrackWithClaim(
 				"INVALID_REF_TRANSACTION", "guard seal authority", nil)
 		}
 	}
+	// tmp/ is declared scratch: workers redirect check output and other
+	// ephemera there, and the worker is finished by seal time, so scratch
+	// is deleted before staging and never reaches the candidate or the
+	// slice scope gate. (Exclude pathspecs cannot express this: the git
+	// wrapper deliberately sets GIT_LITERAL_PATHSPECS=1, and a per-worktree
+	// info/exclude is ignored because git reads the common dir's copy.)
+	if err := os.RemoveAll(filepath.Join(lease.path, "tmp")); err != nil {
+		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "clear workspace scratch", err)
+	}
 	if _, err := w.repository.runAt(
 		lease.path,
 		nil,

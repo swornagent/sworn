@@ -154,6 +154,59 @@ func buildBinary(t *testing.T, output, source, ldflags string) {
 	}
 }
 
+// hookGateLDFlags links the single test-hook gate into a binary; the hooks
+// themselves travel per-process as SWORN_TEST_* environment values. One
+// shared binary therefore serves every crash-cut and lease permutation —
+// previously each permutation was its own link.
+const hookGateLDFlags = "-X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1"
+
+// uncontainedGateLDFlags links the test-only uncontained dispatch gate into a
+// binary. Like hookGateLDFlags it is reachable only through ldflags; a
+// production build links the zero value and refuses the uncontained request
+// (SWORN_TEST_UNCONTAINED_DISPATCH=1) before any dispatch.
+const uncontainedGateLDFlags = "-X=github.com/swornagent/sworn/internal/driver.testUncontainedDispatch=1"
+
+// uncontainedDispatchLDFlags returns the ldflags a test needs to run the
+// orchestration subset through the uncontained dispatch path: the uncontained
+// gate, combined with the runtime hook gate exactly when the run asks for
+// uncontained dispatch. Every other e2e test keeps the exact production link
+// flags, so containment-requiring isolation tests are never gate-linked.
+func uncontainedDispatchLDFlags() string {
+	flags := uncontainedGateLDFlags
+	if os.Getenv("SWORN_TEST_UNCONTAINED_DISPATCH") == "1" {
+		flags = hookGateLDFlags + " " + flags
+	}
+	return flags
+}
+
+// testLeaseMillis is the shortest owner lease ownerDuration admits. Only
+// tests that deliberately wait out a claim set it; every other test keeps
+// the production 30s lease so a loaded machine cannot expire a live claim
+// mid-dispatch.
+const testLeaseMillis = "300"
+
+// leaseExpiryWait outlasts testLeaseMillis with scheduling slack.
+func leaseExpiryWait() { time.Sleep(450 * time.Millisecond) }
+
+// crashHookEnvironmentName maps a runtime hook variable name (the historic
+// ldflags spelling some tables still parameterize over) to its SWORN_TEST_*
+// environment equivalent.
+func crashHookEnvironmentName(t *testing.T, variable string) string {
+	t.Helper()
+	switch variable {
+	case "testCrashBeforeEffect":
+		return "SWORN_TEST_CRASH_BEFORE_EFFECT"
+	case "testCrashAfterEffect":
+		return "SWORN_TEST_CRASH_AFTER_EFFECT"
+	case "testHumanTurnCrash":
+		return "SWORN_TEST_HUMAN_TURN_CRASH"
+	case "testCaptainCrashCut":
+		return "SWORN_TEST_CAPTAIN_CRASH_CUT"
+	}
+	t.Fatalf("unknown crash hook variable %q", variable)
+	return ""
+}
+
 func fileDigest(t *testing.T, path string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)
@@ -903,13 +956,11 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 
 	t.Run("post_merge_crash_reconstructs_all_new", func(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-crash")
-		buildBinary(
-			t,
-			crashBinary,
-			"./cmd/sworn",
-			"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=baton.merge"+
-				" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
-		)
+		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+		crashEnvironment := map[string]string{
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.merge",
+			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+		}
 		repository := newProductRepository(t)
 		runRoot := t.TempDir()
 		journalPath := filepath.Join(runRoot, "run.sqlite")
@@ -922,13 +973,15 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			fakeBinary, fakeDigest, "verifier-model")
 
 		manifestPath := writeManifest(t, runRoot, manifestBody)
-		runBinary(
-			t, crashBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
+		runBinaryWithEnvironment(
+			t, crashBinary, 0, crashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
-		runBinary(
-			t, crashBinary, 86, "resume", "--run", runID, "--journal", journalPath,
+		runBinaryWithEnvironment(
+			t, crashBinary, 86, crashEnvironment,
+			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0",
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
@@ -951,9 +1004,10 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if snapshotErr != nil || mergeEffect.State != journal.Claimed {
 			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
 		}
-		time.Sleep(1800 * time.Millisecond)
-		stdout, _ := runBinary(
-			t, crashBinary, 0, "takeover", "--run", runID, "--journal", journalPath,
+		leaseExpiryWait()
+		stdout, _ := runBinaryWithEnvironment(
+			t, crashBinary, 0, crashEnvironment,
+			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1",
 		)
 		if !strings.Contains(stdout, "  state: complete") {

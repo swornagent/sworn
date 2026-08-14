@@ -1,1 +1,131 @@
-{"schema":"sworn.baton-assets/v1","commit":"3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef","assets":[{"path":"VERSION","size":12,"sha256":"sha256:4ccee453fa70bbc4f6be190f5cdb6dc962448d6abeec00d8330198f91453c3fe"},{"path":"baton/ASSURANCE.md","size":2973,"sha256":"sha256:797d959d31248afe8254f97fb418a8ab799884701e37a4384b10f4a149d92a40"},{"path":"baton/CONFORMANCE.md","size":7471,"sha256":"sha256:24fdbca209e1c91b93922105f234bfcc32642a8d5d2a02b0084853894824358b"},{"path":"baton/CORE.md","size":4199,"sha256":"sha256:59830cdce3c50ef7fb2a6378035968f7e9de6571af20d577efade835fd543bb8"},{"path":"baton/PROTOCOL.md","size":12862,"sha256":"sha256:0ee98b67c573d48f4e5631db1ccfafb661da07ba804563dd874d078199fe3321"},{"path":"baton/RATIONALE.md","size":2852,"sha256":"sha256:2a56396da624a23b6ece9f4b3baa6a8a220e1419f6ec557edf80d515ac11361f"},{"path":"baton/README.md","size":1701,"sha256":"sha256:9a6bce17b680fa3a37bd40aab7837aa3db9e0f0627335bf7a23f5e50c90ba590"},{"path":"conformance/engine-adapter.md","size":2786,"sha256":"sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"},{"path":"conformance/manifest.json","size":6792,"sha256":"sha256:cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"},{"path":"operations/baton-design-review.md","size":2579,"sha256":"sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},{"path":"operations/baton-implement.md","size":2806,"sha256":"sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760"},{"path":"operations/baton-merge.md","size":2053,"sha256":"sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},{"path":"operations/baton-plan.md","size":3388,"sha256":"sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"},{"path":"operations/baton-verify.md","size":2487,"sha256":"sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014"},{"path":"reference/board/oracle.mjs","size":16861,"sha256":"sha256:d2ea7eb12af1e9a156ea9e444cd4d33e8e98c26663d4130ca3810398e5f2c04c"},{"path":"reference/board/presentation.mjs","size":1489,"sha256":"sha256:db59b3f7aa7fdd1583f1d8b72149ca440f42ba4d13a85af400793b365f003d6b"},{"path":"reference/board/terminal.mjs","size":9469,"sha256":"sha256:1b7d91b14cb0a7858f88103ac58ef3ad413a5f625ccf5638047b9aefc5296d87"},{"path":"reference/board/web.mjs","size":56690,"sha256":"sha256:0790dc11a7581bed431da10ff384e4583d617d66e9a4e9c49d1b50542caf520b"},{"path":"reference/records/README.md","size":5879,"sha256":"sha256:e00059b489eb373d5c9ce0b022e7d393db30b67d893ab176e2b160af41c16fdc"},{"path":"reference/records/actions.mjs","size":41782,"sha256":"sha256:ee1678647e6bd9559d6df3bce3a44195f54d3f9321d6785d2943b2e061b93b47"},{"path":"reference/records/git.mjs","size":87591,"sha256":"sha256:89a8f2e17a95421e84cb1b302c1d23cdd4d4c1b5d4a559c49945de7e04a0041b"},{"path":"reference/records/receipts.mjs","size":30721,"sha256":"sha256:0e09d86c5321cfef6657d0dd5c5e4db66b0bdfa520d2d3ccaed2d0329d7576dd"},{"path":"reference/records/state.mjs","size":71935,"sha256":"sha256:c729f0e1b0fcdfd253912f0fd29967c645c86ebf6599adcc08a1625876ddaec8"},{"path":"schemas/receipt-v1.json","size":2183,"sha256":"sha256:c11071b87da672b9238cbf7131ae0dcddb2fc87d6d029ad47c878afafd6b9c2e"},{"path":"templates/plan.md","size":4171,"sha256":"sha256:9931b152ff50092d6b318cce256591707cd0052c68ab3fba6563ebd2b67ddc17"}]}
+{
+  "schema": "sworn.baton-assets/v1",
+  "commit": "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef",
+  "assets": [
+    {
+      "path": "VERSION",
+      "size": 12,
+      "sha256": "sha256:4ccee453fa70bbc4f6be190f5cdb6dc962448d6abeec00d8330198f91453c3fe"
+    },
+    {
+      "path": "baton/ASSURANCE.md",
+      "size": 2973,
+      "sha256": "sha256:797d959d31248afe8254f97fb418a8ab799884701e37a4384b10f4a149d92a40"
+    },
+    {
+      "path": "baton/CONFORMANCE.md",
+      "size": 7471,
+      "sha256": "sha256:24fdbca209e1c91b93922105f234bfcc32642a8d5d2a02b0084853894824358b"
+    },
+    {
+      "path": "baton/CORE.md",
+      "size": 4199,
+      "sha256": "sha256:59830cdce3c50ef7fb2a6378035968f7e9de6571af20d577efade835fd543bb8"
+    },
+    {
+      "path": "baton/PROTOCOL.md",
+      "size": 12862,
+      "sha256": "sha256:0ee98b67c573d48f4e5631db1ccfafb661da07ba804563dd874d078199fe3321"
+    },
+    {
+      "path": "baton/RATIONALE.md",
+      "size": 2852,
+      "sha256": "sha256:2a56396da624a23b6ece9f4b3baa6a8a220e1419f6ec557edf80d515ac11361f"
+    },
+    {
+      "path": "baton/README.md",
+      "size": 1701,
+      "sha256": "sha256:9a6bce17b680fa3a37bd40aab7837aa3db9e0f0627335bf7a23f5e50c90ba590"
+    },
+    {
+      "path": "conformance/engine-adapter.md",
+      "size": 2786,
+      "sha256": "sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"
+    },
+    {
+      "path": "conformance/manifest.json",
+      "size": 6792,
+      "sha256": "sha256:cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"
+    },
+    {
+      "path": "operations/baton-design-review.md",
+      "size": 2579,
+      "sha256": "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"
+    },
+    {
+      "path": "operations/baton-implement.md",
+      "size": 2806,
+      "sha256": "sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760"
+    },
+    {
+      "path": "operations/baton-merge.md",
+      "size": 2053,
+      "sha256": "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"
+    },
+    {
+      "path": "operations/baton-plan.md",
+      "size": 3388,
+      "sha256": "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"
+    },
+    {
+      "path": "operations/baton-verify.md",
+      "size": 3322,
+      "sha256": "sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d"
+    },
+    {
+      "path": "reference/board/oracle.mjs",
+      "size": 16861,
+      "sha256": "sha256:d2ea7eb12af1e9a156ea9e444cd4d33e8e98c26663d4130ca3810398e5f2c04c"
+    },
+    {
+      "path": "reference/board/presentation.mjs",
+      "size": 1489,
+      "sha256": "sha256:db59b3f7aa7fdd1583f1d8b72149ca440f42ba4d13a85af400793b365f003d6b"
+    },
+    {
+      "path": "reference/board/terminal.mjs",
+      "size": 9469,
+      "sha256": "sha256:1b7d91b14cb0a7858f88103ac58ef3ad413a5f625ccf5638047b9aefc5296d87"
+    },
+    {
+      "path": "reference/board/web.mjs",
+      "size": 56690,
+      "sha256": "sha256:0790dc11a7581bed431da10ff384e4583d617d66e9a4e9c49d1b50542caf520b"
+    },
+    {
+      "path": "reference/records/README.md",
+      "size": 5879,
+      "sha256": "sha256:e00059b489eb373d5c9ce0b022e7d393db30b67d893ab176e2b160af41c16fdc"
+    },
+    {
+      "path": "reference/records/actions.mjs",
+      "size": 41782,
+      "sha256": "sha256:ee1678647e6bd9559d6df3bce3a44195f54d3f9321d6785d2943b2e061b93b47"
+    },
+    {
+      "path": "reference/records/git.mjs",
+      "size": 87591,
+      "sha256": "sha256:89a8f2e17a95421e84cb1b302c1d23cdd4d4c1b5d4a559c49945de7e04a0041b"
+    },
+    {
+      "path": "reference/records/receipts.mjs",
+      "size": 30721,
+      "sha256": "sha256:0e09d86c5321cfef6657d0dd5c5e4db66b0bdfa520d2d3ccaed2d0329d7576dd"
+    },
+    {
+      "path": "reference/records/state.mjs",
+      "size": 71935,
+      "sha256": "sha256:c729f0e1b0fcdfd253912f0fd29967c645c86ebf6599adcc08a1625876ddaec8"
+    },
+    {
+      "path": "schemas/receipt-v1.json",
+      "size": 2183,
+      "sha256": "sha256:c11071b87da672b9238cbf7131ae0dcddb2fc87d6d029ad47c878afafd6b9c2e"
+    },
+    {
+      "path": "templates/plan.md",
+      "size": 4171,
+      "sha256": "sha256:9931b152ff50092d6b318cce256591707cd0052c68ab3fba6563ebd2b67ddc17"
+    }
+  ]
+}

@@ -6,13 +6,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
@@ -265,15 +263,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			runID := "e2e-consumed-" + crash.name
 			release := runID + "-release"
 			crashBinary := filepath.Join(buildRoot, "sworn-"+crash.name)
-			buildBinary(
-				t,
-				crashBinary,
-				"./cmd/sworn",
-				fmt.Sprintf(
-					"-X=github.com/swornagent/sworn/internal/runtime.%s=git.prepare_track_base -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
-					crash.cut,
-				),
-			)
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			crashEnvironment := map[string]string{
+				crashHookEnvironmentName(t, crash.cut): "git.prepare_track_base",
+				"SWORN_TEST_OWNER_LEASE_MILLIS":        testLeaseMillis,
+			}
 			repository, journalPath, _ := prepareConsumedBaseRun(
 				t,
 				crashBinary,
@@ -282,10 +276,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				runID,
 				release,
 			)
-			runBinary(
+			runBinaryWithEnvironment(
 				t,
 				crashBinary,
 				86,
+				crashEnvironment,
 				"resume",
 				"--run",
 				runID,
@@ -314,7 +309,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 					crash.wantRefSet,
 				)
 			}
-			time.Sleep(1800 * time.Millisecond)
+			leaseExpiryWait()
 			stdout, _ := runBinary(
 				t,
 				normalBinary,
@@ -355,13 +350,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				buildRoot,
 				"sworn-crash-after-stale-prepared-base",
 			)
-			buildBinary(
-				t,
-				crashBinary,
-				"./cmd/sworn",
-				"-X=github.com/swornagent/sworn/internal/runtime.testCrashAfterEffect=git.prepare_track_base"+
-					" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=1500",
-			)
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			crashEnvironment := map[string]string{
+				"SWORN_TEST_CRASH_AFTER_EFFECT": "git.prepare_track_base",
+				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+			}
 			repository := newProductRepository(t)
 			runRoot := t.TempDir()
 			journalPath := filepath.Join(runRoot, "run.sqlite")
@@ -379,10 +372,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				runRoot,
 				manifestBody,
 			)
-			stdout, _ := runBinary(
+			stdout, _ := runBinaryWithEnvironment(
 				t,
 				crashBinary,
 				0,
+				crashEnvironment,
 				"run",
 				"--manifest",
 				manifestPath,
@@ -399,10 +393,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				release,
 				initialBytes,
 			)
-			runBinary(
+			runBinaryWithEnvironment(
 				t,
 				crashBinary,
 				86,
+				crashEnvironment,
 				"resume",
 				"--run",
 				runID,
@@ -450,7 +445,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"-m",
 				"external target movement",
 			)
-			time.Sleep(1800 * time.Millisecond)
+			leaseExpiryWait()
 			stdout, _ = runBinary(
 				t,
 				normalBinary,

@@ -1,7 +1,9 @@
 package driver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,24 +17,24 @@ import (
 )
 
 const (
-	MaxToolCalls             = 256
+	MaxToolCalls = 256
 	// MaxSessionToolCalls is a cumulative runaway guard sized so it never
 	// binds before the invocation turn budget for a patient worker.
-	MaxSessionToolCalls      = 10_000
-	MaxToolArgumentBytes     = 262_144
-	MaxToolResultBytes       = 262_144
-	MaxToolPathBytes         = 4_096
-	MaxToolMatches           = 256
-	MaxBashScriptBytes       = 131_072
-	MaxBashCombinedOutput    = 262_144
-	MaxToolWalkEntries       = 4_096
-	MaxToolScanBytes         = 4_194_304
+	MaxSessionToolCalls   = 10_000
+	MaxToolArgumentBytes  = 262_144
+	MaxToolResultBytes    = 262_144
+	MaxToolPathBytes      = 4_096
+	MaxToolMatches        = 256
+	MaxBashScriptBytes    = 131_072
+	MaxBashCombinedOutput = 262_144
+	MaxToolWalkEntries    = 4_096
+	MaxToolScanBytes      = 4_194_304
 	// Corrections are bounded by the invocation's turn budget and timeout,
 	// not by a per-type allowance; each one is durably accounted.
 	MaxSubmissionCorrections = 1_000
 )
 
-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"}},"required":["byte_count","digest","bytes"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
 type toolPathEntry struct {
 	Relative  string
@@ -72,6 +74,7 @@ type toolSession struct {
 	submission        []byte
 	seal              []byte
 	yield             *Yield
+	scratch           string
 	closed            bool
 }
 
@@ -89,8 +92,27 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	defer func() {
 		if !ok {
 			_ = projection.Close()
+			if session.scratch != "" {
+				_ = os.RemoveAll(session.scratch)
+			}
 		}
 	}()
+	// One read-write scratch surface per invocation: /home/sworn and /tmp
+	// persist across every command of this invocation (build caches survive
+	// between tool calls) and are destroyed with the session. The isolation
+	// boundary is between invocations and roles, never between consecutive
+	// commands of the same worker.
+	session.scratch, err = os.MkdirTemp("", "sworn-invocation-scratch-")
+	if err != nil {
+		return nil, fail("PROCESS_START_FAILED")
+	}
+	for _, surface := range []string{"home", "tmp"} {
+		if err := os.Mkdir(
+			filepath.Join(session.scratch, surface), 0o700,
+		); err != nil {
+			return nil, fail("PROCESS_START_FAILED")
+		}
+	}
 	if invocation.Request.Workspace.Access == ReadOnly {
 		session.before, err = captureWorkspaceManifest(invocation.HostWorkspace)
 		if err != nil {
@@ -132,7 +154,7 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 		},
 		providerToolDefinition{
 			Name:        "sworn_submit",
-			Description: "Include only the prompt's result_fields. For plan/checks use decoded byte_count, sha256:<64 lowercase hex> digest, and base64 bytes; detail may be empty.",
+			Description: "Include only the prompt's result_fields. For plan/checks declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty.",
 			InputSchema: json.RawMessage(swornSubmitInputSchema),
 		},
 	)
@@ -177,7 +199,11 @@ func (session *toolSession) execute(
 	case "Grep":
 		body, err = session.grep(call.Arguments)
 	case "Bash":
-		body, err = session.bash(ctx, call.Arguments)
+		var exitCode int
+		body, exitCode, err = session.bash(ctx, call.Arguments)
+		if err == nil && exitCode != 0 {
+			return bashFailureResult(result, body, exitCode)
+		}
 	case "sworn_submit":
 		body, err = session.submit(ctx, call.Arguments)
 	case "sworn_yield":
@@ -195,6 +221,24 @@ func (session *toolSession) execute(
 		return result
 	}
 	result.Content = body
+	return result
+}
+
+// bashFailureResult carries a completed-but-failing command's exit code and
+// captured output back to the model as a failed tool result. Discarding them
+// (the pre-F9 behavior) left the worker blind to why its own command failed.
+func bashFailureResult(
+	result providerToolResult,
+	body []byte,
+	exitCode int,
+) providerToolResult {
+	header := []byte("error:PROCESS_FAILED exit_code=" + itoa(exitCode) + "\n")
+	body = bytes.ToValidUTF8(body, []byte("�"))
+	if len(header)+len(body) > MaxToolResultBytes {
+		body = bytes.ToValidUTF8(body[:MaxToolResultBytes-len(header)], nil)
+	}
+	result.Content = append(header, body...)
+	result.Failed = true
 	return result
 }
 
@@ -345,16 +389,22 @@ func (session *toolSession) grep(arguments []byte) ([]byte, error) {
 	return []byte(strings.Join(matches, "\n")), nil
 }
 
-func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte, error) {
+func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte, int, error) {
 	var request struct {
 		Script string `json:"script"`
 	}
 	if err := decodeToolArguments(arguments, []string{"script"}, &request); err != nil ||
 		request.Script == "" || len(request.Script) > MaxBashScriptBytes ||
 		!utf8.ValidString(request.Script) {
-		return nil, fail("INVALID_TOOL_ARGUMENT")
+		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
 	}
-	return runToolBash(ctx, session.invocation, session.projection.Root(), request.Script)
+	return runToolBash(
+		ctx,
+		session.invocation,
+		session.projection.Root(),
+		session.scratch,
+		request.Script,
+	)
 }
 
 func (session *toolSession) submit(
@@ -367,6 +417,9 @@ func (session *toolSession) submit(
 	}
 	root, err := closedObject(value, []string{"submission"}, nil)
 	if err != nil {
+		return nil, session.rejectSubmission(ctx, err)
+	}
+	if err := session.materializeExactBytesPaths(root["submission"]); err != nil {
 		return nil, session.rejectSubmission(ctx, err)
 	}
 	submission, err := decodeToolSubmission(root["submission"])
@@ -451,6 +504,89 @@ func (session *toolSession) yieldTurn(arguments []byte) ([]byte, error) {
 	}
 	session.finishYield(&yield, nil)
 	return []byte("accepted"), nil
+}
+
+// materializeExactBytesPaths lets a submission's plan/checks member name a
+// file instead of inlining base64: {byte_count, digest, path} is replaced by
+// {byte_count, digest, bytes} with the bytes read by the engine itself. The
+// commitment is unchanged — the declared digest and byte count still bind
+// the content through validateExactBytes — but the bytes no longer travel
+// through the model's own token stream, which measurably corrupts multi-KB
+// base64 (F10). Paths may name the workspace, projected inputs, or the
+// invocation's persistent scratch surfaces (/tmp, /home/sworn).
+func (session *toolSession) materializeExactBytesPaths(value any) error {
+	submission, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, name := range []string{"plan", "checks"} {
+		member, ok := submission[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		pathValue, present := member["path"]
+		if !present {
+			continue
+		}
+		guest, ok := pathValue.(string)
+		if _, inline := member["bytes"]; !ok || inline {
+			return fail("INVALID_EXACT_BYTES")
+		}
+		body, err := session.readExactBytesFile(guest)
+		if err != nil {
+			return err
+		}
+		member["bytes"] = base64.StdEncoding.EncodeToString(body)
+		clearBytes(body)
+		delete(member, "path")
+	}
+	return nil
+}
+
+func (session *toolSession) readExactBytesFile(guest string) ([]byte, error) {
+	if validateToolText(guest) != nil || !path.IsAbs(guest) ||
+		path.Clean(guest) != guest {
+		return nil, fail("TOOL_PATH_INVALID")
+	}
+	var host, root string
+	switch {
+	case guest == "/tmp" || strings.HasPrefix(guest, "/tmp/"):
+		root = filepath.Join(session.scratch, "tmp")
+		host = filepath.Join(root, strings.TrimPrefix(guest, "/tmp"))
+	case guest == "/home/sworn" || strings.HasPrefix(guest, "/home/sworn/"):
+		root = filepath.Join(session.scratch, "home")
+		host = filepath.Join(root, strings.TrimPrefix(guest, "/home/sworn"))
+	default:
+		target, resolvedRoot, _, err := session.resolve(guest, false, false)
+		if err != nil {
+			return nil, err
+		}
+		host, root = target, resolvedRoot
+	}
+	if root == "" || !pathBeneath(root, host) {
+		return nil, fail("TOOL_PATH_INVALID")
+	}
+	// The scratch surfaces are worker-writable, so a symlink there could
+	// point the engine at host content the worker itself cannot read.
+	// Resolve and re-check containment before trusting the path.
+	resolved, err := filepath.EvalSymlinks(host)
+	if err != nil {
+		return nil, fail("TOOL_PATH_INVALID")
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil || !pathBeneath(resolvedRoot, resolved) {
+		return nil, fail("TOOL_PATH_INVALID")
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil || !info.Mode().IsRegular() ||
+		info.Size() < 1 || info.Size() > MaxPlanBytes {
+		return nil, fail("INVALID_EXACT_BYTES")
+	}
+	body, err := os.ReadFile(resolved)
+	if err != nil || int64(len(body)) != info.Size() {
+		return nil, fail("INVALID_EXACT_BYTES")
+	}
+	return body, nil
 }
 
 func decodeToolSubmission(value any) (Submission, error) {
@@ -590,6 +726,11 @@ func (session *toolSession) Close() error {
 	}
 	if err := session.projection.Close(); err != nil && result == nil {
 		result = err
+	}
+	if session.scratch != "" {
+		if err := os.RemoveAll(session.scratch); err != nil && result == nil {
+			result = err
+		}
 	}
 	return result
 }

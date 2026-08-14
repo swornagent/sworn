@@ -16,8 +16,8 @@ import (
 	"testing"
 )
 
-func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
-	invocationID := "mantle-api-key"
+func TestOpenAIChatBearerUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
+	invocationID := "openai-chat-bearer"
 	submission := submissionFixture(
 		t,
 		invocationID,
@@ -37,9 +37,13 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 			return
 		}
 		if request.URL.Path != "/v1/chat/completions" ||
-			request.Header.Get("Authorization") != "Bearer mantle-secret-canary" ||
+			request.Header.Get("Authorization") != "Bearer openai-secret-canary" ||
 			request.Header.Get("X-Amz-Date") != "" {
-			t.Errorf("Mantle API-key request path=%s headers=%#v", request.URL.Path, request.Header)
+			t.Errorf(
+				"OpenAI chat bearer request path=%s headers=%#v",
+				request.URL.Path,
+				request.Header,
+			)
 		}
 		var envelope struct {
 			Model    string          `json:"model"`
@@ -50,7 +54,7 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 			envelope.Model != "exact-model" ||
 			len(envelope.Messages) == 0 ||
 			len(envelope.Tools) == 0 {
-			t.Errorf("Mantle Chat Completions request = %s", body)
+			t.Errorf("OpenAI Chat Completions request = %s", body)
 		}
 		if turn == 1 {
 			writeJSONResponse(t, writer, map[string]any{
@@ -59,7 +63,7 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 						"role": "assistant", "content": nil,
 						"reasoning": "bounded response-only reasoning",
 						"tool_calls": []any{openAIToolCallFixture(
-							"mantle-read",
+							"openai-chat-read",
 							"Read",
 							`{"path":"/workspace/input.txt"}`,
 						)},
@@ -74,13 +78,13 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 		}
 		if len(envelope.Messages) != 3 ||
 			envelope.Messages[2].Role != "tool" ||
-			envelope.Messages[2].ToolCallID != "mantle-read" ||
+			envelope.Messages[2].ToolCallID != "openai-chat-read" ||
 			string(envelope.Messages[2].Content) != `"bounded input"` ||
 			bytes.Contains(body, []byte(`"reasoning"`)) {
-			t.Errorf("Mantle continuation = %s", body)
+			t.Errorf("OpenAI chat continuation = %s", body)
 		}
 		writeJSONResponse(t, writer, openAIToolCallResponse(
-			"mantle-submit",
+			"openai-chat-submit",
 			"sworn_submit",
 			submitArguments,
 			5,
@@ -90,16 +94,19 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 	defer server.Close()
 
 	var returnedSecret []byte
-	adapter, err := NewBedrockMantleAdapter(
-		BedrockMantleProfileConfig{
-			Key: "mantle-api", ID: "sworn.bedrock.mantle.api", Version: "1.0.0",
-			Endpoint:       server.URL + "/v1/chat/completions",
-			CredentialRefs: []string{"credential-ref"},
-			ResponseBytes:  MaxProviderResponseBytes,
-			AuthMode:       BedrockMantleAPIKey,
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-chat", ID: "sworn.openai.chat", Version: "1.0.0",
+				Endpoint:         server.URL + "/v1/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API: OpenAIChatCompletionsAPI,
 		},
 		func(context.Context, string) ([]byte, error) {
-			returnedSecret = []byte("mantle-secret-canary")
+			returnedSecret = []byte("openai-secret-canary")
 			return returnedSecret, nil
 		},
 		nil,
@@ -110,15 +117,15 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	loop := adapter.(*loopAdapter)
-	if loop.dialect != providerDialectMantleChat ||
+	if loop.dialect != providerDialectOpenAIChat ||
 		loop.dialect.continuationMode() != ContinuationModeTranscriptReplay ||
-		loop.surface != ProfileSurfaceBedrockMantleChat {
-		t.Fatalf("Mantle continuation identity = %#v", loop)
+		loop.surface != ProfileSurfaceOpenAIChat {
+		t.Fatalf("OpenAI chat continuation identity = %#v", loop)
 	}
 	invocation := productionInvocationFixture(
 		t,
 		adapter,
-		ProfileBedrock,
+		ProfileOpenAIHTTP,
 		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
@@ -139,27 +146,27 @@ func TestBedrockMantleAPIKeyUsesOpenAIChatCodecAndSharedToolLoop(t *testing.T) {
 		observation.Usage.OutputTokens == nil ||
 		*observation.Usage.OutputTokens != 10 {
 		t.Fatalf(
-			"Mantle API-key observation=%#v requests=%d error=%v",
+			"OpenAI chat bearer observation=%#v requests=%d error=%v",
 			observation,
 			requests.Load(),
 			err,
 		)
 	}
 	if !bytes.Equal(returnedSecret, make([]byte, len(returnedSecret))) {
-		t.Fatalf("Mantle API key was not cleared: %q", returnedSecret)
+		t.Fatalf("OpenAI chat key was not cleared: %q", returnedSecret)
 	}
-	report := profileReportFixture(t, adapter, "mantle-api")
-	if report.Family != ProfileBedrock ||
-		report.Surface != ProfileSurfaceBedrockMantleChat {
-		t.Fatalf("Mantle API-key report = %#v", report)
+	report := profileReportFixture(t, adapter, "openai-chat")
+	if report.Family != ProfileOpenAIHTTP ||
+		report.Surface != ProfileSurfaceOpenAIChat {
+		t.Fatalf("OpenAI chat bearer report = %#v", report)
 	}
 	body, _ := json.Marshal(observation)
-	if bytes.Contains(body, []byte("mantle-secret-canary")) {
-		t.Fatalf("Mantle secret escaped observation: %s", body)
+	if bytes.Contains(body, []byte("openai-secret-canary")) {
+		t.Fatalf("OpenAI chat secret escaped observation: %s", body)
 	}
 }
 
-func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
+func TestOpenAIChatAWSSigV4SignsChatCompletionsWithoutFallback(t *testing.T) {
 	root := t.TempDir()
 	awsPath := filepath.Join(root, "aws")
 	if err := os.WriteFile(awsPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
@@ -183,7 +190,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		RuntimeFiles:           runtimeFiles,
 		RequiredRuntimeTargets: required,
 	}
-	invocationID := "mantle-aws"
+	invocationID := "openai-chat-aws"
 	submission := submissionFixture(
 		t,
 		invocationID,
@@ -204,7 +211,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		authorization := request.Header.Get("Authorization")
 		if request.URL.Path != "/v1/chat/completions" ||
 			request.Header.Get("X-Amz-Date") == "" ||
-			!strings.Contains(authorization, "Credential=AKIAMANTLE12345/") ||
+			!strings.Contains(authorization, "Credential=AKIAOPENAI12345/") ||
 			!strings.Contains(authorization, "/bedrock-mantle/aws4_request") ||
 			strings.Contains(authorization, "/bedrock/aws4_request") ||
 			request.Header.Get("X-Amz-Content-Sha256") == "" ||
@@ -212,7 +219,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 			!bytes.Contains(body, []byte(`"messages"`)) ||
 			!bytes.Contains(body, []byte(`"tools"`)) {
 			t.Errorf(
-				"Mantle AWS request path=%s auth=%q headers=%#v body=%s",
+				"OpenAI chat AWS request path=%s auth=%q headers=%#v body=%s",
 				request.URL.Path,
 				authorization,
 				request.Header,
@@ -220,7 +227,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 			)
 		}
 		writeJSONResponse(t, writer, openAIToolCallResponse(
-			"mantle-aws-submit",
+			"openai-chat-aws-submit",
 			"sworn_submit",
 			submissionToolArguments(t, submission),
 			13,
@@ -230,20 +237,24 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	defer server.Close()
 
 	var environment [][]byte
-	adapter, err := NewBedrockMantleAdapter(
-		BedrockMantleProfileConfig{
-			Key: "mantle-aws", ID: "sworn.bedrock.mantle.aws", Version: "1.0.0",
-			Endpoint:       server.URL + "/v1/chat/completions",
-			CredentialRefs: []string{"credential-ref"},
-			ResponseBytes:  MaxProviderResponseBytes,
-			AuthMode:       BedrockMantleAWS,
-			Chain:          &chain,
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-chat-aws", ID: "sworn.openai.chat.aws",
+				Version:        "1.0.0",
+				Endpoint:       server.URL + "/v1/chat/completions",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:      OpenAIChatCompletionsAPI,
+			AuthMode: AuthModeAWSSigV4,
+			Chain:    &chain,
 		},
 		nil,
 		func(context.Context, string) ([][]byte, error) {
 			environment = [][]byte{
-				[]byte("AWS_ACCESS_KEY_ID=AKIAMANTLE12345"),
-				[]byte("AWS_SECRET_ACCESS_KEY=mantle-aws-secret"),
+				[]byte("AWS_ACCESS_KEY_ID=AKIAOPENAI12345"),
+				[]byte("AWS_SECRET_ACCESS_KEY=openai-chat-aws-secret"),
 				[]byte("AWS_REGION=ap-southeast-2"),
 				[]byte("AWS_DEFAULT_REGION=ap-southeast-2"),
 			}
@@ -267,7 +278,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	invocation := productionInvocationFixture(
 		t,
 		adapter,
-		ProfileBedrock,
+		ProfileOpenAIHTTP,
 		invocationID,
 		RoleImplementer,
 		ImplementerImplementation,
@@ -281,7 +292,7 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 		observation.Usage.OutputTokens == nil ||
 		*observation.Usage.OutputTokens != 17 {
 		t.Fatalf(
-			"Mantle AWS observation=%#v requests=%d error=%v",
+			"OpenAI chat AWS observation=%#v requests=%d error=%v",
 			observation,
 			requests.Load(),
 			err,
@@ -289,65 +300,128 @@ func TestBedrockMantleAWSModeSignsChatCompletionsWithoutFallback(t *testing.T) {
 	}
 	for _, entry := range environment {
 		if !bytes.Equal(entry, make([]byte, len(entry))) {
-			t.Fatalf("Mantle AWS environment not cleared: %q", entry)
+			t.Fatalf("OpenAI chat AWS environment not cleared: %q", entry)
 		}
 	}
-	report := profileReportFixture(t, adapter, "mantle-aws")
-	if report.Family != ProfileBedrock ||
-		report.Surface != ProfileSurfaceBedrockMantleChat {
-		t.Fatalf("Mantle AWS report = %#v", report)
+	loop := adapter.(*loopAdapter)
+	if loop.surface != ProfileSurfaceOpenAIChat {
+		t.Fatalf("OpenAI chat AWS reported surface = %#v", loop)
+	}
+	report := profileReportFixture(t, adapter, "openai-chat-aws")
+	if report.Family != ProfileOpenAIHTTP ||
+		report.Surface != ProfileSurfaceOpenAIChat {
+		t.Fatalf("OpenAI chat AWS report = %#v", report)
 	}
 	observationBody, _ := json.Marshal(observation)
-	for _, secret := range []string{"AKIAMANTLE12345", "mantle-aws-secret"} {
+	for _, secret := range []string{"AKIAOPENAI12345", "openai-chat-aws-secret"} {
 		if bytes.Contains(observationBody, []byte(secret)) {
-			t.Fatalf("Mantle AWS secret escaped observation: %s", observationBody)
+			t.Fatalf("OpenAI chat AWS secret escaped observation: %s", observationBody)
 		}
 	}
 
-	if _, err := NewBedrockMantleAdapter(
-		BedrockMantleProfileConfig{
-			Key: "invalid-api", ID: "sworn.invalid.api", Version: "1.0.0",
-			Endpoint:       server.URL + "/v1/chat/completions",
-			CredentialRefs: []string{"credential-ref"},
-			ResponseBytes:  MaxProviderResponseBytes,
-			AuthMode:       BedrockMantleAPIKey,
+	if _, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "invalid-bearer", ID: "sworn.invalid.bearer", Version: "1.0.0",
+				Endpoint:       server.URL + "/v1/chat/completions",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:      OpenAIChatCompletionsAPI,
+			AuthMode: AuthModeBearer,
+			Chain:    &chain,
 		},
-		func(context.Context, string) ([]byte, error) { return nil, nil },
+		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+		nil,
+		nil,
+		nil,
+	); !IsCode(err, "INVALID_ADAPTER") {
+		t.Fatalf("bearer auth accepted an AWS chain: %v", err)
+	}
+	if _, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "invalid-aws", ID: "sworn.invalid.aws", Version: "1.0.0",
+				Endpoint:       server.URL + "/v1/chat/completions",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:      OpenAIChatCompletionsAPI,
+			AuthMode: AuthModeAWSSigV4,
+		},
+		nil,
 		func(context.Context, string) ([][]byte, error) { return nil, nil },
 		nil,
 		nil,
 	); !IsCode(err, "INVALID_ADAPTER") {
-		t.Fatalf("API-key auth accepted AWS fallback: %v", err)
+		t.Fatalf("SigV4 auth accepted a missing AWS chain: %v", err)
 	}
-	if _, err := NewBedrockMantleAdapter(
-		BedrockMantleProfileConfig{
-			Key: "invalid-aws", ID: "sworn.invalid.aws", Version: "1.0.0",
-			Endpoint:       server.URL + "/v1/chat/completions",
-			CredentialRefs: []string{"credential-ref"},
-			ResponseBytes:  MaxProviderResponseBytes,
-			AuthMode:       BedrockMantleAWS,
-			Chain:          &chain,
+	if _, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "invalid-endpoint", ID: "sworn.invalid.endpoint", Version: "1.0.0",
+				Endpoint:       server.URL + "?api-version=1",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:      OpenAIChatCompletionsAPI,
+			AuthMode: AuthModeBearer,
 		},
-		func(context.Context, string) ([]byte, error) { return nil, nil },
-		func(context.Context, string) ([][]byte, error) { return nil, nil },
-		nil,
-		nil,
-	); !IsCode(err, "INVALID_ADAPTER") {
-		t.Fatalf("AWS auth accepted API-key fallback: %v", err)
-	}
-	if _, err := NewBedrockMantleAdapter(
-		BedrockMantleProfileConfig{
-			Key: "invalid-endpoint", ID: "sworn.invalid.endpoint", Version: "1.0.0",
-			Endpoint: server.URL, CredentialRefs: []string{"credential-ref"},
-			ResponseBytes: MaxProviderResponseBytes,
-			AuthMode:      BedrockMantleAPIKey,
-		},
-		func(context.Context, string) ([]byte, error) { return nil, nil },
+		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
 		nil,
 		nil,
 		nil,
 	); !IsCode(err, "INVALID_ADAPTER") {
-		t.Fatalf("Mantle base URL was accepted as the POST endpoint: %v", err)
+		t.Fatalf("query-string endpoint was accepted as the POST endpoint: %v", err)
+	}
+}
+
+func TestOpenAIChatEndpointAdmissionRestsOnURLShapeNotPathSuffix(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		valid    bool
+	}{
+		{"DeepSeek-style chat path without v1", "https://api.example.invalid/chat/completions", true},
+		{"Gemini-style v1beta openai path", "https://generativelanguage.example.invalid/v1beta/openai/chat/completions", true},
+		{"Canonical v1 chat path", "https://api.example.invalid/v1/chat/completions", true},
+		{"Bare host is a valid exact POST URL", "https://api.example.invalid", true},
+		{"Query string is rejected", "https://api.example.invalid/chat/completions?key=value", false},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			adapter, err := NewOpenAIAdapter(
+				OpenAIProfileConfig{
+					HTTPProfileConfig: HTTPProfileConfig{
+						Key: "openai-paths", ID: "sworn.openai.paths",
+						Version: "1.0.0", Endpoint: test.endpoint,
+						CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+						CredentialRefs: []string{"credential-ref"},
+						ResponseBytes:  MaxProviderResponseBytes,
+					},
+					API: OpenAIChatCompletionsAPI,
+				},
+				func(context.Context, string) ([]byte, error) {
+					return []byte("secret"), nil
+				},
+				nil,
+				nil,
+				nil,
+			)
+			if test.valid && err != nil {
+				t.Fatalf("endpoint %q rejected: %v", test.endpoint, err)
+			}
+			if !test.valid && !IsCode(err, "INVALID_ADAPTER") {
+				t.Fatalf("endpoint %q error = %v, want INVALID_ADAPTER", test.endpoint, err)
+			}
+			if adapter != nil {
+				loop := adapter.(*loopAdapter)
+				if loop.dialect != providerDialectOpenAIChat ||
+					loop.surface != ProfileSurfaceOpenAIChat {
+					t.Fatalf("OpenAI chat path surface = %#v", loop)
+				}
+			}
+		})
 	}
 }
 

@@ -1,0 +1,45 @@
+{
+  "outcome": "Responses-flavour invocations stream live to the operator while validation still consumes the terminal event's complete response, and the DeepSeek and Qwen reasoning dialects are first-class: plaintext and summary-shaped reasoning are accepted, thinking can be requested, and dialect quirks never fail an honest turn.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "provider-side conversation state and previous_response_id",
+      "new provider adapters or vendor-keyed Go types",
+      "chat-completions-flavour streaming"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A responses-flavour profile with stream enabled renders reasoning, text and tool-call deltas live to stderr, and strict validation consumes only the terminal event's embedded complete response, unchanged from the non-streaming path."
+    },
+    {
+      "id": "A2",
+      "text": "The stream ends at response.completed, response.incomplete or response.failed; the dialect sends no [DONE] sentinel and none is required."
+    },
+    {
+      "id": "A3",
+      "text": "DeepSeek plaintext reasoning items (content[].reasoning_text) are accepted alongside encrypted_content."
+    },
+    {
+      "id": "A4",
+      "text": "Qwen summary-shaped reasoning (summary[].summary_text) is accepted, enable_thinking is a first-class request knob on OpenAIProfileConfig, x_details usage fields are tolerated, and reasoning_summary_text.delta renders."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The reference diff projected as input is the commitment: land exactly those changes, adapted only where the base moved.",
+    "Streaming is rendering only; no validation decision may depend on deltas.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

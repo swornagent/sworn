@@ -416,6 +416,151 @@ printf 'isolated'`,
 	}
 }
 
+func TestToolBashScratchPersistsAcrossCommandsWithinInvocationOnly(
+	t *testing.T,
+) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	first := executeToolJSON(t, session, "bash-stash", "Bash", map[string]any{
+		"script": `printf cache > /tmp/cache-canary
+mkdir -p "$HOME/.cache" && printf home > "$HOME/.cache/home-canary"`,
+	})
+	if first.Failed {
+		t.Fatalf("stash = %#v", first)
+	}
+	second := executeToolJSON(t, session, "bash-reuse", "Bash", map[string]any{
+		"script": `cat /tmp/cache-canary "$HOME/.cache/home-canary"`,
+	})
+	if second.Failed || string(second.Content) != "cachehome" {
+		t.Fatalf("scratch did not persist across commands = %#v", second)
+	}
+	scratch := session.scratch
+	if scratch == "" {
+		t.Fatal("session has no scratch directory")
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Fatalf("scratch survived Close: %v", err)
+	}
+	fresh, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	leak := executeToolJSON(t, fresh, "bash-leak", "Bash", map[string]any{
+		"script": `test ! -e /tmp/cache-canary && test ! -e "$HOME/.cache/home-canary" && printf clean`,
+	})
+	if leak.Failed || string(leak.Content) != "clean" {
+		t.Fatalf("scratch leaked into a fresh invocation = %#v", leak)
+	}
+}
+
+func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	plan := validPlanBytes()
+	if err := os.WriteFile(
+		filepath.Join(session.scratch, "tmp", "plan.md"), plan, 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	result := executeToolJSON(t, session, "submit-by-path", "sworn_submit",
+		map[string]any{"submission": map[string]any{
+			"schema_version": SubmissionSchemaVersion,
+			"invocation_id":  invocation.Request.InvocationID,
+			"responsibility": string(PlannerProposal),
+			"summary":        "Compact responsibility summary.",
+			"detail":         "",
+			"plan": map[string]any{
+				"byte_count": len(plan),
+				"digest":     Digest(plan),
+				"path":       "/tmp/plan.md",
+			},
+		}},
+	)
+	submitted, submitErr := session.submitted()
+	if result.Failed || !submitted || submitErr != nil ||
+		session.handoff() == nil {
+		t.Fatalf(
+			"path submission = %#v, submitted=%v, error=%v",
+			result, submitted, submitErr,
+		)
+	}
+}
+
+func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.RecoveryStepHook = func(
+		context.Context, RecoveryStepKind,
+	) error {
+		return nil
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := os.Symlink(
+		"/etc/hostname", filepath.Join(session.scratch, "tmp", "escape"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	plan := validPlanBytes()
+	result := executeToolJSON(t, session, "submit-escape", "sworn_submit",
+		map[string]any{"submission": map[string]any{
+			"schema_version": SubmissionSchemaVersion,
+			"invocation_id":  invocation.Request.InvocationID,
+			"responsibility": string(PlannerProposal),
+			"summary":        "Compact responsibility summary.",
+			"detail":         "",
+			"plan": map[string]any{
+				"byte_count": len(plan),
+				"digest":     Digest(plan),
+				"path":       "/tmp/escape",
+			},
+		}},
+	)
+	if !result.Failed ||
+		!strings.Contains(string(result.Content), "TOOL_PATH_INVALID") {
+		t.Fatalf("symlink escape submission = %#v", result)
+	}
+}
+
+func TestToolBashNonZeroExitReturnsOutputAndExitCode(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	result := executeToolJSON(t, session, "bash-exit", "Bash", map[string]any{
+		"script": `printf 'stdout-evidence\n'
+printf 'stderr-evidence\n' >&2
+exit 42`,
+	})
+	if !result.Failed {
+		t.Fatalf("non-zero exit result = %#v", result)
+	}
+	content := string(result.Content)
+	if !strings.HasPrefix(content, "error:PROCESS_FAILED exit_code=42\n") {
+		t.Fatalf("non-zero exit content = %q", content)
+	}
+	if !strings.Contains(content, "stdout-evidence") ||
+		!strings.Contains(content, "stderr-evidence") {
+		t.Fatalf("non-zero exit output discarded = %q", content)
+	}
+}
+
 func TestReadOnlyToolSurfaceOmitsAndRejectsMutation(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	request, err := NewRequest(

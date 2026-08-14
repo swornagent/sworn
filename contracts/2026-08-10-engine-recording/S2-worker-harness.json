@@ -1,0 +1,61 @@
+{
+  "outcome": "The worker and verifier harness stops taxing honest work: scratch state and build caches persist across one invocation's commands and die with it, a failing command returns its output and exit code instead of vanishing, exact bytes travel to sworn_submit by file reference, verification work-context spells out the candidate's ancestry, and read-only workspaces expose read-only git.",
+  "scope": {
+    "include": [
+      "internal/driver",
+      "internal/runtime",
+      "test/e2e"
+    ],
+    "exclude": [
+      "state shared between invocations or roles",
+      "network access from worker sandboxes",
+      "write access to any git surface from any worker",
+      "relaxing the -parallel=1 end-to-end mandate (blocked on the retry-semantics slice)"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "One host scratch directory per invocation is bound read-write at /home/sworn and /tmp for every command of that invocation and destroyed at session close; state written there persists between a worker's commands and never reaches a fresh invocation."
+    },
+    {
+      "id": "A2",
+      "text": "A command completing with non-zero exit returns bounded combined output and its exit code as a failed tool result; only starts, kills and overflows remain contract errors."
+    },
+    {
+      "id": "A3",
+      "text": "sworn_submit plan/checks accept {byte_count, digest, path} naming a workspace, projected-input or scratch file; the engine reads the bytes itself, the declared digest still binds them, and a symlink escaping the scratch surface is refused."
+    },
+    {
+      "id": "A4",
+      "text": "End-to-end crash and lease hooks are linked once behind testHooksFromEnv and travel per-process as SWORN_TEST_* environment; the short owner lease reaches only tests that wait out claim expiry, and every other test keeps the production lease."
+    },
+    {
+      "id": "A5",
+      "text": "Verification work-context carries candidate.base and candidate.chain naming the base, candidate and receipt ancestry explicitly, so a verifier proves custody without base-chain archaeology."
+    },
+    {
+      "id": "A6",
+      "text": "A read-only workspace exposes functional read-only git (common dir and worktree git dir read-only bound); read-write workers keep .git masked, and no role gains a write path to any git surface."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The reference diff projected as input is the commitment: land exactly those changes, adapted only where the base moved.",
+    "The isolation boundary is between invocations and roles, never between consecutive commands of one worker; nothing may weaken the former to serve the latter.",
+    "Production binaries carry no runtime crash knob: the hook gate remains reachable only through ldflags.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [
+    "S1-streaming-dialects"
+  ],
+  "consumes": [
+    "S1-streaming-dialects"
+  ]
+}

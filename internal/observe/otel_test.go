@@ -627,6 +627,13 @@ func assertTraceWirePayload(t *testing.T, body []byte) {
 			"sworn.usage_known",
 			"sworn.input_tokens",
 			"sworn.output_tokens",
+			"sworn.cache_known",
+			"sworn.cache_read_tokens",
+			"sworn.cache_write_tokens",
+			"sworn.effort_requested",
+			"sworn.effort_reported",
+			"sworn.finish_reason",
+			"sworn.truncated",
 		),
 		"sworn.recovery": stringSet(
 			"sworn.measurement",
@@ -655,7 +662,14 @@ func assertTraceWirePayload(t *testing.T, body []byte) {
 	if segmentAttributes["sworn.events"] != int64(8) ||
 		segmentAttributes["sworn.attempts"] != int64(2) ||
 		segmentAttributes["sworn.retries"] != int64(1) ||
-		segmentAttributes["sworn.usage_known"] != true {
+		segmentAttributes["sworn.usage_known"] != true ||
+		segmentAttributes["sworn.cache_known"] != true ||
+		segmentAttributes["sworn.cache_read_tokens"] != int64(80) ||
+		segmentAttributes["sworn.cache_write_tokens"] != int64(20) ||
+		segmentAttributes["sworn.effort_requested"] != "high" ||
+		segmentAttributes["sworn.effort_reported"] != "high" ||
+		segmentAttributes["sworn.finish_reason"] != "stop" ||
+		segmentAttributes["sworn.truncated"] != false {
 		t.Fatalf("segment attributes = %#v", segmentAttributes)
 	}
 }
@@ -689,6 +703,10 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 		"sworn.transport",
 		"sworn.outcome",
 		"sworn.usage_known",
+		"sworn.cache_known",
+		"sworn.effort_reported",
+		"sworn.finish_reason",
+		"sworn.truncated",
 	)
 	allowed := map[string]map[string]bool{
 		"sworn.eval.events":                     stringSet("sworn.outcome"),
@@ -705,6 +723,10 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 		"sworn.eval.output_tokens":              groupLabels,
 		"sworn.eval.usage_coverage.numerator":   groupLabels,
 		"sworn.eval.usage_coverage.denominator": groupLabels,
+		"sworn.eval.cache_read_tokens":          groupLabels,
+		"sworn.eval.cache_write_tokens":         groupLabels,
+		"sworn.eval.cache_coverage.numerator":   groupLabels,
+		"sworn.eval.cache_coverage.denominator": groupLabels,
 		"sworn.eval.quality.numerator":          stringSet("sworn.quality"),
 		"sworn.eval.quality.denominator":        stringSet("sworn.quality"),
 	}
@@ -723,6 +745,10 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 		"sworn.eval.output_tokens":              {30},
 		"sworn.eval.usage_coverage.numerator":   {1},
 		"sworn.eval.usage_coverage.denominator": {2},
+		"sworn.eval.cache_read_tokens":          {80},
+		"sworn.eval.cache_write_tokens":         {20},
+		"sworn.eval.cache_coverage.numerator":   {1},
+		"sworn.eval.cache_coverage.denominator": {2},
 		"sworn.eval.quality.numerator":          {1, 1, 1},
 		"sworn.eval.quality.denominator":        {1, 1, 1},
 	}

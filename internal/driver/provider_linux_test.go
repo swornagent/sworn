@@ -115,6 +115,7 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 				resolver,
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -214,6 +215,7 @@ func TestProviderWorkerYieldIsTerminalWithoutSealedBatonAuthority(t *testing.T) 
 		},
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +286,7 @@ func TestProviderMalformedSubmissionsAreCorrectedUntilValid(
 		func(context.Context, string) ([]byte, error) {
 			return []byte("secret"), nil
 		},
+		nil,
 		nil,
 		nil,
 	)
@@ -425,6 +428,7 @@ func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 				},
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -559,6 +563,7 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -585,6 +590,87 @@ func TestProviderLoopPreservesParallelToolResultOrder(t *testing.T) {
 		observation.Usage.OutputTokens == nil ||
 		*observation.Usage.OutputTokens != 10 {
 		t.Fatalf("observation = %#v, requests=%d, error=%v", observation, requests.Load(), err)
+	}
+}
+
+func TestProviderChatCompletionsCarriesDeclaredReasoningEffort(t *testing.T) {
+	const invocationID = "provider-chat-effort"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var chatEnvelope struct {
+			ReasoningEffort string `json:"reasoning_effort"`
+		}
+		if json.Unmarshal(body, &chatEnvelope) != nil ||
+			chatEnvelope.ReasoningEffort != "high" {
+			t.Errorf("chat reasoning effort = %s", body)
+		}
+		writeJSONResponse(t, writer, openAIToolCallResponse(
+			"chat-effort-submit",
+			"sworn_submit",
+			submitArguments,
+			5,
+			7,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-chat-effort", ID: "sworn.openai.chat.effort",
+				Version: "1.0.0", Endpoint: server.URL + "/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:              OpenAIChatCompletionsAPI,
+			ReasoningEffort:  "high",
+			ReasoningEfforts: []string{"high", "max"},
+		},
+		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil || requests.Load() != 1 ||
+		observation.Usage.InputTokens == nil ||
+		*observation.Usage.InputTokens != 5 ||
+		observation.Usage.OutputTokens == nil ||
+		*observation.Usage.OutputTokens != 7 {
+		t.Fatalf(
+			"observation = %#v, requests=%d, error=%v",
+			observation,
+			requests.Load(),
+			err,
+		)
 	}
 }
 
@@ -633,6 +719,7 @@ func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T
 				},
 				nil,
 				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -661,9 +748,9 @@ func TestHTTPTransportDoesNotRetryRedirectOrPublishVerdictOnFailure(t *testing.T
 	}
 }
 
-func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
-	t.Run("DeepSeek reasoning replay", func(t *testing.T) {
-		invocationID := "deepseek-replay"
+func TestOpenAIOpaqueChatAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
+	t.Run("opaque chat reasoning replay", func(t *testing.T) {
+		invocationID := "opaque-chat-replay"
 		submission := submissionFixture(
 			t,
 			invocationID,
@@ -688,7 +775,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 							"role": "assistant", "content": nil,
 							"reasoning_content": "provider-private-reasoning",
 							"tool_calls": []any{openAIToolCallFixture(
-								"deepseek-read",
+								"opaque-chat-read",
 								"Read",
 								`{"path":"/workspace/input.txt"}`,
 							)},
@@ -699,11 +786,11 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 				return
 			}
 			if !bytes.Contains(body, []byte(`"reasoning_content":"provider-private-reasoning"`)) ||
-				!bytes.Contains(body, []byte(`"tool_call_id":"deepseek-read"`)) {
-				t.Errorf("DeepSeek continuation not replayed: %s", body)
+				!bytes.Contains(body, []byte(`"tool_call_id":"opaque-chat-read"`)) {
+				t.Errorf("opaque chat continuation not replayed: %s", body)
 			}
 			writeJSONResponse(t, writer, openAIToolCallResponse(
-				"deepseek-submit",
+				"opaque-chat-submit",
 				"sworn_submit",
 				submissionToolArguments(t, submission),
 				3,
@@ -711,15 +798,24 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 			))
 		}))
 		defer server.Close()
-		adapter, err := NewDeepSeekAdapter(
-			HTTPProfileConfig{
-				Key: "deepseek-adapter", ID: "sworn.deepseek", Version: "1.0.0",
-				Endpoint:         server.URL + "/chat/completions",
-				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
-				CredentialRefs: []string{"credential-ref"},
-				ResponseBytes:  MaxProviderResponseBytes,
+		opaque := true
+		adapter, err := NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: "opaque-chat-adapter", ID: "sworn.opaque.chat",
+					Version:          "1.0.0",
+					Endpoint:         server.URL + "/chat/completions",
+					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+				},
+				API:             OpenAIChatCompletionsAPI,
+				OpaqueReasoning: &opaque,
 			},
-			func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+			func(context.Context, string) ([]byte, error) {
+				return []byte("secret"), nil
+			},
+			nil,
 			nil,
 			nil,
 		)
@@ -729,7 +825,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 		invocation := productionInvocationFixture(
 			t,
 			adapter,
-			ProfileDeepSeek,
+			ProfileOpenAIHTTP,
 			invocationID,
 			RoleImplementer,
 			ImplementerImplementation,
@@ -744,7 +840,7 @@ func TestDeepSeekAndGeminiFakeServersPreserveTheirWireContracts(t *testing.T) {
 		}
 		observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 		if err != nil || observation.Handoff == nil || requests.Load() != 2 {
-			t.Fatalf("DeepSeek observation = %#v, error=%v", observation, err)
+			t.Fatalf("opaque chat observation = %#v, error=%v", observation, err)
 		}
 		observationBody, _ := json.Marshal(observation)
 		if bytes.Contains(observationBody, []byte("provider-private-reasoning")) {
@@ -980,5 +1076,399 @@ func writeJSONResponse(t *testing.T, writer http.ResponseWriter, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(writer).Encode(value); err != nil {
 		t.Error(err)
+	}
+}
+
+// S3-provider-observability acceptance evidence: cache accounting, requested
+// vs reported reasoning effort, honest absence, and truncation-as-named-failure
+// are all driven through the real adapter loop with fake loopback providers.
+
+func TestOpenAIChatSurfacesCacheAccountingAndReportedEffort(t *testing.T) {
+	const invocationID = "provider-chat-cache-effort"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		writeJSONResponse(t, writer, map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{
+					"role": "assistant", "content": nil,
+					"tool_calls": []any{openAIToolCallFixture(
+						"cache-effort-submit",
+						"sworn_submit",
+						submitArguments,
+					)},
+				},
+				"finish_reason": "tool_calls",
+			}},
+			"usage": map[string]any{
+				"prompt_tokens": 10, "completion_tokens": 5,
+				"prompt_cache_hit_tokens":  6,
+				"prompt_cache_miss_tokens": 4,
+			},
+			// The provider echoes a different effort than the profile
+			// requested; the receipt must keep the two distinct.
+			"reasoning_effort": "max",
+		})
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-chat-cache", ID: "sworn.openai.chat.cache",
+				Version:          "1.0.0",
+				Endpoint:         server.URL + "/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:              OpenAIChatCompletionsAPI,
+			ReasoningEffort:  "high",
+			ReasoningEfforts: []string{"high", "max"},
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil || requests.Load() != 1 {
+		t.Fatalf("observation = %#v, error=%v", observation, err)
+	}
+	usage := observation.Usage
+	if usage.CacheStatus != UsageReported ||
+		usage.CacheReadTokens == nil || *usage.CacheReadTokens != 6 ||
+		usage.CacheWriteTokens == nil || *usage.CacheWriteTokens != 4 ||
+		usage.EffortRequested == nil || *usage.EffortRequested != "high" ||
+		usage.EffortReported == nil || *usage.EffortReported != "max" {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestProviderWithoutCacheOrEffortYieldsHonestAbsence(t *testing.T) {
+	const invocationID = "provider-honest-absence"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		writeJSONResponse(t, writer, openAIToolCallResponse(
+			"absence-submit",
+			"sworn_submit",
+			submitArguments,
+			5,
+			7,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-absence", ID: "sworn.openai.absence",
+				Version:          "1.0.0",
+				Endpoint:         server.URL + "/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API: OpenAIChatCompletionsAPI,
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil {
+		t.Fatalf("observation = %#v, error=%v", observation, err)
+	}
+	usage := observation.Usage
+	if usage.CacheStatus != UsageUnavailable ||
+		usage.CacheReadTokens != nil || usage.CacheWriteTokens != nil ||
+		usage.EffortRequested != nil || usage.EffortReported != nil ||
+		usage.FinishReason != nil || usage.Truncated != nil {
+		t.Fatalf("honest absence = %#v", usage)
+	}
+	if usage.InputTokens == nil || *usage.InputTokens != 5 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 7 {
+		t.Fatalf("tokens = %#v", usage)
+	}
+}
+
+func TestOpenAIChatTruncationIsNamedProviderFailure(t *testing.T) {
+	const invocationID = "provider-chat-truncated"
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		writeJSONResponse(t, writer, map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{
+					"role": "assistant", "content": "partial answer",
+				},
+				"finish_reason": "length",
+			}},
+			"usage": map[string]any{
+				"prompt_tokens": 4, "completion_tokens": 3,
+				"prompt_cache_hit_tokens":  2,
+				"prompt_cache_miss_tokens": 2,
+			},
+		})
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-truncated", ID: "sworn.openai.truncated",
+				Version:          "1.0.0",
+				Endpoint:         server.URL + "/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:              OpenAIChatCompletionsAPI,
+			ReasoningEffort:  "high",
+			ReasoningEfforts: []string{"high", "max"},
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if !IsCode(err, "PROVIDER_TRUNCATED") || observation.Handoff != nil ||
+		observation.TransportStatus != RunnerError ||
+		observation.Diagnostic.Code != "provider_truncated" {
+		t.Fatalf("truncation observation = %#v, error=%v", observation, err)
+	}
+	usage := observation.Usage
+	if usage.FinishReason == nil || *usage.FinishReason != "length" ||
+		usage.Truncated == nil || !*usage.Truncated ||
+		usage.CacheStatus != UsageReported ||
+		usage.CacheReadTokens == nil || *usage.CacheReadTokens != 2 ||
+		usage.CacheWriteTokens == nil || *usage.CacheWriteTokens != 2 ||
+		usage.EffortRequested == nil || *usage.EffortRequested != "high" ||
+		usage.InputTokens == nil || *usage.InputTokens != 4 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 3 {
+		t.Fatalf("truncation usage = %#v", usage)
+	}
+}
+
+func TestResponsesTruncationAndCacheAreSurfaced(t *testing.T) {
+	const invocationID = "provider-responses-truncated"
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		writeJSONResponse(t, writer, map[string]any{
+			"id": "response-truncated", "object": "response",
+			"status": "incomplete",
+			"incomplete_details": map[string]any{
+				"reason": "max_output_tokens",
+			},
+			"output": []any{map[string]any{
+				"type": "message", "role": "assistant",
+				"content": []any{map[string]any{
+					"type": "output_text", "text": "partial",
+				}},
+			}},
+			"usage": map[string]any{
+				"input_tokens": 9, "output_tokens": 6, "total_tokens": 15,
+				"input_tokens_details": map[string]any{
+					"cached_tokens": 7,
+					"audio_tokens":  1,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-responses-truncated", ID: "sworn.openai.responses.truncated",
+				Version:          "1.0.0",
+				Endpoint:         server.URL + "/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIResponsesAPI,
+			ReasoningEffort: "medium",
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if !IsCode(err, "PROVIDER_TRUNCATED") || observation.Handoff != nil ||
+		observation.TransportStatus != RunnerError ||
+		observation.Diagnostic.Code != "provider_truncated" {
+		t.Fatalf("responses truncation = %#v, error=%v", observation, err)
+	}
+	usage := observation.Usage
+	if usage.FinishReason == nil || *usage.FinishReason != "max_output_tokens" ||
+		usage.Truncated == nil || !*usage.Truncated ||
+		usage.CacheStatus != UsageReported ||
+		usage.CacheReadTokens == nil || *usage.CacheReadTokens != 7 ||
+		usage.CacheWriteTokens != nil ||
+		usage.EffortRequested == nil || *usage.EffortRequested != "medium" ||
+		usage.InputTokens == nil || *usage.InputTokens != 9 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 6 {
+		t.Fatalf("responses truncation usage = %#v", usage)
+	}
+}
+
+func TestBedrockConversationSurfacesCacheAndTruncation(t *testing.T) {
+	config := BedrockProfileConfig{
+		Endpoint: "https://bedrock-runtime.us-east-1.amazonaws.com",
+	}
+	conversation, err := newBedrockConversation(
+		config,
+		"exact-model",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	// Normal end_turn with cache read/write is surfaced, not discarded.
+	turn, err := conversation.accept([]byte(`{
+	  "output":{"message":{"role":"assistant","content":[{"text":"done"}]}},
+	  "stopReason":"end_turn",
+	  "usage":{"inputTokens":5,"outputTokens":6,"totalTokens":11,
+	           "cacheReadInputTokens":3,"cacheWriteInputTokens":1}
+	}`))
+	if err != nil || turn.Truncated || turn.FinishReason != nil ||
+		turn.Usage == nil ||
+		turn.Usage.CacheReadTokens == nil || *turn.Usage.CacheReadTokens != 3 ||
+		turn.Usage.CacheWriteTokens == nil || *turn.Usage.CacheWriteTokens != 1 {
+		t.Fatalf("bedrock cache turn = %#v, error=%v", turn, err)
+	}
+	// max_tokens is recognized as the provider's output-ceiling finish reason.
+	truncated, err := conversation.accept([]byte(`{
+	  "output":{"message":{"role":"assistant","content":[{"text":"partial"}]}},
+	  "stopReason":"max_tokens",
+	  "usage":{"inputTokens":7,"outputTokens":8,"totalTokens":15,
+	           "cacheReadInputTokens":4}
+	}`))
+	if err != nil || !truncated.Truncated ||
+		truncated.FinishReason == nil || *truncated.FinishReason != "max_tokens" ||
+		truncated.Usage == nil ||
+		truncated.Usage.CacheReadTokens == nil || *truncated.Usage.CacheReadTokens != 4 ||
+		truncated.Usage.CacheWriteTokens != nil {
+		t.Fatalf("bedrock truncation turn = %#v, error=%v", truncated, err)
+	}
+}
+
+func TestGeminiConversationSurfacesCacheAndTruncation(t *testing.T) {
+	conversation, err := newGeminiConversation(
+		"https://generativelanguage.googleapis.com",
+		"gemini-2.5-pro",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	// Normal STOP with cached-content reads is surfaced, not discarded.
+	turn, err := conversation.accept([]byte(`{
+	  "candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},
+	                 "finishReason":"STOP"}],
+	  "usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":9,
+	                   "totalTokenCount":16,"cachedContentTokenCount":4}
+	}`))
+	if err != nil || turn.Truncated || turn.FinishReason != nil ||
+		turn.Usage == nil ||
+		turn.Usage.CacheReadTokens == nil || *turn.Usage.CacheReadTokens != 4 ||
+		turn.Usage.CacheWriteTokens != nil {
+		t.Fatalf("gemini cache turn = %#v, error=%v", turn, err)
+	}
+	// MAX_TOKENS is recognized as the provider's output-ceiling finish reason.
+	truncated, err := conversation.accept([]byte(`{
+	  "candidates":[{"content":{"role":"model","parts":[{"text":"partial"}]},
+	                 "finishReason":"MAX_TOKENS"}],
+	  "usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":3,
+	                   "totalTokenCount":5,"cachedContentTokenCount":1}
+	}`))
+	if err != nil || !truncated.Truncated ||
+		truncated.FinishReason == nil || *truncated.FinishReason != "MAX_TOKENS" ||
+		truncated.Usage == nil ||
+		truncated.Usage.CacheReadTokens == nil || *truncated.Usage.CacheReadTokens != 1 ||
+		truncated.Usage.CacheWriteTokens != nil {
+		t.Fatalf("gemini truncation turn = %#v, error=%v", truncated, err)
 	}
 }

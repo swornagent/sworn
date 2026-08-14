@@ -6,6 +6,8 @@ type responsesConversation struct {
 	endpoint        string
 	model           string
 	reasoningEffort string
+	enableThinking  *bool
+	stream          bool
 	tools           []responsesTool
 	input           []json.RawMessage
 	pending         []providerToolCall
@@ -35,11 +37,12 @@ func newResponsesConversation(
 	definitions []providerToolDefinition,
 	prompt []byte,
 	reasoningEffort string,
+	enableThinking *bool,
+	stream bool,
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
-		reasoningEffort == "" ||
-		!validOpenAIReasoningEffort(reasoningEffort) {
+		reasoningEffort == "" {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := responsesTools(definitions)
@@ -57,6 +60,8 @@ func newResponsesConversation(
 		endpoint:        endpoint,
 		model:           model,
 		reasoningEffort: reasoningEffort,
+		enableThinking:  enableThinking,
+		stream:          stream,
 		tools:           tools,
 		input:           []json.RawMessage{initial},
 		ledger:          newContinuationLedger(),
@@ -98,6 +103,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		ToolChoice        string             `json:"tool_choice"`
 		ParallelToolCalls bool               `json:"parallel_tool_calls"`
 		Reasoning         responsesReasoning `json:"reasoning"`
+		EnableThinking    *bool              `json:"enable_thinking,omitempty"`
 		Store             bool               `json:"store"`
 		Stream            bool               `json:"stream"`
 	}{
@@ -107,8 +113,9 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		ToolChoice:        "auto",
 		ParallelToolCalls: true,
 		Reasoning:         responsesReasoning{Effort: conversation.reasoningEffort},
+		EnableThinking:    conversation.enableThinking,
 		Store:             false,
-		Stream:            false,
+		Stream:            conversation.stream,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -119,6 +126,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		URL:         conversation.endpoint,
 		ContentType: "application/json",
 		Body:        body,
+		Stream:      conversation.stream,
 	}, nil
 }
 
@@ -127,6 +135,7 @@ func (conversation *responsesConversation) accept(
 ) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
+		liveStream.driverError("accept-site-1", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
@@ -135,17 +144,59 @@ func (conversation *responsesConversation) accept(
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
+		liveStream.driverError("accept-site-2", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
 	}
-	if root["status"] != "completed" {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
+	var effort *string
+	// The Responses root is deliberately not closed-object validated (it
+	// carries many provider-specific fields), so reasoning.effort is read
+	// leniently: a malformed measurement is ignored rather than failing the
+	// run, in line with "measurement never becomes a gate".
+	if reasoningValue, present := root["reasoning"]; present &&
+		reasoningValue != nil {
+		if reasoning, reasoningOK := reasoningValue.(map[string]any); reasoningOK {
+			if effortValue, present := reasoning["effort"]; present &&
+				effortValue != nil {
+				if effortText, effortOK := effortValue.(string); effortOK &&
+					validateText(effortText, 128, false) == nil {
+					effort = &effortText
+				}
+			}
+		}
+	}
+	status, statusOK := root["status"].(string)
+	if !statusOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if status != "completed" {
+		if status != "incomplete" || !responsesTruncated(root) {
+			return providerTurn{}, fail("MISSING_SUBMISSION")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		reason := "max_output_tokens"
+		turn := providerTurn{
+			ReasoningEffort: effort,
+			FinishReason:    &reason,
+			Truncated:       true,
+		}
+		if usageValue, present := root["usage"]; present && usageValue != nil {
+			usage, usageErr := responsesUsage(usageValue)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = usage
+		}
+		return turn, nil
 	}
 	output, ok := root["output"].([]any)
 	if !ok || len(output) == 0 ||
 		len(output) > MaxToolCalls+MaxContinuationSteps {
+		liveStream.driverError("accept-site-3", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	var rawResponse struct {
@@ -153,6 +204,7 @@ func (conversation *responsesConversation) accept(
 	}
 	if json.Unmarshal(body, &rawResponse) != nil ||
 		len(rawResponse.Output) != len(output) {
+		liveStream.driverError("accept-site-4", nil)
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	calls := make([]providerToolCall, 0, len(output))
@@ -161,15 +213,18 @@ func (conversation *responsesConversation) accept(
 		item, itemOK := output[index].(map[string]any)
 		itemType, typeOK := item["type"].(string)
 		if !itemOK || !typeOK {
+			liveStream.driverError("accept-site-5", nil)
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		switch itemType {
 		case "reasoning":
 			if validateResponsesReasoningItem(item) != nil {
+				liveStream.driverError("accept-site-6", nil)
 				return providerTurn{}, fail("CONTINUATION_INVALID")
 			}
 		case "message":
 			if !validResponsesMessageItem(item) {
+				liveStream.driverError("accept-site-7", nil)
 				return providerTurn{}, fail("CONTINUATION_INVALID")
 			}
 		case "function_call":
@@ -179,6 +234,7 @@ func (conversation *responsesConversation) accept(
 			}
 			calls = append(calls, call)
 		default:
+			liveStream.driverError("accept-site-8", nil)
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		retainedFields = append(retainedFields, opaqueField{
@@ -195,23 +251,72 @@ func (conversation *responsesConversation) accept(
 	}
 	conversation.pending = append([]providerToolCall(nil), calls...)
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
+	if effort != nil {
+		turn.ReasoningEffort = effort
+	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := closedObject(
-			usageValue,
-			[]string{"input_tokens", "output_tokens", "total_tokens"},
-			[]string{"input_tokens_details", "output_tokens_details"},
-		)
-		input, inputOK := safeJSONInt(usage["input_tokens"])
-		outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
-		if usageErr != nil || !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
+		usage, usageErr := responsesUsage(usageValue)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		turn.Usage = &Usage{
-			InputTokens:  input,
-			OutputTokens: outputTokens,
-		}
+		turn.Usage = usage
 	}
 	return turn, nil
+}
+
+// responsesTruncated reports whether an incomplete Responses response was cut
+// by the provider's output-token ceiling (incomplete_details.reason
+// "max_output_tokens"). The root object is not closed-object validated, so
+// the detail is read leniently; any other incompletion keeps the prior
+// MISSING_SUBMISSION behavior.
+func responsesTruncated(root map[string]any) bool {
+	details, present := root["incomplete_details"]
+	if !present {
+		return false
+	}
+	detailsObject, ok := details.(map[string]any)
+	if !ok {
+		return false
+	}
+	reason, ok := detailsObject["reason"].(string)
+	return ok && reason == "max_output_tokens"
+}
+
+// responsesUsage parses the Responses usage object, surfacing the cached-token
+// detail (input_tokens_details.cached_tokens) as cache reads instead of
+// discarding it. The details object carries provider-specific breakdown fields
+// (audio, image, text tokens), so only cached_tokens is extracted and a
+// malformed detail never fails the run.
+func responsesUsage(value any) (*Usage, error) {
+	// x_details is Qwen's provider-specific usage annex on the responses
+	// flavour; it is tolerated and ignored rather than failing the turn.
+	usage, err := closedObject(
+		value,
+		[]string{"input_tokens", "output_tokens", "total_tokens"},
+		[]string{"input_tokens_details", "output_tokens_details", "x_details"},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(usage["input_tokens"])
+	outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
+	if detailsValue, present := usage["input_tokens_details"]; present &&
+		detailsValue != nil {
+		details, detailsOK := detailsValue.(map[string]any)
+		if detailsOK {
+			if cachedValue, present := details["cached_tokens"]; present {
+				cached, cachedOK := safeJSONInt(cachedValue)
+				if cachedOK {
+					result.CacheReadTokens = &cached
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 func (conversation *responsesConversation) appendInstruction(body []byte) error {
@@ -233,11 +338,47 @@ func (conversation *responsesConversation) appendInstruction(body []byte) error 
 }
 
 func validateResponsesReasoningItem(item map[string]any) error {
-	encrypted, encryptedOK := item["encrypted_content"].(string)
-	if item["type"] != "reasoning" || !encryptedOK ||
-		len(encrypted) == 0 || len(encrypted) > MaxOpaqueFieldBytes ||
-		!validOpaqueText([]byte(encrypted)) {
+	if item["type"] != "reasoning" {
 		return fail("CONTINUATION_INVALID")
+	}
+	if encrypted, encryptedOK := item["encrypted_content"].(string); encryptedOK {
+		if len(encrypted) == 0 || len(encrypted) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(encrypted)) {
+			return fail("CONTINUATION_INVALID")
+		}
+		return nil
+	}
+	// DeepSeek's Responses dialect carries plaintext reasoning as
+	// content parts of type reasoning_text instead of encrypted_content;
+	// Qwen's carries a summary list of summary_text parts with null content.
+	if parts, partsOK := item["content"].([]any); partsOK && len(parts) > 0 {
+		for _, rawPart := range parts {
+			part, partOK := rawPart.(map[string]any)
+			if !partOK || part["type"] != "reasoning_text" {
+				return fail("CONTINUATION_INVALID")
+			}
+			text, textOK := part["text"].(string)
+			if !textOK || len(text) > MaxOpaqueFieldBytes ||
+				!validOpaqueText([]byte(text)) {
+				return fail("CONTINUATION_INVALID")
+			}
+		}
+		return nil
+	}
+	summary, summaryOK := item["summary"].([]any)
+	if !summaryOK || len(summary) == 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	for _, rawPart := range summary {
+		part, partOK := rawPart.(map[string]any)
+		if !partOK || part["type"] != "summary_text" {
+			return fail("CONTINUATION_INVALID")
+		}
+		text, textOK := part["text"].(string)
+		if !textOK || len(text) > MaxOpaqueFieldBytes ||
+			!validOpaqueText([]byte(text)) {
+			return fail("CONTINUATION_INVALID")
+		}
 	}
 	return nil
 }
@@ -384,6 +525,13 @@ func (conversation *responsesConversation) close() {
 	conversation.input = nil
 	conversation.pending = nil
 	conversation.tools = nil
+}
+
+func (conversation *responsesConversation) declaredReasoningEffort() string {
+	if conversation == nil {
+		return ""
+	}
+	return conversation.reasoningEffort
 }
 
 func clearResponsesTools(tools []responsesTool) {
