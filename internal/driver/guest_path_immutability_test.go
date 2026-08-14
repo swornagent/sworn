@@ -29,6 +29,7 @@ func TestGuestPathsAreCompileTimeConstantsUnreachableFromConfiguration(t *testin
 	t.Setenv(gitx.EnvTempRoot, filepath.Join(hostileWorkspace, "tmp"))
 	t.Setenv(gitx.EnvCredentialsDir, filepath.Join(hostileWorkspace, "credentials"))
 	t.Setenv(gitx.EnvArtefactHome, filepath.Join(hostileWorkspace, "artefacts"))
+	t.Setenv(gitx.EnvNativeSessionRoot, filepath.Join(hostileWorkspace, "native-session"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(hostileWorkspace, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(hostileWorkspace, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(hostileWorkspace, "data"))
@@ -78,8 +79,12 @@ func TestGuestPathsAreCompileTimeConstantsUnreachableFromConfiguration(t *testin
 			t.Fatalf("bubblewrap arguments lack fixed guest target %q:\n%s", expected, joined)
 		}
 	}
-	// No host-path configuration value may leak into the guest argument list.
-	for _, hostPath := range []string{hostPaths.WorkspaceRoot, hostPaths.TempRoot, hostileWorkspace} {
+	// No host-path configuration value — including the native-session root —
+	// may leak into the guest argument list or alter any guest target.
+	nativeSessionRoot := filepath.Join(hostileWorkspace, "native-session")
+	for _, hostPath := range []string{
+		hostPaths.WorkspaceRoot, hostPaths.TempRoot, nativeSessionRoot, hostileWorkspace,
+	} {
 		if strings.Contains(joined, hostPath) {
 			t.Fatalf("host path %q leaked into guest argument list:\n%s", hostPath, joined)
 		}

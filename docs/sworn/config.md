@@ -93,7 +93,11 @@ than hardcoded literals.
 
 Where an XDG variable is unset, the conventional fallback applies
 (`~/.local/state`, `~/.cache`, `~/.config`, `~/.local/share`). Overrides must
-be clean absolute paths; a relative, empty or root path is refused.
+be clean absolute paths; a relative, empty or root path is refused. The temp
+root and the native session root are created (0700) when absent, so a fresh
+configured tmpfs child such as `SWORN_TEMP_ROOT=/memory-mount/sworn/tmp` works
+before it exists. A malformed or unavailable configured value is refused with
+a named error rather than silently replaced by discovery.
 
 - **Workspace root**: the engine's workspace factory root (worktrees, leases).
 - **Temp root**: all ephemeral scratch — certification roots, input
@@ -103,9 +107,16 @@ be clean absolute paths; a relative, empty or root path is refused.
   crash-recovery state. Crash recovery trusts a memory-backed filesystem
   (tmpfs), so this root is the configured temp root only when that root is
   itself a tmpfs; otherwise it discovers a memory-backed directory (the
-  effective `TMPDIR` when on tmpfs, `/dev/shm`, then the host's tmpfs mounts)
-  and fails loudly rather than degrading to ordinary disk. Override it with
-  `SWORN_NATIVE_SESSION_ROOT` when a specific tmpfs is preferred.
+  effective `TMPDIR` when on tmpfs, then the host's tmpfs mounts reported by
+  the kernel — a conventional `/dev/shm` is found as a normal tmpfs mount when
+  the host actually mounts one, with no fixed path assumed) and fails loudly
+  rather than degrading to ordinary disk. The root is created when absent and
+  admitted as a private directory, so a fresh `SWORN_NATIVE_SESSION_ROOT`
+  under a tmpfs works before it exists. An override that is not a private
+  (not group/world-writable) tmpfs directory owned by the current user is
+  refused with a named error rather than silently replaced by discovery.
+  Override it with `SWORN_NATIVE_SESSION_ROOT` when a specific tmpfs is
+  preferred.
 - **Credentials dir**: where Sworn looks for agent credential files
   (`$XDG_CONFIG_HOME/sworn/.codex/auth.json` and
   `$XDG_CONFIG_HOME/sworn/.claude/.credentials.json` by default). The XDG

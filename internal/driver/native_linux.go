@@ -36,12 +36,15 @@ const (
 // crash-recovery roots. Crash recovery trusts that the state lives on a
 // memory-backed filesystem (tmpfs), so this root resolves to a memory-backed
 // location and never to the general (often disk-backed) temp root. Resolution
-// order: the SWORN_NATIVE_SESSION_ROOT override; else the configured
-// machine/user temp root (SWORN_TEMP_ROOT or the XDG-conformant default) when
-// that root is itself memory-backed; else a discovered memory-backed
-// directory (the effective TMPDIR when on tmpfs, /dev/shm, then the host's
-// tmpfs mounts). A resolution failure is an error: no consumer may silently
-// fall back to the process/system temp directory.
+// order: the SWORN_NATIVE_SESSION_ROOT override, which is created when absent
+// and must prove to be a private tmpfs directory owned by the current user;
+// else the configured machine/user temp root (SWORN_TEMP_ROOT or the
+// XDG-conformant default), created when absent, when that root is itself
+// memory-backed; else a discovered memory-backed directory (the effective
+// TMPDIR when on tmpfs, then the host's tmpfs mounts reported by the kernel).
+// A configured value that is malformed, unavailable, or not tmpfs is refused
+// with a named error rather than silently replaced by discovery, and no
+// consumer may silently fall back to the process/system temp directory.
 func nativeSessionMemoryRoot() (string, error) {
 	if value := os.Getenv(gitx.EnvNativeSessionRoot); value != "" {
 		if err := gitx.ValidateHostPathValue(value, gitx.EnvNativeSessionRoot); err != nil {
@@ -50,10 +53,25 @@ func nativeSessionMemoryRoot() (string, error) {
 		if err := gitx.RefuseGuestPathValue(value, gitx.EnvNativeSessionRoot); err != nil {
 			return "", err
 		}
-		return filepath.Clean(value), nil
+		root := filepath.Clean(value)
+		if err := admitConfiguredMemoryRoot(root); err != nil {
+			return "", err
+		}
+		return root, nil
 	}
-	if paths, err := gitx.LoadHostPaths(); err == nil &&
-		nativeMemoryBackedPath(paths.TempRoot) {
+	// The configured machine/user temp root is the preferred candidate when it
+	// is itself memory-backed. Malformed or unavailable configured values are
+	// refused (fail closed) rather than silently replaced by discovery, and a
+	// fresh configured tmpfs child is admitted so a clean override such as
+	// SWORN_TEMP_ROOT=/memory-mount/sworn/tmp works before it exists.
+	paths, err := gitx.LoadHostPaths()
+	if err != nil {
+		return "", err
+	}
+	if err := admitConfiguredRoot(paths.TempRoot); err != nil {
+		return "", err
+	}
+	if nativeMemoryBackedPath(paths.TempRoot) {
 		return paths.TempRoot, nil
 	}
 	for _, candidate := range nativeSessionMemoryCandidates() {
@@ -66,15 +84,58 @@ func nativeSessionMemoryRoot() (string, error) {
 	return "", fail("CONTINUATION_INVALID")
 }
 
+// admitConfiguredRoot ensures a configured machine/user root exists as a real
+// directory, creating it (0700) when absent so a fresh configured tmpfs child
+// is admitted. A root that cannot be created, or is not a real directory, is
+// refused with a named error rather than silently replaced by discovery.
+func admitConfiguredRoot(pathValue string) error {
+	if err := os.MkdirAll(pathValue, 0o700); err != nil {
+		return fail("CONTINUATION_INVALID")
+	}
+	info, err := os.Lstat(pathValue)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	return nil
+}
+
+// admitConfiguredMemoryRoot securely admits the operator-chosen native-session
+// memory root: after admitConfiguredRoot it additionally verifies the root is
+// owned by the current user, is not writable by group or world, and is
+// actually memory-backed (tmpfs). A configured root that fails any check is
+// refused with a named error, so crash recovery never trusts ordinary disk and
+// never silently falls back to an unrelated discovered mount.
+func admitConfiguredMemoryRoot(pathValue string) error {
+	if err := admitConfiguredRoot(pathValue); err != nil {
+		return err
+	}
+	info, err := os.Lstat(pathValue)
+	if err != nil {
+		return fail("CONTINUATION_INVALID")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok &&
+		stat.Uid != uint32(os.Getuid()) {
+		return fail("CONTINUATION_INVALID")
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fail("CONTINUATION_INVALID")
+	}
+	if !nativeMemoryBackedPath(pathValue) {
+		return fail("CONTINUATION_INVALID")
+	}
+	return nil
+}
+
 // nativeSessionMemoryCandidates returns the host locations probed for a
 // memory-backed directory when no configured root qualifies: the effective
-// process temp directory (honoring TMPDIR), the conventional /dev/shm tmpfs,
-// and every tmpfs mount reported by the kernel in stable order. This is
-// discovery, not a layout assumption: each candidate is admitted only when it
-// is an actual writable tmpfs, so a nix, homebrew or minimal host still
-// resolves a memory-backed default without patching.
+// process temp directory (honoring TMPDIR) and every tmpfs mount reported by
+// the kernel in stable order. This is discovery, not a layout assumption:
+// each candidate is admitted only when it is an actual writable tmpfs, so a
+// nix, homebrew or minimal host still resolves a memory-backed default
+// without patching. A conventional /dev/shm is found here as a normal tmpfs
+// mount when the host actually mounts one; no fixed path is hardcoded.
 func nativeSessionMemoryCandidates() []string {
-	candidates := []string{gitx.HostTempDir(), "/dev/shm"}
+	candidates := []string{gitx.HostTempDir()}
 	candidates = append(candidates, discoveredTmpfsMounts()...)
 	return candidates
 }
@@ -82,9 +143,9 @@ func nativeSessionMemoryCandidates() []string {
 // discoveredTmpfsMounts returns the host's tmpfs mount points from
 // /proc/mounts in stable sorted order. The filesystem root and the device
 // tree are never candidates: the root of a container can itself be a tmpfs
-// but is not a sane home for session state, and /dev holds device nodes (the
-// conventional /dev/shm subdirectory is the memory surface, probed
-// separately).
+// but is not a sane home for session state, and /dev holds device nodes
+// rather than session state. A conventional /dev/shm mount appears here like
+// any other tmpfs mount.
 func discoveredTmpfsMounts() []string {
 	raw, err := os.ReadFile("/proc/mounts")
 	if err != nil {
