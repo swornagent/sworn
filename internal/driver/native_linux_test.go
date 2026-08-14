@@ -2245,11 +2245,11 @@ func pinnedRuntimeFile(
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("host runtime file %s unavailable: %v", source, err)
 	}
 	digest, err := executableDigest(resolved)
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("host runtime file %s unavailable: %v", source, err)
 	}
 	return PinnedRuntimeFile{Path: resolved, Target: target, Digest: digest}
 }

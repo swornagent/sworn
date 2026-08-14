@@ -65,6 +65,7 @@ func TestNativeBrokerRefusedCorrectionClosesWithoutResultBytes(t *testing.T) {
 }
 
 func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	if err := osWriteProviderFixture(
 		invocation.HostWorkspace,

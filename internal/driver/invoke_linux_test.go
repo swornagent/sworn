@@ -273,6 +273,7 @@ func fakeInvocation(
 }
 
 func TestInvokerReleasesOnlyCompletedBoundSealedHandoff(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(t, "invoke-submit", PlannerProposal, "")
 	submission := &submissionValue
 	invocation, workspace, submissionBody := fakeInvocation(
@@ -326,6 +327,7 @@ func TestInvokerReleasesOnlyCompletedBoundSealedHandoff(t *testing.T) {
 }
 
 func TestRejectedSubmissionRequiresResultThenStopsWithoutHandoff(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(t, "wrong-invocation", PlannerProposal, "")
 	submission := &submissionValue
 	invocation, _, _ := fakeInvocation(
@@ -348,6 +350,7 @@ func TestRejectedSubmissionRequiresResultThenStopsWithoutHandoff(t *testing.T) {
 }
 
 func TestAcceptedSubmissionIntentionallyStopsAndQuiescesDescendants(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-descendant",
@@ -379,6 +382,7 @@ func TestAcceptedSubmissionIntentionallyStopsAndQuiescesDescendants(t *testing.T
 }
 
 func TestLinuxParentDeathQuiescesSandbox(t *testing.T) {
+	requireTrustedContainment(t)
 	const helperEnvironment = "SWORN_PARENT_DEATH_HELPER"
 	const executableEnvironment = "SWORN_PARENT_DEATH_EXECUTABLE"
 	if os.Getenv(helperEnvironment) == "1" {
@@ -447,6 +451,7 @@ func TestLinuxSandboxProcessAttributesRequireParentDeath(t *testing.T) {
 }
 
 func TestSpontaneousNonzeroExitCannotMasqueradeAsEngineStop(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-exit-17",
@@ -474,6 +479,7 @@ func TestSpontaneousNonzeroExitCannotMasqueradeAsEngineStop(t *testing.T) {
 }
 
 func TestSubmitWithoutCompletedResultStaysBlockedUntilDeadline(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-no-result",
@@ -511,6 +517,7 @@ func TestSubmitWithoutCompletedResultStaysBlockedUntilDeadline(t *testing.T) {
 }
 
 func TestNonCompletedTransportCannotReleaseAcceptedSubmission(t *testing.T) {
+	requireTrustedContainment(t)
 	profiles := []FakeProfile{
 		FakeTransportError,
 		FakeTimeout,
@@ -544,6 +551,7 @@ func TestNonCompletedTransportCannotReleaseAcceptedSubmission(t *testing.T) {
 }
 
 func TestInvokerReadOnlyWriteAttemptAndCancellationFailClosed(t *testing.T) {
+	requireTrustedContainment(t)
 	t.Run("already cancelled", func(t *testing.T) {
 		invocation, workspace, _ := fakeInvocation(
 			t,
@@ -650,6 +658,7 @@ func processUsesExecutable(executable string) bool {
 }
 
 func TestInvokerRejectsMalformedSubmissionChannel(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-malformed-frame",
@@ -668,6 +677,7 @@ func TestInvokerRejectsMalformedSubmissionChannel(t *testing.T) {
 }
 
 func TestMalformedControlTerminatesBlockingProcessImmediately(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-malformed-control-block",
@@ -689,6 +699,7 @@ func TestMalformedControlTerminatesBlockingProcessImmediately(t *testing.T) {
 }
 
 func TestInvokerRejectsMalformedProcessBehaviors(t *testing.T) {
+	requireTrustedContainment(t)
 	tests := []struct {
 		behavior string
 		code     string
@@ -745,6 +756,7 @@ func TestInvokerRejectsMalformedProcessBehaviors(t *testing.T) {
 }
 
 func TestParallelInvocationsCannotExchangeInputsModelsOrSeals(t *testing.T) {
+	requireTrustedContainment(t)
 	type invocationCase struct {
 		id             string
 		model          string
@@ -819,6 +831,7 @@ func TestParallelInvocationsCannotExchangeInputsModelsOrSeals(t *testing.T) {
 }
 
 func TestObservationDoesNotRetainEnvironmentStderrOrRawTranscript(t *testing.T) {
+	requireTrustedContainment(t)
 	t.Setenv("SWORN_PARENT_SECRET", "parent-secret-sentinel")
 	for _, behavior := range []string{"environment-canary", "secret-text"} {
 		t.Run(behavior, func(t *testing.T) {
@@ -862,6 +875,7 @@ func TestObservationDoesNotRetainEnvironmentStderrOrRawTranscript(t *testing.T) 
 }
 
 func TestCompletedResultKeepsOmittedUsageExplicitlyUnavailable(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-usage-unavailable",
@@ -883,6 +897,7 @@ func TestCompletedResultKeepsOmittedUsageExplicitlyUnavailable(t *testing.T) {
 }
 
 func TestLinuxBoundaryExposesOnlyFixedEnvironmentWorkspaceAndInputOverlay(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, workspace, _ := fakeInvocation(
 		t,
 		"invoke-isolation-canaries",

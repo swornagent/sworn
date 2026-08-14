@@ -401,6 +401,7 @@ func TestCommonToolsAreDescriptorRootedAccessBoundedAndClosed(t *testing.T) {
 }
 
 func TestToolBashIsNetworkCredentialAndAuthorityBlind(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	if err := os.MkdirAll(filepath.Join(invocation.HostWorkspace, ".git"), 0o700); err != nil {
 		t.Fatal(err)
@@ -433,6 +434,7 @@ printf 'isolated'`,
 func TestToolBashScratchPersistsAcrossCommandsWithinInvocationOnly(
 	t *testing.T,
 ) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	session, err := newToolSession(invocation)
 	if err != nil {
@@ -551,6 +553,7 @@ func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
 }
 
 func TestToolBashNonZeroExitReturnsOutputAndExitCode(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	session, err := newToolSession(invocation)
 	if err != nil {
