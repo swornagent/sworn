@@ -4,7 +4,23 @@ on:
   push:
     branches:
       - main
+      # Code lands on a release branch first and reaches main only at
+      # promotion, so filtering pushes to main alone left the release branch
+      # verified solely by whoever happened to open a pull request into it.
+      # Seventy-eight commits once accumulated there unchecked. The glob
+      # covers the next release line without anyone remembering this file.
+      #
+      # Deliberately not track/** or release-wt/**: the engine pushes to those
+      # on every candidate and verifier pass, and their intermediate states are
+      # meant to be incomplete. Running here would teach us to ignore red.
+      - 'release/**'
   pull_request: {}
+
+# Supersede rather than queue. Several pushes in quick succession would
+# otherwise hold several forty-five-minute runs against trees already replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
