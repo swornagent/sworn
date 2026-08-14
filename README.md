@@ -152,8 +152,8 @@ are separate, explicit choices.
 ## Build and verify
 
 Go 1.26.5 or newer is required. Production model execution currently requires
-Linux and root-owned `/usr/bin/bwrap` with unprivileged user namespaces
-enabled.
+Linux and a root-owned `bwrap` discoverable on PATH (for example
+`/usr/bin/bwrap`) with unprivileged user namespaces enabled.
 
 The local code checks are:
 

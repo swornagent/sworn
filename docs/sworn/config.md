@@ -97,14 +97,17 @@ be clean absolute paths; a relative, empty or root path is refused.
 - **Workspace root**: the engine's workspace factory root (worktrees, leases).
 - **Temp root**: all ephemeral scratch — certification roots, input
   projections, invocation scratch, Git homes/indexes/contexts, native
-  captures. The native session memory root follows `SWORN_TEMP_ROOT` when set
-  and otherwise keeps its memory-backed `/dev/shm` default; relocating it to a
-  non-memory path is an explicit operator choice and fails loudly in session
-  validation rather than silently degrading.
-- **Credentials dir**: where Sworn looks for agent credential files when the
-  operator relocates them. When unset, Sworn keeps reading the agent-owned
-  files at their standard locations (`~/.codex/auth.json`,
-  `~/.claude/.credentials.json`) so a signed-in agent is always found.
+  captures. The native session memory root is the same configured temp root;
+  because it must be memory-backed for crash recovery, a temp root that is
+  not a tmpfs fails loudly in session validation rather than silently
+  degrading.
+- **Credentials dir**: where Sworn looks for agent credential files
+  (`$XDG_CONFIG_HOME/sworn/.codex/auth.json` and
+  `$XDG_CONFIG_HOME/sworn/.claude/.credentials.json` by default). The XDG
+  default is always effective — it is never bypassed in favour of the user
+  home. An operator who keeps the agent-owned files at their standard
+  locations sets `SWORN_CREDENTIALS_DIR` to the parent directory that holds
+  `.codex`/`.claude` (typically the user home).
 - **Artefact home**: where Sworn's user-scoped artefacts live. `sworn skill
   install` (without `--home`) additionally places the skill there; the
   agent-discovery roots under the user home stay intact so agents keep
@@ -119,7 +122,7 @@ works without patching source.
 | Tool             | Override      | Resolution                                  |
 |------------------|---------------|---------------------------------------------|
 | Git              | `SWORN_GIT`   | override, else `exec.LookPath("git")`       |
-| Containment binary | `SWORN_BWRAP` | override, else `/usr/bin/bwrap`           |
+| Containment binary | `SWORN_BWRAP` | override, else `exec.LookPath("bwrap")`   |
 | POSIX shell      | `SWORN_SH`    | override, else `/bin/sh`, else `LookPath("sh")` |
 
 The containment binary's trust requirements are unchanged: it must be an

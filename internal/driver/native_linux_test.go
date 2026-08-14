@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -33,6 +35,44 @@ var (
 	nativeContinuationBinary string
 	nativeContinuationError  error
 )
+
+// nativeMemoryRoot points the native session memory root (which now resolves
+// from the configured temp root) at a tmpfs for tests that require
+// memory-backed crash recovery. It must be called before t.Parallel.
+func nativeMemoryRoot(t *testing.T) string {
+	t.Helper()
+	if nativeMemoryBackedPath("/dev/shm") {
+		return "/dev/shm"
+	}
+	t.Skip("no memory-backed (tmpfs) directory available for native-session tests")
+	return ""
+}
+
+// setNativeMemoryRootEnv points the configured temp root at a tmpfs so the
+// lazily resolved nativeSessionMemoryRoot is memory-backed for this test.
+func setNativeMemoryRootEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(gitx.EnvTempRoot, nativeMemoryRoot(t))
+}
+
+// TestNativeSessionMemoryRootFollowsConfiguredTempRoot proves A2 for the
+// native session memory root: it resolves from the SWORN_TEMP_ROOT override
+// or the XDG-conformant $XDG_STATE_HOME/sworn/tmp default, never from a
+// hardcoded literal.
+func TestNativeSessionMemoryRootFollowsConfiguredTempRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	if got := nativeSessionMemoryRoot(); got != filepath.Join(home, ".local", "state", "sworn", "tmp") {
+		t.Fatalf("default native session memory root = %q, want $XDG_STATE_HOME/sworn/tmp", got)
+	}
+	override := filepath.Join(t.TempDir(), "shm")
+	t.Setenv(gitx.EnvTempRoot, override)
+	if got := nativeSessionMemoryRoot(); got != override {
+		t.Fatalf("overridden native session memory root = %q, want %q", got, override)
+	}
+}
 
 func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
@@ -459,6 +499,7 @@ func TestExactNativeCLIsCertifyFreshAndContinuationProviderRequests(t *testing.T
 }
 
 func TestExactNativeCLIsKeepModelPromptOffOrdinaryDisk(t *testing.T) {
+	setNativeMemoryRootEnv(t)
 	models := map[ProfileFamily]string{
 		ProfileCodex:  "sworn-capture-model",
 		ProfileClaude: "claude-sonnet-4-20250514",
@@ -1024,6 +1065,7 @@ func TestSecretGuardFindsCapabilityAcrossWriteBoundaries(t *testing.T) {
 func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 	t *testing.T,
 ) {
+	setNativeMemoryRootEnv(t)
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
@@ -1731,6 +1773,7 @@ func TestNativeContinuationIdentityMismatchPrecedesBrokerArm(t *testing.T) {
 }
 
 func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
+	setNativeMemoryRootEnv(t)
 	config := NativeAdapterConfig{
 		Family:           ProfileCodex,
 		CredentialTarget: CodexCredentialTarget,
@@ -1786,7 +1829,7 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 	}
 
 	incomplete, err := os.MkdirTemp(
-		nativeSessionMemoryRoot,
+		nativeSessionMemoryRoot(),
 		nativeSessionRootPrefix,
 	)
 	if err != nil {

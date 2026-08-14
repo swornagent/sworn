@@ -88,6 +88,7 @@ func platformInvoke(
 		invocation.HostWorkspace,
 		invocation.Request.Inputs,
 		invocation.Inputs,
+		reservedMaskNames(invocation),
 	)
 	if err != nil {
 		return Observation{}, err
@@ -314,15 +315,20 @@ func platformInvoke(
 }
 func trustedBubblewrap() (string, error) {
 	// The containment binary resolves from the machine/user SWORN_BWRAP
-	// override or the default literal. It is deliberately absent from the
-	// project config schema, so a project-scoped configuration can never name
-	// the containment binary (A3/A5): a project file carrying it is refused
-	// at parse time. The trust requirements are unchanged: absolute, regular,
-	// executable, no group/world write bits, owned by uid 0, and the
-	// capability probe.
+	// override or discovery (exec.LookPath), never an absolute literal, so a
+	// nix, homebrew or non-Debian host works without patching source. It is
+	// deliberately absent from the project config schema, so a project-scoped
+	// configuration can never name the containment binary (A3/A5): a project
+	// file carrying it is refused at parse time. The trust requirements are
+	// unchanged: absolute, regular, executable, no group/world write bits,
+	// owned by uid 0, and the capability probe.
 	executable := os.Getenv(gitx.EnvBubblewrap)
 	if executable == "" {
-		executable = "/usr/bin/bwrap"
+		path, err := exec.LookPath("bwrap")
+		if err != nil {
+			return "", fail("ISOLATION_UNAVAILABLE")
+		}
+		executable = path
 	}
 	if !filepath.IsAbs(executable) {
 		return "", fail("ISOLATION_UNAVAILABLE")
@@ -378,28 +384,10 @@ func trustedBubblewrap() (string, error) {
 	return resolved, nil
 }
 
-// reservedMaskNames returns the workspace-relative names the containment
-// mask protects: the engine-computed MaskNames when present (which follow the
-// configured project roots), else the fixed defaults.
-func reservedMaskNames(invocation Invocation) []string {
-	if len(invocation.MaskNames) != 0 {
-		return append([]string(nil), invocation.MaskNames...)
-	}
-	return gitx.ReservedNames(gitx.DefaultProjectConfig())
-}
-
-// withoutGit returns the reserved set with ".git" removed, for read-only
-// verifier workspaces that expose read-only git instead of masking it.
-func withoutGit(names []string) []string {
-	result := make([]string, 0, len(names))
-	for _, name := range names {
-		if name != ".git" {
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
+// reservedMaskNames and withoutGit are defined in the shared invoke.go file so
+// request admission, the input projection and the tool path guard can read the
+// engine-computed reserved set on every platform; the Linux containment sites
+// call the same helpers.
 func linuxSandboxProcessAttributes() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
 		Setpgid:   true,

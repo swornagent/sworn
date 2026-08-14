@@ -16,6 +16,33 @@ func projectionInput(name, relative string, body []byte) (Input, InputContent) {
 	return input, InputContent{Input: input, Bytes: body}
 }
 
+// TestInputProjectionThreadsEngineReservedNames proves the engine-computed
+// reserved set reaches the projection admission: a path under a relocated
+// records root is admitted under the fixed default set but refused once the
+// engine threads its configured reserved names.
+func TestInputProjectionThreadsEngineReservedNames(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	first, firstContent := projectionInput("plan", ".records/plan.md", []byte("plan\n"))
+	projection, err := StageInputProjection(
+		workspace,
+		[]Input{first},
+		[]InputContent{firstContent},
+	)
+	if err != nil {
+		t.Fatalf("default admission rejected configured-root path: %v", err)
+	}
+	t.Cleanup(func() { _ = projection.Close() })
+	if _, err := StageInputProjection(
+		workspace,
+		[]Input{first},
+		[]InputContent{firstContent},
+		[]string{".git", ".records", ".journals"},
+	); !IsCode(err, "INVALID_PRODUCTION_INPUT_PATH") {
+		t.Fatalf("configured-root projection error = %v, want INVALID_PRODUCTION_INPUT_PATH", err)
+	}
+}
+
 func TestInputProjectionStagesExactOrderedReadOnlyBytes(t *testing.T) {
 	t.Parallel()
 	workspace := t.TempDir()

@@ -33,18 +33,13 @@ const (
 )
 
 // nativeSessionMemoryRoot is where native continuation sessions park their
-// crash-recovery roots. It resolves from the machine/user temp-root override
-// (SWORN_TEMP_ROOT) and otherwise keeps today's memory-backed /dev/shm
-// default, which the session validation requires to be a tmpfs. Relocating
-// it to a non-memory-backed path is an explicit operator choice and fails
-// loudly in validNativeSessionRoot rather than silently degrading.
-var nativeSessionMemoryRoot = resolveNativeSessionMemoryRoot()
-
-func resolveNativeSessionMemoryRoot() string {
-	if value := os.Getenv(gitx.EnvTempRoot); value != "" {
-		return filepath.Clean(value)
-	}
-	return "/dev/shm"
+// crash-recovery roots. It is the configured machine/user temp root
+// (SWORN_TEMP_ROOT override, else the XDG-conformant $XDG_STATE_HOME/sworn/tmp
+// default) so it never resolves from a hardcoded literal (A2). The root must
+// be memory-backed (tmpfs) for crash-recovery; a temp root that is not a
+// tmpfs fails loudly in session validation rather than silently degrading.
+func nativeSessionMemoryRoot() string {
+	return tempRoot()
 }
 
 var nativeSessionIDPattern = regexp.MustCompile(
@@ -280,7 +275,7 @@ func newNativeContinuationState(
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
 	root, err := os.MkdirTemp(
-		nativeSessionMemoryRoot,
+		nativeSessionMemoryRoot(),
 		nativeSessionRootPrefix,
 	)
 	if err != nil {
@@ -659,10 +654,10 @@ func boundedNativeSessionSize(root string) (int64, error) {
 }
 
 func reapNativeSessionRoots() error {
-	if !nativeMemoryBackedPath(nativeSessionMemoryRoot) {
+	if !nativeMemoryBackedPath(nativeSessionMemoryRoot()) {
 		return fail("CONTINUATION_INVALID")
 	}
-	entries, err := os.ReadDir(nativeSessionMemoryRoot)
+	entries, err := os.ReadDir(nativeSessionMemoryRoot())
 	if err != nil {
 		return err
 	}
@@ -672,7 +667,7 @@ func reapNativeSessionRoots() error {
 				!strings.HasPrefix(entry.Name(), nativeSessionParkedPrefix)) {
 			continue
 		}
-		root := filepath.Join(nativeSessionMemoryRoot, entry.Name())
+		root := filepath.Join(nativeSessionMemoryRoot(), entry.Name())
 		if !validNativeSessionRoot(root) {
 			continue
 		}
@@ -728,7 +723,7 @@ func staleNativeSessionRoot(root string) bool {
 
 func validNativeSessionRoot(root string) bool {
 	if root == "" || !filepath.IsAbs(root) ||
-		filepath.Dir(root) != nativeSessionMemoryRoot ||
+		filepath.Dir(root) != nativeSessionMemoryRoot() ||
 		!nativeMemoryBackedPath(root) {
 		return false
 	}
@@ -797,7 +792,7 @@ func parkNativeSessionRoot(root string) {
 		return
 	}
 	parked, err := os.MkdirTemp(
-		nativeSessionMemoryRoot,
+		nativeSessionMemoryRoot(),
 		nativeSessionParkedPrefix,
 	)
 	if err == nil {

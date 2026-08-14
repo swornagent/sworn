@@ -83,6 +83,7 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 		invocation.HostWorkspace,
 		invocation.Request.Inputs,
 		invocation.Inputs,
+		reservedMaskNames(invocation),
 	)
 	if err != nil {
 		return nil, err
@@ -756,7 +757,10 @@ func (session *toolSession) resolve(
 	}
 	relative = strings.TrimPrefix(relative, "/")
 	if relative != "" {
-		if err := validateRepositoryPath(relative); err != nil {
+		if err := validateRepositoryPath(
+			relative,
+			reservedMaskNames(session.invocation),
+		); err != nil {
 			return "", "", "", fail("TOOL_PATH_INVALID")
 		}
 	}

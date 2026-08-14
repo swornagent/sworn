@@ -26,7 +26,16 @@ type InputProjection struct {
 	root string
 }
 
-func StageInputProjection(workspace string, requestInputs []Input, contents []InputContent) (*InputProjection, error) {
+// StageInputProjection stages request input bytes read-only beneath a fresh
+// temp root. The optional reserved argument is the engine-computed set of
+// workspace-relative names that must never be admitted as an input path or
+// escaped through a workspace symlink; absent, the fixed default names apply.
+func StageInputProjection(
+	workspace string,
+	requestInputs []Input,
+	contents []InputContent,
+	reserved ...[]string,
+) (*InputProjection, error) {
 	if err := validateWorkspace(Workspace{Path: workspace, Access: ReadOnly}); err != nil {
 		return nil, err
 	}
@@ -38,7 +47,7 @@ func StageInputProjection(workspace string, requestInputs []Input, contents []In
 	if err != nil || resolved != workspace {
 		return nil, fail("INVALID_WORKSPACE")
 	}
-	if err := validateWorkspaceBoundary(workspace); err != nil {
+	if err := validateWorkspaceBoundary(workspace, reserved...); err != nil {
 		return nil, err
 	}
 	if len(requestInputs) > MaxInputs {
@@ -58,13 +67,17 @@ func StageInputProjection(workspace string, requestInputs []Input, contents []In
 			_ = projection.Close()
 		}
 	}()
+	var reservedNames []string
+	if len(reserved) != 0 {
+		reservedNames = reserved[0]
+	}
 	var total int
 	for index, expected := range requestInputs {
 		content := contents[index]
 		if content.Input != expected {
 			return nil, fail("INPUT_BINDING_MISMATCH")
 		}
-		if err := validateRepositoryPath(expected.Path); err != nil {
+		if err := validateRepositoryPath(expected.Path, reservedNames); err != nil {
 			return nil, fail("INVALID_PRODUCTION_INPUT_PATH")
 		}
 		if len(content.Bytes) > MaxInputFileBytes {

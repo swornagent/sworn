@@ -4,6 +4,7 @@ package driver
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -57,20 +58,25 @@ func TestTrustedBubblewrapResolvesOverrideAndKeepsTrustRequirements(t *testing.T
 		}
 	})
 
-	t.Run("unset override uses default path", func(t *testing.T) {
+	t.Run("unset override uses discovery", func(t *testing.T) {
 		t.Setenv(gitx.EnvBubblewrap, "")
 		path, err := trustedBubblewrap()
 		if err != nil {
 			// A host without a trusted bwrap (or a sandbox where the probe
 			// cannot complete) reports ISOLATION_UNAVAILABLE; the resolution
-			// default itself is still the fixed /usr/bin/bwrap literal.
+			// default itself is discovery, never an absolute distribution
+			// literal.
 			if !IsCode(err, "ISOLATION_UNAVAILABLE") {
 				t.Fatalf("default bwrap error = %v", err)
 			}
 			return
 		}
-		if path != "/usr/bin/bwrap" {
-			t.Fatalf("default bwrap path = %q, want /usr/bin/bwrap", path)
+		discovered, lookErr := exec.LookPath("bwrap")
+		if lookErr != nil {
+			t.Fatalf("discovered bwrap unavailable while default resolved: %v", lookErr)
+		}
+		if path != discovered {
+			t.Fatalf("default bwrap path = %q, want discovery %q", path, discovered)
 		}
 	})
 }
