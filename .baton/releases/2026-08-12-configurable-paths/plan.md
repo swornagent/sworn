@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-12-configurable-paths",
-  "revision": 3,
-  "previous_plan": "c5a1d4a65d0fb4e7934b9022282745044705bf3d",
+  "revision": 4,
+  "previous_plan": "ecc0b31d93c896949e1f3d8f642c593a32794acb",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-12-configurable-paths/3",
+  "approval_ref": "operator://2026-08-12-configurable-paths/4",
   "tracks": [
     {
       "id": "T1-paths",
@@ -33,8 +33,8 @@
         {
           "id": "S2-sworn-owned-project-surfaces",
           "outcome": "A Sworn project separates what people read from what the engine runs on: reviewable specifications live under docs/sworn/, machine-written authority and run state live under .sworn/, commit messages carry a configured prefix rather than a hardcoded foreign project name, and every release recorded before the move stays readable.",
-          "contract_path": "contracts/2026-08-12-configurable-paths/rev3/S2-sworn-owned-project-surfaces.json",
-          "digest": "sha256:bb09d9421ec187b9f61454507993f183324bcf88187e8eca225d363151c77117",
+          "contract_path": "contracts/2026-08-12-configurable-paths/rev4/S2-sworn-owned-project-surfaces.json",
+          "digest": "sha256:0d06dc7d19bd57e4c01cc4393c4af4414d6b0192c609b1d54b3e8ab8a9478e9b",
           "depends_on": [
             "S1-project-config-and-paths"
           ],
@@ -54,7 +54,8 @@
             ".gitattributes",
             "test/e2e",
             ".baton",
-            ".sworn"
+            ".sworn",
+            "tools"
           ]
         }
       ]
@@ -99,7 +100,28 @@ it is the only tracked one.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-12-configurable-paths/3`. Planning did not approve itself.
+`operator://2026-08-12-configurable-paths/4`. Planning did not approve itself.
+
+# Revision 4
+
+Attempt 3 finished the whole slice - operator-gated migrate-records
+pathway, dual reserved roots, legacy read fallback, documents-root
+publishing, every executable check passing in its workspace - and the seal
+refused it three times for one path family: A2's default flip regenerates
+the baton golden corpus under tools/batongolden, and tools was not in
+scope. The candidate was correct; the contract was short one path. Fourth
+instance of the under-derived-scope class, with the refinement the lint
+(sworn#199) must carry: golden fixtures pin behaviour, so any slice that
+changes pinned defaults reaches every corpus that records them.
+
+This revision adds tools to S2's scope include and touchpoints. Nothing
+else changes; S1 and its rev2 contract remain byte-identical, delivered
+and passed. Scope is derived, for the first time in this release, from a
+candidate that ran to completion.
+
+Separately recorded: the seal refusal names no path anywhere the operator
+or a retrying worker can see it - three tries repeated the same mistake
+blind, at a cost of roughly 1,900 turns. Filed as its own defect.
 
 # Revision 3
 
