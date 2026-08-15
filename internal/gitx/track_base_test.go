@@ -144,6 +144,89 @@ func TestTrackBaseValidatesLegacyPlanAtRelease(t *testing.T) {
 	}
 }
 
+func TestTrackBaseConfiguredRootWinsOverLegacyPlanAtRelease(t *testing.T) {
+	t.Parallel()
+	// A release recorded under both roots must bind the plan at the
+	// configured records root (A4): the configured OID succeeds, and the
+	// legacy OID is rejected even though the legacy path holds a different
+	// plan blob for the same release.
+	repository, target := newRepository(t, SHA1)
+	record, product := inertAdmissions(t, repository, nil)
+	_ = record
+	release := "track-base-dual-root"
+	configuredPlanPath := repository.recordRoot + "/" + release + "/plan.md"
+	legacyPlanPath := LegacyRecordsRoot + "/" + release + "/plan.md"
+	timestamp, err := repository.CommitTimestamp(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := repository.prepareRecord(RecordRequest{
+		Parent: target,
+		Changes: []BlobChange{
+			{Path: configuredPlanPath, Bytes: []byte("configured fixture plan\n")},
+			{Path: legacyPlanPath, Bytes: []byte("legacy fixture plan\n")},
+		},
+		Message:   "install dual-root fixture plan\n",
+		Identity:  testIdentity,
+		Timestamp: timestamp + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var configuredPlan, legacyPlan OID
+	entries, err := repository.ListTree(prepared.Commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		switch entry.Path {
+		case configuredPlanPath:
+			configuredPlan = entry.OID
+		case legacyPlanPath:
+			legacyPlan = entry.OID
+		}
+	}
+	if configuredPlan.IsZero() || legacyPlan.IsZero() {
+		t.Fatal("dual-root plan blobs are absent")
+	}
+	if configuredPlan == legacyPlan {
+		t.Fatal("dual-root fixture plans must differ")
+	}
+	if err := repository.AtomicUpdateRefs([]RefOperation{{
+		Kind:    CreateRef,
+		Ref:     "refs/heads/release-wt/" + release,
+		NewHead: &prepared.Commit,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := NewWorkspaces(repository, testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+	consumer := TrackKey{Release: release, Track: "consumer"}
+	baseRequest := PrepareTrackBaseRequest{
+		Identity: testIdentity, Release: release,
+		ReleaseHead: prepared.Commit, TargetRef: "refs/heads/main",
+		TargetHead: target, ApprovedTarget: target,
+		Consumer: consumer, AuthoritySeed: prepared.Commit,
+		ProductAdmission: product,
+	}
+	configured := baseRequest
+	configured.Plan = configuredPlan
+	result, err := workspaces.ExpectedTrackBase(configured)
+	if err != nil {
+		t.Fatalf("configured plan at dual-root release: %v", err)
+	}
+	if result.Base.IsZero() {
+		t.Fatal("configured plan at dual-root release produced no base")
+	}
+	legacy := baseRequest
+	legacy.Plan = legacyPlan
+	_, err = workspaces.ExpectedTrackBase(legacy)
+	requireGitxErrorCode(t, err, "PLAN_MOVED")
+}
+
 func (f trackBaseFixture) authority(
 	t *testing.T,
 	slice string,
