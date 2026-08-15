@@ -155,7 +155,7 @@ func (a *freshAgent) enterCleanRepository(
 		return entry
 	}
 	entry.applies = true
-	entry.initialize = !present(".baton/releases") && !present(".sworn")
+	entry.initialize = !present(".sworn/records") && !present(".sworn")
 	if entry.initialize && !strings.Contains(step, "`sworn init`") {
 		a.t.Fatalf(
 			"installed step 1 leaves an uninitialized Git worktree with no way in:\n%s",
@@ -588,7 +588,9 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 	) {
 		line = strings.TrimSpace(line)
 		if line == "" || line == baton.RecordRoot ||
-			strings.HasPrefix(line, baton.RecordRoot+"/") {
+			strings.HasPrefix(line, baton.RecordRoot+"/") ||
+			line == baton.LegacyRecordRoot ||
+			strings.HasPrefix(line, baton.LegacyRecordRoot+"/") {
 			continue
 		}
 		changed = append(changed, line)

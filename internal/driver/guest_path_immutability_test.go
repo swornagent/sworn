@@ -123,7 +123,7 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 	configured := gitx.ProjectConfig{
 		SchemaVersion: gitx.ProjectConfigSchemaVersion,
 		RecordsRoot:   ".records", JournalsRoot: ".journals",
-		ContractsRoot: "contracts", CommitPrefix: "sworn",
+		ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
 	}
 	invocation := invocationForMaskTest(t, workspace, configured, gitx.HostPaths{})
 	arguments, err := bubblewrapArguments(invocation)
@@ -136,9 +136,14 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 			t.Fatalf("configured root %s not masked:\n%s", name, joined)
 		}
 	}
-	if strings.Contains(joined, "--tmpfs /workspace/.baton") ||
-		strings.Contains(joined, "--tmpfs /workspace/.sworn") {
-		t.Fatalf("default-only mask leaked into configured invocation:\n%s", joined)
+	// The legacy .baton root is always reserved (the historical records
+	// fallback must never be forgeable), so it is masked even under a
+	// configured invocation.
+	if !strings.Contains(joined, "--tmpfs /workspace/.baton --remount-ro /workspace/.baton") {
+		t.Fatalf("legacy .baton root not masked in configured invocation:\n%s", joined)
+	}
+	if strings.Contains(joined, "--tmpfs /workspace/.sworn") {
+		t.Fatalf("default-only .sworn mask leaked into configured invocation:\n%s", joined)
 	}
 
 	// Default config -> .baton and .sworn are masked (today's behaviour).

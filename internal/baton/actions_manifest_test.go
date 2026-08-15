@@ -3,10 +3,15 @@ package baton
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 // manifestContractBody returns one real, self-consistent sworn contract body
@@ -130,11 +135,32 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 		t.Fatalf("reread resolution = %#v, err = %v", resolved, err)
 	}
 
-	// Recording touches only the manifest: the pre-existing contract is
-	// proven in place, never duplicated into a new blob under RecordRoot.
+	// Recording touches only the manifest record plus the authored documents
+	// (A1): the pre-existing contract is proven in place, never duplicated
+	// into a new blob under RecordRoot, and its authored copy plus the
+	// authored plan are published under the documents root in the same commit.
 	changed := strings.Fields(actionGit(t, repoPath, nil, nil, "diff", "--name-only", result.Target, result.Head))
-	if len(changed) != 1 || changed[0] != planPath(RecordRoot, release) {
-		t.Fatalf("changed paths at admission = %v, want exactly [%s]", changed, planPath(RecordRoot, release))
+	expected := []string{
+		planPath(RecordRoot, release),
+		documentContractPath(gitx.DefaultDocumentsRoot, release, "S1"),
+		documentPlanPath(gitx.DefaultDocumentsRoot, release),
+	}
+	if !reflect.DeepEqual(changed, expected) {
+		t.Fatalf("changed paths at admission = %v, want exactly %v", changed, expected)
+	}
+	authoredPlan, err := actions.repository.file(
+		result.Head,
+		documentPlanPath(gitx.DefaultDocumentsRoot, release),
+	)
+	if err != nil || !authoredPlan.Present || !bytes.Equal(authoredPlan.Bytes, planBytes) {
+		t.Fatalf("authored plan = %#v, err = %v", authoredPlan, err)
+	}
+	authoredContract, err := actions.repository.file(
+		result.Head,
+		documentContractPath(gitx.DefaultDocumentsRoot, release, "S1"),
+	)
+	if err != nil || !authoredContract.Present || !bytes.Equal(authoredContract.Bytes, contractRaw) {
+		t.Fatalf("authored contract = %#v, err = %v", authoredContract, err)
 	}
 }
 
@@ -268,6 +294,72 @@ func TestRecordPlanRevisionManifestEscapingContractPathRejectedBeforeAnyRecord(t
 // legacy baton.plan/v2 admission byte- and history-identical: it never
 // consults ContractTree and records exactly the one plan.md path, matching
 // pre-phase-2 behavior.
+func TestRecordPlanRevisionPublishesAuthoredDocumentsUnderConfiguredRoot(t *testing.T) {
+	t.Parallel()
+	repoPath := createActionRepository(t, "sha1")
+	if err := os.MkdirAll(filepath.Join(repoPath, "docs", "sworn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, filepath.FromSlash(gitx.ProjectConfigPath)),
+		[]byte(`{"records_root": ".sworn/records", "journals_root": ".sworn", "contracts_root": "contracts", "commit_prefix": "sworn", "documents_root": "docs/specs"}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	actionGit(t, repoPath, nil, nil, "add", "--", filepath.FromSlash(gitx.ProjectConfigPath))
+	actionGit(t, repoPath, nil, nil, "commit", "--quiet", "-m", "project config")
+
+	repository, err := gitx.Open(repoPath, actionTestGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := NewActions(UseGitRepository(repository), inertActionResolver, gitx.Identity{Name: "Golden Baton Engine", Email: "engine@example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.DocumentsRoot() != "docs/specs" {
+		t.Fatalf("documents root = %q", repository.DocumentsRoot())
+	}
+
+	release := "authored-docs"
+	contractPath := "contracts/S1.json"
+	contractRaw := manifestContractRaw(t, manifestContractBody("S1", "one.txt"))
+	_, digest, err := ParseSliceContract(contractRaw, "S1", "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+	withContract := prepareActionContractTree(t, repoPath, base, map[string][]byte{contractPath: contractRaw})
+	actionGit(t, repoPath, nil, nil, "update-ref", "refs/heads/main", withContract, base)
+
+	planBytes := manifestActionPlanBytes(t, release, contractPath, "one.txt", digest, []any{})
+	result, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: planBytes, ContractTree: withContract,
+		Summary: "Approve.", Detail: []byte("approval"),
+	})
+	if err != nil || !result.Changed {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+
+	// The authored documents live under the configured documents root.
+	authoredPlan, err := actions.repository.file(result.Head, "docs/specs/"+release+"/plan.md")
+	if err != nil || !authoredPlan.Present || !bytes.Equal(authoredPlan.Bytes, planBytes) {
+		t.Fatalf("authored plan = %#v, err = %v", authoredPlan, err)
+	}
+	authoredContract, err := actions.repository.file(result.Head, "docs/specs/"+release+"/contracts/S1.json")
+	if err != nil || !authoredContract.Present || !bytes.Equal(authoredContract.Bytes, contractRaw) {
+		t.Fatalf("authored contract = %#v, err = %v", authoredContract, err)
+	}
+	// Nothing authored under the default docs/sworn root (the configured root
+	// wins), and the engine reads the record root, never the documents root.
+	if file, err := actions.repository.file(result.Head, "docs/sworn/"+release+"/plan.md"); err != nil || file.Present {
+		t.Fatalf("default documents root copy present = %#v, err = %v", file, err)
+	}
+	state := readActionState(t, repository, release)
+	if state.Plan.OID == "" || state.Refs.Release.Head != result.Head {
+		t.Fatalf("engine state does not read the record root: %#v", state.Plan)
+	}
+}
+
 func TestRecordPlanRevisionLegacyV2IgnoresContractTree(t *testing.T) {
 	t.Parallel()
 	repoPath, _, actions := createActionHarness(t)
@@ -281,7 +373,11 @@ func TestRecordPlanRevisionLegacyV2IgnoresContractTree(t *testing.T) {
 		t.Fatalf("result = %#v, err = %v", result, err)
 	}
 	changed := strings.Fields(actionGit(t, repoPath, nil, nil, "diff", "--name-only", result.Target, result.Head))
-	if len(changed) != 1 || changed[0] != planPath(RecordRoot, release) {
-		t.Fatalf("changed paths = %v, want exactly [%s]", changed, planPath(RecordRoot, release))
+	expected := []string{
+		planPath(RecordRoot, release),
+		documentPlanPath(gitx.DefaultDocumentsRoot, release),
+	}
+	if !reflect.DeepEqual(changed, expected) {
+		t.Fatalf("changed paths = %v, want exactly %v", changed, expected)
 	}
 }

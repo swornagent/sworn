@@ -257,7 +257,7 @@ func swornSkillContent() []byte {
 			"decisions.\n\n"+
 			"1. Look for a Sworn-governed repository. The unit of work is a Git\n"+
 			"   worktree, recognized by `.git`. Inside one, check for these markers:\n"+
-			"   `.baton/releases` control records, an existing Sworn journal file, or\n"+
+			"   `.sworn/records` control records, an existing Sworn journal file, or\n"+
 			"   an initialized Sworn project directory `.sworn`. If the worktree\n"+
 			"   carries none of them, Sworn is simply not initialized here yet: run\n"+
 			"   `sworn init` and continue with the rest of this skill. Only outside a\n"+

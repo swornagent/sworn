@@ -166,7 +166,7 @@ GOFLAGS=-buildvcs=false go test -count=1 -race \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
 test -z "$(git ls-files -z -- '*.go' \
-  ':(exclude,top).baton/releases/**' | xargs -0 -r gofmt -l)"
+  ':(exclude,top).sworn/records/**' | xargs -0 -r gofmt -l)"
 go mod tidy -diff
 git diff --check
 ```
@@ -190,10 +190,10 @@ internal/tui      interactive navigation across project releases and runs
 internal/observe  local evaluation and optional telemetry
 ```
 
-`.baton/releases` is the default records root: it contains delivery control
+`.sworn/records` is the default records root: it contains delivery control
 records, not product source. Every host location Sworn reads or writes is
-configurable — project-scoped locations (records, journals, contracts root
-and the commit-message prefix) come from the committed
+configurable — project-scoped locations (records, journals, contracts root,
+documents root and the commit-message prefix) come from the committed
 `docs/sworn/sworn.json`, and machine/user locations (workspace factory root,
 temp roots, credentials directory, artefact home) resolve from `SWORN_*`
 environment variables with XDG-conformant defaults. See

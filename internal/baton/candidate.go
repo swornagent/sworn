@@ -154,12 +154,13 @@ func ValidateSliceCandidateScope(
 	if err != nil {
 		return err
 	}
-	// The reserved-root check follows the configured records root so a
-	// relocated root is never left unprotected; the default .baton/releases
-	// remains the first line for standalone parsers without a repository.
+	// The reserved-root check follows the configured records root and the
+	// historical legacy root so a relocated root is never left unprotected
+	// and the legacy fallback can never be forged.
 	reservedRoot := repository.recordRoot()
 	for _, changedPath := range paths {
-		if changedPath == reservedRoot || strings.HasPrefix(changedPath, reservedRoot+"/") {
+		if changedPath == reservedRoot || strings.HasPrefix(changedPath, reservedRoot+"/") ||
+			changedPath == LegacyRecordRoot || strings.HasPrefix(changedPath, LegacyRecordRoot+"/") {
 			return recordFail(
 				"RESERVED_RECORD_ROOT_CHANGED",
 				"candidate changes reserved Baton records at "+changedPath,

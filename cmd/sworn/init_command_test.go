@@ -66,7 +66,8 @@ func initTestProject(t *testing.T) string {
 
 // The project directory holds absolute host paths, binary digests, and the run
 // journal. None of it belongs in a repository other people clone, so init must
-// exclude the whole directory rather than trusting each writer to remember.
+// exclude the whole directory except the records root, whose committed
+// authority a fresh clone must carry.
 func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	root := initTestProject(t)
 	var stdout, stderr bytes.Buffer
@@ -76,8 +77,8 @@ func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no .gitignore written: %v", err)
 	}
-	if strings.TrimSpace(string(body)) != "*" {
-		t.Fatalf("gitignore = %q, want everything excluded", body)
+	if strings.TrimSpace(string(body)) != "*\n!records/\n!records/**" {
+		t.Fatalf("gitignore = %q, want the allowlist shape (records tracked, everything else excluded)", body)
 	}
 	for _, directory := range []string{".sworn", ".sworn/runs"} {
 		info, err := os.Stat(filepath.Join(root, directory))

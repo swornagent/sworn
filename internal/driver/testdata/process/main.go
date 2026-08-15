@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ func main() {
 	}
 	behavior := filepath.Base(os.Args[0])
 	var scriptedSubmission string
+	var scriptedReserved []string
 	requestBody, _ := io.ReadAll(io.LimitReader(os.Stdin, driver.MaxRequestBytes+1))
 	request, requestErr := driver.DecodeRequest(requestBody)
 	if behavior == "driver" {
@@ -41,14 +43,16 @@ func main() {
 				os.Exit(64)
 			}
 			var script struct {
-				Behavior   string `json:"behavior"`
-				Submission string `json:"submission"`
+				Behavior   string   `json:"behavior"`
+				Submission string   `json:"submission"`
+				Reserved   []string `json:"reserved"`
 			}
 			if err := json.Unmarshal(body, &script); err != nil {
 				os.Exit(64)
 			}
 			behavior = script.Behavior
 			scriptedSubmission = script.Submission
+			scriptedReserved = append([]string(nil), script.Reserved...)
 		}
 	}
 	cleanRequestBody := requestBody
@@ -111,6 +115,18 @@ func main() {
 	case "isolation-canaries":
 		if requestErr != nil || !isIsolated(request) {
 			_, _ = io.WriteString(os.Stderr, "ISOLATION_CANARY_FAILED\n")
+			os.Exit(17)
+		}
+		os.Exit(driver.RunFakeCommand(
+			[]string{"run"},
+			bytes.NewReader(cleanRequestBody),
+			os.Stdout,
+			io.Discard,
+			driver.FakeCompleted,
+		))
+	case "reserved-canary":
+		if requestErr != nil || !reservedNamesMasked(request, scriptedReserved) {
+			_, _ = io.WriteString(os.Stderr, "RESERVED_MASK_CANARY_FAILED\n")
 			os.Exit(17)
 		}
 		os.Exit(driver.RunFakeCommand(
@@ -271,6 +287,35 @@ func main() {
 	default:
 		os.Exit(64)
 	}
+}
+
+// reservedNamesMasked verifies, from inside the guest, that every workspace
+// name the configured containment mask protects is an empty read-only surface:
+// the masked directory is empty (the host tree is replaced by a private
+// tmpfs) and a write into it is refused. This is the A3 proof that a worker
+// cannot write to a configured records or journals root.
+func reservedNamesMasked(request driver.Request, reserved []string) bool {
+	if request.Workspace.Path != driver.GuestWorkspacePath {
+		return false
+	}
+	for _, name := range reserved {
+		if name == "" || name == "." || name == ".." || strings.ContainsRune(name, '/') {
+			return false
+		}
+		target := filepath.Join(request.Workspace.Path, name)
+		entries, err := os.ReadDir(target)
+		if err != nil || len(entries) != 0 {
+			return false
+		}
+		probe := filepath.Join(target, "canary")
+		if err := os.WriteFile(probe, []byte("forged\n"), 0o600); err == nil {
+			return false
+		}
+		if _, err := os.Stat(probe); err == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func isIsolated(request driver.Request) bool {

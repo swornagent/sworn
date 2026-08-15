@@ -1165,7 +1165,8 @@ func (w *Workspaces) sealTrackWithClaim(
 		if err := ValidatePath(name, false); err != nil {
 			return SealedCandidate{}, err
 		}
-		if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") {
+		if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") ||
+			name == w.repository.LegacyRecordRoot() || strings.HasPrefix(name, w.repository.LegacyRecordRoot()+"/") {
 			return SealedCandidate{}, fail("AUTHORITY_PATH_CHANGED", "seal candidate", nil)
 		}
 		workspaceChanged = append(workspaceChanged, name)
@@ -1244,7 +1245,8 @@ func (w *Workspaces) sealTrackWithClaim(
 			if err := ValidatePath(name, false); err != nil {
 				return SealedCandidate{}, err
 			}
-			if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") {
+			if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") ||
+				name == w.repository.LegacyRecordRoot() || strings.HasPrefix(name, w.repository.LegacyRecordRoot()+"/") {
 				return SealedCandidate{}, fail(
 					"AUTHORITY_PATH_CHANGED",
 					"seal refreshed candidate",

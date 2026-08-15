@@ -34,6 +34,7 @@ Commands:
   retry     Retry one stopped work item.
   answer    Answer a saved question that needs human judgment.
   approve   Admit one exact plan approval (low-level recovery/scripting).
+  migrate-records  Move the reserved records root from .baton/releases to .sworn/records (one-time, operator-gated).
   status    Return the stable machine-readable run record.
   driver    Check configured AI connections.
   skill     Install or upgrade the one supported Sworn agent skill.
@@ -50,6 +51,7 @@ Exact syntax:
   sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
   sworn answer --run ID --journal ABS --attention SHA256 --generation 1 --answer TEXT [--config ABS]
   sworn approve --journal ABS [--config ABS] --run ID --manifest-digest SHA256 --project PROJECT --release RELEASE --release-ref REF --release-head OID|absent --proposal-replay-key KEY --plan-revision N --prior-plan OID|absent --plan-digest SHA256 --target-ref REF --target-head OID --decision-class CLASS --decision approve --actor-class external_authorizer --actor-authority AUTHORITY
+  sworn migrate-records --project ABS [--confirm]
   sworn status --run ID --journal ABS --json
   sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
@@ -108,6 +110,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAnswer(args[1:], stdout, stderr)
 	case "approve":
 		return runApprove(args[1:], stdout, stderr)
+	case "migrate-records":
+		return runMigrateRecords(args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	case "board":
@@ -773,6 +777,10 @@ func commandErrorCode(err error) string {
 	var runtimeErr *runtimepkg.Error
 	if errors.As(err, &runtimeErr) {
 		return runtimeErr.Code
+	}
+	var gitxErr *gitx.Error
+	if errors.As(err, &gitxErr) {
+		return gitxErr.Code
 	}
 	var journalErr *journal.Error
 	if errors.As(err, &journalErr) {

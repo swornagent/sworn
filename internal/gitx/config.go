@@ -5,12 +5,13 @@ package gitx
 // Two scopes exist, and they are kept strictly apart:
 //
 //   - Project-scoped locations (records root, journals root, contracts root,
-//     commit prefix) determine where durable release truth lives. They are
-//     read only from the committed project file at the one fixed,
-//     non-configurable path ProjectConfigPath (docs/sworn/sworn.json) inside
-//     the primary checkout. A user-scoped or environment override of any of
-//     them is refused by name (RefuseProjectScopeOverrides) so two operators
-//     of one repository can never resolve release truth to different places.
+//     documents root, commit prefix) determine where durable release truth
+//     and the reviewable documents live. They are read only from the
+//     committed project file at the one fixed, non-configurable path
+//     ProjectConfigPath (docs/sworn/sworn.json) inside the primary checkout.
+//     A user-scoped or environment override of any of them is refused by name
+//     (RefuseProjectScopeOverrides) so two operators of one repository can
+//     never resolve release truth to different places.
 //
 //   - Machine/user-scoped locations (workspace factory root, temp roots,
 //     credentials directory, artefact home) resolve from environment
@@ -48,19 +49,28 @@ const (
 	// may declare. It is optional; absent, the documented defaults apply.
 	ProjectConfigSchemaVersion = "sworn.project-config/v1"
 
-	// DefaultRecordsRoot is the unconfigured records root. It reproduces
-	// today's .baton/releases location until S2 relocates project surfaces.
-	DefaultRecordsRoot = ".baton/releases"
+	// DefaultRecordsRoot is the unconfigured records root where the engine
+	// writes machine authority. S2 relocates it from the historical
+	// .baton/releases location to the project's .sworn surface.
+	DefaultRecordsRoot = ".sworn/records"
+	// LegacyRecordsRoot is the historical records root kept readable for
+	// releases recorded before the relocation. It stays reserved and masked
+	// for as long as the legacy fallback can read it.
+	LegacyRecordsRoot = ".baton/releases"
 	// DefaultJournalsRoot is the unconfigured journals root.
 	DefaultJournalsRoot = ".sworn"
 	// DefaultContractsRoot is the unconfigured contracts root.
 	DefaultContractsRoot = "contracts"
+	// DefaultDocumentsRoot is the unconfigured documents root: what a person
+	// reads and reviews (authored plans and authored slice contracts).
+	DefaultDocumentsRoot = "docs/sworn"
 	// DefaultCommitPrefix is the unconfigured commit-message prefix used by
-	// the plan/receipt actions, reproducing today's baton( subjects.
-	DefaultCommitPrefix = "baton"
+	// the plan/receipt actions. S2 unifies it with the candidate prefix so an
+	// unconfigured repository never writes a foreign project name.
+	DefaultCommitPrefix = "sworn"
 	// candidateCommitPrefixDefault is the unconfigured prefix used by the
-	// engine's implementation-candidate commit subject, reproducing today's
-	// sworn( subject exactly. S2 unifies the two defaults.
+	// engine's implementation-candidate commit subject. S2 unifies it with
+	// the plan/receipt default so one configured prefix yields one git log.
 	candidateCommitPrefixDefault = "sworn"
 
 	// Environment variable names for the machine/user-scoped host locations.
@@ -81,10 +91,11 @@ const (
 	EnvShell         = "SWORN_SH"
 	// Environment variable names that would name project-scoped locations.
 	// Any non-empty value is refused by RefuseProjectScopeOverrides.
-	EnvRecordsRoot   = "SWORN_RECORDS_ROOT"
-	EnvJournalsRoot  = "SWORN_JOURNALS_ROOT"
-	EnvContractsRoot = "SWORN_CONTRACTS_ROOT"
-	EnvCommitPrefix  = "SWORN_COMMIT_PREFIX"
+	EnvRecordsRoot    = "SWORN_RECORDS_ROOT"
+	EnvJournalsRoot   = "SWORN_JOURNALS_ROOT"
+	EnvContractsRoot  = "SWORN_CONTRACTS_ROOT"
+	EnvCommitPrefix   = "SWORN_COMMIT_PREFIX"
+	EnvDocumentsRoot  = "SWORN_DOCUMENTS_ROOT"
 )
 
 var commitPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`)
@@ -97,11 +108,15 @@ type ProjectConfig struct {
 	JournalsRoot  string `json:"journals_root"`
 	ContractsRoot string `json:"contracts_root"`
 	CommitPrefix  string `json:"commit_prefix"`
+	// DocumentsRoot is where what a person reads and reviews lives: authored
+	// plans and authored slice contracts. It is project-scoped like the other
+	// roots because a repository must resolve one documents surface for every
+	// reviewer.
+	DocumentsRoot string `json:"documents_root"`
 }
 
 // DefaultProjectConfig returns the documented defaults that apply when no
-// project config file exists. They reproduce today's behaviour for an
-// unconfigured project apart from the relocations S2 declares.
+// project config file exists.
 func DefaultProjectConfig() ProjectConfig {
 	return ProjectConfig{
 		SchemaVersion: ProjectConfigSchemaVersion,
@@ -109,6 +124,7 @@ func DefaultProjectConfig() ProjectConfig {
 		JournalsRoot:  DefaultJournalsRoot,
 		ContractsRoot: DefaultContractsRoot,
 		CommitPrefix:  DefaultCommitPrefix,
+		DocumentsRoot: DefaultDocumentsRoot,
 	}
 }
 
@@ -171,6 +187,7 @@ func LoadProjectConfig(repoRoot string) (ProjectConfig, bool, error) {
 		"records_root":   declared.RecordsRoot,
 		"journals_root":  declared.JournalsRoot,
 		"contracts_root": declared.ContractsRoot,
+		"documents_root": declared.DocumentsRoot,
 	} {
 		if target == nil {
 			continue
@@ -186,6 +203,8 @@ func LoadProjectConfig(repoRoot string) (ProjectConfig, bool, error) {
 			config.JournalsRoot = value
 		case "contracts_root":
 			config.ContractsRoot = value
+		case "documents_root":
+			config.DocumentsRoot = value
 		}
 	}
 	if declared.CommitPrefix != nil {
@@ -208,6 +227,7 @@ type projectConfigFile struct {
 	JournalsRoot  *string `json:"journals_root"`
 	ContractsRoot *string `json:"contracts_root"`
 	CommitPrefix  *string `json:"commit_prefix"`
+	DocumentsRoot *string `json:"documents_root"`
 }
 
 func decodeProjectConfig(raw []byte) (projectConfigFile, error) {
@@ -247,6 +267,7 @@ func ValidateConfigPaths(config ProjectConfig) error {
 		{"records_root", config.RecordsRoot},
 		{"journals_root", config.JournalsRoot},
 		{"contracts_root", config.ContractsRoot},
+		{"documents_root", config.DocumentsRoot},
 	}
 	for _, root := range roots {
 		if root.value == "" {
@@ -254,10 +275,19 @@ func ValidateConfigPaths(config ProjectConfig) error {
 				fmt.Errorf("%s must not be empty", root.name))
 		}
 	}
-	if config.RecordsRoot == config.JournalsRoot || config.RecordsRoot == config.ContractsRoot ||
-		config.JournalsRoot == config.ContractsRoot {
-		return fail("PROJECT_CONFIG_INVALID", "validate project config",
-			errors.New("records, journals and contracts roots must be distinct"))
+	distinct := map[string]string{
+		"records_root":   config.RecordsRoot,
+		"journals_root":  config.JournalsRoot,
+		"contracts_root": config.ContractsRoot,
+		"documents_root": config.DocumentsRoot,
+	}
+	for left, leftValue := range distinct {
+		for right, rightValue := range distinct {
+			if left < right && leftValue == rightValue {
+				return fail("PROJECT_CONFIG_INVALID", "validate project config",
+					fmt.Errorf("%s and %s must be distinct", left, right))
+			}
+		}
 	}
 	for _, root := range roots {
 		if isGuestPathValue(root.value) {
@@ -316,7 +346,10 @@ func isGuestPathValue(value string) bool {
 // places. Host-path environment values are deliberately not refused: those
 // locations are machine/user-scoped by design.
 func RefuseProjectScopeOverrides(environ []string) error {
-	for _, name := range []string{EnvRecordsRoot, EnvJournalsRoot, EnvContractsRoot, EnvCommitPrefix} {
+	for _, name := range []string{
+		EnvRecordsRoot, EnvJournalsRoot, EnvContractsRoot, EnvCommitPrefix,
+		EnvDocumentsRoot,
+	} {
 		if value := lookupEnv(environ, name); value != "" {
 			return fail(
 				"PROJECT_SCOPE_OVERRIDE_REFUSED",
@@ -536,14 +569,20 @@ func canonicalExecutable(value string) (string, error) {
 }
 
 // ReservedNames returns the workspace-relative names the containment mask
-// must always protect: .git plus the top segment of each configured
-// project-scoped root (records and journals). The mask follows the
-// configured roots so a relocated records or journals root is never left
-// unprotected; .git is always reserved. The result is sorted and de-duplicated
-// for a stable argument list.
+// must always protect: .git, the top segment of each configured
+// project-scoped root (records and journals), and the historical records
+// root's top segment. The mask follows the configured roots so a relocated
+// records or journals root is never left unprotected; .git is always
+// reserved; and the legacy .baton top segment stays reserved for as long as
+// the historical records fallback can read it. The result is sorted and
+// de-duplicated for a stable argument list.
 func ReservedNames(project ProjectConfig) []string {
 	set := map[string]bool{".git": true}
-	for _, root := range []string{project.RecordsRoot, project.JournalsRoot} {
+	for _, root := range []string{
+		project.RecordsRoot,
+		project.JournalsRoot,
+		LegacyRecordsRoot,
+	} {
 		if segment := firstPathSegment(root); segment != "" {
 			set[segment] = true
 		}

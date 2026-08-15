@@ -1,0 +1,222 @@
+```sworn-release-manifest-v1
+{
+  "schema_version": "sworn.release-manifest/v1",
+  "release": "2026-08-12-configurable-paths",
+  "revision": 4,
+  "previous_plan": "ecc0b31d93c896949e1f3d8f642c593a32794acb",
+  "repository": "sworn",
+  "target_ref": "refs/heads/release/v1.0.0",
+  "approval_ref": "operator://2026-08-12-configurable-paths/4",
+  "tracks": [
+    {
+      "id": "T1-paths",
+      "depends_on": [],
+      "slices": [
+        {
+          "id": "S1-project-config-and-paths",
+          "outcome": "Every host location Sworn reads or writes comes from configuration with a sensible default, so an operator can place records, journals, workspaces, credentials, artefacts and host tools wherever their machine and project require - while the synthetic guest filesystem inside containment stays fixed and unconfigurable.",
+          "contract_path": "contracts/2026-08-12-configurable-paths/rev2/S1-project-config-and-paths.json",
+          "digest": "sha256:ea06663148144bba647d276596beae27cfd2c9ccee0c11201730ae8efed42c00",
+          "depends_on": [],
+          "consumes": [],
+          "touchpoints": [
+            "internal/runtime",
+            "internal/gitx",
+            "internal/driver",
+            "internal/baton",
+            "internal/skill",
+            "cmd/sworn",
+            "docs",
+            "README.md"
+          ]
+        },
+        {
+          "id": "S2-sworn-owned-project-surfaces",
+          "outcome": "A Sworn project separates what people read from what the engine runs on: reviewable specifications live under docs/sworn/, machine-written authority and run state live under .sworn/, commit messages carry a configured prefix rather than a hardcoded foreign project name, and every release recorded before the move stays readable.",
+          "contract_path": "contracts/2026-08-12-configurable-paths/rev4/S2-sworn-owned-project-surfaces.json",
+          "digest": "sha256:0d06dc7d19bd57e4c01cc4393c4af4414d6b0192c609b1d54b3e8ab8a9478e9b",
+          "depends_on": [
+            "S1-project-config-and-paths"
+          ],
+          "consumes": [
+            "S1-project-config-and-paths"
+          ],
+          "touchpoints": [
+            "internal/baton",
+            "internal/gitx",
+            "internal/driver",
+            "internal/runtime",
+            "cmd/sworn",
+            "internal/skill",
+            "docs",
+            "README.md",
+            ".gitignore",
+            ".gitattributes",
+            "test/e2e",
+            ".baton",
+            ".sworn",
+            "tools"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+# Goal
+
+Sworn is about to be promoted to v1 and put in front of people who did not
+build it. Two things it currently ships would confuse them, and both are
+accidents of how it grew rather than decisions anyone made.
+
+The first is naming. A Sworn project acquires a `.baton/` directory it never
+asked for, and every control commit in its history reads
+`baton(<release>/<slice>): verifier pass` while product commits alongside them
+read `sworn(...)`. A new user reasonably concludes they have installed two
+things. Baton is the protocol Sworn implements; a user of the product should
+not have to learn that to read their own git log.
+
+The second is that host locations are hardcoded. The records root, the journal
+root, the workspace factory root, the credentials directory, and the paths of
+`git`, the containment binary and other host tools are literals in the source.
+A machine that keeps its tools somewhere else - nix, homebrew, any non-Debian
+layout - cannot run Sworn without patching it, and an operator has no way to
+say where release artefacts should live.
+
+This release makes both configurable, with defaults chosen so that an
+unconfigured project behaves sensibly and a promoted v1 introduces no name
+belonging to another project.
+
+It also settles where things live, on one axis: **what a person reads, versus
+what a person occasionally interrogates.** Authored plans and slice contracts
+are read - by reviewers, by anyone asking what a release committed to - and
+they belong under `docs/sworn/`. Records, journals and working files are
+interrogated during an audit or a debugging session, and they belong under
+`.sworn/`. Today that boundary does not exist: the most-read document in a
+release, its plan, is an untracked draft, while the machine's frozen copy of
+it is the only tracked one.
+
+# Authority
+
+To be approved by the human operator against these exact bytes under
+`operator://2026-08-12-configurable-paths/4`. Planning did not approve itself.
+
+# Revision 4
+
+Attempt 3 finished the whole slice - operator-gated migrate-records
+pathway, dual reserved roots, legacy read fallback, documents-root
+publishing, every executable check passing in its workspace - and the seal
+refused it three times for one path family: A2's default flip regenerates
+the baton golden corpus under tools/batongolden, and tools was not in
+scope. The candidate was correct; the contract was short one path. Fourth
+instance of the under-derived-scope class, with the refinement the lint
+(sworn#199) must carry: golden fixtures pin behaviour, so any slice that
+changes pinned defaults reaches every corpus that records them.
+
+This revision adds tools to S2's scope include and touchpoints. Nothing
+else changes; S1 and its rev2 contract remain byte-identical, delivered
+and passed. Scope is derived, for the first time in this release, from a
+candidate that ran to completion.
+
+Separately recorded: the seal refusal names no path anywhere the operator
+or a retrying worker can see it - three tries repeated the same mistake
+blind, at a cost of roughly 1,900 turns. Filed as its own defect.
+
+# Revision 3
+
+S1 is delivered: implemented by DeepSeek across two runs, verified PASS by
+gpt-5.6-sol, receipt appended. Nothing about S1 changes; its rev2 contract
+is byte-identical.
+
+S2's contract carried two defects the engine surfaced in sequence. First,
+the same under-derived scope recorded in Revision 2 for S1: A5's repository
+migration and A1's user-facing surfaces land in docs/, README.md,
+.gitignore, .gitattributes, cmd/sworn, internal/skill, test/e2e and the
+migration paths .baton/ and .sworn/, while scope admitted only the four
+packages. Second, and structural: A5 relocates .baton/releases, which is
+the reserved records root the engine's own protection refuses to let any
+ordinary candidate touch (RESERVED_RECORD_ROOT_CHANGED). A contract that
+requires what the engine forbids is unsatisfiable, however wide its scope.
+
+The revised S2 contract at the rev3 path widens scope to the thirteen-path
+union of acceptance evidence and adds constraints pinning: (1) the records
+root relocation as a one-time, operator-gated engine pathway - never a
+silent side effect of a slice candidate, with reserved-root protection
+relaxed for nothing else; (2) recorded slice contracts stay at the paths
+their recorded plans bind; (3) the embedded protocol reference assets are
+updated in the same candidate to describe the configured records root and
+the historical fallback.
+
+This revision was proposed by the planner role inside run r5 (proposal
+receipt digest sha256:354fcd4e12fb2ab01c6e4abce9fe1c60255fddb82451d9f2c85f
+3c27d0f29ebb, recorded in the r5 journal). The proposal's exact bytes died
+with its sandbox because tool results are not captured in the wire log
+(sworn#195); this document re-authors it, adopting the proposed manifest
+verbatim - same contract digest, same scope, same constraints intent - so
+approval binds to bytes the operator can actually read. The proposal was
+not an approval, and neither is this document.
+
+# Revision 2
+
+Revision 1 was internally inconsistent: S1's acceptance required evidence in
+places its scope forbade. The artefact home (A2) lives in `internal/skill`,
+threading the records root reaches `internal/baton`, and the committed
+project file and its documentation live under `docs/` and `README.md`. The
+implementer built a complete candidate and the seal gate correctly refused it
+three times with `CANDIDATE_SCOPE_FAILED`; the gate held, the contract was
+wrong.
+
+This revision widens S1's scope to the union of packages the acceptance
+criteria actually reach, derived from the refused candidate's file list
+rather than re-estimated. The revised contract lives at a new path
+(`rev2/`) because recorded revisions resolve contracts by path at target
+head; the original bytes remain at the original path. Nothing else changes:
+acceptance, checks, constraints and S2 are byte-identical to revision 1.
+
+The same defect class parked the previous release at its revision 1. The
+lesson recorded there ("scopes are package directories") was necessary but
+not sufficient - scope must be derived from where every acceptance
+criterion's evidence lands, not from where the feature lives.
+
+Two slices in one serial track. S2 consumes S1 because the records root, the
+documents root and the commit prefix are read through the configuration
+mechanism S1 introduces; splitting them differently would mean building that
+mechanism twice. Scopes are package directories per the revision-5 lesson:
+acceptance changes behaviour that existing tests pin, so the pinning tests are
+part of each deliverable.
+
+Three properties are load-bearing and stated as constraints rather than left
+to judgement:
+
+The guest filesystem inside containment is **not** operator territory. Paths
+such as the guest workspace root and the bind and mask targets are constructed
+by the engine to make containment work; they are not the user's directories,
+and a configuration route to them is an escape vector rather than a
+convenience. S1 requires a test proving no configuration input can reach them.
+
+Anything determining **where durable release truth lives** is project-scoped
+and read from a committed file. If a records root could be set per user, two
+operators of one repository would write receipts to different places and
+neither could read the other's release. S1 requires that a user-scoped
+override of a project-scoped location is refused by name rather than silently
+honoured.
+
+The **containment mask must follow the configured records root**. Today
+`.baton` is masked so no model-directed worker can forge its own receipts. A
+configurable root with a hardcoded mask would leave a configured root
+unprotected, which is the one part of this work with a security consequence.
+
+Wire vocabulary is deliberately untouched. Effect kinds, receipt shapes and
+journal schemas keep their current names because they are durable identifiers
+inside every journal and receipt already written; renaming them would strand
+the history this system exists to make verifiable. The rename here is confined
+to what a user sees: directories, and the text of commit messages.
+
+Development targets `refs/heads/release/v1.0.0`. Promotion to `main` remains a
+separate human-gated step, and this release is sequenced before it precisely
+so that adopters never have to migrate.
+
+This release does not alter trust rules, receipt schemas, role independence, or
+the containment boundary for any production binary. It adds no provider and
+ports no platform-gated file.

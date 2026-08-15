@@ -122,7 +122,7 @@ func nextRecord(t *testing.T, repository *Repository, parent OID, name string) O
 	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{Identity: testIdentity,
 		ExpectedHead: parent,
 		Changes: []BlobChange{{
-			Path:  ".baton/releases/fixture/" + name + ".txt",
+			Path:  DefaultRecordsRoot + "/fixture/" + name + ".txt",
 			Bytes: []byte(name + "\n"),
 		}},
 		Message: name, RecordAdmission: record, ProductAdmission: product,
@@ -224,7 +224,7 @@ func TestRC3ExactCreateUpdateVerifyReconcileAndRetry(t *testing.T) {
 			request := RecordTransitionRequest{Identity: testIdentity,
 				ExpectedHead: base,
 				Changes: []BlobChange{{
-					Path: ".baton/releases/demo/metadata", Bytes: []byte("metadata\n"),
+					Path: DefaultRecordsRoot + "/demo/metadata", Bytes: []byte("metadata\n"),
 				}},
 				Message:         "Record fixture",
 				RecordAdmission: recordAdmission, ProductAdmission: productAdmission,
@@ -870,7 +870,7 @@ func TestRecordAndMetadataTransitionsAreProductInert(t *testing.T) {
 	prepared, err := repository.PrepareRecordTransition(RecordTransitionRequest{Identity: testIdentity,
 		ExpectedHead: base,
 		Changes: []BlobChange{{
-			Path: ".baton/releases/demo/plan.md", Bytes: []byte("plan\n"),
+			Path: DefaultRecordsRoot + "/demo/plan.md", Bytes: []byte("plan\n"),
 		}},
 		Message: "record plan", RecordAdmission: record, ProductAdmission: product,
 	})
@@ -931,14 +931,14 @@ func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
 				t.Fatalf("product-only candidate was rejected: %v", err)
 			}
 
-			recordPath := filepath.Join(root, ".baton", "releases", "demo", "plan.md")
+			recordPath := filepath.Join(root, filepath.FromSlash(DefaultRecordsRoot), "demo", "plan.md")
 			if err := os.MkdirAll(filepath.Dir(recordPath), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(recordPath, []byte("reserved\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			runTestGit(t, root, nil, "add", "--", ".baton/releases/demo/plan.md")
+			runTestGit(t, root, nil, "add", "--", filepath.FromSlash(DefaultRecordsRoot)+"/demo/plan.md")
 			runTestGit(t, root, nil, "commit", "--quiet", "-m", "reserved root change")
 			recordCandidate, err := ParseOID(
 				format,
@@ -948,6 +948,28 @@ func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = repository.AssertCandidateRecordRootUnchanged(base, recordCandidate)
+			requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
+
+			// The historical legacy root stays reserved too: a candidate that
+			// forges a record under .baton/releases is refused exactly like a
+			// change to the configured root.
+			legacyPath := filepath.Join(root, filepath.FromSlash(LegacyRecordsRoot), "demo", "plan.md")
+			if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(legacyPath, []byte("forged legacy\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runTestGit(t, root, nil, "add", "--", filepath.FromSlash(LegacyRecordsRoot)+"/demo/plan.md")
+			runTestGit(t, root, nil, "commit", "--quiet", "-m", "legacy root change")
+			legacyCandidate, err := ParseOID(
+				format,
+				runTestGit(t, root, nil, "rev-parse", "HEAD"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = repository.AssertCandidateRecordRootUnchanged(base, legacyCandidate)
 			requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
 		})
 	}

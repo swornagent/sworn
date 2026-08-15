@@ -30,7 +30,8 @@ export class GitRecordError extends Error {
 }
 
 const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
-const RECORD_ROOT_V1 = '.baton/releases';
+const RECORD_ROOT_V1 = '.sworn/records';
+const LEGACY_RECORD_ROOT = '.baton/releases';
 const MAX_HEAD_REFS = 128;
 const MAX_BATCH_PATHS = 1025;
 const MAX_BATCH_FILE_BYTES = 262_144;
@@ -1463,7 +1464,9 @@ export function readRecordTreeAtOID(repo, refOID, admission, subtree) {
 export function productTreeIdentity(repo, commit) {
   const candidate = resolveRef(repo, commit);
   const root = RECORD_ROOT_V1;
+  const legacyRoot = LEGACY_RECORD_ROOT;
   assertRecordRootAtRef(repo, candidate, root, { allowMissing: true });
+  assertRecordRootAtRef(repo, candidate, legacyRoot, { allowMissing: true });
   const candidateTree = runGit(repo, ['rev-parse', `${candidate}^{tree}`], {
     label: `resolve candidate tree ${candidate}`,
   }).trim();
@@ -1482,7 +1485,11 @@ export function productTreeIdentity(repo, commit) {
     offset = nul + 1;
   }
   const productEntries = entries
-    .filter((entry) => entry.path !== root && !entry.path.startsWith(`${root}/`))
+    .filter((entry) => {
+      const path = entry.path;
+      return path !== root && !path.startsWith(`${root}/`)
+        && path !== legacyRoot && !path.startsWith(`${legacyRoot}/`);
+    })
     .sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
   const hash = createHash('sha256');
   for (const entry of productEntries) {
@@ -1506,35 +1513,44 @@ export function productTreeIdentity(repo, commit) {
 export function assertCandidateRecordRootUnchanged(repo, base, candidate) {
   const exactBase = resolveRef(repo, base);
   const exactCandidate = resolveRef(repo, candidate);
-  const root = RECORD_ROOT_V1;
-  assertRecordRootAtRef(repo, exactBase, root, { allowMissing: true });
-  assertRecordRootAtRef(repo, exactCandidate, root, { allowMissing: true });
-  const raw = runGit(repo, [
-    'diff-tree',
-    '--no-commit-id',
-    '--raw',
-    '-z',
-    exactBase,
-    exactCandidate,
-    '--',
-    root,
-  ], {
-    encoding: null,
-    label: `compare reserved record root between ${exactBase} and ${exactCandidate}`,
+  // Both the configured records root and the historical legacy root stay
+  // reserved, so the legacy fallback can never be forged and the configured
+  // root is never a product input.
+  for (const root of [RECORD_ROOT_V1, LEGACY_RECORD_ROOT]) {
+    assertRecordRootAtRef(repo, exactBase, root, { allowMissing: true });
+    assertRecordRootAtRef(repo, exactCandidate, root, { allowMissing: true });
+    const raw = runGit(repo, [
+      'diff-tree',
+      '--no-commit-id',
+      '--raw',
+      '-z',
+      exactBase,
+      exactCandidate,
+      '--',
+      root,
+    ], {
+      encoding: null,
+      label: `compare reserved record root between ${exactBase} and ${exactCandidate}`,
+    });
+    if (raw.length > MAX_RECORD_TREE_BYTES) {
+      throw new GitRecordError(
+        'RECORD_TREE_INVENTORY_LIMIT',
+        `record-root comparison exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
+      );
+    }
+    if (raw.length !== 0) {
+      throw new GitRecordError(
+        'RESERVED_RECORD_ROOT_CHANGED',
+        `candidate ${exactCandidate} changes reserved record root ${root} from base ${exactBase}`,
+      );
+    }
+  }
+  return Object.freeze({
+    base: exactBase,
+    candidate: exactCandidate,
+    root: RECORD_ROOT_V1,
+    legacy_root: LEGACY_RECORD_ROOT,
   });
-  if (raw.length > MAX_RECORD_TREE_BYTES) {
-    throw new GitRecordError(
-      'RECORD_TREE_INVENTORY_LIMIT',
-      `record-root comparison exceeds ${MAX_RECORD_TREE_BYTES} bytes`,
-    );
-  }
-  if (raw.length !== 0) {
-    throw new GitRecordError(
-      'RESERVED_RECORD_ROOT_CHANGED',
-      `candidate ${exactCandidate} changes reserved record root ${root} from base ${exactBase}`,
-    );
-  }
-  return Object.freeze({ base: exactBase, candidate: exactCandidate, root });
 }
 
 export function assertCandidate(repo, base, candidate) {
@@ -2687,6 +2703,13 @@ function recordPathAllowed(relativePath, recordRoot) {
   return relativePath === recordRoot || relativePath.startsWith(`${recordRoot}/`);
 }
 
+// isReservedRecordPath reports whether a path names the configured records
+// root, the historical legacy root, or something beneath either.
+function isReservedRecordPath(relativePath, recordRoot) {
+  return relativePath === recordRoot || relativePath.startsWith(`${recordRoot}/`)
+    || relativePath === LEGACY_RECORD_ROOT || relativePath.startsWith(`${LEGACY_RECORD_ROOT}/`);
+}
+
 function assertRecordRootPreservedInTree(repo, tree, root) {
   const raw = runGit(repo, ['ls-tree', '-z', tree, '--', root], {
     encoding: null,
@@ -2719,6 +2742,7 @@ export function unsafePrepareRecordTransition(repo, {
   message,
   recordPathAdmission,
   changes,
+  documents = null,
   identity,
 }) {
   const admittedIdentity = normalizeGitIdentity(identity);
@@ -2739,6 +2763,26 @@ export function unsafePrepareRecordTransition(repo, {
       `a record transition may change at most ${MAX_RECORD_CHANGES} paths`,
     );
   }
+  const declaredDocuments = new Map();
+  if (documents !== null) {
+    if (typeof documents !== 'object' || Array.isArray(documents)) {
+      throw new GitRecordError('INVALID_RECORD_VALUE', 'documents must be a path-to-bytes object');
+    }
+    for (const documentPath of Object.keys(documents)) {
+      if (
+        path.isAbsolute(documentPath)
+        || documentPath.includes('\\')
+        || documentPath.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
+        || isReservedRecordPath(documentPath, root)
+      ) {
+        throw new GitRecordError(
+          'NON_RECORD_CHANGE',
+          `record transition attempted to change reserved or invalid path ${documentPath}`,
+        );
+      }
+      declaredDocuments.set(documentPath, documents[documentPath]);
+    }
+  }
   if (typeof message !== 'string' || message.trim().length === 0) {
     throw new GitRecordError('INVALID_COMMIT_MESSAGE', 'a record transition requires a non-empty commit message');
   }
@@ -2751,20 +2795,18 @@ export function unsafePrepareRecordTransition(repo, {
   }
   const preparedChanges = [];
   let aggregateBytes = 0;
-  for (const relativePath of changePaths) {
+  const combineChange = (relativePath, value, recordPath) => {
     if (
       path.isAbsolute(relativePath)
       || relativePath.includes('\\')
       || relativePath.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
-      || relativePath === root
-      || !recordPathAllowed(relativePath, root)
+      || (recordPath && (relativePath === root || !recordPathAllowed(relativePath, root)))
     ) {
       throw new GitRecordError(
         'NON_RECORD_CHANGE',
         `record transition attempted to change non-record path ${relativePath}`,
       );
     }
-    const value = changes[relativePath];
     let byteLength = 0;
     if (value !== null) {
       if (Buffer.isBuffer(value)) {
@@ -2792,6 +2834,12 @@ export function unsafePrepareRecordTransition(repo, {
       }
     }
     preparedChanges.push([relativePath, value]);
+  };
+  for (const relativePath of changePaths) {
+    combineChange(relativePath, changes[relativePath], true);
+  }
+  for (const [relativePath, value] of declaredDocuments) {
+    combineChange(relativePath, value, false);
   }
 
   const temporary = mkdtempSync(path.join(tmpdir(), 'baton-record-index-'));
@@ -2825,12 +2873,39 @@ export function unsafePrepareRecordTransition(repo, {
       env: gitIdentityEnvironment(admittedIdentity, date),
       label: 'create record transition commit',
     }).trim();
-    const nextProduct = productTreeIdentity(repo, commit);
-    if (nextProduct.productTree !== expectedProduct.productTree) {
-      throw new GitRecordError(
-        'PRODUCT_CHANGED_DURING_RECORD_TRANSITION',
-        'record transition changed product identity',
+    if (declaredDocuments.size === 0) {
+      const nextProduct = productTreeIdentity(repo, commit);
+      if (nextProduct.productTree !== expectedProduct.productTree) {
+        throw new GitRecordError(
+          'PRODUCT_CHANGED_DURING_RECORD_TRANSITION',
+          'record transition changed product identity',
+        );
+      }
+    } else {
+      // With authored documents published in the same commit, the product
+      // tree legitimately changes by exactly the declared document paths.
+      const changed = changedPathsBetween(repo, expected, commit);
+      const allowed = (changedPath) => (
+        isReservedRecordPath(changedPath, root) || declaredDocuments.has(changedPath)
       );
+      if (changed.some((changedPath) => !allowed(changedPath))) {
+        throw new GitRecordError(
+          'PRODUCT_CHANGED_DURING_RECORD_TRANSITION',
+          'record transition changed an undeclared product path',
+        );
+      }
+      for (const documentPath of declaredDocuments.keys()) {
+        const present = runGit(repo, ['ls-tree', '-z', commit, '--', documentPath], {
+          encoding: null,
+          label: `inspect published document ${documentPath}`,
+        });
+        if (present.length === 0) {
+          throw new GitRecordError(
+            'DOCUMENT_NOT_PUBLISHED',
+            `record commit does not contain ${documentPath}`,
+          );
+        }
+      }
     }
     return Object.freeze({
       expected,

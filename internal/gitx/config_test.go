@@ -17,10 +17,11 @@ func defaultConfigFixture(t *testing.T, root string) {
 	t.Helper()
 	body := `{
   "schema_version": "` + ProjectConfigSchemaVersion + `",
-  "records_root": ".baton/releases",
+  "records_root": ".sworn/records",
   "journals_root": ".sworn",
   "contracts_root": "contracts",
-  "commit_prefix": "baton"
+  "commit_prefix": "sworn",
+  "documents_root": "docs/sworn"
 }
 `
 	if err := os.MkdirAll(filepath.Join(root, "docs", "sworn"), 0o755); err != nil {
@@ -75,7 +76,8 @@ func TestLoadProjectConfigHonorsDeclaredValues(t *testing.T) {
   "records_root": ".sworn/records",
   "journals_root": ".sworn/state",
   "contracts_root": "docs/specs",
-  "commit_prefix": "sworn"
+  "commit_prefix": "sworn",
+  "documents_root": "docs/sworn"
 }
 `
 	if err := os.MkdirAll(filepath.Join(root, "docs", "sworn"), 0o755); err != nil {
@@ -94,8 +96,60 @@ func TestLoadProjectConfigHonorsDeclaredValues(t *testing.T) {
 	if config.RecordsRoot != ".sworn/records" ||
 		config.JournalsRoot != ".sworn/state" ||
 		config.ContractsRoot != "docs/specs" ||
-		config.CommitPrefix != "sworn" {
+		config.CommitPrefix != "sworn" ||
+		config.DocumentsRoot != "docs/sworn" {
 		t.Fatalf("declared values not honored: %#v", config)
+	}
+}
+
+// TestDocumentsRootIsProjectScopedAndValidated proves the documents root is a
+// project-scoped location like the other roots: a declared value is honored,
+// an environment override is refused by name, and it must stay distinct from
+// the other roots and off the guest filesystem.
+func TestDocumentsRootIsProjectScopedAndValidated(t *testing.T) {
+	t.Parallel()
+	if DefaultDocumentsRoot != "docs/sworn" {
+		t.Fatalf("DefaultDocumentsRoot = %q", DefaultDocumentsRoot)
+	}
+	if err := ValidateConfigPaths(ProjectConfig{
+		RecordsRoot: ".sworn/records", JournalsRoot: ".sworn",
+		ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
+	}); err != nil {
+		t.Fatalf("default documents root rejected: %v", err)
+	}
+	for name, config := range map[string]ProjectConfig{
+		"collides with records": {
+			RecordsRoot: "docs/sworn", JournalsRoot: ".sworn",
+			ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
+		},
+		"collides with journals": {
+			RecordsRoot: ".sworn/records", JournalsRoot: "docs/sworn",
+			ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
+		},
+		"collides with contracts": {
+			RecordsRoot: ".sworn/records", JournalsRoot: ".sworn",
+			ContractsRoot: "docs/sworn", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
+		},
+		"empty": {
+			RecordsRoot: ".sworn/records", JournalsRoot: ".sworn",
+			ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "",
+		},
+		"guest": {
+			RecordsRoot: ".sworn/records", JournalsRoot: ".sworn",
+			ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "/workspace",
+		},
+	} {
+		if err := ValidateConfigPaths(config); err == nil {
+			t.Fatalf("%s documents root admitted", name)
+		}
+	}
+	if err := RefuseProjectScopeOverrides([]string{"PATH=/usr/bin", EnvDocumentsRoot + "=docs/elsewhere"}); err == nil {
+		t.Fatal("SWORN_DOCUMENTS_ROOT override admitted")
+	} else {
+		var typed *Error
+		if !errors.As(err, &typed) || typed.Code != "PROJECT_SCOPE_OVERRIDE_REFUSED" {
+			t.Fatalf("error = %v, want PROJECT_SCOPE_OVERRIDE_REFUSED", err)
+		}
 	}
 }
 
@@ -356,7 +410,10 @@ func TestValidateHostPathValueAndRefuseGuestPathValue(t *testing.T) {
 
 func TestRefuseProjectScopeOverridesNamesEachField(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{EnvRecordsRoot, EnvJournalsRoot, EnvContractsRoot, EnvCommitPrefix} {
+	for _, name := range []string{
+		EnvRecordsRoot, EnvJournalsRoot, EnvContractsRoot, EnvCommitPrefix,
+		EnvDocumentsRoot,
+	} {
 		err := RefuseProjectScopeOverrides([]string{"PATH=/usr/bin", name + "=relocated"})
 		if err == nil {
 			t.Fatalf("%s override admitted", name)
@@ -390,21 +447,24 @@ func TestLoadProjectConfigRefusesEnvironmentOverride(t *testing.T) {
 
 func TestReservedNamesFollowConfiguredRoots(t *testing.T) {
 	t.Parallel()
+	// The legacy .baton top segment is always reserved so the historical
+	// records fallback can never be forged, and the configured roots are
+	// masked wherever they are configured.
 	defaults := ReservedNames(DefaultProjectConfig())
 	if !reflect.DeepEqual(defaults, []string{".baton", ".git", ".sworn"}) {
 		t.Fatalf("default reserved names = %v, want [.baton .git .sworn]", defaults)
 	}
 	configured := ReservedNames(ProjectConfig{
 		RecordsRoot: ".sworn/records", JournalsRoot: ".sworn/state",
-		ContractsRoot: "docs/specs", CommitPrefix: "sworn",
+		ContractsRoot: "docs/specs", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
 	})
-	if !reflect.DeepEqual(configured, []string{".git", ".sworn"}) {
-		t.Fatalf("configured reserved names = %v, want [.git .sworn]", configured)
+	if !reflect.DeepEqual(configured, []string{".baton", ".git", ".sworn"}) {
+		t.Fatalf("configured reserved names = %v, want [.baton .git .sworn]", configured)
 	}
 	distinct := ReservedNames(ProjectConfig{
 		RecordsRoot: ".records", JournalsRoot: ".journals", ContractsRoot: "contracts",
 	})
-	if !reflect.DeepEqual(distinct, []string{".git", ".journals", ".records"}) {
+	if !reflect.DeepEqual(distinct, []string{".baton", ".git", ".journals", ".records"}) {
 		t.Fatalf("distinct reserved names = %v", distinct)
 	}
 }
@@ -422,8 +482,8 @@ func TestCommitPrefixDefaultsAndConfiguredValues(t *testing.T) {
 	}
 	config := ProjectConfig{
 		SchemaVersion: ProjectConfigSchemaVersion,
-		RecordsRoot:   ".baton/releases", JournalsRoot: ".sworn",
-		ContractsRoot: "contracts", CommitPrefix: "sworn",
+		RecordsRoot:   ".sworn/records", JournalsRoot: ".sworn",
+		ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
 	}
 	repo := &Repository{config: config, configured: true, recordRoot: config.RecordsRoot}
 	if repo.CommitPrefix() != "sworn" || repo.CandidateCommitPrefix() != "sworn" {
@@ -466,8 +526,11 @@ func TestOpenResolvesConfiguredRecordRootThroughAdmission(t *testing.T) {
 	if admission.Root() != ".sworn/records" {
 		t.Fatalf("admission root = %q, want configured root", admission.Root())
 	}
-	if !reflect.DeepEqual(repository.ReservedNames(), []string{".git", ".sworn"}) {
+	if !reflect.DeepEqual(repository.ReservedNames(), []string{".baton", ".git", ".sworn"}) {
 		t.Fatalf("reserved names = %v", repository.ReservedNames())
+	}
+	if repository.DocumentsRoot() != DefaultDocumentsRoot {
+		t.Fatalf("documents root = %q, want %q", repository.DocumentsRoot(), DefaultDocumentsRoot)
 	}
 }
 

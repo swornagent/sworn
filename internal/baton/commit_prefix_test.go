@@ -12,7 +12,7 @@ import (
 // TestConfiguredCommitPrefixThreadsThroughActions proves A1's commit-message
 // prefix: with a committed project config naming a prefix, every plan and
 // receipt subject is written with the configured prefix, and unconfigured
-// repositories keep today's "baton(" subjects byte-for-byte.
+// repositories use the documented "sworn" default.
 func TestConfiguredCommitPrefixThreadsThroughActions(t *testing.T) {
 	t.Parallel()
 
@@ -64,13 +64,13 @@ func TestConfiguredCommitPrefixThreadsThroughActions(t *testing.T) {
 		}
 	})
 
-	t.Run("unconfigured keeps baton", func(t *testing.T) {
+	t.Run("unconfigured keeps sworn", func(t *testing.T) {
 		repoPath := createActionRepository(t, "sha1")
 		release := record(t, repoPath)
 		head := actionGit(t, repoPath, nil, nil, "rev-parse", releaseRef(release))
 		subject := actionGit(t, repoPath, nil, nil, "log", "-1", "--format=%s", head)
-		if !strings.HasPrefix(subject, "baton("+release+"):") {
-			t.Fatalf("unconfigured subject = %q, want baton(...)", subject)
+		if !strings.HasPrefix(subject, "sworn("+release+"):") {
+			t.Fatalf("unconfigured subject = %q, want sworn(...)", subject)
 		}
 	})
 }

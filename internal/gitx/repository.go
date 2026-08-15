@@ -151,7 +151,8 @@ type Repository struct {
 	// recordRoot is the configured records root (default DefaultRecordsRoot),
 	// resolved from the committed project config at Open. Every reserved-root
 	// admission, exclusion and mask site reads this field so a configured
-	// records root is honored everywhere.
+	// records root is honored everywhere. The historical LegacyRecordsRoot
+	// stays reserved alongside it for the legacy read fallback.
 	recordRoot string
 	// config is the resolved project configuration (defaults when the
 	// project file is absent); configured reports whether a project file was
@@ -239,8 +240,24 @@ func (r *Repository) ProjectConfig() ProjectConfig {
 	return r.config
 }
 
+// DocumentsRoot returns the resolved documents root for this repository
+// (documented default when the committed project file is absent).
+func (r *Repository) DocumentsRoot() string {
+	if r == nil || !r.configured {
+		return DefaultDocumentsRoot
+	}
+	return r.config.DocumentsRoot
+}
+
+// LegacyRecordRoot returns the historical records root that remains readable
+// and reserved for releases recorded before the relocation.
+func (r *Repository) LegacyRecordRoot() string {
+	return LegacyRecordsRoot
+}
+
 // CommitPrefix returns the configured commit-message prefix for plan and
-// receipt actions. An unconfigured repository keeps today's "baton" prefix.
+// receipt actions. An unconfigured repository keeps the documented default
+// "sworn" prefix.
 func (r *Repository) CommitPrefix() string {
 	if r == nil || !r.configured {
 		return DefaultCommitPrefix
@@ -249,9 +266,10 @@ func (r *Repository) CommitPrefix() string {
 }
 
 // CandidateCommitPrefix returns the prefix for engine implementation-candidate
-// commits. An unconfigured repository keeps today's "sworn" subject exactly;
-// a configured repository follows the configured prefix so a configured
-// prefix never yields a mixed git log.
+// commits. An unconfigured repository uses the same documented default as the
+// plan/receipt actions, so an unconfigured project writes one consistent
+// prefix; a configured repository follows the configured prefix so a
+// configured prefix never yields a mixed git log.
 func (r *Repository) CandidateCommitPrefix() string {
 	if r == nil || !r.configured {
 		return candidateCommitPrefixDefault
@@ -597,10 +615,18 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 }
 
 func (r *Repository) assertRecordRootAt(commit OID, allowMissing bool) error {
+	return r.assertRecordRootAtPath(commit, allowMissing, r.recordRoot)
+}
+
+func (r *Repository) assertRecordRootAtLegacy(commit OID, allowMissing bool) error {
+	return r.assertRecordRootAtPath(commit, allowMissing, LegacyRecordsRoot)
+}
+
+func (r *Repository) assertRecordRootAtPath(commit OID, allowMissing bool, recordRoot string) error {
 	if err := r.validateOID(commit); err != nil {
 		return err
 	}
-	parts := strings.Split(r.recordRoot, "/")
+	parts := strings.Split(recordRoot, "/")
 	for index := range parts {
 		prefix := strings.Join(parts[:index+1], "/")
 		raw, err := r.run(nil, nil, "ls-tree", "-z", commit.String(), "--", prefix)
@@ -611,7 +637,7 @@ func (r *Repository) assertRecordRootAt(commit OID, allowMissing bool) error {
 			return nil
 		}
 		if len(raw) == 0 {
-			return fail("RECORD_ROOT_NOT_FOUND", "inspect record root", fmt.Errorf("%s is absent", r.recordRoot))
+			return fail("RECORD_ROOT_NOT_FOUND", "inspect record root", fmt.Errorf("%s is absent", recordRoot))
 		}
 		if raw[len(raw)-1] != 0 || bytes.Count(raw, []byte{0}) != 1 {
 			return fail("MALFORMED_GIT_TREE", "inspect record root", errors.New("ambiguous tree entry"))
@@ -763,6 +789,19 @@ func (r *Repository) ListTree(commit OID) ([]TreeEntry, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	return entries, nil
 }
+// isReservedRecordPath reports whether a repository-relative path names the
+// configured records root or the historical legacy records root, either
+// exactly or beneath them. Both stay reserved so neither the configured root
+// nor the legacy fallback can be forged by a model-directed worker.
+func (r *Repository) isReservedRecordPath(name string) bool {
+	for _, root := range []string{r.recordRoot, LegacyRecordsRoot} {
+		if name == root || strings.HasPrefix(name, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Repository) ProductTreeIdentity(
 	commit OID,
 	admission *ProductExclusionAdmission,
@@ -771,6 +810,9 @@ func (r *Repository) ProductTreeIdentity(
 		return ProductIdentity{}, err
 	}
 	if err := r.assertRecordRootAt(commit, true); err != nil {
+		return ProductIdentity{}, err
+	}
+	if err := r.assertRecordRootAtLegacy(commit, true); err != nil {
 		return ProductIdentity{}, err
 	}
 	tree, err := r.TreeOID(commit)
@@ -784,7 +826,7 @@ func (r *Repository) ProductTreeIdentity(
 	hasher := sha256.New()
 	productEntries := make([]TreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Path == r.recordRoot || strings.HasPrefix(entry.Path, r.recordRoot+"/") {
+		if r.isReservedRecordPath(entry.Path) {
 			continue
 		}
 		productEntries = append(productEntries, entry)
@@ -944,35 +986,41 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 	if err := r.validateOID(candidate); err != nil {
 		return err
 	}
-	if err := r.assertRecordRootAt(base, true); err != nil {
-		return err
-	}
-	if err := r.assertRecordRootAt(candidate, true); err != nil {
-		return err
-	}
-	raw, err := r.run(
-		nil,
-		nil,
-		"diff-tree", "--no-commit-id", "--raw", "-z",
-		base.String(), candidate.String(), "--", r.recordRoot,
-	)
-	if err != nil {
-		return err
-	}
-	if err := validateRecordRootDiffOutput(raw); err != nil {
-		return err
-	}
-	if len(raw) != 0 {
-		return fail(
-			"RESERVED_RECORD_ROOT_CHANGED",
-			"compare reserved record root",
-			fmt.Errorf(
-				"candidate %s changes reserved record root %s from base %s",
-				candidate.String(),
-				r.recordRoot,
-				base.String(),
-			),
+	// Both the configured records root and the historical legacy root stay
+	// reserved: a model-directed candidate may never touch either, so the
+	// legacy fallback can never be forged and the configured root is never a
+	// product input.
+	for _, root := range []string{r.recordRoot, LegacyRecordsRoot} {
+		if err := r.assertRecordRootAtPath(base, true, root); err != nil {
+			return err
+		}
+		if err := r.assertRecordRootAtPath(candidate, true, root); err != nil {
+			return err
+		}
+		raw, err := r.run(
+			nil,
+			nil,
+			"diff-tree", "--no-commit-id", "--raw", "-z",
+			base.String(), candidate.String(), "--", root,
 		)
+		if err != nil {
+			return err
+		}
+		if err := validateRecordRootDiffOutput(raw); err != nil {
+			return err
+		}
+		if len(raw) != 0 {
+			return fail(
+				"RESERVED_RECORD_ROOT_CHANGED",
+				"compare reserved record root",
+				fmt.Errorf(
+					"candidate %s changes reserved record root %s from base %s",
+					candidate.String(),
+					root,
+					base.String(),
+				),
+			)
+		}
 	}
 	return nil
 }

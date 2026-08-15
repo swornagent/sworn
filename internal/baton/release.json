@@ -2,9 +2,9 @@
   "schema": "sworn.role-assets/v1",
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:57bddcc421794a5660281aaad2928eedc895ebc2c767f907b8916adc26a8570d",
+    "manifest_sha256": "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c",
     "asset_count": 25,
-    "total_bytes": 384567
+    "total_bytes": 390809
   },
   "operations": [
     {

@@ -165,8 +165,9 @@ func TestCompiledInventoryIsClosed(t *testing.T) {
 		t.Fatalf("asset inventory = %v, want %v", got, expectedAssetPaths)
 	}
 	for _, name := range got {
-		if bytes.Contains([]byte(name), []byte(".baton/releases")) {
-			t.Fatalf("compiled inventory includes Baton records: %q", name)
+		if bytes.Contains([]byte(name), []byte(".baton/releases")) ||
+			bytes.Contains([]byte(name), []byte(".sworn/records")) {
+			t.Fatalf("compiled inventory includes records: %q", name)
 		}
 	}
 }

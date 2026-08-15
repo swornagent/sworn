@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 var (
@@ -270,6 +272,125 @@ func fakeInvocation(
 		Inputs:        []InputContent{content},
 		FakeProfile:   FakeCompleted,
 	}, workspace, submissionBody
+}
+
+// fakeInvocationReserved is fakeInvocation plus a scripted reserved-name list
+// for the reserved-canary process behavior, so a worker can prove from inside
+// containment that a configured records/journals root is masked.
+func fakeInvocationReserved(
+	t *testing.T,
+	invocationID string,
+	role Role,
+	responsibility Responsibility,
+	access WorkspaceAccess,
+	behavior string,
+	reserved []string,
+) (Invocation, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "workspace-canary"), []byte("unchanged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := fakeScript{
+		SchemaVersion: "sworn.fake-script/v1",
+		Behavior:      behavior,
+		Reserved:      append([]string(nil), reserved...),
+	}
+	scriptBody, err := json.Marshal(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptBody = append(scriptBody, '\n')
+	input, content := projectionInput("fake-script", "fake-script.json", scriptBody)
+	request, err := NewRequest(
+		invocationID,
+		role,
+		"fake-profile",
+		"fake-model-v1",
+		Workspace{Path: GuestWorkspacePath, Access: access},
+		[]Input{input},
+		true,
+		Limits{TimeoutMillis: 15_000, OutputBytes: 65_536},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := executableSelection(t)
+	containment := ContainmentReadWrite
+	if access == ReadOnly {
+		containment = ContainmentReadOnly
+	}
+	permission, err := NewSubmissionPermission(request, selected, containment, responsibility)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Invocation{
+		Request:       request,
+		HostWorkspace: workspace,
+		Selected:      selected,
+		Permission:    permission,
+		Inputs:        []InputContent{content},
+		FakeProfile:   FakeCompleted,
+	}, workspace
+}
+
+// TestConfiguredRecordsRootMaskedFromWorker is the A3 proof: a project that
+// configures an unusual records root has that root masked from every
+// model-directed worker. The worker is run inside real containment and, from
+// the guest, verifies the configured root (and the always-reserved legacy
+// root) is an empty read-only surface it cannot write to.
+func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
+	requireTrustedContainment(t)
+
+	configured := gitx.ProjectConfig{
+		SchemaVersion: gitx.ProjectConfigSchemaVersion,
+		RecordsRoot:   ".secret-records",
+		JournalsRoot:  ".secret-journals",
+		ContractsRoot: "contracts",
+		CommitPrefix:  "sworn",
+		DocumentsRoot: "docs/sworn",
+	}
+	reserved := gitx.ReservedNames(configured)
+	for _, name := range []string{".secret-records", ".secret-journals", ".baton", ".git"} {
+		found := false
+		for _, candidate := range reserved {
+			if candidate == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("reserved names %v omit %s", reserved, name)
+		}
+	}
+
+	invocation, _ := fakeInvocationReserved(
+		t,
+		"configured-root-mask",
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+		"reserved-canary",
+		reserved,
+	)
+	// The engine derives the mask from the configured project roots; here the
+	// test supplies exactly what the engine would compute for this config.
+	invocation.MaskNames = reserved
+	// The fixture is invoked under the "driver" basename so its fake-script
+	// input (behavior + reserved names) is parsed before dispatch.
+	setProcessExecutable(t, &invocation, "driver")
+
+	observation, err := (Invoker{}).Invoke(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.TransportStatus != Completed {
+		t.Fatalf("reserved-canary transport = %s (diagnostic %s)",
+			observation.TransportStatus, observation.Diagnostic.Code)
+	}
+	if observation.Diagnostic.Code != "none" {
+		t.Fatalf("reserved-canary diagnostic = %s", observation.Diagnostic.Code)
+	}
 }
 
 func TestInvokerReleasesOnlyCompletedBoundSealedHandoff(t *testing.T) {

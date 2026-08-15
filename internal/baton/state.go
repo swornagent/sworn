@@ -757,8 +757,24 @@ func planInstallResult(
 	return head, retirements, nil
 }
 
-func planAt(repository *repository, release, commit string) (planEntry, error) {
+// planFileAt resolves the exact plan file for one release at one commit: the
+// configured records root first, falling back to the historical legacy root
+// only when the configured root holds no record there. A release present
+// under both roots resolves to the configured root — one authority, never
+// two — so releases recorded before the relocation stay readable.
+func planFileAt(repository *repository, commit, release string) (repositoryFile, error) {
 	file, err := repository.file(commit, planPath(repository.recordRoot(), release))
+	if err != nil {
+		return repositoryFile{}, err
+	}
+	if file.Present {
+		return file, nil
+	}
+	return repository.file(commit, planPath(LegacyRecordRoot, release))
+}
+
+func planAt(repository *repository, release, commit string) (planEntry, error) {
+	file, err := planFileAt(repository, commit, release)
 	if err != nil {
 		return planEntry{}, err
 	}
@@ -950,7 +966,7 @@ func readReleaseReceiptHistory(
 			receipt.Release != release {
 			continue
 		}
-		file, err := repository.file(entry.OID, planPath(repository.recordRoot(), release))
+		file, err := planFileAt(repository, entry.OID, release)
 		if err != nil {
 			return receiptHistory{}, err
 		}
@@ -1020,25 +1036,40 @@ func readReleaseReceiptHistory(
 					" does not install directly above its target",
 			)
 		}
-		atFloor, err := repository.file(*receipt.Target, planPath(repository.recordRoot(), release))
+		configuredFloor, err := repository.file(*receipt.Target, planPath(repository.recordRoot(), release))
 		if err != nil {
 			return receiptHistory{}, err
 		}
-		if atFloor.Present {
+		legacyFloor, err := repository.file(*receipt.Target, planPath(LegacyRecordRoot, release))
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if configuredFloor.Present || legacyFloor.Present {
 			return receiptHistory{}, recordFail(
 				"INVALID_PLAN_HISTORY",
 				"revision-1 target "+*receipt.Target+
 					" already contains release "+release,
 			)
 		}
-		priorChange, err := repository.firstParentPathChange(
+		configuredChange, err := repository.firstParentPathChange(
 			*receipt.Target,
 			planPath(repository.recordRoot(), release),
 		)
 		if err != nil {
 			return receiptHistory{}, err
 		}
-		if priorChange != "" {
+		legacyChange, err := repository.firstParentPathChange(
+			*receipt.Target,
+			planPath(LegacyRecordRoot, release),
+		)
+		if err != nil {
+			return receiptHistory{}, err
+		}
+		if configuredChange != "" || legacyChange != "" {
+			priorChange := configuredChange
+			if priorChange == "" {
+				priorChange = legacyChange
+			}
 			return receiptHistory{}, recordFail(
 				"INVALID_PLAN_HISTORY",
 				"revision-1 plan path was already introduced at "+
@@ -1268,7 +1299,7 @@ func matchingApproval(
 		))
 	}
 	approval := matches[0]
-	file, err := repository.file(approval.OID, planPath(repository.recordRoot(), release))
+	file, err := planFileAt(repository, approval.OID, release)
 	if err != nil {
 		return ReceiptEntry{}, err
 	}
@@ -1313,7 +1344,7 @@ func planChain(
 		if approval == nil {
 			return nil, nil, recordFail("INVALID_PLAN_HISTORY", "previous plan "+*previous+" has no approval")
 		}
-		file, err := repository.file(approval.OID, planPath(repository.recordRoot(), release))
+		file, err := planFileAt(repository, approval.OID, release)
 		if err != nil {
 			return nil, nil, err
 		}

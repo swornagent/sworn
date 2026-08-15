@@ -143,9 +143,11 @@ func initProjectRoot(override string) (string, error) {
 }
 
 // prepareProjectDirectories creates .sworn and its manifest directory, and
-// ensures nothing inside .sworn is ever committed. The directory holds absolute
-// host paths, binary digests, and the run journal, none of which belong in a
-// repository that other people clone.
+// writes an allowlist-shaped nested .gitignore so the records root (the
+// machine authority a release needs on a fresh clone) stays trackable while
+// journals and working files stay excluded. The nested .gitignore stays local
+// and is never committed; the root .gitignore carries the committed allowlist
+// negation for the records root.
 func prepareProjectDirectories(paths projectPaths) ([]string, error) {
 	var created []string
 	home := filepath.Dir(paths.config)
@@ -164,7 +166,9 @@ func prepareProjectDirectories(paths projectPaths) ([]string, error) {
 	}
 	ignore := filepath.Join(home, ".gitignore")
 	if _, err := os.Stat(ignore); os.IsNotExist(err) {
-		if err := os.WriteFile(ignore, []byte("*\n"), 0o644); err != nil {
+		// Allowlist-shaped: everything under .sworn is excluded except the
+		// records root, whose committed authority a fresh clone must carry.
+		if err := os.WriteFile(ignore, []byte("*\n!records/\n!records/**\n"), 0o644); err != nil {
 			return nil, err
 		}
 		created = append(created, ignore)
@@ -341,7 +345,7 @@ func reportProjectReleases(out io.Writer, root string) {
 		fmt.Fprintln(out, "\nDelivery releases: none in this project.")
 		fmt.Fprintln(
 			out,
-			"Sworn needs an approved release recorded under .baton/releases before a run can start.",
+			"Sworn needs an approved release recorded under .sworn/records before a run can start.",
 		)
 		return
 	}
