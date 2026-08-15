@@ -1,0 +1,58 @@
+{
+  "outcome": "Every host location Sworn reads or writes comes from configuration with a sensible default, so an operator can place records, journals, workspaces, credentials, artefacts and host tools wherever their machine and project require - while the synthetic guest filesystem inside containment stays fixed and unconfigurable.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/gitx",
+      "internal/driver",
+      "internal/baton",
+      "internal/skill",
+      "cmd/sworn",
+      "docs",
+      "README.md"
+    ],
+    "exclude": [
+      "making any guest path inside containment configurable",
+      "changing what the containment boundary admits or masks",
+      "per-user configuration of project-scoped locations"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A project configuration file at one fixed, non-configurable path declares the project-scoped locations (records root, journals root, contracts root) and the commit-message prefix; absent the file, documented defaults apply and the engine behaves exactly as if the defaults had been written."
+    },
+    {
+      "id": "A2",
+      "text": "Machine-scoped and user-scoped locations - workspace factory root, temp roots, credentials directory, artefact home - resolve from configuration or environment with XDG-conformant defaults ($XDG_CONFIG_HOME, $XDG_DATA_HOME, $XDG_STATE_HOME, $XDG_CACHE_HOME under a sworn subdirectory), and never from a hardcoded literal."
+    },
+    {
+      "id": "A3",
+      "text": "Host tool locations (git, the containment binary, and any external CLI the engine invokes) resolve from configuration or discovery rather than absolute literals, so a non-Debian, nix or homebrew host works without patching source. The containment binary's trust requirements are unchanged and its path override is refused from project-scoped configuration."
+    },
+    {
+      "id": "A4",
+      "text": "Guest paths inside containment remain compile-time constants and are provably unreachable from configuration: a test asserts that no configuration input can alter the guest workspace root, guest input root, or any bind or mask target."
+    },
+    {
+      "id": "A5",
+      "text": "Project-scoped locations cannot be overridden per user. A user-scoped or environment override of a project-scoped location is refused with a named error rather than silently honoured, so two operators of one repository can never write records to different places."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The guest filesystem inside containment is engine-constructed, not operator territory: it stays constant, and this slice must not add a configuration path to it.",
+    "Anything determining where durable release truth lives is project-scoped and read from the committed project file, never from user or environment scope.",
+    "Defaults must reproduce today's behaviour for an unconfigured project apart from the relocations declared in S2.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}
