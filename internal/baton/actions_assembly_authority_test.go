@@ -20,7 +20,7 @@ func newAssemblyCASInterleavingHarness(
 	repoPath := createActionRepository(t, "sha1")
 	wrapperRoot := t.TempDir()
 	wrapperPath := filepath.Join(wrapperRoot, "git")
-	const wrapper = `#!/bin/sh
+	const wrapper = `#!/usr/bin/env sh
 set -eu
 armed="${0%/*}/armed"
 is_update_ref=false

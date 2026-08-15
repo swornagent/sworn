@@ -49,7 +49,7 @@ Repeat those steps with a newer version to upgrade a direct installation.
 The release binary does not need Go. Running AI model work currently needs:
 
 - Git;
-- root-owned `/usr/bin/bwrap`; and
+- root-owned `bwrap` discoverable on PATH (for example `/usr/bin/bwrap`); and
 - unprivileged user namespaces enabled.
 
 These requirements provide the Linux execution boundary Sworn uses around

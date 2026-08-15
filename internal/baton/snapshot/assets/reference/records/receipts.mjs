@@ -21,7 +21,12 @@ const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const HEAD_REF = /^refs\/heads\/(?!.*(?:^|\/)\.\.?($|\/))(?!.*\/\/)(?!.*@\{)(?!.*[~^:?*\[\\\s])[^/][^\u0000-\u001f\u007f]*$/;
-const RESERVED_RECORD_ROOT = '.baton/releases';
+const RESERVED_RECORD_ROOT = '.sworn/records';
+const LEGACY_RECORD_ROOT = '.baton/releases';
+function isReservedRecordPath(value) {
+  return value === RESERVED_RECORD_ROOT || value.startsWith(`${RESERVED_RECORD_ROOT}/`)
+    || value === LEGACY_RECORD_ROOT || value.startsWith(`${LEGACY_RECORD_ROOT}/`);
+}
 const RESULT_BY_ROLE = Object.freeze({
   planner: new Set(['approved', 'retired']),
   implementer: new Set(['designed', 'candidate']),
@@ -353,10 +358,7 @@ function validateScope(value, label) {
   };
   if (result.include.length === 0) fail('INVALID_FIELD', `${label}.include cannot be empty`);
   for (const scopedPath of result.include) {
-    if (
-      scopedPath === RESERVED_RECORD_ROOT
-      || scopedPath.startsWith(`${RESERVED_RECORD_ROOT}/`)
-    ) {
+    if (isReservedRecordPath(scopedPath)) {
       fail(
         'RESERVED_RECORD_ROOT',
         `${label}.include cannot name reserved Baton records at ${scopedPath}`,

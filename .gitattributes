@@ -4,8 +4,12 @@
 *.go text eol=lf
 /internal/baton/release.json -text diff
 /internal/baton/snapshot/** -text diff
+# The legacy records root stays export-ignored until the operator-gated
+# migration relocates it; records under either root are never package input.
 /.baton/releases export-ignore
 /.baton/releases/** export-ignore
+/.sworn/records export-ignore
+/.sworn/records/** export-ignore
 # Reference patches are unified diffs: context lines are space-then-tab by
 # format, which git diff --check reports as a whitespace error. They are
 # recorded commitments, not source.

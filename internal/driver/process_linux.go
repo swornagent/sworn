@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const processTerminationGrace = 250 * time.Millisecond
@@ -86,6 +88,7 @@ func platformInvoke(
 		invocation.HostWorkspace,
 		invocation.Request.Inputs,
 		invocation.Inputs,
+		reservedMaskNames(invocation),
 	)
 	if err != nil {
 		return Observation{}, err
@@ -289,6 +292,7 @@ func platformInvoke(
 		workspaceFile,
 		projection,
 		before,
+		reservedMaskNames(invocation),
 	); err != nil {
 		arbiter.fail("workspace_postcheck_failed", err, fatalPostcheck)
 	} else {
@@ -310,8 +314,30 @@ func platformInvoke(
 	return observation, resultErr
 }
 func trustedBubblewrap() (string, error) {
-	const executable = "/usr/bin/bwrap"
-	info, err := os.Lstat(executable)
+	// The containment binary resolves from the machine/user SWORN_BWRAP
+	// override or discovery (exec.LookPath), never an absolute literal, so a
+	// nix, homebrew or non-Debian host works without patching source. It is
+	// deliberately absent from the project config schema, so a project-scoped
+	// configuration can never name the containment binary (A3/A5): a project
+	// file carrying it is refused at parse time. The trust requirements are
+	// unchanged: absolute, regular, executable, no group/world write bits,
+	// owned by uid 0, and the capability probe.
+	executable := os.Getenv(gitx.EnvBubblewrap)
+	if executable == "" {
+		path, err := exec.LookPath("bwrap")
+		if err != nil {
+			return "", fail("ISOLATION_UNAVAILABLE")
+		}
+		executable = path
+	}
+	if !filepath.IsAbs(executable) {
+		return "", fail("ISOLATION_UNAVAILABLE")
+	}
+	resolved, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fail("ISOLATION_UNAVAILABLE")
+	}
+	info, err := os.Lstat(resolved)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
 		info.Mode().Perm()&0o022 != 0 {
 		return "", fail("ISOLATION_UNAVAILABLE")
@@ -323,7 +349,7 @@ func trustedBubblewrap() (string, error) {
 	bubblewrapProbeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		command := exec.CommandContext(ctx, executable, "--help")
+		command := exec.CommandContext(ctx, resolved, "--help")
 		command.Env = []string{}
 		command.SysProcAttr = linuxSandboxProcessAttributes()
 		output, err := command.Output()
@@ -355,9 +381,13 @@ func trustedBubblewrap() (string, error) {
 	if bubblewrapProbeErr != nil {
 		return "", bubblewrapProbeErr
 	}
-	return executable, nil
+	return resolved, nil
 }
 
+// reservedMaskNames and withoutGit are defined in the shared invoke.go file so
+// request admission, the input projection and the tool path guard can read the
+// engine-computed reserved set on every platform; the Linux containment sites
+// call the same helpers.
 func linuxSandboxProcessAttributes() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
 		Setpgid:   true,
@@ -403,7 +433,7 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 	} else {
 		arguments = append(arguments, "--bind-fd", "5", workspace)
 	}
-	for _, reserved := range []string{".git", ".baton", ".sworn"} {
+	for _, reserved := range reservedMaskNames(invocation) {
 		info, err := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
 		if os.IsNotExist(err) {
 			continue
@@ -567,6 +597,7 @@ func workspacePostcheck(
 	pinned *os.File,
 	projection *InputProjection,
 	before workspaceManifest,
+	reserved []string,
 ) error {
 	pathInfo, err := os.Lstat(hostWorkspace)
 	if err != nil {
@@ -574,7 +605,7 @@ func workspacePostcheck(
 	}
 	pinnedInfo, err := pinned.Stat()
 	if err != nil || !os.SameFile(pathInfo, pinnedInfo) ||
-		validateWorkspaceBoundary(hostWorkspace) != nil {
+		validateWorkspaceBoundary(hostWorkspace, reserved) != nil {
 		return fail("WORKSPACE_IDENTITY_CHANGED")
 	}
 	if err = projection.validate(); err != nil {

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	recordRoot             = ".baton/releases"
+	recordRoot             = DefaultRecordsRoot
 	MaxHeadRefs            = 128
 	MaxBatchPaths          = 1025
 	MaxFileBytes           = 262_144
@@ -116,6 +116,14 @@ type RecordPathAdmission struct {
 	root       string
 }
 
+// Root returns the admitted records root for this admission.
+func (a *RecordPathAdmission) Root() string {
+	if a == nil {
+		return ""
+	}
+	return a.root
+}
+
 type ProductExclusionAdmission struct {
 	repository string
 	root       string
@@ -140,6 +148,18 @@ type Repository struct {
 	refFault   *refFault
 	identityMu sync.Mutex
 	identities map[string]Identity
+	// recordRoot is the configured records root (default DefaultRecordsRoot),
+	// resolved from the committed project config at Open. Every reserved-root
+	// admission, exclusion and mask site reads this field so a configured
+	// records root is honored everywhere. The historical LegacyRecordsRoot
+	// stays reserved alongside it for the legacy read fallback.
+	recordRoot string
+	// config is the resolved project configuration (defaults when the
+	// project file is absent); configured reports whether a project file was
+	// present so commit-prefix consumers can preserve their unconfigured
+	// subjects exactly.
+	config     ProjectConfig
+	configured bool
 }
 
 // Open admits one canonical repository and literal absolute Git executable.
@@ -201,7 +221,67 @@ func Open(repository, gitExecutable string) (*Repository, error) {
 		return nil, fail("INVALID_REPOSITORY", "inspect Git common directory", err)
 	}
 	repo.commonDir = filepath.Clean(common)
+	config, configured, err := LoadProjectConfig(repo.root)
+	if err != nil {
+		return nil, fail("INVALID_PROJECT_CONFIG", "load project configuration", err)
+	}
+	repo.config = config
+	repo.configured = configured
+	repo.recordRoot = config.RecordsRoot
 	return repo, nil
+}
+
+// ProjectConfig returns the resolved project configuration for this
+// repository (documented defaults when the committed project file is absent).
+func (r *Repository) ProjectConfig() ProjectConfig {
+	if r == nil {
+		return DefaultProjectConfig()
+	}
+	return r.config
+}
+
+// DocumentsRoot returns the resolved documents root for this repository
+// (documented default when the committed project file is absent).
+func (r *Repository) DocumentsRoot() string {
+	if r == nil || !r.configured {
+		return DefaultDocumentsRoot
+	}
+	return r.config.DocumentsRoot
+}
+
+// LegacyRecordRoot returns the historical records root that remains readable
+// and reserved for releases recorded before the relocation.
+func (r *Repository) LegacyRecordRoot() string {
+	return LegacyRecordsRoot
+}
+
+// CommitPrefix returns the configured commit-message prefix for plan and
+// receipt actions. An unconfigured repository keeps the documented default
+// "sworn" prefix.
+func (r *Repository) CommitPrefix() string {
+	if r == nil || !r.configured {
+		return DefaultCommitPrefix
+	}
+	return r.config.CommitPrefix
+}
+
+// CandidateCommitPrefix returns the prefix for engine implementation-candidate
+// commits. An unconfigured repository uses the same documented default as the
+// plan/receipt actions, so an unconfigured project writes one consistent
+// prefix; a configured repository follows the configured prefix so a
+// configured prefix never yields a mixed git log.
+func (r *Repository) CandidateCommitPrefix() string {
+	if r == nil || !r.configured {
+		return candidateCommitPrefixDefault
+	}
+	return r.config.CommitPrefix
+}
+
+// ReservedNames returns the workspace-relative names the containment mask
+// must protect for this repository, derived from its resolved project
+// configuration.
+func (r *Repository) ReservedNames() []string {
+	return ReservedNames(r.ProjectConfig())
 }
 func admitGitExecutable(value string) (string, error) {
 	if value == "" || !filepath.IsAbs(value) {
@@ -317,7 +397,12 @@ func (r *Repository) runOutcome(
 	result.exitCode = -1
 	ownedHome := home == ""
 	if ownedHome {
-		home, result.waitErr = os.MkdirTemp("", "sworn-git-home-*")
+		tempRoot, tempErr := ResolveTempRoot()
+		if tempErr != nil {
+			result.waitErr = tempErr
+			return
+		}
+		home, result.waitErr = os.MkdirTemp(tempRoot, "sworn-git-home-*")
 		if result.waitErr != nil {
 			return
 		}
@@ -450,7 +535,7 @@ func ValidatePath(value string, allowRoot bool) error {
 
 func (r *Repository) ResolveRecordPathAdmission() (*RecordPathAdmission, error) {
 	cursor := r.root
-	for _, part := range strings.Split(recordRoot, "/") {
+	for _, part := range strings.Split(r.recordRoot, "/") {
 		cursor = filepath.Join(cursor, part)
 		info, err := os.Lstat(cursor)
 		if errors.Is(err, os.ErrNotExist) {
@@ -463,21 +548,21 @@ func (r *Repository) ResolveRecordPathAdmission() (*RecordPathAdmission, error) 
 			return nil, fail("SYMLINKED_RECORD_ROOT", "inspect record root", fmt.Errorf("%s is a symlink", cursor))
 		}
 	}
-	return &RecordPathAdmission{repository: r.root, root: recordRoot}, nil
+	return &RecordPathAdmission{repository: r.root, root: r.recordRoot}, nil
 }
 
 func (r *Repository) ResolveProductExclusion(
 	record *RecordPathAdmission,
 	resolver InertnessResolver,
 ) (*ProductExclusionAdmission, error) {
-	if record == nil || record.repository != r.root || record.root != recordRoot {
+	if record == nil || record.repository != r.root || record.root != r.recordRoot {
 		return nil, fail("RECORD_PATH_ADMISSION_REQUIRED", "admit product exclusion", errors.New("fixed record-path admission required"))
 	}
 	if resolver == nil {
 		return nil, fail("RECORD_ROOT_POLICY_REQUIRED", "admit product exclusion", errors.New("trusted inertness resolver required"))
 	}
 	return &ProductExclusionAdmission{
-		repository: r.root, root: recordRoot, record: record, resolver: resolver,
+		repository: r.root, root: r.recordRoot, record: record, resolver: resolver,
 		decisions: make(map[string]RecordRootDecision),
 	}, nil
 }
@@ -486,7 +571,7 @@ func (r *Repository) requireRecordAdmission(admission *RecordPathAdmission) erro
 	if admission == nil {
 		return fail("RECORD_PATH_ADMISSION_REQUIRED", "use record path", errors.New("fixed record-path admission required"))
 	}
-	if admission.repository != r.root || admission.root != recordRoot {
+	if admission.repository != r.root || admission.root != r.recordRoot {
 		return fail("RECORD_ROOT_ADMISSION_MISMATCH", "use record path", errors.New("admission belongs to another repository"))
 	}
 	return nil
@@ -496,7 +581,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 	if admission == nil {
 		return fail("PRODUCT_EXCLUSION_ADMISSION_REQUIRED", "exclude record root", errors.New("policy-bound admission required"))
 	}
-	if admission.repository != r.root || admission.root != recordRoot ||
+	if admission.repository != r.root || admission.root != r.recordRoot ||
 		admission.record == nil || admission.record.repository != r.root {
 		return fail("RECORD_ROOT_ADMISSION_MISMATCH", "exclude record root", errors.New("admission belongs to another repository"))
 	}
@@ -509,7 +594,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 	if !ok {
 		request := RecordRootRequest{
 			Kind: "baton.record-root-inertness/v1", Repository: r.root,
-			RecordRoot: recordRoot, Commit: commit.String(),
+			RecordRoot: r.recordRoot, Commit: commit.String(),
 		}
 		var err error
 		decision, err = admission.resolver(request)
@@ -524,12 +609,20 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 		admission.decisions[commit.String()] = decision
 	}
 	if decision.Decision != "inert" {
-		return fail("RECORD_ROOT_CONSUMED", "exclude record root", fmt.Errorf("%s affects product behavior at %s", recordRoot, commit.String()))
+		return fail("RECORD_ROOT_CONSUMED", "exclude record root", fmt.Errorf("%s affects product behavior at %s", r.recordRoot, commit.String()))
 	}
 	return nil
 }
 
 func (r *Repository) assertRecordRootAt(commit OID, allowMissing bool) error {
+	return r.assertRecordRootAtPath(commit, allowMissing, r.recordRoot)
+}
+
+func (r *Repository) assertRecordRootAtLegacy(commit OID, allowMissing bool) error {
+	return r.assertRecordRootAtPath(commit, allowMissing, LegacyRecordsRoot)
+}
+
+func (r *Repository) assertRecordRootAtPath(commit OID, allowMissing bool, recordRoot string) error {
 	if err := r.validateOID(commit); err != nil {
 		return err
 	}
@@ -696,6 +789,19 @@ func (r *Repository) ListTree(commit OID) ([]TreeEntry, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	return entries, nil
 }
+// isReservedRecordPath reports whether a repository-relative path names the
+// configured records root or the historical legacy records root, either
+// exactly or beneath them. Both stay reserved so neither the configured root
+// nor the legacy fallback can be forged by a model-directed worker.
+func (r *Repository) isReservedRecordPath(name string) bool {
+	for _, root := range []string{r.recordRoot, LegacyRecordsRoot} {
+		if name == root || strings.HasPrefix(name, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Repository) ProductTreeIdentity(
 	commit OID,
 	admission *ProductExclusionAdmission,
@@ -704,6 +810,9 @@ func (r *Repository) ProductTreeIdentity(
 		return ProductIdentity{}, err
 	}
 	if err := r.assertRecordRootAt(commit, true); err != nil {
+		return ProductIdentity{}, err
+	}
+	if err := r.assertRecordRootAtLegacy(commit, true); err != nil {
 		return ProductIdentity{}, err
 	}
 	tree, err := r.TreeOID(commit)
@@ -717,7 +826,7 @@ func (r *Repository) ProductTreeIdentity(
 	hasher := sha256.New()
 	productEntries := make([]TreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Path == recordRoot || strings.HasPrefix(entry.Path, recordRoot+"/") {
+		if r.isReservedRecordPath(entry.Path) {
 			continue
 		}
 		productEntries = append(productEntries, entry)
@@ -877,35 +986,41 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 	if err := r.validateOID(candidate); err != nil {
 		return err
 	}
-	if err := r.assertRecordRootAt(base, true); err != nil {
-		return err
-	}
-	if err := r.assertRecordRootAt(candidate, true); err != nil {
-		return err
-	}
-	raw, err := r.run(
-		nil,
-		nil,
-		"diff-tree", "--no-commit-id", "--raw", "-z",
-		base.String(), candidate.String(), "--", recordRoot,
-	)
-	if err != nil {
-		return err
-	}
-	if err := validateRecordRootDiffOutput(raw); err != nil {
-		return err
-	}
-	if len(raw) != 0 {
-		return fail(
-			"RESERVED_RECORD_ROOT_CHANGED",
-			"compare reserved record root",
-			fmt.Errorf(
-				"candidate %s changes reserved record root %s from base %s",
-				candidate.String(),
-				recordRoot,
-				base.String(),
-			),
+	// Both the configured records root and the historical legacy root stay
+	// reserved: a model-directed candidate may never touch either, so the
+	// legacy fallback can never be forged and the configured root is never a
+	// product input.
+	for _, root := range []string{r.recordRoot, LegacyRecordsRoot} {
+		if err := r.assertRecordRootAtPath(base, true, root); err != nil {
+			return err
+		}
+		if err := r.assertRecordRootAtPath(candidate, true, root); err != nil {
+			return err
+		}
+		raw, err := r.run(
+			nil,
+			nil,
+			"diff-tree", "--no-commit-id", "--raw", "-z",
+			base.String(), candidate.String(), "--", root,
 		)
+		if err != nil {
+			return err
+		}
+		if err := validateRecordRootDiffOutput(raw); err != nil {
+			return err
+		}
+		if len(raw) != 0 {
+			return fail(
+				"RESERVED_RECORD_ROOT_CHANGED",
+				"compare reserved record root",
+				fmt.Errorf(
+					"candidate %s changes reserved record root %s from base %s",
+					candidate.String(),
+					root,
+					base.String(),
+				),
+			)
+		}
 	}
 	return nil
 }

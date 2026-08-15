@@ -1096,6 +1096,7 @@ func (s *Service) invokeRecoverableWorker(
 		workspace,
 		request,
 		permission,
+		engine.repository.ReservedNames(),
 	)
 	invocation.RecoveryStepHook =
 		s.turnRecoveryStepHook(owner, cycle)

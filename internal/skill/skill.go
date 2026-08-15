@@ -16,6 +16,7 @@ import (
 	"sort"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 // Name is the one supported Sworn skill directory name.
@@ -59,6 +60,24 @@ func (e *CollisionError) Error() string {
 			"resolve it manually before installing the sworn skill",
 		e.Path,
 	)
+}
+
+// InstallArtefact places the sworn skill artefact in the configured
+// machine/user artefact home (SWORN_ARTEFACT_HOME or the XDG-conformant
+// default). It is additive to Install: the agent-discovery install under the
+// user's home stays intact so agents keep finding the skill, while Sworn's
+// own artefact home also carries a copy as its user-scoped artefact. It
+// returns the installed path.
+func InstallArtefact() (string, error) {
+	paths, err := gitx.LoadHostPaths()
+	if err != nil {
+		return "", fmt.Errorf("resolve artefact home: %w", err)
+	}
+	path := filepath.Join(paths.ArtefactHome, Name, "SKILL.md")
+	if err := writeAtomic(path, swornSkillContent()); err != nil {
+		return "", fmt.Errorf("install sworn skill artefact at %s: %w", path, err)
+	}
+	return path, nil
 }
 
 // Report describes what one Install call changed.
@@ -238,7 +257,7 @@ func swornSkillContent() []byte {
 			"decisions.\n\n"+
 			"1. Look for a Sworn-governed repository. The unit of work is a Git\n"+
 			"   worktree, recognized by `.git`. Inside one, check for these markers:\n"+
-			"   `.baton/releases` control records, an existing Sworn journal file, or\n"+
+			"   `.sworn/records` control records, an existing Sworn journal file, or\n"+
 			"   an initialized Sworn project directory `.sworn`. If the worktree\n"+
 			"   carries none of them, Sworn is simply not initialized here yet: run\n"+
 			"   `sworn init` and continue with the rest of this skill. Only outside a\n"+

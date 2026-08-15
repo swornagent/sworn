@@ -9,7 +9,34 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 )
+
+// TestAgentCredentialSourceUsesResolvedCredentialsDir proves the A2 default
+// for the credentials directory: the XDG-conformant default
+// ($XDG_CONFIG_HOME/sworn) is effective even when SWORN_CREDENTIALS_DIR is
+// unset, and is never bypassed in favour of the user home.
+func TestAgentCredentialSourceUsesResolvedCredentialsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv(gitx.EnvCredentialsDir, "")
+	configHome := filepath.Join(home, ".config")
+	got := agentCredentialSource(driver.ProfileCodex)
+	if want := filepath.Join(configHome, "sworn", ".codex", "auth.json"); got != want {
+		t.Fatalf("codex credential = %q, want XDG default %q", got, want)
+	}
+	got = agentCredentialSource(driver.ProfileClaude)
+	if want := filepath.Join(configHome, "sworn", ".claude", ".credentials.json"); got != want {
+		t.Fatalf("claude credential = %q, want XDG default %q", got, want)
+	}
+	// An explicit override relocates the base; the override is honoured.
+	t.Setenv(gitx.EnvCredentialsDir, filepath.Join(home, "custom"))
+	got = agentCredentialSource(driver.ProfileCodex)
+	if want := filepath.Join(home, "custom", ".codex", "auth.json"); got != want {
+		t.Fatalf("overridden codex credential = %q, want %q", got, want)
+	}
+}
 
 func initTestProject(t *testing.T) string {
 	t.Helper()
@@ -39,7 +66,8 @@ func initTestProject(t *testing.T) string {
 
 // The project directory holds absolute host paths, binary digests, and the run
 // journal. None of it belongs in a repository other people clone, so init must
-// exclude the whole directory rather than trusting each writer to remember.
+// exclude the whole directory except the records root, whose committed
+// authority a fresh clone must carry.
 func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	root := initTestProject(t)
 	var stdout, stderr bytes.Buffer
@@ -49,8 +77,8 @@ func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no .gitignore written: %v", err)
 	}
-	if strings.TrimSpace(string(body)) != "*" {
-		t.Fatalf("gitignore = %q, want everything excluded", body)
+	if strings.TrimSpace(string(body)) != "*\n!records/\n!records/**" {
+		t.Fatalf("gitignore = %q, want the allowlist shape (records tracked, everything else excluded)", body)
 	}
 	for _, directory := range []string{".sworn", ".sworn/runs"} {
 		info, err := os.Stat(filepath.Join(root, directory))

@@ -316,7 +316,8 @@ driver-config generation, provider/model defaults, or credential hosting.
 Approval still comes from the source named in the manifest. Telemetry can
 report what happened but cannot approve, block, or advance work.
 
-Linux production execution requires root-owned `/usr/bin/bwrap` and
-unprivileged user namespaces. Live `driver certify` and production runs can
+Linux production execution requires root-owned `bwrap` discoverable on PATH
+(for example `/usr/bin/bwrap`) and unprivileged user namespaces. Live
+`driver certify` and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.

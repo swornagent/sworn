@@ -9,7 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
+
+// TestNewToolSessionRefusesUnavailableTempRoot is the A2 consumer proof for
+// the invocation session: an invalid configured temp root fails session
+// creation instead of silently staging scratch in the process/system temp
+// directory.
+func TestNewToolSessionRefusesUnavailableTempRoot(t *testing.T) {
+	t.Setenv(gitx.EnvTempRoot, "relative-tmp")
+	invocation, _, _ := memoryInvocationFixture(t)
+	if _, err := newToolSession(invocation); err == nil {
+		t.Fatal("invalid temp root silently escaped for the invocation session")
+	}
+}
 
 func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
 	definitions := toolDefinitions(ReadOnly)
@@ -387,6 +401,7 @@ func TestCommonToolsAreDescriptorRootedAccessBoundedAndClosed(t *testing.T) {
 }
 
 func TestToolBashIsNetworkCredentialAndAuthorityBlind(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	if err := os.MkdirAll(filepath.Join(invocation.HostWorkspace, ".git"), 0o700); err != nil {
 		t.Fatal(err)
@@ -419,6 +434,7 @@ printf 'isolated'`,
 func TestToolBashScratchPersistsAcrossCommandsWithinInvocationOnly(
 	t *testing.T,
 ) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	session, err := newToolSession(invocation)
 	if err != nil {
@@ -537,6 +553,7 @@ func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
 }
 
 func TestToolBashNonZeroExitReturnsOutputAndExitCode(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
 	session, err := newToolSession(invocation)
 	if err != nil {

@@ -13,11 +13,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -33,6 +36,291 @@ var (
 	nativeContinuationBinary string
 	nativeContinuationError  error
 )
+
+// nativeMemoryRoot returns a tmpfs directory for tests that require
+// memory-backed crash recovery. It probes the effective process temp
+// directory first (honoring TMPDIR) and then the conventional /dev/shm
+// test-environment surface; it is test-environment discovery, not a product
+// host-location literal. It must be called before t.Parallel.
+func nativeMemoryRoot(t *testing.T) string {
+	t.Helper()
+	for _, candidate := range []string{os.TempDir(), "/dev/shm"} {
+		if nativeMemoryBackedPath(candidate) {
+			return candidate
+		}
+	}
+	t.Skip("no memory-backed (tmpfs) directory available for native-session tests")
+	return ""
+}
+
+// setNativeMemoryRootEnv points the configured temp root at a tmpfs so the
+// lazily resolved nativeSessionMemoryRoot is memory-backed for this test.
+func setNativeMemoryRootEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(gitx.EnvTempRoot, nativeMemoryRoot(t))
+}
+
+// TestNativeSessionMemoryRootResolvesMemoryBacked proves A2 for the native
+// session memory root: it resolves from the SWORN_NATIVE_SESSION_ROOT
+// override, follows the configured temp root when that root is itself
+// memory-backed, and otherwise discovers a memory-backed (tmpfs) directory —
+// never a hardcoded literal and never the general disk-backed temp root.
+func TestNativeSessionMemoryRootResolvesMemoryBacked(t *testing.T) {
+	memoryRoot := nativeMemoryRoot(t)
+
+	// SWORN_NATIVE_SESSION_ROOT override wins verbatim.
+	override := filepath.Join(memoryRoot, "sworn-native-override")
+	if err := os.MkdirAll(override, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(override) })
+	t.Setenv(gitx.EnvNativeSessionRoot, override)
+	t.Setenv(gitx.EnvTempRoot, "")
+	got, err := nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != override {
+		t.Fatalf("override native session memory root = %q, want %q", got, override)
+	}
+
+	// A memory-backed configured temp root is followed.
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, memoryRoot)
+	got, err = nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != memoryRoot {
+		t.Fatalf("temp-root native session memory root = %q, want %q", got, memoryRoot)
+	}
+
+	// A disk-backed configured temp root is never used for native sessions:
+	// the resolver either discovers a memory-backed directory or fails closed
+	// (never degrading to the disk-backed root).
+	disk := filepath.Join(t.TempDir(), "sworn-tmp")
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, disk)
+	if got, err = nativeSessionMemoryRoot(); err != nil {
+		if !IsCode(err, "CONTINUATION_INVALID") {
+			t.Fatalf("disk-backed temp root error = %v", err)
+		}
+	} else {
+		if !nativeMemoryBackedPath(got) {
+			t.Fatalf("native session memory root %q is not memory-backed", got)
+		}
+		if got == disk {
+			t.Fatalf("disk-backed temp root %q became the native session root", disk)
+		}
+	}
+}
+
+// TestNativeSessionMemoryRootCreatesConfiguredFreshRoots proves A2's fresh
+// configured tmpfs child support: a valid configured override (or an XDG
+// state home on tmpfs) whose path does not yet exist is securely created and
+// admitted as the native session memory root instead of being silently
+// ignored.
+func TestNativeSessionMemoryRootCreatesConfiguredFreshRoots(t *testing.T) {
+	memoryRoot := nativeMemoryRoot(t)
+
+	// A fresh SWORN_NATIVE_SESSION_ROOT child under a tmpfs is created,
+	// owned by the current user, mode 0700, and memory-backed.
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	nativeFresh := filepath.Join(memoryRoot, "sworn-native-fresh-"+randomSuffix())
+	info, err := os.Lstat(nativeFresh)
+	if !os.IsNotExist(err) {
+		t.Fatalf("fresh native root unexpectedly exists: %v", info)
+	}
+	t.Setenv(gitx.EnvNativeSessionRoot, nativeFresh)
+	t.Cleanup(func() { _ = os.RemoveAll(nativeFresh) })
+	got, err := nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nativeFresh {
+		t.Fatalf("fresh native session memory root = %q, want %q", got, nativeFresh)
+	}
+	stat, err := os.Lstat(nativeFresh)
+	if err != nil || !stat.IsDir() || stat.Mode().Perm() != 0o700 ||
+		!nativeMemoryBackedPath(nativeFresh) {
+		t.Fatalf("fresh native root not admitted as private tmpfs: %v, %v", stat, err)
+	}
+	// The fresh configured root is immediately usable by the session reaper,
+	// which previously rejected a fresh (absent) configured root.
+	if err := reapNativeSessionRoots(); err != nil {
+		t.Fatalf("reap on fresh configured native root: %v", err)
+	}
+
+	// A fresh SWORN_TEMP_ROOT child under a tmpfs is created and, being
+	// memory-backed, becomes the native session memory root.
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	tempFresh := filepath.Join(memoryRoot, "sworn-tmp-fresh-"+randomSuffix())
+	if _, err := os.Lstat(tempFresh); !os.IsNotExist(err) {
+		t.Fatalf("fresh temp root unexpectedly exists: %v", err)
+	}
+	t.Setenv(gitx.EnvTempRoot, tempFresh)
+	t.Cleanup(func() { _ = os.RemoveAll(tempFresh) })
+	got, err = nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != tempFresh {
+		t.Fatalf("fresh temp-root native session memory root = %q, want %q", got, tempFresh)
+	}
+	if !nativeMemoryBackedPath(tempFresh) {
+		t.Fatalf("fresh temp root %q is not memory-backed", tempFresh)
+	}
+
+	// A fresh XDG state home on tmpfs makes the unconfigured default temp
+	// root itself memory-backed: it is created and used, so an unconfigured
+	// host with tmpfs state still gets a memory-backed default.
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	stateFresh := filepath.Join(memoryRoot, "sworn-state-fresh-"+randomSuffix())
+	t.Setenv("XDG_STATE_HOME", stateFresh)
+	t.Cleanup(func() { _ = os.RemoveAll(stateFresh) })
+	got, err = nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(stateFresh, "sworn", "tmp")
+	if got != expected {
+		t.Fatalf("xdg default native session memory root = %q, want %q", got, expected)
+	}
+	if !nativeMemoryBackedPath(expected) {
+		t.Fatalf("xdg default temp root %q is not memory-backed", expected)
+	}
+}
+
+// TestNativeSessionMemoryRootRefusesConfiguredFailures proves A2's
+// fail-closed configured-value handling: a malformed or unavailable
+// configured temp root is refused rather than silently replaced by discovery,
+// and a configured native session root that is not a private tmpfs is refused
+// rather than honoured.
+func TestNativeSessionMemoryRootRefusesConfiguredFailures(t *testing.T) {
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "relative-root")
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("relative SWORN_TEMP_ROOT admitted")
+	}
+	t.Setenv(gitx.EnvTempRoot, "/workspace")
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("guest-path SWORN_TEMP_ROOT admitted")
+	}
+
+	// A configured native session root on ordinary disk is refused: crash
+	// recovery never trusts a non-tmpfs root.
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	t.Setenv(gitx.EnvNativeSessionRoot, filepath.Join(t.TempDir(), "sworn-native-on-disk"))
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("disk-backed SWORN_NATIVE_SESSION_ROOT admitted")
+	}
+
+	// An unavailable configured native session root (whose parent is a plain
+	// file) is refused rather than replaced by discovery.
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(gitx.EnvNativeSessionRoot, filepath.Join(parent, "child"))
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("unavailable SWORN_NATIVE_SESSION_ROOT admitted")
+	}
+}
+
+// TestNativeSessionMemoryRootRefusesLooseNativeOverride proves a configured
+// native session root that is writable by group or world is refused: session
+// state must live in a private tmpfs directory.
+func TestNativeSessionMemoryRootRefusesLooseNativeOverride(t *testing.T) {
+	memoryRoot := nativeMemoryRoot(t)
+	loose := filepath.Join(memoryRoot, "sworn-native-loose-"+randomSuffix())
+	if err := os.MkdirAll(loose, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(loose) })
+	t.Setenv(gitx.EnvNativeSessionRoot, loose)
+	t.Setenv(gitx.EnvTempRoot, "")
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("world-writable SWORN_NATIVE_SESSION_ROOT admitted")
+	}
+}
+
+// TestNativeSessionMemoryRootNoOverrideDiscovery proves the discovery step
+// only runs when no relevant override was supplied: with no overrides it
+// returns a discovered writable tmpfs when one is discoverable, and fails
+// closed with CONTINUATION_INVALID (never a disk path) when the host exposes
+// none.
+func TestNativeSessionMemoryRootNoOverrideDiscovery(t *testing.T) {
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	got, err := nativeSessionMemoryRoot()
+	if err != nil {
+		if !IsCode(err, "CONTINUATION_INVALID") {
+			t.Fatalf("no-override native session memory root error = %v", err)
+		}
+		// No writable tmpfs is discoverable on this host: resolution fails
+		// closed rather than degrading to ordinary disk.
+		return
+	}
+	if !nativeMemoryBackedPath(got) || !writableDirectory(got) {
+		t.Fatalf("discovered native session memory root %q is not a writable tmpfs", got)
+	}
+}
+
+// TestNativeSessionMemoryRootDefaultCreatesAndValidatesSession is the
+// end-to-end sensible-default proof: an unconfigured host whose XDG state
+// home is memory-backed gets a fresh created default temp root, and that
+// root can create a native continuation session whose root passes the same
+// memory-backing and ownership validation the engine trusts during crash
+// recovery.
+func TestNativeSessionMemoryRootDefaultCreatesAndValidatesSession(t *testing.T) {
+	memoryRoot := nativeMemoryRoot(t) // skip when no tmpfs exists for the default to use
+	t.Setenv(gitx.EnvNativeSessionRoot, "")
+	t.Setenv(gitx.EnvTempRoot, "")
+	stateFresh := filepath.Join(memoryRoot, "sworn-state-session-"+randomSuffix())
+	t.Setenv("XDG_STATE_HOME", stateFresh)
+	t.Cleanup(func() { _ = os.RemoveAll(stateFresh) })
+	config := NativeAdapterConfig{
+		Family:           ProfileCodex,
+		CredentialTarget: CodexCredentialTarget,
+	}
+	state, err := newNativeContinuationState(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.mu.Lock()
+	root := state.root
+	state.mu.Unlock()
+	if !validNativeSessionRoot(root) || !nativeMemoryBackedPath(root) {
+		t.Fatalf("default-created native session root %q invalid", root)
+	}
+	if err := state.closeContinuation(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(root); !os.IsNotExist(err) {
+		t.Fatal("default-created native session root survived cleanup")
+	}
+}
+
+// TestNativeSessionMemoryRootRefusesInvalidOverride proves a bad
+// SWORN_NATIVE_SESSION_ROOT override is refused rather than silently
+// replaced by a fallback.
+func TestNativeSessionMemoryRootRefusesInvalidOverride(t *testing.T) {
+	t.Setenv(gitx.EnvNativeSessionRoot, "relative-root")
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("relative SWORN_NATIVE_SESSION_ROOT admitted")
+	}
+	t.Setenv(gitx.EnvNativeSessionRoot, "/workspace")
+	if _, err := nativeSessionMemoryRoot(); err == nil {
+		t.Fatal("guest-path SWORN_NATIVE_SESSION_ROOT admitted")
+	}
+}
+
+func randomSuffix() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
 
 func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
@@ -459,6 +747,7 @@ func TestExactNativeCLIsCertifyFreshAndContinuationProviderRequests(t *testing.T
 }
 
 func TestExactNativeCLIsKeepModelPromptOffOrdinaryDisk(t *testing.T) {
+	setNativeMemoryRootEnv(t)
 	models := map[ProfileFamily]string{
 		ProfileCodex:  "sworn-capture-model",
 		ProfileClaude: "claude-sonnet-4-20250514",
@@ -1024,6 +1313,7 @@ func TestSecretGuardFindsCapabilityAcrossWriteBoundaries(t *testing.T) {
 func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 	t *testing.T,
 ) {
+	setNativeMemoryRootEnv(t)
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
@@ -1731,6 +2021,7 @@ func TestNativeContinuationIdentityMismatchPrecedesBrokerArm(t *testing.T) {
 }
 
 func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
+	setNativeMemoryRootEnv(t)
 	config := NativeAdapterConfig{
 		Family:           ProfileCodex,
 		CredentialTarget: CodexCredentialTarget,
@@ -1785,8 +2076,12 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 		t.Fatal("unlocked stale root was not recovered")
 	}
 
+	memoryRoot, err := nativeSessionMemoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	incomplete, err := os.MkdirTemp(
-		nativeSessionMemoryRoot,
+		memoryRoot,
 		nativeSessionRootPrefix,
 	)
 	if err != nil {
@@ -1950,11 +2245,11 @@ func pinnedRuntimeFile(
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("host runtime file %s unavailable: %v", source, err)
 	}
 	digest, err := executableDigest(resolved)
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("host runtime file %s unavailable: %v", source, err)
 	}
 	return PinnedRuntimeFile{Path: resolved, Target: target, Digest: digest}
 }

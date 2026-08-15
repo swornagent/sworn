@@ -3,7 +3,8 @@
 // protocol reference material they cite.
 //
 // It owns compiled protocol bytes only. Runtime records remain in Git under
-// .baton/releases and are never embedded or read through this package.
+// the configured records root (default .sworn/records) and are never embedded
+// or read through this package.
 package baton
 
 import (
@@ -37,11 +38,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256     = "sha256:57bddcc421794a5660281aaad2928eedc895ebc2c767f907b8916adc26a8570d"
+	ManifestSHA256     = "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c"
 	AssetCount         = 25
-	AssetBytes         = int64(384567)
+	AssetBytes         = int64(390809)
 
-	releaseDocumentSHA256 = "sha256:c28e1f43a7052b9ac41d4e44d2d34f6b5986e0707e43dda9840856ec3580390d"
+	releaseDocumentSHA256 = "sha256:867e8a2a321aac278341340003858920d272155726600112b0552c56e307daa2"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )

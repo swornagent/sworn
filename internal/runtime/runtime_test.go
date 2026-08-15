@@ -116,7 +116,7 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 			}(),
 		},
 		Driver: &FakeDriverConfig{
-			Executable: "/bin/true",
+			Executable: "/usr/bin/true",
 			Digest:     "sha256:" + strings.Repeat("a", 64),
 			AdapterKey: "fixture", Profile: "fixture",
 		},

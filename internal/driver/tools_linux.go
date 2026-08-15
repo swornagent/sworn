@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 func readToolPath(root, target string) ([]byte, error) {
@@ -461,10 +463,11 @@ func runToolBash(
 	// Read-only workspaces expose read-only git: a verifier's job is to
 	// re-prove custody from the evidence graph, so it may read all history
 	// and write none. Read-write workers keep .git masked so no candidate
-	// can rewrite records. .baton and .sworn stay masked for everyone.
-	masked := []string{".git", ".baton", ".sworn"}
+	// can rewrite records. The records and journals roots stay masked for
+	// everyone, following the configured project roots (MaskNames).
+	masked := reservedMaskNames(invocation)
 	if invocation.Request.Workspace.Access == ReadOnly {
-		masked = []string{".baton", ".sworn"}
+		masked = withoutGit(masked)
 		if gitArguments, err := readOnlyGitBinds(
 			invocation.HostWorkspace,
 		); err == nil {
@@ -499,6 +502,10 @@ func runToolBash(
 			"--setenv", "GOPROXY", "off",
 		)
 	}
+	shell, err := gitx.ResolveShellExecutable()
+	if err != nil {
+		return nil, 0, err
+	}
 	arguments = append(arguments,
 		"--ro-bind-fd", "4", GuestInputPath,
 		"--chdir", GuestWorkspacePath,
@@ -508,7 +515,7 @@ func runToolBash(
 		"--setenv", "LANG", "C.UTF-8",
 		"--setenv", "LC_ALL", "C.UTF-8",
 		"--setenv", "TZ", "UTC",
-		"/usr/bin/sh", "-eu", "-c", script,
+		shell, "-eu", "-c", script,
 	)
 	command := exec.CommandContext(ctx, bwrap, arguments...)
 	command.Env = []string{}

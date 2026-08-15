@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 func projectionInput(name, relative string, body []byte) (Input, InputContent) {
@@ -14,6 +16,68 @@ func projectionInput(name, relative string, body []byte) (Input, InputContent) {
 		Digest: Digest(body),
 	}
 	return input, InputContent{Input: input, Bytes: body}
+}
+
+// TestInputProjectionThreadsEngineReservedNames proves the engine-computed
+// reserved set reaches the projection admission: a path under a relocated
+// records root is admitted under the fixed default set but refused once the
+// engine threads its configured reserved names.
+func TestInputProjectionThreadsEngineReservedNames(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	first, firstContent := projectionInput("plan", ".records/plan.md", []byte("plan\n"))
+	projection, err := StageInputProjection(
+		workspace,
+		[]Input{first},
+		[]InputContent{firstContent},
+	)
+	if err != nil {
+		t.Fatalf("default admission rejected configured-root path: %v", err)
+	}
+	t.Cleanup(func() { _ = projection.Close() })
+	if _, err := StageInputProjection(
+		workspace,
+		[]Input{first},
+		[]InputContent{firstContent},
+		[]string{".git", ".records", ".journals"},
+	); !IsCode(err, "INVALID_PRODUCTION_INPUT_PATH") {
+		t.Fatalf("configured-root projection error = %v, want INVALID_PRODUCTION_INPUT_PATH", err)
+	}
+}
+
+// TestStageInputProjectionRefusesUnavailableTempRoot is the A2 consumer
+// proof for the projection: an invalid or uncreatable configured temp root
+// fails the staging instead of silently falling back to the process/system
+// temp directory.
+func TestStageInputProjectionRefusesUnavailableTempRoot(t *testing.T) {
+	input, content := projectionInput("plan", "plan.md", []byte("plan\n"))
+
+	t.Run("invalid override", func(t *testing.T) {
+		workspace := t.TempDir()
+		t.Setenv(gitx.EnvTempRoot, "relative-tmp")
+		if _, err := StageInputProjection(
+			workspace,
+			[]Input{input},
+			[]InputContent{content},
+		); err == nil {
+			t.Fatal("invalid temp root silently escaped to the system temp directory")
+		}
+	})
+	t.Run("uncreatable root", func(t *testing.T) {
+		workspace := t.TempDir()
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(gitx.EnvTempRoot, filepath.Join(blocker, "tmp"))
+		if _, err := StageInputProjection(
+			workspace,
+			[]Input{input},
+			[]InputContent{content},
+		); err == nil {
+			t.Fatal("uncreatable temp root silently escaped to the system temp directory")
+		}
+	})
 }
 
 func TestInputProjectionStagesExactOrderedReadOnlyBytes(t *testing.T) {

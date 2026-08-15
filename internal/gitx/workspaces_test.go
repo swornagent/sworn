@@ -118,7 +118,10 @@ func TestRunWorkspacesRejectRepositoryLocalTempBase(t *testing.T) {
 	if err := os.Mkdir(localTemp, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TMPDIR", localTemp)
+	// The workspace factory root is a configured machine/user location
+	// (A2); a root inside the repository is refused by the same overlap
+	// guard that previously refused a repository-local TMPDIR.
+	t.Setenv("SWORN_WORKSPACE_ROOT", localTemp)
 	base, err := workspaceBase()
 	if err != nil {
 		t.Fatal(err)
@@ -128,8 +131,14 @@ func TestRunWorkspacesRejectRepositoryLocalTempBase(t *testing.T) {
 	} else {
 		requireGitxErrorCode(t, err, "INVALID_REPOSITORY")
 	}
-	if _, err := os.Lstat(base); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rejected overlapping workspace base was created: %v", err)
+	// The rejected base was never initialized as a workspace owner: the only
+	// entry is the repository-local directory the test itself created.
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatalf("read rejected workspace base: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected overlapping workspace base was initialized: %v", entries)
 	}
 }
 

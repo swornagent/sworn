@@ -128,7 +128,9 @@ func kernelProductTree(t *testing.T, commit string) string {
 			t.Fatalf("ls-tree metadata = %q", metadata)
 		}
 		if path == baton.RecordRoot ||
-			strings.HasPrefix(path, baton.RecordRoot+"/") {
+			strings.HasPrefix(path, baton.RecordRoot+"/") ||
+			path == baton.LegacyRecordRoot ||
+			strings.HasPrefix(path, baton.LegacyRecordRoot+"/") {
 			continue
 		}
 		entries = append(entries, entry{path, fields[0], fields[1], fields[2]})

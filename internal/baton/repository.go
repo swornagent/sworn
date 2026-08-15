@@ -151,6 +151,47 @@ func newRepository(value *gitx.Repository, resolver InertnessResolver, identitie
 
 func (r *repository) root() string { return r.git.Root() }
 
+// commitPrefix returns the configured commit-message prefix for plan and
+// receipt actions, defaulting to the documented "sworn" prefix for an
+// unconfigured repository.
+func (r *repository) commitPrefix() string {
+	if r == nil || r.git == nil {
+		return gitx.DefaultCommitPrefix
+	}
+	return r.git.CommitPrefix()
+}
+
+// recordRoot returns the configured records root (the committed project
+// config when present, else the default .sworn/records), resolved from the
+// same RecordPathAdmission the gitx repository used at admission.
+func (r *repository) recordRoot() string {
+	if r == nil || r.record == nil {
+		return RecordRoot
+	}
+	return r.record.Root()
+}
+
+// documentsRoot returns the configured documents root (the committed project
+// config when present, else the default docs/sworn), where the authored plan
+// and authored slice contracts are published for people to read.
+func (r *repository) documentsRoot() string {
+	if r == nil || r.git == nil {
+		return gitx.DefaultDocumentsRoot
+	}
+	return r.git.DocumentsRoot()
+}
+
+// contractsRoot returns the configured contracts root (the committed project
+// config when present, else the default "contracts"). Declared contract
+// paths are enforced to live beneath it so a configured contracts root is
+// honored at both write-time and read-time contract resolution.
+func (r *repository) contractsRoot() string {
+	if r == nil || r.git == nil {
+		return gitx.DefaultContractsRoot
+	}
+	return r.git.ProjectConfig().ContractsRoot
+}
+
 func (r *repository) objectFormat() string { return string(r.git.ObjectFormat()) }
 
 func (r *repository) oid(value string) (gitx.OID, error) {
@@ -409,7 +450,11 @@ func (r *repository) assertCandidateRecordRootUnchanged(base, candidate string) 
 	return nil
 }
 
-func (r *repository) prepareRecord(parent, message string, changes map[string][]byte) (preparedCommit, error) {
+func (r *repository) prepareRecord(
+	parent, message string,
+	changes map[string][]byte,
+	documents map[string][]byte,
+) (preparedCommit, error) {
 	expected, err := r.oid(parent)
 	if err != nil {
 		return preparedCommit{}, err
@@ -427,8 +472,9 @@ func (r *repository) prepareRecord(parent, message string, changes map[string][]
 		})
 	}
 	prepared, err := r.git.PrepareRecordTransition(gitx.RecordTransitionRequest{
-		ExpectedHead: expected, Changes: values, Message: message,
-		Identity:        r.identity,
+		ExpectedHead: expected, Changes: values, Documents: documents,
+		Message:        message,
+		Identity:       r.identity,
 		RecordAdmission: r.record, ProductAdmission: r.product,
 	})
 	if err != nil {

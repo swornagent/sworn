@@ -83,6 +83,7 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 		invocation.HostWorkspace,
 		invocation.Request.Inputs,
 		invocation.Inputs,
+		reservedMaskNames(invocation),
 	)
 	if err != nil {
 		return nil, err
@@ -102,7 +103,11 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	// between tool calls) and are destroyed with the session. The isolation
 	// boundary is between invocations and roles, never between consecutive
 	// commands of the same worker.
-	session.scratch, err = os.MkdirTemp("", "sworn-invocation-scratch-")
+	temp, tempErr := tempRoot()
+	if tempErr != nil {
+		return nil, tempErr
+	}
+	session.scratch, err = os.MkdirTemp(temp, "sworn-invocation-scratch-")
 	if err != nil {
 		return nil, fail("PROCESS_START_FAILED")
 	}
@@ -756,7 +761,10 @@ func (session *toolSession) resolve(
 	}
 	relative = strings.TrimPrefix(relative, "/")
 	if relative != "" {
-		if err := validateRepositoryPath(relative); err != nil {
+		if err := validateRepositoryPath(
+			relative,
+			reservedMaskNames(session.invocation),
+		); err != nil {
 			return "", "", "", fail("TOOL_PATH_INVALID")
 		}
 	}

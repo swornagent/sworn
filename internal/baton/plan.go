@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -19,7 +21,13 @@ const (
 	planClose       = "\n```\n"
 	manifestOpen    = "```sworn-release-manifest-v1\n"
 	manifestClose   = "\n```\n"
-	RecordRoot      = ".baton/releases"
+	// RecordRoot is the configured records root default, kept in agreement
+	// with the gitx project-config default so the standalone parser and the
+	// repository admission can never diverge.
+	RecordRoot = gitx.DefaultRecordsRoot
+	// LegacyRecordRoot is the historical records root that remains readable
+	// and reserved for releases recorded before the relocation.
+	LegacyRecordRoot = gitx.LegacyRecordsRoot
 )
 
 var (
@@ -328,6 +336,17 @@ func (p Plan) ResolveSliceContractAt(
 	if declared.ContractPath == "" {
 		return declared, nil
 	}
+	contractsRoot := gitx.DefaultContractsRoot
+	if repository.repository() != nil {
+		contractsRoot = repository.repository().ProjectConfig().ContractsRoot
+	}
+	if declared.ContractPath != contractsRoot &&
+		!strings.HasPrefix(declared.ContractPath, contractsRoot+"/") {
+		return Slice{}, recordFail(
+			"CONTRACT_OUTSIDE_ROOT",
+			"contract source "+declared.ContractPath+" is outside the configured contracts root "+contractsRoot,
+		)
+	}
 	if commit == "" {
 		return Slice{}, recordFail("CONTRACT_SOURCE_REQUIRED", "manifest declares contract paths but no commit was provided")
 	}
@@ -371,6 +390,15 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 	}
 	if len(paths) == 0 {
 		return nil
+	}
+	contractsRoot := repository.contractsRoot()
+	for _, path := range paths {
+		if path != contractsRoot && !strings.HasPrefix(path, contractsRoot+"/") {
+			return recordFail(
+				"CONTRACT_OUTSIDE_ROOT",
+				"contract source "+path+" is outside the configured contracts root "+contractsRoot,
+			)
+		}
 	}
 	if source == "" {
 		return recordFail(
@@ -791,7 +819,7 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		return Slice{}, "", recordFail("INVALID_FIELD", label+".scope.include cannot be empty")
 	}
 	for _, scopedPath := range includes {
-		if scopedPath == RecordRoot || strings.HasPrefix(scopedPath, RecordRoot+"/") {
+		if isReservedRecordPath(scopedPath) {
 			return Slice{}, "", recordFail(
 				"RESERVED_RECORD_ROOT",
 				label+".scope.include cannot name reserved Baton records at "+scopedPath,
@@ -956,7 +984,7 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 	if err != nil {
 		return Slice{}, "", err
 	}
-	if contractPath == RecordRoot || strings.HasPrefix(contractPath, RecordRoot+"/") {
+	if isReservedRecordPath(contractPath) {
 		return Slice{}, "", recordFail(
 			"RESERVED_RECORD_ROOT",
 			label+".contract_path cannot name reserved Baton records at "+contractPath,
@@ -982,7 +1010,7 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 		return Slice{}, "", recordFail("INVALID_FIELD", label+".touchpoints cannot be empty")
 	}
 	for _, touchpoint := range touchpoints {
-		if touchpoint == RecordRoot || strings.HasPrefix(touchpoint, RecordRoot+"/") {
+		if isReservedRecordPath(touchpoint) {
 			return Slice{}, "", recordFail(
 				"RESERVED_RECORD_ROOT",
 				label+".touchpoints cannot name reserved Baton records at "+touchpoint,
@@ -1153,6 +1181,19 @@ func uniqueStringList(value any, label string, validate stringValidator) ([]stri
 
 func pathsOverlap(left, right string) bool {
 	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+// isReservedRecordPath reports whether a repository-relative path names the
+// configured records root or the historical legacy records root, either
+// exactly or beneath them. Both roots stay reserved so a recorded plan can
+// never scope product work into either.
+func isReservedRecordPath(value string) bool {
+	for _, root := range []string{RecordRoot, LegacyRecordRoot} {
+		if value == root || strings.HasPrefix(value, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func unique(values []string) []string {

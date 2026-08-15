@@ -85,7 +85,7 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 		Target: &target, Base: &base, Candidate: &candidate, ProductTree: &productTree,
 		Inputs: cloneInputs(inputs), Checks: &checks,
 	}
-	message, err := RenderReceiptCommit("baton("+release+"): assembly candidate", detail, receipt)
+	message, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"): assembly candidate", detail, receipt)
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -174,7 +174,7 @@ func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionR
 		Summary: summary, Target: &target, Candidate: &candidate,
 		ProductTree: &productTree, ResultCommit: &resultCommit,
 	}
-	message, err := RenderReceiptCommit("baton("+release+"): merge passed candidate", detail, receipt)
+	message, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"): merge passed candidate", detail, receipt)
 	if err != nil {
 		return ActionResult{}, err
 	}

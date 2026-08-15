@@ -97,9 +97,10 @@ func RunFake(request Request, profile FakeProfile) (Result, error) {
 }
 
 type fakeScript struct {
-	SchemaVersion string `json:"schema_version"`
-	Behavior      string `json:"behavior"`
-	Submission    string `json:"submission,omitempty"`
+	SchemaVersion string   `json:"schema_version"`
+	Behavior      string   `json:"behavior"`
+	Submission    string   `json:"submission,omitempty"`
+	Reserved      []string `json:"reserved,omitempty"`
 }
 
 func readFakeScript(request Request) (fakeScript, bool, error) {
@@ -125,7 +126,7 @@ func readFakeScript(request Request) (fakeScript, bool, error) {
 			body,
 			2_097_152,
 			[]string{"schema_version", "behavior"},
-			[]string{"submission"},
+			[]string{"submission", "reserved"},
 			&script,
 		); err != nil {
 			return fakeScript{}, false, err
