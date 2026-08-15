@@ -58,10 +58,16 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 			t.Fatalf("root .gitignore lacks allowlist line %q:\n%s", line, rootIgnore)
 		}
 	}
-	if strings.Contains(rootAttributes, ".baton") {
-		t.Fatalf("root .gitattributes still names .baton:\n%s", rootAttributes)
-	}
-	for _, line := range []string{"/.sworn/records export-ignore", "/.sworn/records/** export-ignore"} {
+	// The records roots stay export-ignored whether legacy or configured:
+	// until the operator-gated migration runs, .baton/releases still holds
+	// the historical records, and records under either root are never
+	// package input.
+	for _, line := range []string{
+		"/.baton/releases export-ignore",
+		"/.baton/releases/** export-ignore",
+		"/.sworn/records export-ignore",
+		"/.sworn/records/** export-ignore",
+	} {
 		if !strings.Contains(rootAttributes, line) {
 			t.Fatalf("root .gitattributes lacks records export-ignore line %q:\n%s", line, rootAttributes)
 		}
