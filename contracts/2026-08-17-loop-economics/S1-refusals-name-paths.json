@@ -1,0 +1,28 @@
+{
+  "outcome": "A refused candidate tells everyone why: seal and scope refusals persist the offending paths into the journal effect result and into the next try's worker context, so no worker ever retries blind against an invisible wall.",
+  "scope": {
+    "include": ["internal/gitx", "internal/baton", "internal/runtime", "internal/journal"],
+    "exclude": ["weakening any refusal", "changing any error code already recorded in existing journals", "changing what the seal or scope gates admit"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "When sealTrackWithClaim or the refresh path refuses a candidate, the journal effect's result payload carries the refusal code and a bounded list of offending workspace-relative paths (first twenty plus a total count), proven by a test that seals a candidate with out-of-scope and reserved-root changes and reads the paths back from the journal."},
+    {"id": "A2", "text": "ValidateSliceCandidateScope refusals carry the same bounded path evidence through the same channel, for both the out-of-scope and reserved-root cases."},
+    {"id": "A3", "text": "A retry dispatch after a seal or scope refusal includes the prior refusal's code and paths in the worker's context, proven by a test that inspects the prepared dispatch inputs; a worker told which three paths fell outside scope can fix or drop them in one try."},
+    {"id": "A4", "text": "Effects recorded by existing journals remain readable unchanged: the result payload is additive, no error code is renamed, and a regression test reads a pre-change journal fixture."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Refusal evidence is bounded and additive: journal schemas gain content inside the existing result payload, wire vocabulary is untouched, and nothing existing journals recorded becomes unreadable.",
+    "Evidence basis: run 2026-08-12-configurable-paths-r6 burned three ~600-turn tries against one invisible path family (sworn#203).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

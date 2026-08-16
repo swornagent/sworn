@@ -1,0 +1,30 @@
+{
+  "outcome": "Workers stop paying one round-trip per probe: the driver accepts multiple tool calls in a single assistant turn, executes them in submission order against the existing tool session, returns all results in one continuation step, and the role assets tell workers to batch independent probes - the measured 1.15 calls per turn (sworn#201) becomes a batching-shaped distribution.",
+  "scope": {
+    "include": ["internal/driver", "internal/baton", "internal/prompt"],
+    "exclude": ["concurrent tool execution (order stays serial and deterministic)", "changing any tool's own semantics or the submission contract", "renaming any wire-vocabulary identifier"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "An assistant turn carrying multiple tool calls decodes, executes each call in order against the same invocation tool session, and returns every result correlated to its call id in the following request, on both the responses and chat surfaces, proven with recorded-fixture round-trip tests."},
+    {"id": "A2", "text": "Failure isolation: one failing call in a batch produces its bounded failure result in place while the remaining calls still execute and return, proven by a fixture where the middle call of three fails."},
+    {"id": "A3", "text": "Budgets bind per turn, not per call: the existing output and argument limits apply to the batch as recorded evidence, and a batch exceeding them refuses with the existing labelled errors, unchanged in code."},
+    {"id": "A4", "text": "The implementer and verifier role assets instruct batching independent reads and searches into one turn, every pin of every changed role asset is updated in the same candidate, and the asset-identity tests pass - the full pin set enumerated per the conformance-gate revision lesson."},
+    {"id": "A5", "text": "A driver-level test proves a discovery sequence that took N single-call turns completes in a bounded fraction of the turns with batching, as the executable form of the throughput claim."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Execution order is the model's submission order, serially, against one tool session: determinism and evidence-ordering are not spent for throughput.",
+    "Role assets are pinned identities: the slice fails closed if any pin of a changed asset lies outside this contract's scope - the scope above was derived by enumerating the pins first.",
+    "Evidence basis: 424 turns / 489 calls measured on 2026-08-12-configurable-paths-r3; 64% archaeology at one probe per round-trip (sworn#201).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

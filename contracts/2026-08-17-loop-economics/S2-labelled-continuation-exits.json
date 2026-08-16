@@ -1,0 +1,28 @@
+{
+  "outcome": "CONTINUATION_INVALID stops being a bucket: every exit that produces it carries a stable machine-readable site label into the contract error detail and the journal, so the journal alone answers which mechanism fired.",
+  "scope": {
+    "include": ["internal/driver"],
+    "exclude": ["renaming any error code recorded in existing journals", "changing which conditions refuse", "runtime scheduling changes"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "Every fail(\"CONTINUATION_INVALID\") site in the driver (responses, chat, continuation ledger) is replaced by a labelled constructor naming a stable site identifier (for example continuation.toolcall_decode.correlate_reuse), and a test enumerates the sites and asserts no unlabelled constructor remains."},
+    {"id": "A2", "text": "The compound tool-call decode check at the site diagnosed in sworn#187 (eight conditions collapsed into one refusal, including correlate-on-replay) is split so each condition carries its own label."},
+    {"id": "A3", "text": "The site label travels into the journal effect's error detail without renaming error_code, proven by a test that provokes a labelled refusal through a dispatch and reads the label back from the journal."},
+    {"id": "A4", "text": "The three mechanisms already confirmed for the bucket - budget exhaustion, unrecognised vendor dialect, tool-call decode refusal - map to three distinct labels, pinned by unit tests."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "error_code values are durable identifiers in existing journals: labels are additive detail, never a rename.",
+    "Evidence basis: sworn#187 - three unrelated faults surfaced as one opaque string across two releases; the operational diag build (runtime.Caller stderr labels) is the proof of value and is retired by this slice.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}
