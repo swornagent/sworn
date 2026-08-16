@@ -21,6 +21,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -587,10 +588,16 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 		runGit(t, repository, "diff", "--name-only", targetBefore, "main"), "\n",
 	) {
 		line = strings.TrimSpace(line)
+		documentsDir := gitx.DefaultDocumentsRoot + "/" + freshAgentRelease
 		if line == "" || line == baton.RecordRoot ||
 			strings.HasPrefix(line, baton.RecordRoot+"/") ||
 			line == baton.LegacyRecordRoot ||
-			strings.HasPrefix(line, baton.LegacyRecordRoot+"/") {
+			strings.HasPrefix(line, baton.LegacyRecordRoot+"/") ||
+			// The engine publishes the authored plan and contracts under
+			// the documents root in the same commit as the frozen record
+			// (configurable-paths S2, A1): a read surface, not product.
+			line == documentsDir ||
+			strings.HasPrefix(line, documentsDir+"/") {
 			continue
 		}
 		changed = append(changed, line)

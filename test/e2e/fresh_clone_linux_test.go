@@ -52,16 +52,20 @@ func TestFreshCloneCarriesMigratedRecordsAndNoLegacySurface(t *testing.T) {
 		t.Fatalf("fresh clone tracks a .baton path:\n%s", tracked)
 	}
 
-	// The records for every release ref live under .sworn/records.
-	refs := run("for-each-ref", "--format=%(refname:short)", "refs/heads/release-wt/*")
+	// Every release recorded at HEAD lives under .sworn/records and its
+	// frozen plan is readable. The inventory comes from the records tree
+	// itself: a fresh clone maps branches to remote-tracking refs, and
+	// historical release-wt refs predating the record scheme carry no
+	// record at HEAD, so ref inventory is the wrong source of truth here.
+	recordEntries := run("ls-tree", "--name-only", "HEAD", ".sworn/records/")
 	var releases []string
-	for _, ref := range strings.Split(refs, "\n") {
-		if ref = strings.TrimSpace(ref); ref != "" {
-			releases = append(releases, strings.TrimPrefix(ref, "release-wt/"))
+	for _, entry := range strings.Split(recordEntries, "\n") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			releases = append(releases, strings.TrimPrefix(entry, ".sworn/records/"))
 		}
 	}
 	if len(releases) == 0 {
-		t.Fatal("no release refs in the fresh clone")
+		t.Fatal("no recorded releases under .sworn/records in the fresh clone")
 	}
 	for _, release := range releases {
 		body := run("show", "HEAD:"+".sworn/records/"+release+"/plan.md")
