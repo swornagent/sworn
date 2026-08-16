@@ -3,3 +3,4 @@
 /.sworn/*
 !/.sworn/records/
 *.out
+/.claude/
