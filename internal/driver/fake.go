@@ -139,14 +139,14 @@ func readFakeScript(request Request) (fakeScript, bool, error) {
 			return fakeScript{}, false, fail("NONCANONICAL_JSON")
 		}
 		switch script.Behavior {
-		case "none", "usage_unavailable", "submit", "block", "attempt_workspace_write", "malformed_submission_frame":
+		case "none", "usage_unavailable", "submit", "reserved-canary", "block", "attempt_workspace_write", "malformed_submission_frame":
 		default:
 			return fakeScript{}, false, fail("INVALID_FAKE_SCRIPT")
 		}
-		if script.Behavior == "submit" && script.Submission == "" {
+		if (script.Behavior == "submit" || script.Behavior == "reserved-canary") && script.Submission == "" {
 			return fakeScript{}, false, fail("INVALID_FAKE_SCRIPT")
 		}
-		if script.Behavior != "submit" && script.Submission != "" {
+		if script.Behavior != "submit" && script.Behavior != "reserved-canary" && script.Submission != "" {
 			return fakeScript{}, false, fail("INVALID_FAKE_SCRIPT")
 		}
 		return script, true, nil
@@ -159,7 +159,7 @@ func executeFakeScript(request Request, script fakeScript) (<-chan error, error)
 		return nil, nil
 	case "usage_unavailable":
 		return nil, nil
-	case "submit":
+	case "submit", "reserved-canary":
 		body, err := base64.StdEncoding.Strict().DecodeString(script.Submission)
 		if err != nil || base64.StdEncoding.EncodeToString(body) != script.Submission {
 			return nil, fail("INVALID_FAKE_SCRIPT")

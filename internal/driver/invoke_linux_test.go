@@ -285,16 +285,32 @@ func fakeInvocationReserved(
 	access WorkspaceAccess,
 	behavior string,
 	reserved []string,
+	submission *Submission,
 ) (Invocation, string) {
 	t.Helper()
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "workspace-canary"), []byte("unchanged\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A prepared workspace carries its reserved roots; the mask applies to
+	// what exists (an absent root cannot be mounted without mutating the
+	// host bind). The fixture models the real prepared-workspace shape.
+	for _, name := range reserved {
+		if err := os.Mkdir(filepath.Join(workspace, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	script := fakeScript{
 		SchemaVersion: "sworn.fake-script/v1",
 		Behavior:      behavior,
 		Reserved:      append([]string(nil), reserved...),
+	}
+	if submission != nil {
+		submissionBody, err := EncodeSubmission(*submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script.Submission = base64.StdEncoding.EncodeToString(submissionBody)
 	}
 	scriptBody, err := json.Marshal(script)
 	if err != nil {
@@ -364,6 +380,9 @@ func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
 		}
 	}
 
+	submissionValue := submissionFixture(
+		t, "configured-root-mask", ImplementerImplementation, "",
+	)
 	invocation, _ := fakeInvocationReserved(
 		t,
 		"configured-root-mask",
@@ -372,6 +391,7 @@ func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
 		ReadWrite,
 		"reserved-canary",
 		reserved,
+		&submissionValue,
 	)
 	// The engine derives the mask from the configured project roots; here the
 	// test supplies exactly what the engine would compute for this config.
@@ -390,6 +410,9 @@ func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
 	}
 	if observation.Diagnostic.Code != "none" {
 		t.Fatalf("reserved-canary diagnostic = %s", observation.Diagnostic.Code)
+	}
+	if observation.Handoff == nil {
+		t.Fatal("reserved-canary released no sealed handoff")
 	}
 }
 

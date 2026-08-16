@@ -129,9 +129,12 @@ func main() {
 			_, _ = io.WriteString(os.Stderr, "RESERVED_MASK_CANARY_FAILED\n")
 			os.Exit(17)
 		}
+		// Hand the original body on: the protocol fake sees the script and
+		// performs the scripted submission after the mask proof, because
+		// every model responsibility must submit to complete.
 		os.Exit(driver.RunFakeCommand(
 			[]string{"run"},
-			bytes.NewReader(cleanRequestBody),
+			bytes.NewReader(requestBody),
 			os.Stdout,
 			io.Discard,
 			driver.FakeCompleted,

@@ -436,6 +436,12 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 	for _, reserved := range reservedMaskNames(invocation) {
 		info, err := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
 		if os.IsNotExist(err) {
+			// A reserved root absent from the host workspace stays
+			// unmounted: bubblewrap would have to create the mount point
+			// inside the bind, mutating the host (and failing outright on
+			// read-only workspaces). Real prepared workspaces always carry
+			// their reserved roots; a worker inventing one from nothing is
+			// refused one layer later by the seal and scope gates.
 			continue
 		}
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {

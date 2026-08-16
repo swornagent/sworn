@@ -239,6 +239,11 @@ func TestNativeSessionMemoryRootRefusesLooseNativeOverride(t *testing.T) {
 	if err := os.MkdirAll(loose, 0o777); err != nil {
 		t.Fatal(err)
 	}
+	// MkdirAll's mode is umask-filtered, so make the looseness explicit or
+	// the test's meaning varies by machine.
+	if err := os.Chmod(loose, 0o777); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(loose) })
 	t.Setenv(gitx.EnvNativeSessionRoot, loose)
 	t.Setenv(gitx.EnvTempRoot, "")

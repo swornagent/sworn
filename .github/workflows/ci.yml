@@ -27,6 +27,15 @@ permissions:
 
 jobs:
   test:
+    # A push to main or release/** already runs this workflow on the same
+    # commit; a same-repo pull request from one of those branches would run
+    # it a second time for nothing (checks attach per-commit). Forks and
+    # ordinary topic branches still get their pull_request run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      (github.event.pull_request.head.ref != 'main' &&
+       !startsWith(github.event.pull_request.head.ref, 'release/'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -65,6 +74,46 @@ jobs:
             --clearenv \
             --ro-bind / / \
             /usr/bin/true
+      - name: Module is tidy
+        run: go mod tidy -diff
+      - name: Product tests
+        run: go test -count=1 ./cmd/sworn ./internal/... ./tools/...
+      - name: End-to-end tests
+        run: go test -count=1 -parallel=1 -timeout=20m ./test/e2e
+      - name: Race test
+        run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
+      - name: Vet
+        run: go vet ./...
+      - name: Official binary
+        run: |
+          CGO_ENABLED=0 go build \
+            -mod=readonly \
+            -buildvcs=false \
+            -trimpath \
+            -o "${RUNNER_TEMP}/sworn" \
+            ./cmd/sworn
+  format:
+    # Separate from test on purpose: when formatting fast-failed inside the
+    # test job, the test steps never ran, and two releases merged with
+    # born-failing tests nobody had executed. Both jobs always report.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      (github.event.pull_request.head.ref != 'main' &&
+       !startsWith(github.event.pull_request.head.ref, 'release/'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GOFLAGS: -buildvcs=false
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Product formatting
         shell: bash
         run: |
@@ -94,21 +143,3 @@ jobs:
             git diff-tree --check --root -r HEAD \
               -- "${product_pathspec[@]}"
           fi
-      - name: Module is tidy
-        run: go mod tidy -diff
-      - name: Product tests
-        run: go test -count=1 ./cmd/sworn ./internal/... ./tools/...
-      - name: End-to-end tests
-        run: go test -count=1 -parallel=1 -timeout=20m ./test/e2e
-      - name: Race test
-        run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
-      - name: Vet
-        run: go vet ./...
-      - name: Official binary
-        run: |
-          CGO_ENABLED=0 go build \
-            -mod=readonly \
-            -buildvcs=false \
-            -trimpath \
-            -o "${RUNNER_TEMP}/sworn" \
-            ./cmd/sworn
