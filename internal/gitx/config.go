@@ -91,11 +91,11 @@ const (
 	EnvShell         = "SWORN_SH"
 	// Environment variable names that would name project-scoped locations.
 	// Any non-empty value is refused by RefuseProjectScopeOverrides.
-	EnvRecordsRoot    = "SWORN_RECORDS_ROOT"
-	EnvJournalsRoot   = "SWORN_JOURNALS_ROOT"
-	EnvContractsRoot  = "SWORN_CONTRACTS_ROOT"
-	EnvCommitPrefix   = "SWORN_COMMIT_PREFIX"
-	EnvDocumentsRoot  = "SWORN_DOCUMENTS_ROOT"
+	EnvRecordsRoot   = "SWORN_RECORDS_ROOT"
+	EnvJournalsRoot  = "SWORN_JOURNALS_ROOT"
+	EnvContractsRoot = "SWORN_CONTRACTS_ROOT"
+	EnvCommitPrefix  = "SWORN_COMMIT_PREFIX"
+	EnvDocumentsRoot = "SWORN_DOCUMENTS_ROOT"
 )
 
 var commitPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`)

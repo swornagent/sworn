@@ -789,6 +789,7 @@ func (r *Repository) ListTree(commit OID) ([]TreeEntry, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	return entries, nil
 }
+
 // isReservedRecordPath reports whether a repository-relative path names the
 // configured records root or the historical legacy records root, either
 // exactly or beneath them. Both stay reserved so neither the configured root

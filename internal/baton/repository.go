@@ -473,8 +473,8 @@ func (r *repository) prepareRecord(
 	}
 	prepared, err := r.git.PrepareRecordTransition(gitx.RecordTransitionRequest{
 		ExpectedHead: expected, Changes: values, Documents: documents,
-		Message:        message,
-		Identity:       r.identity,
+		Message:         message,
+		Identity:        r.identity,
 		RecordAdmission: r.record, ProductAdmission: r.product,
 	})
 	if err != nil {

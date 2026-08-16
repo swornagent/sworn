@@ -179,8 +179,8 @@ func (r *Repository) prepareRecord(request RecordRequest) (PreparedCommit, error
 }
 
 type RecordTransitionRequest struct {
-	ExpectedHead     OID
-	Changes          []BlobChange
+	ExpectedHead OID
+	Changes      []BlobChange
 	// Documents maps additional authored product paths (the documents root
 	// publish for the same record commit) to their exact bytes. They are
 	// ordinary product content a person reads, never the record root; the
