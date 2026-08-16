@@ -1,0 +1,57 @@
+{
+  "outcome": "Sworn's OpenAI-compatible driver admits Google and xAI as first-class providers by handling their wire dialects at named extension points: Google's per-message opaque thought signatures are retained and replayed byte-exact on every subsequent turn or the dispatch is refused, and xAI's vendor usage decorations are admitted without weakening strict decoding anywhere else, so gemini-3.7-flash and grok-4.6 certify and can carry roles.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "relaxing strict decoding into tolerance of unknown fields anywhere except the named extension points",
+      "parsing, interpreting or persisting the content of any opaque vendor field",
+      "changes to token budgeting, streaming, or the continuation step and field limits",
+      "renaming any wire-vocabulary identifier"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A chat-completions assistant message carrying a vendor extension container (Google extra_content with a thought signature) decodes successfully, the container is retained as opaque continuation state, and the next request in the same invocation replays it byte-exact in the position the provider requires. A fixture from a recorded gemini-3.7-flash exchange proves decode, retention and byte-exact replay."
+    },
+    {
+      "id": "A2",
+      "text": "Replay is mandatory, not best-effort: if retained vendor continuation state cannot be replayed (evicted, over budget, or structurally unplaceable), the dispatch fails closed with a labelled error naming the mechanism, because the provider silently degrades rather than erroring when the signature is absent - the recorded two-turn probe in which the model contradicts its own prior turn without the signature is checked into the fixture set as the reason."
+    },
+    {
+      "id": "A3",
+      "text": "Usage blocks carrying vendor decorations (xAI's cost, source-count and context-detail fields, from a recorded grok-4.6 exchange) decode successfully on both the chat-completions and responses surfaces, and the token accounting Sworn reads is taken only from the standard fields."
+    },
+    {
+      "id": "A4",
+      "text": "Strictness is preserved everywhere else: an unknown field outside the named extension points still fails decoding with the same error it fails with today, and a test proves the extension points are an explicit allowlist rather than a global tolerance."
+    },
+    {
+      "id": "A5",
+      "text": "Opaque vendor state never crosses the trust boundary: nothing from an extension container appears in a submission, a receipt, a candidate, or the journal beyond the continuation ledger's existing opaque retention, and a test asserts it."
+    },
+    {
+      "id": "A6",
+      "text": "Driver certification passes for a Google chat-completions adapter with gemini-3.7-flash and an xAI responses adapter with grok-4.6 when replayed against the recorded certification fixtures, and the certification failure codes these providers produce today (certification_response_contract_failed, certification_usage_failed) are covered by regression fixtures so they cannot silently return."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Opaque means opaque: vendor extension bytes are retained and replayed, never parsed for meaning, never logged in full, and never persisted outside the continuation ledger.",
+    "Fail closed over degrade silently: the recorded probe shows the provider answers confidently with a broken reasoning chain when the signature is missing, so absence of replayable state is a refusal, never a retry without it.",
+    "The extension points are named per provider and per structural position; DisallowUnknownFields-style strictness remains the default at every other decode site.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product, test and fixture changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}
