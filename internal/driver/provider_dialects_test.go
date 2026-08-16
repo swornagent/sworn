@@ -50,6 +50,35 @@ func googleContainerFromResponse(t *testing.T, body []byte) json.RawMessage {
 	)
 }
 
+// googlePerCallContainerFromFixture extracts the raw extra_content container
+// bytes of one tool call from a recorded Gemini chat-completions response,
+// byte-for-byte (the per-call position fixture g4 defines).
+func googlePerCallContainerFromFixture(
+	t *testing.T,
+	body []byte,
+	index int,
+) json.RawMessage {
+	t.Helper()
+	var raw struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ExtraContent json.RawMessage `json:"extra_content"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &raw) != nil || len(raw.Choices) != 1 ||
+		index < 0 || index >= len(raw.Choices[0].Message.ToolCalls) ||
+		len(raw.Choices[0].Message.ToolCalls[index].ExtraContent) == 0 {
+		t.Fatal("invalid Gemini chat fixture: missing per-call extra_content")
+	}
+	return append(
+		json.RawMessage(nil),
+		raw.Choices[0].Message.ToolCalls[index].ExtraContent...,
+	)
+}
+
 // grokUsageFromResponse extracts the raw usage block bytes from the recorded
 // Grok responses response, byte-for-byte.
 func grokUsageFromResponse(t *testing.T, body []byte) json.RawMessage {
@@ -242,6 +271,630 @@ func TestGoogleChatReplaysSignatureAfterToolResultsAndResume(t *testing.T) {
 		len(resumed.Messages) != 4 ||
 		!bytes.Equal(resumed.Messages[1].ExtraContent, container) {
 		t.Fatalf("post-resume replay = %s", request.Body)
+	}
+}
+
+// A1+A2: the recorded g4 tool-call-only turn decodes under the Google dialect
+// with the content field absent, the per-call thought-signature container is
+// retained keyed to its call, and the following request replays it byte-exact
+// inside the same tool call with content still absent.
+func TestGoogleChatToolCallOnlyTurnDecodesAndReplaysPerCallSignature(t *testing.T) {
+	t.Parallel()
+	conversation, err := newOpenAIConversation(
+		"https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+		"gemini-3.7-flash",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectGoogleChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+
+	response := providerDialectFixture(
+		t,
+		"gemini_chat_response_tool_call_thought_signature.json",
+	)
+	container := googlePerCallContainerFromFixture(t, response, 0)
+
+	turn, err := conversation.accept(response)
+	if err != nil || turn.Prose || len(turn.Calls) != 1 ||
+		turn.Calls[0].ID != "call_2835749" || turn.Calls[0].Name != "probe" ||
+		turn.Usage == nil || turn.Usage.InputTokens != 47 ||
+		turn.Usage.OutputTokens != 12 {
+		t.Fatalf("Google tool-call-only turn = %#v, %v", turn, err)
+	}
+	if len(conversation.messages) != 2 {
+		t.Fatalf("messages = %d", len(conversation.messages))
+	}
+	assistant := conversation.messages[1]
+	if len(assistant.Content) != 0 {
+		t.Fatalf("content must be absent, got %q", assistant.Content)
+	}
+	if len(assistant.ExtraContent) != 0 {
+		t.Fatalf(
+			"message-level extra_content must be absent on a tool-call turn, got %q",
+			assistant.ExtraContent,
+		)
+	}
+	if len(assistant.ToolCalls) != 1 ||
+		!bytes.Equal(assistant.ToolCalls[0].ExtraContent, container) {
+		t.Fatalf(
+			"per-call retained = %q, want %q",
+			assistant.ToolCalls[0].ExtraContent,
+			container,
+		)
+	}
+
+	// The replayed request is built after the tool result is appended, exactly
+	// as the recorded g5 request carries the result beside the replay.
+	if err := conversation.appendResults([]providerToolResult{{
+		ID: "call_2835749", Name: "probe", Content: []byte("probe result: 49"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request, err := conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replay struct {
+		Messages []struct {
+			Content   json.RawMessage `json:"content"`
+			ToolCalls []struct {
+				ExtraContent json.RawMessage `json:"extra_content"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(request.Body, &replay) != nil || len(replay.Messages) != 3 {
+		t.Fatalf("replayed request = %s", request.Body)
+	}
+	if len(replay.Messages[1].Content) != 0 {
+		t.Fatalf(
+			"replayed assistant content = %q, want absent",
+			replay.Messages[1].Content,
+		)
+	}
+	if len(replay.Messages[1].ToolCalls) != 1 ||
+		!bytes.Equal(
+			replay.Messages[1].ToolCalls[0].ExtraContent,
+			container,
+		) {
+		t.Fatalf(
+			"replayed per-call = %q, want %q",
+			replay.Messages[1].ToolCalls[0].ExtraContent,
+			container,
+		)
+	}
+}
+
+// A1: content-optionality is dialect-scoped. The same content-absent
+// tool-call-only fixture decodes under the Google dialect and fails exactly as
+// it does today on strict chat.
+func TestGoogleToolCallContentOptionalIsDialectScoped(t *testing.T) {
+	t.Parallel()
+	response := providerDialectFixture(
+		t,
+		"gemini_chat_response_tool_call_thought_signature.json",
+	)
+	newChat := func(t *testing.T, dialect providerDialect) *openAIConversation {
+		t.Helper()
+		conversation, err := newOpenAIConversation(
+			"https://provider.example.invalid/v1/chat/completions",
+			"gemini-3.7-flash",
+			toolDefinitions(ReadOnly),
+			[]byte(`{}`),
+			dialect,
+			"",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conversation
+	}
+
+	t.Run("strict chat still requires content", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectOpenAIChat)
+		defer conversation.close()
+		if _, err := conversation.accept(response); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("strict chat error = %v", err)
+		}
+	})
+	t.Run("google chat decodes the content-absent turn", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectGoogleChat)
+		defer conversation.close()
+		if _, err := conversation.accept(response); err != nil {
+			t.Fatalf("google chat error = %v", err)
+		}
+	})
+}
+
+// A1 invariant guard: under the Google dialect content-optionality is scoped
+// to the recorded tool-call-only turn, so an assistant message with neither
+// content nor tool calls still fails CONTINUATION_INVALID exactly as it does
+// today on every other dialect.
+func TestGoogleChatEmptyAssistantMessageFails(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"content absent":                `{"choices":[{"message":{"role":"assistant"},"finish_reason":"stop"}]}`,
+		"content null":                  `{"choices":[{"message":{"role":"assistant","content":null},"finish_reason":"stop"}]}`,
+		"content absent with signature": `{"choices":[{"message":{"role":"assistant","extra_content":{"google":{"thought_signature":"sig"}}},"finish_reason":"stop"}]}`,
+		"content null with signature":   `{"choices":[{"message":{"role":"assistant","content":null,"extra_content":{"google":{"thought_signature":"sig"}}},"finish_reason":"stop"}]}`,
+	}
+	for name, body := range cases {
+		body := body
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			conversation, err := newOpenAIConversation(
+				"https://provider.example.invalid/v1/chat/completions",
+				"gemini-3.7-flash",
+				toolDefinitions(ReadOnly),
+				[]byte(`{}`),
+				providerDialectGoogleChat,
+				"",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conversation.close()
+			if _, err := conversation.accept([]byte(body)); !IsCode(
+				err,
+				"CONTINUATION_INVALID",
+			) {
+				t.Fatalf("%s error = %v", name, err)
+			}
+		})
+	}
+}
+
+// A2: the recorded g5 request replays the g4 assistant message byte-exact
+// (per-call container in place, content absent) beside the tool result, and
+// the recorded g5 response - the provider's coherent continuation - decodes as
+// a prose turn carrying the message-level signature.
+func TestGoogleChatPerCallSignatureRoundTripMatchesRecordedExchange(t *testing.T) {
+	t.Parallel()
+	conversation, err := newOpenAIConversation(
+		"https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+		"gemini-3.7-flash",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectGoogleChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+
+	g4 := providerDialectFixture(
+		t,
+		"gemini_chat_response_tool_call_thought_signature.json",
+	)
+	if _, err := conversation.accept(g4); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversation.appendResults([]providerToolResult{{
+		ID: "call_2835749", Name: "probe", Content: []byte("probe result: 49"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request, err := conversation.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	g5Request := providerDialectFixture(
+		t,
+		"gemini_chat_request_replayed_tool_call_signature.json",
+	)
+	var built, recorded struct {
+		Messages []struct {
+			Role      string          `json:"role"`
+			Content   json.RawMessage `json:"content"`
+			ToolCalls []struct {
+				ID           string          `json:"id"`
+				ExtraContent json.RawMessage `json:"extra_content"`
+				Function     struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(request.Body, &built) != nil ||
+		json.Unmarshal(g5Request, &recorded) != nil {
+		t.Fatal("invalid built or recorded request")
+	}
+	if len(built.Messages) != 3 || len(recorded.Messages) != 3 {
+		t.Fatalf(
+			"built messages = %d, recorded messages = %d",
+			len(built.Messages),
+			len(recorded.Messages),
+		)
+	}
+	builtAssistant := built.Messages[1]
+	recordedAssistant := recorded.Messages[1]
+	if builtAssistant.Role != "assistant" ||
+		recordedAssistant.Role != "assistant" {
+		t.Fatalf("assistant messages = %#v / %#v", builtAssistant, recordedAssistant)
+	}
+	if len(builtAssistant.Content) != 0 || len(recordedAssistant.Content) != 0 {
+		t.Fatalf(
+			"content must be absent on the tool-call turn: built %q recorded %q",
+			builtAssistant.Content,
+			recordedAssistant.Content,
+		)
+	}
+	if len(builtAssistant.ToolCalls) != 1 ||
+		len(recordedAssistant.ToolCalls) != 1 ||
+		!bytes.Equal(
+			builtAssistant.ToolCalls[0].ExtraContent,
+			recordedAssistant.ToolCalls[0].ExtraContent,
+		) {
+		t.Fatalf(
+			"per-call replay mismatch: built %q recorded %q",
+			builtAssistant.ToolCalls[0].ExtraContent,
+			recordedAssistant.ToolCalls[0].ExtraContent,
+		)
+	}
+
+	// The recorded g5 response - the provider continuing coherently after the
+	// replayed per-call shape - decodes as a prose turn with the message-level
+	// signature retained.
+	continuation, err := newOpenAIConversation(
+		"https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+		"gemini-3.7-flash",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectGoogleChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer continuation.close()
+	g5Response := providerDialectFixture(
+		t,
+		"gemini_chat_response_replayed_tool_call_signature.json",
+	)
+	turn, err := continuation.accept(g5Response)
+	if err != nil || !turn.Prose || len(turn.Calls) != 0 ||
+		turn.Usage == nil || turn.Usage.InputTokens != 104 ||
+		turn.Usage.OutputTokens != 22 {
+		t.Fatalf("g5 continuation turn = %#v, %v", turn, err)
+	}
+	if len(continuation.messages) != 2 ||
+		len(continuation.messages[1].Content) == 0 ||
+		len(continuation.messages[1].ExtraContent) == 0 {
+		t.Fatalf(
+			"g5 continuation assistant = %#v",
+			continuation.messages[1],
+		)
+	}
+}
+
+// A3: per-call replay is mandatory and fails closed. A per-call container
+// that is structurally unplaceable or cannot be retained yields the labelled
+// CONTINUATION_STATE_UNPLAYABLE code; there is no path that re-requests a tool
+// call without its retained container.
+func TestGoogleChatPerCallSignatureFailsClosed(t *testing.T) {
+	t.Parallel()
+	newConversation := func(t *testing.T) *openAIConversation {
+		t.Helper()
+		conversation, err := newOpenAIConversation(
+			"https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+			"gemini-3.7-flash",
+			toolDefinitions(ReadOnly),
+			[]byte(`{"prompt":"bounded"}`),
+			providerDialectGoogleChat,
+			"",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conversation
+	}
+
+	t.Run("structurally unplaceable per-call containers", func(t *testing.T) {
+		t.Parallel()
+		cases := map[string]string{
+			"not an object":        `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":"sig","id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"null container":       `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":null,"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"empty container":      `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"unknown inner field":  `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{"google":{"thought_signature":"sig","unknown_inner":true}},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"unknown vendor field": `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{"other":{"thought_signature":"sig"}},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"missing signature":    `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{"google":{}},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"empty signature":      `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{"google":{"thought_signature":""}},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+			"non-string signature": `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":{"google":{"thought_signature":42}},"id":"c1","type":"function","function":{"name":"probe","arguments":"{\"value\":7}"}}]}}]}`,
+		}
+		for name, body := range cases {
+			body := body
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				conversation := newConversation(t)
+				defer conversation.close()
+				if _, err := conversation.accept([]byte(body)); !IsCode(
+					err,
+					"CONTINUATION_STATE_UNPLAYABLE",
+				) {
+					t.Fatalf("%s error = %v", name, err)
+				}
+			})
+		}
+	})
+
+	t.Run("over budget per-call step exhaustion", func(t *testing.T) {
+		t.Parallel()
+		conversation := newConversation(t)
+		defer conversation.close()
+		for step := 0; step < MaxContinuationSteps; step++ {
+			if _, err := conversation.ledger.retain(opaqueField{
+				kind: opaqueText,
+				body: []byte("x"),
+			}); err != nil {
+				t.Fatalf("fill retain %d = %v", step, err)
+			}
+		}
+		response := providerDialectFixture(
+			t,
+			"gemini_chat_response_tool_call_thought_signature.json",
+		)
+		if _, err := conversation.accept(response); !IsCode(
+			err,
+			"CONTINUATION_STATE_UNPLAYABLE",
+		) {
+			t.Fatalf("over-budget error = %v", err)
+		}
+	})
+}
+
+// A4: the per-call extra_content position is an explicit allowlist gated by
+// dialect AND structural position; every other position stays closed and
+// fails with the same error it fails with today.
+func TestProviderDialectsRejectPerCallExtraContentOutsideTheNamedPosition(t *testing.T) {
+	t.Parallel()
+	newChat := func(t *testing.T, dialect providerDialect) *openAIConversation {
+		t.Helper()
+		conversation, err := newOpenAIConversation(
+			"https://provider.example.invalid/v1/chat/completions",
+			"model",
+			toolDefinitions(ReadOnly),
+			[]byte(`{}`),
+			dialect,
+			"",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conversation
+	}
+	perCallContainer := `{"google":{"thought_signature":"sig"}}`
+
+	t.Run("strict chat rejects per-call extra_content", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectOpenAIChat)
+		defer conversation.close()
+		body := `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"extra_content":` +
+			perCallContainer +
+			`,"id":"c1","type":"function","function":{"name":"Read","arguments":"{\"path\":\"/a\"}"}}]}}]}`
+		if _, err := conversation.accept([]byte(body)); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("strict chat error = %v", err)
+		}
+	})
+	t.Run("google rejects extra_content inside the function object", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectGoogleChat)
+		defer conversation.close()
+		body := `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"Read","arguments":"{}","extra_content":` +
+			perCallContainer + `}}]}}]}`
+		if _, err := conversation.accept([]byte(body)); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("google function-position error = %v", err)
+		}
+	})
+	t.Run("google rejects extra_content on the choice object", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectGoogleChat)
+		defer conversation.close()
+		body := `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"Read","arguments":"{}"}}]},"extra_content":` +
+			perCallContainer + `}]}`
+		if _, err := conversation.accept([]byte(body)); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("google choice-position error = %v", err)
+		}
+	})
+	t.Run("google rejects extra_content at the response root", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectGoogleChat)
+		defer conversation.close()
+		body := `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"Read","arguments":"{}"}}]}}],"extra_content":` +
+			perCallContainer + `}`
+		if _, err := conversation.accept([]byte(body)); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("google root-position error = %v", err)
+		}
+	})
+	t.Run("per-call allowlist rejects an unknown sibling field", func(t *testing.T) {
+		t.Parallel()
+		conversation := newChat(t, providerDialectGoogleChat)
+		defer conversation.close()
+		body := `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"extra_content":` +
+			perCallContainer +
+			`,"unknown_sibling":1,"id":"c1","type":"function","function":{"name":"Read","arguments":"{}"}}]}}]}`
+		if _, err := conversation.accept([]byte(body)); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("google unknown sibling error = %v", err)
+		}
+	})
+	t.Run("responses surface rejects the chat per-call shape", func(t *testing.T) {
+		t.Parallel()
+		conversation, err := newResponsesConversation(
+			"https://provider.example.invalid/v1/responses",
+			"model",
+			toolDefinitions(ReadOnly),
+			[]byte(`{}`),
+			"medium",
+			nil,
+			false,
+			providerDialectOpenAIResponses,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conversation.close()
+		response := providerDialectFixture(
+			t,
+			"gemini_chat_response_tool_call_thought_signature.json",
+		)
+		if _, err := conversation.accept(response); !IsCode(
+			err,
+			"CONTINUATION_INVALID",
+		) {
+			t.Fatalf("responses surface error = %v", err)
+		}
+	})
+}
+
+// A3: nothing from a per-call container crosses the trust boundary either. A
+// full Dispatcher invocation replays a canary per-call container on the wire,
+// and the observation, submission, seal, and encoded result contain none of
+// it; close() zeroes the per-call bytes.
+func TestOpaquePerCallVendorStateNeverCrossesTrustBoundary(t *testing.T) {
+	canary := "A5-PER-CALL-CANARY-OPAQUE-SIGNATURE-0123456789abcdef"
+	perCall := json.RawMessage(`{"google":{"thought_signature":"` + canary + `"}}`)
+	transport := &dialectCertRoundTripper{
+		codec:            dialectCodecChat,
+		vendor:           dialectVendorGoogle,
+		perCallContainer: perCall,
+	}
+	trueFlag := true
+	adapter, err := providerDialectAdapter(t, OpenAIProfileConfig{
+		HTTPProfileConfig: HTTPProfileConfig{
+			Key: "boundary-dialect", ID: "sworn.boundary.dialect",
+			Version:  "1.0.0",
+			Endpoint: "https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+		},
+		API:              OpenAIChatCompletionsAPI,
+		ThoughtSignature: &trueFlag,
+	}, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "dialect-cert-credential"
+	selected := SelectedProfile{
+		Profile: ProfileConfig{
+			Key: "boundary-dialect", Adapter: adapter.Identity().Key,
+			Network: NetworkRequired, AuthMode: AuthModeBearer,
+			CredentialRef: &ref,
+		},
+		Adapter: adapter.Identity(),
+		Model:   "gemini-3.7-flash",
+		adapter: adapter,
+	}
+	invocation := providerDialectCertificationInvocation(t, selected)
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil ||
+		observation.TransportStatus != Completed {
+		t.Fatalf("boundary observation = %#v, %v", observation, err)
+	}
+	observationBody, err := json.Marshal(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(observationBody, []byte(canary)) {
+		t.Fatalf("canary escaped into observation: %s", observationBody)
+	}
+	if bytes.Contains(observation.Handoff.SubmissionBytes, []byte(canary)) {
+		t.Fatalf(
+			"canary escaped into submission: %s",
+			observation.Handoff.SubmissionBytes,
+		)
+	}
+	if bytes.Contains(observation.Handoff.SealBytes, []byte(canary)) {
+		t.Fatalf("canary escaped into seal: %s", observation.Handoff.SealBytes)
+	}
+	var resultUsage *Usage
+	if observation.Usage.InputTokens != nil {
+		resultUsage = &Usage{
+			InputTokens:  *observation.Usage.InputTokens,
+			OutputTokens: *observation.Usage.OutputTokens,
+		}
+	}
+	result, err := EncodeResult(Result{
+		SchemaVersion:   ResultSchemaVersion,
+		InvocationID:    invocation.Request.InvocationID,
+		AdapterID:       adapter.Identity().ID,
+		AdapterVersion:  adapter.Identity().Version,
+		ObservedModel:   selected.Model,
+		DurationMillis:  1,
+		TransportStatus: Completed,
+		Usage:           resultUsage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(result, []byte(canary)) {
+		t.Fatalf("canary escaped into result: %s", result)
+	}
+	// The canary did reach the wire: it was replayed byte-exact inside the
+	// tool call on the second request, proving per-call opaque retention
+	// while staying out of every external surface.
+	if len(transport.requestBodies) < 2 ||
+		len(transport.replayedPerCall) != 1 ||
+		!bytes.Equal(transport.replayedPerCall[0], perCall) {
+		t.Fatalf(
+			"canary per-call replay = %d requests, %v",
+			len(transport.requestBodies),
+			transport.replayedPerCall,
+		)
+	}
+
+	// close() zeroes the retained per-call bytes alongside the rest of the
+	// message state.
+	conversation, err := newOpenAIConversation(
+		"https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+		"gemini-3.7-flash",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectGoogleChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conversation.accept([]byte(
+		`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"extra_content":` +
+			string(perCall) +
+			`,"id":"c1","type":"function","function":{"name":"Read","arguments":"{}"}}]}}]}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	retained := conversation.messages[1].ToolCalls[0].ExtraContent
+	if !bytes.Equal(retained, perCall) {
+		t.Fatalf("retained = %q", retained)
+	}
+	conversation.close()
+	for index := range retained {
+		if retained[index] != 0 {
+			t.Fatalf("per-call byte %d not cleared after close", index)
+		}
 	}
 }
 
@@ -617,18 +1270,23 @@ const (
 // a certification conversation: turn one reads the certification input, turn
 // two submits a valid implementer_design sworn_submit. The Google vendor
 // carries the recorded extra_content container on every assistant message and
-// captures the container replayed on the second request; the xAI vendor
-// carries the recorded usage decorations on every response.
+// captures the container replayed on the second request; when perCallContainer
+// is set the Google vendor instead emits the recorded tool-call-only shape
+// (fixture g4): the assistant message omits content and carries each tool
+// call's extra_content inside the call, captured per call on replay. The xAI
+// vendor carries the recorded usage decorations on every response.
 type dialectCertRoundTripper struct {
-	codec     dialectCodec
-	vendor    dialectVendor
-	container json.RawMessage
-	usage     json.RawMessage
-	strict    []byte
+	codec            dialectCodec
+	vendor           dialectVendor
+	container        json.RawMessage
+	perCallContainer json.RawMessage
+	usage            json.RawMessage
+	strict           []byte
 
 	requests          int
 	invocationID      string
 	replayedContainer json.RawMessage
+	replayedPerCall   []json.RawMessage
 	requestBodies     [][]byte
 	servedResponses   [][]byte
 }
@@ -665,7 +1323,12 @@ func (transport *dialectCertRoundTripper) RoundTrip(
 			response = w8HTTPResponse(transport.turn(callID, "Read", arguments))
 		case 2:
 			if transport.codec == dialectCodecChat {
-				transport.replayedContainer = dialectReplayedContainer(body)
+				if transport.perCallContainer != nil {
+					transport.replayedPerCall =
+						dialectReplayedPerCallContainers(body)
+				} else {
+					transport.replayedContainer = dialectReplayedContainer(body)
+				}
 			}
 			callID := "dialect-submit-1"
 			arguments := dialectSubmissionArguments(transport.invocationID)
@@ -693,6 +1356,9 @@ func (transport *dialectCertRoundTripper) turn(
 	name string,
 	arguments string,
 ) []byte {
+	if transport.perCallContainer != nil {
+		return transport.perCallTurn(callID, name, arguments)
+	}
 	if transport.codec == dialectCodecResponses {
 		argumentsJSON, _ := json.Marshal(arguments)
 		body := `{"id":"response-cert-1","object":"response","status":"completed","error":null,"output":[` +
@@ -721,6 +1387,38 @@ func (transport *dialectCertRoundTripper) turn(
 	builder.WriteString(`,"arguments":`)
 	builder.Write(argumentsJSON)
 	builder.WriteString(`}}]},"finish_reason":"tool_calls"}],`)
+	if len(transport.usage) != 0 {
+		builder.WriteString(`"usage":`)
+		builder.Write(transport.usage)
+		builder.WriteByte(',')
+	}
+	builder.WriteString(
+		`"id":"dialect-cert-1","object":"chat.completion","created":1,"model":"certification"}`,
+	)
+	return []byte(builder.String())
+}
+
+// perCallTurn builds the recorded g4 tool-call-only shape: the assistant
+// message carries no content field at all, and each tool call carries its own
+// extra_content container at the per-call position.
+func (transport *dialectCertRoundTripper) perCallTurn(
+	callID string,
+	name string,
+	arguments string,
+) []byte {
+	argumentsJSON, _ := json.Marshal(arguments)
+	var builder strings.Builder
+	builder.WriteString(
+		`{"choices":[{"finish_reason":"tool_calls","index":0,"message":{"role":"assistant","tool_calls":[{"extra_content":`,
+	)
+	builder.Write(transport.perCallContainer)
+	builder.WriteString(`,"function":{"name":`)
+	builder.WriteString(strconv.Quote(name))
+	builder.WriteString(`,"arguments":`)
+	builder.Write(argumentsJSON)
+	builder.WriteString(`},"id":`)
+	builder.WriteString(strconv.Quote(callID))
+	builder.WriteString(`,"type":"function"}]}}],`)
 	if len(transport.usage) != 0 {
 		builder.WriteString(`"usage":`)
 		builder.Write(transport.usage)
@@ -791,6 +1489,34 @@ func dialectReplayedContainer(body []byte) json.RawMessage {
 		json.RawMessage(nil),
 		envelope.Messages[1].ExtraContent...,
 	)
+}
+
+// dialectReplayedPerCallContainers captures, in order, the per-call
+// extra_content containers replayed inside the tool calls of the second chat
+// request's assistant message.
+func dialectReplayedPerCallContainers(body []byte) []json.RawMessage {
+	var envelope struct {
+		Messages []struct {
+			ToolCalls []struct {
+				ExtraContent json.RawMessage `json:"extra_content"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(body, &envelope) != nil || len(envelope.Messages) < 2 {
+		return nil
+	}
+	containers := make(
+		[]json.RawMessage,
+		0,
+		len(envelope.Messages[1].ToolCalls),
+	)
+	for _, call := range envelope.Messages[1].ToolCalls {
+		containers = append(containers, append(
+			json.RawMessage(nil),
+			call.ExtraContent...,
+		))
+	}
+	return containers
 }
 
 // dialectSubmissionArguments builds a valid implementer_design submission for
@@ -986,6 +1712,59 @@ func TestCertificationReplaysRecordedProviderDialects(t *testing.T) {
 		}
 	})
 
+	t.Run("google chat tool-call turn certifies with per-call containers", func(t *testing.T) {
+		perCall := json.RawMessage(
+			`{"google":{"thought_signature":"PER-CALL-CERT-SIGNATURE-` +
+				"8f3a5c2e9b1d7f4a6c8e0b2d" + `"}}`,
+		)
+		toolCallTransport := &dialectCertRoundTripper{
+			codec:            dialectCodecChat,
+			vendor:           dialectVendorGoogle,
+			perCallContainer: perCall,
+		}
+		adapter, err := providerDialectAdapter(t, OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "google-toolcall-dialect", ID: "sworn.google.toolcall",
+				Version:  "1.0.0",
+				Endpoint: "https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+			},
+			API:              OpenAIChatCompletionsAPI,
+			ThoughtSignature: &trueFlag,
+		}, toolCallTransport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := "dialect-cert-credential"
+		registry, err := NewSelectionRegistry(
+			[]ProfileConfig{{
+				Key: "google-toolcall-dialect", Adapter: adapter.Identity().Key,
+				Network: NetworkRequired, CredentialRef: &ref,
+			}},
+			[]Adapter{adapter},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := registry.Certify(
+			context.Background(),
+			"google-toolcall-dialect",
+			"gemini-3.7-flash",
+		)
+		if report.State != ReadinessPass || report.Code != "live_probe_passed" {
+			t.Fatalf("google tool-call certification report = %#v", report)
+		}
+		// The second request replayed the per-call container byte-exact inside
+		// the same tool call (the g4/g5 shape), content still absent.
+		if len(toolCallTransport.replayedPerCall) != 1 ||
+			!bytes.Equal(toolCallTransport.replayedPerCall[0], perCall) {
+			t.Fatalf(
+				"certification replayed per-call = %v, want %q",
+				toolCallTransport.replayedPerCall,
+				perCall,
+			)
+		}
+	})
+
 	t.Run("xai responses grok-4.6 certifies", func(t *testing.T) {
 		xaiTransport := &dialectCertRoundTripper{
 			codec:  dialectCodecResponses,
@@ -1062,6 +1841,53 @@ func TestCertificationReplaysRecordedProviderDialects(t *testing.T) {
 		if report.State != ReadinessFail ||
 			report.Code != "certification_response_contract_failed" {
 			t.Fatalf("strict chat report = %#v", report)
+		}
+	})
+
+	t.Run("strict chat pins certification_response_contract_failed on the g4 tool-call turn", func(t *testing.T) {
+		// The recorded g4 tool-call-only message has no content field at all:
+		// strict chat fails at the assistant-message closed-object check
+		// (MISSING_FIELD on content), so the certification failure this gap
+		// produces today is pinned and cannot silently return.
+		g4 := providerDialectFixture(
+			t,
+			"gemini_chat_response_tool_call_thought_signature.json",
+		)
+		strictTransport := &dialectCertRoundTripper{
+			codec:  dialectCodecChat,
+			vendor: dialectVendorStrict,
+			strict: g4,
+		}
+		adapter, err := providerDialectAdapter(t, OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "strict-g4-dialect", ID: "sworn.strict.g4",
+				Version:  "1.0.0",
+				Endpoint: "https://generativelanguage.example.invalid/v1beta/openai/chat/completions",
+			},
+			API: OpenAIChatCompletionsAPI,
+		}, strictTransport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := "dialect-cert-credential"
+		registry, err := NewSelectionRegistry(
+			[]ProfileConfig{{
+				Key: "strict-g4-dialect", Adapter: adapter.Identity().Key,
+				Network: NetworkRequired, CredentialRef: &ref,
+			}},
+			[]Adapter{adapter},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := registry.Certify(
+			context.Background(),
+			"strict-g4-dialect",
+			"gemini-3.7-flash",
+		)
+		if report.State != ReadinessFail ||
+			report.Code != "certification_response_contract_failed" {
+			t.Fatalf("strict g4 report = %#v", report)
 		}
 	})
 

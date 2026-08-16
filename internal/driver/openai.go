@@ -37,6 +37,13 @@ type openAIToolCall struct {
 	ID       string         `json:"id"`
 	Type     string         `json:"type"`
 	Function openAIFunction `json:"function"`
+	// ExtraContent carries the Google chat dialect's per-call opaque
+	// thought-signature container verbatim at exactly this tool call's
+	// position (fixture g4). It exists only on the Google dialect's
+	// per-call position, is never parsed for meaning, and is replayed
+	// byte-exact inside the same tool call on every subsequent request;
+	// close() clears it with the rest of the message bytes.
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 type openAIFunction struct {
@@ -512,21 +519,25 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		}
 		return turn, nil
 	}
-	// The assistant-message allowlist is closed. extra_content (Google's
-	// per-message thought-signature container) is admitted only on the Google
-	// chat dialect at exactly this structural position; everywhere else it
-	// stays an unknown field and fails exactly as it fails today.
+	// The assistant-message allowlist is closed. Under the Google chat
+	// dialect exactly two structural positions are admitted beyond the
+	// common set: the message-level extra_content (per-message thought
+	// signature) and, on a tool-call-only turn, the content field itself may
+	// be absent entirely (fixture g4). Everywhere else extra_content stays an
+	// unknown field and fails exactly as it fails today.
+	messageRequired := []string{"role", "content"}
 	messageOptional := []string{
 		"tool_calls",
 		"reasoning", "reasoning_content", "reasoning_details",
 		"refusal", "annotations",
 	}
 	if conversation.dialect == providerDialectGoogleChat {
-		messageOptional = append(messageOptional, "extra_content")
+		messageRequired = []string{"role"}
+		messageOptional = append(messageOptional, "content", "extra_content")
 	}
 	rawMessage, err := closedObject(
 		choice["message"],
-		[]string{"role", "content"},
+		messageRequired,
 		messageOptional,
 	)
 	if err != nil || rawMessage["role"] != "assistant" {
@@ -564,13 +575,27 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	message := openAIMessage{Role: "assistant"}
 	switch content := rawMessage["content"].(type) {
 	case nil:
-		message.Content = json.RawMessage("null")
+		// Under the Google dialect an absent content field stays absent: the
+		// recorded g4 tool-call-only assistant message carries no content key,
+		// so `json:"content,omitempty"` reproduces that shape on the replayed
+		// request instead of a "null" the provider never sent.
+		if conversation.dialect != providerDialectGoogleChat {
+			message.Content = json.RawMessage("null")
+		}
 	case string:
 		if !validOpaqueText([]byte(content)) {
 			return providerTurn{}, fail("CONTINUATION_INVALID")
 		}
 		message.Content, _ = json.Marshal(content)
 	default:
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	// Content-optionality is scoped to the recorded tool-call-only turn: an
+	// assistant message with neither content nor tool calls would otherwise
+	// decode as an empty prose nudge, so it fails CONTINUATION_INVALID exactly
+	// as it does on every other dialect.
+	if conversation.dialect == providerDialectGoogleChat &&
+		len(message.Content) == 0 && len(rawToolCalls) == 0 {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	if reasoningValue, present := rawMessage["reasoning_content"]; present &&
@@ -629,39 +654,62 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	// fails closed with CONTINUATION_STATE_UNPLAYABLE rather than re-requesting
 	// without it.
 	if conversation.dialect == providerDialectGoogleChat {
+		// On a prose turn the per-message thought signature is mandatory (the
+		// recorded g5 response carries it at the message level). On a
+		// tool-call-only turn the signature rides per call (fixture g4), so
+		// the message-level container is not required there - but when the
+		// provider does carry it, it is still admitted, retained, and replayed
+		// byte-exact, never dropped.
 		extraValue, present := rawMessage["extra_content"]
-		if !present || extraValue == nil {
+		if len(rawToolCalls) == 0 && (!present || extraValue == nil) {
 			return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
 		}
-		var raw struct {
-			Choices []struct {
-				Message struct {
-					ExtraContent json.RawMessage `json:"extra_content"`
-				} `json:"message"`
-			} `json:"choices"`
+		if present && extraValue != nil {
+			var raw struct {
+				Choices []struct {
+					Message struct {
+						ExtraContent json.RawMessage `json:"extra_content"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+			if json.Unmarshal(body, &raw) != nil || len(raw.Choices) != 1 ||
+				validateGoogleExtraContent(
+					extraValue,
+					raw.Choices[0].Message.ExtraContent,
+				) != nil {
+				return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
+			}
+			retained, retainErr := conversation.ledger.retain(opaqueField{
+				kind: opaqueText,
+				body: raw.Choices[0].Message.ExtraContent,
+			})
+			if retainErr != nil {
+				return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
+			}
+			message.ExtraContent = append(json.RawMessage(nil), retained[0]...)
 		}
-		if json.Unmarshal(body, &raw) != nil || len(raw.Choices) != 1 ||
-			validateGoogleExtraContent(
-				extraValue,
-				raw.Choices[0].Message.ExtraContent,
-			) != nil {
-			return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
-		}
-		retained, retainErr := conversation.ledger.retain(opaqueField{
-			kind: opaqueText,
-			body: raw.Choices[0].Message.ExtraContent,
-		})
-		if retainErr != nil {
-			return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
-		}
-		message.ExtraContent = append(json.RawMessage(nil), retained[0]...)
 	}
 	calls := make([]providerToolCall, 0, len(rawToolCalls))
-	for _, rawToolCall := range rawToolCalls {
+	// Under the Google dialect each tool call may carry its own opaque
+	// thought-signature container at the per-call position (fixture g4). A
+	// present container must match the recorded closed shape, is retained as
+	// opaque continuation state keyed to its call, and is replayed byte-exact
+	// inside the same call on the following request; a container that cannot
+	// be validated or retained fails the whole turn closed.
+	type perCallState struct {
+		extra json.RawMessage
+	}
+	perCall := make([]perCallState, len(rawToolCalls))
+	perCallCount := 0
+	for index, rawToolCall := range rawToolCalls {
+		toolCallOptional := []string{"index"}
+		if conversation.dialect == providerDialectGoogleChat {
+			toolCallOptional = append(toolCallOptional, "extra_content")
+		}
 		toolCall, toolErr := closedObject(
 			rawToolCall,
 			[]string{"id", "type", "function"},
-			[]string{"index"},
+			toolCallOptional,
 		)
 		function, functionErr := closedObject(
 			toolCall["function"],
@@ -687,6 +735,19 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			ID: id, Name: name,
 			Arguments: append([]byte(nil), arguments...),
 		})
+		if conversation.dialect == providerDialectGoogleChat {
+			// A present per-call extra_content must be a playable container:
+			// null is not the recorded shape, so it fails closed rather than
+			// being silently dropped from the replay.
+			if extraValue, present := toolCall["extra_content"]; present {
+				raw := googlePerCallContainerFromResponse(body, index)
+				if validateGoogleExtraContent(extraValue, raw) != nil {
+					return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
+				}
+				perCall[index].extra = raw
+				perCallCount++
+			}
+		}
 		encodedArguments, _ := json.Marshal(argumentsText)
 		message.ToolCalls = append(message.ToolCalls, openAIToolCall{
 			ID: id, Type: "function",
@@ -694,6 +755,31 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 				Name: name, Arguments: encodedArguments,
 			},
 		})
+	}
+	if perCallCount != 0 {
+		// All per-call containers of one turn are retained in a single ledger
+		// step, bounded by the same opaque-field budgets as every other
+		// retained vendor field; an over-budget turn fails closed.
+		fields := make([]opaqueField, 0, perCallCount)
+		for _, state := range perCall {
+			if len(state.extra) != 0 {
+				fields = append(fields, opaqueField{
+					kind: opaqueText, body: state.extra,
+				})
+			}
+		}
+		retained, retainErr := conversation.ledger.retain(fields...)
+		if retainErr != nil {
+			return providerTurn{}, fail("CONTINUATION_STATE_UNPLAYABLE")
+		}
+		retainIndex := 0
+		for index := range message.ToolCalls {
+			if len(perCall[index].extra) != 0 {
+				message.ToolCalls[index].ExtraContent =
+					append(json.RawMessage(nil), retained[retainIndex]...)
+				retainIndex++
+			}
+		}
 	}
 	conversation.messages = append(conversation.messages, message)
 	conversation.pending = append([]providerToolCall(nil), calls...)
@@ -892,6 +978,30 @@ func validateGoogleExtraContent(value any, raw json.RawMessage) error {
 	return nil
 }
 
+// googlePerCallContainerFromResponse extracts the raw extra_content container
+// bytes of one tool call from a Google chat-completions response, byte-for-byte
+// (the same targeted json.Unmarshal pattern the message-level container uses,
+// extended one level into tool_calls[index]).
+func googlePerCallContainerFromResponse(body []byte, index int) json.RawMessage {
+	var raw struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ExtraContent json.RawMessage `json:"extra_content"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &raw) != nil || len(raw.Choices) != 1 ||
+		index < 0 || index >= len(raw.Choices[0].Message.ToolCalls) {
+		return nil
+	}
+	return append(
+		json.RawMessage(nil),
+		raw.Choices[0].Message.ToolCalls[index].ExtraContent...,
+	)
+}
+
 func (conversation *openAIConversation) appendResults(results []providerToolResult) error {
 	if conversation == nil || len(results) != len(conversation.pending) {
 		return fail("CONTINUATION_INVALID")
@@ -969,6 +1079,7 @@ func (conversation *openAIConversation) close() {
 		clearBytes(conversation.messages[index].ExtraContent)
 		for tool := range conversation.messages[index].ToolCalls {
 			clearBytes(conversation.messages[index].ToolCalls[tool].Function.Arguments)
+			clearBytes(conversation.messages[index].ToolCalls[tool].ExtraContent)
 		}
 	}
 	clearOpenAITools(conversation.tools)
