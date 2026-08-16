@@ -79,17 +79,22 @@ const (
 	providerDialectOpenAIChat      providerDialect = "openai_chat"
 	providerDialectOpenRouterChat  providerDialect = "openrouter_chat"
 	providerDialectOpaqueChat      providerDialect = "opaque_chat"
+	providerDialectGoogleChat      providerDialect = "google_chat"
+	providerDialectXAIChat         providerDialect = "xai_chat"
+	providerDialectXAIResponses    providerDialect = "xai_responses"
 	providerDialectGemini          providerDialect = "gemini"
 	providerDialectBedrockConverse providerDialect = "bedrock_converse"
 )
 
 func (dialect providerDialect) continuationMode() ContinuationMode {
 	switch dialect {
-	case providerDialectOpenAIChat:
+	case providerDialectOpenAIChat, providerDialectXAIChat:
 		return ContinuationModeTranscriptReplay
 	case providerDialectOpenAIResponses,
 		providerDialectOpenRouterChat,
 		providerDialectOpaqueChat,
+		providerDialectGoogleChat,
+		providerDialectXAIResponses,
 		providerDialectGemini,
 		providerDialectBedrockConverse:
 		return ContinuationModeOpaqueReplay

@@ -5,6 +5,7 @@ import "encoding/json"
 type responsesConversation struct {
 	endpoint        string
 	model           string
+	dialect         providerDialect
 	reasoningEffort string
 	enableThinking  *bool
 	stream          bool
@@ -39,10 +40,13 @@ func newResponsesConversation(
 	reasoningEffort string,
 	enableThinking *bool,
 	stream bool,
+	dialect providerDialect,
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
-		reasoningEffort == "" {
+		reasoningEffort == "" ||
+		(dialect != providerDialectOpenAIResponses &&
+			dialect != providerDialectXAIResponses) {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	tools, err := responsesTools(definitions)
@@ -59,6 +63,7 @@ func newResponsesConversation(
 	return &responsesConversation{
 		endpoint:        endpoint,
 		model:           model,
+		dialect:         dialect,
 		reasoningEffort: reasoningEffort,
 		enableThinking:  enableThinking,
 		stream:          stream,
@@ -185,7 +190,7 @@ func (conversation *responsesConversation) accept(
 			Truncated:       true,
 		}
 		if usageValue, present := root["usage"]; present && usageValue != nil {
-			usage, usageErr := responsesUsage(usageValue)
+			usage, usageErr := responsesUsage(usageValue, conversation.dialect)
 			if usageErr != nil {
 				return providerTurn{}, usageErr
 			}
@@ -255,7 +260,7 @@ func (conversation *responsesConversation) accept(
 		turn.ReasoningEffort = effort
 	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := responsesUsage(usageValue)
+		usage, usageErr := responsesUsage(usageValue, conversation.dialect)
 		if usageErr != nil {
 			return providerTurn{}, usageErr
 		}
@@ -286,14 +291,26 @@ func responsesTruncated(root map[string]any) bool {
 // detail (input_tokens_details.cached_tokens) as cache reads instead of
 // discarding it. The details object carries provider-specific breakdown fields
 // (audio, image, text tokens), so only cached_tokens is extracted and a
-// malformed detail never fails the run.
-func responsesUsage(value any) (*Usage, error) {
+// malformed detail never fails the run. On the xAI responses dialect the
+// recorded vendor usage decorations are admitted at this position and
+// tolerated-and-ignored, so the normalized accounting still reads only the
+// standard fields.
+func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 	// x_details is Qwen's provider-specific usage annex on the responses
 	// flavour; it is tolerated and ignored rather than failing the turn.
+	optional := []string{"input_tokens_details", "output_tokens_details", "x_details"}
+	if dialect == providerDialectXAIResponses {
+		optional = append(optional,
+			"num_sources_used",
+			"num_server_side_tools_used",
+			"cost_in_usd_ticks",
+			"context_details",
+		)
+	}
 	usage, err := closedObject(
 		value,
 		[]string{"input_tokens", "output_tokens", "total_tokens"},
-		[]string{"input_tokens_details", "output_tokens_details", "x_details"},
+		optional,
 	)
 	if err != nil {
 		return nil, fail("INVALID_USAGE")
@@ -521,6 +538,7 @@ func (conversation *responsesConversation) close() {
 	clearResponsesTools(conversation.tools)
 	conversation.endpoint = ""
 	conversation.model = ""
+	conversation.dialect = ""
 	conversation.reasoningEffort = ""
 	conversation.input = nil
 	conversation.pending = nil

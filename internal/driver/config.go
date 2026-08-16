@@ -48,6 +48,11 @@ type DriverPreset struct {
 	ResponseBytes    int       `json:"response_bytes"`
 	ReasoningEfforts []string  `json:"reasoning_efforts,omitempty"`
 	OpaqueReasoning  bool      `json:"opaque_reasoning,omitempty"`
+	// ThoughtSignature and VendorUsage inherit into OpenAI adapters that name
+	// this preset, mirroring OpaqueReasoning. Omission leaves the adapter's
+	// own flags untouched.
+	ThoughtSignature bool `json:"thought_signature,omitempty"`
+	VendorUsage      bool `json:"vendor_usage,omitempty"`
 }
 
 type CredentialSourceKind string
@@ -626,6 +631,14 @@ func resolvePreset(
 			value := preset.OpaqueReasoning
 			clone.OpaqueReasoning = &value
 		}
+		if clone.ThoughtSignature == nil {
+			value := preset.ThoughtSignature
+			clone.ThoughtSignature = &value
+		}
+		if clone.VendorUsage == nil {
+			value := preset.VendorUsage
+			clone.VendorUsage = &value
+		}
 	}
 	if strings.Contains(clone.Endpoint, "{") {
 		resolved, err := resolveEndpointTemplate(clone.Endpoint, variables)
@@ -943,6 +956,14 @@ func cloneOpenAIProfileConfig(config OpenAIProfileConfig) OpenAIProfileConfig {
 	if config.OpaqueReasoning != nil {
 		value := *config.OpaqueReasoning
 		config.OpaqueReasoning = &value
+	}
+	if config.ThoughtSignature != nil {
+		value := *config.ThoughtSignature
+		config.ThoughtSignature = &value
+	}
+	if config.VendorUsage != nil {
+		value := *config.VendorUsage
+		config.VendorUsage = &value
 	}
 	return config
 }

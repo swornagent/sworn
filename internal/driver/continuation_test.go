@@ -55,6 +55,9 @@ func TestAPIContinuationModesAreTruthful(t *testing.T) {
 		providerDialectOpenAIResponses: ContinuationModeOpaqueReplay,
 		providerDialectOpenRouterChat:  ContinuationModeOpaqueReplay,
 		providerDialectOpaqueChat:      ContinuationModeOpaqueReplay,
+		providerDialectGoogleChat:      ContinuationModeOpaqueReplay,
+		providerDialectXAIChat:         ContinuationModeTranscriptReplay,
+		providerDialectXAIResponses:    ContinuationModeOpaqueReplay,
 		providerDialectGemini:          ContinuationModeOpaqueReplay,
 		providerDialectBedrockConverse: ContinuationModeOpaqueReplay,
 	} {
@@ -179,6 +182,7 @@ func TestResponsesReplaysEncryptedReasoningAndExactToolCorrelation(t *testing.T)
 		"medium",
 		nil,
 		false,
+		providerDialectOpenAIResponses,
 	)
 	if err != nil {
 		t.Fatal(err)

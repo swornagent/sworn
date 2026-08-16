@@ -152,7 +152,7 @@ func certificationFailureCode(err error) string {
 		"INVALID_DECISION":
 		return "certification_submission_failed"
 	case "CONTINUATION_INVALID", "INVALID_JSON", "MISSING_JSON",
-		"TRAILING_JSON", "NONCANONICAL_JSON":
+		"TRAILING_JSON", "NONCANONICAL_JSON", "CONTINUATION_STATE_UNPLAYABLE":
 		return "certification_response_contract_failed"
 	case "INVALID_USAGE", "PARTIAL_USAGE", "PARTIAL_COST",
 		"INVALID_COST_OBSERVATION":

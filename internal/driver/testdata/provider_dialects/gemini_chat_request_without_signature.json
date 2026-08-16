@@ -1,0 +1,1 @@
+{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Pick a secret number 1-5, tell me only: chosen."}, {"content": "chosen.", "role": "assistant"}, {"role": "user", "content": "Now reveal it."}], "max_completion_tokens": 3000}
