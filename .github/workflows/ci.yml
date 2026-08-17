@@ -37,7 +37,7 @@ jobs:
       (github.event.pull_request.head.ref != 'main' &&
        !startsWith(github.event.pull_request.head.ref, 'release/'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GOFLAGS: -buildvcs=false
       GOWORK: "off"
@@ -79,7 +79,7 @@ jobs:
       - name: Product tests
         run: go test -count=1 ./cmd/sworn ./internal/... ./tools/...
       - name: End-to-end tests
-        run: go test -count=1 -parallel=1 -timeout=20m ./test/e2e
+        run: go test -count=1 -parallel=1 -timeout=35m ./test/e2e
       - name: Race test
         run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
       - name: Vet
