@@ -1,0 +1,59 @@
+{
+  "outcome": "Gemini becomes economically real through Google's front door: a native generateContent adapter family whose implicit caching is visible and accounted (77% observed on recorded fixtures), whose thinking level is an operator-chosen profile knob, and whose thought signatures ride as the first-class fields they are - so the roster's fastest implementer stops paying full freight on every resent byte.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "changes to any existing adapter family or dialect",
+      "parsing or persisting opaque thought-signature bytes beyond the continuation ledger",
+      "renaming any wire-vocabulary identifier",
+      "provider pacing or registry work (adoption-surface T2)"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A google_native adapter family speaks generateContent: contents/parts request shape, functionDeclarations tools, generationConfig carrying maxOutputTokens from the invocation limits and thinkingLevel from adapter configuration (the operator's knob; no hardcoded level), proven by fixture round-trip against recorded exchanges n1-n5."
+    },
+    {
+      "id": "A2",
+      "text": "Native tool calls decode (functionCall with id and args) into provider tool calls preserving order; the call's args object is re-serialised through the engine's canonical JSON encoder so the bytes the tool contract digests are deterministic across retries; results return as functionResponse parts inside the fixed single-key envelope {\"result\": \"<the exact result string>\"} regardless of content - a result whose text is itself valid JSON stays a string, proven by adversarial fixture n6 - and a multi-call turn executes each call in submission order."
+    },
+    {
+      "id": "A3",
+      "text": "Every part's thoughtSignature is retained as opaque continuation state keyed to its position and replayed byte-exact on the following request, or the dispatch fails closed with a labelled error; fixtures n2/n3 prove the provider accepts the replayed shape and continues coherently."
+    },
+    {
+      "id": "A4",
+      "text": "Usage maps completely: promptTokenCount to input, candidatesTokenCount to output, thoughtsTokenCount reported as reasoning, cachedContentTokenCount to cache-read - so the journal's usage receipts finally carry Gemini's cache truth, proven against fixture n5's 12,263-of-15,912 cached second call."
+    },
+    {
+      "id": "A5",
+      "text": "Strictness is native-shaped: the response decoder admits exactly the recorded field set at each structural position and refuses unknowns with labelled errors, per the same closed-allowlist discipline as the OpenAI surfaces."
+    },
+    {
+      "id": "A6",
+      "text": "Driver certification passes for a google-native profile with gemini-3.7-flash against recorded certification fixtures reduced from n1-n5, and the compat-surface profile remains untouched and certified as the documented fallback."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Opaque means opaque: thoughtSignature bytes are retained and replayed, never parsed, never logged in full, never persisted outside the continuation ledger.",
+    "The result envelope is content-independent: one documented key, the exact tool-output string as its value, never content-sniffed into structure; what Gemini reads is byte-identical to what every other provider's model reads for the same tool result.",
+    "The thinking level is operator configuration, never a hardcoded default in code; the operator has ruled HIGH for implementation work and the profile ships that value in config.",
+    "The recorded fixtures delivered with the work order are the acceptance evidence; a worker who finds them missing parks with a question rather than fabricating recorded exchanges.",
+    "Evidence basis: the compat surface reports no cache fields at all while the native surface reports a 77% hit on identical realistic bodies (fixtures n4/n5, 2026-08-17); the run this release unblocks was flying at ~2.2M TPM uncached against a 3M ceiling.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product, test and fixture changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}
