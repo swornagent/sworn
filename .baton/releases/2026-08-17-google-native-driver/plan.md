@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-17-google-native-driver",
-  "revision": 2,
-  "previous_plan": "9ee5ffa26e789c276a77650320cd03b45bc83dfe",
+  "revision": 3,
+  "previous_plan": "c6035af4e06e56422ec79e702d1ecd9bb077454b",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-17-google-native-driver/2",
+  "approval_ref": "operator://2026-08-17-google-native-driver/3",
   "tracks": [
     {
       "id": "T1-native",
@@ -15,11 +15,11 @@
         {
           "id": "S1-gemini-native-adapter",
           "outcome": "Gemini becomes economically real through Google's front door: a native generateContent adapter family whose implicit caching is visible and accounted (77% observed on recorded fixtures), whose thinking level is an operator-chosen profile knob, and whose thought signatures ride as the first-class fields they are - so the roster's fastest implementer stops paying full freight on every resent byte.",
-          "contract_path": "contracts/2026-08-17-google-native-driver/rev2/S1-gemini-native-adapter.json",
-          "digest": "sha256:aa443f0de81124b64ffed75c0e8b5e3f97ea0096e65cf71f3090a58a267232a8",
+          "contract_path": "contracts/2026-08-17-google-native-driver/rev3/S1-gemini-native-adapter.json",
+          "digest": "sha256:d3eed71ebc14b81804c368bfedf0799a398c947f7af002058df2a755eda9273f",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/driver"]
+          "touchpoints": ["internal/driver", "internal/observe", "test/e2e"]
         }
       ]
     }
@@ -67,19 +67,60 @@ passing through the envelope as text - makes the shortcut mechanically
 detectable forever. Scope, checks and every other criterion are
 byte-identical to revision 1.
 
+# Revision 3
+
+A4 binds "thoughtsTokenCount reported as reasoning", but nothing downstream
+can carry it: Gemini's reasoning count is admitted into the native decoder's
+closed allowlist and then dropped, and the eval records' token gap is already
+tracked as sworn#209 because it cannot be backfilled after the fact. The
+"no receipt schema changes" sentence in the Authority section predates A4's
+specific, deliberately approved day-1 requirement (A4 was approved as-is at
+revision 2); where the boilerplate and A4 conflict, A4 wins.
+
+This revision therefore adds exactly one additive, optional,
+backward-compatible field - `reasoning_tokens` on `driver.Usage` and
+`driver.UsageReceipt`, both `omitempty` - propagated on the same path
+`cache_read_tokens` already takes: Gemini's `thoughtsTokenCount` into the
+driver result, through `NormalizeUsage` into the journal's usage receipt,
+into `internal/observe` eval aggregation and telemetry, and into the
+production journey's receipt assertion. The Authority sentence is revised
+to authorise precisely this one field and nothing else; no other receipt
+schema, journal, or wire-vocabulary change is made.
+
+Because loop-economics resumes mid-S1 and re-records its receipts after this
+release moves the target head, the additive field must leave every receipt
+written before it byte-identical when re-encoded. That is an explicit
+acceptance criterion (A7), verified by a test that re-encodes existing
+receipt shapes byte-for-byte - not an assumption.
+
+Scope is widened to `internal/observe` and `test/e2e` alongside the existing
+`internal/driver`, per the configurable-paths rev4 precedent: the
+propagation's acceptance evidence lands across `eval.go`, `telemetry.go`,
+`production_journey_linux_test.go`, and their supporting record, payload and
+test files, so the candidate must be able to touch those paths legally.
+Fixtures n1-n6, the pinned content-independent {"result": ...} envelope,
+canonical arguments re-serialisation, the thinking-level knob,
+thought-signature replay and the closed allowlists stay exactly as revision 2
+promised.
+
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-17-google-native-driver/2`. Planning did not approve
-itself. One slice, scope internal/driver per the
-scope-from-acceptance-evidence rule (sworn#199): adapter, dialect,
-fixtures and certification tests all land in that package.
+`operator://2026-08-17-google-native-driver/3`. Planning did not approve
+itself. One slice, scope internal/driver, internal/observe and test/e2e per
+the scope-from-acceptance-evidence rule (sworn#199): adapter, dialect,
+fixtures, certification tests and the reasoning-token propagation all land in
+those packages.
 
 Roles: DeepSeek implements and grok-4.6 verifies - the subject vendor
 holds neither role, which is the independence discipline at its cleanest.
 
 Sequencing: loop-economics is paused mid-S1 with receipts safe on its
 refs; this release merges first, moves the target head, and economics
-re-records at resume - the known, cheap dance. This release does not
-alter trust rules, receipt schemas, budgets, or any other adapter. It
-renames nothing on the wire.
+re-records at resume - the known, cheap dance. This release does not alter
+trust rules, budgets, or any other adapter, and it changes the receipt
+schema in exactly one way: the additive, optional `reasoning_tokens` field
+this revision authorises, which leaves every existing receipt byte-identical
+when re-encoded (A7 verifies this, rather than assuming it). It renames
+nothing on the wire.
+
