@@ -29,10 +29,15 @@ type UsageReceipt struct {
 	CacheStatus      Availability `json:"cache_status,omitempty"`
 	CacheReadTokens  *int64       `json:"cache_read_tokens,omitempty"`
 	CacheWriteTokens *int64       `json:"cache_write_tokens,omitempty"`
-	EffortRequested  *string      `json:"effort_requested,omitempty"`
-	EffortReported   *string      `json:"effort_reported,omitempty"`
-	FinishReason     *string      `json:"finish_reason,omitempty"`
-	Truncated        *bool        `json:"truncated,omitempty"`
+	// ReasoningTokens is the single additive receipt field this release
+	// authorizes (A7): omitempty, backward-compatible, propagated on the same
+	// path cache_read_tokens takes. A nil value is honest absence and is
+	// omitted on re-encode, so legacy receipts stay byte-identical.
+	ReasoningTokens *int64  `json:"reasoning_tokens,omitempty"`
+	EffortRequested *string `json:"effort_requested,omitempty"`
+	EffortReported  *string `json:"effort_reported,omitempty"`
+	FinishReason    *string `json:"finish_reason,omitempty"`
+	Truncated       *bool   `json:"truncated,omitempty"`
 }
 
 func NormalizeUsage(usage *Usage, cost *CostObservation) (UsageReceipt, error) {
@@ -67,6 +72,13 @@ func NormalizeUsage(usage *Usage, cost *CostObservation) (UsageReceipt, error) {
 				receipt.CacheWriteTokens = &write
 			}
 			receipt.CacheStatus = UsageReported
+		}
+		if usage.ReasoningTokens != nil {
+			if *usage.ReasoningTokens < 0 || *usage.ReasoningTokens > MaxSafeInteger {
+				return UsageReceipt{}, fail("INVALID_USAGE")
+			}
+			reasoning := *usage.ReasoningTokens
+			receipt.ReasoningTokens = &reasoning
 		}
 	}
 	if cost != nil {
@@ -146,6 +158,11 @@ func EncodeUsageReceipt(receipt UsageReceipt) ([]byte, error) {
 			*receipt.Source != CostSourceProviderReported {
 			return nil, fail("INVALID_COST_OBSERVATION")
 		}
+	}
+	if receipt.ReasoningTokens != nil &&
+		(*receipt.ReasoningTokens < 0 ||
+			*receipt.ReasoningTokens > MaxSafeInteger) {
+		return nil, fail("INVALID_USAGE")
 	}
 	for _, value := range []*string{
 		receipt.EffortRequested, receipt.EffortReported, receipt.FinishReason,

@@ -65,6 +65,7 @@ type providerConversationFactory func(
 	prompt []byte,
 	model string,
 	tools []providerToolDefinition,
+	limits Limits,
 ) (providerConversation, error)
 
 type providerTransport interface {
@@ -201,6 +202,7 @@ func (adapter *loopAdapter) invoke(
 		prompt,
 		invocation.Selected.Model,
 		toolDefinitions(invocation.Request.Workspace.Access),
+		invocation.Request.Limits,
 	)
 	clearBytes(prompt)
 	if err != nil {
@@ -272,6 +274,7 @@ func (adapter *loopAdapter) invokeContinuation(
 		prompt,
 		invocation.Selected.Model,
 		toolDefinitions(invocation.Request.Workspace.Access),
+		invocation.Request.Limits,
 	)
 	clearBytes(prompt)
 	if err != nil {
@@ -710,6 +713,21 @@ func addTurnUsage(total *Usage, turn *Usage) error {
 			return fail("INVALID_USAGE")
 		} else {
 			*total.CacheWriteTokens += *turn.CacheWriteTokens
+		}
+	}
+	// Reasoning tokens are summed across turns exactly like cache reads, so
+	// the invocation total carries every turn's reported thinking.
+	if turn.ReasoningTokens != nil {
+		if *turn.ReasoningTokens < 0 {
+			return fail("INVALID_USAGE")
+		}
+		if total.ReasoningTokens == nil {
+			reasoning := *turn.ReasoningTokens
+			total.ReasoningTokens = &reasoning
+		} else if *total.ReasoningTokens > math.MaxInt64-*turn.ReasoningTokens {
+			return fail("INVALID_USAGE")
+		} else {
+			*total.ReasoningTokens += *turn.ReasoningTokens
 		}
 	}
 	return nil

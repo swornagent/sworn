@@ -349,6 +349,7 @@ func TestProviderAutomationUsesOneRoleNeutralTerminalWithoutSubmissionAuthority(
 			body []byte,
 			model string,
 			definitions []providerToolDefinition,
+			_ Limits,
 		) (providerConversation, error) {
 			prompt = append([]byte(nil), body...)
 			conversation.definitions = append(

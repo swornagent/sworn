@@ -95,13 +95,16 @@ type UsageSummary struct {
 	// CacheReadTokens and CacheWriteTokens are the summed canonical cache
 	// pair. A vocabulary that reports only reads (Gemini, the Responses API)
 	// leaves CacheWriteTokens nil rather than turning absence into zero.
-	CacheReadTokens  *int64  `json:"cache_read_tokens"`
-	CacheWriteTokens *int64  `json:"cache_write_tokens"`
-	CacheCoverage    Ratio   `json:"cache_coverage"`
-	EffortRequested  *string `json:"effort_requested"`
-	EffortReported   *string `json:"effort_reported"`
-	FinishReason     *string `json:"finish_reason"`
-	Truncated        *bool   `json:"truncated"`
+	CacheReadTokens  *int64 `json:"cache_read_tokens"`
+	CacheWriteTokens *int64 `json:"cache_write_tokens"`
+	CacheCoverage    Ratio  `json:"cache_coverage"`
+	// ReasoningTokens is the additive optional reasoning side, omitempty and
+	// strictly nil-absent so legacy eval records re-encode byte-identically.
+	ReasoningTokens *int64  `json:"reasoning_tokens,omitempty"`
+	EffortRequested *string `json:"effort_requested"`
+	EffortReported  *string `json:"effort_reported"`
+	FinishReason    *string `json:"finish_reason"`
+	Truncated       *bool   `json:"truncated"`
 }
 
 type AttemptGroup struct {
@@ -259,6 +262,8 @@ type usageAggregate struct {
 	cacheWriteKnown int64
 	cacheRead       int64
 	cacheWrite      int64
+	reasoningKnown  int64
+	reasoning       int64
 	effortRequested *string
 	effortReported  *string
 	finishReason    *string
@@ -428,6 +433,17 @@ func (u *usageAggregate) add(receipt driver.UsageReceipt) error {
 			}
 		}
 	}
+	if receipt.ReasoningTokens != nil {
+		var err error
+		u.reasoningKnown, err = safeAdd(u.reasoningKnown, 1)
+		if err != nil {
+			return err
+		}
+		u.reasoning, err = safeAdd(u.reasoning, *receipt.ReasoningTokens)
+		if err != nil {
+			return err
+		}
+	}
 	// Group-level aggregation is deterministic last-reported-wins: attempts
 	// arrive in journal order, so the last non-nil value is the most recent
 	// reported fact. Truncation is carried as any-non-nil (the only non-nil
@@ -548,6 +564,9 @@ func (u usageAggregate) summary(denominator int64) UsageSummary {
 		if u.cacheWriteKnown != 0 {
 			result.CacheWriteTokens = int64Pointer(u.cacheWrite)
 		}
+	}
+	if u.reasoningKnown != 0 {
+		result.ReasoningTokens = int64Pointer(u.reasoning)
 	}
 	if u.effortRequested != nil {
 		value := *u.effortRequested

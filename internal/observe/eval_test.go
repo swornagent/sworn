@@ -1,6 +1,7 @@
 package observe
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
 )
 
@@ -534,6 +536,99 @@ func contains(value, pattern string) bool {
 		}
 	}
 	return false
+}
+
+// A7: reasoning_tokens rides the same path cache reads take into the eval
+// record: a usage receipt carrying Gemini's thoughtsTokenCount lands on the
+// record and group usage summaries, while a legacy receipt without it stays
+// byte-identical through the canonical re-encode.
+func TestEvaluatorSurfacesReasoningTokens(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(2 * time.Second)
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: []journal.EvaluationFact{{
+			Kind:           journal.EvaluationAttempt,
+			EffectKind:     "driver.dispatch",
+			EffectState:    journal.Succeeded,
+			Attempt:        1,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage: []byte(
+				`{"token_status":"reported","input_tokens":15912,` +
+					`"output_tokens":4,"cost_status":"unavailable",` +
+					`"cost_micro_units":null,"currency":null,` +
+					`"source":null,"cache_status":"reported",` +
+					`"cache_read_tokens":12263,` +
+					`"reasoning_tokens":1779}`,
+			),
+			StartedAt:  started,
+			FinishedAt: finished,
+		}},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(
+		context.Background(),
+		"run-1",
+	)
+	if err != nil || !changed {
+		t.Fatalf("advance = %v, %v", changed, err)
+	}
+	usage := record.Usage
+	if usage.ReasoningTokens == nil || *usage.ReasoningTokens != 1779 ||
+		usage.CacheReadTokens == nil || *usage.CacheReadTokens != 12263 ||
+		*usage.CacheCoverage.Numerator != 1 ||
+		*usage.CacheCoverage.Denominator != 1 {
+		t.Fatalf("reasoning usage = %#v", usage)
+	}
+	if len(record.Groups) != 1 ||
+		record.Groups[0].Usage.ReasoningTokens == nil ||
+		*record.Groups[0].Usage.ReasoningTokens != 1779 {
+		t.Fatalf("group reasoning usage = %#v", record.Groups)
+	}
+	if store.advance == nil || len(store.advance.Eval) != 1 ||
+		!contains(
+			string(store.advance.Eval[0].Body),
+			`"reasoning_tokens":1779`,
+		) {
+		t.Fatalf("persisted body missing reasoning_tokens: %s",
+			store.advance.Eval[0].Body)
+	}
+
+	// A legacy usage receipt (no reasoning_tokens) still re-encodes
+	// byte-identically through the observe decode path.
+	legacy := []byte(
+		`{"token_status":"reported","input_tokens":7,"output_tokens":5,` +
+			`"cost_status":"unavailable","cost_micro_units":null,"currency":null,` +
+			`"source":null,"cache_status":"reported","cache_read_tokens":40,` +
+			`"effort_requested":"high","effort_reported":"high",` +
+			`"finish_reason":"length","truncated":true}`,
+	)
+	decoded, decodeErr := decodeUsage(legacy)
+	if decodeErr != nil || decoded.ReasoningTokens != nil {
+		t.Fatalf("legacy decode = %#v, %v", decoded, decodeErr)
+	}
+	canonical, encodeErr := driver.EncodeUsageReceipt(decoded)
+	if encodeErr != nil || !bytes.Equal(canonical, legacy) {
+		t.Fatalf("legacy re-encode = %s, %v", canonical, encodeErr)
+	}
 }
 
 func TestEvaluatorSurfacesProviderTruncationFacts(t *testing.T) {

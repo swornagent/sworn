@@ -49,6 +49,10 @@ type HTTPProfileConfig struct {
 	CredentialPrefix string   `json:"credential_prefix"`
 	CredentialRefs   []string `json:"credential_refs"`
 	ResponseBytes    int      `json:"response_bytes"`
+	// ThinkingLevel is the Gemini adapter's operator-chosen thinking knob
+	// (closed {LOW, MEDIUM, HIGH}; empty omits thinkingConfig). OpenAI and
+	// Bedrock adapters ignore the field.
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
 
 type httpTransport struct {

@@ -207,6 +207,7 @@ func bedrockTerminalTestAdapter(
 			prompt []byte,
 			model string,
 			definitions []providerToolDefinition,
+			_ Limits,
 		) (providerConversation, error) {
 			return newBedrockConversation(
 				config,
