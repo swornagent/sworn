@@ -152,8 +152,8 @@ are separate, explicit choices.
 ## Build and verify
 
 Go 1.26.5 or newer is required. Production model execution currently requires
-Linux and root-owned `/usr/bin/bwrap` with unprivileged user namespaces
-enabled.
+Linux and a root-owned `bwrap` discoverable on PATH (for example
+`/usr/bin/bwrap`) with unprivileged user namespaces enabled.
 
 The local code checks are:
 
@@ -166,7 +166,7 @@ GOFLAGS=-buildvcs=false go test -count=1 -race \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
 test -z "$(git ls-files -z -- '*.go' \
-  ':(exclude,top).baton/releases/**' | xargs -0 -r gofmt -l)"
+  ':(exclude,top).sworn/records/**' | xargs -0 -r gofmt -l)"
 go mod tidy -diff
 git diff --check
 ```
@@ -190,6 +190,13 @@ internal/tui      interactive navigation across project releases and runs
 internal/observe  local evaluation and optional telemetry
 ```
 
-`.baton/releases` contains delivery control records, not product source.
-Earlier releases and retired protocol lines remain unchanged as historical
-evidence.
+`.sworn/records` is the default records root: it contains delivery control
+records, not product source. Every host location Sworn reads or writes is
+configurable — project-scoped locations (records, journals, contracts root,
+documents root and the commit-message prefix) come from the committed
+`docs/sworn/sworn.json`, and machine/user locations (workspace factory root,
+temp roots, credentials directory, artefact home) resolve from `SWORN_*`
+environment variables with XDG-conformant defaults. See
+[docs/sworn/config.md](docs/sworn/config.md) for the schema, the defaults,
+and the refusal rules. Earlier releases and retired protocol lines remain
+unchanged as historical evidence.

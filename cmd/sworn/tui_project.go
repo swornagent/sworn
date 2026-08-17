@@ -15,10 +15,7 @@ import (
 )
 
 const (
-	defaultProjectJournal = ".sworn/sworn.db"
-	defaultProjectConfig  = ".sworn/drivers.json"
-	defaultManifestDir    = ".sworn/runs"
-	maxProjectManifests   = 128
+	maxProjectManifests = 128
 )
 
 type projectPaths struct {
@@ -154,11 +151,19 @@ func discoverProject(
 func resolveProjectPaths(
 	root, journalPath, configPath, manifestDir string,
 ) (projectPaths, error) {
+	// The journal, driver-config and manifest files live under the
+	// configured journals root (default .sworn) so an operator can relocate
+	// the project's run state with the committed project file.
+	project, _, err := gitx.LoadProjectConfig(root)
+	if err != nil {
+		return projectPaths{}, err
+	}
+	journalsRoot := filepath.FromSlash(project.JournalsRoot)
 	defaults := projectPaths{
 		root:        root,
-		journal:     filepath.Join(root, filepath.FromSlash(defaultProjectJournal)),
-		config:      filepath.Join(root, filepath.FromSlash(defaultProjectConfig)),
-		manifestDir: filepath.Join(root, filepath.FromSlash(defaultManifestDir)),
+		journal:     filepath.Join(root, journalsRoot, "sworn.db"),
+		config:      filepath.Join(root, journalsRoot, "drivers.json"),
+		manifestDir: filepath.Join(root, journalsRoot, "runs"),
 	}
 	for _, override := range []struct {
 		value       string

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -59,6 +61,7 @@ var _ RecoverableTurnDriver = Dispatcher{}
 // callers; it does not imply a process-only adapter.
 type Invoker = Dispatcher
 
+// Invocation is the single role-neutral invocation shape used by every provider.
 type Invocation struct {
 	Request          Request
 	HostWorkspace    string
@@ -67,8 +70,42 @@ type Invocation struct {
 	Inputs           []InputContent
 	FakeProfile      FakeProfile
 	RecoveryStepHook RecoveryStepHook
+	// MaskNames are the workspace-relative names the containment mask must
+	// always protect, derived by the engine from the configured project roots
+	// (records and journals) plus .git. They are computed by the engine and
+	// never model-configurable; an empty value means the driver uses the
+	// fixed defaults. The mask follows the configured roots so a relocated
+	// records or journals root is never left unprotected. The same set also
+	// reaches request admission, the input projection and the tool path guard
+	// so a configured root is never admitted as an input or tool path.
+	MaskNames        []string
 	recoverableInput *RecoverableTurnInput
 }
+
+// reservedMaskNames returns the workspace-relative names the containment
+// mask protects: the engine-computed MaskNames when present (which follow the
+// configured project roots), else the fixed defaults. It lives in a shared
+// file because request admission, the input projection and the tool path
+// guard read it on every platform, not just the Linux containment sites.
+func reservedMaskNames(invocation Invocation) []string {
+	if len(invocation.MaskNames) != 0 {
+		return append([]string(nil), invocation.MaskNames...)
+	}
+	return gitx.ReservedNames(gitx.DefaultProjectConfig())
+}
+
+// withoutGit returns the reserved set with ".git" removed, for read-only
+// verifier workspaces that expose read-only git instead of masking it.
+func withoutGit(names []string) []string {
+	result := make([]string, 0, len(names))
+	for _, name := range names {
+		if name != ".git" {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
 type Diagnostic struct {
 	Code        string `json:"code"`
 	StderrBytes int64  `json:"stderr_bytes"`
@@ -202,6 +239,7 @@ func validDiagnosticCode(code string) bool {
 	case "none",
 		"submission_rejected",
 		"submission_absent",
+		"provider_truncated",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -234,6 +272,7 @@ func validFatalDiagnosticCode(code string) bool {
 		"extra_stdout",
 		"invalid_driver_result",
 		"driver_transport_failed",
+		"provider_truncated",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -305,6 +344,15 @@ func sanitizeFailedObservation(observation Observation) Observation {
 		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
 		sanitized.Diagnostic = observation.Diagnostic
 	}
+	// A provider-reported truncation is the one adapter failure that carries
+	// measured facts: the accumulated receipt with the provider's own finish
+	// reason and cache/effort accounting. Preserve it when it is canonical so
+	// the operator surfaces can evaluate what the invocation actually cost.
+	if observation.Diagnostic.Code == "provider_truncated" {
+		if _, err := EncodeUsageReceipt(observation.Usage); err == nil {
+			sanitized.Usage = observation.Usage
+		}
+	}
 	if len(observation.Events) <= 1_024 {
 		sanitized.Events = make([]TerminalEvent, 0, len(observation.Events))
 		for index, event := range observation.Events {
@@ -351,6 +399,7 @@ func validAdapterErrorCode(code string) bool {
 		"ENDPOINT_UNAVAILABLE",
 		"PROCESS_START_FAILED",
 		"ISOLATION_UNAVAILABLE",
+		"UNCONTAINED_DISPATCH_REFUSED",
 		"INVALID_NETWORK_POLICY",
 		"UNSAFE_WORKSPACE_SURFACE",
 		"OUTPUT_OVERFLOW",
@@ -406,6 +455,7 @@ func validAdapterErrorCode(code string) bool {
 		"UNSUPPORTED_HOST",
 		"MISSING_SUBMISSION",
 		"PROVIDER_ERROR",
+		"PROVIDER_TRUNCATED",
 		"PROVIDER_AUTHORIZATION_FAILED",
 		"PROVIDER_LIMITED",
 		"PROVIDER_REQUEST_REJECTED",
@@ -462,7 +512,12 @@ func contextFailure(err error) (Observation, error) {
 	return Observation{Diagnostic: Diagnostic{Code: diagnostic}}, fail(code)
 }
 func validateInvocation(invocation Invocation) error {
-	if err := ValidateRequest(invocation.Request); err != nil {
+	// Request admission threads the engine-computed reserved set (MaskNames),
+	// which follows the configured project roots, so a relocated records or
+	// journals root is rejected as an input path at dispatch. The wire-level
+	// ValidateRequest (EncodeRequest below) keeps the fixed defaults because
+	// the request schema carries no project configuration.
+	if err := validateRequest(invocation.Request, invocation.MaskNames); err != nil {
 		return err
 	}
 	if invocation.Request.Workspace.Path != GuestWorkspacePath ||

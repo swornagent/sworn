@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -19,7 +21,13 @@ const (
 	planClose       = "\n```\n"
 	manifestOpen    = "```sworn-release-manifest-v1\n"
 	manifestClose   = "\n```\n"
-	RecordRoot      = ".baton/releases"
+	// RecordRoot is the configured records root default, kept in agreement
+	// with the gitx project-config default so the standalone parser and the
+	// repository admission can never diverge.
+	RecordRoot = gitx.DefaultRecordsRoot
+	// LegacyRecordRoot is the historical records root that remains readable
+	// and reserved for releases recorded before the relocation.
+	LegacyRecordRoot = gitx.LegacyRecordsRoot
 )
 
 var (
@@ -39,15 +47,21 @@ type Scope struct {
 }
 
 type Slice struct {
-	ID           string      `json:"id"`
-	Outcome      string      `json:"outcome"`
-	Scope        Scope       `json:"scope"`
-	Acceptance   []Criterion `json:"acceptance"`
-	Checks       []string    `json:"checks"`
-	Constraints  []string    `json:"constraints"`
-	DependsOn    []string    `json:"depends_on"`
-	Consumes     []string    `json:"consumes"`
-	ContractPath string      `json:"contract_path,omitempty"`
+	ID         string      `json:"id"`
+	Outcome    string      `json:"outcome"`
+	Scope      Scope       `json:"scope"`
+	Acceptance []Criterion `json:"acceptance"`
+	Checks     []string    `json:"checks"`
+	// HostChecks names a subset of Checks that require containment. The
+	// engine executes exactly these at the host boundary and binds the
+	// recorded evidence; a role never runs them. It is optional: contracts
+	// that do not declare it keep the identical canonical digest and
+	// unchanged behavior.
+	HostChecks   []string `json:"host_checks,omitempty"`
+	Constraints  []string `json:"constraints"`
+	DependsOn    []string `json:"depends_on"`
+	Consumes     []string `json:"consumes"`
+	ContractPath string   `json:"contract_path,omitempty"`
 }
 
 type Track struct {
@@ -202,6 +216,7 @@ func copyMetadata(value Metadata) Metadata {
 			result.Tracks[i].Slices[j].Scope.Exclude = cloneStrings(slice.Scope.Exclude)
 			result.Tracks[i].Slices[j].Acceptance = append([]Criterion(nil), slice.Acceptance...)
 			result.Tracks[i].Slices[j].Checks = cloneStrings(slice.Checks)
+			result.Tracks[i].Slices[j].HostChecks = cloneStrings(slice.HostChecks)
 			result.Tracks[i].Slices[j].Constraints = cloneStrings(slice.Constraints)
 			result.Tracks[i].Slices[j].DependsOn = cloneStrings(slice.DependsOn)
 			result.Tracks[i].Slices[j].Consumes = cloneStrings(slice.Consumes)
@@ -300,6 +315,51 @@ func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
 	return contract, nil
 }
 
+// ResolveSliceContractAt resolves the approved slice contract for sliceID at
+// an exact commit, reading the contract bytes from that commit through the
+// admitted read-only repository handle and proving them against this plan's
+// declared digest via ResolveSliceContract. Legacy inline slices carry their
+// full contract body in the plan itself, so no file read is needed and the
+// already-admitted slice is returned unchanged. Any missing contract source,
+// digest mismatch, or mutation of the declared shape fails closed, so the
+// host-check runner can never execute commands from anything but the
+// human-approved, digest-bound contract at the exact captured head.
+func (p Plan) ResolveSliceContractAt(
+	repository GitRepository,
+	sliceID string,
+	commit string,
+) (Slice, error) {
+	_, declared, ok := p.FindSlice(sliceID)
+	if !ok {
+		return Slice{}, recordFail("SLICE_NOT_FOUND", "plan has no slice "+sliceID)
+	}
+	if declared.ContractPath == "" {
+		return declared, nil
+	}
+	contractsRoot := gitx.DefaultContractsRoot
+	if repository.repository() != nil {
+		contractsRoot = repository.repository().ProjectConfig().ContractsRoot
+	}
+	if declared.ContractPath != contractsRoot &&
+		!strings.HasPrefix(declared.ContractPath, contractsRoot+"/") {
+		return Slice{}, recordFail(
+			"CONTRACT_OUTSIDE_ROOT",
+			"contract source "+declared.ContractPath+" is outside the configured contracts root "+contractsRoot,
+		)
+	}
+	if commit == "" {
+		return Slice{}, recordFail("CONTRACT_SOURCE_REQUIRED", "manifest declares contract paths but no commit was provided")
+	}
+	raw, present, err := readGitFileAt(repository, commit, declared.ContractPath)
+	if err != nil {
+		return Slice{}, err
+	}
+	if !present {
+		return Slice{}, recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+declared.ContractPath)
+	}
+	return p.ResolveSliceContract(sliceID, raw)
+}
+
 // resolveManifestContracts reads every sworn.release-manifest/v1 slice's
 // declared contract_path from source by exact safe path and cross-validates
 // each one against parsed's manifest declaration through ResolveSliceContract.
@@ -330,6 +390,15 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 	}
 	if len(paths) == 0 {
 		return nil
+	}
+	contractsRoot := repository.contractsRoot()
+	for _, path := range paths {
+		if path != contractsRoot && !strings.HasPrefix(path, contractsRoot+"/") {
+			return recordFail(
+				"CONTRACT_OUTSIDE_ROOT",
+				"contract source "+path+" is outside the configured contracts root "+contractsRoot,
+			)
+		}
 	}
 	if source == "" {
 		return recordFail(
@@ -699,7 +768,7 @@ func validateSlice(value any, trackID, label string) (Slice, string, error) {
 		"id", "outcome", "scope", "acceptance", "checks",
 		"constraints", "depends_on", "consumes",
 	}
-	if err := exactKeys(object, required, nil, label); err != nil {
+	if err := exactKeys(object, required, []string{"host_checks"}, label); err != nil {
 		return Slice{}, "", err
 	}
 	id, err := identity(object["id"], label+".id")
@@ -721,7 +790,7 @@ func validateContractBody(value any, id, trackID, label string) (Slice, string, 
 	required := []string{
 		"outcome", "scope", "acceptance", "checks", "constraints", "depends_on", "consumes",
 	}
-	if err := exactKeys(object, required, nil, label); err != nil {
+	if err := exactKeys(object, required, []string{"host_checks"}, label); err != nil {
 		return Slice{}, "", err
 	}
 	return validateSliceBody(object, id, trackID, label)
@@ -750,7 +819,7 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		return Slice{}, "", recordFail("INVALID_FIELD", label+".scope.include cannot be empty")
 	}
 	for _, scopedPath := range includes {
-		if scopedPath == RecordRoot || strings.HasPrefix(scopedPath, RecordRoot+"/") {
+		if isReservedRecordPath(scopedPath) {
 			return Slice{}, "", recordFail(
 				"RESERVED_RECORD_ROOT",
 				label+".scope.include cannot name reserved Baton records at "+scopedPath,
@@ -797,6 +866,10 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 	if err != nil {
 		return Slice{}, "", err
 	}
+	hostChecks, err := parseHostChecks(object["host_checks"], label, checks)
+	if err != nil {
+		return Slice{}, "", err
+	}
 	constraints, err := uniqueStringList(object["constraints"], label+".constraints", longString)
 	if err != nil {
 		return Slice{}, "", err
@@ -811,8 +884,8 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 	}
 	slice := Slice{
 		ID: id, Outcome: outcome, Scope: Scope{Include: includes, Exclude: excludes},
-		Acceptance: acceptance, Checks: checks, Constraints: constraints,
-		DependsOn: depends, Consumes: consumes,
+		Acceptance: acceptance, Checks: checks, HostChecks: hostChecks,
+		Constraints: constraints, DependsOn: depends, Consumes: consumes,
 	}
 	contractValue := map[string]any{
 		"track": trackID,
@@ -821,6 +894,12 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		"acceptance": criteriaAny(slice.Acceptance),
 		"checks":     slice.Checks, "constraints": slice.Constraints,
 		"depends_on": slice.DependsOn, "consumes": slice.Consumes,
+	}
+	// host_checks is deliberately omitted from the canonical payload when a
+	// contract does not use it, so every existing contract digest is
+	// byte-for-byte stable.
+	if len(slice.HostChecks) > 0 {
+		contractValue["host_checks"] = slice.HostChecks
 	}
 	canonical, err := canonicalJSON(contractValue)
 	if err != nil {
@@ -835,6 +914,40 @@ func criteriaAny(criteria []Criterion) []any {
 		result[index] = map[string]any{"id": criterion.ID, "text": criterion.Text}
 	}
 	return result
+}
+
+// parseHostChecks admits the optional host_checks declaration: a non-empty
+// subset of the slice's checks that require containment. Each entry must be
+// one of the already-admitted checks (never a new command string), and the
+// list must not be empty when the key is present, so the engine's host
+// boundary can never be asked to execute anything the human-approved
+// contract did not already declare as a check.
+func parseHostChecks(value any, label string, checks []string) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	declared := make(map[string]bool, len(checks))
+	for _, check := range checks {
+		declared[check] = true
+	}
+	hostChecks, err := uniqueStringList(value, label+".host_checks", func(raw any, itemLabel string) (string, error) {
+		return requiredString(raw, itemLabel, 1, 2_048)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(hostChecks) == 0 {
+		return nil, recordFail("INVALID_FIELD", label+".host_checks cannot be empty")
+	}
+	for _, hostCheck := range hostChecks {
+		if !declared[hostCheck] {
+			return nil, recordFail(
+				"INVALID_FIELD",
+				label+".host_checks entry is not a declared check",
+			)
+		}
+	}
+	return hostChecks, nil
 }
 
 // validateManifestSlice parses one compact sworn.release-manifest/v1 slice
@@ -871,7 +984,7 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 	if err != nil {
 		return Slice{}, "", err
 	}
-	if contractPath == RecordRoot || strings.HasPrefix(contractPath, RecordRoot+"/") {
+	if isReservedRecordPath(contractPath) {
 		return Slice{}, "", recordFail(
 			"RESERVED_RECORD_ROOT",
 			label+".contract_path cannot name reserved Baton records at "+contractPath,
@@ -897,7 +1010,7 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 		return Slice{}, "", recordFail("INVALID_FIELD", label+".touchpoints cannot be empty")
 	}
 	for _, touchpoint := range touchpoints {
-		if touchpoint == RecordRoot || strings.HasPrefix(touchpoint, RecordRoot+"/") {
+		if isReservedRecordPath(touchpoint) {
 			return Slice{}, "", recordFail(
 				"RESERVED_RECORD_ROOT",
 				label+".touchpoints cannot name reserved Baton records at "+touchpoint,
@@ -1068,6 +1181,19 @@ func uniqueStringList(value any, label string, validate stringValidator) ([]stri
 
 func pathsOverlap(left, right string) bool {
 	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+// isReservedRecordPath reports whether a repository-relative path names the
+// configured records root or the historical legacy records root, either
+// exactly or beneath them. Both roots stay reserved so a recorded plan can
+// never scope product work into either.
+func isReservedRecordPath(value string) bool {
+	for _, root := range []string{RecordRoot, LegacyRecordRoot} {
+		if value == root || strings.HasPrefix(value, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func unique(values []string) []string {

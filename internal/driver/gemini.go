@@ -62,7 +62,13 @@ func NewGeminiAdapter(
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
 ) (Adapter, error) {
-	transport, err := newHTTPTransport(config, resolver, probe, roundTripper)
+	transport, err := newHTTPTransport(
+		config,
+		AuthModeBearer,
+		resolver,
+		probe,
+		roundTripper,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -187,8 +193,32 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 			"finishMessage",
 		},
 	)
-	if err != nil || candidate["finishReason"] != "STOP" {
+	if err != nil {
 		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	finishReason, finishOK := candidate["finishReason"].(string)
+	if !finishOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if finishReason != "STOP" {
+		if finishReason != "MAX_TOKENS" {
+			return providerTurn{}, fail("CONTINUATION_INVALID")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		turn := providerTurn{
+			FinishReason: &finishReason,
+			Truncated:    true,
+		}
+		if usage, present := root["usageMetadata"]; present {
+			parsed, usageErr := geminiUsage(usage)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = parsed
+		}
+		return turn, nil
 	}
 	content, err := closedObject(candidate["content"], []string{"role", "parts"}, nil)
 	if err != nil || content["role"] != "model" {
@@ -292,27 +322,76 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 	conversation.step++
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usage, present := root["usageMetadata"]; present {
-		metadata, metadataErr := closedObject(
-			usage,
-			nil,
-			[]string{
-				"promptTokenCount", "candidatesTokenCount", "totalTokenCount",
-				"cachedContentTokenCount", "thoughtsTokenCount", "toolUsePromptTokenCount",
-				"promptTokensDetails", "candidatesTokensDetails", "cacheTokensDetails",
-				"toolUsePromptTokensDetails", "serviceTier",
-			},
-		)
-		if metadataErr != nil {
-			return providerTurn{}, fail("INVALID_USAGE")
+		parsed, usageErr := geminiUsage(usage)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		input, inputOK := safeJSONInt(metadata["promptTokenCount"])
-		output, outputOK := safeJSONInt(metadata["candidatesTokenCount"])
-		if !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
-		}
-		turn.Usage = &Usage{InputTokens: input, OutputTokens: output}
+		turn.Usage = parsed
 	}
 	return turn, nil
+}
+
+// geminiUsage parses usageMetadata, surfacing cached-content tokens as cache
+// reads instead of discarding them. Gemini reports only the read side (there
+// is no write vocabulary), so CacheWriteTokens stays nil. The per-modality
+// cacheTokensDetails breakdown is summed only when the total
+// cachedContentTokenCount is absent.
+func geminiUsage(value any) (*Usage, error) {
+	metadata, err := closedObject(
+		value,
+		nil,
+		[]string{
+			"promptTokenCount", "candidatesTokenCount", "totalTokenCount",
+			"cachedContentTokenCount", "thoughtsTokenCount", "toolUsePromptTokenCount",
+			"promptTokensDetails", "candidatesTokensDetails", "cacheTokensDetails",
+			"toolUsePromptTokensDetails", "serviceTier",
+		},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(metadata["promptTokenCount"])
+	output, outputOK := safeJSONInt(metadata["candidatesTokenCount"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: output}
+	if _, present := metadata["cachedContentTokenCount"]; present {
+		read, readOK := safeJSONInt(metadata["cachedContentTokenCount"])
+		if !readOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheReadTokens = &read
+		return result, nil
+	}
+	detailsValue, present := metadata["cacheTokensDetails"]
+	if !present {
+		return result, nil
+	}
+	details, detailsOK := detailsValue.([]any)
+	if !detailsOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	var total int64
+	for _, rawDetail := range details {
+		detail, detailErr := closedObject(
+			rawDetail,
+			nil,
+			[]string{"modality", "tokenCount"},
+		)
+		if detailErr != nil {
+			return nil, fail("INVALID_USAGE")
+		}
+		count, countOK := safeJSONInt(detail["tokenCount"])
+		if !countOK || total > MaxSafeInteger-count {
+			return nil, fail("INVALID_USAGE")
+		}
+		total += count
+	}
+	if total != 0 || len(details) != 0 {
+		result.CacheReadTokens = &total
+	}
+	return result, nil
 }
 
 func (conversation *geminiConversation) appendInstruction(body []byte) error {
@@ -452,6 +531,10 @@ func canonicalBase64(value string) bool {
 	defer clearBytes(decoded)
 	return base64.StdEncoding.EncodeToString(decoded) == value
 }
+
+// declaredReasoningEffort is honest absence for the Gemini dialect, which
+// has no reasoning-effort request vocabulary.
+func (*geminiConversation) declaredReasoningEffort() string { return "" }
 
 func geminiThoughtSignatureRequired(model string) bool {
 	normalized := strings.ToLower(model)

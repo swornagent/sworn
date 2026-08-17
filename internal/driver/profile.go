@@ -152,7 +152,7 @@ func certificationFailureCode(err error) string {
 		"INVALID_DECISION":
 		return "certification_submission_failed"
 	case "CONTINUATION_INVALID", "INVALID_JSON", "MISSING_JSON",
-		"TRAILING_JSON", "NONCANONICAL_JSON":
+		"TRAILING_JSON", "NONCANONICAL_JSON", "CONTINUATION_STATE_UNPLAYABLE":
 		return "certification_response_contract_failed"
 	case "INVALID_USAGE", "PARTIAL_USAGE", "PARTIAL_COST",
 		"INVALID_COST_OBSERVATION":
@@ -207,14 +207,19 @@ func NewProductionRegistry(
 				registered.config.CredentialRef != nil {
 				return SelectionRegistry{}, fail("INVALID_PROFILE")
 			}
-		} else if registered.config.Network != NetworkRequired ||
+		} else if registered.config.Network != NetworkRequired {
+			return SelectionRegistry{}, fail("INVALID_PROFILE")
+		} else if registered.config.AuthMode != AuthModeNone &&
 			registered.config.CredentialRef == nil {
+			return SelectionRegistry{}, fail("INVALID_PROFILE")
+		} else if registered.config.AuthMode == AuthModeNone &&
+			registered.config.CredentialRef != nil {
 			return SelectionRegistry{}, fail("INVALID_PROFILE")
 		}
 	}
 	for _, family := range []ProfileFamily{
 		ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
-		ProfileDeepSeek, ProfileGemini, ProfileBedrock,
+		ProfileGemini, ProfileBedrock,
 	} {
 		if families[family] < 1 {
 			return SelectionRegistry{}, fail("MISSING_PROFILE_FAMILY")
@@ -222,7 +227,6 @@ func NewProductionRegistry(
 	}
 	for _, surface := range []ProfileSurface{
 		ProfileSurfaceBedrockRuntimeConverse,
-		ProfileSurfaceBedrockMantleChat,
 	} {
 		if surfaces[surface] < 1 {
 			return SelectionRegistry{}, fail("MISSING_PROFILE_SURFACE")

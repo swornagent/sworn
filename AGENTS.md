@@ -45,14 +45,30 @@ Before committing, run:
 GOFLAGS=-buildvcs=false go test -count=1 \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go test -count=1 \
-  -parallel=1 -timeout=20m ./test/e2e
+  -parallel=1 -timeout=35m ./test/e2e
 GOFLAGS=-buildvcs=false go test -count=1 -race \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
+gofmt -l ./cmd ./internal ./tools
 ```
 
 Run the long process tests once and in order. Use the race detector on the
 product packages, not on the timing-sensitive end-to-end suite. These are the
 same boundaries used by CI.
+
+`gofmt -l` must print nothing. CI enforces formatting as its own step, so a
+slice contract that omits this check can pass every gate it declares and
+still land red: that is exactly how three driver files reached the release
+branch unformatted. A check the repository enforces belongs in the contract
+that claims to have checked.
+
+The end-to-end suite runs at the host boundary. A contained role cannot
+execute it: nested containment is prevented both by the uid-0 trust check on
+`bwrap` (which reads as uid 65534 inside a sandbox) and by `--disable-userns`,
+so every nested dispatch returns `ISOLATION_UNAVAILABLE`. A slice contract may
+therefore **declare** this check, but must never require a worker or verifier
+to run it or to observe its result empirically. Such a contract is
+unsatisfiable, and a correct worker will refuse it rather than fabricate
+evidence. See ADR 0010.
 
 Official binaries use `CGO_ENABLED=0`, `-buildvcs=false` and `-trimpath`.

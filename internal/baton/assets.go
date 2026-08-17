@@ -3,7 +3,8 @@
 // protocol reference material they cite.
 //
 // It owns compiled protocol bytes only. Runtime records remain in Git under
-// .baton/releases and are never embedded or read through this package.
+// the configured records root (default .sworn/records) and are never embedded
+// or read through this package.
 package baton
 
 import (
@@ -36,12 +37,12 @@ const (
 	// bundle still carries verbatim. They are provenance facts recorded for
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
-	LegacyBatonCommit  = "efacafb2579e99b9d291b2ad27d41df26fbb9d79"
-	ManifestSHA256     = "sha256:ef70ae0560af52a0423b302bd971e26b376aa32086f79be5b6f6250e5e087cde"
+	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
+	ManifestSHA256     = "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c"
 	AssetCount         = 25
-	AssetBytes         = int64(383701)
+	AssetBytes         = int64(390809)
 
-	releaseDocumentSHA256 = "sha256:1c60d09c5f0d97cc4426d9399bdd9c5b457c8fa11a643d0217e35254c2146fdd"
+	releaseDocumentSHA256 = "sha256:867e8a2a321aac278341340003858920d272155726600112b0552c56e307daa2"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -315,7 +316,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"},
 		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760"},
 		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d"},
 		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},
 	}
 	expectedTemplates := []releaseTemplate{
@@ -324,7 +325,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "baton.engine-conformance/v1", "sha256:5dd917443421a6f79f9fe231cd92b83252bcf2014d61a365f86d394fceb9a440"},
 		{"conformance_manifest", "conformance/manifest.json", "baton.conformance-manifest/v2", "sha256:cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"},
-		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"},
+		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:c11071b87da672b9238cbf7131ae0dcddb2fc87d6d029ad47c878afafd6b9c2e"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {
 		return errors.New("release operation bindings are not exact")

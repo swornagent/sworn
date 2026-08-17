@@ -1024,6 +1024,51 @@ func TestCandidateReceiptRejectsReservedRecordRootChangeFromPreparedBase(t *test
 	}
 }
 
+// TestCandidateReceiptRejectsConfiguredRecordRootChangeFromPreparedBase is
+// the sibling of the legacy-root test: the configured records root (default
+// .sworn/records) is equally reserved, so a candidate that writes to it is
+// refused before it can become a receipt.
+func TestCandidateReceiptRejectsConfiguredRecordRootChangeFromPreparedBase(t *testing.T) {
+	repoPath, _, actions := createActionHarness(t)
+	release := "reserved-configured-candidate"
+	if _, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: actionPlanBytes(release),
+		Summary:   "Approve configured-root fixture.",
+		Detail:    []byte("protected approval"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prepareActionSliceBase(t, actions, release, "S1")
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "designed",
+		Summary: "Design S1.", Detail: []byte("design"),
+	})
+	appendActionReceipt(t, actions, AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "captain", Result: "proceed",
+		Summary: "Proceed S1.", Detail: []byte("review"),
+	})
+
+	ref := "refs/heads/track/" + release + "/T1"
+	parent := actionGit(t, repoPath, nil, nil, "rev-parse", "--verify", ref)
+	candidate := commitActionProduct(
+		t,
+		repoPath,
+		parent,
+		ref,
+		planPath(RecordRoot, "foreign"),
+		"reserved\n",
+		1000000500,
+	)
+	_, err := actions.AppendReceipt(AppendReceiptInput{
+		Release: release, Slice: "S1", Role: "implementer", Result: "candidate",
+		Summary: "Candidate S1.", Detail: []byte("implementation"),
+		Candidate: candidate, CheckResults: []byte("checks\n"),
+	})
+	if code := ErrorCode(err); code != "RESERVED_RECORD_ROOT_CHANGED" {
+		t.Fatalf("code = %q (%v), want RESERVED_RECORD_ROOT_CHANGED", code, err)
+	}
+}
+
 func TestReplayRejectsForgedCandidateRecordRootBeforeProductPolicy(t *testing.T) {
 	repoPath, repository, actions := createActionHarness(t)
 	release := "reserved-replay"

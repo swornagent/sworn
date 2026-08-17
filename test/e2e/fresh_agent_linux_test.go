@@ -21,6 +21,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
@@ -155,7 +156,7 @@ func (a *freshAgent) enterCleanRepository(
 		return entry
 	}
 	entry.applies = true
-	entry.initialize = !present(".baton/releases") && !present(".sworn")
+	entry.initialize = !present(".sworn/records") && !present(".sworn")
 	if entry.initialize && !strings.Contains(step, "`sworn init`") {
 		a.t.Fatalf(
 			"installed step 1 leaves an uninitialized Git worktree with no way in:\n%s",
@@ -587,8 +588,16 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 		runGit(t, repository, "diff", "--name-only", targetBefore, "main"), "\n",
 	) {
 		line = strings.TrimSpace(line)
+		documentsDir := gitx.DefaultDocumentsRoot + "/" + freshAgentRelease
 		if line == "" || line == baton.RecordRoot ||
-			strings.HasPrefix(line, baton.RecordRoot+"/") {
+			strings.HasPrefix(line, baton.RecordRoot+"/") ||
+			line == baton.LegacyRecordRoot ||
+			strings.HasPrefix(line, baton.LegacyRecordRoot+"/") ||
+			// The engine publishes the authored plan and contracts under
+			// the documents root in the same commit as the frozen record
+			// (configurable-paths S2, A1): a read surface, not product.
+			line == documentsDir ||
+			strings.HasPrefix(line, documentsDir+"/") {
 			continue
 		}
 		changed = append(changed, line)

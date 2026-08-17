@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 const (
@@ -118,6 +119,13 @@ type Request struct {
 type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
+	// CacheReadTokens and CacheWriteTokens are the normalized cache-accounting
+	// pair surfaced from provider responses. Each side is nil (omitted) when
+	// the provider vocabulary reports only one side (Gemini and the Responses
+	// API report reads only); a nil side is honest absence, never a measured
+	// zero.
+	CacheReadTokens  *int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
 }
 type TransportStatus string
 
@@ -278,7 +286,16 @@ func NewRequest(
 	}
 	return request, nil
 }
+
+// ValidateRequest validates a request against the fixed reserved-name
+// defaults. The engine-computed reserved set (which follows configured
+// project roots) is threaded separately by validateRequest so invocation
+// admission rejects a relocated records or journals root.
 func ValidateRequest(request Request) error {
+	return validateRequest(request, nil)
+}
+
+func validateRequest(request Request, reserved []string) error {
 	if request.SchemaVersion != RequestSchemaVersion {
 		return fail("INVALID_VERSION")
 	}
@@ -323,7 +340,7 @@ func ValidateRequest(request Request) error {
 		if !driverIdentityPattern.MatchString(input.Name) {
 			return fail("INVALID_INPUT")
 		}
-		if err := validateRepositoryPath(input.Path); err != nil {
+		if err := validateRepositoryPath(input.Path, reserved); err != nil {
 			return err
 		}
 		if !digestPattern.MatchString(input.Digest) {
@@ -404,6 +421,16 @@ func ValidateResult(result Result, expected ResultBinding) error {
 			result.Usage.OutputTokens < 0 || result.Usage.OutputTokens > MaxSafeInteger {
 			return fail("INVALID_USAGE")
 		}
+		if result.Usage.CacheReadTokens != nil &&
+			(*result.Usage.CacheReadTokens < 0 ||
+				*result.Usage.CacheReadTokens > MaxSafeInteger) {
+			return fail("INVALID_USAGE")
+		}
+		if result.Usage.CacheWriteTokens != nil &&
+			(*result.Usage.CacheWriteTokens < 0 ||
+				*result.Usage.CacheWriteTokens > MaxSafeInteger) {
+			return fail("INVALID_USAGE")
+		}
 	}
 	if result.Cost != nil {
 		if err := validateCostObservation(*result.Cost); err != nil {
@@ -448,7 +475,11 @@ func DecodeResult(body []byte, expected ResultBinding) (Result, error) {
 		return Result{}, err
 	}
 	if usage, present := root["usage"]; present {
-		if _, err := closedObject(usage, []string{"input_tokens", "output_tokens"}, nil); err != nil {
+		if _, err := closedObject(
+			usage,
+			[]string{"input_tokens", "output_tokens"},
+			[]string{"cache_read_tokens", "cache_write_tokens"},
+		); err != nil {
 			return Result{}, err
 		}
 	}
@@ -514,16 +545,29 @@ func validateWorkspace(workspace Workspace) error {
 	}
 	return nil
 }
-func validateRepositoryPath(value string) error {
+
+// validateRepositoryPath admits guest-relative input and evidence paths. It
+// rejects any path whose first segment is a reserved workspace name as a
+// first-line guard. The reserved set is the engine-computed one derived from
+// the configured project roots plus .git (reserved), threaded through
+// invocation admission; an empty set means the fixed default names. Inputs
+// are staged under /sworn/inputs and never touch the workspace, so this is
+// an admission check; the same reserved set also drives the guest mask sites
+// (bubblewrapArguments, runToolBash), the workspace-boundary symlink guard
+// and the input projection, all of which read the engine-computed MaskNames
+// so a relocated records or journals root is never admitted as an input
+// path.
+func validateRepositoryPath(value string, reserved []string) error {
 	if value == "" || len([]byte(value)) > 1000 || !utf8.ValidString(value) ||
 		containsControlCharacter(value) || strings.Contains(value, `\`) ||
 		path.IsAbs(value) || path.Clean(value) != value {
 		return fail("INVALID_PATH")
 	}
 	segments := strings.Split(value, "/")
-	switch segments[0] {
-	case ".git", ".baton", ".sworn":
-		return fail("INVALID_PATH")
+	for _, name := range repositoryReservedNames(reserved) {
+		if segments[0] == name {
+			return fail("INVALID_PATH")
+		}
 	}
 	for _, segment := range segments {
 		if segment == "" || segment == "." || segment == ".." {
@@ -531,6 +575,16 @@ func validateRepositoryPath(value string) error {
 		}
 	}
 	return nil
+}
+
+// repositoryReservedNames returns the reserved first-segment names for path
+// admission: the caller's engine-computed set when present, else the fixed
+// defaults derived once from the default project config.
+func repositoryReservedNames(reserved []string) []string {
+	if len(reserved) != 0 {
+		return reserved
+	}
+	return gitx.ReservedNames(gitx.DefaultProjectConfig())
 }
 func containsControlCharacter(value string) bool {
 	for _, r := range value {

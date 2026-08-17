@@ -1,0 +1,53 @@
+{
+  "outcome": "Every provider invocation reports what it actually cost and how it actually behaved - cache reuse, reasoning effort applied, and truncation - as normalized nullable facts that reach the operator surfaces and OpenTelemetry.",
+  "scope": {
+    "include": [
+      "internal/driver/usage.go",
+      "internal/driver/provider.go",
+      "internal/observe"
+    ],
+    "exclude": [
+      "explicit cache-breakpoint control such as cache_control",
+      "provider-side conversation state and previous_response_id",
+      "a business or account-linked telemetry projection",
+      "cost or latency budgets and any threshold that fails a run"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Cache accounting already parsed from provider responses is surfaced rather than discarded, including OpenAI-style prompt cache hit and miss token counts and Bedrock-style cache read and write token counts."
+    },
+    {
+      "id": "A2",
+      "text": "The reasoning effort actually applied to an invocation is recorded alongside its token counts, distinguishing a value the profile requested from one the provider reported."
+    },
+    {
+      "id": "A3",
+      "text": "Every such fact is nullable with honest absence: a provider that reports no cache accounting yields an explicitly unavailable status, never a zero that reads as a measured result."
+    },
+    {
+      "id": "A4",
+      "text": "An invocation truncated by an output-token ceiling is reported as an explicit named failure carrying the provider's own finish reason, never as an empty successful result."
+    },
+    {
+      "id": "A5",
+      "text": "These facts are visible through the existing operator projection and are exported over OpenTelemetry using the same canonical values, so a run's cost and cache behaviour can be evaluated without reading provider logs."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Facts are nullable with honest absence; a missing provider fact never becomes zero.",
+    "Reuse the existing availability pattern on UsageReceipt rather than inventing a second shape for unavailable data.",
+    "One canonical projection feeds every operator surface; do not add a second telemetry path.",
+    "Measurement never becomes a gate: record the facts, fail no run on them."
+  ],
+  "depends_on": ["S2-provider-presets"],
+  "consumes": ["S2-provider-presets"]
+}

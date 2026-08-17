@@ -59,10 +59,10 @@ type corpusManifest struct {
 }
 
 var pinnedReferences = []manifestEntry{
-	{File: "actions.mjs", SHA256: "67abc38ccda4a2da02ca954ad6c3b910ff65bc5acb057889b8d43c1393b320f6", Bytes: 41774},
-	{File: "git.mjs", SHA256: "b95185d1af13e3cbd3c6d0bed7d5c2eff65ead49541f9a1353b8abea682d9911", Bytes: 87586},
-	{File: "receipts.mjs", SHA256: "6f2eb4b27459b5a403493e79c990631024ac6c7e7e5c29eed112467571bf510f", Bytes: 30706},
-	{File: "state.mjs", SHA256: "c729f0e1b0fcdfd253912f0fd29967c645c86ebf6599adcc08a1625876ddaec8", Bytes: 71935},
+	{File: "actions.mjs", SHA256: "a16673b9b6f8ca52b2d24cf57ea5b989b2e6a86852701490aacad038846a937f", Bytes: 43213},
+	{File: "git.mjs", SHA256: "9ab331c95882ad5509023e2ba449695dac48637c621fd9e40e86b042d1cf0fab", Bytes: 90748},
+	{File: "receipts.mjs", SHA256: "d61461cbfe34b9f832632de9cded6b4eacf82a60f93aae1905efa3538dce69f0", Bytes: 30904},
+	{File: "state.mjs", SHA256: "bdbaeccc9b5c6a4312bab715e3534abefcb43d5822551684dad0e7a6f83b52ca", Bytes: 72884},
 }
 
 func main() {

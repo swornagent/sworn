@@ -1,0 +1,8 @@
+{
+  "schema_version": "sworn.project-config/v1",
+  "records_root": ".sworn/records",
+  "journals_root": ".sworn",
+  "contracts_root": "contracts",
+  "commit_prefix": "sworn",
+  "documents_root": "docs/sworn"
+}

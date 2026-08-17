@@ -278,9 +278,28 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 		return providerTurn{}, fail("CONTINUATION_INVALID")
 	}
 	stopReason, stopOK := root["stopReason"].(string)
-	if !stopOK ||
-		(stopReason != "tool_use" && stopReason != "end_turn") {
-		return providerTurn{}, fail("MISSING_SUBMISSION")
+	if !stopOK {
+		return providerTurn{}, fail("CONTINUATION_INVALID")
+	}
+	if stopReason != "tool_use" && stopReason != "end_turn" {
+		if stopReason != "max_tokens" {
+			return providerTurn{}, fail("MISSING_SUBMISSION")
+		}
+		// The provider hit its output-token ceiling: report the explicit
+		// named failure carrying the provider's own finish reason instead of
+		// an empty-looking success.
+		turn := providerTurn{
+			FinishReason: &stopReason,
+			Truncated:    true,
+		}
+		if usageValue, present := root["usage"]; present {
+			usage, usageErr := bedrockUsage(usageValue)
+			if usageErr != nil {
+				return providerTurn{}, usageErr
+			}
+			turn.Usage = usage
+		}
+		return turn, nil
 	}
 	output, err := closedObject(root["output"], []string{"message"}, nil)
 	if err != nil {
@@ -418,22 +437,51 @@ func (conversation *bedrockConversation) accept(body []byte) (providerTurn, erro
 	conversation.pending = append([]providerToolCall(nil), calls...)
 	turn := providerTurn{Calls: calls, Prose: len(calls) == 0}
 	if usageValue, present := root["usage"]; present {
-		usage, usageErr := closedObject(
-			usageValue,
-			[]string{"inputTokens", "outputTokens", "totalTokens"},
-			[]string{
-				"cacheReadInputTokens", "cacheWriteInputTokens",
-				"serverToolUsage",
-			},
-		)
-		input, inputOK := safeJSONInt(usage["inputTokens"])
-		outputTokens, outputOK := safeJSONInt(usage["outputTokens"])
-		if usageErr != nil || !inputOK || !outputOK {
-			return providerTurn{}, fail("INVALID_USAGE")
+		usage, usageErr := bedrockUsage(usageValue)
+		if usageErr != nil {
+			return providerTurn{}, usageErr
 		}
-		turn.Usage = &Usage{InputTokens: input, OutputTokens: outputTokens}
+		turn.Usage = usage
 	}
 	return turn, nil
+}
+
+// bedrockUsage parses the Converse usage object, surfacing the cache pair
+// (cacheReadInputTokens -> read, cacheWriteInputTokens -> write) instead of
+// discarding it. Each side stays nil when the provider omits it.
+func bedrockUsage(value any) (*Usage, error) {
+	usage, err := closedObject(
+		value,
+		[]string{"inputTokens", "outputTokens", "totalTokens"},
+		[]string{
+			"cacheReadInputTokens", "cacheWriteInputTokens",
+			"serverToolUsage",
+		},
+	)
+	if err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	input, inputOK := safeJSONInt(usage["inputTokens"])
+	outputTokens, outputOK := safeJSONInt(usage["outputTokens"])
+	if !inputOK || !outputOK {
+		return nil, fail("INVALID_USAGE")
+	}
+	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
+	if _, present := usage["cacheReadInputTokens"]; present {
+		read, readOK := safeJSONInt(usage["cacheReadInputTokens"])
+		if !readOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheReadTokens = &read
+	}
+	if _, present := usage["cacheWriteInputTokens"]; present {
+		write, writeOK := safeJSONInt(usage["cacheWriteInputTokens"])
+		if !writeOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.CacheWriteTokens = &write
+	}
+	return result, nil
 }
 
 func (conversation *bedrockConversation) appendInstruction(body []byte) error {
@@ -632,6 +680,10 @@ func clearBedrockTools(tools []bedrockTool) {
 		clearBytes(tools[index].ToolSpec.InputSchema.JSON)
 	}
 }
+
+// declaredReasoningEffort is honest absence for the Converse dialect, which
+// has no reasoning-effort request vocabulary.
+func (*bedrockConversation) declaredReasoningEffort() string { return "" }
 
 func (transport *bedrockTransport) roundTrip(
 	ctx context.Context,

@@ -6,9 +6,9 @@ export const RECEIPT_TRAILER = 'Baton-Receipt: ';
 export const DETAIL_BEGIN = 'Baton-Detail-Begin';
 export const DETAIL_END = 'Baton-Detail-End';
 export const RECEIPT_LIMITS = Object.freeze({
-  receiptBytes: 2_048,
-  detailBytes: 8_192,
-  messageBytes: 12_288,
+  receiptBytes: 1_048_576,
+  detailBytes: 1_048_576,
+  messageBytes: 2_097_152,
   planBytes: 1_048_576,
   depth: 64,
   tracks: 64,
@@ -21,7 +21,12 @@ const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const HEAD_REF = /^refs\/heads\/(?!.*(?:^|\/)\.\.?($|\/))(?!.*\/\/)(?!.*@\{)(?!.*[~^:?*\[\\\s])[^/][^\u0000-\u001f\u007f]*$/;
-const RESERVED_RECORD_ROOT = '.baton/releases';
+const RESERVED_RECORD_ROOT = '.sworn/records';
+const LEGACY_RECORD_ROOT = '.baton/releases';
+function isReservedRecordPath(value) {
+  return value === RESERVED_RECORD_ROOT || value.startsWith(`${RESERVED_RECORD_ROOT}/`)
+    || value === LEGACY_RECORD_ROOT || value.startsWith(`${LEGACY_RECORD_ROOT}/`);
+}
 const RESULT_BY_ROLE = Object.freeze({
   planner: new Set(['approved', 'retired']),
   implementer: new Set(['designed', 'candidate']),
@@ -353,10 +358,7 @@ function validateScope(value, label) {
   };
   if (result.include.length === 0) fail('INVALID_FIELD', `${label}.include cannot be empty`);
   for (const scopedPath of result.include) {
-    if (
-      scopedPath === RESERVED_RECORD_ROOT
-      || scopedPath.startsWith(`${RESERVED_RECORD_ROOT}/`)
-    ) {
+    if (isReservedRecordPath(scopedPath)) {
       fail(
         'RESERVED_RECORD_ROOT',
         `${label}.include cannot name reserved Baton records at ${scopedPath}`,
@@ -733,7 +735,7 @@ export function validateReceipt(value) {
     plan: objectID(value.plan, 'receipt.plan'),
     binds: objectID(value.binds, 'receipt.binds'),
     detail: digest(value.detail, 'receipt.detail'),
-    summary: string(value.summary, 'receipt.summary', { max: 280 }),
+    summary: string(value.summary, 'receipt.summary', { max: 262_144 }),
   };
   const hasSlice = Object.hasOwn(value, 'slice');
   for (const field of ['slice', 'attempt', 'contract']) {

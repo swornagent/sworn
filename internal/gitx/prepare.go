@@ -126,7 +126,11 @@ func (r *Repository) prepareRecord(request RecordRequest) (PreparedCommit, error
 	if total > MaxBatchBytes {
 		return PreparedCommit{}, fail("RESOURCE_LIMIT", "prepare record", fmt.Errorf("changes exceed %d bytes", MaxBatchBytes))
 	}
-	temp, err := os.MkdirTemp("", "sworn-git-index-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return PreparedCommit{}, fail("GIT_EXECUTION_FAILED", "prepare record index", err)
+	}
+	temp, err := os.MkdirTemp(tempRoot, "sworn-git-index-*")
 	if err != nil {
 		return PreparedCommit{}, fail("GIT_EXECUTION_FAILED", "prepare record index", err)
 	}
@@ -175,8 +179,15 @@ func (r *Repository) prepareRecord(request RecordRequest) (PreparedCommit, error
 }
 
 type RecordTransitionRequest struct {
-	ExpectedHead     OID
-	Changes          []BlobChange
+	ExpectedHead OID
+	Changes      []BlobChange
+	// Documents maps additional authored product paths (the documents root
+	// publish for the same record commit) to their exact bytes. They are
+	// ordinary product content a person reads, never the record root; the
+	// transition refuses any product change beyond exactly these declared
+	// paths so a record commit can never smuggle unrelated product edits.
+	// An empty map keeps the historical record-only behavior byte-for-byte.
+	Documents        map[string][]byte
 	Message          string
 	Identity         Identity
 	RecordAdmission  *RecordPathAdmission
@@ -187,18 +198,25 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 	if err := r.requireRecordAdmission(request.RecordAdmission); err != nil {
 		return PreparedCommit{}, err
 	}
-	before, err := r.ProductTreeIdentity(request.ExpectedHead, request.ProductAdmission)
-	if err != nil {
-		return PreparedCommit{}, err
-	}
-	if len(request.Changes) == 0 || len(request.Changes) > MaxBatchPaths {
+	if len(request.Changes) == 0 && len(request.Documents) == 0 {
 		return PreparedCommit{}, fail("EMPTY_RECORD_TRANSITION", "prepare record transition", errors.New("one bounded change set is required"))
 	}
 	for _, change := range request.Changes {
-		if change.Path == recordRoot || !strings.HasPrefix(change.Path, recordRoot+"/") {
-			return PreparedCommit{}, fail("NON_RECORD_CHANGE", "prepare record transition", fmt.Errorf("%s is outside %s", change.Path, recordRoot))
+		if change.Path == r.recordRoot || !strings.HasPrefix(change.Path, r.recordRoot+"/") {
+			return PreparedCommit{}, fail("NON_RECORD_CHANGE", "prepare record transition", fmt.Errorf("%s is outside %s", change.Path, r.recordRoot))
 		}
 	}
+	documentPaths := make([]string, 0, len(request.Documents))
+	for path := range request.Documents {
+		if err := ValidatePath(path, false); err != nil {
+			return PreparedCommit{}, err
+		}
+		if r.isReservedRecordPath(path) {
+			return PreparedCommit{}, fail("NON_RECORD_CHANGE", "prepare record transition", fmt.Errorf("%s is outside %s", path, r.recordRoot))
+		}
+		documentPaths = append(documentPaths, path)
+	}
+	sort.Strings(documentPaths)
 	if strings.TrimSpace(request.Message) == "" || len([]byte(strings.TrimSpace(request.Message))) > 1_000 {
 		return PreparedCommit{}, fail("COMMIT_MESSAGE_LIMIT", "prepare record transition", errors.New("message must be 1-1000 UTF-8 bytes"))
 	}
@@ -206,8 +224,12 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 	if err != nil {
 		return PreparedCommit{}, err
 	}
+	changes := append([]BlobChange(nil), request.Changes...)
+	for _, path := range documentPaths {
+		changes = append(changes, BlobChange{Path: path, Bytes: request.Documents[path]})
+	}
 	prepared, err := r.prepareRecord(RecordRequest{
-		Parent: request.ExpectedHead, Changes: request.Changes,
+		Parent: request.ExpectedHead, Changes: changes,
 		Message:   strings.TrimSpace(request.Message) + "\n",
 		Identity:  request.Identity,
 		Timestamp: timestamp + 1,
@@ -218,14 +240,77 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 	if err := r.assertRecordRootAt(prepared.Commit, false); err != nil {
 		return PreparedCommit{}, fail("RECORD_ROOT_REPLACED", "prepare record transition", err)
 	}
-	after, err := r.ProductTreeIdentity(prepared.Commit, request.ProductAdmission)
+	if len(request.Documents) == 0 {
+		before, err := r.ProductTreeIdentity(request.ExpectedHead, request.ProductAdmission)
+		if err != nil {
+			return PreparedCommit{}, err
+		}
+		after, err := r.ProductTreeIdentity(prepared.Commit, request.ProductAdmission)
+		if err != nil {
+			return PreparedCommit{}, err
+		}
+		if before.ProductTree != after.ProductTree {
+			return PreparedCommit{}, fail("PRODUCT_CHANGED_DURING_RECORD_TRANSITION", "prepare record transition", errors.New("product identity changed"))
+		}
+		return prepared, nil
+	}
+	// With authored documents published in the same commit, the product tree
+	// legitimately changes by exactly the declared document paths (plus the
+	// reserved record root). Assert that set exactly: no other product path
+	// may move in a record commit.
+	declared := make(map[string]bool, len(request.Documents))
+	for path := range request.Documents {
+		declared[path] = true
+	}
+	changed, err := r.ChangedPaths(request.ExpectedHead, prepared.Commit)
 	if err != nil {
 		return PreparedCommit{}, err
 	}
-	if before.ProductTree != after.ProductTree {
-		return PreparedCommit{}, fail("PRODUCT_CHANGED_DURING_RECORD_TRANSITION", "prepare record transition", errors.New("product identity changed"))
+	for _, path := range changed {
+		if r.isReservedRecordPath(path) {
+			continue
+		}
+		if !declared[path] {
+			return PreparedCommit{}, fail("PRODUCT_CHANGED_DURING_RECORD_TRANSITION", "prepare record transition", errors.New("product identity changed"))
+		}
+	}
+	for _, path := range documentPaths {
+		present, err := r.pathPresentAt(prepared.Commit, path)
+		if err != nil {
+			return PreparedCommit{}, err
+		}
+		if !present {
+			return PreparedCommit{}, fail("DOCUMENT_NOT_PUBLISHED", "prepare record transition", fmt.Errorf("%s is absent from the record commit", path))
+		}
 	}
 	return prepared, nil
+}
+
+// pathPresentAt reports whether one path is an ordinary blob at one commit.
+func (r *Repository) pathPresentAt(commit OID, path string) (bool, error) {
+	raw, err := r.run(nil, nil, "ls-tree", "-z", commit.String(), "--", path)
+	if err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+	if raw[len(raw)-1] != 0 || bytes.Count(raw, []byte{0}) != 1 {
+		return false, fail("MALFORMED_GIT_TREE", "inspect published document", errors.New("ambiguous tree entry"))
+	}
+	entry := raw[:len(raw)-1]
+	header, pathBytes, ok := bytes.Cut(entry, []byte{'\t'})
+	fields := strings.Fields(string(header))
+	if !ok || len(fields) != 3 || string(pathBytes) != path {
+		return false, fail("MALFORMED_GIT_TREE", "inspect published document", errors.New("malformed tree entry"))
+	}
+	if fields[0] == "120000" {
+		return false, fail("SYMLINKED_RECORD_ROOT", "inspect published document", fmt.Errorf("%s traverses a symlink", path))
+	}
+	if fields[1] != "blob" {
+		return false, fail("INVALID_RECORD_ROOT", "inspect published document", fmt.Errorf("%s is not a blob", path))
+	}
+	return true, nil
 }
 
 type MetadataRequest struct {
@@ -321,7 +406,11 @@ func (r *Repository) repositoryObjectDirectory() (string, error) {
 	return objects, nil
 }
 func (r *Repository) newCompositionContext() (*compositionContext, error) {
-	directory, err := os.MkdirTemp("", "sworn-git-context-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return nil, fail("GIT_EXECUTION_FAILED", "create composition context", err)
+	}
+	directory, err := os.MkdirTemp(tempRoot, "sworn-git-context-*")
 	if err != nil {
 		return nil, fail("GIT_EXECUTION_FAILED", "create composition context", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,30 @@ import (
 
 type HeaderCredentialResolver func(context.Context, string) ([]byte, error)
 type ProfileLiveProbe func(context.Context, string, string) error
+
+// AuthMode is the explicit per-profile authentication surface of a network
+// adapter. It is closed to bearer, AWS SigV4, and none. Omission never yields
+// none: a credential-less profile without an explicit mode fails admission.
+type AuthMode string
+
+const (
+	AuthModeBearer   AuthMode = "bearer"
+	AuthModeAWSSigV4 AuthMode = "aws_sigv4"
+	AuthModeNone     AuthMode = "none"
+)
+
+func (mode AuthMode) valid() bool {
+	return mode == AuthModeBearer ||
+		mode == AuthModeAWSSigV4 ||
+		mode == AuthModeNone
+}
+
+const (
+	maxConfigVariables    = 16
+	maxConfigVariableSize = 128
+)
+
+var configVariableNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,31}$`)
 
 type HTTPProfileConfig struct {
 	Key              string   `json:"key"`
@@ -28,6 +53,7 @@ type HTTPProfileConfig struct {
 
 type httpTransport struct {
 	config    HTTPProfileConfig
+	auth      AuthMode
 	client    *http.Client
 	resolve   HeaderCredentialResolver
 	liveProbe ProfileLiveProbe
@@ -36,6 +62,7 @@ type httpTransport struct {
 
 func newHTTPTransport(
 	config HTTPProfileConfig,
+	auth AuthMode,
 	resolver HeaderCredentialResolver,
 	probe ProfileLiveProbe,
 	roundTripper http.RoundTripper,
@@ -44,10 +71,22 @@ func newHTTPTransport(
 		!driverIdentityPattern.MatchString(config.ID) ||
 		!versionPattern.MatchString(config.Version) ||
 		validateEndpoint(config.Endpoint) != nil ||
-		!httpToken(config.CredentialHeader) ||
-		len(config.CredentialPrefix) > 64 ||
-		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes ||
-		len(config.CredentialRefs) == 0 || resolver == nil {
+		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes {
+		return nil, fail("INVALID_ADAPTER")
+	}
+	switch auth {
+	case AuthModeNone:
+		if resolver != nil || len(config.CredentialRefs) != 0 ||
+			config.CredentialHeader != "" || config.CredentialPrefix != "" {
+			return nil, fail("INVALID_ADAPTER")
+		}
+	case AuthModeBearer:
+		if resolver == nil || len(config.CredentialRefs) == 0 ||
+			!httpToken(config.CredentialHeader) ||
+			len(config.CredentialPrefix) > 64 {
+			return nil, fail("INVALID_ADAPTER")
+		}
+	default:
 		return nil, fail("INVALID_ADAPTER")
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
@@ -66,6 +105,7 @@ func newHTTPTransport(
 	}
 	return &httpTransport{
 		config: config,
+		auth:   auth,
 		client: &http.Client{
 			Transport: roundTripper,
 			Timeout:   0,
@@ -84,11 +124,20 @@ func (transport *httpTransport) roundTrip(
 	ref *string,
 	request providerRequest,
 ) ([]byte, error) {
-	if transport == nil || ref == nil {
+	if transport == nil {
 		return nil, fail("CREDENTIAL_UNAVAILABLE")
 	}
-	if _, admitted := transport.refs[*ref]; !admitted {
-		return nil, fail("CREDENTIAL_UNAVAILABLE")
+	if transport.auth == AuthModeNone {
+		if ref != nil {
+			return nil, fail("CREDENTIAL_UNAVAILABLE")
+		}
+	} else {
+		if ref == nil {
+			return nil, fail("CREDENTIAL_UNAVAILABLE")
+		}
+		if _, admitted := transport.refs[*ref]; !admitted {
+			return nil, fail("CREDENTIAL_UNAVAILABLE")
+		}
 	}
 	if request.Method != http.MethodPost ||
 		validateEndpoint(request.URL) != nil ||
@@ -97,12 +146,6 @@ func (transport *httpTransport) roundTrip(
 		len(request.Body) == 0 || len(request.Body) > MaxProviderRequestBytes {
 		return nil, fail("INVALID_PROVIDER_REQUEST")
 	}
-	secret, err := transport.resolve(ctx, *ref)
-	if err != nil || len(secret) == 0 || len(secret) > 65_536 {
-		clearBytes(secret)
-		return nil, fail("CREDENTIAL_UNAVAILABLE")
-	}
-	defer clearBytes(secret)
 	httpRequest, err := http.NewRequestWithContext(
 		ctx,
 		request.Method,
@@ -119,10 +162,21 @@ func (transport *httpTransport) roundTrip(
 		}
 		httpRequest.Header.Set(name, value)
 	}
-	httpRequest.Header.Set(
-		transport.config.CredentialHeader,
-		transport.config.CredentialPrefix+string(secret),
-	)
+	if transport.auth == AuthModeBearer {
+		secret, err := transport.resolve(ctx, *ref)
+		if err != nil || len(secret) == 0 || len(secret) > 65_536 {
+			clearBytes(secret)
+			return nil, fail("CREDENTIAL_UNAVAILABLE")
+		}
+		defer clearBytes(secret)
+		httpRequest.Header.Set(
+			transport.config.CredentialHeader,
+			transport.config.CredentialPrefix+string(secret),
+		)
+	}
+	if request.Stream {
+		httpRequest.Header.Set("Accept", "text/event-stream")
+	}
 	response, err := transport.client.Do(httpRequest)
 	if err != nil {
 		if isContextError(ctx.Err()) {
@@ -131,6 +185,19 @@ func (transport *httpTransport) roundTrip(
 		return nil, fail("PROVIDER_TRANSPORT_FAILED")
 	}
 	defer response.Body.Close()
+	if request.Stream && response.StatusCode >= 200 && response.StatusCode <= 299 {
+		body, streamErr := readStreamedResponse(
+			response.Body,
+			transport.config.ResponseBytes,
+		)
+		if streamErr != nil {
+			if isContextError(ctx.Err()) {
+				return nil, ctx.Err()
+			}
+			return nil, streamErr
+		}
+		return body, nil
+	}
 	reader := io.LimitReader(response.Body, int64(transport.config.ResponseBytes)+1)
 	body, readErr := io.ReadAll(reader)
 	if readErr != nil {
@@ -170,11 +237,20 @@ func (transport *httpTransport) check(
 	ref *string,
 	model string,
 ) (ReadinessState, string) {
-	if transport == nil || ref == nil {
+	if transport == nil {
 		return ReadinessNotCertified, "credential_reference_missing"
 	}
-	if _, ok := transport.refs[*ref]; !ok {
-		return ReadinessNotCertified, "credential_reference_unknown"
+	if transport.auth == AuthModeNone {
+		if ref != nil {
+			return ReadinessNotCertified, "credential_reference_unknown"
+		}
+	} else {
+		if ref == nil {
+			return ReadinessNotCertified, "credential_reference_missing"
+		}
+		if _, ok := transport.refs[*ref]; !ok {
+			return ReadinessNotCertified, "credential_reference_unknown"
+		}
 	}
 	switch kind {
 	case checkInspect:
@@ -185,13 +261,20 @@ func (transport *httpTransport) check(
 		if transport.liveProbe == nil {
 			return ReadinessNotCertified, "live_probe_not_configured"
 		}
-		if err := transport.liveProbe(ctx, *ref, model); err != nil {
+		if err := transport.liveProbe(ctx, refValue(ref), model); err != nil {
 			return ReadinessFail, certificationFailureCode(err)
 		}
 		return ReadinessPass, "live_probe_passed"
 	default:
 		return ReadinessFail, "check_kind_invalid"
 	}
+}
+
+func refValue(ref *string) string {
+	if ref == nil {
+		return ""
+	}
+	return *ref
 }
 
 func validateEndpoint(value string) error {
@@ -237,4 +320,65 @@ func httpToken(value string) bool {
 
 func providerTimeout(parent context.Context, milliseconds int64) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(parent, time.Duration(milliseconds)*time.Millisecond)
+}
+
+// validateConfigVariables bounds the declared endpoint-template variables of a
+// driver document. Values are non-empty bounded text and never carry braces,
+// so substitution is total and terminating.
+func validateConfigVariables(variables map[string]string) error {
+	if len(variables) > maxConfigVariables {
+		return fail("RESOURCE_LIMIT")
+	}
+	for name, value := range variables {
+		if !configVariableNamePattern.MatchString(name) ||
+			value == "" || len(value) > maxConfigVariableSize ||
+			strings.ContainsAny(value, "{}") ||
+			containsControlCharacter(value) {
+			return fail("INVALID_DRIVER_CONFIG")
+		}
+	}
+	return nil
+}
+
+// resolveEndpointTemplate substitutes declared variables into a bounded
+// endpoint template exactly once at admission. Each named placeholder appears
+// at most once, every placeholder must be declared, and the result is then
+// admitted on the ordinary endpoint grounds by the caller.
+func resolveEndpointTemplate(
+	template string,
+	variables map[string]string,
+) (string, error) {
+	if len(template) == 0 || len(template) > 4096 ||
+		strings.ContainsAny(template, "\r\n\t") {
+		return "", fail("INVALID_ENDPOINT")
+	}
+	if !strings.Contains(template, "{") {
+		return template, nil
+	}
+	seen := make(map[string]struct{})
+	resolved := template
+	for {
+		start := strings.IndexByte(resolved, '{')
+		if start < 0 {
+			return resolved, nil
+		}
+		end := strings.IndexByte(resolved[start:], '}')
+		if end < 0 {
+			return "", fail("INVALID_ENDPOINT")
+		}
+		end += start
+		name := resolved[start+1 : end]
+		if !configVariableNamePattern.MatchString(name) {
+			return "", fail("INVALID_ENDPOINT")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return "", fail("INVALID_ENDPOINT")
+		}
+		seen[name] = struct{}{}
+		value, declared := variables[name]
+		if !declared {
+			return "", fail("INVALID_ENDPOINT")
+		}
+		resolved = resolved[:start] + value + resolved[end+1:]
+	}
 }

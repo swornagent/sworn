@@ -30,6 +30,8 @@ func clearToolEntries(entries []toolPathEntry) {
 	}
 }
 
-func runToolBash(context.Context, Invocation, string, string) ([]byte, error) {
-	return nil, fail("UNSUPPORTED_HOST")
+func runToolBash(
+	context.Context, Invocation, string, string, string,
+) ([]byte, int, error) {
+	return nil, 0, fail("UNSUPPORTED_HOST")
 }

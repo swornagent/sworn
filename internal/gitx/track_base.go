@@ -184,13 +184,32 @@ func (w *Workspaces) validateTrackBaseRequest(
 func (w *Workspaces) validatePlanAtRelease(
 	request PrepareTrackBaseRequest,
 ) error {
-	path := recordRoot + "/" + request.Release + "/plan.md"
+	// The plan may live at the configured records root or, for a release
+	// recorded before the relocation, at the historical legacy root. The
+	// configured root wins when both are present: a release recorded under
+	// both roots must bind the configured plan, so the legacy path is
+	// consulted only when the configured root holds no record for this
+	// release.
 	entries, err := w.repository.ListTree(request.ReleaseHead)
 	if err != nil {
 		return err
 	}
+	configuredPath := w.repository.recordRoot + "/" + request.Release + "/plan.md"
 	for _, entry := range entries {
-		if entry.Path == path && entry.Type == "blob" &&
+		if entry.Path == configuredPath && entry.Type == "blob" {
+			if entry.OID != request.Plan {
+				return fail(
+					"PLAN_MOVED",
+					"prepare track base",
+					errors.New("release head does not contain the exact plan"),
+				)
+			}
+			return nil
+		}
+	}
+	legacyPath := LegacyRecordsRoot + "/" + request.Release + "/plan.md"
+	for _, entry := range entries {
+		if entry.Path == legacyPath && entry.Type == "blob" &&
 			entry.OID == request.Plan {
 			return nil
 		}

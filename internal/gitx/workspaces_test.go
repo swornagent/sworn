@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -117,7 +118,10 @@ func TestRunWorkspacesRejectRepositoryLocalTempBase(t *testing.T) {
 	if err := os.Mkdir(localTemp, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TMPDIR", localTemp)
+	// The workspace factory root is a configured machine/user location
+	// (A2); a root inside the repository is refused by the same overlap
+	// guard that previously refused a repository-local TMPDIR.
+	t.Setenv("SWORN_WORKSPACE_ROOT", localTemp)
 	base, err := workspaceBase()
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +131,14 @@ func TestRunWorkspacesRejectRepositoryLocalTempBase(t *testing.T) {
 	} else {
 		requireGitxErrorCode(t, err, "INVALID_REPOSITORY")
 	}
-	if _, err := os.Lstat(base); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rejected overlapping workspace base was created: %v", err)
+	// The rejected base was never initialized as a workspace owner: the only
+	// entry is the repository-local directory the test itself created.
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatalf("read rejected workspace base: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected overlapping workspace base was initialized: %v", entries)
 	}
 }
 
@@ -1266,5 +1276,70 @@ func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
 	captured := captureRefs(t, repository, trackHeadRef(key))
 	if captured[0].Head != base {
 		t.Fatal("authority escape moved the track")
+	}
+}
+
+func TestSealDeletesWorkspaceScratchBeforeStaging(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-scratch", Track: "T1"}
+	createTrack(t, repository, key, base)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	implementation, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(implementation.Path(), "product.txt"),
+		[]byte("candidate\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(
+		filepath.Join(implementation.Path(), "tmp", "nested"),
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, scratch := range []string{"tmp/checks.log", "tmp/nested/e2e.txt"} {
+		if err := os.WriteFile(
+			filepath.Join(implementation.Path(), filepath.FromSlash(scratch)),
+			[]byte("scratch\n"),
+			0o644,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sealed, err := workspaces.SealTrack(implementation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawPaths, err := repository.run(
+		nil, nil, "ls-tree", "-r", "--name-only", sealed.Candidate.String(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := strings.Fields(string(rawPaths))
+	for _, path := range paths {
+		if path == "tmp" || strings.HasPrefix(path, "tmp/") {
+			t.Fatalf("candidate contains scratch path %q", path)
+		}
+	}
+	found := false
+	for _, path := range paths {
+		if path == "product.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("candidate lost the product change: %v", paths)
 	}
 }

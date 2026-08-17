@@ -225,6 +225,9 @@ func moduleRoot(t *testing.T) string {
 
 func copyProductTree(t *testing.T, sourceRoot string) string {
 	t.Helper()
+	if err := productTreeSourceAdmitted(sourceRoot); err != nil {
+		t.Skipf("product tree copy requires a Git work tree at %s: %v", sourceRoot, err)
+	}
 	command := exec.Command(
 		"git",
 		"-C", sourceRoot,
@@ -278,6 +281,31 @@ func copyProductTree(t *testing.T, sourceRoot string) string {
 		}
 	}
 	return targetRoot
+}
+
+// productTreeSourceAdmitted reports whether the product-tree source is a real
+// Git work tree. The twin-build and archive tests enumerate the product tree
+// with git ls-files, which genuinely requires a repository at the source
+// root; a projected or otherwise non-Git module root (for example a
+// verification workspace that surfaces .git as a sandbox device) cannot
+// provide that prerequisite, so the tests skip there instead of failing on
+// an unavailable environment. In a normal checkout the guard is inert and the
+// assertions still run in full.
+func productTreeSourceAdmitted(root string) error {
+	command := exec.Command(
+		"git",
+		"-C", root,
+		"rev-parse",
+		"--is-inside-work-tree",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(output)) != "true" {
+		return errors.New("not a Git work tree")
+	}
+	return nil
 }
 
 func initProductRepository(t *testing.T, root string) {

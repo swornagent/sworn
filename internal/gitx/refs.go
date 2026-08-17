@@ -587,7 +587,11 @@ func (r *Repository) ApplyRefTransaction(snapshot []RefHead, operations []RefOpe
 	if vectorMatches(snapshot, prepared.desired) && (r.refFault == nil || !r.refFault.force) {
 		return nil
 	}
-	home, err := os.MkdirTemp("", "sworn-ref-transaction-*")
+	tempRoot, err := ResolveTempRoot()
+	if err != nil {
+		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "resolve temp root", err)
+	}
+	home, err := os.MkdirTemp(tempRoot, "sworn-ref-transaction-*")
 	if err != nil {
 		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "create private transaction directory", err)
 	}

@@ -18,6 +18,7 @@ func runSkill(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: sworn skill install [--home ABS]")
 		return 2
 	}
+	explicitHome := options["--home"] != ""
 	home := options["--home"]
 	if home == "" {
 		resolved, err := os.UserHomeDir()
@@ -45,6 +46,18 @@ func runSkill(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(report.MigratedStubs) == 0 && len(report.InstalledPaths) == 0 {
 		fmt.Fprintln(stdout, "sworn skill install: nothing to do")
+	}
+	// The artefact home is Sworn's machine/user artefact location; the
+	// default (unoverridden) install also places the skill there so the
+	// artefact home carries Sworn's user-scoped artefact. An explicit
+	// --home targets only the agent discovery roots the caller named.
+	if !explicitHome {
+		artefactPath, artefactErr := skill.InstallArtefact()
+		if artefactErr != nil {
+			writeKnownFailure(stdout, "skill install", artefactErr.Error(), "")
+			return 1
+		}
+		fmt.Fprintf(stdout, "sworn skill install: installed %s\n", artefactPath)
 	}
 	return 0
 }

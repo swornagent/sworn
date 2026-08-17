@@ -1,0 +1,53 @@
+{
+  "outcome": "End-to-end tests that exercise scheduling, journal semantics, exactly-once and crash recovery run inside a worker sandbox through a test-only uncontained dispatch mode, while tests that prove isolation keep real containment - and no production binary can reach the uncontained path at all.",
+  "scope": {
+    "include": [
+      "internal/driver",
+      "internal/runtime",
+      "test/e2e"
+    ],
+    "exclude": [
+      "any runtime, manifest, config or environment route to uncontained dispatch in a production binary",
+      "changing what the isolation conformance cases assert",
+      "relaxing worker containment flags"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A test-only uncontained dispatch mode exists and is reachable exclusively through an ldflags-linked gate, mirroring the existing test-hook gate: a binary built without that gate has no code path to uncontained dispatch, by manifest, config, environment or argument."
+    },
+    {
+      "id": "A2",
+      "text": "End-to-end tests whose subject is scheduling, journal semantics, exactly-once or crash recovery execute against the fake driver through the uncontained path and pass inside a worker sandbox where nested containment is impossible."
+    },
+    {
+      "id": "A3",
+      "text": "Tests whose subject is isolation - role, workspace, credential and process boundaries - continue to require real containment and are excluded from the uncontained path; their assertions are unchanged."
+    },
+    {
+      "id": "A4",
+      "text": "A test proves the negative: a production-configured binary refuses uncontained dispatch and reports it, so the gate cannot regress into a bypass unnoticed."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The gate follows the established test-hook pattern: linked through ldflags, absent from production builds, never reachable from runtime configuration.",
+    "What a worker proves by running the uncontained subset is orchestration correctness, not isolation; evidence must not claim otherwise.",
+    "Worker containment flags are unchanged; this slice adds no capability to any production binary.",
+    "The e2e check in this slice's own list is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [
+    "S1-declared-checks"
+  ],
+  "consumes": [
+    "S1-declared-checks"
+  ]
+}

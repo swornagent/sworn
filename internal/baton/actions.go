@@ -10,7 +10,7 @@ import (
 	"github.com/swornagent/sworn/internal/gitx"
 )
 
-const maxSummaryBytes = 280
+const maxSummaryBytes = 262_144
 
 type Actions struct {
 	repository *repository
@@ -178,11 +178,15 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		if metadata.Revision != 1 || metadata.PreviousPlan != nil {
 			return ActionResult{}, recordFail("INVALID_PLAN_REVISION", "a new release must begin at plan revision 1")
 		}
-		existing, err := a.repository.file(target.Head, planPath(release))
+		existing, err := a.repository.file(target.Head, planPath(a.repository.recordRoot(), release))
 		if err != nil {
 			return ActionResult{}, err
 		}
-		if existing.Present {
+		legacyExisting, err := a.repository.file(target.Head, planPath(LegacyRecordRoot, release))
+		if err != nil {
+			return ActionResult{}, err
+		}
+		if existing.Present || legacyExisting.Present {
 			return ActionResult{}, recordFail("RELEASE_ALREADY_RECORDED", "target already contains release "+release)
 		}
 	} else {
@@ -321,15 +325,23 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		}
 	}
 
+	documents, err := a.documentsForInstall(parsed, input.ContractTree)
+	if err != nil {
+		return ActionResult{}, err
+	}
 	preparedPlan, err := a.repository.prepareRecord(
 		parent,
-		fmt.Sprintf("baton(%s): plan revision %d", release, metadata.Revision),
-		map[string][]byte{planPath(release): parsed.Bytes()},
+		fmt.Sprintf("%s(%s): plan revision %d", a.repository.commitPrefix(), release, metadata.Revision),
+		map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()},
+		documents,
 	)
 	if err != nil {
 		return ActionResult{}, err
 	}
-	planFile, err := a.repository.file(preparedPlan.Commit, planPath(release))
+	if err != nil {
+		return ActionResult{}, err
+	}
+	planFile, err := a.repository.file(preparedPlan.Commit, planPath(a.repository.recordRoot(), release))
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -342,7 +354,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		Plan: planFile.Object, Binds: planCommitOID, Detail: DigestBytes(nil),
 		Summary: summary, Target: &targetOID,
 	}
-	approvalMessage, err := RenderReceiptCommit("baton("+release+"): approve plan", detail, approvalReceipt)
+	approvalMessage, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"): approve plan", detail, approvalReceipt)
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -383,7 +395,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 				Detail:  DigestBytes(nil),
 				Summary: fmt.Sprintf("Retired %s under approved plan revision %d.", sliceID, metadata.Revision),
 			}
-			message, err := RenderReceiptCommit("baton("+release+"/"+sliceID+"): retire slice", nil, retirement)
+			message, err := RenderReceiptCommit(a.repository.commitPrefix()+"("+release+"/"+sliceID+"): retire slice", nil, retirement)
 			if err != nil {
 				return ActionResult{}, err
 			}
@@ -447,6 +459,67 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 // for the shared validator this and read-time discovery both use.
 func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
 	return resolveManifestContracts(a.repository, parsed, source)
+}
+
+// documentsForInstall returns the authored documents this plan install
+// publishes under the documents root in the same record commit: the authored
+// plan plus, for every sworn.release-manifest/v1 slice that declares a
+// contract_path, the exact bytes of that declared contract (read from the
+// caller-prepared contract tree, the same source verifyManifestContracts just
+// validated). These documents are what a person reads; the engine never reads
+// them, and the records root remains the only engine-read authority. Legacy
+// baton.plan/v2 plans carry their slices inline and publish only the plan.
+func (a *Actions) documentsForInstall(parsed Plan, contractTree string) (map[string][]byte, error) {
+	metadata := parsed.Metadata()
+	documents := map[string][]byte{
+		documentPlanPath(a.repository.documentsRoot(), metadata.Release): parsed.Bytes(),
+	}
+	if metadata.SchemaVersion != ManifestVersion {
+		return documents, nil
+	}
+	var paths []string
+	sliceByPath := make(map[string]string)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByPath[slice.ContractPath] = slice.ID
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 || contractTree == "" {
+		return documents, nil
+	}
+	files, err := a.repository.files(contractTree, paths)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if !file.Present {
+			return nil, recordFail(
+				"CONTRACT_NOT_FOUND",
+				"contract source is missing "+file.Path,
+			)
+		}
+		documents[documentContractPath(
+			a.repository.documentsRoot(),
+			metadata.Release,
+			sliceByPath[file.Path],
+		)] = file.Bytes
+	}
+	return documents, nil
+}
+
+// documentPlanPath is the authored plan path under the documents root.
+func documentPlanPath(documentsRoot, release string) string {
+	return documentsRoot + "/" + release + "/plan.md"
+}
+
+// documentContractPath is the authored contract copy path under the
+// documents root for one slice.
+func documentContractPath(documentsRoot, release, sliceID string) string {
+	return documentsRoot + "/" + release + "/contracts/" + sliceID + ".json"
 }
 
 func assertPlanRevision(previous, next Plan, previousObject string) error {
@@ -845,7 +918,7 @@ func (a *Actions) appendReceipt(
 		return ActionResult{}, err
 	}
 
-	subject := fmt.Sprintf("baton(%s", release)
+	subject := fmt.Sprintf("%s(%s", a.repository.commitPrefix(), release)
 	if sliceID != "" {
 		subject += "/" + sliceID
 	}

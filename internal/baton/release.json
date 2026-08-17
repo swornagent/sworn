@@ -2,9 +2,9 @@
   "schema": "sworn.role-assets/v1",
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:ef70ae0560af52a0423b302bd971e26b376aa32086f79be5b6f6250e5e087cde",
+    "manifest_sha256": "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c",
     "asset_count": 25,
-    "total_bytes": 383701
+    "total_bytes": 390809
   },
   "operations": [
     {
@@ -29,7 +29,7 @@
       "name": "baton-verify",
       "source": "operations/baton-verify.md",
       "version": "baton.operation/v2",
-      "sha256": "sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014"
+      "sha256": "sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d"
     },
     {
       "name": "baton-merge",
@@ -62,7 +62,7 @@
       "kind": "receipt",
       "source": "schemas/receipt-v1.json",
       "version": "receipt-v1",
-      "sha256": "sha256:9c297f6435714ebe05261663ffbbad31998de41cb091db1cc7e8a94d77aa0035"
+      "sha256": "sha256:c11071b87da672b9238cbf7131ae0dcddb2fc87d6d029ad47c878afafd6b9c2e"
     }
   ]
 }

@@ -362,7 +362,7 @@ func enterThroughInstalledSkill(
 	// this repository exactly as it is right now.
 	entry := skillEntry{installedPath: installed}
 	markers := map[string]bool{}
-	for _, marker := range []string{".git", ".baton/releases", ".sworn"} {
+	for _, marker := range []string{".git", ".sworn/records", ".sworn"} {
 		if !strings.Contains(step, "`"+marker+"`") {
 			continue
 		}
@@ -376,7 +376,7 @@ func enterThroughInstalledSkill(
 		return entry
 	}
 	entry.applies = true
-	entry.initialize = !markers[".baton/releases"] && !markers[".sworn"]
+	entry.initialize = !markers[".sworn/records"] && !markers[".sworn"]
 	if entry.initialize && !strings.Contains(step, "`sworn init`") {
 		t.Fatalf(
 			"installed skill step 1 gives an uninitialized Git worktree no way in:\n%s",

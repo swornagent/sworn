@@ -1,4 +1,6 @@
 /bin/
 /coverage/
-/.sworn/
+/.sworn/*
+!/.sworn/records/
 *.out
+/.claude/

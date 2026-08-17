@@ -1,0 +1,53 @@
+{
+  "outcome": "The Google chat dialect handles the turns agentic work is made of: assistant messages that carry only tool calls decode without a content field, each tool call's own opaque thought-signature container is retained and replayed byte-exact in its per-call position or the dispatch is refused, and live certification of gemini-3.7-flash passes end to end.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "relaxing strict decoding anywhere except under the Google chat dialect at the two named positions",
+      "parsing, interpreting or persisting the content of any opaque vendor field",
+      "changes to any other dialect, to token budgeting, streaming, or continuation limits",
+      "renaming any wire-vocabulary identifier"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Under the Google chat dialect an assistant message whose only payload is tool_calls decodes with the content field absent - recorded fixture g4 proves it - while every other dialect still requires content exactly as today, and a test proves the requirement is dialect-scoped."
+    },
+    {
+      "id": "A2",
+      "text": "A tool call's extra_content container (per-call thought signature, as recorded in fixture g4) is admitted only under the Google chat dialect at exactly the per-call position, retained as opaque continuation state keyed to its call, and replayed byte-exact inside the same tool call on the following request - the recorded g5 request/response pair proves the provider accepts the replayed shape and continues coherently."
+    },
+    {
+      "id": "A3",
+      "text": "Replay is mandatory per call: retained per-call vendor state that cannot be replayed in its position fails the dispatch closed with a labelled error, and nothing from the container ever appears in a submission, receipt, candidate or journal beyond the continuation ledger's opaque retention."
+    },
+    {
+      "id": "A4",
+      "text": "Strictness is preserved everywhere else: extra_content on a tool call outside the Google chat dialect, or at any position other than the two named ones, still fails decoding with the same error it fails with today, proven by tests over the closed allowlists."
+    },
+    {
+      "id": "A5",
+      "text": "Certification regression fixtures reduced from g4 and g5 are checked in, and the certification failure this gap produces today (certification_response_contract_failed at the assistant-message closed-object check) is covered so it cannot silently return."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Opaque means opaque: per-call vendor bytes are retained and replayed, never parsed for meaning, never logged in full, never persisted outside the continuation ledger.",
+    "The two admitted positions (message-level extra_content, per-tool-call extra_content) are an explicit allowlist under one named dialect; DisallowUnknownFields-style strictness remains the default at every other decode site.",
+    "The recorded fixtures delivered with the work order are the acceptance evidence; a worker who finds them missing from its inputs parks with a question rather than fabricating recorded exchanges.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product, test and fixture changes."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

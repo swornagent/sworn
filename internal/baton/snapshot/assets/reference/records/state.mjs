@@ -9,7 +9,8 @@ import {
 } from './git.mjs';
 import { ReceiptError, parsePlanBytes, parseReceiptHistoryEntry } from './receipts.mjs';
 
-const RECORD_ROOT = '.baton/releases';
+const RECORD_ROOT = '.sworn/records';
+const LEGACY_RECORD_ROOT = '.baton/releases';
 const MAX_PLAN_REVISIONS = 256;
 const MAX_CANDIDATE_LINEAGE = 4096;
 const productBaseEvidence = new WeakMap();
@@ -55,7 +56,18 @@ function refsFor(release, plan) {
     tracks: plan.metadata.tracks.map((track) => `refs/heads/track/${release}/${track.id}`),
   };
 }
-const planPath = (release) => `${RECORD_ROOT}/${release}/plan.md`;
+const planPath = (release, root = RECORD_ROOT) => `${root}/${release}/plan.md`;
+
+// resolvePlanAt returns the exact plan file at the configured records root,
+// falling back to the historical legacy root only when the configured root
+// holds no record at that commit. A release present under both roots resolves
+// to the configured root: one authority, never two.
+function resolvePlanAt(repo, commit, release) {
+  const [configured] = readFilesAtOID(repo, commit, [planPath(release)]);
+  if (configured && configured.object !== null) return configured;
+  const [legacy] = readFilesAtOID(repo, commit, [planPath(release, LEGACY_RECORD_ROOT)]);
+  return legacy;
+}
 
 function locations(plan) {
   const result = new Map();
@@ -98,8 +110,8 @@ function slicePlanLineage(planByOID, current, sliceID) {
 }
 
 function planAt(repo, release, commit) {
-  const [file] = readFilesAtOID(repo, commit, [planPath(release)]);
-  if (!file?.bytes || !file.object) fail('PLAN_NOT_FOUND', `release ${release} has no plan`);
+  const file = resolvePlanAt(repo, commit, release);
+  if (!file?.bytes || file.object === null) fail('PLAN_NOT_FOUND', `release ${release} has no plan`);
   try {
     const parsed = parsePlanBytes(file.bytes);
     if (parsed.metadata.release !== release) {
@@ -236,7 +248,7 @@ export function readReleaseReceiptHistory(repo, release, head) {
       || receipt.release !== release
     ) continue;
 
-    const [file] = readFilesAtOID(repo, entry.oid, [planPath(release)]);
+    const file = resolvePlanAt(repo, entry.oid, release);
     if (
       receipt.binds !== entry.parent
       || !file?.bytes
@@ -297,22 +309,28 @@ export function readReleaseReceiptHistory(repo, release, head) {
         `revision-1 approval ${entry.oid} does not install directly above its target`,
       );
     }
-    const [atFloor] = readFilesAtOID(repo, receipt.target, [planPath(release)]);
-    if (atFloor?.object !== null) {
+    const atFloorConfigured = readFilesAtOID(repo, receipt.target, [planPath(release)])[0];
+    const atFloorLegacy = readFilesAtOID(repo, receipt.target, [planPath(release, LEGACY_RECORD_ROOT)])[0];
+    if (atFloorConfigured?.object !== null || atFloorLegacy?.object !== null) {
       fail(
         'INVALID_PLAN_HISTORY',
         `revision-1 target ${receipt.target} already contains release ${release}`,
       );
     }
-    const priorPlanPathChange = firstParentPathChange(
+    const priorConfiguredChange = firstParentPathChange(
       repo,
       receipt.target,
       planPath(release),
     );
-    if (priorPlanPathChange !== null) {
+    const priorLegacyChange = firstParentPathChange(
+      repo,
+      receipt.target,
+      planPath(release, LEGACY_RECORD_ROOT),
+    );
+    if (priorConfiguredChange !== null || priorLegacyChange !== null) {
       fail(
         'INVALID_PLAN_HISTORY',
-        `revision-1 plan path was already introduced at ${priorPlanPathChange}`,
+        `revision-1 plan path was already introduced at ${priorConfiguredChange ?? priorLegacyChange}`,
       );
     }
     boundary = receipt.target;
@@ -379,7 +397,7 @@ function matchingApproval(repo, release, entry, receipts) {
     );
   }
   const [approval] = matches;
-  const [file] = readFilesAtOID(repo, approval.oid, [planPath(release)]);
+  const file = resolvePlanAt(repo, approval.oid, release);
   if (approval.receipt.binds !== approval.parent || file.object !== entry.oid) {
     fail('STALE_BINDING', `approval ${approval.oid} does not bind its plan commit`);
   }
@@ -406,7 +424,7 @@ function planChain(repo, release, current, receipts) {
       && !Object.hasOwn(receipt, 'slice')
     ));
     if (!approval) fail('INVALID_PLAN_HISTORY', `previous plan ${priorOID} has no approval`);
-    const [file] = readFilesAtOID(repo, approval.oid, [planPath(release)]);
+    const file = resolvePlanAt(repo, approval.oid, release);
     if (!file.bytes || file.object !== priorOID) {
       fail('INVALID_PLAN_HISTORY', `approval ${approval.oid} does not contain ${priorOID}`);
     }

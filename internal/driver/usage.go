@@ -19,19 +19,27 @@ type CostObservation struct {
 	Source     string `json:"source"`
 }
 type UsageReceipt struct {
-	TokenStatus    Availability `json:"token_status"`
-	InputTokens    *int64       `json:"input_tokens"`
-	OutputTokens   *int64       `json:"output_tokens"`
-	CostStatus     Availability `json:"cost_status"`
-	CostMicroUnits *int64       `json:"cost_micro_units"`
-	Currency       *string      `json:"currency"`
-	Source         *string      `json:"source"`
+	TokenStatus      Availability `json:"token_status"`
+	InputTokens      *int64       `json:"input_tokens"`
+	OutputTokens     *int64       `json:"output_tokens"`
+	CostStatus       Availability `json:"cost_status"`
+	CostMicroUnits   *int64       `json:"cost_micro_units"`
+	Currency         *string      `json:"currency"`
+	Source           *string      `json:"source"`
+	CacheStatus      Availability `json:"cache_status,omitempty"`
+	CacheReadTokens  *int64       `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *int64       `json:"cache_write_tokens,omitempty"`
+	EffortRequested  *string      `json:"effort_requested,omitempty"`
+	EffortReported   *string      `json:"effort_reported,omitempty"`
+	FinishReason     *string      `json:"finish_reason,omitempty"`
+	Truncated        *bool        `json:"truncated,omitempty"`
 }
 
 func NormalizeUsage(usage *Usage, cost *CostObservation) (UsageReceipt, error) {
 	receipt := UsageReceipt{
 		TokenStatus: UsageUnavailable,
 		CostStatus:  UsageUnavailable,
+		CacheStatus: UsageUnavailable,
 	}
 	if usage != nil {
 		if usage.InputTokens < 0 || usage.InputTokens > MaxSafeInteger ||
@@ -43,6 +51,23 @@ func NormalizeUsage(usage *Usage, cost *CostObservation) (UsageReceipt, error) {
 		receipt.TokenStatus = UsageReported
 		receipt.InputTokens = &input
 		receipt.OutputTokens = &output
+		if usage.CacheReadTokens != nil || usage.CacheWriteTokens != nil {
+			if usage.CacheReadTokens != nil {
+				if *usage.CacheReadTokens < 0 || *usage.CacheReadTokens > MaxSafeInteger {
+					return UsageReceipt{}, fail("INVALID_USAGE")
+				}
+				read := *usage.CacheReadTokens
+				receipt.CacheReadTokens = &read
+			}
+			if usage.CacheWriteTokens != nil {
+				if *usage.CacheWriteTokens < 0 || *usage.CacheWriteTokens > MaxSafeInteger {
+					return UsageReceipt{}, fail("INVALID_USAGE")
+				}
+				write := *usage.CacheWriteTokens
+				receipt.CacheWriteTokens = &write
+			}
+			receipt.CacheStatus = UsageReported
+		}
 	}
 	if cost != nil {
 		if err := validateCostObservation(*cost); err != nil {
@@ -79,6 +104,36 @@ func EncodeUsageReceipt(receipt UsageReceipt) ([]byte, error) {
 		(receipt.CostMicroUnits == nil) != (receipt.Source == nil) {
 		return nil, fail("PARTIAL_COST")
 	}
+	// The cache family admits three canonical states: absent (empty status
+	// with nil values, used by legacy journals and non-provider construction
+	// sites), explicitly unavailable (status with nil values), and reported
+	// (status with at least one non-nil value; a vocabulary that has no
+	// write side, such as Gemini or the Responses API, reports read only and
+	// the missing side stays nil rather than becoming a measured zero).
+	switch receipt.CacheStatus {
+	case "":
+		if receipt.CacheReadTokens != nil || receipt.CacheWriteTokens != nil {
+			return nil, fail("PARTIAL_CACHE")
+		}
+	case UsageUnavailable:
+		if receipt.CacheReadTokens != nil || receipt.CacheWriteTokens != nil {
+			return nil, fail("PARTIAL_CACHE")
+		}
+	case UsageReported:
+		if receipt.CacheReadTokens == nil && receipt.CacheWriteTokens == nil {
+			return nil, fail("PARTIAL_CACHE")
+		}
+		if receipt.CacheReadTokens != nil &&
+			(*receipt.CacheReadTokens < 0 || *receipt.CacheReadTokens > MaxSafeInteger) {
+			return nil, fail("INVALID_USAGE")
+		}
+		if receipt.CacheWriteTokens != nil &&
+			(*receipt.CacheWriteTokens < 0 || *receipt.CacheWriteTokens > MaxSafeInteger) {
+			return nil, fail("INVALID_USAGE")
+		}
+	default:
+		return nil, fail("PARTIAL_CACHE")
+	}
 	if receipt.InputTokens != nil {
 		if *receipt.InputTokens < 0 || *receipt.InputTokens > MaxSafeInteger ||
 			*receipt.OutputTokens < 0 || *receipt.OutputTokens > MaxSafeInteger {
@@ -90,6 +145,13 @@ func EncodeUsageReceipt(receipt UsageReceipt) ([]byte, error) {
 			!currencyPattern.MatchString(*receipt.Currency) ||
 			*receipt.Source != CostSourceProviderReported {
 			return nil, fail("INVALID_COST_OBSERVATION")
+		}
+	}
+	for _, value := range []*string{
+		receipt.EffortRequested, receipt.EffortReported, receipt.FinishReason,
+	} {
+		if value != nil && validateText(*value, MaxOpaqueFieldBytes, false) != nil {
+			return nil, fail("INVALID_OBSERVATION")
 		}
 	}
 	return canonicalJSON(receipt)

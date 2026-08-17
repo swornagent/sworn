@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 var (
@@ -272,7 +274,150 @@ func fakeInvocation(
 	}, workspace, submissionBody
 }
 
+// fakeInvocationReserved is fakeInvocation plus a scripted reserved-name list
+// for the reserved-canary process behavior, so a worker can prove from inside
+// containment that a configured records/journals root is masked.
+func fakeInvocationReserved(
+	t *testing.T,
+	invocationID string,
+	role Role,
+	responsibility Responsibility,
+	access WorkspaceAccess,
+	behavior string,
+	reserved []string,
+	submission *Submission,
+) (Invocation, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "workspace-canary"), []byte("unchanged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A prepared workspace carries its reserved roots; the mask applies to
+	// what exists (an absent root cannot be mounted without mutating the
+	// host bind). The fixture models the real prepared-workspace shape.
+	for _, name := range reserved {
+		if err := os.Mkdir(filepath.Join(workspace, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := fakeScript{
+		SchemaVersion: "sworn.fake-script/v1",
+		Behavior:      behavior,
+		Reserved:      append([]string(nil), reserved...),
+	}
+	if submission != nil {
+		submissionBody, err := EncodeSubmission(*submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script.Submission = base64.StdEncoding.EncodeToString(submissionBody)
+	}
+	scriptBody, err := json.Marshal(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptBody = append(scriptBody, '\n')
+	input, content := projectionInput("fake-script", "fake-script.json", scriptBody)
+	request, err := NewRequest(
+		invocationID,
+		role,
+		"fake-profile",
+		"fake-model-v1",
+		Workspace{Path: GuestWorkspacePath, Access: access},
+		[]Input{input},
+		true,
+		Limits{TimeoutMillis: 15_000, OutputBytes: 65_536},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := executableSelection(t)
+	containment := ContainmentReadWrite
+	if access == ReadOnly {
+		containment = ContainmentReadOnly
+	}
+	permission, err := NewSubmissionPermission(request, selected, containment, responsibility)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Invocation{
+		Request:       request,
+		HostWorkspace: workspace,
+		Selected:      selected,
+		Permission:    permission,
+		Inputs:        []InputContent{content},
+		FakeProfile:   FakeCompleted,
+	}, workspace
+}
+
+// TestConfiguredRecordsRootMaskedFromWorker is the A3 proof: a project that
+// configures an unusual records root has that root masked from every
+// model-directed worker. The worker is run inside real containment and, from
+// the guest, verifies the configured root (and the always-reserved legacy
+// root) is an empty read-only surface it cannot write to.
+func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
+	requireTrustedContainment(t)
+
+	configured := gitx.ProjectConfig{
+		SchemaVersion: gitx.ProjectConfigSchemaVersion,
+		RecordsRoot:   ".secret-records",
+		JournalsRoot:  ".secret-journals",
+		ContractsRoot: "contracts",
+		CommitPrefix:  "sworn",
+		DocumentsRoot: "docs/sworn",
+	}
+	reserved := gitx.ReservedNames(configured)
+	for _, name := range []string{".secret-records", ".secret-journals", ".baton", ".git"} {
+		found := false
+		for _, candidate := range reserved {
+			if candidate == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("reserved names %v omit %s", reserved, name)
+		}
+	}
+
+	submissionValue := submissionFixture(
+		t, "configured-root-mask", ImplementerImplementation, "",
+	)
+	invocation, _ := fakeInvocationReserved(
+		t,
+		"configured-root-mask",
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+		"reserved-canary",
+		reserved,
+		&submissionValue,
+	)
+	// The engine derives the mask from the configured project roots; here the
+	// test supplies exactly what the engine would compute for this config.
+	invocation.MaskNames = reserved
+	// The fixture is invoked under the "driver" basename so its fake-script
+	// input (behavior + reserved names) is parsed before dispatch.
+	setProcessExecutable(t, &invocation, "driver")
+
+	observation, err := (Invoker{}).Invoke(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.TransportStatus != Completed {
+		t.Fatalf("reserved-canary transport = %s (diagnostic %s)",
+			observation.TransportStatus, observation.Diagnostic.Code)
+	}
+	if observation.Diagnostic.Code != "none" {
+		t.Fatalf("reserved-canary diagnostic = %s", observation.Diagnostic.Code)
+	}
+	if observation.Handoff == nil {
+		t.Fatal("reserved-canary released no sealed handoff")
+	}
+}
+
 func TestInvokerReleasesOnlyCompletedBoundSealedHandoff(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(t, "invoke-submit", PlannerProposal, "")
 	submission := &submissionValue
 	invocation, workspace, submissionBody := fakeInvocation(
@@ -326,6 +471,7 @@ func TestInvokerReleasesOnlyCompletedBoundSealedHandoff(t *testing.T) {
 }
 
 func TestRejectedSubmissionRequiresResultThenStopsWithoutHandoff(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(t, "wrong-invocation", PlannerProposal, "")
 	submission := &submissionValue
 	invocation, _, _ := fakeInvocation(
@@ -348,6 +494,7 @@ func TestRejectedSubmissionRequiresResultThenStopsWithoutHandoff(t *testing.T) {
 }
 
 func TestAcceptedSubmissionIntentionallyStopsAndQuiescesDescendants(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-descendant",
@@ -379,6 +526,7 @@ func TestAcceptedSubmissionIntentionallyStopsAndQuiescesDescendants(t *testing.T
 }
 
 func TestLinuxParentDeathQuiescesSandbox(t *testing.T) {
+	requireTrustedContainment(t)
 	const helperEnvironment = "SWORN_PARENT_DEATH_HELPER"
 	const executableEnvironment = "SWORN_PARENT_DEATH_EXECUTABLE"
 	if os.Getenv(helperEnvironment) == "1" {
@@ -447,6 +595,7 @@ func TestLinuxSandboxProcessAttributesRequireParentDeath(t *testing.T) {
 }
 
 func TestSpontaneousNonzeroExitCannotMasqueradeAsEngineStop(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-exit-17",
@@ -474,6 +623,7 @@ func TestSpontaneousNonzeroExitCannotMasqueradeAsEngineStop(t *testing.T) {
 }
 
 func TestSubmitWithoutCompletedResultStaysBlockedUntilDeadline(t *testing.T) {
+	requireTrustedContainment(t)
 	submissionValue := submissionFixture(
 		t,
 		"invoke-submit-no-result",
@@ -511,6 +661,7 @@ func TestSubmitWithoutCompletedResultStaysBlockedUntilDeadline(t *testing.T) {
 }
 
 func TestNonCompletedTransportCannotReleaseAcceptedSubmission(t *testing.T) {
+	requireTrustedContainment(t)
 	profiles := []FakeProfile{
 		FakeTransportError,
 		FakeTimeout,
@@ -544,6 +695,7 @@ func TestNonCompletedTransportCannotReleaseAcceptedSubmission(t *testing.T) {
 }
 
 func TestInvokerReadOnlyWriteAttemptAndCancellationFailClosed(t *testing.T) {
+	requireTrustedContainment(t)
 	t.Run("already cancelled", func(t *testing.T) {
 		invocation, workspace, _ := fakeInvocation(
 			t,
@@ -650,6 +802,7 @@ func processUsesExecutable(executable string) bool {
 }
 
 func TestInvokerRejectsMalformedSubmissionChannel(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-malformed-frame",
@@ -668,6 +821,7 @@ func TestInvokerRejectsMalformedSubmissionChannel(t *testing.T) {
 }
 
 func TestMalformedControlTerminatesBlockingProcessImmediately(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-malformed-control-block",
@@ -689,6 +843,7 @@ func TestMalformedControlTerminatesBlockingProcessImmediately(t *testing.T) {
 }
 
 func TestInvokerRejectsMalformedProcessBehaviors(t *testing.T) {
+	requireTrustedContainment(t)
 	tests := []struct {
 		behavior string
 		code     string
@@ -745,6 +900,7 @@ func TestInvokerRejectsMalformedProcessBehaviors(t *testing.T) {
 }
 
 func TestParallelInvocationsCannotExchangeInputsModelsOrSeals(t *testing.T) {
+	requireTrustedContainment(t)
 	type invocationCase struct {
 		id             string
 		model          string
@@ -819,6 +975,7 @@ func TestParallelInvocationsCannotExchangeInputsModelsOrSeals(t *testing.T) {
 }
 
 func TestObservationDoesNotRetainEnvironmentStderrOrRawTranscript(t *testing.T) {
+	requireTrustedContainment(t)
 	t.Setenv("SWORN_PARENT_SECRET", "parent-secret-sentinel")
 	for _, behavior := range []string{"environment-canary", "secret-text"} {
 		t.Run(behavior, func(t *testing.T) {
@@ -862,6 +1019,7 @@ func TestObservationDoesNotRetainEnvironmentStderrOrRawTranscript(t *testing.T) 
 }
 
 func TestCompletedResultKeepsOmittedUsageExplicitlyUnavailable(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, _, _ := fakeInvocation(
 		t,
 		"invoke-usage-unavailable",
@@ -883,6 +1041,7 @@ func TestCompletedResultKeepsOmittedUsageExplicitlyUnavailable(t *testing.T) {
 }
 
 func TestLinuxBoundaryExposesOnlyFixedEnvironmentWorkspaceAndInputOverlay(t *testing.T) {
+	requireTrustedContainment(t)
 	invocation, workspace, _ := fakeInvocation(
 		t,
 		"invoke-isolation-canaries",

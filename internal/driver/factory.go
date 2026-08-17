@@ -44,7 +44,11 @@ func NewProductionDriverFactory(
 	}
 	clearBytes(body)
 
-	root, err := os.MkdirTemp("", "sworn-driver-certification-v1-")
+	temp, err := tempRoot()
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.MkdirTemp(temp, "sworn-driver-certification-v1-")
 	if err != nil {
 		return nil, fail("FACTORY_UNAVAILABLE")
 	}
@@ -65,17 +69,30 @@ func NewProductionDriverFactory(
 	}
 	factory.options.LiveProbes = make(map[string]ProfileLiveProbe)
 
+	presets, err := presetMap(reloaded.config.Presets)
+	if err != nil {
+		_ = factory.Close()
+		return nil, err
+	}
 	sources := credentialSourceMap(reloaded.config.Credentials)
-	for _, adapterConfig := range reloaded.config.Adapters {
-		descriptor, descriptorErr := adapterConfig.descriptor()
+	for _, raw := range reloaded.config.Adapters {
+		resolved, resolveErr := resolvePreset(
+			raw,
+			presets,
+			reloaded.config.Variables,
+		)
+		if resolveErr != nil {
+			_ = factory.Close()
+			return nil, resolveErr
+		}
+		descriptor, descriptorErr := resolved.descriptor()
 		if descriptorErr != nil {
 			_ = factory.Close()
 			return nil, descriptorErr
 		}
 		switch descriptor.kind {
-		case driverAdapterOpenAI, driverAdapterDeepSeek, driverAdapterGemini,
-			driverAdapterBedrock, driverAdapterMantle:
-			config := cloneDriverAdapterConfig(adapterConfig)
+		case driverAdapterOpenAI, driverAdapterGemini, driverAdapterBedrock:
+			config := cloneDriverAdapterConfig(resolved)
 			factory.options.LiveProbes[descriptor.key] =
 				factory.liveProbe(config, descriptor, sources)
 		}
@@ -136,11 +153,19 @@ func (factory *ProductionDriverFactory) liveProbe(
 		if err != nil {
 			return fail("LIVE_PROBE_FAILED")
 		}
+		var credentialRef *string
+		if descriptor.auth != AuthModeNone {
+			if ref == "" {
+				return fail("LIVE_PROBE_FAILED")
+			}
+			credentialRef = &ref
+		}
 		profile := ProfileConfig{
 			Key:           "live-certification",
 			Adapter:       adapter.Identity().Key,
 			Network:       NetworkRequired,
-			CredentialRef: cloneString(&ref),
+			AuthMode:      descriptor.auth,
+			CredentialRef: credentialRef,
 		}
 		registry, err := NewSelectionRegistry(
 			[]ProfileConfig{profile},
@@ -224,6 +249,13 @@ func (factory *ProductionDriverFactory) certificationInvocation(
 			Input: input,
 			Bytes: instruction,
 		}},
+		// Certification grants the driver's own bounded recovery budgets
+		// (one prose nudge, MaxSubmissionCorrections); with no hook a model
+		// that opens in prose fails RECOVERY_STEP_REFUSED instead of being
+		// nudged, which made certification flaky for reasoning models.
+		RecoveryStepHook: func(context.Context, RecoveryStepKind) error {
+			return nil
+		},
 	}, nil
 }
 
@@ -277,13 +309,21 @@ func systemFileCredential(
 func configuredAWSEnvironments(
 	config DriverConfig,
 ) (map[string][]string, error) {
+	presets, err := presetMap(config.Presets)
+	if err != nil {
+		return nil, err
+	}
 	adapters := make(map[string]DriverAdapterConfig, len(config.Adapters))
-	for _, adapter := range config.Adapters {
-		descriptor, err := adapter.descriptor()
-		if err != nil {
-			return nil, err
+	for _, raw := range config.Adapters {
+		resolved, resolveErr := resolvePreset(raw, presets, config.Variables)
+		if resolveErr != nil {
+			return nil, resolveErr
 		}
-		adapters[descriptor.key] = adapter
+		descriptor, descriptorErr := resolved.descriptor()
+		if descriptorErr != nil {
+			return nil, descriptorErr
+		}
+		adapters[descriptor.key] = resolved
 	}
 	sources := credentialSourceMap(config.Credentials)
 	result := make(map[string][]string)
@@ -316,10 +356,10 @@ func adapterAWSEnvironmentKeys(
 	switch {
 	case config.Bedrock != nil:
 		return append([]string(nil), config.Bedrock.Chain.EnvironmentKeys...), true
-	case config.Mantle != nil &&
-		config.Mantle.AuthMode == BedrockMantleAWS &&
-		config.Mantle.Chain != nil:
-		return append([]string(nil), config.Mantle.Chain.EnvironmentKeys...), true
+	case config.OpenAI != nil &&
+		config.OpenAI.effectiveAuth() == AuthModeAWSSigV4 &&
+		config.OpenAI.Chain != nil:
+		return append([]string(nil), config.OpenAI.Chain.EnvironmentKeys...), true
 	default:
 		return nil, false
 	}
@@ -364,18 +404,12 @@ func cloneDriverAdapterConfig(
 	case config.OpenAI != nil:
 		value := cloneOpenAIProfileConfig(*config.OpenAI)
 		config.OpenAI = &value
-	case config.DeepSeek != nil:
-		value := cloneHTTPProfileConfig(*config.DeepSeek)
-		config.DeepSeek = &value
 	case config.Gemini != nil:
 		value := cloneHTTPProfileConfig(*config.Gemini)
 		config.Gemini = &value
 	case config.Bedrock != nil:
 		value := cloneBedrockProfileConfig(*config.Bedrock)
 		config.Bedrock = &value
-	case config.Mantle != nil:
-		value := cloneMantleProfileConfig(*config.Mantle)
-		config.Mantle = &value
 	}
 	return config
 }

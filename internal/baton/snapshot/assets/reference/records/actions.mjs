@@ -10,6 +10,7 @@ import {
   readFilesAtOID,
   repositoryRoot,
   resolveRecordPathAdmission,
+  resolveRef,
   unsafeAtomicUpdateRefs,
   unsafePrepareApprovedTargetBase,
   unsafePrepareExactComposition,
@@ -30,9 +31,11 @@ import {
   unsafeProductBaseEvidence,
 } from './state.mjs';
 
-const RECORD_ROOT = '.baton/releases';
-const MAX_SUMMARY = 280;
-const MAX_DETAIL = 8_192;
+const RECORD_ROOT = '.sworn/records';
+const LEGACY_RECORD_ROOT = '.baton/releases';
+const DOCUMENTS_ROOT = 'docs/sworn';
+const MAX_SUMMARY = 262_144;
+const MAX_DETAIL = 1_048_576;
 const MAX_CHECK_RESULTS = 1_048_576;
 const MAX_CANDIDATE_LINEAGE = 4096;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -161,6 +164,14 @@ function planPath(release) {
   return `${RECORD_ROOT}/${release}/plan.md`;
 }
 
+function documentPlanPath(release) {
+  return `${DOCUMENTS_ROOT}/${release}/plan.md`;
+}
+
+function documentContractPath(release, sliceID) {
+  return `${DOCUMENTS_ROOT}/${release}/contracts/${sliceID}.json`;
+}
+
 function captureMap(repo, refs) {
   return new Map(captureHeadRefs(repo, refs).map(({ ref, head }) => [ref, head]));
 }
@@ -229,7 +240,7 @@ function planReceipt({
   detail,
 }) {
   const message = renderReceiptCommit({
-    subject: `baton(${release}): approve plan`,
+    subject: `sworn(${release}): approve plan`,
     detail,
     receipt: {
       version: 1,
@@ -520,12 +531,13 @@ export function createBatonActions(options) {
     const input = exactOptions(
       rawOptions,
       ['planBytes', 'summary'],
-      ['detail'],
+      ['detail', 'contractTree'],
       'recordPlanRevision',
     );
     const parsed = parsePlanBytes(Buffer.from(input.planBytes));
     const summary = text(input.summary, 'summary', MAX_SUMMARY);
     const detail = detailBytes(input.detail);
+    const contractTree = input.contractTree === undefined ? '' : String(input.contractTree);
     const release = parsed.metadata.release;
     const targetRef = parsed.metadata.target_ref;
     const ownerRef = releaseRef(release);
@@ -585,13 +597,39 @@ export function createBatonActions(options) {
       parent = priorHead;
     }
 
+    const documents = {
+      [documentPlanPath(release)]: parsed.bytes,
+    };
+    if (parsed.metadata.schema_version === 'sworn.release-manifest/v1' && contractTree) {
+      const declaredPaths = [];
+      for (const track of parsed.metadata.tracks) {
+        for (const slice of track.slices) {
+          if (slice.contract_path) {
+            declaredPaths.push([slice.id, slice.contract_path]);
+          }
+        }
+      }
+      if (declaredPaths.length > 0) {
+        const contractBytes = Object.fromEntries(
+          readFilesAtOID(repo, resolveRef(repo, contractTree), declaredPaths.map(([, p]) => p))
+            .map((file) => [file.path, file.bytes]),
+        );
+        for (const [sliceID, contractPath] of declaredPaths) {
+          if (!contractBytes[contractPath]) {
+            fail('CONTRACT_NOT_FOUND', `contract source is missing ${contractPath}`);
+          }
+          documents[documentContractPath(release, sliceID)] = contractBytes[contractPath];
+        }
+      }
+    }
     const preparedPlan = unsafePrepareRecordTransition(repo, {
       expectedHead: parent,
-      message: `baton(${release}): plan revision ${parsed.metadata.revision}`,
+      message: `sworn(${release}): plan revision ${parsed.metadata.revision}`,
       recordPathAdmission,
       changes: {
         [planPath(release)]: parsed.bytes,
       },
+      documents,
       identity: gitIdentity,
     });
     const planObject = fileAt(repo, preparedPlan.commit, planPath(release)).object;
@@ -620,7 +658,7 @@ export function createBatonActions(options) {
       )) {
         const slice = removed.location.slice.id;
         const retirementMessage = renderReceiptCommit({
-          subject: `baton(${release}/${slice}): retire slice`,
+          subject: `sworn(${release}/${slice}): retire slice`,
           detail: Buffer.alloc(0),
           receipt: {
             version: 1,
@@ -970,7 +1008,7 @@ export function createBatonActions(options) {
 
     requireTargetLineage(repo, state);
     const message = renderReceiptCommit({
-      subject: `baton(${release}${sliceID ? `/${sliceID}` : ''}): ${role} ${result}`,
+      subject: `sworn(${release}${sliceID ? `/${sliceID}` : ''}): ${role} ${result}`,
       detail,
       receipt,
     });
@@ -1247,7 +1285,7 @@ export function createBatonActions(options) {
       checks,
     };
     const message = renderReceiptCommit({
-      subject: `baton(${release}): assembly candidate`,
+      subject: `sworn(${release}): assembly candidate`,
       detail,
       receipt,
     });
@@ -1341,7 +1379,7 @@ export function createBatonActions(options) {
       result_commit: prepared.result,
     };
     const message = renderReceiptCommit({
-      subject: `baton(${release}): merge passed candidate`,
+      subject: `sworn(${release}): merge passed candidate`,
       detail,
       receipt,
     });

@@ -398,6 +398,7 @@ func preparedInvocation(
 	workspace *gitx.WorkspaceLease,
 	request driver.Request,
 	permission driver.SubmissionPermission,
+	maskNames []string,
 ) driver.Invocation {
 	fakeProfile := driver.FakeProfile("")
 	if prepared.fake {
@@ -410,6 +411,7 @@ func preparedInvocation(
 		Permission:    permission,
 		Inputs:        prepared.inputs,
 		FakeProfile:   fakeProfile,
+		MaskNames:     append([]string(nil), maskNames...),
 	}
 }
 
@@ -417,13 +419,14 @@ func preparedResumeInvocation(
 	prepared preparedDriverDispatch,
 	workspace *gitx.WorkspaceLease,
 	hook driver.RecoveryStepHook,
+	maskNames []string,
 ) *driver.Invocation {
 	if prepared.resumeRequest == nil || prepared.resumePermission == nil {
 		return nil
 	}
 	invocation := preparedInvocation(
 		prepared, workspace, *prepared.resumeRequest,
-		*prepared.resumePermission,
+		*prepared.resumePermission, maskNames,
 	)
 	invocation.RecoveryStepHook = hook
 	return &invocation
@@ -775,6 +778,7 @@ func (s *Service) invokePreparedDriver(
 		workspace,
 		prepared.request,
 		prepared.permission,
+		engine.repository.ReservedNames(),
 	)
 	if recovery != nil {
 		invocation.RecoveryStepHook =
@@ -887,6 +891,7 @@ func (s *Service) invokePreparedDriver(
 			entry.selectionDigest == selectionDigest
 		resumeInvocation := preparedResumeInvocation(
 			prepared, workspace, invocation.RecoveryStepHook,
+			engine.repository.ReservedNames(),
 		)
 		observation, next, fact, invokeErr :=
 			s.invokeContinuationTurn(
@@ -997,6 +1002,7 @@ func (s *Service) invokePreparedDriver(
 		)
 		resumeInvocation := preparedResumeInvocation(
 			prepared, workspace, invocation.RecoveryStepHook,
+			engine.repository.ReservedNames(),
 		)
 		observation, next, fact, invokeErr :=
 			s.invokeContinuationTurn(
@@ -1414,6 +1420,19 @@ func rehydrateProductionContextInputs(
 			current.DesignReceipt.detail...,
 		)
 		persisted.DesignReceipt = &binding
+	}
+	if persisted.HostEvidence != nil {
+		if current.HostEvidence == nil ||
+			current.HostEvidence.Input != persisted.HostEvidence.Input {
+			return productionWorkContext{},
+				runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		binding := *persisted.HostEvidence
+		binding.body = append(
+			[]byte(nil),
+			current.HostEvidence.body...,
+		)
+		persisted.HostEvidence = &binding
 	}
 	return persisted, nil
 }

@@ -37,12 +37,11 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	t.Parallel()
 	families := []ProfileFamily{
 		ProfileFake, ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
-		ProfileDeepSeek, ProfileGemini, ProfileBedrock, ProfileBedrock,
+		ProfileGemini, ProfileBedrock,
 	}
 	surfaces := []ProfileSurface{
-		"", "", "", ProfileSurfaceOpenAIResponses, "", "",
+		"", "", "", ProfileSurfaceOpenAIResponses, "",
 		ProfileSurfaceBedrockRuntimeConverse,
-		ProfileSurfaceBedrockMantleChat,
 	}
 	var adapters []Adapter
 	var configs []ProfileConfig
@@ -99,12 +98,15 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	if _, err := registry.Resolve(selections, Role("merge")); !IsCode(err, "ROLE_NOT_DISPATCHABLE") {
 		t.Fatalf("Merge error = %v", err)
 	}
+	mantleSurface := adapters[len(adapters)-1].(*familyAdapter)
+	mantleSurface.surface = ProfileSurfaceBedrockMantleChat
 	if _, err := NewProductionRegistry(
-		configs[:len(configs)-1],
+		configs,
 		adapters,
 	); !IsCode(err, "MISSING_PROFILE_SURFACE") {
 		t.Fatalf("missing surface error = %v", err)
 	}
+	mantleSurface.surface = ProfileSurfaceBedrockRuntimeConverse
 	missingCredential := append([]ProfileConfig(nil), configs...)
 	missingCredential[1].CredentialRef = nil
 	if _, err := NewProductionRegistry(missingCredential, adapters); !IsCode(err, "INVALID_PROFILE") {
@@ -182,6 +184,7 @@ func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
 		{"unavailable", providerHTTPStatusError(503), "certification_provider_unavailable"},
 		{"submission", fail("MISSING_SUBMISSION"), "certification_submission_failed"},
 		{"response contract", fail("CONTINUATION_INVALID"), "certification_response_contract_failed"},
+		{"unplayable continuation state", fail("CONTINUATION_STATE_UNPLAYABLE"), "certification_response_contract_failed"},
 		{"usage", fail("INVALID_USAGE"), "certification_usage_failed"},
 		{"tool", fail("TOOL_NOT_ALLOWED"), "certification_tool_failed"},
 		{"resource", fail("RESOURCE_LIMIT"), "certification_resource_limited"},

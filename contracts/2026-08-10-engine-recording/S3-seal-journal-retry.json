@@ -1,0 +1,52 @@
+{
+  "outcome": "Recovery semantics are ratified and coherent: operational failures retry within budget without a human ritual, verdicts are never healed, one paid model execution per work per epoch is an enforced invariant, workspace scratch never enters a candidate, and the conformance suite pins exactly these behaviors.",
+  "scope": {
+    "include": [
+      "internal/journal",
+      "internal/gitx",
+      "test/e2e"
+    ],
+    "exclude": [
+      "healing or retrying any verdict failure",
+      "unbounded retry of any kind",
+      "changes to receipt schemas or the trust rules themselves"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "An absent or operationally-failed previous attempt is retryable within the epoch's try budget, and never-retried derived work follows its first writer's epoch; the wedge classes that killed runs r9 through r12 stay dead, evidenced by the existing regression tests."
+    },
+    {
+      "id": "A2",
+      "text": "A work with any succeeded try in an epoch admits no further tries in that epoch: the guard scans all recorded tries, not only the immediately previous one, so a refused try's missing effect cannot re-open payment. Fresh chances come from epoch bumps that mint fresh work."
+    },
+    {
+      "id": "A3",
+      "text": "The seal deletes workspace tmp/ before staging, so scratch never enters a candidate; the existing regression test pins it."
+    },
+    {
+      "id": "A4",
+      "text": "The four conformance pins that asserted the old semantics now assert the ratified ones with boundedness explicit: bounded operational retry may heal and merge where re-execution is safe, a succeeded dispatch is never re-paid within its epoch, and every retry sequence terminates within the try budget."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The reference diff projected as input is the commitment for the recorded portions; the single-payment guard and the four pin revisions are new work within this scope.",
+    "Verdict failures are never retried, healed or superseded by recovery; only operational failures are.",
+    "Retry budgets bound every sequence; no path may retry without consuming a try.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [
+    "S2-worker-harness"
+  ],
+  "consumes": [
+    "S2-worker-harness"
+  ]
+}

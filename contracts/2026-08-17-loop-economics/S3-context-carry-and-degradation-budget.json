@@ -1,0 +1,29 @@
+{
+  "outcome": "Repair attempts inherit their predecessor's knowledge and degradation is loud: a retry or repair dispatch receives the prior try's submission summary and detail as explicit context, every continuation-rehydrate fallback records its reason, and a manifest degradation budget parks the run instead of letting silent context loss burn tokens indefinitely.",
+  "scope": {
+    "include": ["internal/runtime", "internal/driver", "internal/journal", "cmd/sworn"],
+    "exclude": ["serializable cross-process continuation state (a future release)", "changing the continuation contract's process-local design", "telemetry controlling or recovering a run"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "A repair or retry dispatch for a work item whose prior try submitted includes that submission's summary and detail in the worker's prepared context, proven by a test inspecting dispatch inputs; the ~40 turns per attempt measured reconstructing predecessor state (sworn#204) become unnecessary."},
+    {"id": "A2", "text": "Every fresh_rehydrate.fallback event body names the reason rehydration failed (the labelled site from the ledger, or expiry, or absence), proven by tests provoking each; silence is no longer the rendering of context loss."},
+    {"id": "A3", "text": "The manifest limits gain a bounded degradation budget (default: three rehydrate fallbacks per run); exceeding it parks the run at a safe boundary with a named reason listing the fallback events, proven end to end with a fake driver. The budget is runtime policy in the reducer, in the same class as try budgets - not telemetry."},
+    {"id": "A4", "text": "Existing manifests without the new limit field admit unchanged with the documented default, and a manifest declaring the field round-trips through admission."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Every fallback path must either be loud or be forbidden (sworn#205); this slice makes the continuation fallback loud and budgeted, never forbidden.",
+    "Prior-submission context is worker input, not authority: it never substitutes for receipts and carries a provenance line naming the try it came from.",
+    "Evidence basis: 60% of dispatches lost context silently in r6/r7 (sworn#204); the parks and their costs are journaled in the 2026-08-12 and 2026-08-16 release runs.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": ["S2-labelled-continuation-exits"], "consumes": ["S2-labelled-continuation-exits"]
+}

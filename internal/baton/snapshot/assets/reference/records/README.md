@@ -52,12 +52,19 @@ therefore bind immutable Git objects without mixing metadata into the product
 tree, and merge can advance the target only to the exact candidate covered by
 the current PASS.
 
-`.baton/releases` is reserved Baton metadata. Product code MUST NOT read or
-depend on it, including from build, test, package, deploy, hooks, or runtime.
-Product identity structurally ignores exactly this fixed non-symlinked
-directory. Plan product scope cannot include it, candidates must preserve it from
-their exact implementation base, and only the confined record writer may
-modify it. The reference layer does not pretend to detect semantic reads.
+`.sworn/records` is the configured records root where machine-written records
+live, and `.baton/releases` remains the historical records root that stayed
+readable for releases recorded before the relocation. Product code MUST NOT
+read or depend on either, including from build, test, package, deploy, hooks,
+or runtime. Product identity structurally ignores exactly these fixed
+non-symlinked directories, and both stay reserved against model-directed
+candidates, so neither the configured root nor the legacy fallback can be
+forged. Plan product scope cannot include them, candidates must preserve them
+from their exact implementation base, and only the confined record writer may
+modify them. State reading resolves the configured root first and falls back
+to the historical root only when the configured root holds no record for that
+release; a release present under both roots resolves to the configured root.
+The reference layer does not pretend to detect semantic reads.
 
 Plan scope is a commitment to owned behavioral and product surfaces, not a
 candidate-path allowlist. The action layer derives the complete candidate diff

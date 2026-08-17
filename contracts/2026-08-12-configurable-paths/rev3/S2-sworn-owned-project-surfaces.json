@@ -1,0 +1,71 @@
+{
+  "outcome": "A Sworn project separates what people read from what the engine runs on: reviewable specifications live under docs/sworn/, machine-written authority and run state live under .sworn/, commit messages carry a configured prefix rather than a hardcoded foreign project name, and every release recorded before the move stays readable.",
+  "scope": {
+    "include": [
+      "internal/baton",
+      "internal/gitx",
+      "internal/driver",
+      "internal/runtime",
+      "cmd/sworn",
+      "internal/skill",
+      "docs",
+      "README.md",
+      ".gitignore",
+      ".gitattributes",
+      "test/e2e",
+      ".baton",
+      ".sworn"
+    ],
+    "exclude": [
+      "changing receipt content, effect kinds, or any journal or wire vocabulary",
+      "altering what a receipt binds or how authority is validated",
+      "relaxing the reserved-path protections around the records root beyond the one-time, operator-gated relocation authorized in this revision"
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "What a person reads lives under a configured documents root defaulting to docs/sworn: the authored release plan and authored slice contracts are written there, found by browsing the repository without knowing engine internals. What a person only occasionally interrogates lives under a configured project root defaulting to .sworn: machine-written records, run journals and working files. Recorded slice contracts stay readable at the paths their recorded plans bind, so no recorded release is stranded by the relocation. No directory or commit text is named after another project."
+    },
+    {
+      "id": "A2",
+      "text": "The records root and the commit-message prefix are read from project configuration, defaulting to .sworn/records and sworn."
+    },
+    {
+      "id": "A3",
+      "text": "The containment mask protecting the records root is derived from the configured value, not a literal: a project configuring a non-default records root has that root masked from every model-directed worker, proven by a test that configures an unusual root and shows a worker cannot write to it."
+    },
+    {
+      "id": "A4",
+      "text": "Releases recorded before the move remain readable: state reading resolves the previous .baton/releases location when the configured root holds no record for that release, so enumerating historical release refs still yields their exact recorded plans and receipts, and a release present under both roots resolves to the configured root. Recorded plans need no fallback for contracts, because each plan carries the contract paths it was recorded with."
+    },
+    {
+      "id": "A5",
+      "text": "This repository is migrated in the same release, and the ignore rules are allowlist-shaped: the reserved records root relocates from .baton/releases to .sworn/records through the operator-gated migration pathway this revision authorizes, a fresh clone contains the authored plans, the contracts, the records and the project configuration, and contains no journals or working files and no .baton directory. A test asserts exactly that against a fresh clone, so the ignore rules cannot silently invert and either commit run state or strand authority."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Split by audience: a document a person reads and reviews belongs under the documents root; state the engine writes and reads belongs under the project root. Neither directory holds both kinds.",
+    "Wire vocabulary is untouched: effect kinds, receipt shapes and journal schemas keep their current names, because they are durable identifiers in every existing journal and receipt.",
+    "The records root remains reserved: it is never a product, model, check, workspace, candidate, build or package input, wherever it is configured to live.",
+    "The one-time relocation of the reserved records root from .baton/releases to .sworn/records is explicitly authorized by this operator-approved revision and is operator-gated: it is performed by an explicit engine pathway or engine/operator step invoked for this release, never as a silent side effect of ordinary model-directed work, and the reserved-root protection is relaxed for nothing else.",
+    "Recorded slice contracts stay at the paths their recorded plans bind; the documents root holds the authored plan and authored contracts going forward. Recorded plans need no contract fallback because each plan carries the contract paths it was recorded with.",
+    "The embedded protocol reference assets under internal/baton/snapshot/assets/reference are updated in the same candidate to describe the configured records root and the historical .baton/releases fallback, so the compiled reference matches the shipped product.",
+    "History stays readable; no migration may strand a recorded release.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository; the candidate diff carries only product changes."
+  ],
+  "depends_on": [
+    "S1-project-config-and-paths"
+  ],
+  "consumes": [
+    "S1-project-config-and-paths"
+  ]
+}

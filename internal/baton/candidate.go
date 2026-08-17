@@ -15,8 +15,8 @@ func trackRef(release, track string) string {
 	return "refs/heads/track/" + release + "/" + track
 }
 
-func planPath(release string) string {
-	return RecordRoot + "/" + release + "/plan.md"
+func planPath(recordRoot, release string) string {
+	return recordRoot + "/" + release + "/plan.md"
 }
 
 func validateObjectForFormat(format, value, label string) error {
@@ -154,8 +154,13 @@ func ValidateSliceCandidateScope(
 	if err != nil {
 		return err
 	}
+	// The reserved-root check follows the configured records root and the
+	// historical legacy root so a relocated root is never left unprotected
+	// and the legacy fallback can never be forged.
+	reservedRoot := repository.recordRoot()
 	for _, changedPath := range paths {
-		if changedPath == RecordRoot || strings.HasPrefix(changedPath, RecordRoot+"/") {
+		if changedPath == reservedRoot || strings.HasPrefix(changedPath, reservedRoot+"/") ||
+			changedPath == LegacyRecordRoot || strings.HasPrefix(changedPath, LegacyRecordRoot+"/") {
 			return recordFail(
 				"RESERVED_RECORD_ROOT_CHANGED",
 				"candidate changes reserved Baton records at "+changedPath,

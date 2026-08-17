@@ -998,14 +998,7 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 	normalBinary := filepath.Join(buildRoot, "sworn-normal")
 	buildBinary(t, normalBinary, "./cmd/sworn", "")
 	crashBinary := filepath.Join(buildRoot, "sworn-human-crash")
-	buildBinary(
-		t,
-		crashBinary,
-		"./cmd/sworn",
-		"-X=github.com/swornagent/sworn/internal/runtime.testHumanTurnCrash="+
-			"environment"+
-			" -X=github.com/swornagent/sworn/internal/runtime.testOwnerLeaseMillis=300",
-	)
+	buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
 	cuts := []string{
 		"before_park_commit",
 		"after_park_commit",
@@ -1049,8 +1042,9 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 				)
 				journalPath := filepath.Join(root, "run.sqlite")
 				environment := map[string]string{
-					"SWORN_TURN_RECOVERY_KEY":     recoveryE2ESecret,
-					"SWORN_TEST_HUMAN_TURN_CRASH": cut,
+					"SWORN_TURN_RECOVERY_KEY":       recoveryE2ESecret,
+					"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+					"SWORN_TEST_HUMAN_TURN_CRASH":   cut,
 				}
 				runBinaryWithEnvironment(
 					t, normalBinary, 0, environment,

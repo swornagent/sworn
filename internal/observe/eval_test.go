@@ -109,7 +109,11 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 					`{"token_status":"reported","input_tokens":0,` +
 						`"output_tokens":0,"cost_status":"reported",` +
 						`"cost_micro_units":0,"currency":"USD",` +
-						`"source":"provider_reported"}`,
+						`"source":"provider_reported",` +
+						`"cache_status":"reported","cache_read_tokens":8,` +
+						`"cache_write_tokens":2,` +
+						`"effort_requested":"high",` +
+						`"effort_reported":"high"}`,
 				),
 				StartedAt:  started,
 				FinishedAt: started.Add(time.Second),
@@ -179,6 +183,18 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Usage.Costs[0] != (CostTotal{Currency: "USD", MicroUnits: 0}) ||
 		*record.Usage.TokenCoverage.Numerator != 1 ||
 		*record.Usage.TokenCoverage.Denominator != 2 ||
+		record.Usage.CacheReadTokens == nil ||
+		*record.Usage.CacheReadTokens != 8 ||
+		record.Usage.CacheWriteTokens == nil ||
+		*record.Usage.CacheWriteTokens != 2 ||
+		*record.Usage.CacheCoverage.Numerator != 1 ||
+		*record.Usage.CacheCoverage.Denominator != 2 ||
+		record.Usage.EffortRequested == nil ||
+		*record.Usage.EffortRequested != "high" ||
+		record.Usage.EffortReported == nil ||
+		*record.Usage.EffortReported != "high" ||
+		record.Usage.FinishReason != nil ||
+		record.Usage.Truncated != nil ||
 		len(record.Quality) != 4 ||
 		record.Quality[3].Name != "verification" {
 		t.Fatalf("record = %#v", record)
@@ -189,6 +205,28 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Groups[1].Role != "verifier" ||
 		record.Groups[1].Responsibility != "work_verification" {
 		t.Fatalf("groups = %#v", record.Groups)
+	}
+	groupUsage := record.Groups[0].Usage
+	if groupUsage.CacheReadTokens == nil ||
+		*groupUsage.CacheReadTokens != 8 ||
+		groupUsage.CacheWriteTokens == nil ||
+		*groupUsage.CacheWriteTokens != 2 ||
+		*groupUsage.CacheCoverage.Numerator != 1 ||
+		*groupUsage.CacheCoverage.Denominator != 1 ||
+		groupUsage.EffortRequested == nil ||
+		*groupUsage.EffortRequested != "high" ||
+		groupUsage.EffortReported == nil ||
+		*groupUsage.EffortReported != "high" {
+		t.Fatalf("group usage = %#v", groupUsage)
+	}
+	verifierUsage := record.Groups[1].Usage
+	if verifierUsage.CacheReadTokens != nil ||
+		verifierUsage.CacheWriteTokens != nil ||
+		*verifierUsage.CacheCoverage.Numerator != 0 ||
+		*verifierUsage.CacheCoverage.Denominator != 1 ||
+		verifierUsage.EffortRequested != nil ||
+		verifierUsage.EffortReported != nil {
+		t.Fatalf("verifier usage = %#v", verifierUsage)
 	}
 	if *record.Quality[0].Numerator != 1 ||
 		*record.Quality[0].Denominator != 2 ||
@@ -496,4 +534,74 @@ func contains(value, pattern string) bool {
 		}
 	}
 	return false
+}
+
+func TestEvaluatorSurfacesProviderTruncationFacts(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    started.Add(time.Second),
+		},
+		facts: []journal.EvaluationFact{{
+			Kind:           journal.EvaluationAttempt,
+			EffectKind:     "driver.dispatch",
+			EffectState:    journal.OperationalFailed,
+			Attempt:        1,
+			Responsibility: "implementer_implementation",
+			Transport:      "runner_error",
+			Usage: []byte(
+				`{"token_status":"reported","input_tokens":4,` +
+					`"output_tokens":3,"cost_status":"unavailable",` +
+					`"cost_micro_units":null,"currency":null,` +
+					`"source":null,"cache_status":"reported",` +
+					`"cache_read_tokens":2,"cache_write_tokens":2,` +
+					`"effort_requested":"high","finish_reason":"length",` +
+					`"truncated":true}`,
+			),
+			StartedAt:  started,
+			FinishedAt: started.Add(time.Second),
+		}},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(
+		context.Background(),
+		"run-1",
+	)
+	if err != nil || !changed {
+		t.Fatalf("advance = %v, %v", changed, err)
+	}
+	usage := record.Usage
+	if usage.FinishReason == nil || *usage.FinishReason != "length" ||
+		usage.Truncated == nil || !*usage.Truncated ||
+		usage.EffortRequested == nil || *usage.EffortRequested != "high" ||
+		usage.CacheReadTokens == nil || *usage.CacheReadTokens != 2 ||
+		usage.CacheWriteTokens == nil || *usage.CacheWriteTokens != 2 ||
+		*usage.CacheCoverage.Numerator != 1 ||
+		*usage.CacheCoverage.Denominator != 1 {
+		t.Fatalf("truncation usage = %#v", usage)
+	}
+	if len(record.Groups) != 1 {
+		t.Fatalf("groups = %#v", record.Groups)
+	}
+	group := record.Groups[0].Usage
+	if group.FinishReason == nil || *group.FinishReason != "length" ||
+		group.Truncated == nil || !*group.Truncated ||
+		group.CacheReadTokens == nil || *group.CacheReadTokens != 2 {
+		t.Fatalf("group truncation usage = %#v", group)
+	}
 }

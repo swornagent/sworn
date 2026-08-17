@@ -48,7 +48,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 	}
 	if identity != (PackageIdentity{
 		Version:        "sworn.role-assets/v1",
-		ManifestSHA256: "sha256:ef70ae0560af52a0423b302bd971e26b376aa32086f79be5b6f6250e5e087cde",
+		ManifestSHA256: "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -70,7 +70,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 		},
 		RoleVerifier: {
 			"baton-verify",
-			"sha256:8ca4dff1ab2c607cd23ea2828daf11dc88a7dbeb3194229f2ff5c3c83f510014",
+			"sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d",
 		},
 	}
 	for role, want := range expected {
@@ -277,6 +277,53 @@ func TestRequestRejectsMergeDefaultsDriftAndUnsafeInputs(t *testing.T) {
 	}
 }
 
+func TestRepositoryPathAdmissionThreadsEngineReservedNames(t *testing.T) {
+	t.Parallel()
+	// The wire-level ValidateRequest uses the fixed defaults, so a path under
+	// a configured records root is admitted there (the request schema carries
+	// no project configuration)...
+	request := contractRequest(t, RoleImplementer)
+	request.Inputs[0].Path = ".records/plan.md"
+	if err := ValidateRequest(request); err != nil {
+		t.Fatalf("default admission should not know configured roots: %v", err)
+	}
+	// ...but invocation admission threads the engine-computed reserved set
+	// derived from the configured project roots, so the same path is refused
+	// once the engine knows the relocated records root (Captain correction:
+	// the once-derived reserved set reaches every enumerating site).
+	for _, reserved := range [][]string{
+		{".git", ".records", ".journals"},
+		{".git", ".records"},
+	} {
+		if err := validateRequest(request, reserved); !IsCode(err, "INVALID_PATH") {
+			t.Fatalf("configured-root admission error = %v, want INVALID_PATH (reserved %v)", err, reserved)
+		}
+	}
+	// The fixed defaults still refuse the default reserved names at every
+	// admission level.
+	request.Inputs[0].Path = ".baton/plan.md"
+	if err := ValidateRequest(request); !IsCode(err, "INVALID_PATH") {
+		t.Fatalf("default reserved input error = %v, want INVALID_PATH", err)
+	}
+	// A path under a configured root but admitted by a different reserved set
+	// stays valid: the guard is exactly the engine's set, nothing more.
+	request.Inputs[0].Path = ".records/plan.md"
+	if err := validateRequest(request, []string{".git", ".journals"}); err != nil {
+		t.Fatalf("non-reserved configured path error = %v", err)
+	}
+	// The same engine-computed set reaches invocation admission: validateInvocation
+	// threads invocation.MaskNames into request admission before anything else.
+	request.Inputs[0].Path = ".records/plan.md"
+	invocation := Invocation{Request: request, MaskNames: []string{".git", ".records", ".journals"}}
+	if err := validateInvocation(invocation); !IsCode(err, "INVALID_PATH") {
+		t.Fatalf("validateInvocation error = %v, want INVALID_PATH", err)
+	}
+	invocation.MaskNames = nil
+	if err := validateInvocation(invocation); IsCode(err, "INVALID_PATH") {
+		t.Fatalf("validateInvocation with default set should admit configured-root path, got INVALID_PATH")
+	}
+}
+
 func TestWorkspaceAndRepositoryPathBoundaries(t *testing.T) {
 	t.Parallel()
 	validWorkspace := "/" + strings.Repeat("w", 4095)
@@ -302,7 +349,7 @@ func TestWorkspaceAndRepositoryPathBoundaries(t *testing.T) {
 		"git-like name":      "nested/.gitignore",
 		"nested git segment": "nested/.git/file",
 	} {
-		if err := validateRepositoryPath(repositoryPath); err != nil {
+		if err := validateRepositoryPath(repositoryPath, nil); err != nil {
 			t.Fatalf("%s repository path error = %v", name, err)
 		}
 	}
