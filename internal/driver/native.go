@@ -361,7 +361,7 @@ func (adapter *nativeAdapter) invokeContinuation(
 	invocation Invocation,
 ) (Observation, continuationState, error) {
 	if validateContinuationSource(invocation) != nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.start_source_invalid")
 	}
 	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
 	if err != nil {
@@ -381,7 +381,7 @@ func (adapter *nativeAdapter) invokeRecoverableContinuation(
 	invocation Invocation,
 ) (Observation, continuationState, error) {
 	if validateInvocation(invocation) != nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.start_recoverable_invocation_invalid")
 	}
 	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
 	if err != nil {
@@ -402,7 +402,7 @@ func (adapter *nativeAdapter) resumeContinuation(
 	state continuationState,
 ) (Observation, error) {
 	if validateContinuationResume(invocation) != nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, failContinuation("continuation.native.resume_invocation_invalid")
 	}
 	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
 	if err != nil {
@@ -425,7 +425,7 @@ func (adapter *nativeAdapter) resumeRecoverableContinuation(
 	retainDesignTerminal bool,
 ) (Observation, continuationState, error) {
 	if validateInvocation(invocation) != nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.resume_recoverable_invocation_invalid")
 	}
 	certificate, pathValue, err := adapter.nativeRuntime(ctx, invocation)
 	if err != nil {

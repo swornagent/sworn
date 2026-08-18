@@ -462,11 +462,11 @@ func continuationFlowForInvocation(
 	source bool,
 ) (continuationFlow, error) {
 	if err := validateInvocation(invocation); err != nil {
-		return 0, fail("CONTINUATION_INVALID")
+		return 0, failContinuation("continuation.flow.invalid_invocation")
 	}
 	descriptor, err := invocation.Permission.Describe()
 	if err != nil || invocation.Request.Role != descriptor.Role {
-		return 0, fail("CONTINUATION_INVALID")
+		return 0, failContinuation("continuation.flow.role_descriptor_mismatch")
 	}
 	if descriptor.Role == RoleVerifier &&
 		descriptor.Responsibility == WorkVerification &&
@@ -484,7 +484,7 @@ func continuationFlowForInvocation(
 		descriptor.FreshContext == source {
 		return continuationFlowW3, nil
 	}
-	return 0, fail("CONTINUATION_INVALID")
+	return 0, failContinuation("continuation.flow.unsupported_permission_combination")
 }
 
 func continuationFingerprint(
@@ -500,7 +500,7 @@ func continuationFingerprint(
 		!digestPattern.MatchString(binding.PlanAuthorityDigest) ||
 		!digestPattern.MatchString(binding.TargetAuthorityDigest) ||
 		!digestPattern.MatchString(binding.ToolContractDigest) {
-		return empty, fail("CONTINUATION_INVALID")
+		return empty, failContinuation("continuation.fingerprint.binding_invalid")
 	}
 	descriptor, err := invocation.Permission.Describe()
 	if err != nil {
@@ -671,20 +671,20 @@ func newContinuationLedger() *continuationLedger {
 func (ledger *continuationLedger) retain(fields ...opaqueField) ([][]byte, error) {
 	if ledger == nil || ledger.closed || len(fields) == 0 ||
 		ledger.steps >= MaxContinuationSteps {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.ledger.step_budget_exhausted")
 	}
 	stepBytes := 0
 	retained := make([][]byte, len(fields))
 	for index, field := range fields {
 		if len(field.body) > MaxOpaqueFieldBytes {
 			clearRetained(retained)
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.ledger.field_bytes_exhausted")
 		}
 		switch field.kind {
 		case opaqueText:
 			if !validOpaqueText(field.body) {
 				clearRetained(retained)
-				return nil, fail("CONTINUATION_INVALID")
+				return nil, failContinuation("continuation.ledger.invalid_opaque_text")
 			}
 		case opaqueBase64:
 			decoded := make([]byte, base64.StdEncoding.DecodedLen(len(field.body)))
@@ -696,17 +696,17 @@ func (ledger *continuationLedger) retain(fields ...opaqueField) ([][]byte, error
 				) {
 				clearBytes(decoded)
 				clearRetained(retained)
-				return nil, fail("CONTINUATION_INVALID")
+				return nil, failContinuation("continuation.ledger.invalid_opaque_base64")
 			}
 			clearBytes(decoded)
 		default:
 			clearRetained(retained)
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.ledger.unknown_opaque_kind")
 		}
 		stepBytes += len(field.body)
 		if stepBytes > MaxOpaqueStepBytes {
 			clearRetained(retained)
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.ledger.step_bytes_exhausted")
 		}
 		retained[index] = append([]byte(nil), field.body...)
 	}
@@ -719,10 +719,10 @@ func (ledger *continuationLedger) retain(fields ...opaqueField) ([][]byte, error
 func (ledger *continuationLedger) correlate(id string) error {
 	if ledger == nil || ledger.closed ||
 		validateText(id, MaxCorrelationIDBytes, false) != nil {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.ledger.correlate_invalid_id")
 	}
 	if _, duplicate := ledger.ids[id]; duplicate {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.ledger.correlate_duplicate_id")
 	}
 	ledger.ids[id] = struct{}{}
 	return nil

@@ -2048,9 +2048,11 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, preserveAnswered(invokeErr)
 		}
 		code := stableErrorCode(invokeErr)
+		resultBytes := extractRefusalResult(invokeErr)
 		if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
+			Result:    resultBytes,
 			EventKind: eventKind("dispatch_operational_failure"),
 			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
 		}); err != nil {

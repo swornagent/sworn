@@ -42,15 +42,26 @@ var (
 
 // ContractError carries a stable code and never request, model, stderr, or secret bytes.
 type ContractError struct {
-	Code string
+	Code   string
+	Detail string
 	// RetryAfter is the provider-advised pacing for a retryable rejection
 	// (429 RetryInfo body or Retry-After header). Zero when the provider
 	// named none. It is advisory transport metadata, never provider content.
 	RetryAfter time.Duration
 }
 
-func (e *ContractError) Error() string { return "driver contract: " + e.Code }
-func fail(code string) error           { return &ContractError{Code: code} }
+func (e *ContractError) Error() string {
+	if e.Detail != "" {
+		return "driver contract: " + e.Code + ": " + e.Detail
+	}
+	return "driver contract: " + e.Code
+}
+
+func fail(code string) error { return &ContractError{Code: code} }
+
+func failContinuation(site string) error {
+	return &ContractError{Code: "CONTINUATION_INVALID", Detail: site}
+}
 func IsCode(err error, code string) bool {
 	var contractErr *ContractError
 	return errors.As(err, &contractErr) && contractErr.Code == code

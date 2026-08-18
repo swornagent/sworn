@@ -344,12 +344,12 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 		invocation.Selected.Adapter != adapter.identity ||
 		invocation.Selected.Profile.Network != NetworkRequired {
 		liveStream.driverError("resume-binding", nil)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_state_invalid")
 	}
 	prompt, err := modelPrompt(invocation)
 	if err != nil {
 		liveStream.driverError("resume-prompt", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_prompt_build_failed")
 	}
 	err = state.conversation.resume(
 		prompt,
@@ -358,14 +358,14 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 	clearBytes(prompt)
 	if err != nil {
 		liveStream.driverError("resume-conversation", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_conversation_failed")
 	}
 	request, err := state.conversation.request()
 	if err != nil || len(request.Body) < 1 ||
 		len(request.Body) > MaxProviderRequestBytes {
 		clearBytes(request.Body)
 		liveStream.driverError("resume-request", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_request_build_failed")
 	}
 	defer clearBytes(request.Body)
 	observation, retained, resultErr := adapter.runConversation(
@@ -442,7 +442,7 @@ func (adapter *loopAdapter) runConversation(
 		if err != nil || len(request.Body) > MaxProviderRequestBytes {
 			clearBytes(request.Body)
 			liveStream.driverError("request-build", err)
-			return Observation{}, nil, fail("CONTINUATION_INVALID")
+			return Observation{}, nil, failContinuation("continuation.provider.loop_request_build_failed")
 		}
 		if wait := pacer.waitBefore(
 			pacer.estimate(int64(len(request.Body))/4), time.Now(),
@@ -547,7 +547,7 @@ func (adapter *loopAdapter) runConversation(
 		for _, call := range providerTurn.Calls {
 			if callErr := validateProviderToolCall(call, seenIDs); callErr != nil {
 				liveStream.driverError("tool-call "+call.Name, callErr)
-				return Observation{}, nil, fail("CONTINUATION_INVALID")
+				return Observation{}, nil, failContinuation("continuation.provider.tool_call_invalid")
 			}
 			results = append(results, session.execute(ctx, call))
 		}
@@ -615,10 +615,10 @@ func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) e
 	if validateText(call.ID, MaxCorrelationIDBytes, false) != nil ||
 		!providerKeyPattern.MatchString(call.Name) ||
 		len(call.Arguments) == 0 || len(call.Arguments) > MaxToolArgumentBytes {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.provider.tool_call_fields_invalid")
 	}
 	if _, exists := seen[call.ID]; exists {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.provider.tool_call_duplicate_id")
 	}
 	seen[call.ID] = struct{}{}
 	switch call.Name {

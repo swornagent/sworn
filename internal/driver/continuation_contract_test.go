@@ -133,7 +133,7 @@ func (adapter *continuationContractAdapter) resumeContinuation(
 	defer adapter.mu.Unlock()
 	adapter.turns++
 	if prior != adapter.created {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, failContinuation("test.fixture.unmatched_prior")
 	}
 	adapter.resumes++
 	if adapter.resumeErr != nil {
@@ -159,7 +159,7 @@ func (adapter *continuationContractAdapter) resumeRecoverableContinuation(
 	defer adapter.mu.Unlock()
 	adapter.turns++
 	if prior != adapter.created {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("test.fixture.unmatched_prior")
 	}
 	adapter.resumes++
 	if adapter.resumeErr != nil {
@@ -912,7 +912,7 @@ func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 			"invalid-replay-adapter",
 			"configuration-a",
 		)
-		adapter.resumeErr = fail("CONTINUATION_INVALID")
+		adapter.resumeErr = failContinuation("test.fixture.invalid_replay")
 		handle, state := startContinuationFixture(t, adapter)
 		implementation := continuationContractInvocation(
 			t,

@@ -396,14 +396,14 @@ func newOpenAIConversation(
 
 func openAITools(definitions []providerToolDefinition) ([]openAITool, error) {
 	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.openai.tool_count_out_of_bounds")
 	}
 	tools := make([]openAITool, len(definitions))
 	for index, definition := range definitions {
 		if !providerKeyPattern.MatchString(definition.Name) ||
 			len(definition.InputSchema) == 0 ||
 			len(definition.InputSchema) > MaxToolArgumentBytes {
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.openai.invalid_tool_definition")
 		}
 		tools[index].Type = "function"
 		tools[index].Function.Name = definition.Name
@@ -416,7 +416,7 @@ func openAITools(definitions []providerToolDefinition) ([]openAITool, error) {
 
 func (conversation *openAIConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
-		return providerRequest{}, fail("CONTINUATION_INVALID")
+		return providerRequest{}, failContinuation("continuation.openai.request_pending_tool_calls")
 	}
 	body, err := json.Marshal(struct {
 		Model      string          `json:"model"`
@@ -459,7 +459,7 @@ func (conversation *openAIConversation) declaredReasoningEffort() string {
 func (conversation *openAIConversation) accept(body []byte) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_invalid_state_or_body_size")
 	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
 	if err != nil {
@@ -470,7 +470,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		"system_fingerprint", "service_tier", "reasoning_effort",
 	})
 	if err != nil {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_root_invalid")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
@@ -480,13 +480,13 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		effortValue != nil {
 		effortText, ok := effortValue.(string)
 		if !ok || validateText(effortText, 128, false) != nil {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_effort_invalid")
 		}
 		effort = &effortText
 	}
 	rawChoices, ok := root["choices"].([]any)
 	if !ok || len(rawChoices) != 1 {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_choices_invalid")
 	}
 	choice, err := closedObject(
 		rawChoices[0],
@@ -494,11 +494,11 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		[]string{"index", "logprobs"},
 	)
 	if err != nil {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_choice_invalid")
 	}
 	finishReason, finishOK := choice["finish_reason"].(string)
 	if !finishOK {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_finish_reason_missing")
 	}
 	if finishReason != "tool_calls" && finishReason != "stop" {
 		if finishReason != "length" {
@@ -543,15 +543,15 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		messageOptional,
 	)
 	if err != nil || rawMessage["role"] != "assistant" {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_message_invalid")
 	}
 	if refusal, present := rawMessage["refusal"]; present && refusal != nil {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_refusal_present")
 	}
 	if annotations, present := rawMessage["annotations"]; present {
 		array, ok := annotations.([]any)
 		if !ok || len(array) != 0 {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_annotations_invalid")
 		}
 	}
 	if reasoningValue, present := rawMessage["reasoning"]; present &&
@@ -559,7 +559,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		reasoning, ok := reasoningValue.(string)
 		if !ok || len(reasoning) > MaxOpaqueFieldBytes ||
 			!validOpaqueText([]byte(reasoning)) {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_invalid")
 		}
 	}
 	rawToolCalls := []any(nil)
@@ -568,11 +568,11 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		var ok bool
 		rawToolCalls, ok = rawToolCallsValue.([]any)
 		if !ok || len(rawToolCalls) > MaxToolCalls {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_tool_calls_invalid")
 		}
 	}
 	if (finishReason == "tool_calls") != (len(rawToolCalls) > 0) {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_finish_reason_mismatch")
 	}
 	message := openAIMessage{Role: "assistant"}
 	switch content := rawMessage["content"].(type) {
@@ -586,11 +586,11 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		}
 	case string:
 		if !validOpaqueText([]byte(content)) {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_content_invalid_text")
 		}
 		message.Content, _ = json.Marshal(content)
 	default:
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_content_invalid_type")
 	}
 	// Content-optionality is scoped to the recorded tool-call-only turn: an
 	// assistant message with neither content nor tool calls would otherwise
@@ -598,16 +598,16 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	// as it does on every other dialect.
 	if conversation.dialect == providerDialectGoogleChat &&
 		len(message.Content) == 0 && len(rawToolCalls) == 0 {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.openai.accept_google_chat_empty_content_and_tools")
 	}
 	if reasoningValue, present := rawMessage["reasoning_content"]; present &&
 		reasoningValue != nil {
 		if conversation.dialect != providerDialectOpaqueChat {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_content_dialect_mismatch")
 		}
 		reasoning, ok := reasoningValue.(string)
 		if !ok {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_content_invalid")
 		}
 		retained, err := conversation.ledger.retain(opaqueField{
 			kind: opaqueText,
@@ -621,7 +621,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	if detailsValue, present := rawMessage["reasoning_details"]; present &&
 		detailsValue != nil {
 		if conversation.dialect != providerDialectOpenRouterChat {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_details_dialect_mismatch")
 		}
 		var raw struct {
 			Choices []struct {
@@ -636,7 +636,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 				detailsValue,
 				raw.Choices[0].Message.ReasoningDetails,
 			) != nil {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_reasoning_details_invalid")
 		}
 		retained, retainErr := conversation.ledger.retain(opaqueField{
 			kind: opaqueText,
@@ -727,11 +727,11 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			!providerKeyPattern.MatchString(name) ||
 			len(argumentsText) == 0 ||
 			len(argumentsText) > MaxToolArgumentBytes {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_tool_call_invalid")
 		}
 		arguments := []byte(argumentsText)
 		if _, err := decodeStrict(arguments, MaxToolArgumentBytes); err != nil {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.openai.accept_tool_call_json_invalid")
 		}
 		calls = append(calls, providerToolCall{
 			ID: id, Name: name,
@@ -854,12 +854,12 @@ func (conversation *openAIConversation) appendInstruction(body []byte) error {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
 		!validOpaqueText(body) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.append_instruction_invalid")
 	}
 	content, err := json.Marshal(string(body))
 	if err != nil || len(content) > MaxOpaqueFieldBytes {
 		clearBytes(content)
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.append_instruction_marshal_failed")
 	}
 	conversation.messages = append(conversation.messages, openAIMessage{
 		Role: "user", Content: content,
@@ -872,7 +872,7 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 	if !ok || len(details) == 0 || len(details) > MaxContinuationSteps ||
 		len(raw) == 0 || len(raw) > MaxOpaqueFieldBytes ||
 		!validOpaqueText(raw) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.openrouter_reasoning_details_invalid")
 	}
 	for index, rawDetail := range details {
 		detail, err := closedObject(
@@ -883,13 +883,13 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 			},
 		)
 		if err != nil {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.openrouter_reasoning_detail_object_invalid")
 		}
 		detailType, typeOK := detail["type"].(string)
 		format, formatOK := detail["format"].(string)
 		if !typeOK || !formatOK ||
 			validateText(format, 128, false) != nil {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.openrouter_reasoning_detail_type_or_format_invalid")
 		}
 		switch format {
 		case "unknown",
@@ -901,18 +901,18 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 			"anthropic-claude-v1",
 			"google-gemini-v1":
 		default:
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.openrouter_reasoning_detail_unsupported_format")
 		}
 		if id, present := detail["id"]; present && id != nil {
 			idText, idOK := id.(string)
 			if !idOK || validateText(idText, MaxCorrelationIDBytes, false) != nil {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.openai.openrouter_reasoning_detail_id_invalid")
 			}
 		}
 		if itemIndex, present := detail["index"]; present {
 			parsed, parsedOK := safeJSONInt(itemIndex)
 			if !parsedOK || parsed != int64(index) {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.openai.openrouter_reasoning_detail_index_invalid")
 			}
 		}
 		requiredField := ""
@@ -924,7 +924,7 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 		case "reasoning.text":
 			requiredField = "text"
 		default:
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.openrouter_reasoning_detail_unknown_type")
 		}
 		for _, field := range []string{"summary", "data", "text"} {
 			fieldValue, present := detail[field]
@@ -932,10 +932,10 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 				text, textOK := fieldValue.(string)
 				if !present || !textOK || len(text) > MaxOpaqueFieldBytes ||
 					!validOpaqueText([]byte(text)) {
-					return fail("CONTINUATION_INVALID")
+					return failContinuation("continuation.openai.openrouter_reasoning_detail_field_invalid")
 				}
 			} else if present {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.openai.openrouter_reasoning_detail_unexpected_field")
 			}
 		}
 		if signature, present := detail["signature"]; present &&
@@ -944,10 +944,10 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 			if detailType != "reasoning.text" || !signatureOK ||
 				len(signatureText) > MaxOpaqueFieldBytes ||
 				!validOpaqueText([]byte(signatureText)) {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.openai.openrouter_reasoning_detail_signature_invalid")
 			}
 		} else if present && detailType != "reasoning.text" {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.openrouter_reasoning_detail_signature_unexpected")
 		}
 	}
 	return nil
@@ -962,20 +962,20 @@ func validateOpenRouterReasoningDetails(value any, raw json.RawMessage) error {
 func validateGoogleExtraContent(value any, raw json.RawMessage) error {
 	if value == nil || len(raw) == 0 || len(raw) > MaxOpaqueFieldBytes ||
 		!validOpaqueText(raw) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.google_extra_content_invalid_raw")
 	}
 	container, ok := value.(map[string]any)
 	if !ok || len(container) != 1 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.google_extra_content_not_object")
 	}
 	google, ok := container["google"].(map[string]any)
 	if !ok || len(google) != 1 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.google_extra_content_missing_google_key")
 	}
 	signature, ok := google["thought_signature"].(string)
 	if !ok || signature == "" || len(signature) > MaxOpaqueFieldBytes ||
 		!validOpaqueText([]byte(signature)) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.google_extra_content_signature_invalid")
 	}
 	return nil
 }
@@ -1006,13 +1006,13 @@ func googlePerCallContainerFromResponse(body []byte, index int) json.RawMessage 
 
 func (conversation *openAIConversation) appendResults(results []providerToolResult) error {
 	if conversation == nil || len(results) != len(conversation.pending) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.append_results_pending_mismatch")
 	}
 	for index, result := range results {
 		expected := conversation.pending[index]
 		if result.ID != expected.ID || result.Name != expected.Name ||
 			len(result.Content) > MaxToolResultBytes || !validOpaqueText(result.Content) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.openai.append_results_mismatch_or_invalid")
 		}
 		content, _ := json.Marshal(string(result.Content))
 		conversation.messages = append(conversation.messages, openAIMessage{
@@ -1030,7 +1030,7 @@ func (conversation *openAIConversation) resume(
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
 		!validOpenAIResumeTail(conversation.messages) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.resume_invalid_state")
 	}
 	tools, err := openAITools(definitions)
 	if err != nil {
@@ -1040,7 +1040,7 @@ func (conversation *openAIConversation) resume(
 	if err != nil || len(content) > MaxProviderRequestBytes {
 		clearBytes(content)
 		clearOpenAITools(tools)
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.openai.resume_marshal_failed")
 	}
 	clearOpenAITools(conversation.tools)
 	conversation.tools = tools

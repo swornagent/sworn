@@ -77,14 +77,14 @@ func responsesTools(
 	definitions []providerToolDefinition,
 ) ([]responsesTool, error) {
 	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.responses.tool_count_out_of_bounds")
 	}
 	tools := make([]responsesTool, len(definitions))
 	for index, definition := range definitions {
 		if !providerKeyPattern.MatchString(definition.Name) ||
 			len(definition.InputSchema) == 0 ||
 			len(definition.InputSchema) > MaxToolArgumentBytes {
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.responses.invalid_tool_definition")
 		}
 		tools[index] = responsesTool{
 			Type:        "function",
@@ -99,7 +99,7 @@ func responsesTools(
 
 func (conversation *responsesConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
-		return providerRequest{}, fail("CONTINUATION_INVALID")
+		return providerRequest{}, failContinuation("continuation.responses.request_pending_tool_calls")
 	}
 	body, err := json.Marshal(struct {
 		Model             string             `json:"model"`
@@ -141,7 +141,7 @@ func (conversation *responsesConversation) accept(
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
 		liveStream.driverError("accept-site-1", nil)
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.responses.accept_invalid_state_or_body_size")
 	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
 	if err != nil {
@@ -150,7 +150,7 @@ func (conversation *responsesConversation) accept(
 	root, ok := value.(map[string]any)
 	if !ok {
 		liveStream.driverError("accept-site-2", nil)
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.responses.accept_root_not_object")
 	}
 	if providerError, present := root["error"]; present && providerError != nil {
 		return providerTurn{}, fail("PROVIDER_ERROR")
@@ -174,7 +174,7 @@ func (conversation *responsesConversation) accept(
 	}
 	status, statusOK := root["status"].(string)
 	if !statusOK {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.responses.accept_status_missing")
 	}
 	if status != "completed" {
 		if status != "incomplete" || !responsesTruncated(root) {
@@ -202,7 +202,7 @@ func (conversation *responsesConversation) accept(
 	if !ok || len(output) == 0 ||
 		len(output) > MaxToolCalls+MaxContinuationSteps {
 		liveStream.driverError("accept-site-3", nil)
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.responses.accept_output_invalid_or_out_of_bounds")
 	}
 	var rawResponse struct {
 		Output []json.RawMessage `json:"output"`
@@ -210,7 +210,7 @@ func (conversation *responsesConversation) accept(
 	if json.Unmarshal(body, &rawResponse) != nil ||
 		len(rawResponse.Output) != len(output) {
 		liveStream.driverError("accept-site-4", nil)
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.responses.accept_output_raw_unmarshal_mismatch")
 	}
 	calls := make([]providerToolCall, 0, len(output))
 	retainedFields := make([]opaqueField, 0, len(output))
@@ -219,18 +219,18 @@ func (conversation *responsesConversation) accept(
 		itemType, typeOK := item["type"].(string)
 		if !itemOK || !typeOK {
 			liveStream.driverError("accept-site-5", nil)
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.responses.accept_item_not_object_or_missing_type")
 		}
 		switch itemType {
 		case "reasoning":
 			if validateResponsesReasoningItem(item) != nil {
 				liveStream.driverError("accept-site-6", nil)
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.responses.accept_reasoning_invalid")
 			}
 		case "message":
 			if !validResponsesMessageItem(item) {
 				liveStream.driverError("accept-site-7", nil)
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.responses.accept_message_invalid")
 			}
 		case "function_call":
 			call, callErr := responsesFunctionCall(conversation.ledger, item)
@@ -240,7 +240,7 @@ func (conversation *responsesConversation) accept(
 			calls = append(calls, call)
 		default:
 			liveStream.driverError("accept-site-8", nil)
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.responses.accept_unknown_item_type")
 		}
 		retainedFields = append(retainedFields, opaqueField{
 			kind: opaqueText,
@@ -340,7 +340,7 @@ func (conversation *responsesConversation) appendInstruction(body []byte) error 
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
 		!validOpaqueText(body) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.append_instruction_invalid")
 	}
 	message, err := json.Marshal(struct {
 		Role    string `json:"role"`
@@ -348,7 +348,7 @@ func (conversation *responsesConversation) appendInstruction(body []byte) error 
 	}{Role: "user", Content: string(body)})
 	if err != nil || len(message) > MaxOpaqueFieldBytes {
 		clearBytes(message)
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.append_instruction_encode_failed")
 	}
 	conversation.input = append(conversation.input, message)
 	return nil
@@ -356,12 +356,12 @@ func (conversation *responsesConversation) appendInstruction(body []byte) error 
 
 func validateResponsesReasoningItem(item map[string]any) error {
 	if item["type"] != "reasoning" {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.reasoning_type_mismatch")
 	}
 	if encrypted, encryptedOK := item["encrypted_content"].(string); encryptedOK {
 		if len(encrypted) == 0 || len(encrypted) > MaxOpaqueFieldBytes ||
 			!validOpaqueText([]byte(encrypted)) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.responses.reasoning_encrypted_content_invalid")
 		}
 		return nil
 	}
@@ -372,29 +372,29 @@ func validateResponsesReasoningItem(item map[string]any) error {
 		for _, rawPart := range parts {
 			part, partOK := rawPart.(map[string]any)
 			if !partOK || part["type"] != "reasoning_text" {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.responses.reasoning_part_type_mismatch")
 			}
 			text, textOK := part["text"].(string)
 			if !textOK || len(text) > MaxOpaqueFieldBytes ||
 				!validOpaqueText([]byte(text)) {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.responses.reasoning_part_text_invalid")
 			}
 		}
 		return nil
 	}
 	summary, summaryOK := item["summary"].([]any)
 	if !summaryOK || len(summary) == 0 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.reasoning_summary_missing")
 	}
 	for _, rawPart := range summary {
 		part, partOK := rawPart.(map[string]any)
 		if !partOK || part["type"] != "summary_text" {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.responses.reasoning_summary_part_type_mismatch")
 		}
 		text, textOK := part["text"].(string)
 		if !textOK || len(text) > MaxOpaqueFieldBytes ||
 			!validOpaqueText([]byte(text)) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.responses.reasoning_summary_text_invalid")
 		}
 	}
 	return nil
@@ -411,22 +411,37 @@ func responsesFunctionCall(
 	ledger *continuationLedger,
 	item map[string]any,
 ) (providerToolCall, error) {
+	if item["type"] != "function_call" {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.item_type_mismatch")
+	}
 	callID, callIDOK := item["call_id"].(string)
+	if !callIDOK {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.missing_call_id")
+	}
 	name, nameOK := item["name"].(string)
+	if !nameOK {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.missing_name")
+	}
 	argumentsText, argumentsOK := item["arguments"].(string)
+	if !argumentsOK {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.missing_arguments")
+	}
 	status, hasStatus := item["status"]
-	if item["type"] != "function_call" ||
-		!callIDOK || !nameOK || !argumentsOK ||
-		(hasStatus && status != "completed") ||
-		ledger.correlate(callID) != nil ||
-		!providerKeyPattern.MatchString(name) ||
-		len(argumentsText) == 0 ||
-		len(argumentsText) > MaxToolArgumentBytes {
-		return providerToolCall{}, fail("CONTINUATION_INVALID")
+	if hasStatus && status != "completed" {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.status_incomplete")
+	}
+	if err := ledger.correlate(callID); err != nil {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.correlate_reuse")
+	}
+	if !providerKeyPattern.MatchString(name) {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.invalid_name_pattern")
+	}
+	if len(argumentsText) == 0 || len(argumentsText) > MaxToolArgumentBytes {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.arguments_length_out_of_bounds")
 	}
 	arguments := []byte(argumentsText)
 	if _, err := decodeStrict(arguments, MaxToolArgumentBytes); err != nil {
-		return providerToolCall{}, fail("CONTINUATION_INVALID")
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.arguments_json_invalid")
 	}
 	return providerToolCall{
 		ID:        callID,
@@ -439,14 +454,14 @@ func (conversation *responsesConversation) appendResults(
 	results []providerToolResult,
 ) error {
 	if conversation == nil || len(results) != len(conversation.pending) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.append_results_pending_mismatch")
 	}
 	for index, result := range results {
 		expected := conversation.pending[index]
 		if result.ID != expected.ID || result.Name != expected.Name ||
 			len(result.Content) > MaxToolResultBytes ||
 			!validOpaqueText(result.Content) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.responses.append_results_mismatch_or_invalid")
 		}
 		item, err := json.Marshal(responsesFunctionOutput{
 			Type:   "function_call_output",
@@ -454,7 +469,7 @@ func (conversation *responsesConversation) appendResults(
 			Output: string(result.Content),
 		})
 		if err != nil || len(item) > MaxOpaqueFieldBytes {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.responses.append_results_marshal_failed")
 		}
 		conversation.input = append(conversation.input, item)
 	}
@@ -469,7 +484,7 @@ func (conversation *responsesConversation) resume(
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
 		!validResponsesResumeTail(conversation.input) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.resume_invalid_state_or_tail")
 	}
 	tools, err := responsesTools(definitions)
 	if err != nil {
@@ -482,7 +497,7 @@ func (conversation *responsesConversation) resume(
 	if err != nil || len(item) > MaxProviderRequestBytes {
 		clearBytes(item)
 		clearResponsesTools(tools)
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.responses.resume_marshal_failed")
 	}
 	clearResponsesTools(conversation.tools)
 	conversation.tools = tools

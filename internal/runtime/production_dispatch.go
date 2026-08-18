@@ -174,8 +174,9 @@ type productionWorkContext struct {
 
 type productionRefusalBinding struct {
 	Code       string   `json:"code"`
-	Paths      []string `json:"paths"`
-	TotalPaths int      `json:"total_paths"`
+	Detail     string   `json:"detail,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	TotalPaths int      `json:"total_paths,omitempty"`
 }
 
 type productionDispatchCommand struct {
@@ -1026,6 +1027,13 @@ func extractRefusal(err error) *productionRefusalBinding {
 			Code:       recordErr.Code,
 			Paths:      append([]string(nil), recordErr.Paths...),
 			TotalPaths: total,
+		}
+	}
+	var contractErr *driver.ContractError
+	if errors.As(err, &contractErr) && contractErr.Detail != "" {
+		return &productionRefusalBinding{
+			Code:   contractErr.Code,
+			Detail: contractErr.Detail,
 		}
 	}
 	return nil

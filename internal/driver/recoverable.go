@@ -110,7 +110,7 @@ func (Dispatcher) InvokeRecoverableTurn(
 	if target != nil {
 		return Observation{}, nil,
 			freshContinuation(ContinuationStatusMismatch),
-			fail("CONTINUATION_INVALID")
+			failContinuation("continuation.recoverable.fresh_turn_with_resume_target")
 	}
 	return startRecoverableTurn(
 		ctx, invocation, binding, input, input != nil,
