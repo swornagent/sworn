@@ -171,12 +171,50 @@ func geminiDeclarations(
 			len(definition.InputSchema) > MaxToolArgumentBytes {
 			return nil, fail("CONTINUATION_INVALID")
 		}
+		parameters, err := geminiParameterSchema(definition.InputSchema)
+		if err != nil {
+			return nil, err
+		}
 		declarations[index] = geminiDeclaration{
 			Name: definition.Name, Description: definition.Description,
-			Parameters: append([]byte(nil), definition.InputSchema...),
+			Parameters: parameters,
 		}
 	}
 	return declarations, nil
+}
+
+// geminiParameterSchema renders a tool input schema in the generateContent
+// Schema subset: the API rejects whole requests over JSON Schema keywords
+// absent from its Schema proto, and every sworn tool pins
+// additionalProperties. The keyword is advisory to the model here - the
+// closed shapes stay enforced host-side at submission and argument
+// validation - so it is dropped at schema nodes only, never inside
+// properties, where a tool argument may legitimately carry that name.
+func geminiParameterSchema(raw json.RawMessage) (json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	stripUnsupportedSchemaKeywords(schema)
+	rendered, err := json.Marshal(schema)
+	if err != nil || len(rendered) > MaxToolArgumentBytes {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	return rendered, nil
+}
+
+func stripUnsupportedSchemaKeywords(schema map[string]any) {
+	delete(schema, "additionalProperties")
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, value := range properties {
+			if child, ok := value.(map[string]any); ok {
+				stripUnsupportedSchemaKeywords(child)
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		stripUnsupportedSchemaKeywords(items)
+	}
 }
 
 func (conversation *geminiConversation) request() (providerRequest, error) {
