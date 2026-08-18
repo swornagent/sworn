@@ -2470,7 +2470,8 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			return err
 		}
 		if completeErr := s.completeImplementationFailure(
-			context.WithoutCancel(ctx), owner, effectID, claim.Token, stableErrorCode(err)); completeErr != nil {
+			context.WithoutCancel(ctx), owner, effectID, claim.Token,
+			stableErrorCode(err), extractRefusalResult(err)); completeErr != nil {
 			return completeErr
 		}
 		if IsCode(err, "STALE_DISPATCH") {
@@ -2961,13 +2962,18 @@ func validateSealedRecordCandidate(
 }
 
 func (s *Service) completeImplementationFailure(ctx context.Context, owner journal.OwnerLease,
-	effectID, token, code string) error {
+	effectID, token, code string, result ...[]byte) error {
 	if code == "" {
 		code = "implementation_failed"
+	}
+	var resultBytes []byte
+	if len(result) > 0 {
+		resultBytes = result[0]
 	}
 	if err := s.journal.CompleteOwned(ctx, owner, journal.Completion{
 		RunID: owner.RunID, EffectID: effectID, Token: token,
 		State: journal.OperationalFailed, ErrorCode: code,
+		Result:    resultBytes,
 		EventKind: "implementation_operational_failure",
 		EventBody: []byte(effectID), At: s.now().UTC(),
 	}); err != nil {

@@ -20,6 +20,15 @@ func createTrack(t *testing.T, repository *Repository, key TrackKey, head OID) {
 	}
 }
 
+func createRef(t *testing.T, repository *Repository, ref string, head OID) {
+	t.Helper()
+	if err := repository.AtomicUpdateRefs([]RefOperation{{
+		Kind: CreateRef, Ref: ref, NewHead: &head,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func containsWorkspacePath(paths []string, target string) bool {
 	for _, path := range paths {
 		if path == target {
@@ -1341,5 +1350,131 @@ func TestSealDeletesWorkspaceScratchBeforeStaging(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("candidate lost the product change: %v", paths)
+	}
+}
+
+func TestSealCollectsBoundedAuthorityPaths(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-paths", Track: "T1"}
+	createTrack(t, repository, key, base)
+	workspaces, err := NewWorkspaces(repository, testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Create 25 authority paths under .sworn/records
+	for i := 0; i < 25; i++ {
+		path := filepath.Join(
+			lease.Path(),
+			filepath.FromSlash(DefaultRecordsRoot),
+			"release-paths",
+			strings.Repeat("a", i)+".txt",
+		)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("escape\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = workspaces.SealTrack(lease)
+	if err == nil {
+		t.Fatal("seal admitted authority paths")
+	}
+	requireGitxErrorCode(t, err, "AUTHORITY_PATH_CHANGED")
+	var gitErr *Error
+	if !errors.As(err, &gitErr) {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+	if len(gitErr.Paths) != 20 {
+		t.Fatalf("expected 20 bounded paths, got %d", len(gitErr.Paths))
+	}
+	if gitErr.TotalPaths != 25 {
+		t.Fatalf("expected 25 total paths, got %d", gitErr.TotalPaths)
+	}
+	for i := 1; i < len(gitErr.Paths); i++ {
+		if gitErr.Paths[i-1] >= gitErr.Paths[i] {
+			t.Fatalf("paths not strictly sorted: %v", gitErr.Paths)
+		}
+	}
+}
+
+func TestRefreshSealCollectsBoundedAuthorityPaths(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-refresh-paths", Track: "T1"}
+	createTrack(t, repository, key, base)
+	releaseRef := "refs/heads/release-wt/release-refresh-paths"
+	createRef(t, repository, releaseRef, base)
+	targetRef := "refs/heads/release/v1.0.0"
+	createRef(t, repository, targetRef, base)
+
+	workspaces, err := NewWorkspaces(repository, testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lease.Path(), "valid.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = workspaces.SealTrack(lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = lease.Close()
+
+	// Reopen and add 25 authority paths
+	refreshLease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer refreshLease.Close()
+	for i := 0; i < 25; i++ {
+		path := filepath.Join(
+			refreshLease.Path(),
+			filepath.FromSlash(DefaultRecordsRoot),
+			"release-refresh-paths",
+			strings.Repeat("b", i)+".txt",
+		)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("escape\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	authority := SealAuthority{
+		ReleaseHead: base,
+		TargetRef:   targetRef,
+		TargetHead:  base,
+		Identity:    testIdentity,
+	}
+
+	_, err = workspaces.SealTrackRefreshGuardedWithClaim(refreshLease, base, authority, nil)
+	if err == nil {
+		t.Fatal("refresh seal admitted authority paths")
+	}
+	requireGitxErrorCode(t, err, "AUTHORITY_PATH_CHANGED")
+	var gitErr *Error
+	if !errors.As(err, &gitErr) {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+	if len(gitErr.Paths) != 20 {
+		t.Fatalf("expected 20 bounded paths, got %d", len(gitErr.Paths))
+	}
+	if gitErr.TotalPaths != 25 {
+		t.Fatalf("expected 25 total paths, got %d", gitErr.TotalPaths)
 	}
 }

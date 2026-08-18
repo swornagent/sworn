@@ -25,9 +25,11 @@ const (
 )
 
 type RecordError struct {
-	Code string
-	Msg  string
-	Err  error
+	Code       string
+	Msg        string
+	Err        error
+	Paths      []string
+	TotalPaths int
 }
 
 func (e *RecordError) Error() string {

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 )
 
@@ -167,6 +169,13 @@ type productionWorkContext struct {
 	Evidence           []productionEvidenceBinding   `json:"evidence"`
 	HostEvidence       *productionHostEvidence       `json:"host_evidence,omitempty"`
 	CaptainPlan        *productionCaptainPlanBinding `json:"captain_plan,omitempty"`
+	Refusal            *productionRefusalBinding     `json:"refusal,omitempty"`
+}
+
+type productionRefusalBinding struct {
+	Code       string   `json:"code"`
+	Paths      []string `json:"paths"`
+	TotalPaths int      `json:"total_paths"`
 }
 
 type productionDispatchCommand struct {
@@ -761,6 +770,13 @@ func captureBatonWorkContext(
 				return err
 			}
 		}
+		if coordinates.Try > 1 {
+			refusal, refusalErr := capturePriorRefusal(ctx, engine, coordinates, before)
+			if refusalErr != nil {
+				return refusalErr
+			}
+			workContext.Refusal = refusal
+		}
 	}
 	workContext.Evidence = sliceEvidence(slice.ConsumedInputs)
 	if coordinates.Responsibility == driver.WorkVerification {
@@ -936,6 +952,93 @@ func currentImplementationDesignReceipt(
 	return design, nil
 }
 
+func capturePriorRefusal(
+	ctx context.Context,
+	engine *engine,
+	coordinates dispatchCoordinates,
+	before string,
+) (*productionRefusalBinding, error) {
+	if engine == nil || engine.journal == nil || coordinates.Try <= 1 {
+		return nil, nil
+	}
+	priorTry := coordinates.Try - 1
+	workID := workIdentity(before, "git.seal")
+
+	// 1. Recovery mode dispatch effect
+	dispatchWorkRec := workIdentity(workID, "driver.dispatch")
+	dispatchEffectRec := journal.AttemptEffectID(dispatchWorkRec, coordinates.Epoch, priorTry)
+
+	// 2. Non-recovery mode dispatch effect
+	priorOuterID := journal.AttemptEffectID(workID, coordinates.Epoch, priorTry)
+	dispatchWorkOuter := workIdentity(priorOuterID, "driver.dispatch")
+	dispatchEffectOuter := journal.AttemptEffectID(dispatchWorkOuter, 1, 1)
+
+	// 3. General driver dispatch work identity
+	generalWork := driverWorkIdentity(
+		engine.manifest.digest,
+		coordinates.Slice,
+		coordinates.Responsibility,
+		coordinates.BatonAttempt,
+		before,
+	)
+	generalDispatchEffect := journal.AttemptEffectID(generalWork, coordinates.Epoch, priorTry)
+
+	candidateIDs := []string{dispatchEffectRec, dispatchEffectOuter, generalDispatchEffect, priorOuterID}
+	for _, effectID := range candidateIDs {
+		effect, err := engine.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+		if err != nil {
+			continue
+		}
+		if len(effect.Result) > 0 {
+			var refusal productionRefusalBinding
+			if err := json.Unmarshal(effect.Result, &refusal); err == nil &&
+				refusal.Code != "" && len(refusal.Paths) > 0 {
+				return &refusal, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func extractRefusal(err error) *productionRefusalBinding {
+	if err == nil {
+		return nil
+	}
+	var gitErr *gitx.Error
+	if errors.As(err, &gitErr) && len(gitErr.Paths) > 0 {
+		total := gitErr.TotalPaths
+		if total < len(gitErr.Paths) {
+			total = len(gitErr.Paths)
+		}
+		return &productionRefusalBinding{
+			Code:       gitErr.Code,
+			Paths:      append([]string(nil), gitErr.Paths...),
+			TotalPaths: total,
+		}
+	}
+	var recordErr *baton.RecordError
+	if errors.As(err, &recordErr) && len(recordErr.Paths) > 0 {
+		total := recordErr.TotalPaths
+		if total < len(recordErr.Paths) {
+			total = len(recordErr.Paths)
+		}
+		return &productionRefusalBinding{
+			Code:       recordErr.Code,
+			Paths:      append([]string(nil), recordErr.Paths...),
+			TotalPaths: total,
+		}
+	}
+	return nil
+}
+
+func extractRefusalResult(err error) []byte {
+	refusal := extractRefusal(err)
+	if refusal == nil {
+		return nil
+	}
+	return mustJSON(refusal)
+}
+
 func validateProductionWorkContext(
 	manifest admittedManifest,
 	workContext productionWorkContext,
@@ -992,8 +1095,28 @@ func validateProductionWorkContext(
 		(workContext.Track != "" ||
 			workContext.PreparedBase != "" ||
 			workContext.DesignReceipt != nil ||
-			workContext.HostEvidence != nil) {
+			workContext.HostEvidence != nil ||
+			workContext.Refusal != nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if workContext.Refusal != nil {
+		if workContext.Try <= 1 {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		refusal := workContext.Refusal
+		if !runtimeIdentityPattern.MatchString(refusal.Code) ||
+			len(refusal.Paths) < 1 || len(refusal.Paths) > 20 ||
+			refusal.TotalPaths < len(refusal.Paths) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		for index, p := range refusal.Paths {
+			if gitx.ValidatePath(p, false) != nil {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if index > 0 && refusal.Paths[index-1] >= p {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		}
 	}
 	expectedAccess := driver.ReadOnly
 	if workContext.Responsibility == driver.ImplementerImplementation {
@@ -1228,6 +1351,7 @@ func productionWorkContextV1(
 	workContext.PreparedBase = ""
 	workContext.DesignReceipt = nil
 	workContext.HostEvidence = nil
+	workContext.Refusal = nil
 	if err := validateProductionWorkContext(
 		manifest,
 		workContext,

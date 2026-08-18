@@ -36,11 +36,14 @@ const (
 	MaxDiagnostic          = 512 * 1024
 	maxRecordRootDiffBytes = 8 * 1024 * 1024
 	CommandTimeout         = 30 * time.Second
+	MaxRefusalPaths        = 20
 )
 
 type Error struct {
-	Code, Op string
-	Err      error
+	Code, Op   string
+	Err        error
+	Paths      []string
+	TotalPaths int
 }
 
 func (e *Error) Error() string {
@@ -51,6 +54,9 @@ func (e *Error) Error() string {
 }
 func (e *Error) Unwrap() error              { return e.Err }
 func fail(code, op string, err error) error { return &Error{Code: code, Op: op, Err: err} }
+func failWithPaths(code, op string, err error, paths []string, totalPaths int) error {
+	return &Error{Code: code, Op: op, Err: err, Paths: paths, TotalPaths: totalPaths}
+}
 
 type ObjectFormat string
 
@@ -991,6 +997,7 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 	// reserved: a model-directed candidate may never touch either, so the
 	// legacy fallback can never be forged and the configured root is never a
 	// product input.
+	var allOffending []string
 	for _, root := range []string{r.recordRoot, LegacyRecordsRoot} {
 		if err := r.assertRecordRootAtPath(base, true, root); err != nil {
 			return err
@@ -1011,17 +1018,54 @@ func (r *Repository) AssertCandidateRecordRootUnchanged(base, candidate OID) err
 			return err
 		}
 		if len(raw) != 0 {
-			return fail(
-				"RESERVED_RECORD_ROOT_CHANGED",
-				"compare reserved record root",
-				fmt.Errorf(
-					"candidate %s changes reserved record root %s from base %s",
-					candidate.String(),
-					root,
-					base.String(),
-				),
+			pathsRaw, err := r.run(
+				nil,
+				nil,
+				"diff", "--name-only", "-z", "--no-renames",
+				base.String(), candidate.String(), "--", root,
 			)
+			if err != nil {
+				return err
+			}
+			for _, field := range bytes.Split(pathsRaw, []byte{0}) {
+				if len(field) == 0 {
+					continue
+				}
+				name := string(field)
+				if err := ValidatePath(name, false); err != nil {
+					return err
+				}
+				allOffending = append(allOffending, name)
+			}
+			if len(allOffending) == 0 {
+				allOffending = append(allOffending, root)
+			}
 		}
+	}
+	if len(allOffending) != 0 {
+		sort.Strings(allOffending)
+		deduped := make([]string, 0, len(allOffending))
+		for i, p := range allOffending {
+			if i == 0 || p != allOffending[i-1] {
+				deduped = append(deduped, p)
+			}
+		}
+		total := len(deduped)
+		bounded := deduped
+		if len(bounded) > MaxRefusalPaths {
+			bounded = append([]string(nil), bounded[:MaxRefusalPaths]...)
+		}
+		return failWithPaths(
+			"RESERVED_RECORD_ROOT_CHANGED",
+			"compare reserved record root",
+			fmt.Errorf(
+				"candidate %s changes reserved record root from base %s",
+				candidate.String(),
+				base.String(),
+			),
+			bounded,
+			total,
+		)
 	}
 	return nil
 }

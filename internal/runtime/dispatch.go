@@ -2186,6 +2186,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					errors.Join(err, reconcileErr),
 				)
 			}
+			resultBytes := extractRefusalResult(err)
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2193,6 +2194,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					RunID: manifest.value.RunID, EffectID: replayKey,
 					Token: claim.Token, State: journal.OperationalFailed,
 					ErrorCode: stableErrorCode(err), Attempt: attempt,
+					Result: resultBytes,
 					EventKind: eventKind(
 						"dispatch_preparation_failed",
 					),
