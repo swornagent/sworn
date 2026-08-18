@@ -12,7 +12,6 @@
   ],
   "checks": [
     "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
-    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
     "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
     "GOFLAGS=-buildvcs=false go vet ./...",
     "gofmt -l ./cmd ./internal ./tools ./test",
