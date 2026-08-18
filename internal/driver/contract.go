@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -42,6 +43,10 @@ var (
 // ContractError carries a stable code and never request, model, stderr, or secret bytes.
 type ContractError struct {
 	Code string
+	// RetryAfter is the provider-advised pacing for a retryable rejection
+	// (429 RetryInfo body or Retry-After header). Zero when the provider
+	// named none. It is advisory transport metadata, never provider content.
+	RetryAfter time.Duration
 }
 
 func (e *ContractError) Error() string { return "driver contract: " + e.Code }

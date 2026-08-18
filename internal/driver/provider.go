@@ -111,6 +111,10 @@ type loopAdapter struct {
 	dialect   providerDialect
 	new       providerConversationFactory
 	transport providerTransport
+	// pacingCap is the operator-configured provider input-tokens-per-minute
+	// quota; zero disables proactive pacing (reactive 429 pacing always
+	// applies).
+	pacingCap int64
 }
 
 func newLoopAdapter(
@@ -422,6 +426,8 @@ func (adapter *loopAdapter) runConversation(
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	pacer := newInputTokenPacer(adapter.pacingCap)
+	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
 		if err := ctx.Err(); err != nil {
 			return Observation{}, nil, err
@@ -438,10 +444,26 @@ func (adapter *loopAdapter) runConversation(
 			liveStream.driverError("request-build", err)
 			return Observation{}, nil, fail("CONTINUATION_INVALID")
 		}
-		response, err := adapter.transport.roundTrip(
+		if wait := pacer.waitBefore(
+			pacer.estimate(int64(len(request.Body))/4), time.Now(),
+		); wait > 0 {
+			if sleepErr := contextSleep(ctx, wait); sleepErr != nil {
+				clearBytes(request.Body)
+				return Observation{}, nil, sleepErr
+			}
+		}
+		response, err := pacedRoundTrip(
 			ctx,
-			invocation.Selected.Profile.CredentialRef,
-			request,
+			func() ([]byte, error) {
+				return adapter.transport.roundTrip(
+					ctx,
+					invocation.Selected.Profile.CredentialRef,
+					request,
+				)
+			},
+			&pacedBudget,
+			func(limited error) { liveStream.driverError("transport-paced", limited) },
+			contextSleep,
 		)
 		clearBytes(request.Body)
 		if err != nil {
@@ -459,6 +481,7 @@ func (adapter *loopAdapter) runConversation(
 				return Observation{}, nil, err
 			}
 			usageAvailable = true
+			pacer.record(providerTurn.Usage.InputTokens, time.Now())
 		}
 		if providerTurn.ReasoningEffort != nil {
 			value := *providerTurn.ReasoningEffort

@@ -93,7 +93,8 @@ func NewGeminiAdapter(
 	if err != nil {
 		return nil, err
 	}
-	if !validThinkingLevel(config.ThinkingLevel) {
+	if !validThinkingLevel(config.ThinkingLevel) ||
+		config.InputTokensPerMinute < 0 {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	factory := func(
@@ -111,10 +112,15 @@ func NewGeminiAdapter(
 		HTTPProfileConfig
 		Family ProfileFamily
 	}{transport.config, ProfileGemini}
-	return newLoopAdapter(
+	adapter, err := newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
 		"", providerDialectGemini, configuration, factory, transport,
 	)
+	if err != nil {
+		return nil, err
+	}
+	adapter.pacingCap = config.InputTokensPerMinute
+	return adapter, nil
 }
 
 func newGeminiConversation(
