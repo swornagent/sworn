@@ -1373,9 +1373,10 @@ func TestContinuationHandleHasNoEncodingTextOrInspectionSurface(t *testing.T) {
 		t.Fatalf("formatted handle exposed content: %s", formatted)
 	}
 	resultType := reflect.TypeOf(ContinuationResult{})
-	if resultType.NumField() != 2 ||
+	if resultType.NumField() != 3 ||
 		resultType.Field(0).Name != "Mode" ||
-		resultType.Field(1).Name != "Status" {
+		resultType.Field(1).Name != "Status" ||
+		resultType.Field(2).Name != "Reason" {
 		t.Fatalf("result fields = %#v", resultType)
 	}
 	for index := 0; index < resultType.NumField(); index++ {

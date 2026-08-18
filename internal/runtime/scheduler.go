@@ -5314,6 +5314,30 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		if recoveryPending {
 			return nil
 		}
+		snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+		if err != nil {
+			return runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		fallbacks := degradationFallbacks(snapshot)
+		if int64(len(fallbacks)) > engine.manifest.value.EffectiveDegradationBudget() {
+			hasParkEvent := false
+			for _, event := range snapshot.Events {
+				if event.Kind == "degradation_budget_parked" {
+					hasParkEvent = true
+					break
+				}
+			}
+			if !hasParkEvent {
+				_ = s.journal.AppendEvent(
+					ctx,
+					owner.RunID,
+					"degradation_budget_parked",
+					mustJSON(fallbacks),
+					s.now().UTC(),
+				)
+			}
+			return nil
+		}
 		state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
 			return runtimeFail("BATON_UNAVAILABLE", err)

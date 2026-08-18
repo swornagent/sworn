@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
@@ -140,36 +142,43 @@ type productionCaptainPlanBinding struct {
 }
 
 type productionWorkContext struct {
-	SchemaVersion      string                        `json:"schema_version"`
-	ManifestDigest     string                        `json:"manifest_digest"`
-	DriverConfigDigest string                        `json:"driver_config_digest"`
-	RunID              string                        `json:"run_id"`
-	Repository         string                        `json:"repository"`
-	Release            string                        `json:"release"`
-	Intent             string                        `json:"intent"`
-	InvocationID       string                        `json:"invocation_id"`
-	InvocationScope    string                        `json:"invocation_scope,omitempty"`
-	PlannerAttempt     int64                         `json:"planner_attempt,omitempty"`
-	ReplanDecision     string                        `json:"replan_decision,omitempty"`
-	Role               driver.Role                   `json:"role"`
-	Track              string                        `json:"track,omitempty"`
-	Slice              string                        `json:"slice,omitempty"`
-	Responsibility     driver.Responsibility         `json:"responsibility"`
-	Attempt            int64                         `json:"attempt"`
-	Epoch              int64                         `json:"epoch"`
-	Try                int64                         `json:"try"`
-	Before             string                        `json:"before"`
-	WorkspaceAccess    driver.WorkspaceAccess        `json:"workspace_access"`
-	Authority          productionAuthorityBinding    `json:"authority"`
-	PreparedBase       string                        `json:"prepared_base,omitempty"`
-	Plan               *productionPlanBinding        `json:"plan,omitempty"`
-	Receipt            *productionReceiptBinding     `json:"receipt,omitempty"`
-	DesignReceipt      *productionReceiptBinding     `json:"design_receipt,omitempty"`
-	Candidate          *productionCandidateBinding   `json:"candidate,omitempty"`
-	Evidence           []productionEvidenceBinding   `json:"evidence"`
-	HostEvidence       *productionHostEvidence       `json:"host_evidence,omitempty"`
-	CaptainPlan        *productionCaptainPlanBinding `json:"captain_plan,omitempty"`
-	Refusal            *productionRefusalBinding     `json:"refusal,omitempty"`
+	SchemaVersion      string                            `json:"schema_version"`
+	ManifestDigest     string                            `json:"manifest_digest"`
+	DriverConfigDigest string                            `json:"driver_config_digest"`
+	RunID              string                            `json:"run_id"`
+	Repository         string                            `json:"repository"`
+	Release            string                            `json:"release"`
+	Intent             string                            `json:"intent"`
+	InvocationID       string                            `json:"invocation_id"`
+	InvocationScope    string                            `json:"invocation_scope,omitempty"`
+	PlannerAttempt     int64                             `json:"planner_attempt,omitempty"`
+	ReplanDecision     string                            `json:"replan_decision,omitempty"`
+	Role               driver.Role                       `json:"role"`
+	Track              string                            `json:"track,omitempty"`
+	Slice              string                            `json:"slice,omitempty"`
+	Responsibility     driver.Responsibility             `json:"responsibility"`
+	Attempt            int64                             `json:"attempt"`
+	Epoch              int64                             `json:"epoch"`
+	Try                int64                             `json:"try"`
+	Before             string                            `json:"before"`
+	WorkspaceAccess    driver.WorkspaceAccess            `json:"workspace_access"`
+	Authority          productionAuthorityBinding        `json:"authority"`
+	PreparedBase       string                            `json:"prepared_base,omitempty"`
+	Plan               *productionPlanBinding            `json:"plan,omitempty"`
+	Receipt            *productionReceiptBinding         `json:"receipt,omitempty"`
+	DesignReceipt      *productionReceiptBinding         `json:"design_receipt,omitempty"`
+	Candidate          *productionCandidateBinding       `json:"candidate,omitempty"`
+	Evidence           []productionEvidenceBinding       `json:"evidence"`
+	HostEvidence       *productionHostEvidence           `json:"host_evidence,omitempty"`
+	CaptainPlan        *productionCaptainPlanBinding     `json:"captain_plan,omitempty"`
+	Refusal            *productionRefusalBinding         `json:"refusal,omitempty"`
+	PriorSubmission    *productionPriorSubmissionBinding `json:"prior_submission,omitempty"`
+}
+
+type productionPriorSubmissionBinding struct {
+	Summary    string `json:"summary"`
+	Detail     string `json:"detail"`
+	Provenance string `json:"provenance"`
 }
 
 type productionRefusalBinding struct {
@@ -669,6 +678,15 @@ func capturePlannerWorkContext(
 	}
 	workContext.PlannerAttempt = authority.PlannerAttempt
 	workContext.ReplanDecision = authority.ReplanDecision
+	if coordinates.Try > 1 || authority.PlannerAttempt > 1 || coordinates.BatonAttempt > 1 {
+		coords := coordinates
+		coords.Responsibility = driver.PlannerProposal
+		priorSub, priorErr := capturePriorPlannerSubmission(engine, coords, authority)
+		if priorErr != nil {
+			return priorErr
+		}
+		workContext.PriorSubmission = priorSub
+	}
 	return nil
 }
 
@@ -790,6 +808,13 @@ func captureBatonWorkContext(
 		); err != nil {
 			return err
 		}
+	}
+	if coordinates.Try > 1 || coordinates.BatonAttempt > 1 {
+		priorSub, priorErr := capturePriorSubmission(ctx, engine, coordinates, before)
+		if priorErr != nil {
+			return priorErr
+		}
+		workContext.PriorSubmission = priorSub
 	}
 	return nil
 }
@@ -1047,6 +1072,223 @@ func extractRefusalResult(err error) []byte {
 	return mustJSON(refusal)
 }
 
+func capturePriorSubmission(
+	ctx context.Context,
+	engine *engine,
+	coordinates dispatchCoordinates,
+	before string,
+) (*productionPriorSubmissionBinding, error) {
+	if engine == nil || engine.journal == nil ||
+		(coordinates.Try <= 1 && coordinates.BatonAttempt <= 1) {
+		return nil, nil
+	}
+	snapshot, err := engineSnapshot(ctx, engine)
+	if err != nil {
+		return nil, err
+	}
+	effectsByID := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, eff := range snapshot.Effects {
+		effectsByID[eff.ID] = eff
+	}
+
+	type priorCandidate struct {
+		attempt    int64
+		try        int64
+		submission driver.Submission
+	}
+	var best *priorCandidate
+
+	for _, cmd := range snapshot.Commands {
+		if cmd.Kind != "driver.dispatch" {
+			continue
+		}
+		var command productionDispatchCommand
+		if json.Unmarshal(cmd.Payload, &command) != nil {
+			continue
+		}
+		if command.Context.Slice != coordinates.Slice ||
+			command.Context.Responsibility != coordinates.Responsibility {
+			continue
+		}
+		candAttempt := command.Context.Attempt
+		candTry := command.Context.Try
+		if candAttempt > coordinates.BatonAttempt {
+			continue
+		}
+		if candAttempt == coordinates.BatonAttempt && candTry >= coordinates.Try {
+			continue
+		}
+		eff, found := effectsByID[cmd.ReplayKey]
+		if !found || len(eff.Result) == 0 {
+			eff, err = engine.journal.Effect(ctx, engine.manifest.value.RunID, cmd.ReplayKey)
+			if err != nil || len(eff.Result) == 0 {
+				continue
+			}
+		}
+		sub, decErr := driver.DecodeSubmission(eff.Result)
+		if decErr != nil {
+			continue
+		}
+		if best == nil || candAttempt > best.attempt ||
+			(candAttempt == best.attempt && candTry > best.try) {
+			best = &priorCandidate{
+				attempt:    candAttempt,
+				try:        candTry,
+				submission: sub,
+			}
+		}
+	}
+
+	startAttempt := coordinates.BatonAttempt
+	for att := startAttempt; att >= 1; att-- {
+		startTry := int64(3)
+		if att == coordinates.BatonAttempt {
+			startTry = coordinates.Try - 1
+		}
+		for t := startTry; t >= 1; t-- {
+			generalWork := driverWorkIdentity(
+				engine.manifest.digest,
+				coordinates.Slice,
+				coordinates.Responsibility,
+				att,
+				before,
+			)
+			dispatchEffect := journal.AttemptEffectID(generalWork, coordinates.Epoch, t)
+			workID := workIdentity(before, "git.seal")
+			dispatchWorkRec := workIdentity(workID, "driver.dispatch")
+			dispatchEffectRec := journal.AttemptEffectID(dispatchWorkRec, coordinates.Epoch, t)
+			priorOuterID := journal.AttemptEffectID(workID, coordinates.Epoch, t)
+			dispatchWorkOuter := workIdentity(priorOuterID, "driver.dispatch")
+			dispatchEffectOuter := journal.AttemptEffectID(dispatchWorkOuter, 1, 1)
+
+			candidates := []string{dispatchEffectRec, dispatchEffectOuter, dispatchEffect, priorOuterID}
+			for _, effectID := range candidates {
+				eff, found := effectsByID[effectID]
+				if !found || len(eff.Result) == 0 {
+					eff, err = engine.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+					if err != nil || len(eff.Result) == 0 {
+						continue
+					}
+				}
+				sub, decErr := driver.DecodeSubmission(eff.Result)
+				if decErr != nil {
+					continue
+				}
+				if best == nil || att > best.attempt ||
+					(att == best.attempt && t > best.try) {
+					best = &priorCandidate{
+						attempt:    att,
+						try:        t,
+						submission: sub,
+					}
+				}
+			}
+		}
+	}
+
+	if best == nil {
+		return nil, nil
+	}
+	provenance := fmt.Sprintf("try %d", best.try)
+	if best.attempt > 1 || coordinates.BatonAttempt > 1 {
+		provenance = fmt.Sprintf("attempt %d, try %d", best.attempt, best.try)
+	}
+	return &productionPriorSubmissionBinding{
+		Summary:    best.submission.Summary,
+		Detail:     best.submission.Detail,
+		Provenance: provenance,
+	}, nil
+}
+
+func capturePriorPlannerSubmission(
+	engine *engine,
+	coordinates dispatchCoordinates,
+	authority planProposalAuthority,
+) (*productionPriorSubmissionBinding, error) {
+	if engine == nil || engine.journal == nil ||
+		(coordinates.Try <= 1 && authority.PlannerAttempt <= 1 && coordinates.BatonAttempt <= 1) {
+		return nil, nil
+	}
+	snapshot, err := engine.journal.Snapshot(context.Background(), engine.manifest.value.RunID)
+	if err != nil {
+		return nil, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	effectsByID := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, eff := range snapshot.Effects {
+		effectsByID[eff.ID] = eff
+	}
+
+	type priorCandidate struct {
+		attempt        int64
+		plannerAttempt int64
+		try            int64
+		submission     driver.Submission
+	}
+	var best *priorCandidate
+
+	for _, cmd := range snapshot.Commands {
+		if cmd.Kind != "driver.dispatch" {
+			continue
+		}
+		var command productionDispatchCommand
+		if json.Unmarshal(cmd.Payload, &command) != nil {
+			continue
+		}
+		if command.Context.Responsibility != driver.PlannerProposal {
+			continue
+		}
+		candAttempt := command.Context.Attempt
+		candPlannerAttempt := command.Context.PlannerAttempt
+		candTry := command.Context.Try
+		isPrior := false
+		if candAttempt < coordinates.BatonAttempt {
+			isPrior = true
+		} else if candAttempt == coordinates.BatonAttempt {
+			if candPlannerAttempt < authority.PlannerAttempt {
+				isPrior = true
+			} else if candPlannerAttempt == authority.PlannerAttempt && candTry < coordinates.Try {
+				isPrior = true
+			}
+		}
+		if !isPrior {
+			continue
+		}
+		eff, found := effectsByID[cmd.ReplayKey]
+		if !found || len(eff.Result) == 0 {
+			continue
+		}
+		sub, decErr := driver.DecodeSubmission(eff.Result)
+		if decErr != nil {
+			continue
+		}
+		if best == nil || candAttempt > best.attempt ||
+			(candAttempt == best.attempt && candPlannerAttempt > best.plannerAttempt) ||
+			(candAttempt == best.attempt && candPlannerAttempt == best.plannerAttempt && candTry > best.try) {
+			best = &priorCandidate{
+				attempt:        candAttempt,
+				plannerAttempt: candPlannerAttempt,
+				try:            candTry,
+				submission:     sub,
+			}
+		}
+	}
+
+	if best == nil {
+		return nil, nil
+	}
+	provenance := fmt.Sprintf("try %d", best.try)
+	if best.plannerAttempt > 1 || authority.PlannerAttempt > 1 {
+		provenance = fmt.Sprintf("planner_attempt %d, try %d", best.plannerAttempt, best.try)
+	} else if best.attempt > 1 || coordinates.BatonAttempt > 1 {
+		provenance = fmt.Sprintf("attempt %d, try %d", best.attempt, best.try)
+	}
+	return &productionPriorSubmissionBinding{
+		Summary:    best.submission.Summary,
+		Detail:     best.submission.Detail,
+		Provenance: provenance,
+	}, nil
+}
+
 func validateProductionWorkContext(
 	manifest admittedManifest,
 	workContext productionWorkContext,
@@ -1104,8 +1346,34 @@ func validateProductionWorkContext(
 			workContext.PreparedBase != "" ||
 			workContext.DesignReceipt != nil ||
 			workContext.HostEvidence != nil ||
-			workContext.Refusal != nil) {
+			workContext.Refusal != nil ||
+			workContext.PriorSubmission != nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if workContext.PriorSubmission != nil {
+		if workContext.Try <= 1 && workContext.Attempt <= 1 && workContext.PlannerAttempt <= 1 {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		sub := workContext.PriorSubmission
+		if !utf8.ValidString(sub.Summary) ||
+			len([]byte(sub.Summary)) > driver.MaxSubmissionSummaryBytes ||
+			strings.TrimSpace(sub.Summary) == "" {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if len([]byte(sub.Detail)) > driver.MaxSubmissionDetailBytes ||
+			!utf8.ValidString(sub.Detail) ||
+			strings.ContainsRune(sub.Detail, '\x00') ||
+			strings.ContainsRune(sub.Detail, '\r') ||
+			strings.Contains(sub.Detail, "Baton-Detail-Begin") ||
+			strings.Contains(sub.Detail, "Baton-Detail-End") {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if !utf8.ValidString(sub.Provenance) ||
+			strings.TrimSpace(sub.Provenance) == "" ||
+			len([]byte(sub.Provenance)) > 1000 ||
+			containsControlCharacter(sub.Provenance) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
 	}
 	if workContext.Refusal != nil {
 		if workContext.Try <= 1 {
@@ -1360,6 +1628,7 @@ func productionWorkContextV1(
 	workContext.DesignReceipt = nil
 	workContext.HostEvidence = nil
 	workContext.Refusal = nil
+	workContext.PriorSubmission = nil
 	if err := validateProductionWorkContext(
 		manifest,
 		workContext,

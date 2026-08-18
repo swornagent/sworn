@@ -48,6 +48,7 @@ const (
 type continuationDispatchFact struct {
 	mode    driver.ContinuationMode
 	outcome string
+	reason  string
 }
 
 type continuationPlanAuthority struct {
@@ -730,6 +731,7 @@ func (s *Service) invokeContinuationTurn(
 		return observation, next, &continuationDispatchFact{
 			mode:    driver.ContinuationModeFreshRehydrate,
 			outcome: continuationOutcomeFallback,
+			reason:  "absence",
 		}, err
 	}
 	observation, next, result, wantsFresh, err :=
@@ -749,12 +751,21 @@ func (s *Service) invokeContinuationTurn(
 		return driver.Observation{}, nil, nil, err
 	}
 	outcome := continuationOutcomeFallback
+	reason := result.Reason
 	if result.Status == driver.ContinuationStatusExpired {
 		outcome = continuationOutcomeFallbackExpired
+		if reason == "" {
+			reason = "expiry"
+		}
+	}
+	if reason == "" {
+		reason = "absence"
 	}
 	observation, next, _, err = start()
 	return observation, next, &continuationDispatchFact{
-		mode: driver.ContinuationModeFreshRehydrate, outcome: outcome,
+		mode:    driver.ContinuationModeFreshRehydrate,
+		outcome: outcome,
+		reason:  reason,
 	}, err
 }
 
@@ -2021,6 +2032,19 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		return kind
 	}
+	eventBody := func(defaultBody []byte) []byte {
+		if continuationFact != nil &&
+			continuationFact.mode == driver.ContinuationModeFreshRehydrate &&
+			(continuationFact.outcome == continuationOutcomeFallback ||
+				continuationFact.outcome == continuationOutcomeFallbackExpired) {
+			reason := continuationFact.reason
+			if reason == "" {
+				reason = "absence"
+			}
+			return []byte(reason)
+		}
+		return defaultBody
+	}
 	if testCrashAfterEffect == "driver.dispatch" {
 		os.Exit(86)
 	}
@@ -2054,7 +2078,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
 			Result:    resultBytes,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
+			EventBody: eventBody([]byte(coordinates.Responsibility)), At: s.now().UTC(),
 		}); err != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
@@ -2080,7 +2104,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
 			Attempt:   attempt,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
+			EventBody: eventBody([]byte(coordinates.Responsibility)), At: s.now().UTC(),
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
@@ -2102,7 +2126,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: "invalid_human_turn",
 			Attempt:   attempt,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
+			EventBody: eventBody([]byte(coordinates.Responsibility)), At: s.now().UTC(),
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
@@ -2138,7 +2162,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_operational_failure",
 					),
-					EventBody: []byte(coordinates.Responsibility),
+					EventBody: eventBody([]byte(coordinates.Responsibility)),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2178,7 +2202,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 						EventKind: eventKind(
 							"dispatch_preparation_uncertain",
 						),
-						EventBody: []byte(coordinates.Responsibility),
+						EventBody: eventBody([]byte(coordinates.Responsibility)),
 						At:        s.now().UTC(),
 					},
 					journal.RecoveryAmbiguous,
@@ -2200,7 +2224,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_preparation_failed",
 					),
-					EventBody: []byte(coordinates.Responsibility),
+					EventBody: eventBody([]byte(coordinates.Responsibility)),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2244,7 +2268,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_operational_failure",
 					),
-					EventBody: []byte(coordinates.Responsibility),
+					EventBody: eventBody([]byte(coordinates.Responsibility)),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2278,7 +2302,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			Kind: "sealed_driver_handoff", Body: observation.Handoff.SubmissionBytes,
 		}},
 		EventKind: eventKind(completionEvent),
-		EventBody: []byte(coordinates.Responsibility), At: s.now().UTC(),
+		EventBody: eventBody([]byte(coordinates.Responsibility)), At: s.now().UTC(),
 	}); err != nil {
 		if prepareHandoff != nil {
 			reconcileErr := s.journal.ReconcileOwned(
@@ -2290,7 +2314,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_completion_uncertain",
 					),
-					EventBody: []byte(coordinates.Responsibility),
+					EventBody: eventBody([]byte(coordinates.Responsibility)),
 					At:        s.now().UTC(),
 				},
 				journal.RecoveryAmbiguous,

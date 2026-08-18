@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -101,6 +102,7 @@ type continuationIdentity struct {
 type ContinuationResult struct {
 	Mode   ContinuationMode
 	Status ContinuationStatus
+	Reason string
 }
 
 // continuationState contains only adapter-owned replay material. It must not
@@ -317,9 +319,15 @@ func resumeContinuation(
 		discardStatus = ContinuationStatusOverflow
 	}
 	if discardStatus != "" {
+		reason := "absence"
+		if discardStatus == ContinuationStatusExpired {
+			reason = "expiry"
+		}
 		closeErr := cell.closeLocked()
 		cell.mu.Unlock()
-		return Observation{}, nil, freshContinuation(discardStatus), closeErr
+		res := freshContinuation(discardStatus)
+		res.Reason = reason
+		return Observation{}, nil, res, closeErr
 	}
 	state, mode := cell.state, cell.mode
 	cell.zeroLocked()
@@ -365,8 +373,17 @@ func resumeContinuation(
 	}
 	if IsCode(invokeErr, "CONTINUATION_INVALID") {
 		_ = closeContinuationState(nextState)
-		return Observation{}, nil,
-			freshContinuation(ContinuationStatusMismatch), nil
+		reason := ""
+		var contractErr *ContractError
+		if errors.As(invokeErr, &contractErr) && contractErr.Detail != "" {
+			reason = contractErr.Detail
+		}
+		if reason == "" {
+			reason = "absence"
+		}
+		res := freshContinuation(ContinuationStatusMismatch)
+		res.Reason = reason
+		return Observation{}, nil, res, nil
 	}
 	if invokeErr == nil && observation.Yield != nil {
 		handle, result, retainErr := retainedContinuation(
@@ -429,9 +446,17 @@ func invokeWithoutContinuation(
 }
 
 func freshContinuation(status ContinuationStatus) ContinuationResult {
+	reason := ""
+	switch status {
+	case ContinuationStatusExpired:
+		reason = "expiry"
+	case ContinuationStatusClosed, ContinuationStatusMismatch, ContinuationStatusOverflow, ContinuationStatusUnsupported:
+		reason = "absence"
+	}
 	return ContinuationResult{
 		Mode:   ContinuationModeFreshRehydrate,
 		Status: status,
+		Reason: reason,
 	}
 }
 

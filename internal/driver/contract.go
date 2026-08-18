@@ -19,18 +19,20 @@ import (
 )
 
 const (
-	DriverContractVersion        = "sworn.driver/v1"
-	RequestSchemaVersion         = "sworn.driver-request/v1"
-	ResultSchemaVersion          = "sworn.driver-result/v1"
-	OperationVersion             = "baton.operation/v2"
-	GuestWorkspacePath           = "/workspace"
-	GuestInputPath               = "/sworn/inputs"
-	MaxRequestBytes              = 1_048_576
-	MaxInstructionBytes          = 262_144
-	MaxProviderOutputBytes       = 1_048_576
-	MaxInputs                    = 256
-	MaxTimeoutMillis             = 86_400_000
-	MaxSafeInteger         int64 = 9_007_199_254_740_991
+	DriverContractVersion          = "sworn.driver/v1"
+	RequestSchemaVersion           = "sworn.driver-request/v1"
+	ResultSchemaVersion            = "sworn.driver-result/v1"
+	OperationVersion               = "baton.operation/v2"
+	GuestWorkspacePath             = "/workspace"
+	GuestInputPath                 = "/sworn/inputs"
+	MaxRequestBytes                = 1_048_576
+	MaxInstructionBytes            = 262_144
+	MaxProviderOutputBytes         = 1_048_576
+	MaxInputs                      = 256
+	MaxTimeoutMillis               = 86_400_000
+	MaxSafeInteger           int64 = 9_007_199_254_740_991
+	DefaultDegradationBudget int64 = 3
+	MaxDegradationBudget     int64 = 100
 )
 
 var (
@@ -115,9 +117,18 @@ type Input struct {
 	Digest string `json:"digest"`
 }
 type Limits struct {
-	TimeoutMillis int64 `json:"timeout_ms"`
-	OutputBytes   int64 `json:"output_bytes"`
+	TimeoutMillis     int64 `json:"timeout_ms"`
+	OutputBytes       int64 `json:"output_bytes"`
+	DegradationBudget int64 `json:"degradation_budget,omitempty"`
 }
+
+func (l Limits) EffectiveDegradationBudget() int64 {
+	if l.DegradationBudget > 0 {
+		return l.DegradationBudget
+	}
+	return DefaultDegradationBudget
+}
+
 type Request struct {
 	SchemaVersion string    `json:"schema_version"`
 	InvocationID  string    `json:"invocation_id"`
@@ -383,6 +394,9 @@ func validateRequest(request Request, reserved []string) error {
 		return fail("INVALID_LIMIT")
 	}
 	if request.Limits.OutputBytes < 1 || request.Limits.OutputBytes > MaxProviderOutputBytes {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.DegradationBudget < 0 || request.Limits.DegradationBudget > MaxDegradationBudget {
 		return fail("INVALID_LIMIT")
 	}
 	body, err := json.Marshal(request)

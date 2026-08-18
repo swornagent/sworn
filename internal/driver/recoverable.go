@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -299,9 +300,15 @@ func resumeRecoverableTurn(
 		discardStatus = ContinuationStatusOverflow
 	}
 	if discardStatus != "" {
+		reason := "absence"
+		if discardStatus == ContinuationStatusExpired {
+			reason = "expiry"
+		}
 		closeErr := cell.closeLocked()
 		cell.mu.Unlock()
-		return Observation{}, nil, freshContinuation(discardStatus), closeErr
+		res := freshContinuation(discardStatus)
+		res.Reason = reason
+		return Observation{}, nil, res, closeErr
 	}
 	state, mode := cell.state, cell.mode
 	cell.zeroLocked()
@@ -336,8 +343,17 @@ func resumeRecoverableTurn(
 	}
 	if IsCode(invokeErr, "CONTINUATION_INVALID") {
 		_ = closeContinuationState(nextState)
-		return Observation{}, nil,
-			freshContinuation(ContinuationStatusMismatch), nil
+		reason := ""
+		var contractErr *ContractError
+		if errors.As(invokeErr, &contractErr) && contractErr.Detail != "" {
+			reason = contractErr.Detail
+		}
+		if reason == "" {
+			reason = "absence"
+		}
+		res := freshContinuation(ContinuationStatusMismatch)
+		res.Reason = reason
+		return Observation{}, nil, res, nil
 	}
 	if invokeErr == nil && observation.Yield != nil {
 		handle, result, retainErr := retainedContinuation(
