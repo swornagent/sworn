@@ -1,0 +1,32 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "The probe tool was called with value 7 and returned the following result:\n\n```json\n{\n  \"a\": 1,\n  \"nested\": {\n    \"ok\": true\n  }\n}\n```",
+            "thoughtSignature": "Er4BCrsBARFNMg9aH421HX9oeXeWuljFtImo6ln3aJx05GERSmdp1lkgK/EFUh5GjnmwOf6jIlwkoAUcEZRJkvOjOIbCw1ofxkw5FusJipYVLhXpMngj2vwS3sXKMkaWBsEOww0sskRe2+rlKRfOW4WBBQXRGxO8HPA/HUAIrmkQBc5pWDegzXRwf22AAvrxU/qClm69x+e1oPQd0NRj2/a3Ju2g9XCslJpnKUNhij4Z9+175M7+MJDZRt9+bnrJbA=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 101,
+    "candidatesTokenCount": 47,
+    "totalTokenCount": 175,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 101
+      }
+    ],
+    "thoughtsTokenCount": 27,
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.7-flash",
+  "responseId": "IWyDap2UE9msg8UPuLORYA"
+}

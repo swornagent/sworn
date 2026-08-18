@@ -1,0 +1,32 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "The `probe` tool returned a result of 49.",
+            "thoughtSignature": "EqMBCqABARFNMg8nvuaH4wtNwFQbPsJ/90yzyKZnWp7IhQVl+vnRBQO+NwQfcYD2O5Psj8CpqJJ+rd/SoXmREstzFZhGbNKQtCnYZl+M+QRDCORQ9LMTMY1Nv0vJ0XSdNujulA0HjW9jaNM4vBUMO/V45kBJseQzfF82QMiL2txbaXvZotgCBpv2tYct5RClFf5Ae+JeJwTVpPQ7uXz1M253ya6Yeg=="
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 92,
+    "candidatesTokenCount": 13,
+    "totalTokenCount": 120,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 92
+      }
+    ],
+    "thoughtsTokenCount": 15,
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.7-flash",
+  "responseId": "AwyDapyyIsPFg8UPuduO4Qk"
+}

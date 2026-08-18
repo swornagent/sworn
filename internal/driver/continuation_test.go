@@ -608,6 +608,8 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 		"gemini-3-pro",
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
+		0,
+		"",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -647,8 +649,11 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 			Parts []struct {
 				ThoughtSignature string `json:"thoughtSignature"`
 				FunctionResponse *struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
+					ID       string `json:"id"`
+					Name     string `json:"name"`
+					Response struct {
+						Result string `json:"result"`
+					} `json:"response"`
 				} `json:"functionResponse"`
 			} `json:"parts"`
 		} `json:"contents"`
@@ -658,8 +663,14 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 		replay.Contents[1].Parts[0].ThoughtSignature != signatureA ||
 		replay.Contents[1].Parts[1].ThoughtSignature != "" ||
 		replay.Contents[2].Role != "user" ||
-		replay.Contents[2].Parts[0].FunctionResponse.ID != "provider-a" ||
-		replay.Contents[2].Parts[1].FunctionResponse.ID != "" {
+		replay.Contents[2].Parts[0].FunctionResponse == nil ||
+		replay.Contents[2].Parts[0].FunctionResponse.ID != "" ||
+		replay.Contents[2].Parts[0].FunctionResponse.Name != "Read" ||
+		replay.Contents[2].Parts[0].FunctionResponse.Response.Result != "a" ||
+		replay.Contents[2].Parts[1].FunctionResponse == nil ||
+		replay.Contents[2].Parts[1].FunctionResponse.ID != "" ||
+		replay.Contents[2].Parts[1].FunctionResponse.Name != "Read" ||
+		replay.Contents[2].Parts[1].FunctionResponse.Response.Result != "b" {
 		t.Fatalf("Gemini replay = %s", request.Body)
 	}
 	if err := conversation.resume(
@@ -699,6 +710,7 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 	fresh, _ := newGeminiConversation(
 		"https://generativelanguage.example.invalid", "gemini-3-pro",
 		toolDefinitions(ReadOnly), []byte(`{}`),
+		0, "",
 	)
 	defer fresh.close()
 	if _, err := fresh.accept(bad); !IsCode(err, "CONTINUATION_INVALID") {
@@ -713,6 +725,7 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 	unsigned, _ := newGeminiConversation(
 		"https://generativelanguage.example.invalid", "gemini-3-pro",
 		toolDefinitions(ReadOnly), []byte(`{}`),
+		0, "",
 	)
 	defer unsigned.close()
 	if _, err := unsigned.accept(missing); !IsCode(err, "CONTINUATION_INVALID") {

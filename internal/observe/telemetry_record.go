@@ -106,7 +106,10 @@ func validUsageSummary(value UsageSummary, attempts int64) bool {
 			(*value.CacheCoverage.Numerator == 0) ||
 		!validNullableText(value.EffortRequested) ||
 		!validNullableText(value.EffortReported) ||
-		!validNullableText(value.FinishReason) {
+		!validNullableText(value.FinishReason) ||
+		(value.ReasoningTokens != nil &&
+			(*value.ReasoningTokens < 0 ||
+				*value.ReasoningTokens > driver.MaxSafeInteger)) {
 		return false
 	}
 	if value.InputTokens != nil &&
@@ -218,6 +221,9 @@ func cloneUsage(value UsageSummary) UsageSummary {
 	}
 	if value.CacheWriteTokens != nil {
 		result.CacheWriteTokens = int64Pointer(*value.CacheWriteTokens)
+	}
+	if value.ReasoningTokens != nil {
+		result.ReasoningTokens = int64Pointer(*value.ReasoningTokens)
 	}
 	if value.EffortRequested != nil {
 		result.EffortRequested = cloneText(value.EffortRequested)

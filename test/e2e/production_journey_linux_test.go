@@ -92,11 +92,9 @@ type journeyGeminiContent struct {
 			Name string `json:"name"`
 		} `json:"functionCall"`
 		FunctionResponse *struct {
-			ID       string `json:"id"`
 			Name     string `json:"name"`
 			Response struct {
-				Output string `json:"output"`
-				Failed *bool  `json:"failed"`
+				Result string `json:"result"`
 			} `json:"response"`
 		} `json:"functionResponse"`
 	} `json:"parts"`
@@ -272,6 +270,10 @@ func (provider *journeyProvider) serve(
 			"promptTokenCount":     7,
 			"candidatesTokenCount": 5,
 			"totalTokenCount":      12,
+			// A7: the native usage vocabulary reports reasoning, and the
+			// production journey's receipt assertion verifies it lands on the
+			// usage receipt summed across every Gemini turn.
+			"thoughtsTokenCount": 3,
 		},
 	})
 }
@@ -379,11 +381,8 @@ func validateGeminiJourneyContinuation(
 	call := contents[1].Parts[0].FunctionCall
 	result := resume.Parts[0].FunctionResponse
 	if call.ID == "" ||
-		result.ID != call.ID ||
 		result.Name != call.Name ||
-		result.Response.Output != "accepted" ||
-		result.Response.Failed == nil ||
-		*result.Response.Failed {
+		result.Response.Result != "accepted" {
 		return fmt.Errorf("invalid Gemini accepted submission result")
 	}
 	return nil
@@ -1211,7 +1210,8 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 			len(contexts),
 		)
 	}
-	var inputTokens, outputTokens int64
+	var inputTokens, outputTokens, reasoningTokens int64
+	reasoningReported := 0
 	if len(observation.Attempts) != wantInvocations {
 		t.Fatalf(
 			"production attempts=%d want=%d",
@@ -1233,19 +1233,33 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		}
 		inputTokens += *usage.InputTokens
 		outputTokens += *usage.OutputTokens
+		if usage.ReasoningTokens != nil {
+			reasoningReported++
+			reasoningTokens += *usage.ReasoningTokens
+		}
 	}
 	wantInputTokens, wantOutputTokens := int64(168), int64(120)
+	wantReasoningTokens := int64(51)
+	wantReasoningReported := 13
 	if repair {
 		wantInputTokens, wantOutputTokens = 189, 135
+		wantReasoningTokens = 60
+		wantReasoningReported = 15
 	}
 	if inputTokens != wantInputTokens ||
-		outputTokens != wantOutputTokens {
+		outputTokens != wantOutputTokens ||
+		reasoningTokens != wantReasoningTokens ||
+		reasoningReported != wantReasoningReported {
 		t.Fatalf(
-			"production usage input=%d output=%d, want %d/%d",
+			"production usage input=%d output=%d reasoning=%d/%d, want %d/%d reasoning=%d/%d",
 			inputTokens,
 			outputTokens,
+			reasoningTokens,
+			reasoningReported,
 			wantInputTokens,
 			wantOutputTokens,
+			wantReasoningTokens,
+			wantReasoningReported,
 		)
 	}
 

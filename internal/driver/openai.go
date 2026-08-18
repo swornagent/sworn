@@ -236,6 +236,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
+			_ Limits,
 		) (providerConversation, error) {
 			return newResponsesConversation(
 				config.Endpoint,
@@ -263,6 +264,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
+			_ Limits,
 		) (providerConversation, error) {
 			return newOpenAIConversation(
 				config.Endpoint,

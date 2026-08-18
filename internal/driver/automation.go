@@ -636,6 +636,7 @@ func (adapter *loopAdapter) invokeAutomation(
 		prompt,
 		invocation.Selected.Model,
 		definitions,
+		Limits{},
 	)
 	clearBytes(prompt)
 	if err != nil {

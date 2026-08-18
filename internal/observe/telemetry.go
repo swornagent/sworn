@@ -489,6 +489,14 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 				labels,
 			)
 		}
+		if group.Usage.ReasoningTokens != nil {
+			r.metrics.record(
+				"sworn.eval.reasoning_tokens",
+				*group.Usage.ReasoningTokens,
+				observedAt,
+				labels,
+			)
+		}
 	}
 	for _, quality := range record.Quality {
 		if quality.Numerator == nil {
@@ -603,6 +611,15 @@ func segmentAttributes(record Record) []telemetryAttribute {
 			int64TelemetryAttribute(
 				"sworn.cache_write_tokens",
 				*record.Usage.CacheWriteTokens,
+			),
+		)
+	}
+	if record.Usage.ReasoningTokens != nil {
+		result = append(
+			result,
+			int64TelemetryAttribute(
+				"sworn.reasoning_tokens",
+				*record.Usage.ReasoningTokens,
 			),
 		)
 	}
