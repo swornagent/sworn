@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-17-loop-economics",
-  "revision": 4,
-  "previous_plan": "68602feb4429698b42e0ec972b1e567446e39c6e",
+  "revision": 5,
+  "previous_plan": "5253d7a5f594e5c94de53ca89535e245f7e6391f",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-17-loop-economics/4",
+  "approval_ref": "operator://2026-08-17-loop-economics/5",
   "tracks": [
     {
       "id": "T1-economics",
@@ -25,10 +25,10 @@
           "id": "S2-labelled-continuation-exits",
           "outcome": "CONTINUATION_INVALID stops being a bucket: every exit that produces it carries a stable machine-readable site label into the contract error detail and the journal, so the journal alone answers which mechanism fired.",
           "contract_path": "contracts/2026-08-17-loop-economics/S2-labelled-continuation-exits.json",
-          "digest": "sha256:fd3ce37fb9ba12b66f9fefdbdc847aaa44d4db73639bf734f89e23d0507edc83",
+          "digest": "sha256:6144eb25801e2a25568283ee354fc5e30d7653690eb7dd69679d21f08c275952",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/driver"]
+          "touchpoints": ["internal/driver", "internal/runtime"]
         },
         {
           "id": "S3-context-carry-and-degradation-budget",
@@ -88,14 +88,13 @@ being silent.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-17-loop-economics/4`. Planning did not approve itself.
-Revision 4 removes the e2e suite from every slice's checks: the sandbox
-cannot run it, ADR-0010 declares the A5 gate inside that package must
-never run in an executed suite, and the r6 verifier blocked on the
-missing host evidence where google-native's verifier had waved the same
-line through. The e2e suite stays a CI-on-push gate. The target head
-also carries the records migration, so that gate now passes there.
-Acceptance criteria are unchanged in every slice.
+`operator://2026-08-17-loop-economics/5`. Planning did not approve itself.
+Revision 5 resolves S2's captain escalation exactly as raised: A3
+requires the site label readable back from the journal, and the effect
+completion recording it lives in internal/runtime, so S2's scope now
+includes internal/runtime. Acceptance criteria are unchanged. The
+verifier moves to claude-opus-5 via the claude_code_cli native closure
+(2.1.234); grok-4.6 stands down on cost.
 
 One serial track. S3 consumes S2's labels. S4's scope was derived by
 enumerating role-asset pins first (the conformance-gate lesson); S5's
