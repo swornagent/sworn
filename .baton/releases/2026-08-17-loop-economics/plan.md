@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-17-loop-economics",
-  "revision": 2,
-  "previous_plan": "a17abfc186ad167e9a77aa4c2e41c5047b41be31",
+  "revision": 3,
+  "previous_plan": "0c3509e9e27e76e08a9fc2685f55f135408d395d",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-17-loop-economics/2",
+  "approval_ref": "operator://2026-08-17-loop-economics/3",
   "tracks": [
     {
       "id": "T1-economics",
@@ -88,11 +88,12 @@ being silent.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-17-loop-economics/2`. Planning did not approve itself.
-Revision 2 re-binds revision 1 unchanged to the post-merge head: the
-google-native driver merged, its certification defect (sworn#213) was
-fixed, and the implementer now runs through the native generateContent
-profile instead of the cache-blind compat surface.
+`operator://2026-08-17-loop-economics/3`. Planning did not approve itself.
+Revision 3 re-binds revision 2 unchanged to the head carrying quota
+pacing (sworn#217): three runs proved gemini-3.7-flash cannot survive an
+implementation dispatch against the 3M input-tokens/min tier-2 quota
+without it. The driver now paces at the operator-stated cap and honours
+the provider's RetryInfo instead of restarting the dispatch.
 
 One serial track. S3 consumes S2's labels. S4's scope was derived by
 enumerating role-asset pins first (the conformance-gate lesson); S5's
