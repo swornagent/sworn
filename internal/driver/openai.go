@@ -1054,19 +1054,34 @@ func validOpenAIResumeTail(messages []openAIMessage) bool {
 	if len(messages) < 3 {
 		return false
 	}
-	assistant := messages[len(messages)-2]
-	result := messages[len(messages)-1]
-	if assistant.Role != "assistant" || len(assistant.ToolCalls) != 1 ||
-		result.Role != "tool" || result.ToolCallID == "" ||
-		result.ToolCallID != assistant.ToolCalls[0].ID ||
-		len(result.ToolCalls) != 0 ||
-		len(result.ReasoningContent) != 0 ||
-		len(result.ReasoningDetails) != 0 {
+	toolCount := 0
+	for i := len(messages) - 1; i >= 0 && messages[i].Role == "tool"; i-- {
+		toolCount++
+	}
+	if toolCount == 0 || len(messages) < toolCount+2 {
 		return false
 	}
-	var content string
-	return json.Unmarshal(result.Content, &content) == nil &&
-		validOpaqueText([]byte(content))
+	assistantIndex := len(messages) - 1 - toolCount
+	assistant := messages[assistantIndex]
+	if assistant.Role != "assistant" || len(assistant.ToolCalls) != toolCount {
+		return false
+	}
+	for i := 0; i < toolCount; i++ {
+		result := messages[assistantIndex+1+i]
+		if result.Role != "tool" || result.ToolCallID == "" ||
+			result.ToolCallID != assistant.ToolCalls[i].ID ||
+			len(result.ToolCalls) != 0 ||
+			len(result.ReasoningContent) != 0 ||
+			len(result.ReasoningDetails) != 0 {
+			return false
+		}
+		var content string
+		if json.Unmarshal(result.Content, &content) != nil ||
+			!validOpaqueText([]byte(content)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (conversation *openAIConversation) close() {

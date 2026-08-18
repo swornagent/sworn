@@ -1,0 +1,48 @@
+{
+  "id": "resp-multicall-fixture-01",
+  "object": "response",
+  "status": "completed",
+  "error": null,
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "reasoning-multi-1",
+      "status": "completed",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "Multi-call discovery turn"
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "id": "item_call_resp_1",
+      "call_id": "call_multicall_resp_1",
+      "name": "Read",
+      "arguments": "{\"path\":\"/workspace/a.txt\"}",
+      "status": "completed"
+    },
+    {
+      "type": "function_call",
+      "id": "item_call_resp_2",
+      "call_id": "call_multicall_resp_2",
+      "name": "Read",
+      "arguments": "{\"path\":\"/workspace/b.txt\"}",
+      "status": "completed"
+    },
+    {
+      "type": "function_call",
+      "id": "item_call_resp_3",
+      "call_id": "call_multicall_resp_3",
+      "name": "Read",
+      "arguments": "{\"path\":\"/workspace/c.txt\"}",
+      "status": "completed"
+    }
+  ],
+  "usage": {
+    "input_tokens": 52,
+    "output_tokens": 44,
+    "total_tokens": 96
+  }
+}
