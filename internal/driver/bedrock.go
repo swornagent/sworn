@@ -80,6 +80,7 @@ func NewBedrockAdapter(
 		prompt []byte,
 		model string,
 		tools []providerToolDefinition,
+		_ Limits,
 	) (providerConversation, error) {
 		return newBedrockConversation(config, model, tools, prompt)
 	}

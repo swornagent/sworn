@@ -10,8 +10,8 @@ import (
 const (
 	CodexCLIVersion        = "0.146.0"
 	CodexCLIDigest         = "sha256:2e863156ed35ecc5253b1e2f907a9143077b9f7cb51942070c61996471ff6e04"
-	ClaudeCLIVersion       = "2.1.208"
-	ClaudeCLIDigest        = "sha256:125372839bc827ca24dd72382627b291fbca615408d732fe3291bc16723ce7f3"
+	ClaudeCLIVersion       = "2.1.234"
+	ClaudeCLIDigest        = "sha256:3473601ea695d5bf769c5b202844d4cb4fbf723ae995450fcb6973204775c84a"
 	CodexCredentialTarget  = "/home/sworn/.codex/auth.json"
 	ClaudeCredentialTarget = "/home/sworn/.claude/.credentials.json"
 )
