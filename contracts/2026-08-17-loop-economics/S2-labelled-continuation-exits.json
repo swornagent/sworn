@@ -1,7 +1,7 @@
 {
   "outcome": "CONTINUATION_INVALID stops being a bucket: every exit that produces it carries a stable machine-readable site label into the contract error detail and the journal, so the journal alone answers which mechanism fired.",
   "scope": {
-    "include": ["internal/driver"],
+    "include": ["internal/driver", "internal/runtime"],
     "exclude": ["renaming any error code recorded in existing journals", "changing which conditions refuse", "runtime scheduling changes"]
   },
   "acceptance": [
