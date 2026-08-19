@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-17-loop-economics",
-  "revision": 5,
-  "previous_plan": "5253d7a5f594e5c94de53ca89535e245f7e6391f",
+  "revision": 6,
+  "previous_plan": "5f6c5fa411dc81e96ceed45cb1a8b4f2ad86ced5",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-17-loop-economics/5",
+  "approval_ref": "operator://2026-08-17-loop-economics/6",
   "tracks": [
     {
       "id": "T1-economics",
@@ -52,10 +52,10 @@
           "id": "S5-scope-lint-at-recording",
           "outcome": "The revision tax gets a deterministic gate: plan recording computes the reverse-dependency closure of every slice's scope and refuses to record when a package containing tests or golden fixtures that pin scope-package behaviour lies outside scope and is not explicitly waived in the plan, so under-derived scope is caught at authoring time instead of after a sealed candidate dies.",
           "contract_path": "contracts/2026-08-17-loop-economics/S5-scope-lint-at-recording.json",
-          "digest": "sha256:beaf37766c17c4550d21f74e60f2852b30a289daec989836e75432708a616ee1",
+          "digest": "sha256:e731331ee93fc4f585796f2064f63da33e440e10786a20b650da954fffda36be",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton", "internal/gitx", "tools"]
+          "touchpoints": ["internal/baton", "internal/gitx", "internal/driver", "internal/runtime", "tools"]
         }
       ]
     }
@@ -88,8 +88,12 @@ being silent.
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-17-loop-economics/5`. Planning did not approve itself.
-Revision 5 resolves S2's captain escalation exactly as raised: A3
+`operator://2026-08-17-loop-economics/6`. Planning did not approve itself.
+Revision 6 resolves S5's captain escalation exactly as raised: the
+scope lint's A4 runs at proposal validation, which lives in
+internal/driver and internal/runtime, so S5's scope now includes both
+- the release's fifth scope under-derivation, caught on the slice
+that exists to end the class. Revision 5 resolved S2's escalation exactly as raised: A3
 requires the site label readable back from the journal, and the effect
 completion recording it lives in internal/runtime, so S2's scope now
 includes internal/runtime. Acceptance criteria are unchanged. The
