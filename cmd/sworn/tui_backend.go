@@ -503,7 +503,7 @@ func startTUIRun(
 	}
 	defer service.Close()
 	defer factory.Close()
-	status, err := service.Start(ctx, body)
+	status, err := service.StartDetached(ctx, body)
 	if err != nil {
 		return errors.New("the run could not be started")
 	}
@@ -542,7 +542,7 @@ func startTUIDelegatedRun(
 	}
 	defer service.Close()
 	defer factory.Close()
-	status, err := service.StartWithCaptainDelegation(ctx, body, envelope)
+	status, err := service.StartWithCaptainDelegationDetached(ctx, body, envelope)
 	if err != nil {
 		return errors.New("the delegated run could not be started")
 	}

@@ -505,3 +505,94 @@ func TestCommandErrorCodeResolvesBatonRecordErrorsAndParity(t *testing.T) {
 		t.Fatalf("writeCommandFailure output missing technical code: %q", outStr)
 	}
 }
+
+func runManifestFixture(t *testing.T, runID string) (string, string) {
+	t.Helper()
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", runID)
+	manifestPath := filepath.Join(manifestDir, "delivery.json")
+	journalPath := filepath.Join(stateDir, "run.sqlite")
+	return manifestPath, journalPath
+}
+
+func TestRunDetachedPrintsWatchGuidanceAndExitsZero(t *testing.T) {
+	manifestPath, journalPath := runManifestFixture(t, "run-detached-1")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+		"--detached",
+	}, &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("sworn run --detached exit = %d, stderr = %q", code, stderr.String())
+	}
+	wantGuidance := fmt.Sprintf(
+		"Sworn run run-detached-1 started detached.\n\n"+
+			"Watch progress:\n"+
+			"  sworn board --run run-detached-1 --journal %s\n"+
+			"  sworn tui\n",
+		journalPath,
+	)
+	if stdout.String() != wantGuidance {
+		t.Fatalf("sworn run --detached stdout = %q, want %q", stdout.String(), wantGuidance)
+	}
+
+	// Verify the run was registered and left in a clean resumable state.
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	binding, err := store.RunBinding(context.Background(), "run-detached-1")
+	if err != nil || binding.ID != "run-detached-1" {
+		t.Fatalf("registered binding = %#v, %v", binding, err)
+	}
+	owner, present, err := store.CurrentOwner(context.Background(), "run-detached-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatalf("claimed owner lease remained after detached command exit: %#v", owner)
+	}
+}
+
+func TestRunForegroundExecutesAndPrintsStatus(t *testing.T) {
+	manifestPath, journalPath := runManifestFixture(t, "run-fg-1")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+	}, &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("sworn run exit = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Sworn run run-fg-1\nStatus:") {
+		t.Fatalf("sworn run stdout = %q", stdout.String())
+	}
+}
+
+func TestRunDetachedRejectsDuplicateAndInvalidShapes(t *testing.T) {
+	for _, args := range [][]string{
+		{"run", "--detached", "--detached"},
+		{"run", "--detached", "--unknown"},
+		{"run", "--manifest", "/manifest.json", "--detached", "--detached"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(args, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("run(%v) = %d, want 2", args, code)
+		}
+		if !strings.Contains(stderr.String(), "usage: sworn run") || !strings.Contains(stderr.String(), "[--detached]") {
+			t.Fatalf("run(%v) stderr = %q", args, stderr.String())
+		}
+	}
+}

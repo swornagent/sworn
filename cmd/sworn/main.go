@@ -45,7 +45,7 @@ Exact syntax:
   sworn version [--json]
   sworn init [--project ABS] [--force]
   sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
-  sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS]
+  sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS] [--detached]
   sworn pause|cancel --run ID --journal ABS --command ID --generation N
   sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
   sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
@@ -240,6 +240,7 @@ type runOptions struct {
 	manifestPath string
 	journalPath  string
 	configPath   string
+	detached     bool
 }
 
 func parseRunOptions(args []string) (runOptions, bool) {
@@ -247,6 +248,11 @@ func parseRunOptions(args []string) (runOptions, bool) {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch arg {
+		case "--detached":
+			if options.detached {
+				return runOptions{}, false
+			}
+			options.detached = true
 		case "--manifest":
 			if index+1 >= len(args) || options.manifestPath != "" {
 				return runOptions{}, false
@@ -301,7 +307,7 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		fmt.Fprintln(
 			stderr,
-			"usage: sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS]",
+			"usage: sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS] [--detached]",
 		)
 		return 2
 	}
@@ -311,7 +317,7 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 	configPath := options.configPath
 
 	if options.release == "" && options.manifestPath != "" && options.journalPath != "" {
-		return executeStart(manifestPath, journalPath, configPath, stdout, stderr)
+		return executeStart(manifestPath, journalPath, configPath, options.detached, stdout, stderr)
 	}
 
 	ctx := context.Background()
@@ -489,10 +495,10 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	return executeStart(manifestPath, journalPath, configPath, stdout, stderr)
+	return executeStart(manifestPath, journalPath, configPath, options.detached, stdout, stderr)
 }
 
-func executeStart(manifestPath, journalPath, configPath string, stdout, stderr io.Writer) int {
+func executeStart(manifestPath, journalPath, configPath string, detached bool, stdout, stderr io.Writer) int {
 	body, err := readManifest(manifestPath)
 	if err != nil {
 		writeKnownFailure(
@@ -529,6 +535,31 @@ func executeStart(manifestPath, journalPath, configPath string, stdout, stderr i
 	}
 	defer service.Close()
 	defer factory.Close()
+
+	if detached {
+		status, err := service.StartDetached(ctx, body)
+		if err != nil {
+			writeCommandFailure(
+				stderr,
+				"run",
+				"Could not start this run.",
+				err,
+			)
+			return 1
+		}
+		fmt.Fprintf(
+			stdout,
+			"Sworn run %s started detached.\n\n"+
+				"Watch progress:\n"+
+				"  sworn board --run %s --journal %s\n"+
+				"  sworn tui\n",
+			status.RunID,
+			status.RunID,
+			journalPath,
+		)
+		return 0
+	}
+
 	status, err := service.Start(ctx, body)
 	if err != nil {
 		writeCommandFailure(
