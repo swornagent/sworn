@@ -50,6 +50,12 @@ Covers #177(S5b) #196 #172 #192 #193 #173 #169(tail).
   REF_NOT_FOUND / INVALID_HEAD_OBJECT; the no-manifest message names
   the searched location; control lockout keyed off truth not
   staleness). Anchors: tui/model.go:113,140,340; view.go:481-501.
+  RULING 2026-08-20: key config is surfaceable in the TUI where it
+  makes sense — read-first: the resolved role/profile/model matrix from
+  drivers.json, operator config (listen, telemetry endpoints,
+  webhooks), records root, journal/manifest paths. Same resolution
+  seam as S1/S7; editing from the TUI is a later decision, visibility
+  is not.
 
 - **S7 guided init** (`cmd/sworn` init): RULING 2026-08-20 — `sworn
   init` is the guided per-project setup, not just scaffolding: it walks
