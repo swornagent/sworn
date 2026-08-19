@@ -441,3 +441,67 @@ func TestVersionRejectsEveryOtherShape(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandErrorCodeResolvesBatonRecordErrorsAndParity(t *testing.T) {
+	t.Parallel()
+
+	// A3: CLI error code resolution covers baton record errors and parity across types
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "baton record error",
+			err:  &baton.RecordError{Code: "TARGET_DIVERGED", Msg: "target diverged"},
+			want: "TARGET_DIVERGED",
+		},
+		{
+			name: "journal error",
+			err:  &journal.Error{Code: "STALE_RETRY_EPOCH"},
+			want: "STALE_RETRY_EPOCH",
+		},
+		{
+			name: "runtime error",
+			err:  &runtimepkg.Error{Code: "INVALID_RUN"},
+			want: "INVALID_RUN",
+		},
+		{
+			name: "gitx error",
+			err:  &gitx.Error{Code: "AUTHORITY_MOVED"},
+			want: "AUTHORITY_MOVED",
+		},
+		{
+			name: "driver contract error",
+			err:  &driver.ContractError{Code: "UNCONTAINED_DISPATCH_REFUSED"},
+			want: "UNCONTAINED_DISPATCH_REFUSED",
+		},
+		{
+			name: "cockpit error",
+			err:  &cockpit.Error{Code: "BOARD_FAILED"},
+			want: "BOARD_FAILED",
+		},
+		{
+			name: "uncoded error",
+			err:  fmt.Errorf("generic operational error"),
+			want: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := commandErrorCode(tc.err)
+			if got != tc.want {
+				t.Fatalf("commandErrorCode(%s) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+
+	// Test writeCommandFailure prints technical code for baton record error
+	var out bytes.Buffer
+	writeCommandFailure(&out, "status", "Could not find that run in the saved record.", &baton.RecordError{Code: "TARGET_DIVERGED"})
+	outStr := out.String()
+	if !strings.Contains(outStr, "Technical code: TARGET_DIVERGED") {
+		t.Fatalf("writeCommandFailure output missing technical code: %q", outStr)
+	}
+}

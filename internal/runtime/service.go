@@ -1212,6 +1212,16 @@ func stableErrorCode(err error) string {
 		runtimeIdentityPattern.MatchString(contractErr.Code) {
 		return contractErr.Code
 	}
+	var journalErr *journal.Error
+	if errors.As(err, &journalErr) &&
+		runtimeIdentityPattern.MatchString(journalErr.Code) {
+		return journalErr.Code
+	}
+	var recordErr *baton.RecordError
+	if errors.As(err, &recordErr) &&
+		runtimeIdentityPattern.MatchString(recordErr.Code) {
+		return recordErr.Code
+	}
 	return "operational_failure"
 }
 

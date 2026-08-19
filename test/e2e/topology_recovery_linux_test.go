@@ -972,15 +972,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				outerByWork[workID][parts[3]] = effect
 				if effect.State != journal.OperationalFailed ||
-					(effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" &&
-						effect.ErrorCode != "operational_failure") {
+					effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" {
 					t.Fatalf("outer implementation failure = %#v", effect)
 				}
-				if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
-					scopeFailures++
-				} else {
-					continue
-				}
+				scopeFailures++
 				command, ok := commands[effect.ReplayKey]
 				if !ok {
 					t.Fatalf("outer implementation command missing for %s", effect.ID)
@@ -1039,7 +1034,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("scope failure attempts for %s = %#v", workID, attempts)
 			}
 		}
-		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 || prepared {
+		if err != nil || len(dispatchIDs) != 3 || scopeFailures != 3 || prepared {
 			t.Fatalf(
 				"scope failure evidence: works=%d dispatches=%d scope=%d prepared=%t err=%v",
 				len(outerByWork), len(dispatchIDs), scopeFailures, prepared, err)

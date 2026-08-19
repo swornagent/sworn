@@ -794,5 +794,9 @@ func commandErrorCode(err error) string {
 	if errors.As(err, &cockpitErr) {
 		return cockpitErr.Code
 	}
+	var batonErr *baton.RecordError
+	if errors.As(err, &batonErr) {
+		return batonErr.Code
+	}
 	return ""
 }

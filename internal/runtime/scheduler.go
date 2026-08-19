@@ -1649,7 +1649,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 				runtimeFail("RECOVERY_UNCERTAIN", errors.Join(actionErr, classifyErr))
 		default:
 			if err := s.finishClaimedFailure(
-				ctx, owner, effect, "baton_action_failed"); err != nil {
+				ctx, owner, effect, stableErrorCode(actionErr)); err != nil {
 				return after, baton.ActionResult{}, err
 			}
 			return after, baton.ActionResult{}, actionErr
