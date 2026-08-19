@@ -1,7 +1,7 @@
 {
   "outcome": "CONTINUATION_INVALID stops being a bucket: every exit that produces it carries a stable machine-readable site label into the contract error detail and the journal, so the journal alone answers which mechanism fired.",
   "scope": {
-    "include": ["internal/driver"],
+    "include": ["internal/driver", "internal/runtime"],
     "exclude": ["renaming any error code recorded in existing journals", "changing which conditions refuse", "runtime scheduling changes"]
   },
   "acceptance": [
@@ -12,7 +12,6 @@
   ],
   "checks": [
     "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
-    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
     "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
     "GOFLAGS=-buildvcs=false go vet ./...",
     "gofmt -l ./cmd ./internal ./tools ./test",

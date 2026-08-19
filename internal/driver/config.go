@@ -769,6 +769,8 @@ func (config DriverAdapterConfig) descriptor() (driverAdapterDescriptor, error) 
 			len(descriptor.refs) != 0) ||
 		(descriptor.kind == driverAdapterOpenAI &&
 			(!config.OpenAI.valid() || !validOpenAIAuth(config.OpenAI))) ||
+		(descriptor.kind == driverAdapterGemini &&
+			!validThinkingLevel(config.Gemini.ThinkingLevel)) ||
 		validateAdapterDocumentEndpoint(config, descriptor.kind) != nil {
 		return driverAdapterDescriptor{}, fail("INVALID_ADAPTER")
 	}

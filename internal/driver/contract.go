@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -42,6 +43,10 @@ var (
 // ContractError carries a stable code and never request, model, stderr, or secret bytes.
 type ContractError struct {
 	Code string
+	// RetryAfter is the provider-advised pacing for a retryable rejection
+	// (429 RetryInfo body or Retry-After header). Zero when the provider
+	// named none. It is advisory transport metadata, never provider content.
+	RetryAfter time.Duration
 }
 
 func (e *ContractError) Error() string { return "driver contract: " + e.Code }
@@ -126,6 +131,14 @@ type Usage struct {
 	// zero.
 	CacheReadTokens  *int64 `json:"cache_read_tokens,omitempty"`
 	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
+	// ReasoningTokens is the one additive, optional, backward-compatible
+	// receipt field this release authorizes. It rides the same path
+	// cache_read_tokens takes (Gemini's thoughtsTokenCount into the driver
+	// result, through NormalizeUsage into the journal receipt, observe
+	// aggregation and telemetry, and the production journey's receipt
+	// assertion); nil is honest absence and stays omitted, so every receipt
+	// written before the field existed re-encodes byte-identically.
+	ReasoningTokens *int64 `json:"reasoning_tokens,omitempty"`
 }
 type TransportStatus string
 
@@ -431,6 +444,11 @@ func ValidateResult(result Result, expected ResultBinding) error {
 				*result.Usage.CacheWriteTokens > MaxSafeInteger) {
 			return fail("INVALID_USAGE")
 		}
+		if result.Usage.ReasoningTokens != nil &&
+			(*result.Usage.ReasoningTokens < 0 ||
+				*result.Usage.ReasoningTokens > MaxSafeInteger) {
+			return fail("INVALID_USAGE")
+		}
 	}
 	if result.Cost != nil {
 		if err := validateCostObservation(*result.Cost); err != nil {
@@ -478,7 +496,10 @@ func DecodeResult(body []byte, expected ResultBinding) (Result, error) {
 		if _, err := closedObject(
 			usage,
 			[]string{"input_tokens", "output_tokens"},
-			[]string{"cache_read_tokens", "cache_write_tokens"},
+			[]string{
+				"cache_read_tokens", "cache_write_tokens",
+				"reasoning_tokens",
+			},
 		); err != nil {
 			return Result{}, err
 		}

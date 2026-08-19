@@ -873,8 +873,8 @@ func TestOpenAIOpaqueChatAndGeminiFakeServersPreserveTheirWireContracts(t *testi
 			}
 			body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
 			if err != nil ||
-				!bytes.Contains(body, []byte(`"parametersJsonSchema"`)) ||
-				bytes.Contains(body, []byte(`"parameters":`)) {
+				!bytes.Contains(body, []byte(`"parameters":`)) ||
+				bytes.Contains(body, []byte(`"parametersJsonSchema"`)) {
 				t.Errorf("Gemini JSON Schema field = %s, error=%v", body, err)
 			}
 			writeJSONResponse(t, writer, map[string]any{
@@ -1439,6 +1439,8 @@ func TestGeminiConversationSurfacesCacheAndTruncation(t *testing.T) {
 		"gemini-2.5-pro",
 		toolDefinitions(ReadOnly),
 		[]byte(`{"prompt":"bounded"}`),
+		0,
+		"",
 	)
 	if err != nil {
 		t.Fatal(err)

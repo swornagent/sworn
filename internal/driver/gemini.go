@@ -16,6 +16,12 @@ type geminiConversation struct {
 	pending  []geminiPending
 	ledger   *continuationLedger
 	step     int
+	// maxOutputTokens and thinkingLevel are the operator-controlled request
+	// knobs. maxOutputTokens comes from the invocation limits (omitted when
+	// zero, e.g. automation paths); thinkingLevel is adapter configuration
+	// (omitted when unset, never a hardcoded default).
+	maxOutputTokens int64
+	thinkingLevel   string
 }
 
 type geminiContent struct {
@@ -36,19 +42,34 @@ type geminiFunctionCall struct {
 	Args json.RawMessage `json:"args"`
 }
 
+// geminiFunctionResponse carries the fixed content-independent single-key
+// envelope {"result": "<the exact string>"}: a tool result whose text is
+// itself valid JSON still rides as text, never parsed and embedded
+// structured. The provider's functionResponse part carries only name and the
+// envelope (no id), matching the recorded n3/n6 wire shape.
 type geminiFunctionResponse struct {
-	ID       string `json:"id,omitempty"`
 	Name     string `json:"name"`
 	Response struct {
-		Output string `json:"output"`
-		Failed bool   `json:"failed"`
+		Result string `json:"result"`
 	} `json:"response"`
 }
 
 type geminiDeclaration struct {
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	ParametersJSONSchema json.RawMessage `json:"parametersJsonSchema"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// geminiThinkingConfig and geminiGenerationConfig render the recorded
+// generationConfig shape: maxOutputTokens then thinkingConfig, each omitted
+// when the operator left the knob unset.
+type geminiThinkingConfig struct {
+	ThinkingLevel string `json:"thinkingLevel"`
+}
+
+type geminiGenerationConfig struct {
+	MaxOutputTokens int64                 `json:"maxOutputTokens,omitempty"`
+	ThinkingConfig  *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 type geminiPending struct {
@@ -72,29 +93,47 @@ func NewGeminiAdapter(
 	if err != nil {
 		return nil, err
 	}
+	if !validThinkingLevel(config.ThinkingLevel) ||
+		config.InputTokensPerMinute < 0 {
+		return nil, fail("INVALID_ADAPTER")
+	}
 	factory := func(
 		prompt []byte,
 		model string,
 		tools []providerToolDefinition,
+		limits Limits,
 	) (providerConversation, error) {
-		return newGeminiConversation(config.Endpoint, model, tools, prompt)
+		return newGeminiConversation(
+			config.Endpoint, model, tools, prompt,
+			limits.OutputBytes, config.ThinkingLevel,
+		)
 	}
 	configuration := struct {
 		HTTPProfileConfig
 		Family ProfileFamily
 	}{transport.config, ProfileGemini}
-	return newLoopAdapter(
+	adapter, err := newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
 		"", providerDialectGemini, configuration, factory, transport,
 	)
+	if err != nil {
+		return nil, err
+	}
+	adapter.pacingCap = config.InputTokensPerMinute
+	return adapter, nil
 }
 
 func newGeminiConversation(
 	baseURL, model string,
 	definitions []providerToolDefinition,
 	prompt []byte,
+	maxOutputTokens int64,
+	thinkingLevel string,
 ) (*geminiConversation, error) {
-	if validateEndpoint(baseURL) != nil || validateText(model, 500, false) != nil {
+	if validateEndpoint(baseURL) != nil ||
+		validateText(model, 500, false) != nil ||
+		maxOutputTokens < 0 || maxOutputTokens > MaxProviderOutputBytes ||
+		!validThinkingLevel(thinkingLevel) {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	declarations, err := geminiDeclarations(definitions)
@@ -107,8 +146,22 @@ func newGeminiConversation(
 		contents: []geminiContent{{
 			Role: "user", Parts: []geminiPart{{Text: &promptText}},
 		}},
-		ledger: newContinuationLedger(),
+		ledger:          newContinuationLedger(),
+		maxOutputTokens: maxOutputTokens,
+		thinkingLevel:   thinkingLevel,
 	}, nil
+}
+
+// validThinkingLevel admits the closed operator vocabulary. An empty value
+// means the thinkingConfig knob is unset and nothing is emitted; every other
+// value fails closed so a typo never reaches the wire as a hardcoded default.
+func validThinkingLevel(value string) bool {
+	switch value {
+	case "", "LOW", "MEDIUM", "HIGH":
+		return true
+	default:
+		return false
+	}
 }
 
 func geminiDeclarations(
@@ -124,34 +177,76 @@ func geminiDeclarations(
 			len(definition.InputSchema) > MaxToolArgumentBytes {
 			return nil, fail("CONTINUATION_INVALID")
 		}
+		parameters, err := geminiParameterSchema(definition.InputSchema)
+		if err != nil {
+			return nil, err
+		}
 		declarations[index] = geminiDeclaration{
 			Name: definition.Name, Description: definition.Description,
-			ParametersJSONSchema: append([]byte(nil), definition.InputSchema...),
+			Parameters: parameters,
 		}
 	}
 	return declarations, nil
+}
+
+// geminiParameterSchema renders a tool input schema in the generateContent
+// Schema subset: the API rejects whole requests over JSON Schema keywords
+// absent from its Schema proto, and every sworn tool pins
+// additionalProperties. The keyword is advisory to the model here - the
+// closed shapes stay enforced host-side at submission and argument
+// validation - so it is dropped at schema nodes only, never inside
+// properties, where a tool argument may legitimately carry that name.
+func geminiParameterSchema(raw json.RawMessage) (json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	stripUnsupportedSchemaKeywords(schema)
+	rendered, err := json.Marshal(schema)
+	if err != nil || len(rendered) > MaxToolArgumentBytes {
+		return nil, fail("CONTINUATION_INVALID")
+	}
+	return rendered, nil
+}
+
+func stripUnsupportedSchemaKeywords(schema map[string]any) {
+	delete(schema, "additionalProperties")
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, value := range properties {
+			if child, ok := value.(map[string]any); ok {
+				stripUnsupportedSchemaKeywords(child)
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		stripUnsupportedSchemaKeywords(items)
+	}
 }
 
 func (conversation *geminiConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
 		return providerRequest{}, fail("CONTINUATION_INVALID")
 	}
+	generation := geminiGenerationConfig{
+		MaxOutputTokens: conversation.maxOutputTokens,
+	}
+	if conversation.thinkingLevel != "" {
+		generation.ThinkingConfig = &geminiThinkingConfig{
+			ThinkingLevel: conversation.thinkingLevel,
+		}
+	}
 	body, err := json.Marshal(struct {
 		Contents []geminiContent `json:"contents"`
 		Tools    []struct {
 			FunctionDeclarations []geminiDeclaration `json:"functionDeclarations"`
 		} `json:"tools"`
-		GenerationConfig struct {
-			CandidateCount int `json:"candidateCount"`
-		} `json:"generationConfig"`
+		GenerationConfig geminiGenerationConfig `json:"generationConfig"`
 	}{
 		Contents: conversation.contents,
 		Tools: []struct {
 			FunctionDeclarations []geminiDeclaration `json:"functionDeclarations"`
 		}{{FunctionDeclarations: conversation.tools}},
-		GenerationConfig: struct {
-			CandidateCount int `json:"candidateCount"`
-		}{CandidateCount: 1},
+		GenerationConfig: generation,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -356,6 +451,16 @@ func geminiUsage(value any) (*Usage, error) {
 		return nil, fail("INVALID_USAGE")
 	}
 	result := &Usage{InputTokens: input, OutputTokens: output}
+	// thoughtsTokenCount is the reasoning side of the native usage
+	// vocabulary, admitted on the same path cache reads ride: it lands on
+	// the driver result and is summed across turns exactly like cache reads.
+	if value, present := metadata["thoughtsTokenCount"]; present {
+		reasoning, reasoningOK := safeJSONInt(value)
+		if !reasoningOK {
+			return nil, fail("INVALID_USAGE")
+		}
+		result.ReasoningTokens = &reasoning
+	}
 	if _, present := metadata["cachedContentTokenCount"]; present {
 		read, readOK := safeJSONInt(metadata["cachedContentTokenCount"])
 		if !readOK {
@@ -421,11 +526,8 @@ func (conversation *geminiConversation) appendResults(results []providerToolResu
 			len(result.Content) > MaxToolResultBytes || !validOpaqueText(result.Content) {
 			return fail("CONTINUATION_INVALID")
 		}
-		response := &geminiFunctionResponse{
-			ID: expected.providerID, Name: expected.call.Name,
-		}
-		response.Response.Output = string(result.Content)
-		response.Response.Failed = result.Failed
+		response := &geminiFunctionResponse{Name: expected.call.Name}
+		response.Response.Result = string(result.Content)
 		parts[index].FunctionResponse = response
 	}
 	conversation.contents = append(conversation.contents, geminiContent{Role: "user", Parts: parts})
@@ -460,10 +562,9 @@ func (conversation *geminiConversation) resume(
 	for index, part := range last.Parts {
 		if part.FunctionResponse == nil || part.Text != nil ||
 			part.FunctionCall != nil || part.ThoughtSignature != "" ||
-			part.FunctionResponse.ID != calls[index].ID ||
 			part.FunctionResponse.Name != calls[index].Name ||
 			!validOpaqueText(
-				[]byte(part.FunctionResponse.Response.Output),
+				[]byte(part.FunctionResponse.Response.Result),
 			) {
 			return fail("CONTINUATION_INVALID")
 		}
@@ -495,7 +596,7 @@ func (conversation *geminiConversation) close() {
 				clearBytes(entry.FunctionCall.Args)
 			}
 			if entry.FunctionResponse != nil {
-				entry.FunctionResponse.Response.Output = ""
+				entry.FunctionResponse.Response.Result = ""
 			}
 		}
 	}
@@ -510,7 +611,7 @@ func (conversation *geminiConversation) close() {
 
 func clearGeminiDeclarations(declarations []geminiDeclaration) {
 	for index := range declarations {
-		clearBytes(declarations[index].ParametersJSONSchema)
+		clearBytes(declarations[index].Parameters)
 	}
 }
 

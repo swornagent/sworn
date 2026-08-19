@@ -400,6 +400,69 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 	}
 }
 
+// A7: when a group reports reasoning, the sworn.eval.reasoning_tokens metric
+// is emitted with the group labels and the sworn.reasoning_tokens attribute
+// rides the process segment span; a record that reports none emits neither,
+// keeping the pinned allowlists byte-valid.
+func TestTelemetrySurfacesReasoningTokensWhenReported(t *testing.T) {
+	t.Parallel()
+
+	record := testTelemetryRecord("reasoning")
+	record.Usage.ReasoningTokens = int64Pointer(1779)
+	record.Groups[0].Usage.ReasoningTokens = int64Pointer(1779)
+
+	traceExporter := &captureTraceExporter{started: make(chan struct{})}
+	metricExporter := &captureMetricExporter{}
+	telemetry, err := newTelemetry(
+		traceExporter,
+		metricExporter,
+		"0.3.0-dev",
+		4,
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !telemetry.TryEnqueue(record) {
+		t.Fatal("record was not accepted")
+	}
+	select {
+	case <-traceExporter.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start export")
+	}
+	shutdownTelemetry(t, telemetry)
+
+	spans, _ := traceExporter.snapshot()
+	found := false
+	for _, span := range spans {
+		if span.name != "sworn.process.segment" {
+			continue
+		}
+		if value, present := span.attributes["sworn.reasoning_tokens"]; !present ||
+			value != int64(1779) {
+			t.Fatalf("segment reasoning attribute = %#v", span.attributes)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("segment span missing reasoning attribute")
+	}
+	metrics, _ := metricExporter.snapshot()
+	found = false
+	for _, point := range metrics {
+		if point.name == "sworn.eval.reasoning_tokens" {
+			if point.value != 1779 {
+				t.Fatalf("reasoning metric value = %d", point.value)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("sworn.eval.reasoning_tokens metric was not emitted")
+	}
+}
+
 func TestTelemetryBackpressureAndExporterFailureAreNonBlocking(
 	t *testing.T,
 ) {

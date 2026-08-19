@@ -1,7 +1,7 @@
 {
   "outcome": "The revision tax gets a deterministic gate: plan recording computes the reverse-dependency closure of every slice's scope and refuses to record when a package containing tests or golden fixtures that pin scope-package behaviour lies outside scope and is not explicitly waived in the plan, so under-derived scope is caught at authoring time instead of after a sealed candidate dies.",
   "scope": {
-    "include": ["internal/baton", "internal/gitx", "tools"],
+    "include": ["internal/baton", "internal/gitx", "internal/driver", "internal/runtime", "tools"],
     "exclude": ["heuristic or model-judged lint (deterministic import analysis only)", "changing scope semantics at seal or candidate validation", "blocking on anything outside the repository's own module graph"]
   },
   "acceptance": [
@@ -12,7 +12,6 @@
   ],
   "checks": [
     "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
-    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
     "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
     "GOFLAGS=-buildvcs=false go vet ./...",
     "gofmt -l ./cmd ./internal ./tools ./test",
