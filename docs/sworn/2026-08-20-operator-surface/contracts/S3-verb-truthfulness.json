@@ -7,7 +7,7 @@
   "acceptance": [
     {"id": "A1", "text": "Takeover while the owner lease is live returns a named owner-transition signal carrying the lease expiry, mirroring the existing Resume branch: pinned by a runtime control fixture on the OWNER_ACTIVE path."},
     {"id": "A2", "text": "The CLI renders that signal as an actionable message naming the wait, exiting nonzero rather than printing a success-shaped status: pinned by a cmd/sworn fixture."},
-    {"id": "A3", "text": "The board's takeover hint appears only when the journal's takeover conditions actually hold: pinned by a presentation fixture where a dead-but-unexpired owner shows the wait, not the hint."}
+    {"id": "A3", "text": "The board's takeover hint appears only when the journal's takeover admission conditions actually hold (the owner lease is expired), and status derivation introduces no new run state and infers no owner liveness: the journal cannot distinguish a dead owner from a live owner between claims, so an unexpired lease renders the run's existing state without the takeover hint, and the named wait with the remaining lease time surfaces only on the takeover-refusal path (A1). Pinned by presentation fixtures: an unexpired-lease snapshot (the same journal facts whether the owner is dead or alive) renders without the takeover hint, and an expired-lease snapshot renders the hint."}
   ],
   "checks": [
     "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
@@ -19,6 +19,7 @@
   "constraints": [
     "No admission rule changes; this slice only stops a refusal from wearing a success costume.",
     "Evidence basis: the OWNER_ACTIVE switch returns a plain status for takeover (internal/runtime/service.go:1137-1146), the CLI prints it with exit 0, and the board advertises takeover the journal will reject (internal/runtime/status.go:277, internal/cockpit/presentation.go:75-78) - two failed attempts and a wrong hypothesis before the real cause was found (sworn#193).",
+    "Truth-model boundary (rev2, from five rejected design attempts): any Status-level wait condition of the shape ownerPresent and ownerActive and no claimed effects is satisfied by a healthy live run at every cycle boundary when queried from any process that does not hold the owner (board, serve, TUI, and AnswerAttention from a second process all query through a Service holding no owner, internal/runtime/service.go:1263-1301), so no such derivation can be truthful. The hint gates on lease expiry; the wait belongs to the refusal.",
     "Check evidence belongs in the submission's checks field, never in files added to the repository."
   ],
   "depends_on": [], "consumes": []
