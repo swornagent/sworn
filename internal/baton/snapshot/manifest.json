@@ -64,8 +64,8 @@
     },
     {
       "path": "operations/baton-plan.md",
-      "size": 3388,
-      "sha256": "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"
+      "size": 3750,
+      "sha256": "sha256:30a21cd1b660553aa71c2e85bdbaa24db577467f403fd3a49519610d7fa9a355"
     },
     {
       "path": "operations/baton-verify.md",

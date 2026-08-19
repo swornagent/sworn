@@ -45,9 +45,14 @@ bookkeeping do not require revision when the promise is unchanged.
 4. Give every slice one independently reviewable result, an acceptance
    boundary that can fail through the real product, the minimum end-to-end
    proof that runs the real built product, real dependencies and consumed
-   products, and explicit touchpoint ownership.
+   products, and explicit touchpoint ownership. Prefer one mechanism per
+   slice: a verdict on a bundle re-litigates every mechanism in it, so
+   bundle only when the fixed cost of a slice genuinely argues for it.
 5. Put only promised behavior, product surfaces, minimum proof, constraints,
-   authority, and real product relationships into slice contracts. Reuse the
+   authority, and real product relationships into slice contracts. Cite each
+   acceptance criterion's evidence anchor — the fixture, file, or read path
+   that proves it — never the implementation route, which belongs to the
+   Implementer and the Captain. Reuse the
    product's existing owners; never invent a parallel function, field, schema,
    or component where one already exists.
 6. Preserve stable slice identities; add or explicitly retire slices when the

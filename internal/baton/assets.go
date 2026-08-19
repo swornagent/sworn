@@ -38,11 +38,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256     = "sha256:e5892f7f8f0f8d21baaab08f4f3ca9bab5733c8d27337ee4cc248f0988ac8b51"
+	ManifestSHA256     = "sha256:4033e1c2427cbd22aaba6f2ce0a1f628ab56f37f89283734cc434b1f7f0376e7"
 	AssetCount         = 25
-	AssetBytes         = int64(390962)
+	AssetBytes         = int64(391324)
 
-	releaseDocumentSHA256 = "sha256:91bbbec5da67baa45d5e32532786c7521629c020849128494e0e05e5cc4a5cf0"
+	releaseDocumentSHA256 = "sha256:cc58767282eef41b89383b6e8e880c1c4cebf9bb6ada1887bf8e598f48de9203"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -313,7 +313,7 @@ func validateManifestIdentity(manifest assetManifest) error {
 
 func validateReleaseBindings(source fs.FS, release releaseFile, digests map[string]string) error {
 	expectedOperations := []releaseOperation{
-		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"},
+		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:30a21cd1b660553aa71c2e85bdbaa24db577467f403fd3a49519610d7fa9a355"},
 		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:268dad4ce9a5b3d3ceac8a9fb30ecb868c4592b2e161b462cf13eec1f8efe205"},
 		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},
 		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:c495b643c47d009e02e04b5af233855e9f15bca9848d08bbecfd8abbea1b99e0"},
