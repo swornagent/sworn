@@ -88,8 +88,10 @@ notification-kind sliver. Full spec below.
   per-dispatch generations with model, token split, and timing.
 - **S3 two-channel export** (`internal/observe` config + `cmd/sworn`
   wiring, extending R1-S7's guided init with the telemetry step (private endpoint, share opt-in) — export must not require reading the source; and
-  note export is serve-mediated today, so a run with no cockpit
-  attached emits nothing, which is share-channel data loss): `telemetry.private` (today's config: endpoint+headers,
+  DIRECTION 2026-08-20: export moves run-side — the engine emits its
+  own OTel because the run owns its facts; serve becomes purely a
+  view, never the export path. Kills serve-per-run as a telemetry
+  requirement and closes the no-cockpit-no-data loss structurally): `telemetry.private` (today's config: endpoint+headers,
   operator's own) and `telemetry.share` (opt-in, default endpoint =
   the project's collection gateway, overridable/disableable). The
   share channel passes a schema allowlist enforced in-engine: named
