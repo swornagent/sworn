@@ -949,6 +949,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		outerByWork := make(map[string]map[string]journal.Effect)
 		dispatchIDs := make(map[string]struct{})
 		scopeFailures := 0
+		admissionRefusals := 0
 		prepared := false
 		for _, effect := range snapshot.Effects {
 			switch effect.Kind {
@@ -971,11 +972,22 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					t.Fatalf("duplicate outer try %s for %s", parts[3], workID)
 				}
 				outerByWork[workID][parts[3]] = effect
-				if effect.State != journal.OperationalFailed ||
-					effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" {
+				if effect.State != journal.OperationalFailed {
 					t.Fatalf("outer implementation failure = %#v", effect)
 				}
-				scopeFailures++
+				switch effect.ErrorCode {
+				case "CANDIDATE_SCOPE_FAILED":
+					scopeFailures++
+				case "WORK_ALREADY_SUCCEEDED":
+					// The first try's inner dispatch succeeded before the
+					// seal refused its scope; later tries refuse at
+					// admission because a succeeded work is never re-paid
+					// within its epoch. No dispatch exists for these tries.
+					admissionRefusals++
+					continue
+				default:
+					t.Fatalf("outer implementation failure = %#v", effect)
+				}
 				command, ok := commands[effect.ReplayKey]
 				if !ok {
 					t.Fatalf("outer implementation command missing for %s", effect.ID)
@@ -1034,10 +1046,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("scope failure attempts for %s = %#v", workID, attempts)
 			}
 		}
-		if err != nil || len(dispatchIDs) != 3 || scopeFailures != 3 || prepared {
+		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 ||
+			admissionRefusals != 2 || prepared {
 			t.Fatalf(
-				"scope failure evidence: works=%d dispatches=%d scope=%d prepared=%t err=%v",
-				len(outerByWork), len(dispatchIDs), scopeFailures, prepared, err)
+				"scope failure evidence: works=%d dispatches=%d scope=%d refused=%d prepared=%t err=%v",
+				len(outerByWork), len(dispatchIDs), scopeFailures,
+				admissionRefusals, prepared, err)
 		}
 	})
 
