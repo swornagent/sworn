@@ -50,11 +50,21 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Provision Linux sandbox
+        # Hosted runners intermittently hang inside this step with zero
+        # output (sworn#223, four occurrences); the step timeout converts a
+        # silent hour-long squat into a fast, attributable failure, and the
+        # markers make a hang distinguishable from slow apt work.
+        timeout-minutes: 8
         shell: bash
         run: |
           set -euo pipefail
+          echo "::group::apt"
+          echo "provision: apt-get update starting"
           sudo apt-get update
+          echo "provision: apt-get install starting"
           sudo apt-get install --yes --no-install-recommends bubblewrap
+          echo "provision: apt done"
+          echo "::endgroup::"
           if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]]; then
             echo 1 | sudo tee \
               /proc/sys/kernel/unprivileged_userns_clone >/dev/null
