@@ -1,0 +1,28 @@
+{
+  "outcome": "One discovery seam serves every entry point: a shared resolver over the project's .sworn surface (runs, manifests, releases on release-wt refs, drivers.json, operator.json by convention) powers bare sworn run, sworn run with a release name under the three-step precedence, and the flagless surfaces that follow - so knowing absolute paths stops being the price of admission.",
+  "scope": {
+    "include": ["cmd/sworn"],
+    "exclude": ["engine behaviour (the resolver finds and names; it never starts, approves, or mutates anything)", "changing the explicit-flag forms (they remain and stay authoritative when given)", "cross-project or fleet discovery (single project root only)"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "Bare sworn run in a project with exactly one resumable run resumes it, and with exactly one recorded-and-approved release and no journal starts it; ambiguity refuses with the candidates named: pinned by cmd/sworn unit fixtures over a fixture project tree."},
+    {"id": "A2", "text": "sworn run with a release name resolves manifest, journal, and driver config from the project surface under the documented precedence (explicit flag beats project file beats refusal-with-names): pinned by a precedence table fixture in cmd/sworn."},
+    {"id": "A3", "text": "The TUI's private discovery is the same seam: cmd/sworn/tui_project.go's resolution routes through the shared resolver with no behaviour change, pinned by the existing TUI project fixtures passing unmodified or with mechanical renames only."},
+    {"id": "A4", "text": "The resolver locates .sworn/operator.json by convention and surfaces it to callers, without requiring it: pinned by resolver fixtures covering present, absent, and unreadable cases with named refusals."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Explicit flags always win; discovery only fills absence, never overrides.",
+    "A refusal names what was searched and what was found (the #169/#177 lesson: an empty answer must say where it looked).",
+    "Evidence basis: sworn run requires two absolute paths today (cmd/sworn/main.go:241 hard-requires --manifest --journal); discovery exists but is TUI-private (cmd/sworn/tui_project.go).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

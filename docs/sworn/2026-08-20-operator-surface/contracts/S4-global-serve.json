@@ -1,0 +1,28 @@
+{
+  "outcome": "sworn serve becomes the project's resident surface: started with no flags it discovers the project, lists releases and runs with their lifecycle states and a needs-you row, follows new runs as they appear, and reads the operator config by convention - one serve per project, started once, instead of one per run wired by hand.",
+  "scope": {
+    "include": ["internal/cockpit", "cmd/sworn", "internal/tui", "internal/observe", "test/e2e"],
+    "exclude": ["hosted/portal features and any cross-project fleet view (single project root)", "creating approvals or verdicts from the dashboard (the existing command facade's authority boundary is unchanged)", "the run-side telemetry export move (a later release; serve stays a view)"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "sworn serve with no flags in a project root serves every discoverable run and release: pinned by cockpit fixtures over a project tree with multiple journals, asserting the catalog lists them with lifecycle states without any --run or --journal."},
+    {"id": "A2", "text": "A run started after serve is already up appears without restarting serve: pinned by a fixture that adds a journal to the project surface and observes the catalog refresh."},
+    {"id": "A3", "text": "A needs-you view surfaces parked runs and open attentions across the project's runs, each row naming the run and the action: pinned by a projection fixture with one healthy, one parked, and one attention-holding run."},
+    {"id": "A4", "text": "The operator config is read from .sworn/operator.json by convention when --operator-config is absent, with the explicit flag still winning: pinned by cmd/sworn serve-options fixtures over present, absent, and both cases."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "The dashboard can still only observe and route journaled operator commands through the existing facade; no new authority.",
+    "Per-run serve (explicit --run --journal) remains valid and unchanged.",
+    "Evidence basis: parseServeOptions hard-requires --run and --journal (cmd/sworn/operator.go:128-137); operating a release currently means kill+relaunch serve per run - five cycles in one observed evening (sworn#196).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": ["S1-project-discovery"], "consumes": ["S1-project-discovery"]
+}

@@ -1,0 +1,27 @@
+{
+  "outcome": "The event feed knows what it is talking about: runtime-journaled events carry their effect, work, and track association in the event body, the cockpit projection surfaces that association on each evidence row, and the feed becomes filterable per track and per slice - honest structure instead of a run-wide blur.",
+  "scope": {
+    "include": ["internal/runtime", "internal/cockpit", "internal/tui", "cmd/sworn", "internal/observe", "test/e2e"],
+    "exclude": ["journal schema changes (association rides the existing opaque event body; recorded journals stay readable and their old events simply have no association)", "event content beyond association (tool results and output streams are a later release)", "new event kinds"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "Events the runtime journals during dispatch, seal, verification, and recovery carry effect, work, and (where derivable) track/slice identifiers in their bodies: pinned by runtime fixtures reading events back and asserting the association fields."},
+    {"id": "A2", "text": "The cockpit evidence projection exposes the association, and rows from journals recorded before this slice project cleanly with the association absent: pinned by projector fixtures over both a new-format and a legacy event body."},
+    {"id": "A3", "text": "The paged event read reaches an operator surface filtered by track: pinned by a cockpit fixture requesting one track's events from a two-track run and receiving only that track's rows plus run-scoped rows."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Additive only: no journal schema migration, no event-kind renames, and journals recorded before this slice remain fully readable.",
+    "Event bodies remain content-free in the privacy sense: identifiers and kinds, never prompts, responses, or file contents.",
+    "Evidence basis: Evidence is exactly {Offset, Kind, CreatedAt} (internal/cockpit/model.go:169-173) so per-track filtering has nothing to filter on; the paged read exists unexposed (internal/cockpit/projector.go:140) - sworn#173.",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

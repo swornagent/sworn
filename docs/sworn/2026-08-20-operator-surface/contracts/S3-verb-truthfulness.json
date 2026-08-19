@@ -1,0 +1,25 @@
+{
+  "outcome": "Control verbs tell the truth about why nothing happened: a takeover during an unexpired owner lease returns a named wait signal with the remaining lease time instead of a silent status dump, and the board's takeover hint derives from the actual admission conditions - so the operator's next command is informed, not guessed.",
+  "scope": {
+    "include": ["internal/runtime", "cmd/sworn", "internal/cockpit", "internal/observe", "internal/tui"],
+    "exclude": ["changing takeover admission itself (when a takeover is legal is untouched)", "new verbs"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "Takeover while the owner lease is live returns a named owner-transition signal carrying the lease expiry, mirroring the existing Resume branch: pinned by a runtime control fixture on the OWNER_ACTIVE path."},
+    {"id": "A2", "text": "The CLI renders that signal as an actionable message naming the wait, exiting nonzero rather than printing a success-shaped status: pinned by a cmd/sworn fixture."},
+    {"id": "A3", "text": "The board's takeover hint appears only when the journal's takeover conditions actually hold: pinned by a presentation fixture where a dead-but-unexpired owner shows the wait, not the hint."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "No admission rule changes; this slice only stops a refusal from wearing a success costume.",
+    "Evidence basis: the OWNER_ACTIVE switch returns a plain status for takeover (internal/runtime/service.go:1137-1146), the CLI prints it with exit 0, and the board advertises takeover the journal will reject (internal/runtime/status.go:277, internal/cockpit/presentation.go:75-78) - two failed attempts and a wrong hypothesis before the real cause was found (sworn#193).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}
