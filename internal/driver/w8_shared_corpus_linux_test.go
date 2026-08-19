@@ -1473,7 +1473,7 @@ func emitInit(family, model, access string) {
 		"mcp_servers": []any{map[string]any{
 			"name": "sworn", "status": "connected",
 		}},
-		"capabilities": []any{"interrupt_receipt_v1", "msg_lifecycle_v1"},
+		"capabilities": []any{"interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"},
 		"analytics_disabled": true,
 		"product_feedback_disabled": true,
 	}
