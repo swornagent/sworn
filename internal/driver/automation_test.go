@@ -284,14 +284,14 @@ func (conversation *automationTestConversation) appendResults(
 }
 
 func (*automationTestConversation) appendInstruction([]byte) error {
-	return fail("CONTINUATION_INVALID")
+	return failContinuation("test.fixture.append_instruction")
 }
 
 func (*automationTestConversation) resume(
 	[]byte,
 	[]providerToolDefinition,
 ) error {
-	return fail("CONTINUATION_INVALID")
+	return failContinuation("test.fixture.resume")
 }
 
 func (*automationTestConversation) declaredReasoningEffort() string { return "" }

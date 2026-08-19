@@ -684,7 +684,13 @@ func (r *repository) updateRefs(snapshot []CapturedRef, operations []refOperatio
 func translateGitError(operation string, err error) error {
 	var typed *gitx.Error
 	if errors.As(err, &typed) {
-		return recordWrap(typed.Code, operation, err)
+		return &RecordError{
+			Code:       typed.Code,
+			Msg:        operation,
+			Err:        err,
+			Paths:      typed.Paths,
+			TotalPaths: typed.TotalPaths,
+		}
 	}
 	return recordWrap("GIT_EXECUTION_FAILED", operation, err)
 }

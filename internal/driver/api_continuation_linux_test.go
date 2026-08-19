@@ -476,3 +476,266 @@ func equalObservation(left, right Observation) bool {
 	rightBody, _ := json.Marshal(right)
 	return bytes.Equal(leftBody, rightBody)
 }
+
+func TestAPIContinuationResumesAfterMultiCallTurn(t *testing.T) {
+	const designID = "api-continuation-multicall-design"
+	const implementationID = "api-continuation-multicall-impl"
+	designSubmission := submissionFixture(
+		t,
+		designID,
+		ImplementerDesign,
+		"",
+	)
+	implementationSubmission := submissionFixture(
+		t,
+		implementationID,
+		ImplementerImplementation,
+		"",
+	)
+	var requests atomic.Int64
+	adapter := apiContinuationChatAdapter(t, func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := requests.Add(1)
+		body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		switch turn {
+		case 1:
+			// First turn of design: assistant returns 2 tool calls (Read a, Read b)
+			writeJSONResponse(t, writer, map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]any{
+						"role": "assistant", "content": nil,
+						"tool_calls": []any{
+							openAIToolCallFixture("read-a", "Read", `{"path":"/workspace/a.txt"}`),
+							openAIToolCallFixture("read-b", "Read", `{"path":"/workspace/b.txt"}`),
+						},
+					},
+					"finish_reason": "tool_calls",
+				}},
+				"usage": map[string]any{"prompt_tokens": 2, "completion_tokens": 4},
+			})
+		case 2:
+			// Second turn of design: assistant submits
+			var reqBody struct {
+				Messages []openAIMessage `json:"messages"`
+			}
+			if json.Unmarshal(body, &reqBody) != nil || len(reqBody.Messages) != 4 ||
+				reqBody.Messages[2].ToolCallID != "read-a" ||
+				reqBody.Messages[3].ToolCallID != "read-b" {
+				t.Errorf("turn 2 request messages = %s", body)
+			}
+			writeJSONResponse(t, writer, openAIToolCallResponse(
+				"design-submit",
+				"sworn_submit",
+				submissionToolArguments(t, designSubmission),
+				6,
+				8,
+			))
+		case 3:
+			// Resumed implementation turn
+			var reqBody struct {
+				Messages []openAIMessage `json:"messages"`
+			}
+			if json.Unmarshal(body, &reqBody) != nil || len(reqBody.Messages) != 7 ||
+				reqBody.Messages[5].Role != "tool" ||
+				reqBody.Messages[5].ToolCallID != "design-submit" ||
+				reqBody.Messages[6].Role != "user" {
+				t.Errorf("turn 3 resume request messages = %s", body)
+			}
+			writeJSONResponse(t, writer, openAIToolCallResponse(
+				"impl-submit",
+				"sworn_submit",
+				submissionToolArguments(t, implementationSubmission),
+				10,
+				12,
+			))
+		default:
+			t.Errorf("unexpected turn %d", turn)
+		}
+	})
+
+	design := apiContinuationInvocation(
+		t,
+		adapter,
+		designID,
+		ImplementerDesign,
+		ReadOnly,
+		true,
+		nil,
+	)
+	if err := osWriteProviderFixture(design.HostWorkspace, "a.txt", "content A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteProviderFixture(design.HostWorkspace, "b.txt", "content B"); err != nil {
+		t.Fatal(err)
+	}
+
+	observation, handle, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		design,
+		continuationContractBinding(),
+		nil,
+	)
+	if err != nil || observation.Handoff == nil || handle == nil ||
+		result.Mode != ContinuationModeTranscriptReplay ||
+		result.Status != ContinuationStatusSuspended ||
+		requests.Load() != 2 {
+		t.Fatalf(
+			"design observation=%#v handle=%p result=%#v requests=%d error=%v",
+			observation,
+			handle,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+
+	receipt := []byte(`{"decision":"proceed"}`)
+	input := Input{
+		Name:   "captain-receipt",
+		Path:   "captain/review.json",
+		Digest: Digest(receipt),
+	}
+	implementation := apiContinuationInvocation(
+		t,
+		adapter,
+		implementationID,
+		ImplementerImplementation,
+		ReadWrite,
+		false,
+		[]InputContent{{Input: input, Bytes: receipt}},
+	)
+	observation, next, result, err := (Dispatcher{}).InvokeTurn(
+		context.Background(),
+		implementation,
+		continuationContractBinding(),
+		handle,
+	)
+	if err != nil || observation.Handoff == nil || next != nil ||
+		result.Mode != ContinuationModeTranscriptReplay ||
+		result.Status != ContinuationStatusResumed ||
+		requests.Load() != 3 {
+		t.Fatalf(
+			"resume observation=%#v next=%p result=%#v requests=%d error=%v",
+			observation,
+			next,
+			result,
+			requests.Load(),
+			err,
+		)
+	}
+}
+
+func TestValidOpenAIResumeTailMultiCall(t *testing.T) {
+	t.Parallel()
+
+	jsonStr := func(s string) json.RawMessage {
+		b, _ := json.Marshal(s)
+		return b
+	}
+
+	// 1. Single-call tail (valid)
+	singleCall := []openAIMessage{
+		{Role: "user", Content: jsonStr("prompt")},
+		{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "c1", Type: "function"}}},
+		{Role: "tool", ToolCallID: "c1", Content: jsonStr("res1")},
+	}
+	if !validOpenAIResumeTail(singleCall) {
+		t.Fatal("singleCall should be valid")
+	}
+
+	// 2. Multi-call tail (2 calls, valid)
+	multiCall2 := []openAIMessage{
+		{Role: "user", Content: jsonStr("prompt")},
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "c1", Type: "function"},
+			{ID: "c2", Type: "function"},
+		}},
+		{Role: "tool", ToolCallID: "c1", Content: jsonStr("res1")},
+		{Role: "tool", ToolCallID: "c2", Content: jsonStr("res2")},
+	}
+	if !validOpenAIResumeTail(multiCall2) {
+		t.Fatal("multiCall2 should be valid")
+	}
+
+	// 3. Multi-call tail (3 calls, valid)
+	multiCall3 := []openAIMessage{
+		{Role: "user", Content: jsonStr("prompt")},
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "c1", Type: "function"},
+			{ID: "c2", Type: "function"},
+			{ID: "c3", Type: "function"},
+		}},
+		{Role: "tool", ToolCallID: "c1", Content: jsonStr("res1")},
+		{Role: "tool", ToolCallID: "c2", Content: jsonStr("res2")},
+		{Role: "tool", ToolCallID: "c3", Content: jsonStr("res3")},
+	}
+	if !validOpenAIResumeTail(multiCall3) {
+		t.Fatal("multiCall3 should be valid")
+	}
+
+	// 4. Multi-call tail with ID mismatch (invalid)
+	mismatchID := []openAIMessage{
+		{Role: "user", Content: jsonStr("prompt")},
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "c1", Type: "function"},
+			{ID: "c2", Type: "function"},
+		}},
+		{Role: "tool", ToolCallID: "c1", Content: jsonStr("res1")},
+		{Role: "tool", ToolCallID: "wrong", Content: jsonStr("res2")},
+	}
+	if validOpenAIResumeTail(mismatchID) {
+		t.Fatal("mismatchID should be invalid")
+	}
+
+	// 5. Multi-call tail with count mismatch (invalid: 2 calls, 1 result)
+	countMismatch := []openAIMessage{
+		{Role: "user", Content: jsonStr("prompt")},
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "c1", Type: "function"},
+			{ID: "c2", Type: "function"},
+		}},
+		{Role: "tool", ToolCallID: "c1", Content: jsonStr("res1")},
+	}
+	if validOpenAIResumeTail(countMismatch) {
+		t.Fatal("countMismatch should be invalid")
+	}
+
+	// 6. Direct conversation.resume() on 2-call tail
+	conv, err := newOpenAIConversation(
+		"https://example.invalid/v1/chat/completions",
+		"model",
+		toolDefinitions(ReadOnly),
+		[]byte("initial prompt"),
+		providerDialectOpenAIChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conv.close()
+
+	// Simulate turn 1 multi-call
+	conv.messages = append(conv.messages, openAIMessage{
+		Role: "assistant",
+		ToolCalls: []openAIToolCall{
+			{ID: "call-1", Type: "function", Function: openAIFunction{Name: "Read", Arguments: []byte(`{"path":"/a"}`)}},
+			{ID: "call-2", Type: "function", Function: openAIFunction{Name: "Read", Arguments: []byte(`{"path":"/b"}`)}},
+		},
+	})
+	conv.messages = append(conv.messages,
+		openAIMessage{Role: "tool", ToolCallID: "call-1", Content: jsonStr("content A")},
+		openAIMessage{Role: "tool", ToolCallID: "call-2", Content: jsonStr("content B")},
+	)
+	if err := conv.resume([]byte("resume prompt"), toolDefinitions(ReadWrite)); err != nil {
+		t.Fatalf("conv.resume failed on 2-call tail: %v", err)
+	}
+	if len(conv.messages) != 5 || conv.messages[4].Role != "user" {
+		t.Fatalf("conv.messages after resume = %#v", conv.messages)
+	}
+}

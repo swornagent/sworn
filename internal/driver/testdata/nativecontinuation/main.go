@@ -272,6 +272,7 @@ func emitInit(family string, access string) {
 		}},
 		"capabilities": []any{
 			"interrupt_receipt_v1",
+			"interrupt_cancel_queued_v1",
 			"msg_lifecycle_v1",
 		},
 		"analytics_disabled":        true,

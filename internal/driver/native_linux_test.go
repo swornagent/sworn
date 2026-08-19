@@ -956,7 +956,7 @@ func TestNativeInitializationCaptureRejectsAmbientCapabilities(t *testing.T) {
 			"model": "exact-native-model", "permissionMode": "dontAsk",
 			"slash_commands": []any{}, "skills": []any{}, "plugins": []any{},
 			"tools": tools, "capabilities": []any{
-				"interrupt_receipt_v1", "msg_lifecycle_v1",
+				"interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1",
 			},
 			"analytics_disabled":        true,
 			"product_feedback_disabled": true,

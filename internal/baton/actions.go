@@ -171,6 +171,10 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		return ActionResult{}, recordFail("INVALID_HEAD_OBJECT", "release ref is not absent or one direct commit")
 	}
 
+	if err := a.verifyPlanScopeLint(parsed, target.Head); err != nil {
+		return ActionResult{}, err
+	}
+
 	parent := target.Head
 	var previous *State
 	preparedTrackResets := make(map[string]string)
@@ -459,6 +463,10 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 // for the shared validator this and read-time discovery both use.
 func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
 	return resolveManifestContracts(a.repository, parsed, source)
+}
+
+func (a *Actions) verifyPlanScopeLint(parsed Plan, commit string) error {
+	return ValidatePlanScopeLint(a.repository, parsed, commit)
 }
 
 // documentsForInstall returns the authored documents this plan install

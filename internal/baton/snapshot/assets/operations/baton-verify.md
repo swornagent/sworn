@@ -34,9 +34,11 @@ from its exact implementation base.
 ## Actions
 
 1. Recheck every trust fact from immutable saved evidence.
-2. Inspect the exact candidate and full diff. Re-run required worker-runnable
-   checks, use helpful extra evidence, and test each acceptance claim where it
-   matters. After repair, recheck the whole candidate and earlier findings.
+2. Inspect the exact candidate and full diff. Batch independent reads,
+   searches, and inspection probes into one turn. Re-run required
+   worker-runnable checks, use helpful extra evidence, and test each
+   acceptance claim where it matters. After repair, recheck the whole candidate
+   and earlier findings.
 3. For a declared containment-requiring check, READ the engine's recorded
    host-boundary evidence (projected as an input) instead of re-running it:
    confirm every declared host check is present, labelled host_boundary, and

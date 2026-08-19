@@ -93,7 +93,8 @@ func NewGeminiAdapter(
 	if err != nil {
 		return nil, err
 	}
-	if !validThinkingLevel(config.ThinkingLevel) {
+	if !validThinkingLevel(config.ThinkingLevel) ||
+		config.InputTokensPerMinute < 0 {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	factory := func(
@@ -111,10 +112,15 @@ func NewGeminiAdapter(
 		HTTPProfileConfig
 		Family ProfileFamily
 	}{transport.config, ProfileGemini}
-	return newLoopAdapter(
+	adapter, err := newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileGemini,
 		"", providerDialectGemini, configuration, factory, transport,
 	)
+	if err != nil {
+		return nil, err
+	}
+	adapter.pacingCap = config.InputTokensPerMinute
+	return adapter, nil
 }
 
 func newGeminiConversation(
@@ -162,26 +168,64 @@ func geminiDeclarations(
 	definitions []providerToolDefinition,
 ) ([]geminiDeclaration, error) {
 	if len(definitions) == 0 || len(definitions) > MaxToolCalls {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.gemini.tool_count_out_of_bounds")
 	}
 	declarations := make([]geminiDeclaration, len(definitions))
 	for index, definition := range definitions {
 		if !providerKeyPattern.MatchString(definition.Name) ||
 			len(definition.InputSchema) == 0 ||
 			len(definition.InputSchema) > MaxToolArgumentBytes {
-			return nil, fail("CONTINUATION_INVALID")
+			return nil, failContinuation("continuation.gemini.invalid_tool_definition")
+		}
+		parameters, err := geminiParameterSchema(definition.InputSchema)
+		if err != nil {
+			return nil, err
 		}
 		declarations[index] = geminiDeclaration{
 			Name: definition.Name, Description: definition.Description,
-			Parameters: append([]byte(nil), definition.InputSchema...),
+			Parameters: parameters,
 		}
 	}
 	return declarations, nil
 }
 
+// geminiParameterSchema renders a tool input schema in the generateContent
+// Schema subset: the API rejects whole requests over JSON Schema keywords
+// absent from its Schema proto, and every sworn tool pins
+// additionalProperties. The keyword is advisory to the model here - the
+// closed shapes stay enforced host-side at submission and argument
+// validation - so it is dropped at schema nodes only, never inside
+// properties, where a tool argument may legitimately carry that name.
+func geminiParameterSchema(raw json.RawMessage) (json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, failContinuation("continuation.gemini.parameter_schema_unmarshal_failed")
+	}
+	stripUnsupportedSchemaKeywords(schema)
+	rendered, err := json.Marshal(schema)
+	if err != nil || len(rendered) > MaxToolArgumentBytes {
+		return nil, failContinuation("continuation.gemini.parameter_schema_marshal_failed")
+	}
+	return rendered, nil
+}
+
+func stripUnsupportedSchemaKeywords(schema map[string]any) {
+	delete(schema, "additionalProperties")
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, value := range properties {
+			if child, ok := value.(map[string]any); ok {
+				stripUnsupportedSchemaKeywords(child)
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		stripUnsupportedSchemaKeywords(items)
+	}
+}
+
 func (conversation *geminiConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
-		return providerRequest{}, fail("CONTINUATION_INVALID")
+		return providerRequest{}, failContinuation("continuation.gemini.request_pending_tool_calls")
 	}
 	generation := geminiGenerationConfig{
 		MaxOutputTokens: conversation.maxOutputTokens,
@@ -218,7 +262,7 @@ func (conversation *geminiConversation) request() (providerRequest, error) {
 func (conversation *geminiConversation) accept(body []byte) (providerTurn, error) {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxProviderResponseBytes {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_invalid_state_or_body_size")
 	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
 	if err != nil {
@@ -230,11 +274,11 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		[]string{"usageMetadata", "modelVersion", "responseId", "promptFeedback"},
 	)
 	if err != nil {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_root_invalid")
 	}
 	candidates, ok := root["candidates"].([]any)
 	if !ok || len(candidates) != 1 {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_candidates_invalid")
 	}
 	candidate, err := closedObject(
 		candidates[0],
@@ -245,15 +289,15 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		},
 	)
 	if err != nil {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_candidate_invalid")
 	}
 	finishReason, finishOK := candidate["finishReason"].(string)
 	if !finishOK {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_finish_reason_missing")
 	}
 	if finishReason != "STOP" {
 		if finishReason != "MAX_TOKENS" {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.gemini.accept_finish_reason_unsupported")
 		}
 		// The provider hit its output-token ceiling: report the explicit
 		// named failure carrying the provider's own finish reason instead of
@@ -273,11 +317,11 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 	}
 	content, err := closedObject(candidate["content"], []string{"role", "parts"}, nil)
 	if err != nil || content["role"] != "model" {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_content_invalid")
 	}
 	rawParts, ok := content["parts"].([]any)
 	if !ok || len(rawParts) == 0 || len(rawParts) > MaxToolCalls {
-		return providerTurn{}, fail("CONTINUATION_INVALID")
+		return providerTurn{}, failContinuation("continuation.gemini.accept_parts_invalid")
 	}
 	parts := make([]geminiPart, 0, len(rawParts))
 	var calls []providerToolCall
@@ -290,18 +334,18 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 			[]string{"text", "functionCall", "thoughtSignature"},
 		)
 		if partErr != nil {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.gemini.accept_part_object_invalid")
 		}
 		_, hasText := part["text"]
 		functionValue, hasCall := part["functionCall"]
 		if hasText == hasCall {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.gemini.accept_part_ambiguous")
 		}
 		decoded := geminiPart{}
 		if hasText {
 			text, ok := part["text"].(string)
 			if !ok || !validOpaqueText([]byte(text)) {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_part_text_invalid")
 			}
 			decoded.Text = &text
 		} else {
@@ -311,15 +355,15 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 				[]string{"id"},
 			)
 			if functionErr != nil {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_function_call_invalid")
 			}
 			name, nameOK := function["name"].(string)
 			if !nameOK || !providerKeyPattern.MatchString(name) {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_function_name_invalid")
 			}
 			arguments, marshalErr := canonicalJSON(function["args"])
 			if marshalErr != nil || len(arguments) > MaxToolArgumentBytes {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_function_args_invalid")
 			}
 			providerID, _ := function["id"].(string)
 			internalID := providerID
@@ -327,7 +371,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 				internalID = "gemini-" + itoa(conversation.step+1) + "-" + itoa(index+1)
 			}
 			if conversation.ledger.correlate(internalID) != nil {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_function_correlate_failed")
 			}
 			call := providerToolCall{
 				ID: internalID, Name: name,
@@ -343,7 +387,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		if signatureValue, present := part["thoughtSignature"]; present {
 			signature, ok := signatureValue.(string)
 			if !ok || signature == "" {
-				return providerTurn{}, fail("CONTINUATION_INVALID")
+				return providerTurn{}, failContinuation("continuation.gemini.accept_thought_signature_invalid")
 			}
 			opaque = append(opaque, opaqueField{kind: opaqueBase64, body: []byte(signature)})
 			decoded.ThoughtSignature = signature
@@ -351,7 +395,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		if hasCall && len(calls) == 1 &&
 			geminiThoughtSignatureRequired(conversation.model) &&
 			decoded.ThoughtSignature == "" {
-			return providerTurn{}, fail("CONTINUATION_INVALID")
+			return providerTurn{}, failContinuation("continuation.gemini.accept_thought_signature_missing")
 		}
 		parts = append(parts, decoded)
 	}
@@ -459,7 +503,7 @@ func (conversation *geminiConversation) appendInstruction(body []byte) error {
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(body) == 0 || len(body) > MaxOpaqueFieldBytes ||
 		!validOpaqueText(body) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.gemini.append_instruction_invalid")
 	}
 	text := string(body)
 	conversation.contents = append(conversation.contents, geminiContent{
@@ -473,14 +517,14 @@ func (conversation *geminiConversation) appendInstruction(body []byte) error {
 
 func (conversation *geminiConversation) appendResults(results []providerToolResult) error {
 	if conversation == nil || len(results) != len(conversation.pending) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.gemini.append_results_pending_mismatch")
 	}
 	parts := make([]geminiPart, len(results))
 	for index, result := range results {
 		expected := conversation.pending[index]
 		if result.ID != expected.call.ID || result.Name != expected.call.Name ||
 			len(result.Content) > MaxToolResultBytes || !validOpaqueText(result.Content) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.gemini.append_results_mismatch_or_invalid")
 		}
 		response := &geminiFunctionResponse{Name: expected.call.Name}
 		response.Response.Result = string(result.Content)
@@ -498,13 +542,13 @@ func (conversation *geminiConversation) resume(
 	if conversation == nil || len(conversation.pending) != 0 ||
 		len(prompt) == 0 || len(prompt) > MaxProviderRequestBytes ||
 		len(conversation.contents) < 3 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.gemini.resume_invalid_state")
 	}
 	last := &conversation.contents[len(conversation.contents)-1]
 	assistant := conversation.contents[len(conversation.contents)-2]
 	if last.Role != "user" || len(last.Parts) == 0 ||
 		assistant.Role != "model" {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.gemini.resume_role_mismatch")
 	}
 	calls := make([]*geminiFunctionCall, 0, len(assistant.Parts))
 	for index := range assistant.Parts {
@@ -513,7 +557,7 @@ func (conversation *geminiConversation) resume(
 		}
 	}
 	if len(calls) != len(last.Parts) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.gemini.resume_call_count_mismatch")
 	}
 	for index, part := range last.Parts {
 		if part.FunctionResponse == nil || part.Text != nil ||
@@ -522,7 +566,7 @@ func (conversation *geminiConversation) resume(
 			!validOpaqueText(
 				[]byte(part.FunctionResponse.Response.Result),
 			) {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.gemini.resume_part_invalid")
 		}
 	}
 	declarations, err := geminiDeclarations(definitions)

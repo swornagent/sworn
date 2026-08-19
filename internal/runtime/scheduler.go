@@ -2470,7 +2470,8 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			return err
 		}
 		if completeErr := s.completeImplementationFailure(
-			context.WithoutCancel(ctx), owner, effectID, claim.Token, stableErrorCode(err)); completeErr != nil {
+			context.WithoutCancel(ctx), owner, effectID, claim.Token,
+			stableErrorCode(err), extractRefusalResult(err)); completeErr != nil {
 			return completeErr
 		}
 		if IsCode(err, "STALE_DISPATCH") {
@@ -2961,13 +2962,18 @@ func validateSealedRecordCandidate(
 }
 
 func (s *Service) completeImplementationFailure(ctx context.Context, owner journal.OwnerLease,
-	effectID, token, code string) error {
+	effectID, token, code string, result ...[]byte) error {
 	if code == "" {
 		code = "implementation_failed"
+	}
+	var resultBytes []byte
+	if len(result) > 0 {
+		resultBytes = result[0]
 	}
 	if err := s.journal.CompleteOwned(ctx, owner, journal.Completion{
 		RunID: owner.RunID, EffectID: effectID, Token: token,
 		State: journal.OperationalFailed, ErrorCode: code,
+		Result:    resultBytes,
 		EventKind: "implementation_operational_failure",
 		EventBody: []byte(effectID), At: s.now().UTC(),
 	}); err != nil {
@@ -5308,6 +5314,30 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		if recoveryPending {
 			return nil
 		}
+		snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
+		if err != nil {
+			return runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		fallbacks := degradationFallbacks(snapshot)
+		if int64(len(fallbacks)) > engine.manifest.value.EffectiveDegradationBudget() {
+			hasParkEvent := false
+			for _, event := range snapshot.Events {
+				if event.Kind == "degradation_budget_parked" {
+					hasParkEvent = true
+					break
+				}
+			}
+			if !hasParkEvent {
+				_ = s.journal.AppendEvent(
+					ctx,
+					owner.RunID,
+					"degradation_budget_parked",
+					mustJSON(fallbacks),
+					s.now().UTC(),
+				)
+			}
+			return nil
+		}
 		state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
 			return runtimeFail("BATON_UNAVAILABLE", err)
@@ -6100,6 +6130,9 @@ func (s *Service) proposePlanAttempt(
 	plan, err := baton.ParsePlan(body)
 	if err != nil || validatePlanBinding(engine.manifest, plan, current) != nil {
 		return runtimeFail("INVALID_PLAN", err)
+	}
+	if err := baton.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
+		return runtimeFail(baton.ErrorCode(err), err)
 	}
 	return s.recordProposal(ctx, owner.RunID, plan, authority)
 }

@@ -1,0 +1,47 @@
+{
+  "id": "chatcmpl-multicall-fixture-01",
+  "object": "chat.completion",
+  "created": 1723850000,
+  "model": "gpt-4o",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_multicall_chat_1",
+            "type": "function",
+            "function": {
+              "name": "Read",
+              "arguments": "{\"path\":\"/workspace/a.txt\"}"
+            }
+          },
+          {
+            "id": "call_multicall_chat_2",
+            "type": "function",
+            "function": {
+              "name": "Read",
+              "arguments": "{\"path\":\"/workspace/b.txt\"}"
+            }
+          },
+          {
+            "id": "call_multicall_chat_3",
+            "type": "function",
+            "function": {
+              "name": "Read",
+              "arguments": "{\"path\":\"/workspace/c.txt\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 38,
+    "total_tokens": 80
+  }
+}

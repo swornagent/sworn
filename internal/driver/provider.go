@@ -111,6 +111,10 @@ type loopAdapter struct {
 	dialect   providerDialect
 	new       providerConversationFactory
 	transport providerTransport
+	// pacingCap is the operator-configured provider input-tokens-per-minute
+	// quota; zero disables proactive pacing (reactive 429 pacing always
+	// applies).
+	pacingCap int64
 }
 
 func newLoopAdapter(
@@ -340,12 +344,12 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 		invocation.Selected.Adapter != adapter.identity ||
 		invocation.Selected.Profile.Network != NetworkRequired {
 		liveStream.driverError("resume-binding", nil)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_state_invalid")
 	}
 	prompt, err := modelPrompt(invocation)
 	if err != nil {
 		liveStream.driverError("resume-prompt", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_prompt_build_failed")
 	}
 	err = state.conversation.resume(
 		prompt,
@@ -354,14 +358,14 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 	clearBytes(prompt)
 	if err != nil {
 		liveStream.driverError("resume-conversation", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_conversation_failed")
 	}
 	request, err := state.conversation.request()
 	if err != nil || len(request.Body) < 1 ||
 		len(request.Body) > MaxProviderRequestBytes {
 		clearBytes(request.Body)
 		liveStream.driverError("resume-request", err)
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.provider.resume_request_build_failed")
 	}
 	defer clearBytes(request.Body)
 	observation, retained, resultErr := adapter.runConversation(
@@ -422,6 +426,8 @@ func (adapter *loopAdapter) runConversation(
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	pacer := newInputTokenPacer(adapter.pacingCap)
+	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
 		if err := ctx.Err(); err != nil {
 			return Observation{}, nil, err
@@ -436,12 +442,28 @@ func (adapter *loopAdapter) runConversation(
 		if err != nil || len(request.Body) > MaxProviderRequestBytes {
 			clearBytes(request.Body)
 			liveStream.driverError("request-build", err)
-			return Observation{}, nil, fail("CONTINUATION_INVALID")
+			return Observation{}, nil, failContinuation("continuation.provider.loop_request_build_failed")
 		}
-		response, err := adapter.transport.roundTrip(
+		if wait := pacer.waitBefore(
+			pacer.estimate(int64(len(request.Body))/4), time.Now(),
+		); wait > 0 {
+			if sleepErr := contextSleep(ctx, wait); sleepErr != nil {
+				clearBytes(request.Body)
+				return Observation{}, nil, sleepErr
+			}
+		}
+		response, err := pacedRoundTrip(
 			ctx,
-			invocation.Selected.Profile.CredentialRef,
-			request,
+			func() ([]byte, error) {
+				return adapter.transport.roundTrip(
+					ctx,
+					invocation.Selected.Profile.CredentialRef,
+					request,
+				)
+			},
+			&pacedBudget,
+			func(limited error) { liveStream.driverError("transport-paced", limited) },
+			contextSleep,
 		)
 		clearBytes(request.Body)
 		if err != nil {
@@ -459,6 +481,7 @@ func (adapter *loopAdapter) runConversation(
 				return Observation{}, nil, err
 			}
 			usageAvailable = true
+			pacer.record(providerTurn.Usage.InputTokens, time.Now())
 		}
 		if providerTurn.ReasoningEffort != nil {
 			value := *providerTurn.ReasoningEffort
@@ -524,7 +547,7 @@ func (adapter *loopAdapter) runConversation(
 		for _, call := range providerTurn.Calls {
 			if callErr := validateProviderToolCall(call, seenIDs); callErr != nil {
 				liveStream.driverError("tool-call "+call.Name, callErr)
-				return Observation{}, nil, fail("CONTINUATION_INVALID")
+				return Observation{}, nil, failContinuation("continuation.provider.tool_call_invalid")
 			}
 			results = append(results, session.execute(ctx, call))
 		}
@@ -592,10 +615,10 @@ func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) e
 	if validateText(call.ID, MaxCorrelationIDBytes, false) != nil ||
 		!providerKeyPattern.MatchString(call.Name) ||
 		len(call.Arguments) == 0 || len(call.Arguments) > MaxToolArgumentBytes {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.provider.tool_call_fields_invalid")
 	}
 	if _, exists := seen[call.ID]; exists {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.provider.tool_call_duplicate_id")
 	}
 	seen[call.ID] = struct{}{}
 	switch call.Name {

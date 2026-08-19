@@ -3,6 +3,7 @@ package gitx
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -949,6 +950,13 @@ func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
 			}
 			err = repository.AssertCandidateRecordRootUnchanged(base, recordCandidate)
 			requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
+			var gitErr *Error
+			if !errors.As(err, &gitErr) || len(gitErr.Paths) != 1 || gitErr.TotalPaths != 1 {
+				t.Fatalf("expected 1 path in gitErr, got %#v", gitErr)
+			}
+			if gitErr.Paths[0] != filepath.ToSlash(filepath.Join(DefaultRecordsRoot, "demo", "plan.md")) {
+				t.Fatalf("expected path %q, got %q", filepath.ToSlash(filepath.Join(DefaultRecordsRoot, "demo", "plan.md")), gitErr.Paths[0])
+			}
 
 			// The historical legacy root stays reserved too: a candidate that
 			// forges a record under .baton/releases is refused exactly like a
@@ -971,7 +979,43 @@ func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
 			}
 			err = repository.AssertCandidateRecordRootUnchanged(base, legacyCandidate)
 			requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
+			if !errors.As(err, &gitErr) || len(gitErr.Paths) != 2 || gitErr.TotalPaths != 2 {
+				t.Fatalf("expected 2 paths in gitErr, got %#v", gitErr)
+			}
 		})
+	}
+}
+
+func TestAssertCandidateRecordRootUnchangedBoundsTwentyPaths(t *testing.T) {
+	repository, base := newRepository(t, SHA1)
+	root := repository.Root()
+
+	for i := 0; i < 25; i++ {
+		path := filepath.Join(root, filepath.FromSlash(DefaultRecordsRoot), "demo", fmt.Sprintf("file_%02d.md", i))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("content\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, root, nil, "add", "--", filepath.ToSlash(filepath.Join(DefaultRecordsRoot, "demo", fmt.Sprintf("file_%02d.md", i))))
+	}
+	runTestGit(t, root, nil, "commit", "--quiet", "-m", "25 reserved root changes")
+	candidate, err := ParseOID(SHA1, runTestGit(t, root, nil, "rev-parse", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = repository.AssertCandidateRecordRootUnchanged(base, candidate)
+	requireGitxErrorCode(t, err, "RESERVED_RECORD_ROOT_CHANGED")
+	var gitErr *Error
+	if !errors.As(err, &gitErr) {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+	if len(gitErr.Paths) != 20 {
+		t.Fatalf("expected 20 paths, got %d", len(gitErr.Paths))
+	}
+	if gitErr.TotalPaths != 25 {
+		t.Fatalf("expected 25 total paths, got %d", gitErr.TotalPaths)
 	}
 }
 

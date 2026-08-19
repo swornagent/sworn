@@ -53,6 +53,12 @@ type HTTPProfileConfig struct {
 	// (closed {LOW, MEDIUM, HIGH}; empty omits thinkingConfig). OpenAI and
 	// Bedrock adapters ignore the field.
 	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// InputTokensPerMinute is the operator's statement of the provider's
+	// per-model input-token quota (the provider counts cached tokens
+	// against it). When set, a conversation is paced at the wall — delayed
+	// only when the sliding minute plus the next request would cross it.
+	// Zero disables proactive pacing; reactive 429 pacing always applies.
+	InputTokensPerMinute int64 `json:"input_tokens_per_minute,omitempty"`
 }
 
 type httpTransport struct {
@@ -213,6 +219,11 @@ func (transport *httpTransport) roundTrip(
 		return nil, fail("OUTPUT_OVERFLOW")
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		if response.StatusCode == http.StatusTooManyRequests {
+			delay := providerRetryDelay(response.Header.Get("Retry-After"), body)
+			clearBytes(body)
+			return nil, &ContractError{Code: "PROVIDER_LIMITED", RetryAfter: delay}
+		}
 		clearBytes(body)
 		return nil, providerHTTPStatusError(response.StatusCode)
 	}

@@ -38,11 +38,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256     = "sha256:2c559ab3a92808cd69d66a3482cf5b1f572aa44211f939ab2761846db2a7531c"
+	ManifestSHA256     = "sha256:4033e1c2427cbd22aaba6f2ce0a1f628ab56f37f89283734cc434b1f7f0376e7"
 	AssetCount         = 25
-	AssetBytes         = int64(390809)
+	AssetBytes         = int64(391324)
 
-	releaseDocumentSHA256 = "sha256:867e8a2a321aac278341340003858920d272155726600112b0552c56e307daa2"
+	releaseDocumentSHA256 = "sha256:cc58767282eef41b89383b6e8e880c1c4cebf9bb6ada1887bf8e598f48de9203"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -313,10 +313,10 @@ func validateManifestIdentity(manifest assetManifest) error {
 
 func validateReleaseBindings(source fs.FS, release releaseFile, digests map[string]string) error {
 	expectedOperations := []releaseOperation{
-		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:81fa1c9c7112cfceecb694405f6995e59f6a91f39c126dafa52ee57d02d75ac4"},
-		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:e3c3c033254fdeeec2d17c35a16635472684b4a0a88d462d21d78b4778112760"},
+		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:30a21cd1b660553aa71c2e85bdbaa24db577467f403fd3a49519610d7fa9a355"},
+		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:268dad4ce9a5b3d3ceac8a9fb30ecb868c4592b2e161b462cf13eec1f8efe205"},
 		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:46741495a976af83c458e93f01d477bb3c90ac659e7f48c1c04ee2d71abaf33d"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:c495b643c47d009e02e04b5af233855e9f15bca9848d08bbecfd8abbea1b99e0"},
 		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},
 	}
 	expectedTemplates := []releaseTemplate{

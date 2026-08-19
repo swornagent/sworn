@@ -158,16 +158,56 @@ func ValidateSliceCandidateScope(
 	// historical legacy root so a relocated root is never left unprotected
 	// and the legacy fallback can never be forged.
 	reservedRoot := repository.recordRoot()
+	var reservedPaths []string
+	var outOfScopePaths []string
 	for _, changedPath := range paths {
 		if changedPath == reservedRoot || strings.HasPrefix(changedPath, reservedRoot+"/") ||
 			changedPath == LegacyRecordRoot || strings.HasPrefix(changedPath, LegacyRecordRoot+"/") {
-			return recordFail(
-				"RESERVED_RECORD_ROOT_CHANGED",
-				"candidate changes reserved Baton records at "+changedPath,
-			)
+			reservedPaths = append(reservedPaths, changedPath)
+			continue
 		}
 		if !pathInScope(slice.Scope, changedPath) {
-			return recordFail("SLICE_OUTSIDE_SCOPE", "candidate changes out-of-scope path "+changedPath)
+			outOfScopePaths = append(outOfScopePaths, changedPath)
+		}
+	}
+	if len(reservedPaths) > 0 {
+		sort.Strings(reservedPaths)
+		deduped := make([]string, 0, len(reservedPaths))
+		for i, p := range reservedPaths {
+			if i == 0 || p != reservedPaths[i-1] {
+				deduped = append(deduped, p)
+			}
+		}
+		total := len(deduped)
+		bounded := deduped
+		if len(bounded) > 20 {
+			bounded = append([]string(nil), bounded[:20]...)
+		}
+		return &RecordError{
+			Code:       "RESERVED_RECORD_ROOT_CHANGED",
+			Msg:        fmt.Sprintf("candidate changes %d reserved Baton record path(s)", total),
+			Paths:      bounded,
+			TotalPaths: total,
+		}
+	}
+	if len(outOfScopePaths) > 0 {
+		sort.Strings(outOfScopePaths)
+		deduped := make([]string, 0, len(outOfScopePaths))
+		for i, p := range outOfScopePaths {
+			if i == 0 || p != outOfScopePaths[i-1] {
+				deduped = append(deduped, p)
+			}
+		}
+		total := len(deduped)
+		bounded := deduped
+		if len(bounded) > 20 {
+			bounded = append([]string(nil), bounded[:20]...)
+		}
+		return &RecordError{
+			Code:       "SLICE_OUTSIDE_SCOPE",
+			Msg:        fmt.Sprintf("candidate changes %d out-of-scope path(s)", total),
+			Paths:      bounded,
+			TotalPaths: total,
 		}
 	}
 	return nil
