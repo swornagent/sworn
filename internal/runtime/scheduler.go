@@ -6131,6 +6131,9 @@ func (s *Service) proposePlanAttempt(
 	if err != nil || validatePlanBinding(engine.manifest, plan, current) != nil {
 		return runtimeFail("INVALID_PLAN", err)
 	}
+	if err := baton.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
+		return runtimeFail(baton.ErrorCode(err), err)
+	}
 	return s.recordProposal(ctx, owner.RunID, plan, authority)
 }
 

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/swornagent/sworn/internal/baton"
 )
 
 const (
@@ -430,6 +432,18 @@ func (session *toolSession) submit(
 	submission, err := decodeToolSubmission(root["submission"])
 	if err != nil {
 		return nil, session.rejectSubmission(ctx, err)
+	}
+	if submission.Responsibility == PlannerProposal && submission.Plan != nil {
+		planBody, _ := base64.StdEncoding.Strict().DecodeString(submission.Plan.Bytes)
+		if plan, parseErr := baton.ParsePlan(planBody); parseErr == nil {
+			if lintErr := baton.ValidatePlanScopeLintFS(os.DirFS(session.invocation.HostWorkspace), plan); lintErr != nil {
+				code := baton.ErrorCode(lintErr)
+				if code == "" {
+					code = "UNDER_DERIVED_SCOPE"
+				}
+				return nil, session.rejectSubmission(ctx, fail(code))
+			}
+		}
 	}
 	body, err := EncodeSubmission(submission)
 	if err != nil {
