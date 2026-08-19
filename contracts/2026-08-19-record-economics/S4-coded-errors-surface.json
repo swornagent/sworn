@@ -1,0 +1,28 @@
+{
+  "outcome": "Coded failures reach the operator by name: stable error-code resolution unwraps journal and baton record errors, and the baton-action completion path stops flattening to baton_action_failed, so a STALE_RETRY_EPOCH or TARGET_DIVERGED surfaces as itself in sworn status instead of drowning in operational_failure.",
+  "scope": {
+    "include": ["internal/runtime", "cmd/sworn", "internal/cockpit", "internal/observe", "internal/tui", "test/e2e"],
+    "exclude": ["the board diagnostic rendering path (baton.Diagnostic flattening in cockpit and tui is a distinct defect and a separate slice candidate)", "renaming any error code, or removing operational_failure as the terminal default for genuinely uncoded errors", "the notification error-code allowlist"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "A journal error carrying STALE_RETRY_EPOCH that fails an effect surfaces error_code STALE_RETRY_EPOCH in the journaled completion and through the status surface: pinned by a unit fixture beside the existing stable-code pins in internal/runtime and a status read-back fixture."},
+    {"id": "A2", "text": "A failed baton action journals its record-error code, TARGET_DIVERGED for the diverged case, not baton_action_failed: pinned by a runtime completion fixture reading the journaled effects error code."},
+    {"id": "A3", "text": "The CLI resolves the same codes: cmd/sworn's command error-code resolution covers baton record errors with parity to the runtime resolution, pinned by a cmd/sworn unit fixture."},
+    {"id": "A4", "text": "Existing precedence pins pass unmodified - TestStableErrorCodeCarriesUncontainedDispatchRefusal and TestStableErrorCodePreservesTrackBaseAuthorityMovement in internal/runtime - and the e2e topology expectation that today tolerates operational_failure names the real code, declared (ADR 0010), not executed."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "operational_failure remains the terminal fallback for genuinely uncoded errors; no code is renamed and no recorded journal is reinterpreted.",
+    "Unwrapping preserves existing precedence: runtime, gitx and contract errors keep winning exactly where they win today.",
+    "Evidence basis: STALE_RETRY_EPOCH surfacing as bare operational_failure cost most of the sworn#216 diagnosis and required a diagnostic rebuild; the first real model run showed operational_failure for every failure mode (docs/captures/2026-08-09-first-real-model-run).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}
