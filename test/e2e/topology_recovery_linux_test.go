@@ -398,12 +398,32 @@ func parkedWork(t *testing.T, journalPath, runID string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	derived := make(map[string]struct{})
+	for _, command := range snapshot.Commands {
+		if command.Kind == "git.seal" {
+			var probe struct {
+				DispatchWork string `json:"dispatch_work"`
+				PreparedWork string `json:"prepared_work"`
+			}
+			if json.Unmarshal(command.Payload, &probe) == nil {
+				if probe.DispatchWork != "" {
+					derived[probe.DispatchWork] = struct{}{}
+				}
+				if probe.PreparedWork != "" {
+					derived[probe.PreparedWork] = struct{}{}
+				}
+			}
+		}
+	}
 	for _, effect := range snapshot.Effects {
-		if effect.Kind == "driver.dispatch" && effect.State == journal.OperationalFailed &&
+		if effect.State == journal.OperationalFailed &&
 			strings.HasSuffix(effect.ID, "/t3") {
 			parts := strings.Split(effect.ID, "/")
 			if len(parts) == 4 {
-				return "sha256:" + parts[1]
+				work := "sha256:" + parts[1]
+				if _, isDerived := derived[work]; !isDerived {
+					return work
+				}
 			}
 		}
 	}

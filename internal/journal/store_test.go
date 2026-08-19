@@ -1252,3 +1252,113 @@ func TestAnySucceededTryGuardAllowsNormalRetryAndDerivedEffects(t *testing.T) {
 		t.Fatalf("try two with succeeded derived child = %v", err)
 	}
 }
+
+func TestDerivedWorkInheritsParentCycleRetryEpoch(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+
+	cycleWork := digest([]byte("seal-cycle-work"))
+	dispatchWork := digest([]byte("derived-dispatch-work"))
+
+	// Epoch 1: cycleWork and dispatchWork both run 3 tries and fail (OperationalFailed at try 3)
+	for try := int64(1); try <= 3; try++ {
+		// Cycle work
+		cycleEffectID := AttemptEffectID(cycleWork, 1, try)
+		cycleCmd := Command{RunID: run.ID, ReplayKey: cycleEffectID, Kind: "git.seal",
+			Payload: []byte("cycle"), CreatedAt: now}
+		cycleEff := Effect{RunID: run.ID, ID: cycleEffectID, ReplayKey: cycleEffectID, Kind: cycleCmd.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")), UpdatedAt: now}
+		if err := store.EnsureAttempt(ctx, cycleCmd, cycleEff,
+			EffectAttempt{WorkID: cycleWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatalf("ensure cycle try %d: %v", try, err)
+		}
+		claim, err := store.Claim(ctx, run.ID, cycleEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: cycleEffectID,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Derived dispatch work
+		dispatchEffectID := AttemptEffectID(dispatchWork, 1, try)
+		dispatchCmd := Command{RunID: run.ID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch"), CreatedAt: now}
+		dispatchEff := Effect{RunID: run.ID, ID: dispatchEffectID, ReplayKey: dispatchEffectID, Kind: dispatchCmd.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")), UpdatedAt: now}
+		if err := store.EnsureAttempt(ctx, dispatchCmd, dispatchEff,
+			EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatalf("ensure dispatch try %d: %v", try, err)
+		}
+		claim, err = store.Claim(ctx, run.ID, dispatchEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: dispatchEffectID,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Retry ONLY the cycle work (ExpectedEpoch: 1)
+	receipt, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "retry-cycle-1", Kind: Retry, WorkID: cycleWork, ExpectedEpoch: 1,
+	}, now)
+	if err != nil || receipt.Epoch != 2 {
+		t.Fatalf("retry cycle work = %#v, %v", receipt, err)
+	}
+
+	// Admit cycle work at epoch 2 try 1
+	cycleEpoch2ID := AttemptEffectID(cycleWork, 2, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: cycleEpoch2ID, Kind: "git.seal",
+			Payload: []byte("cycle-retry"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: cycleEpoch2ID, ReplayKey: cycleEpoch2ID, Kind: "git.seal",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: cycleWork, Epoch: 2, Try: 1},
+	); err != nil {
+		t.Fatalf("ensure cycle at epoch 2: %v", err)
+	}
+
+	// Derived work at epoch 2 try 1 (was not directly retried via ApplyControl, so projection.RetryEpochs has no entry for it)
+	// It should inherit epoch 2 and succeed with no STALE_RETRY_EPOCH
+	dispatchEpoch2ID := AttemptEffectID(dispatchWork, 2, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: dispatchEpoch2ID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch-retry"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: dispatchEpoch2ID, ReplayKey: dispatchEpoch2ID, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: dispatchWork, Epoch: 2, Try: 1},
+	); err != nil {
+		t.Fatalf("ensure derived dispatch at epoch 2: %v", err)
+	}
+
+	// Read back from journal effects table
+	eff, err := store.Effect(ctx, run.ID, dispatchEpoch2ID)
+	if err != nil {
+		t.Fatalf("read back derived dispatch effect at epoch 2: %v", err)
+	}
+	if eff.ID != dispatchEpoch2ID || eff.State != Pending {
+		t.Fatalf("derived dispatch effect = %#v", eff)
+	}
+
+	// Verify superseded replay at epoch 1 still fails closed with STALE_RETRY_EPOCH
+	dispatchOldID := AttemptEffectID(dispatchWork, 1, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: dispatchOldID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch-old"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: dispatchOldID, ReplayKey: dispatchOldID, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: 1},
+	); !IsCode(err, "STALE_RETRY_EPOCH") {
+		t.Fatalf("stale derived dispatch replay = %v, want STALE_RETRY_EPOCH", err)
+	}
+}

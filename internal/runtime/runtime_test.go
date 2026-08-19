@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1136,5 +1138,191 @@ func TestInvocationIdentityIsStableAcrossResume(t *testing.T) {
 	}
 	if _, err := time.Parse(time.RFC3339, "2026-07-26T01:02:03Z"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)
+	repoPath := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repoPath
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repoPath, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	sliceDefinition := plan.Metadata().Tracks[0].Slices[0]
+	if _, err := actions.AppendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: sliceDefinition.ID,
+		Role: "implementer", Result: "designed",
+		Summary: "Designed S1", Detail: []byte("Design detail"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := actions.AppendReceipt(baton.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: sliceDefinition.ID,
+		Role: "captain", Result: "proceed",
+		Summary: "Proceed S1", Detail: []byte("Proceed detail"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "status-parked.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	run := journal.Run{
+		ID:             manifest.value.RunID,
+		ManifestDigest: manifest.digest,
+		Repository:     manifest.value.Repository,
+		Release:        manifest.value.Release,
+		TargetRef:      manifest.value.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifest.raw, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := baton.ReadState(baton.UseGitRepository(repoView), manifest.value.Release, inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slice, ok := state.Slice(sliceDefinition.ID)
+	if !ok || slice.CurrentReceipt == nil {
+		t.Fatal("slice or current receipt not found")
+	}
+	track, ok := state.Track(slice.Location.Track.ID)
+	if !ok {
+		t.Fatal("track not found")
+	}
+	before := sliceFingerprint(state, sliceDefinition.ID)
+	cycleWork := workIdentity(before, "git.seal")
+	dispatchWork := workIdentity(cycleWork, "driver.dispatch")
+	preparedWork := workIdentity(cycleWork, "git.seal.prepared")
+
+	cyclePayload := mustJSON(implementationCycle{
+		Release: manifest.value.Release, GitIdentity: manifest.value.GitIdentity,
+		Slice: sliceDefinition.ID, Binds: slice.CurrentReceipt.OID, Before: before,
+		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head, TargetHead: state.Refs.Target.Head,
+		Track: track.ID, TrackRef: track.Ref,
+		TrackHead: track.Head, DispatchWork: dispatchWork,
+		DispatchEffect: journal.AttemptEffectID(dispatchWork, 1, 1),
+		PreparedWork:   preparedWork,
+		PreparedEffect: journal.AttemptEffectID(preparedWork, 1, 1),
+	})
+
+	// Record the git.seal command and effects for git.seal, driver.dispatch, git.seal.prepared (3 tries failed)
+	for try := int64(1); try <= 3; try++ {
+		// Cycle work
+		cycleEffectID := journal.AttemptEffectID(cycleWork, 1, try)
+		if err := store.EnsureAttempt(ctx,
+			journal.Command{RunID: run.ID, ReplayKey: cycleEffectID, Kind: "git.seal",
+				Payload: cyclePayload, CreatedAt: now},
+			journal.Effect{RunID: run.ID, ID: cycleEffectID, ReplayKey: cycleEffectID, Kind: "git.seal",
+				BeforeDigest: cycleWork, ExpectedDigest: sha256Digest(cyclePayload), UpdatedAt: now},
+			journal.EffectAttempt{WorkID: cycleWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatal(err)
+		}
+		claim, err := store.Claim(ctx, run.ID, cycleEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, journal.Completion{RunID: run.ID, EffectID: cycleEffectID,
+			Token: claim.Token, State: journal.OperationalFailed, ErrorCode: "cycle_failure",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Derived dispatch
+		dispatchEffectID := journal.AttemptEffectID(dispatchWork, 1, try)
+		if err := store.EnsureAttempt(ctx,
+			journal.Command{RunID: run.ID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch",
+				Payload: []byte("dispatch"), CreatedAt: now},
+			journal.Effect{RunID: run.ID, ID: dispatchEffectID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch",
+				BeforeDigest: cycleWork, ExpectedDigest: sha256Digest([]byte("dispatch")), UpdatedAt: now},
+			journal.EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatal(err)
+		}
+		claim, err = store.Claim(ctx, run.ID, dispatchEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, journal.Completion{RunID: run.ID, EffectID: dispatchEffectID,
+			Token: claim.Token, State: journal.OperationalFailed, ErrorCode: "dispatch_failure",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service := &Service{
+		journal:       store,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+	status, err := service.Status(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+
+	if status.State != "parked" {
+		t.Fatalf("status.State = %q, want 'parked'", status.State)
+	}
+
+	// Verify Derived flags on EffectStatus
+	effects := make(map[string]EffectStatus)
+	for _, effect := range status.Effects {
+		effects[effect.ID] = effect
+	}
+
+	cycleT3 := effects[journal.AttemptEffectID(cycleWork, 1, 3)]
+	if cycleT3.Derived {
+		t.Fatalf("git.seal effect marked as Derived: %#v", cycleT3)
+	}
+
+	dispatchT3 := effects[journal.AttemptEffectID(dispatchWork, 1, 3)]
+	if !dispatchT3.Derived {
+		t.Fatalf("driver.dispatch effect not marked as Derived: %#v", dispatchT3)
 	}
 }

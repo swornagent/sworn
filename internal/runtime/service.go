@@ -115,6 +115,7 @@ type EffectStatus struct {
 	Kind      string `json:"kind"`
 	State     string `json:"state"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Derived   bool   `json:"derived,omitempty"`
 }
 
 type engine struct {

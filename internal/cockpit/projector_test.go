@@ -538,3 +538,72 @@ func hasAction(actions []Action, kind string) bool {
 	}
 	return false
 }
+
+func TestProjectorSurfacesExactlyOneRetryActionForParkedCycle(t *testing.T) {
+	t.Parallel()
+
+	run, observation, status, state := projectionFixture()
+	cycleWork := "sha256:" + strings.Repeat("1", 64)
+
+	// In a parked implementation cycle, git.seal is top-level, and driver.dispatch & git.seal.prepared are derived children
+	status.Effects = []runtimepkg.EffectStatus{
+		{
+			ID:   "attempt/" + strings.Repeat("1", 64) + "/e1/t3",
+			Kind: "git.seal", State: string(journal.OperationalFailed),
+			ErrorCode: "transport_error", Derived: false,
+		},
+		{
+			ID:   "attempt/" + strings.Repeat("2", 64) + "/e1/t3",
+			Kind: "driver.dispatch", State: string(journal.OperationalFailed),
+			ErrorCode: "transport_error", Derived: true,
+		},
+		{
+			ID:   "attempt/" + strings.Repeat("3", 64) + "/e1/t3",
+			Kind: "git.seal.prepared", State: string(journal.OperationalFailed),
+			ErrorCode: "transport_error", Derived: true,
+		},
+	}
+	observation.Control = journal.ControlProjection{
+		Generation:  4,
+		Desired:     "running",
+		RetryEpochs: map[string]int64{},
+	}
+
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{
+			binding: run, observations: []journal.Observation{observation},
+			calls: &calls,
+		},
+		&fakeRuntime{
+			statuses: []runtimepkg.RunStatus{status, status},
+			calls:    &calls,
+		},
+		&fakeStateReader{
+			states: []baton.State{state, state},
+			errs:   []error{nil, nil},
+			calls:  &calls,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var retryActions []Action
+	for _, action := range snapshot.Actions {
+		if action.Kind == "retry" {
+			retryActions = append(retryActions, action)
+		}
+	}
+	if len(retryActions) != 1 {
+		t.Fatalf("expected exactly 1 retry action, got %d: %#v", len(retryActions), retryActions)
+	}
+	if retryActions[0].WorkID != cycleWork || retryActions[0].ExpectedEpoch != 1 {
+		t.Fatalf("retry action = %#v, want work=%s epoch=1", retryActions[0], cycleWork)
+	}
+}

@@ -265,6 +265,7 @@ func buildSnapshot(
 			Kind:      effect.Kind,
 			State:     effect.State,
 			ErrorCode: effect.ErrorCode,
+			Derived:   effect.Derived,
 		})
 	}
 	for _, attempt := range observation.Attempts {
@@ -698,7 +699,7 @@ func safeActions(
 }
 
 func exhaustedAttempt(effect runtimepkg.EffectStatus) (string, int64, bool) {
-	if effect.State != string(journal.OperationalFailed) ||
+	if effect.Derived || effect.State != string(journal.OperationalFailed) ||
 		!strings.HasSuffix(effect.ID, "/t3") {
 		return "", 0, false
 	}

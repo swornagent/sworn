@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -93,12 +94,36 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			answeredWithoutOwner = true
 		}
 	}
+	derivedWorks := make(map[string]struct{})
+	for _, command := range snapshot.Commands {
+		if command.Kind != "git.seal" {
+			continue
+		}
+		var probe struct {
+			DispatchWork string `json:"dispatch_work"`
+			PreparedWork string `json:"prepared_work"`
+		}
+		if json.Unmarshal(command.Payload, &probe) == nil {
+			if probe.DispatchWork != "" {
+				derivedWorks[probe.DispatchWork] = struct{}{}
+			}
+			if probe.PreparedWork != "" {
+				derivedWorks[probe.PreparedWork] = struct{}{}
+			}
+		}
+	}
 	for _, effect := range snapshot.Effects {
 		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
 			continue
 		}
+		parts := strings.Split(effect.ID, "/")
+		var work string
+		if len(parts) == 4 {
+			work = "sha256:" + parts[1]
+		}
+		_, isDerived := derivedWorks[work]
 		result.Effects = append(result.Effects, EffectStatus{ID: effect.ID, Kind: effect.Kind,
-			State: string(effect.State), ErrorCode: effect.ErrorCode})
+			State: string(effect.State), ErrorCode: effect.ErrorCode, Derived: isDerived})
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
 			active = active ||
 				(state == journal.AttentionAnswered && ownerActive)
@@ -107,11 +132,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		active = active || (effect.State == journal.Claimed && ownerActive)
 		uncertain = uncertain || effect.State == journal.Uncertain ||
 			(effect.State == journal.Claimed && !ownerActive)
-		if effect.State == journal.OperationalFailed && strings.HasSuffix(effect.ID, "/t3") {
-			parts := strings.Split(effect.ID, "/")
+		if effect.State == journal.OperationalFailed && strings.HasSuffix(effect.ID, "/t3") && !isDerived {
 			if len(parts) == 4 {
 				epoch, _ := strconv.ParseInt(strings.TrimPrefix(parts[2], "e"), 10, 64)
-				work := "sha256:" + parts[1]
 				current := control.RetryEpochs[work]
 				if current == 0 {
 					current = 1
