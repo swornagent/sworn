@@ -51,6 +51,14 @@ Covers #177(S5b) #196 #172 #192 #193 #173 #169(tail).
   the searched location; control lockout keyed off truth not
   staleness). Anchors: tui/model.go:113,140,340; view.go:481-501.
 
+- **S7 guided init** (`cmd/sworn` init): RULING 2026-08-20 — `sworn
+  init` is the guided per-project setup, not just scaffolding: it walks
+  the operator through drivers (agent detection exists), the operator
+  config (listen, telemetry endpoints when R2 lands, webhooks), and
+  ends with the next command to run. Idempotent on re-run; `--yes`
+  keeps the non-interactive path. Composes with the ratified home-
+  surface and --task quickstart directions.
+
 Deferred out of R1: #195 (tool-result stream) and #176 (live output)
 — the deep observability seam is R6; the feed association in S5 is
 useful without it.
@@ -73,8 +81,7 @@ notification-kind sliver. Full spec below.
   anchor: a Langfuse instance receiving the stream renders
   per-dispatch generations with model, token split, and timing.
 - **S3 two-channel export** (`internal/observe` config + `cmd/sworn`
-  wiring, including `sworn init` scaffolding the operator config's
-  otel/channel block — export must not require reading the source; and
+  wiring, extending R1-S7's guided init with the telemetry step (private endpoint, share opt-in) — export must not require reading the source; and
   note export is serve-mediated today, so a run with no cockpit
   attached emits nothing, which is share-channel data loss): `telemetry.private` (today's config: endpoint+headers,
   operator's own) and `telemetry.share` (opt-in, default endpoint =
