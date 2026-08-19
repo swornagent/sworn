@@ -3169,6 +3169,9 @@ func (state *nativeEventState) accept(body []byte) error {
 					"output_style", "agents", "fast_mode_state", "uuid",
 					"capabilities", "analytics_disabled",
 					"product_feedback_disabled",
+					// 2.1.234 additions to the init surface.
+					"fast_mode_disabled_reason", "memory_paths",
+					"messaging_socket_path",
 				},
 			); err != nil {
 				return fail("NATIVE_SURFACE_INVALID")
@@ -3291,12 +3294,13 @@ func (state *nativeEventState) captureUsage(value any) {
 
 func exactClaudeCapabilities(value any) bool {
 	array, ok := value.([]any)
-	if !ok || len(array) != 2 {
+	if !ok || len(array) != 3 {
 		return false
 	}
 	expected := map[string]struct{}{
-		"interrupt_receipt_v1": {},
-		"msg_lifecycle_v1":     {},
+		"interrupt_receipt_v1":       {},
+		"interrupt_cancel_queued_v1": {},
+		"msg_lifecycle_v1":           {},
 	}
 	for _, value := range array {
 		name, ok := value.(string)
