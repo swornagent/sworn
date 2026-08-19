@@ -120,14 +120,14 @@ jobs:
           set -euo pipefail
           unformatted="$(
             git ls-files -z -- '*.go' \
-              ':(exclude,top).baton/releases/**' |
+              ':(exclude,top).sworn/records/**' |
               xargs -0 -r gofmt -l
           )"
           test -z "$unformatted"
           product_pathspec=(
             .
-            ':(exclude,top).baton/releases'
-            ':(exclude,top).baton/releases/**'
+            ':(exclude,top).sworn/records'
+            ':(exclude,top).sworn/records/**'
           )
           git diff --check -- "${product_pathspec[@]}"
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then

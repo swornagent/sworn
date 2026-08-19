@@ -51,6 +51,7 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 	}
 	rootIgnore := readProduct(".gitignore")
 	rootAttributes := readProduct(".gitattributes")
+	ciWorkflow := readProduct(".github/workflows/ci.yml")
 
 	// Assert the allowlist negation shape on the committed product bytes.
 	for _, line := range []string{"/.sworn/*", "!/.sworn/records/"} {
@@ -71,6 +72,18 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 		if !strings.Contains(rootAttributes, line) {
 			t.Fatalf("root .gitattributes lacks records export-ignore line %q:\n%s", line, rootAttributes)
 		}
+	}
+	// CI pathspecs exclude the configured records root.
+	for _, line := range []string{
+		":(exclude,top).sworn/records",
+		":(exclude,top).sworn/records/**",
+	} {
+		if !strings.Contains(ciWorkflow, line) {
+			t.Fatalf("CI workflow lacks records pathspec %q:\n%s", line, ciWorkflow)
+		}
+	}
+	if strings.Contains(ciWorkflow, ":(exclude,top).baton/releases") {
+		t.Fatalf("CI workflow still contains legacy records pathspec")
 	}
 
 	// Post-migration fixture shape.

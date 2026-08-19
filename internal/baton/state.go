@@ -22,13 +22,14 @@ type PlanHistory struct {
 }
 
 type PlanState struct {
-	OID         string
-	Digest      string
-	Metadata    Metadata
-	Approval    ReceiptEntry
-	ApprovalOID string
-	TargetStale bool
-	History     []PlanHistory
+	OID            string
+	Digest         string
+	Metadata       Metadata
+	Approval       ReceiptEntry
+	ApprovalOID    string
+	TargetStale    bool
+	LegacyFallback bool
+	History        []PlanHistory
 }
 
 type SliceLocation struct {
@@ -186,8 +187,9 @@ func (s State) BindTrackBaseProductResolver(
 }
 
 type planEntry struct {
-	OID    string
-	Parsed Plan
+	OID            string
+	Parsed         Plan
+	LegacyFallback bool
 }
 
 type receiptHistory struct {
@@ -710,7 +712,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		Plan: PlanState{
 			OID: current.OID, Digest: current.Parsed.Digest(), Metadata: metadata,
 			Approval: approval.Clone(), ApprovalOID: approval.OID,
-			TargetStale: targetStale, History: planHistory,
+			TargetStale: targetStale, LegacyFallback: current.LegacyFallback, History: planHistory,
 		},
 		Refs: StateRefs{
 			Release: releaseCapture, Target: targetCapture, Tracks: trackRefs,
@@ -762,19 +764,23 @@ func planInstallResult(
 // only when the configured root holds no record there. A release present
 // under both roots resolves to the configured root — one authority, never
 // two — so releases recorded before the relocation stay readable.
-func planFileAt(repository *repository, commit, release string) (repositoryFile, error) {
+func planFileAt(repository *repository, commit, release string) (repositoryFile, bool, error) {
 	file, err := repository.file(commit, planPath(repository.recordRoot(), release))
 	if err != nil {
-		return repositoryFile{}, err
+		return repositoryFile{}, false, err
 	}
 	if file.Present {
-		return file, nil
+		return file, false, nil
 	}
-	return repository.file(commit, planPath(LegacyRecordRoot, release))
+	legacyFile, err := repository.file(commit, planPath(LegacyRecordRoot, release))
+	if err != nil {
+		return repositoryFile{}, false, err
+	}
+	return legacyFile, legacyFile.Present, nil
 }
 
 func planAt(repository *repository, release, commit string) (planEntry, error) {
-	file, err := planFileAt(repository, commit, release)
+	file, legacyFallback, err := planFileAt(repository, commit, release)
 	if err != nil {
 		return planEntry{}, err
 	}
@@ -788,7 +794,7 @@ func planAt(repository *repository, release, commit string) (planEntry, error) {
 	if parsed.Metadata().Release != release {
 		return planEntry{}, recordFail("RELEASE_PLAN_MISMATCH", "plan release does not match "+release)
 	}
-	return planEntry{OID: file.Object, Parsed: parsed}, nil
+	return planEntry{OID: file.Object, Parsed: parsed, LegacyFallback: legacyFallback}, nil
 }
 
 func historyBoundaryFailure(rows []historyRow, label string) error {
@@ -966,7 +972,7 @@ func readReleaseReceiptHistory(
 			receipt.Release != release {
 			continue
 		}
-		file, err := planFileAt(repository, entry.OID, release)
+		file, _, err := planFileAt(repository, entry.OID, release)
 		if err != nil {
 			return receiptHistory{}, err
 		}
@@ -1299,7 +1305,7 @@ func matchingApproval(
 		))
 	}
 	approval := matches[0]
-	file, err := planFileAt(repository, approval.OID, release)
+	file, _, err := planFileAt(repository, approval.OID, release)
 	if err != nil {
 		return ReceiptEntry{}, err
 	}
@@ -1344,7 +1350,7 @@ func planChain(
 		if approval == nil {
 			return nil, nil, recordFail("INVALID_PLAN_HISTORY", "previous plan "+*previous+" has no approval")
 		}
-		file, err := planFileAt(repository, approval.OID, release)
+		file, _, err := planFileAt(repository, approval.OID, release)
 		if err != nil {
 			return nil, nil, err
 		}

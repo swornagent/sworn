@@ -103,8 +103,7 @@ the latest one whose bindings agree with the current approved plan and inputs.
 An engine MAY admit a bounded exact-head refresh for a candidate receipt with no
 Verifier verdict. The current track head MUST descend from that receipt commit
 through a non-empty linear chain in which every commit has exactly one parent
-and no merge or intervening Baton receipt occurs. The reserved
-`.baton/releases` tree at that head MUST exactly match the tree at the bound
+and no merge or intervening Baton receipt occurs. The reserved records root tree at that head MUST exactly match the tree at the bound
 candidate-receipt commit, and the candidate recorded MUST still be the current
 track head. The current approved plan MUST retain the same target ref, approved
 target floor, stable slice, contract, Captain-reviewed design and decision,
@@ -130,10 +129,10 @@ expected in advance:
 - `depends_on` and `consumes` record actual delivery or product relationships,
   not test co-touch, scheduling convenience, or likely support work.
 
-`.baton/releases` is reserved Baton metadata. Product code MUST NOT read or
-depend on it, including from build, test, package, deploy, hooks, or runtime.
-Only Baton's record writer may modify it. Product identity ignores exactly
-this directory.
+The configured records root is reserved Baton metadata. Product code MUST NOT
+read or depend on it, including from build, test, package, deploy, hooks, or
+runtime. Only Baton's record writer may modify it. Product identity ignores
+exactly this directory.
 
 An Implementer may discover ancillary tests, oracles, support files, extra
 checks, or evidence corrections and repair them under the current approved

@@ -9,14 +9,12 @@ import (
 	"testing"
 )
 
-// A5 release-completion gate: a fresh clone of this repository carries the
+// Release-completion gate: a fresh clone of this repository carries the
 // exact post-migration shape and no legacy .baton surface.
 //
-// This test is DECLARED, NOT EXECUTED by a role (ADR 0010). It only passes
-// after the operator runs `sworn migrate-records`, which relocates the
-// reserved records root from .baton/releases to .sworn/records. Before that
-// migration it fails by design, so it must never run inside an executed
-// suite; it is the host-boundary release-completion assertion.
+// This test is DECLARED, NOT EXECUTED by a role (ADR 0010). It asserts that
+// the reserved records root lives at .sworn/records and no legacy .baton
+// surface is tracked; it is the host-boundary release-completion assertion.
 func TestFreshCloneCarriesMigratedRecordsAndNoLegacySurface(t *testing.T) {
 	t.Parallel()
 	root := moduleRoot(t)

@@ -60,6 +60,9 @@ func TestReadStateFallsBackToLegacyRecordRoot(t *testing.T) {
 	if state.Plan.OID == "" || state.Plan.Digest != DigestBytes(planBytes) {
 		t.Fatalf("legacy state plan = %#v", state.Plan)
 	}
+	if !state.Plan.LegacyFallback {
+		t.Fatalf("expected legacy state.Plan.LegacyFallback = true, got false")
+	}
 	if state.Refs.Release.Head != legacyHead {
 		t.Fatalf("release head = %s, want %s", state.Refs.Release.Head, legacyHead)
 	}
@@ -98,6 +101,9 @@ func TestReadStateConfiguredRootWinsOverLegacy(t *testing.T) {
 	if state.Plan.Digest != DigestBytes(planBytes) {
 		t.Fatalf("state plan digest = %s, want the configured-root plan %s",
 			state.Plan.Digest, DigestBytes(planBytes))
+	}
+	if state.Plan.LegacyFallback {
+		t.Fatalf("expected configured state.Plan.LegacyFallback = false, got true")
 	}
 	file, err := actions.repository.file(commit, planPath(LegacyRecordRoot, release))
 	if err != nil || !file.Present || !bytes.Equal(file.Bytes, []byte("foreign legacy plan\n")) {

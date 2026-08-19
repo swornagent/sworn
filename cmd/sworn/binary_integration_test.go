@@ -103,14 +103,14 @@ func TestTwinProductBuildsIgnoreRecordOnlyHistory(t *testing.T) {
 		initProductRepository(t, repository)
 	}
 
-	record := filepath.Join(withRecord, ".baton", "releases", "proof", "status.json")
+	record := filepath.Join(withRecord, ".sworn", "records", "proof", "status.json")
 	if err := os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(record, []byte("{\"status\":\"record-only\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, withRecord, "add", "--", ".baton/releases/proof/status.json")
+	runGit(t, withRecord, "add", "--", ".sworn/records/proof/status.json")
 	runGit(
 		t,
 		withRecord,
@@ -187,14 +187,14 @@ func TestProductCopyAndArchiveExcludeBatonRecords(t *testing.T) {
 	repository := copyProductTree(t, root)
 	initProductRepository(t, repository)
 
-	record := filepath.Join(repository, ".baton", "releases", "proof", "status.json")
+	record := filepath.Join(repository, ".sworn", "records", "proof", "status.json")
 	if err := os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(record, []byte("{\"status\":\"record-only\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, repository, "add", "--", ".baton/releases/proof/status.json")
+	runGit(t, repository, "add", "--", ".sworn/records/proof/status.json")
 	runGit(
 		t,
 		repository,
@@ -203,14 +203,14 @@ func TestProductCopyAndArchiveExcludeBatonRecords(t *testing.T) {
 		"commit", "--quiet", "-m", "record only",
 	)
 	for name := range archiveEntries(t, repository, "HEAD") {
-		if name == ".baton/releases" || strings.HasPrefix(name, ".baton/releases/") {
-			t.Fatalf("Git archive contains Baton authority path %q", name)
+		if name == ".sworn/records" || strings.HasPrefix(name, ".sworn/records/") {
+			t.Fatalf("Git archive contains records authority path %q", name)
 		}
 	}
 
 	copy := copyProductTree(t, repository)
-	if _, err := os.Lstat(filepath.Join(copy, ".baton")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("product copy materialized Baton authority: %v", err)
+	if _, err := os.Lstat(filepath.Join(copy, ".sworn", "records")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("product copy materialized records authority: %v", err)
 	}
 }
 
@@ -234,8 +234,8 @@ func copyProductTree(t *testing.T, sourceRoot string) string {
 		"ls-files", "-z",
 		"--cached", "--others", "--exclude-standard",
 		"--", ".",
-		":(exclude,top).baton/releases",
-		":(exclude,top).baton/releases/**",
+		":(exclude,top).sworn/records",
+		":(exclude,top).sworn/records/**",
 	)
 	output, err := command.Output()
 	if err != nil {
@@ -247,8 +247,8 @@ func copyProductTree(t *testing.T, sourceRoot string) string {
 			continue
 		}
 		relative := string(raw)
-		if relative == ".baton/releases" || strings.HasPrefix(relative, ".baton/releases/") {
-			t.Fatalf("product file list contains Baton authority path %q", relative)
+		if relative == ".sworn/records" || strings.HasPrefix(relative, ".sworn/records/") {
+			t.Fatalf("product file list contains records authority path %q", relative)
 		}
 		sourcePath := filepath.Join(sourceRoot, filepath.FromSlash(relative))
 		targetPath := filepath.Join(targetRoot, filepath.FromSlash(relative))

@@ -2,9 +2,9 @@
   "schema": "sworn.role-assets/v1",
   "snapshot": {
     "manifest_schema": "sworn.baton-assets/v1",
-    "manifest_sha256": "sha256:4033e1c2427cbd22aaba6f2ce0a1f628ab56f37f89283734cc434b1f7f0376e7",
+    "manifest_sha256": "sha256:0bc00c8507fc27b59dda4bbc91e8800dcac66207adbea208141460e292a6d42b",
     "asset_count": 25,
-    "total_bytes": 391324
+    "total_bytes": 391337
   },
   "operations": [
     {
@@ -17,7 +17,7 @@
       "name": "baton-implement",
       "source": "operations/baton-implement.md",
       "version": "baton.operation/v2",
-      "sha256": "sha256:268dad4ce9a5b3d3ceac8a9fb30ecb868c4592b2e161b462cf13eec1f8efe205"
+      "sha256": "sha256:1c63e5ef0f026626f89c5cd0fe389793b03c0857fbf99c95f67c484c87265342"
     },
     {
       "name": "baton-design-review",
@@ -29,7 +29,7 @@
       "name": "baton-verify",
       "source": "operations/baton-verify.md",
       "version": "baton.operation/v2",
-      "sha256": "sha256:c495b643c47d009e02e04b5af233855e9f15bca9848d08bbecfd8abbea1b99e0"
+      "sha256": "sha256:82ec2129c56371d327122aeb4fd13d49523a1b0bacff3d2e591722e2c98e023d"
     },
     {
       "name": "baton-merge",

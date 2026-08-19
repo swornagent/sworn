@@ -123,7 +123,7 @@ func (r *Repository) MigrateLegacyRecords(request MigrateRecordsRequest) (Record
 
 	// Refuse to overwrite an already-relocated record.
 	for _, plan := range legacy {
-		present, err := r.pathPresentAt(head, recordPlanPath(DefaultRecordsRoot, plan.release))
+		present, err := r.pathPresentAt(head, recordPlanPath(r.recordRoot, plan.release))
 		if err != nil {
 			return RecordsMigration{}, err
 		}
@@ -261,7 +261,7 @@ func (r *Repository) buildRecordsMigrationCommit(
 			)
 		}
 		changes = append(changes, BlobChange{
-			Path: recordPlanPath(DefaultRecordsRoot, plan.release), Bytes: append([]byte(nil), body...),
+			Path: recordPlanPath(r.recordRoot, plan.release), Bytes: append([]byte(nil), body...),
 		})
 	}
 	timestamp, err := r.CommitTimestamp(parent)

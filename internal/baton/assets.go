@@ -38,11 +38,11 @@ const (
 	// truthful history, never an admission gate against an external product.
 	LegacyBatonVersion = "1.0.0-rc.14"
 	LegacyBatonCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256     = "sha256:4033e1c2427cbd22aaba6f2ce0a1f628ab56f37f89283734cc434b1f7f0376e7"
+	ManifestSHA256     = "sha256:0bc00c8507fc27b59dda4bbc91e8800dcac66207adbea208141460e292a6d42b"
 	AssetCount         = 25
-	AssetBytes         = int64(391324)
+	AssetBytes         = int64(391337)
 
-	releaseDocumentSHA256 = "sha256:cc58767282eef41b89383b6e8e880c1c4cebf9bb6ada1887bf8e598f48de9203"
+	releaseDocumentSHA256 = "sha256:6927a3b7a215435146eb9662183782705a3ded9d62165ae2f46207a604f3f971"
 	manifestSchema        = "sworn.baton-assets/v1"
 	operationVersion      = "baton.operation/v2"
 )
@@ -314,9 +314,9 @@ func validateManifestIdentity(manifest assetManifest) error {
 func validateReleaseBindings(source fs.FS, release releaseFile, digests map[string]string) error {
 	expectedOperations := []releaseOperation{
 		{"baton-plan", "operations/baton-plan.md", operationVersion, "sha256:30a21cd1b660553aa71c2e85bdbaa24db577467f403fd3a49519610d7fa9a355"},
-		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:268dad4ce9a5b3d3ceac8a9fb30ecb868c4592b2e161b462cf13eec1f8efe205"},
+		{"baton-implement", "operations/baton-implement.md", operationVersion, "sha256:1c63e5ef0f026626f89c5cd0fe389793b03c0857fbf99c95f67c484c87265342"},
 		{"baton-design-review", "operations/baton-design-review.md", operationVersion, "sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f"},
-		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:c495b643c47d009e02e04b5af233855e9f15bca9848d08bbecfd8abbea1b99e0"},
+		{"baton-verify", "operations/baton-verify.md", operationVersion, "sha256:82ec2129c56371d327122aeb4fd13d49523a1b0bacff3d2e591722e2c98e023d"},
 		{"baton-merge", "operations/baton-merge.md", operationVersion, "sha256:f4856ed3c8475fffb316c7296bd38ad6ab5937c757edfe361f20979a45ceaf26"},
 	}
 	expectedTemplates := []releaseTemplate{
