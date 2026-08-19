@@ -19,10 +19,11 @@ const (
 )
 
 type projectPaths struct {
-	root        string
-	journal     string
-	config      string
-	manifestDir string
+	root           string
+	journal        string
+	config         string
+	manifestDir    string
+	operatorConfig string
 }
 
 type projectRun struct {
@@ -41,10 +42,11 @@ type projectRelease struct {
 }
 
 type projectCatalog struct {
-	paths       projectPaths
-	repository  *gitx.Repository
-	releases    []projectRelease
-	diagnostics []string
+	paths          projectPaths
+	repository     *gitx.Repository
+	releases       []projectRelease
+	diagnostics    []string
+	operatorConfig string
 }
 
 func discoverProject(
@@ -112,6 +114,11 @@ func discoverProject(
 	}
 
 	var diagnostics []string
+	operatorConfigPath, operatorDiagnostic := discoverOperatorConfig(paths)
+	if operatorDiagnostic != "" {
+		diagnostics = append(diagnostics, operatorDiagnostic)
+	}
+
 	runs, journalDiagnostic := discoverProjectRuns(ctx, paths)
 	if journalDiagnostic != "" {
 		diagnostics = append(diagnostics, journalDiagnostic)
@@ -145,6 +152,7 @@ func discoverProject(
 	return projectCatalog{
 		paths: paths, repository: repository,
 		releases: releases, diagnostics: diagnostics,
+		operatorConfig: operatorConfigPath,
 	}, nil
 }
 
@@ -160,10 +168,11 @@ func resolveProjectPaths(
 	}
 	journalsRoot := filepath.FromSlash(project.JournalsRoot)
 	defaults := projectPaths{
-		root:        root,
-		journal:     filepath.Join(root, journalsRoot, "sworn.db"),
-		config:      filepath.Join(root, journalsRoot, "drivers.json"),
-		manifestDir: filepath.Join(root, journalsRoot, "runs"),
+		root:           root,
+		journal:        filepath.Join(root, journalsRoot, "sworn.db"),
+		config:         filepath.Join(root, journalsRoot, "drivers.json"),
+		manifestDir:    filepath.Join(root, journalsRoot, "runs"),
+		operatorConfig: filepath.Join(root, journalsRoot, "operator.json"),
 	}
 	for _, override := range []struct {
 		value       string
@@ -183,6 +192,23 @@ func resolveProjectPaths(
 		*destination = value
 	}
 	return defaults, nil
+}
+
+func discoverOperatorConfig(paths projectPaths) (string, string) {
+	if paths.operatorConfig == "" {
+		return "", ""
+	}
+	info, err := os.Lstat(paths.operatorConfig)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", ""
+	}
+	if err != nil || !validOperatorFileInfo(info) {
+		return "", "OPERATOR_CONFIG_UNAVAILABLE"
+	}
+	if _, err := loadOperatorSettings(paths.operatorConfig); err != nil {
+		return "", "OPERATOR_CONFIG_UNAVAILABLE"
+	}
+	return paths.operatorConfig, ""
 }
 
 func discoverProjectRuns(
@@ -281,4 +307,24 @@ func latestProjectRun(release projectRelease) (projectRun, bool) {
 		}
 	}
 	return latest, true
+}
+
+func projectReleaseNames(releases []projectRelease) []string {
+	result := make([]string, len(releases))
+	for index, release := range releases {
+		result[index] = release.name
+	}
+	return result
+}
+
+func projectFindRelease(
+	releases []projectRelease,
+	name string,
+) (projectRelease, bool) {
+	for _, release := range releases {
+		if release.name == name {
+			return release, true
+		}
+	}
+	return projectRelease{}, false
 }

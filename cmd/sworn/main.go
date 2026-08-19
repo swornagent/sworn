@@ -45,7 +45,7 @@ Exact syntax:
   sworn version [--json]
   sworn init [--project ABS] [--force]
   sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
-  sworn run --manifest ABS --journal ABS [--config ABS]
+  sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS]
   sworn pause|cancel --run ID --journal ABS --command ID --generation N
   sworn resume|takeover --run ID --journal ABS --command ID --generation N [--config ABS]
   sworn retry --run ID --journal ABS --command ID --generation N --work SHA256 --epoch N [--config ABS]
@@ -235,22 +235,265 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+type runOptions struct {
+	release      string
+	manifestPath string
+	journalPath  string
+	configPath   string
+}
+
+func parseRunOptions(args []string) (runOptions, bool) {
+	options := runOptions{}
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--manifest":
+			if index+1 >= len(args) || options.manifestPath != "" {
+				return runOptions{}, false
+			}
+			index++
+			val := args[index]
+			if val == "" || strings.HasPrefix(val, "--") || !filepath.IsAbs(val) || filepath.Clean(val) != val || strings.ContainsRune(val, 0) {
+				return runOptions{}, false
+			}
+			options.manifestPath = val
+		case "--journal":
+			if index+1 >= len(args) || options.journalPath != "" {
+				return runOptions{}, false
+			}
+			index++
+			val := args[index]
+			if val == "" || strings.HasPrefix(val, "--") || !filepath.IsAbs(val) || filepath.Clean(val) != val || strings.ContainsRune(val, 0) {
+				return runOptions{}, false
+			}
+			options.journalPath = val
+		case "--config":
+			if index+1 >= len(args) || options.configPath != "" {
+				return runOptions{}, false
+			}
+			index++
+			val := args[index]
+			if val == "" || strings.HasPrefix(val, "--") || !filepath.IsAbs(val) || filepath.Clean(val) != val || strings.ContainsRune(val, 0) {
+				return runOptions{}, false
+			}
+			options.configPath = val
+		default:
+			if strings.HasPrefix(arg, "-") || options.release != "" || arg == "" || strings.ContainsRune(arg, 0) {
+				return runOptions{}, false
+			}
+			options.release = arg
+		}
+	}
+	if options.release != "" {
+		return options, true
+	}
+	if options.manifestPath == "" && options.journalPath == "" && options.configPath == "" {
+		return options, true
+	}
+	if options.manifestPath != "" && options.journalPath != "" {
+		return options, true
+	}
+	return runOptions{}, false
+}
+
 func runStart(args []string, stdout, stderr io.Writer) int {
-	options, ok := parseOptionsWithOptionalValues(
-		args,
-		[]string{"--manifest", "--journal"},
-		[]string{"--config"},
-		nil,
-		nil,
-	)
+	options, ok := parseRunOptions(args)
 	if !ok {
 		fmt.Fprintln(
 			stderr,
-			"usage: sworn run --manifest PATH --journal PATH [--config ABS]",
+			"usage: sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS]",
 		)
 		return 2
 	}
-	body, err := readManifest(options["--manifest"])
+
+	manifestPath := options.manifestPath
+	journalPath := options.journalPath
+	configPath := options.configPath
+
+	if options.release == "" && options.manifestPath != "" && options.journalPath != "" {
+		return executeStart(manifestPath, journalPath, configPath, stdout, stderr)
+	}
+
+	ctx := context.Background()
+	catalog, err := discoverProject(ctx, "", options.journalPath, options.configPath, "")
+	if err != nil {
+		writeKnownFailure(stderr, "run", err.Error(), "")
+		return 1
+	}
+
+	if options.release != "" {
+		targetRelease, found := projectFindRelease(catalog.releases, options.release)
+		if !found {
+			names := projectReleaseNames(catalog.releases)
+			foundMsg := "found: none"
+			if len(names) > 0 {
+				foundMsg = "found: " + strings.Join(names, ", ")
+			}
+			writeKnownFailure(
+				stderr,
+				"run",
+				fmt.Sprintf("release %q not found (searched refs/heads/release-wt/*; %s)", options.release, foundMsg),
+				"",
+			)
+			return 1
+		}
+		if targetRelease.diagnostic == "BATON_UNAVAILABLE" {
+			writeKnownFailure(
+				stderr,
+				"run",
+				fmt.Sprintf("release %q is not recorded and approved (no refs/heads/release-wt/%s found)", targetRelease.name, targetRelease.name),
+				"BATON_UNAVAILABLE",
+			)
+			return 1
+		}
+		if targetRelease.diagnostic == "MIGRATION_REQUIRED" {
+			writeKnownFailure(
+				stderr,
+				"run",
+				fmt.Sprintf("release %q requires migration (manifest is a legacy version)", targetRelease.name),
+				"MIGRATION_REQUIRED",
+			)
+			return 1
+		}
+		if manifestPath == "" {
+			if targetRelease.manifest != "" {
+				manifestPath = targetRelease.manifest
+			} else {
+				writeKnownFailure(
+					stderr,
+					"run",
+					fmt.Sprintf("no manifest found for release %q (searched %s)", targetRelease.name, catalog.paths.manifestDir),
+					"",
+				)
+				return 1
+			}
+		}
+		if journalPath == "" {
+			journalPath = catalog.paths.journal
+		}
+		if configPath == "" {
+			configPath = existingRegularFile(catalog.paths.config)
+		}
+	} else {
+		type runCandidate struct {
+			run     projectRun
+			release projectRelease
+		}
+		var runCandidates []runCandidate
+		for _, rel := range catalog.releases {
+			for _, r := range rel.runs {
+				runCandidates = append(runCandidates, runCandidate{run: r, release: rel})
+			}
+		}
+
+		if len(runCandidates) == 1 {
+			cand := runCandidates[0]
+			if manifestPath == "" {
+				if cand.release.manifest != "" {
+					manifestPath = cand.release.manifest
+				} else {
+					writeKnownFailure(
+						stderr,
+						"run",
+						fmt.Sprintf("cannot resume run %s: no manifest found for release %q (searched %s)", cand.run.binding.ID, cand.release.name, catalog.paths.manifestDir),
+						"",
+					)
+					return 1
+				}
+			}
+			if journalPath == "" {
+				journalPath = cand.run.journalPath
+			}
+			if configPath == "" {
+				configPath = cand.run.configPath
+			}
+		} else if len(runCandidates) > 1 {
+			runList := make([]string, len(runCandidates))
+			for i, c := range runCandidates {
+				runList[i] = fmt.Sprintf("%s (%s)", c.run.binding.ID, c.release.name)
+			}
+			writeKnownFailure(
+				stderr,
+				"run",
+				fmt.Sprintf("multiple resumable runs found: %s; specify the release name or use explicit flags", strings.Join(runList, ", ")),
+				"",
+			)
+			return 1
+		} else {
+			var startableReleases []projectRelease
+			for _, rel := range catalog.releases {
+				if rel.sourceRef != "" && rel.manifest != "" && rel.diagnostic == "" {
+					startableReleases = append(startableReleases, rel)
+				}
+			}
+
+			if len(startableReleases) == 1 {
+				cand := startableReleases[0]
+				if manifestPath == "" {
+					manifestPath = cand.manifest
+				}
+				if journalPath == "" {
+					journalPath = catalog.paths.journal
+				}
+				if configPath == "" {
+					configPath = existingRegularFile(catalog.paths.config)
+				}
+			} else if len(startableReleases) > 1 {
+				relNames := make([]string, len(startableReleases))
+				for i, r := range startableReleases {
+					relNames[i] = r.name
+				}
+				writeKnownFailure(
+					stderr,
+					"run",
+					fmt.Sprintf("multiple approved releases found: %s; specify the release name", strings.Join(relNames, ", ")),
+					"",
+				)
+				return 1
+			} else {
+				var approvedNoManifest []string
+				var manifestOnly []string
+				for _, rel := range catalog.releases {
+					if rel.sourceRef != "" && rel.manifest == "" {
+						approvedNoManifest = append(approvedNoManifest, rel.name)
+					} else if rel.sourceRef == "" && rel.manifest != "" {
+						manifestOnly = append(manifestOnly, rel.name)
+					}
+				}
+				if len(approvedNoManifest) > 0 {
+					writeKnownFailure(
+						stderr,
+						"run",
+						fmt.Sprintf("no startable release found: approved releases (%s) have no manifest in %s", strings.Join(approvedNoManifest, ", "), catalog.paths.manifestDir),
+						"",
+					)
+					return 1
+				}
+				if len(manifestOnly) > 0 {
+					writeKnownFailure(
+						stderr,
+						"run",
+						fmt.Sprintf("no startable release found: manifests found for %s, but no matching approved release refs (refs/heads/release-wt/*)", strings.Join(manifestOnly, ", ")),
+						"BATON_UNAVAILABLE",
+					)
+					return 1
+				}
+				writeKnownFailure(
+					stderr,
+					"run",
+					fmt.Sprintf("no runs or releases found in project %s (searched %s, refs/heads/release-wt/*, %s)", catalog.paths.root, catalog.paths.journal, catalog.paths.manifestDir),
+					"",
+				)
+				return 1
+			}
+		}
+	}
+
+	return executeStart(manifestPath, journalPath, configPath, stdout, stderr)
+}
+
+func executeStart(manifestPath, journalPath, configPath string, stdout, stderr io.Writer) int {
+	body, err := readManifest(manifestPath)
 	if err != nil {
 		writeKnownFailure(
 			stderr,
@@ -272,8 +515,8 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	service, factory, err := openRuntimeService(
 		ctx,
-		options["--journal"],
-		options["--config"],
+		journalPath,
+		configPath,
 	)
 	if err != nil {
 		writeCommandFailure(
