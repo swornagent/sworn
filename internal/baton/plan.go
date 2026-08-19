@@ -41,9 +41,15 @@ type Criterion struct {
 	Text string `json:"text"`
 }
 
+type ScopeWaiver struct {
+	Package string `json:"package"`
+	Reason  string `json:"reason"`
+}
+
 type Scope struct {
-	Include []string `json:"include"`
-	Exclude []string `json:"exclude"`
+	Include []string      `json:"include"`
+	Exclude []string      `json:"exclude"`
+	Waivers []ScopeWaiver `json:"waivers,omitempty"`
 }
 
 type Slice struct {
@@ -214,6 +220,7 @@ func copyMetadata(value Metadata) Metadata {
 			result.Tracks[i].Slices[j] = slice
 			result.Tracks[i].Slices[j].Scope.Include = cloneStrings(slice.Scope.Include)
 			result.Tracks[i].Slices[j].Scope.Exclude = cloneStrings(slice.Scope.Exclude)
+			result.Tracks[i].Slices[j].Scope.Waivers = cloneWaivers(slice.Scope.Waivers)
 			result.Tracks[i].Slices[j].Acceptance = append([]Criterion(nil), slice.Acceptance...)
 			result.Tracks[i].Slices[j].Checks = cloneStrings(slice.Checks)
 			result.Tracks[i].Slices[j].HostChecks = cloneStrings(slice.HostChecks)
@@ -230,6 +237,13 @@ func cloneStrings(value []string) []string {
 		return nil
 	}
 	return append([]string{}, value...)
+}
+
+func cloneWaivers(value []ScopeWaiver) []ScopeWaiver {
+	if value == nil {
+		return nil
+	}
+	return append([]ScopeWaiver{}, value...)
 }
 
 func (p Plan) FindTrack(id string) (Track, bool) {
@@ -310,6 +324,9 @@ func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
 	}
 	if !sameStringSet(contract.Scope.Include, declared.Scope.Include) {
 		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract touchpoints do not match its manifest declaration")
+	}
+	if !sameWaivers(contract.Scope.Waivers, declared.Scope.Waivers) {
+		return Slice{}, recordFail("STALE_BINDING", "slice "+sliceID+" contract waivers do not match its manifest declaration")
 	}
 	contract.ContractPath = declared.ContractPath
 	return contract, nil
@@ -533,6 +550,22 @@ func sameStringSet(left, right []string) bool {
 	}
 	for _, value := range right {
 		if !set[value] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameWaivers(left, right []ScopeWaiver) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftMap := make(map[string]string, len(left))
+	for _, w := range left {
+		leftMap[w.Package] = w.Reason
+	}
+	for _, w := range right {
+		if leftMap[w.Package] != w.Reason {
 			return false
 		}
 	}
@@ -808,7 +841,7 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 	if err != nil {
 		return Slice{}, "", err
 	}
-	if err := exactKeys(scopeObject, []string{"include", "exclude"}, nil, label+".scope"); err != nil {
+	if err := exactKeys(scopeObject, []string{"include", "exclude"}, []string{"waivers"}, label+".scope"); err != nil {
 		return Slice{}, "", err
 	}
 	includes, err := uniqueStringList(scopeObject["include"], label+".scope.include", repositoryPath)
@@ -827,6 +860,10 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		}
 	}
 	excludes, err := uniqueStringList(scopeObject["exclude"], label+".scope.exclude", repositoryPath)
+	if err != nil {
+		return Slice{}, "", err
+	}
+	waivers, err := parseWaivers(scopeObject["waivers"], label+".scope.waivers")
 	if err != nil {
 		return Slice{}, "", err
 	}
@@ -883,14 +920,21 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		return Slice{}, "", err
 	}
 	slice := Slice{
-		ID: id, Outcome: outcome, Scope: Scope{Include: includes, Exclude: excludes},
+		ID: id, Outcome: outcome, Scope: Scope{Include: includes, Exclude: excludes, Waivers: waivers},
 		Acceptance: acceptance, Checks: checks, HostChecks: hostChecks,
 		Constraints: constraints, DependsOn: depends, Consumes: consumes,
+	}
+	scopeMap := map[string]any{
+		"include": slice.Scope.Include,
+		"exclude": slice.Scope.Exclude,
+	}
+	if len(slice.Scope.Waivers) > 0 {
+		scopeMap["waivers"] = waiversAny(slice.Scope.Waivers)
 	}
 	contractValue := map[string]any{
 		"track": trackID,
 		"id":    slice.ID, "outcome": slice.Outcome,
-		"scope":      map[string]any{"include": slice.Scope.Include, "exclude": slice.Scope.Exclude},
+		"scope":      scopeMap,
 		"acceptance": criteriaAny(slice.Acceptance),
 		"checks":     slice.Checks, "constraints": slice.Constraints,
 		"depends_on": slice.DependsOn, "consumes": slice.Consumes,
@@ -912,6 +956,56 @@ func criteriaAny(criteria []Criterion) []any {
 	result := make([]any, len(criteria))
 	for index, criterion := range criteria {
 		result[index] = map[string]any{"id": criterion.ID, "text": criterion.Text}
+	}
+	return result
+}
+
+func parseWaivers(value any, label string) ([]ScopeWaiver, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, err := asArray(value, label, false, MaxListItems)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	waivers := make([]ScopeWaiver, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for index, raw := range items {
+		itemLabel := fmt.Sprintf("%s[%d]", label, index)
+		obj, err := asObject(raw, itemLabel)
+		if err != nil {
+			return nil, err
+		}
+		if err := exactKeys(obj, []string{"package", "reason"}, nil, itemLabel); err != nil {
+			return nil, err
+		}
+		pkg, err := repositoryPath(obj["package"], itemLabel+".package")
+		if err != nil {
+			return nil, err
+		}
+		if isReservedRecordPath(pkg) {
+			return nil, recordFail("RESERVED_RECORD_ROOT", itemLabel+".package cannot name reserved Baton records at "+pkg)
+		}
+		if seen[pkg] {
+			return nil, recordFail("DUPLICATE_IDENTITY", label+" repeats waiver for package "+pkg)
+		}
+		seen[pkg] = true
+		reason, err := requiredString(obj["reason"], itemLabel+".reason", 1, 4_096)
+		if err != nil {
+			return nil, err
+		}
+		waivers = append(waivers, ScopeWaiver{Package: pkg, Reason: reason})
+	}
+	return waivers, nil
+}
+
+func waiversAny(waivers []ScopeWaiver) []any {
+	result := make([]any, len(waivers))
+	for index, waiver := range waivers {
+		result[index] = map[string]any{"package": waiver.Package, "reason": waiver.Reason}
 	}
 	return result
 }
@@ -966,7 +1060,7 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 	required := []string{
 		"id", "outcome", "contract_path", "digest", "depends_on", "consumes", "touchpoints",
 	}
-	if err := exactKeys(object, required, nil, label); err != nil {
+	if err := exactKeys(object, required, []string{"waivers"}, label); err != nil {
 		return Slice{}, "", err
 	}
 	id, err := identity(object["id"], label+".id")
@@ -1017,8 +1111,12 @@ func validateManifestSlice(value any, trackID, label string) (Slice, string, err
 			)
 		}
 	}
+	waivers, err := parseWaivers(object["waivers"], label+".waivers")
+	if err != nil {
+		return Slice{}, "", err
+	}
 	slice := Slice{
-		ID: id, Outcome: outcome, Scope: Scope{Include: touchpoints},
+		ID: id, Outcome: outcome, Scope: Scope{Include: touchpoints, Waivers: waivers},
 		DependsOn: depends, Consumes: consumes, ContractPath: contractPath,
 	}
 	return slice, digest, nil

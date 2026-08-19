@@ -1157,6 +1157,7 @@ func (w *Workspaces) sealTrackWithClaim(
 		return SealedCandidate{}, fail("CANDIDATE_SEAL_FAILED", "inventory candidate", err)
 	}
 	var workspaceChanged []string
+	var authorityPaths []string
 	for _, raw := range bytes.Split(rawPaths, []byte{0}) {
 		if len(raw) == 0 {
 			continue
@@ -1167,9 +1168,30 @@ func (w *Workspaces) sealTrackWithClaim(
 		}
 		if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") ||
 			name == w.repository.LegacyRecordRoot() || strings.HasPrefix(name, w.repository.LegacyRecordRoot()+"/") {
-			return SealedCandidate{}, fail("AUTHORITY_PATH_CHANGED", "seal candidate", nil)
+			authorityPaths = append(authorityPaths, name)
 		}
 		workspaceChanged = append(workspaceChanged, name)
+	}
+	if len(authorityPaths) > 0 {
+		sort.Strings(authorityPaths)
+		deduped := make([]string, 0, len(authorityPaths))
+		for i, p := range authorityPaths {
+			if i == 0 || p != authorityPaths[i-1] {
+				deduped = append(deduped, p)
+			}
+		}
+		total := len(deduped)
+		bounded := deduped
+		if len(bounded) > MaxRefusalPaths {
+			bounded = append([]string(nil), bounded[:MaxRefusalPaths]...)
+		}
+		return SealedCandidate{}, failWithPaths(
+			"AUTHORITY_PATH_CHANGED",
+			"seal candidate",
+			nil,
+			bounded,
+			total,
+		)
 	}
 	if len(workspaceChanged) == 0 && refreshFrom == nil {
 		return SealedCandidate{}, fail("EMPTY_CANDIDATE", "seal candidate", nil)
@@ -1241,18 +1263,36 @@ func (w *Workspaces) sealTrackWithClaim(
 				nil,
 			)
 		}
+		var refreshAuthorityPaths []string
 		for _, name := range changed {
 			if err := ValidatePath(name, false); err != nil {
 				return SealedCandidate{}, err
 			}
 			if name == w.repository.recordRoot || strings.HasPrefix(name, w.repository.recordRoot+"/") ||
 				name == w.repository.LegacyRecordRoot() || strings.HasPrefix(name, w.repository.LegacyRecordRoot()+"/") {
-				return SealedCandidate{}, fail(
-					"AUTHORITY_PATH_CHANGED",
-					"seal refreshed candidate",
-					nil,
-				)
+				refreshAuthorityPaths = append(refreshAuthorityPaths, name)
 			}
+		}
+		if len(refreshAuthorityPaths) > 0 {
+			sort.Strings(refreshAuthorityPaths)
+			deduped := make([]string, 0, len(refreshAuthorityPaths))
+			for i, p := range refreshAuthorityPaths {
+				if i == 0 || p != refreshAuthorityPaths[i-1] {
+					deduped = append(deduped, p)
+				}
+			}
+			total := len(deduped)
+			bounded := deduped
+			if len(bounded) > MaxRefusalPaths {
+				bounded = append([]string(nil), bounded[:MaxRefusalPaths]...)
+			}
+			return SealedCandidate{}, failWithPaths(
+				"AUTHORITY_PATH_CHANGED",
+				"seal refreshed candidate",
+				nil,
+				bounded,
+				total,
+			)
 		}
 	}
 	sealed := SealedCandidate{

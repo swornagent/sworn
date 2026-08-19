@@ -216,7 +216,7 @@ func readStreamedResponse(body io.Reader, maximumBytes int) ([]byte, error) {
 			}
 			if json.Unmarshal(payload, &envelope) != nil ||
 				len(envelope.Response) == 0 {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.stream.response_envelope_invalid")
 			}
 			if len(envelope.Response) > maximumBytes {
 				return fail("OUTPUT_OVERFLOW")

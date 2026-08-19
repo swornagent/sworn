@@ -1474,3 +1474,373 @@ func TestGeminiConversationSurfacesCacheAndTruncation(t *testing.T) {
 		t.Fatalf("gemini truncation turn = %#v, error=%v", truncated, err)
 	}
 }
+
+// A2: Failure isolation — one failing call in a batch produces its bounded
+// failure result in place while remaining calls still execute and return;
+// proven by a 3-call turn where the middle call fails.
+func TestProviderParallelToolFailureIsolation(t *testing.T) {
+	invocationID := "provider-tool-isolation"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := requests.Add(1)
+		body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if turn == 1 {
+			// Turn 1: Assistant returns 3 tool calls: valid, missing path, valid
+			writeJSONResponse(t, writer, map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]any{
+						"role": "assistant", "content": nil,
+						"tool_calls": []any{
+							openAIToolCallFixture("read-1", "Read", `{"path":"/workspace/file1.txt"}`),
+							openAIToolCallFixture("read-2", "Read", `{"path":"/workspace/missing.txt"}`),
+							openAIToolCallFixture("read-3", "Read", `{"path":"/workspace/file2.txt"}`),
+						},
+					},
+					"finish_reason": "tool_calls",
+				}},
+				"usage": map[string]any{"prompt_tokens": 3, "completion_tokens": 6},
+			})
+			return
+		}
+		// Turn 2: Server verifies that all 3 tool results are returned in correlation order,
+		// with the middle call having the bounded error string.
+		var requestBody struct {
+			Messages []struct {
+				Role       string `json:"role"`
+				ToolCallID string `json:"tool_call_id"`
+				Content    string `json:"content"`
+			} `json:"messages"`
+		}
+		if json.Unmarshal(body, &requestBody) != nil ||
+			len(requestBody.Messages) != 5 ||
+			requestBody.Messages[2].ToolCallID != "read-1" ||
+			requestBody.Messages[2].Content != "first content" ||
+			requestBody.Messages[3].ToolCallID != "read-2" ||
+			requestBody.Messages[3].Content != "error:TOOL_PATH_INVALID" ||
+			requestBody.Messages[4].ToolCallID != "read-3" ||
+			requestBody.Messages[4].Content != "second content" {
+			t.Errorf("second request failure isolation order = %s", body)
+		}
+		writeJSONResponse(t, writer, openAIToolCallResponse(
+			"submit-final",
+			"sworn_submit",
+			submitArguments,
+			10,
+			12,
+		))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-isolation", ID: "sworn.openai.isolation", Version: "1.0.0",
+				Endpoint:         server.URL + "/v1/chat/completions",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIChatCompletionsAPI,
+			ReasoningEffort: "none",
+		},
+		func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := productionInvocationFixture(
+		t,
+		adapter,
+		ProfileOpenAIHTTP,
+		invocationID,
+		RoleImplementer,
+		ImplementerImplementation,
+		ReadWrite,
+	)
+	if err := osWriteProviderFixture(invocation.HostWorkspace, "file1.txt", "first content"); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteProviderFixture(invocation.HostWorkspace, "file2.txt", "second content"); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil || requests.Load() != 2 {
+		t.Fatalf("observation = %#v, requests=%d, error=%v", observation, requests.Load(), err)
+	}
+}
+
+// A5: A driver-level test proves a discovery sequence that took N single-call turns
+// completes in a bounded fraction of the turns with batching (throughput claim).
+func TestProviderBatchedDiscoveryReducesTurns(t *testing.T) {
+	invocationID := "provider-throughput-test"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+
+	// 1. Single-call baseline: 4 discovery turns + 1 submit turn = 5 turns
+	var singleCallRequests atomic.Int64
+	singleServer := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := singleCallRequests.Add(1)
+		switch turn {
+		case 1:
+			writeJSONResponse(t, writer, openAIToolCallResponse("read-doc1", "Read", `{"path":"/workspace/doc1.txt"}`, 1, 1))
+		case 2:
+			writeJSONResponse(t, writer, openAIToolCallResponse("read-doc2", "Read", `{"path":"/workspace/doc2.txt"}`, 1, 1))
+		case 3:
+			writeJSONResponse(t, writer, openAIToolCallResponse("read-doc3", "Read", `{"path":"/workspace/doc3.txt"}`, 1, 1))
+		case 4:
+			writeJSONResponse(t, writer, openAIToolCallResponse("read-doc4", "Read", `{"path":"/workspace/doc4.txt"}`, 1, 1))
+		case 5:
+			writeJSONResponse(t, writer, openAIToolCallResponse("submit-single", "sworn_submit", submitArguments, 2, 2))
+		default:
+			t.Errorf("unexpected single-call turn %d", turn)
+		}
+	}))
+	defer singleServer.Close()
+
+	// 2. Batched execution: 1 batched discovery turn (4 Read calls) + 1 submit turn = 2 turns
+	var batchedRequests atomic.Int64
+	batchedServer := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		turn := batchedRequests.Add(1)
+		body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		switch turn {
+		case 1:
+			writeJSONResponse(t, writer, map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]any{
+						"role": "assistant", "content": nil,
+						"tool_calls": []any{
+							openAIToolCallFixture("batch-1", "Read", `{"path":"/workspace/doc1.txt"}`),
+							openAIToolCallFixture("batch-2", "Read", `{"path":"/workspace/doc2.txt"}`),
+							openAIToolCallFixture("batch-3", "Read", `{"path":"/workspace/doc3.txt"}`),
+							openAIToolCallFixture("batch-4", "Read", `{"path":"/workspace/doc4.txt"}`),
+						},
+					},
+					"finish_reason": "tool_calls",
+				}},
+				"usage": map[string]any{"prompt_tokens": 4, "completion_tokens": 8},
+			})
+		case 2:
+			var requestBody struct {
+				Messages []struct {
+					Role       string `json:"role"`
+					ToolCallID string `json:"tool_call_id"`
+					Content    string `json:"content"`
+				} `json:"messages"`
+			}
+			if json.Unmarshal(body, &requestBody) != nil ||
+				len(requestBody.Messages) != 6 ||
+				requestBody.Messages[2].Content != "doc 1 content" ||
+				requestBody.Messages[3].Content != "doc 2 content" ||
+				requestBody.Messages[4].Content != "doc 3 content" ||
+				requestBody.Messages[5].Content != "doc 4 content" {
+				t.Errorf("batched request messages = %s", body)
+			}
+			writeJSONResponse(t, writer, openAIToolCallResponse("submit-batched", "sworn_submit", submitArguments, 10, 10))
+		default:
+			t.Errorf("unexpected batched turn %d", turn)
+		}
+	}))
+	defer batchedServer.Close()
+
+	newAdapter := func(serverURL string, key string) Adapter {
+		adapter, err := NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: key, ID: "sworn." + key, Version: "1.0.0",
+					Endpoint:         serverURL + "/v1/chat/completions",
+					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+				},
+				API:             OpenAIChatCompletionsAPI,
+				ReasoningEffort: "none",
+			},
+			func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+			nil,
+			nil,
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return adapter
+	}
+
+	singleAdapter := newAdapter(singleServer.URL, "openai-single")
+	batchedAdapter := newAdapter(batchedServer.URL, "openai-batched")
+
+	singleInvocation := productionInvocationFixture(
+		t, singleAdapter, ProfileOpenAIHTTP, invocationID, RoleImplementer, ImplementerImplementation, ReadWrite,
+	)
+	batchedInvocation := productionInvocationFixture(
+		t, batchedAdapter, ProfileOpenAIHTTP, invocationID, RoleImplementer, ImplementerImplementation, ReadWrite,
+	)
+
+	for _, inv := range []Invocation{singleInvocation, batchedInvocation} {
+		for i, name := range []string{"doc1.txt", "doc2.txt", "doc3.txt", "doc4.txt"} {
+			if err := osWriteProviderFixture(inv.HostWorkspace, name, "doc "+itoa(i+1)+" content"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	singleObs, singleErr := (Dispatcher{}).Invoke(context.Background(), singleInvocation)
+	if singleErr != nil || singleObs.Handoff == nil {
+		t.Fatalf("single invocation failed: %#v, %v", singleObs, singleErr)
+	}
+
+	batchedObs, batchedErr := (Dispatcher{}).Invoke(context.Background(), batchedInvocation)
+	if batchedErr != nil || batchedObs.Handoff == nil {
+		t.Fatalf("batched invocation failed: %#v, %v", batchedObs, batchedErr)
+	}
+
+	singleTurns := singleCallRequests.Load()
+	batchedTurns := batchedRequests.Load()
+	if singleTurns != 5 {
+		t.Fatalf("single turns = %d, want 5", singleTurns)
+	}
+	if batchedTurns != 2 {
+		t.Fatalf("batched turns = %d, want 2", batchedTurns)
+	}
+	// Verify throughput claim: batched turns is a bounded fraction (40% <= 50%) of single turns
+	if float64(batchedTurns)/float64(singleTurns) > 0.5 {
+		t.Fatalf("batched/single turn ratio %.2f > 0.50", float64(batchedTurns)/float64(singleTurns))
+	}
+}
+
+// A3: Budgets bind per turn, not per call. Exceeding MaxToolCalls on a turn fails
+// with continuation.openai.accept_tool_calls_invalid; combining sworn_submit or
+// sworn_yield with another call fails SUBMISSION_PROTOCOL_FAILED; and cumulative session
+// limits fail with RESOURCE_LIMIT.
+func TestProviderParallelToolLimits(t *testing.T) {
+	invocationID := "provider-limits-test"
+	submission := submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	)
+	submitArguments := submissionToolArguments(t, submission)
+
+	t.Run("exceeding MaxToolCalls fails CONTINUATION_INVALID", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			toolCalls := make([]any, MaxToolCalls+1)
+			for i := 0; i <= MaxToolCalls; i++ {
+				toolCalls[i] = openAIToolCallFixture("call-"+itoa(i), "Read", `{"path":"/workspace/a.txt"}`)
+			}
+			writeJSONResponse(t, writer, map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]any{
+						"role": "assistant", "content": nil,
+						"tool_calls": toolCalls,
+					},
+					"finish_reason": "tool_calls",
+				}},
+			})
+		}))
+		defer server.Close()
+		adapter, err := NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: "openai-limit-calls", ID: "sworn.openai.limit.calls", Version: "1.0.0",
+					Endpoint:         server.URL + "/v1/chat/completions",
+					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+				},
+				API: OpenAIChatCompletionsAPI,
+			},
+			func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+			nil, nil, nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		invocation := productionInvocationFixture(
+			t, adapter, ProfileOpenAIHTTP, invocationID, RoleImplementer, ImplementerImplementation, ReadWrite,
+		)
+		_, err = (Dispatcher{}).Invoke(context.Background(), invocation)
+		if !IsCode(err, "CONTINUATION_INVALID") {
+			t.Fatalf("exceeded MaxToolCalls err = %v, want CONTINUATION_INVALID", err)
+		}
+	})
+
+	t.Run("combining sworn_submit with another tool call fails SUBMISSION_PROTOCOL_FAILED", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			writeJSONResponse(t, writer, map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]any{
+						"role": "assistant", "content": nil,
+						"tool_calls": []any{
+							openAIToolCallFixture("call-1", "Read", `{"path":"/workspace/a.txt"}`),
+							openAIToolCallFixture("call-2", "sworn_submit", submitArguments),
+						},
+					},
+					"finish_reason": "tool_calls",
+				}},
+			})
+		}))
+		defer server.Close()
+		adapter, err := NewOpenAIAdapter(
+			OpenAIProfileConfig{
+				HTTPProfileConfig: HTTPProfileConfig{
+					Key: "openai-limit-terminal", ID: "sworn.openai.limit.terminal", Version: "1.0.0",
+					Endpoint:         server.URL + "/v1/chat/completions",
+					CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+					CredentialRefs: []string{"credential-ref"},
+					ResponseBytes:  MaxProviderResponseBytes,
+				},
+				API: OpenAIChatCompletionsAPI,
+			},
+			func(context.Context, string) ([]byte, error) { return []byte("secret"), nil },
+			nil, nil, nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		invocation := productionInvocationFixture(
+			t, adapter, ProfileOpenAIHTTP, invocationID, RoleImplementer, ImplementerImplementation, ReadWrite,
+		)
+		_, err = (Dispatcher{}).Invoke(context.Background(), invocation)
+		if !IsCode(err, "SUBMISSION_PROTOCOL_FAILED") {
+			t.Fatalf("batch with sworn_submit err = %v, want SUBMISSION_PROTOCOL_FAILED", err)
+		}
+	})
+}

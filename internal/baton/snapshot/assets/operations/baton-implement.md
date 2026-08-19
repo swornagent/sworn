@@ -32,7 +32,8 @@ depend on reserved `.baton/releases`; do not modify it.
 
 1. Before design, use the current release plan and the exact base the engine
    prepared from consumed work that passed. Older track-local records are
-   history. Return a design TL;DR that maps every acceptance identifier to the
+   history. Batch independent reads, searches, and inspection probes into one
+   turn. Return a design TL;DR that maps every acceptance identifier to the
    approach that will satisfy it and the evidence that will prove it, names the
    existing owner each change extends, and states the risks. Write no product
    code. Stop instead when a behavior the contract requires is absent from the

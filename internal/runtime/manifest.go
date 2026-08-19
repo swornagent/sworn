@@ -113,6 +113,10 @@ func (m Manifest) production() bool {
 	return m.Driver == nil && m.DriverConfigDigest != ""
 }
 
+func (m Manifest) EffectiveDegradationBudget() int64 {
+	return m.Limits.EffectiveDegradationBudget()
+}
+
 func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
 	if m.SchemaVersion != ManifestVersion || m.Automation == nil {
 		return driver.ModelSelection{}, false
@@ -293,7 +297,9 @@ func validateManifest(manifest Manifest) error {
 	if manifest.Limits.TimeoutMillis < 1 ||
 		manifest.Limits.TimeoutMillis > driver.MaxTimeoutMillis ||
 		manifest.Limits.OutputBytes < 1 ||
-		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes {
+		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes ||
+		manifest.Limits.DegradationBudget < 0 ||
+		manifest.Limits.DegradationBudget > driver.MaxDegradationBudget {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
 	switch {
@@ -483,6 +489,15 @@ func canonicalManifest(manifest Manifest) ([]byte, error) {
 		return nil, runtimeFail("INVALID_MANIFEST", nil)
 	}
 	return append(body, '\n'), nil
+}
+
+func containsControlCharacter(value string) bool {
+	for _, r := range value {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsString(sortedValues []string, value string) bool {

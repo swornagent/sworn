@@ -122,9 +122,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 		}
 	}
+	degradationBudgetExceeded := int64(len(degradationFallbacks(snapshot))) > manifest.value.EffectiveDegradationBudget()
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
-	parked := attentionParked || len(exhausted) != 0
+	parked := attentionParked || degradationBudgetExceeded || len(exhausted) != 0
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -223,7 +224,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
-			parked = attentionParked || intersectsWork(exhausted, map[string]struct{}{
+			parked = attentionParked || degradationBudgetExceeded || intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
 			parked = parked || humanAuthorityRequired
@@ -264,7 +265,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = humanAuthorityRequired || attentionParked || exhaustedWorkApplies(
+	parked = humanAuthorityRequired || attentionParked || degradationBudgetExceeded || exhaustedWorkApplies(
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
@@ -670,4 +671,26 @@ func intersectsWork(left, right map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+type degradationFallback struct {
+	Offset int64  `json:"offset"`
+	Reason string `json:"reason"`
+}
+
+func degradationFallbacks(snapshot journal.Snapshot) []degradationFallback {
+	var fallbacks []degradationFallback
+	for _, event := range snapshot.Events {
+		if strings.Contains(event.Kind, ".continuation.fresh_rehydrate.") {
+			reason := string(event.Body)
+			if reason == "" {
+				reason = "absence"
+			}
+			fallbacks = append(fallbacks, degradationFallback{
+				Offset: event.Offset,
+				Reason: reason,
+			})
+		}
+	}
+	return fallbacks
 }

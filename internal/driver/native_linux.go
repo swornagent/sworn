@@ -81,7 +81,7 @@ func nativeSessionMemoryRoot() (string, error) {
 		}
 		return candidate, nil
 	}
-	return "", fail("CONTINUATION_INVALID")
+	return "", failContinuation("continuation.native.no_memory_root_candidate")
 }
 
 // admitConfiguredRoot ensures a configured machine/user root exists as a real
@@ -90,11 +90,11 @@ func nativeSessionMemoryRoot() (string, error) {
 // refused with a named error rather than silently replaced by discovery.
 func admitConfiguredRoot(pathValue string) error {
 	if err := os.MkdirAll(pathValue, 0o700); err != nil {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_mkdir_failed")
 	}
 	info, err := os.Lstat(pathValue)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_not_directory")
 	}
 	return nil
 }
@@ -111,17 +111,17 @@ func admitConfiguredMemoryRoot(pathValue string) error {
 	}
 	info, err := os.Lstat(pathValue)
 	if err != nil {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_memory_lstat_failed")
 	}
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok &&
 		stat.Uid != uint32(os.Getuid()) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_memory_uid_mismatch")
 	}
 	if info.Mode().Perm()&0o022 != 0 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_memory_insecure_perms")
 	}
 	if !nativeMemoryBackedPath(pathValue) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.admit_not_memory_backed")
 	}
 	return nil
 }
@@ -517,12 +517,12 @@ func (state *nativeContinuationState) validLocked() bool {
 
 func (state *nativeContinuationState) retainSessionID(body []byte) error {
 	if state == nil || !validNativeSessionID(body) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.retain_invalid_session_id")
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if !state.validLocked() || len(state.sessionID) != 0 {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.retain_session_already_set")
 	}
 	state.sessionID = append([]byte(nil), body...)
 	return nil
@@ -532,13 +532,13 @@ func (state *nativeContinuationState) claim(
 	family ProfileFamily,
 ) ([]byte, error) {
 	if state == nil {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.native.claim_nil_state")
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if !state.validLocked() || state.claimed || state.family != family ||
 		!validNativeSessionID(state.sessionID) {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.native.claim_invalid_state")
 	}
 	size, err := boundedNativeSessionSize(
 		filepath.Join(state.root, "home"),
@@ -547,7 +547,7 @@ func (state *nativeContinuationState) claim(
 		return nil, fail("NATIVE_SURFACE_INVALID")
 	}
 	if size+int64(len(state.sessionID)) > maxContinuationStateBytes {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.native.claim_size_overflow")
 	}
 	state.claimed = true
 	return append([]byte(nil), state.sessionID...), nil
@@ -560,13 +560,13 @@ func (state *nativeContinuationState) transfer() (
 	error,
 ) {
 	if state == nil {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.native.transfer_nil_state")
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if !state.validLocked() || !state.claimed ||
 		!validNativeSessionID(state.sessionID) {
-		return nil, fail("CONTINUATION_INVALID")
+		return nil, failContinuation("continuation.native.transfer_invalid_state")
 	}
 	next := &nativeContinuationState{
 		family:    state.family,
@@ -595,15 +595,15 @@ func (state *nativeContinuationState) validateRetainedHome(
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if !state.validLocked() {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.validate_home_invalid_state")
 	}
 	home := filepath.Join(state.root, "home")
 	if config.Family != ProfileCodex && config.Family != ProfileClaude {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.validate_home_unsupported_family")
 	}
 	if size, err := boundedNativeSessionSize(home); err != nil ||
 		size > maxContinuationStateBytes {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.validate_home_size_overflow")
 	}
 	relativeCredential := strings.TrimPrefix(
 		config.CredentialTarget,
@@ -661,7 +661,7 @@ func (state *nativeContinuationState) containsAny(
 			if err != nil || !info.Mode().IsRegular() ||
 				info.Size() > maxContinuationStateBytes {
 				found = true
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.native.contains_any_size_overflow")
 			}
 			file, err := os.Open(pathValue)
 			if err != nil {
@@ -677,7 +677,7 @@ func (state *nativeContinuationState) containsAny(
 				int64(len(body)) > maxContinuationStateBytes {
 				clearBytes(body)
 				found = true
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.native.contains_any_file_overflow")
 			}
 			for _, secret := range secrets {
 				if bytes.Contains(body, secret) {
@@ -755,7 +755,7 @@ func validNativeSessionID(body []byte) bool {
 func boundedNativeSessionSize(root string) (int64, error) {
 	if root == "" || !filepath.IsAbs(root) ||
 		filepath.Clean(root) != root {
-		return 0, fail("CONTINUATION_INVALID")
+		return 0, failContinuation("continuation.native.bounded_size_invalid_root")
 	}
 	rootDepth := strings.Count(filepath.Clean(root), string(filepath.Separator))
 	entries := 0
@@ -774,7 +774,7 @@ func boundedNativeSessionSize(root string) (int64, error) {
 				filepath.Clean(pathValue),
 				string(filepath.Separator),
 			)-rootDepth > nativeSessionMaxDepth {
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.native.bounded_size_entries_or_depth_overflow")
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -786,11 +786,11 @@ func boundedNativeSessionSize(root string) (int64, error) {
 		case info.Mode().IsRegular():
 			total += info.Size()
 			if total > maxContinuationStateBytes {
-				return fail("CONTINUATION_INVALID")
+				return failContinuation("continuation.native.bounded_size_overflow")
 			}
 			return nil
 		default:
-			return fail("CONTINUATION_INVALID")
+			return failContinuation("continuation.native.bounded_size_irregular_file")
 		}
 	})
 	if err != nil {
@@ -802,7 +802,7 @@ func boundedNativeSessionSize(root string) (int64, error) {
 func reapNativeSessionRoots() error {
 	memoryRoot, err := nativeSessionMemoryRoot()
 	if err != nil || !nativeMemoryBackedPath(memoryRoot) {
-		return fail("CONTINUATION_INVALID")
+		return failContinuation("continuation.native.reap_invalid_memory_root")
 	}
 	entries, err := os.ReadDir(memoryRoot)
 	if err != nil {
@@ -1313,7 +1313,7 @@ func platformStartNativeContinuationMode(
 		)
 	}
 	if !launch.accepted || !validNativeSessionID(launch.capturedID) {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.start_session_id_invalid")
 	}
 	if err := nativeState.retainSessionID(launch.capturedID); err != nil {
 		return Observation{}, nil, err
@@ -1334,7 +1334,7 @@ func platformResumeNativeContinuation(
 		invocation,
 		config,
 	) != nil {
-		return Observation{}, fail("CONTINUATION_INVALID")
+		return Observation{}, failContinuation("continuation.native.resume_surface_not_certified")
 	}
 	observation, next, err := platformResumeNativeContinuationMode(
 		parent,
@@ -1367,7 +1367,7 @@ func platformResumeNativeRecoverableContinuation(
 		invocation,
 		config,
 	) != nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.recoverable_surface_not_certified")
 	}
 	return platformResumeNativeContinuationMode(
 		parent,
@@ -1395,11 +1395,11 @@ func platformResumeNativeContinuationMode(
 ) (Observation, continuationState, error) {
 	nativeState, ok := prior.(*nativeContinuationState)
 	if !ok || nativeState == nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.resume_invalid_state_type")
 	}
 	sessionID, err := nativeState.claim(config.Family)
 	if err != nil {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.resume_claim_failed")
 	}
 	defer clearBytes(sessionID)
 	launch := &nativeContinuationLaunch{
@@ -1421,7 +1421,7 @@ func platformResumeNativeContinuationMode(
 	)
 	if err != nil && !launch.accepted &&
 		!isContinuationCancellation(err) {
-		return Observation{}, nil, fail("CONTINUATION_INVALID")
+		return Observation{}, nil, failContinuation("continuation.native.resume_launch_rejected")
 	}
 	if allowProseNudge && IsCode(err, "MISSING_SUBMISSION") &&
 		launch.accepted &&
@@ -2706,7 +2706,7 @@ func nativeCommand(
 	homeFD := -1
 	if launch != nil {
 		if launch.state == nil || launch.state.homeFile() == nil {
-			return nil, nil, nil, fail("CONTINUATION_INVALID")
+			return nil, nil, nil, failContinuation("continuation.native.launch_missing_home_file")
 		}
 		homeFD = 3 + len(extra)
 		extra = append(extra, launch.state.homeFile())

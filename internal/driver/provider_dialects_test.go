@@ -2268,3 +2268,128 @@ func TestRecordedProbeDocumentsSilentDegradationWithoutSignature(t *testing.T) {
 		t.Fatal("the two probe requests differ beyond the signature")
 	}
 }
+
+// A1: recorded multi-call fixtures decode, execute in order, and return
+// correlated results in the following request on both the Responses and Chat
+// surfaces, and resume succeeds over the multi-call tail.
+func TestParallelToolCallsRecordedFixturesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("chat surface recorded multi-call fixture", func(t *testing.T) {
+		t.Parallel()
+		conversation, err := newOpenAIConversation(
+			"https://api.openai.example.invalid/v1/chat/completions",
+			"gpt-4o",
+			toolDefinitions(ReadOnly),
+			[]byte(`{"prompt":"bounded"}`),
+			providerDialectOpenAIChat,
+			"",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conversation.close()
+
+		response := providerDialectFixture(t, "multicall_chat_response.json")
+		turn, err := conversation.accept(response)
+		if err != nil || len(turn.Calls) != 3 ||
+			turn.Calls[0].ID != "call_multicall_chat_1" || turn.Calls[0].Name != "Read" ||
+			turn.Calls[1].ID != "call_multicall_chat_2" || turn.Calls[1].Name != "Read" ||
+			turn.Calls[2].ID != "call_multicall_chat_3" || turn.Calls[2].Name != "Read" ||
+			turn.Usage == nil || turn.Usage.InputTokens != 42 || turn.Usage.OutputTokens != 38 {
+			t.Fatalf("chat multi-call turn = %#v, %v", turn, err)
+		}
+
+		results := []providerToolResult{
+			{ID: "call_multicall_chat_1", Name: "Read", Content: []byte("content of a")},
+			{ID: "call_multicall_chat_2", Name: "Read", Content: []byte("content of b")},
+			{ID: "call_multicall_chat_3", Name: "Read", Content: []byte("content of c")},
+		}
+		if err := conversation.appendResults(results); err != nil {
+			t.Fatal(err)
+		}
+
+		request, err := conversation.request()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req struct {
+			Messages []openAIMessage `json:"messages"`
+		}
+		if json.Unmarshal(request.Body, &req) != nil || len(req.Messages) != 5 {
+			t.Fatalf("replayed request = %s", request.Body)
+		}
+		for i, expected := range results {
+			toolMsg := req.Messages[2+i]
+			if toolMsg.Role != "tool" || toolMsg.ToolCallID != expected.ID {
+				t.Fatalf("tool message %d = %#v, want ID %s", i, toolMsg, expected.ID)
+			}
+			var content string
+			if json.Unmarshal(toolMsg.Content, &content) != nil || content != string(expected.Content) {
+				t.Fatalf("tool message %d content = %s, want %s", i, toolMsg.Content, expected.Content)
+			}
+		}
+
+		if err := conversation.resume([]byte(`{"resume":"prompt"}`), toolDefinitions(ReadWrite)); err != nil {
+			t.Fatalf("resume failed over 3-call tail: %v", err)
+		}
+		if len(conversation.messages) != 6 || conversation.messages[5].Role != "user" {
+			t.Fatalf("messages after resume = %#v", conversation.messages)
+		}
+	})
+
+	t.Run("responses surface recorded multi-call fixture", func(t *testing.T) {
+		t.Parallel()
+		conversation, err := newResponsesConversation(
+			"https://api.openai.example.invalid/v1/responses",
+			"gpt-4o",
+			toolDefinitions(ReadOnly),
+			[]byte(`{"prompt":"bounded"}`),
+			"medium",
+			nil,
+			false,
+			providerDialectOpenAIResponses,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conversation.close()
+
+		response := providerDialectFixture(t, "multicall_responses_response.json")
+		turn, err := conversation.accept(response)
+		if err != nil || len(turn.Calls) != 3 ||
+			turn.Calls[0].ID != "call_multicall_resp_1" || turn.Calls[0].Name != "Read" ||
+			turn.Calls[1].ID != "call_multicall_resp_2" || turn.Calls[1].Name != "Read" ||
+			turn.Calls[2].ID != "call_multicall_resp_3" || turn.Calls[2].Name != "Read" ||
+			turn.Usage == nil || turn.Usage.InputTokens != 52 || turn.Usage.OutputTokens != 44 {
+			t.Fatalf("responses multi-call turn = %#v, %v", turn, err)
+		}
+
+		results := []providerToolResult{
+			{ID: "call_multicall_resp_1", Name: "Read", Content: []byte("content of a")},
+			{ID: "call_multicall_resp_2", Name: "Read", Content: []byte("content of b")},
+			{ID: "call_multicall_resp_3", Name: "Read", Content: []byte("content of c")},
+		}
+		if err := conversation.appendResults(results); err != nil {
+			t.Fatal(err)
+		}
+
+		request, err := conversation.request()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req struct {
+			Input []json.RawMessage `json:"input"`
+		}
+		if json.Unmarshal(request.Body, &req) != nil || len(req.Input) != 8 {
+			t.Fatalf("responses replayed request = %s (input len %d)", request.Body, len(req.Input))
+		}
+
+		if err := conversation.resume([]byte(`{"resume":"prompt"}`), toolDefinitions(ReadWrite)); err != nil {
+			t.Fatalf("responses resume failed over 3-call tail: %v", err)
+		}
+		if len(conversation.input) != 9 {
+			t.Fatalf("responses input after resume = %d items", len(conversation.input))
+		}
+	})
+}
