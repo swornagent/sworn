@@ -5751,8 +5751,26 @@ func validateSavedPlanAdoption(
 		state.Plan.Approval.Receipt.Role != "planner" ||
 		state.Plan.Approval.Receipt.Result != "approved" ||
 		state.Plan.Approval.Receipt.Plan != state.Plan.OID ||
-		state.Plan.Approval.Receipt.Target == nil ||
-		*state.Plan.Approval.Receipt.Target != state.Refs.Target.Head {
+		state.Plan.Approval.Receipt.Target == nil {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	if engine == nil || engine.repository == nil {
+		return false, runtimeFail("INVALID_AUTHORITY", nil)
+	}
+	format := engine.repository.ObjectFormat()
+	receiptTargetOID, err := gitx.ParseOID(format, *state.Plan.Approval.Receipt.Target)
+	if err != nil {
+		return false, runtimeFail("INVALID_AUTHORITY", err)
+	}
+	targetHeadOID, err := gitx.ParseOID(format, state.Refs.Target.Head)
+	if err != nil {
+		return false, runtimeFail("INVALID_AUTHORITY", err)
+	}
+	isAncestor, err := engine.repository.IsAncestor(receiptTargetOID, targetHeadOID)
+	if err != nil {
+		return false, err
+	}
+	if !isAncestor {
 		return false, runtimeFail("INVALID_AUTHORITY", nil)
 	}
 	found := false

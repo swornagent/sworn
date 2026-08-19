@@ -51,7 +51,14 @@ func runtimeFail(code string, err error) error { return &Error{Code: code, Err: 
 
 func IsCode(err error, code string) bool {
 	var runtimeErr *Error
-	return errors.As(err, &runtimeErr) && runtimeErr.Code == code
+	if errors.As(err, &runtimeErr) && runtimeErr.Code == code {
+		return true
+	}
+	var gitErr *gitx.Error
+	if errors.As(err, &gitErr) && gitErr.Code == code {
+		return true
+	}
+	return false
 }
 
 type ProjectAuthority struct {

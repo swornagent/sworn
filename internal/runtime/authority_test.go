@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -10,6 +12,8 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 )
 
@@ -100,12 +104,58 @@ func TestEffectiveAuthorityRejectsEveryDistinctBootstrapJournalCombination(t *te
 }
 
 func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *testing.T) {
-	_, body, plan := fixtureManifest(t)
+	repoPath := productionRepository(t)
+	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+
+	// Advance target with one additive commit D (descendant of P).
+	if err := os.WriteFile(
+		filepath.Join(repoPath, "forward.txt"),
+		[]byte("forward target movement\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, repoPath, "add", "--", "forward.txt")
+	runRuntimeGit(
+		t,
+		repoPath,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit", "--quiet", "-m", "forward target movement",
+	)
+	targetD := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+
+	// Create divergent commit X that does not contain P.
+	tree := runRuntimeGit(t, repoPath, "rev-parse", targetP+"^{tree}")
+	divergentX := runRuntimeGit(
+		t,
+		repoPath,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit-tree", tree, "-m", "divergent target history",
+	)
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoView, err := gitx.Open(repoPath, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repoPath
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manifest, err := admitManifest(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := strings.Repeat("1", 40)
+
+	target := targetP
 	planOID := strings.Repeat("2", 40)
 	receipt := baton.Receipt{
 		Version: baton.ReceiptVersion, Release: manifest.value.Release,
@@ -125,27 +175,45 @@ func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *t
 				Ref:  "refs/heads/release-wt/" + manifest.value.Release,
 				Head: strings.Repeat("4", 40),
 			},
-			Target: baton.CapturedRef{Ref: manifest.value.TargetRef, Head: target},
+			Target: baton.CapturedRef{Ref: manifest.value.TargetRef, Head: targetD},
 		},
 	}
-	engine := &engine{manifest: manifest}
-	if adopted, err := validateSavedPlanAdoption(engine, state, ""); err != nil || adopted {
+	eng := &engine{
+		manifest:   manifest,
+		repository: repoView,
+		git:        baton.UseGitRepository(repoView),
+	}
+
+	// A1: Baton approval alone without authority digest fails.
+	if adopted, err := validateSavedPlanAdoption(eng, state, ""); err != nil || adopted {
 		t.Fatalf("Baton approval alone adopted = %t, %v", adopted, err)
 	}
-	if adopted, err := validateSavedPlanAdoption(engine, state, plan.Digest()); err != nil || !adopted {
-		t.Fatalf("exact conjunction = %t, %v", adopted, err)
+
+	// A1: Descendant target head (targetD) succeeds saved-plan adoption.
+	if adopted, err := validateSavedPlanAdoption(eng, state, plan.Digest()); err != nil || !adopted {
+		t.Fatalf("descendant target adoption = %t, %v", adopted, err)
 	}
+
+	// A1: Identical target head (targetP) succeeds saved-plan adoption.
+	stateIdentical := state
+	stateIdentical.Refs.Target.Head = targetP
+	if adopted, err := validateSavedPlanAdoption(eng, stateIdentical, plan.Digest()); err != nil || !adopted {
+		t.Fatalf("identical target adoption = %t, %v", adopted, err)
+	}
+
+	// A2: Refusals on divergence, stale lineage, or metadata substitution.
 	for name, mutate := range map[string]func(*baton.State){
-		"project":     func(value *baton.State) { value.Repository = "other" },
-		"release":     func(value *baton.State) { value.Release = "other" },
-		"target head": func(value *baton.State) { value.Refs.Target.Head = strings.Repeat("5", 40) },
+		"project":               func(value *baton.State) { value.Repository = "other" },
+		"release":               func(value *baton.State) { value.Release = "other" },
+		"divergent target head": func(value *baton.State) { value.Refs.Target.Head = divergentX },
 		"approval target": func(value *baton.State) {
-			other := strings.Repeat("6", 40)
+			other := divergentX
 			value.Plan.Approval.Receipt.Target = &other
 		},
-		"digest":        func(value *baton.State) { value.Plan.Digest = "sha256:" + strings.Repeat("7", 64) },
-		"bytes":         func(value *baton.State) { value.Plan.History = nil },
-		"stale lineage": func(value *baton.State) { value.Plan.TargetStale = true },
+		"digest":               func(value *baton.State) { value.Plan.Digest = "sha256:" + strings.Repeat("7", 64) },
+		"bytes":                func(value *baton.State) { value.Plan.History = nil },
+		"stale lineage":        func(value *baton.State) { value.Plan.TargetStale = true },
+		"malformed target hex": func(value *baton.State) { value.Refs.Target.Head = "invalid-hex-oid" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := state
@@ -153,10 +221,393 @@ func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *t
 			value.Plan.Approval = state.Plan.Approval.Clone()
 			value.Plan.History = append([]baton.PlanHistory(nil), state.Plan.History...)
 			mutate(&value)
-			if adopted, err := validateSavedPlanAdoption(engine, value, plan.Digest()); err == nil || adopted {
-				t.Fatalf("substituted saved plan adopted = %t, %v", adopted, err)
+			adopted, err := validateSavedPlanAdoption(eng, value, plan.Digest())
+			if adopted || !IsCode(err, "INVALID_AUTHORITY") {
+				t.Fatalf("substituted saved plan adopted=%t err=%v, want INVALID_AUTHORITY", adopted, err)
 			}
 		})
+	}
+
+	// Bounded correction 1: Nil engine / repository handle fails closed with INVALID_AUTHORITY.
+	t.Run("nil repository", func(t *testing.T) {
+		nilEngine := &engine{manifest: manifest}
+		adopted, err := validateSavedPlanAdoption(nilEngine, state, plan.Digest())
+		if adopted || !IsCode(err, "INVALID_AUTHORITY") {
+			t.Fatalf("nil repository adoption adopted=%t err=%v, want INVALID_AUTHORITY", adopted, err)
+		}
+	})
+}
+
+func TestSavedPlanAdoptionAncestryProbeFailureSurfacesGitError(t *testing.T) {
+	// A3: An ancestry probe that itself fails surfaces the git error code, never a silent INVALID_AUTHORITY.
+	repoPath := productionRepository(t)
+	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoView, err := gitx.Open(repoPath, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repoPath
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := targetP
+	planOID := strings.Repeat("2", 40)
+	receipt := baton.Receipt{
+		Version: baton.ReceiptVersion, Release: manifest.value.Release,
+		Role: "planner", Result: "approved", Plan: planOID,
+		Summary: "saved approval", Target: &target,
+	}
+	state := baton.State{
+		Release:    manifest.value.Release,
+		Repository: manifest.value.Authority.Project,
+		Plan: baton.PlanState{
+			OID: planOID, Digest: plan.Digest(), Metadata: plan.Metadata(),
+			Approval: baton.ReceiptEntry{OID: strings.Repeat("3", 40), Receipt: receipt},
+			History:  []baton.PlanHistory{{OID: planOID, Revision: 1, Plan: plan}},
+		},
+		Refs: baton.StateRefs{
+			Release: baton.CapturedRef{
+				Ref:  "refs/heads/release-wt/" + manifest.value.Release,
+				Head: strings.Repeat("4", 40),
+			},
+			Target: baton.CapturedRef{Ref: manifest.value.TargetRef, Head: targetP},
+		},
+	}
+
+	// Corrupt the git repository by removing its backing directory so git commands fail.
+	if err := os.RemoveAll(repoPath); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := &engine{
+		manifest:   manifest,
+		repository: repoView,
+		git:        baton.UseGitRepository(repoView),
+	}
+
+	adopted, adoptErr := validateSavedPlanAdoption(engine, state, plan.Digest())
+	if adopted {
+		t.Fatal("broken repository adopted saved plan")
+	}
+	if adoptErr == nil || IsCode(adoptErr, "INVALID_AUTHORITY") || !IsCode(adoptErr, "GIT_EXECUTION_FAILED") {
+		t.Fatalf("broken repository error = %v, want GIT_EXECUTION_FAILED", adoptErr)
+	}
+}
+
+func TestStatusReportsApprovedWhenTargetIsDescendantOfApprovedReceipt(t *testing.T) {
+	// A4: sworn status over a journal whose approved target is an ancestor of the advanced head reports approved.
+	ctx := context.Background()
+	repoPath := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repoPath
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repoPath, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Install plan revision 1 in baton.
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register run in journal.
+	path := filepath.Join(t.TempDir(), "status-adoption.sqlite")
+	store, err := journal.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: manifest.value.RunID, ReplayKey: "manifest",
+		Kind: "start", Payload: manifest.raw, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		journal:       store,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	// Advance target on main with one additive commit D (descendant of P).
+	if err := os.WriteFile(
+		filepath.Join(repoPath, "additive.txt"),
+		[]byte("additive commit past receipt target\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, repoPath, "add", "--", "additive.txt")
+	runRuntimeGit(
+		t,
+		repoPath,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit", "--quiet", "-m", "advance target additively",
+	)
+	targetD := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+
+	status, err := service.Status(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatalf("status error = %v", err)
+	}
+	if status.AuthorityState != "approved" {
+		t.Fatalf("status.AuthorityState = %q, want approved", status.AuthorityState)
+	}
+	if status.TargetHead != targetD {
+		t.Fatalf("status.TargetHead = %q, want %q", status.TargetHead, targetD)
+	}
+
+	// Divergent target movement reports invalid_authority (A2).
+	tree := runRuntimeGit(t, repoPath, "rev-parse", targetP+"^{tree}")
+	divergentX := runRuntimeGit(
+		t,
+		repoPath,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit-tree", tree, "-m", "divergent target history",
+	)
+	runRuntimeGit(t, repoPath, "update-ref", "refs/heads/main", divergentX)
+
+	divergentStatus, err := service.Status(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatalf("divergent status error = %v", err)
+	}
+	if divergentStatus.AuthorityState != "invalid_authority" {
+		t.Fatalf("divergent status.AuthorityState = %q, want invalid_authority", divergentStatus.AuthorityState)
+	}
+}
+
+func TestSavedPlanAdoptionDrivesRunWithDescendantTarget(t *testing.T) {
+	// A1: With an approved plan receipt bound to commit P and the target head advanced to a descendant of P,
+	// saved-plan adoption succeeds and the run drives.
+	ctx := context.Background()
+	repository := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nFixture plan.\n",
+	)
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := plan.Digest()
+	manifest.Authority.BootstrapApprovedPlanDigest = &digest
+	manifest.Scripts = []ScriptedAttempt{
+		{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.CaptainReview, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerDesign, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.PlannerProposal, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+	}
+	submission := func(
+		slice string,
+		responsibility driver.Responsibility,
+		batonAttempt int64,
+	) driver.Submission {
+		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
+			BatonAttempt: batonAttempt, Epoch: 1, Try: 1}
+		return driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID(manifest.RunID, script),
+			Responsibility: responsibility,
+			Summary:        "Exact " + string(responsibility) + ".",
+			Detail:         "Bounded fixture detail.",
+		}
+	}
+	planner := submission("", driver.PlannerProposal, 1)
+	planner.Plan, _ = driver.NewPlanBytes(planBytes)
+	design := submission("S1", driver.ImplementerDesign, 1)
+	captain := submission("S1", driver.CaptainReview, 1)
+	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	implementation := submission("S1", driver.ImplementerImplementation, 1)
+	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
+	work := submission("S1", driver.WorkVerification, 1)
+	work.Checks, _ = driver.NewCheckBytes([]byte("work checks\n"))
+	work.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	assembly := submission("", driver.AssemblyVerification, 1)
+	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
+	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	manifest.Scripts[0].Submission = encodeSubmission(t, assembly)
+	manifest.Scripts[1].Submission = encodeSubmission(t, captain)
+	manifest.Scripts[2].Submission = encodeSubmission(t, design)
+	manifest.Scripts[3].Submission = encodeSubmission(t, implementation)
+	manifest.Scripts[4].Submission = encodeSubmission(t, planner)
+	manifest.Scripts[5].Submission = encodeSubmission(t, work)
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repository, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-install the approved plan at commit P.
+	targetP := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	// Advance target one additive commit past the receipt target P.
+	if err := os.WriteFile(
+		filepath.Join(repository, "forward.txt"),
+		[]byte("forward movement\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, repository, "add", "--", "forward.txt")
+	runRuntimeGit(
+		t,
+		repository,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit", "--quiet", "-m", "advance target additively",
+	)
+
+	// Set up driver submissions for the run.
+	submissions := make(map[string][]byte, len(manifest.Scripts))
+	for _, script := range manifest.Scripts {
+		encoded, decodeErr := base64.StdEncoding.DecodeString(script.Submission)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		submissions[invocationID(manifest.RunID, script)] = encoded
+	}
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		if invocation.Request.Role == driver.RoleImplementer &&
+			invocation.Request.Workspace.Access == driver.ReadWrite {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("implemented one\n"),
+				0o600,
+			); err != nil {
+				return driver.Observation{}, err
+			}
+		}
+		submission := submissions[invocation.Request.InvocationID]
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submission,
+				SubmissionDigest: driver.Digest(submission),
+			},
+		}, nil
+	})
+
+	path := filepath.Join(t.TempDir(), "drive-descendant.sqlite")
+	store, err := journal.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("start error = %v", err)
+	}
+	if status.State != "complete" {
+		t.Fatalf("status = %#v, want complete", status)
+	}
+	if status.AuthorityState != "approved" {
+		t.Fatalf("status.AuthorityState = %q, want approved", status.AuthorityState)
 	}
 }
 
