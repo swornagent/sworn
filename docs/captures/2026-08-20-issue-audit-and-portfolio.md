@@ -37,7 +37,9 @@ Covers #177(S5b) #196 #172 #192 #193 #173 #169(tail).
 - **S4 global serve** (`internal/cockpit` + `cmd/sworn/operator.go`):
   #196 ruling 3 — `sworn serve` with no flags serves the project:
   release/run selection, lifecycle states, a needs-you row. Consumes
-  S1. Anchor: operator.go:128-137 flag gate.
+  S1, which also locates `.sworn/operator.json` by convention (today
+  the operator config is flag-only and `sworn init` does not scaffold
+  it). Anchor: operator.go:128-137 flag gate.
 - **S5 event association** (`internal/cockpit` projector): #173 —
   `Evidence` gains effect/work/track association so the feed filters
   per track; TUI backend contract gains the paged feed. Anchor:
@@ -71,7 +73,10 @@ notification-kind sliver. Full spec below.
   anchor: a Langfuse instance receiving the stream renders
   per-dispatch generations with model, token split, and timing.
 - **S3 two-channel export** (`internal/observe` config + `cmd/sworn`
-  wiring): `telemetry.private` (today's config: endpoint+headers,
+  wiring, including `sworn init` scaffolding the operator config's
+  otel/channel block — export must not require reading the source; and
+  note export is serve-mediated today, so a run with no cockpit
+  attached emits nothing, which is share-channel data loss): `telemetry.private` (today's config: endpoint+headers,
   operator's own) and `telemetry.share` (opt-in, default endpoint =
   the project's collection gateway, overridable/disableable). The
   share channel passes a schema allowlist enforced in-engine: named
