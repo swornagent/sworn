@@ -47,7 +47,7 @@ var embeddedWeb embed.FS
 
 type SnapshotAPI interface {
 	Snapshot(context.Context, string) (Snapshot, error)
-	Events(context.Context, string, int64, int) (EventPage, error)
+	Events(context.Context, string, int64, int, ...string) (EventPage, error)
 }
 
 type CommandAPI interface {
@@ -62,6 +62,11 @@ type CommandAPI interface {
 		context.Context,
 		runtimepkg.ApprovalCommand,
 	) (runtimepkg.ApprovalResult, error)
+}
+
+type CatalogAPI interface {
+	Catalog(context.Context) (ProjectCatalog, error)
+	NeedsYou(context.Context) ([]NeedsYouItem, error)
 }
 
 const TelemetryHealthSchemaVersion = "sworn.telemetry-health/v1"
@@ -95,11 +100,13 @@ type HTTPConfig struct {
 	BearerToken []byte
 	MaxSSE      int
 	Telemetry   TelemetryHealthAPI
+	Catalog     CatalogAPI
 }
 
 type HTTPHandler struct {
 	projector SnapshotAPI
 	commands  CommandAPI
+	catalog   CatalogAPI
 	runID     string
 	host      string
 	origin    string
@@ -123,8 +130,13 @@ func NewHTTPHandler(
 	config HTTPConfig,
 ) (*HTTPHandler, error) {
 	if projector == nil || commands == nil ||
-		!httpIdentityPattern.MatchString(config.RunID) ||
 		!validHostOrigin(config.Host, config.Origin) {
+		return nil, fail("INVALID_HTTP_CONFIG")
+	}
+	if config.RunID == "" && config.Catalog == nil {
+		return nil, fail("INVALID_HTTP_CONFIG")
+	}
+	if config.RunID != "" && !httpIdentityPattern.MatchString(config.RunID) {
 		return nil, fail("INVALID_HTTP_CONFIG")
 	}
 	if len(config.BearerToken) != 0 &&
@@ -144,6 +156,7 @@ func NewHTTPHandler(
 	return &HTTPHandler{
 		projector: projector,
 		commands:  commands,
+		catalog:   config.Catalog,
 		runID:     config.RunID,
 		host:      config.Host,
 		origin:    config.Origin,
@@ -323,6 +336,12 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case telemetryHealthPath:
 		h.serveTelemetryHealth(w, r)
 		return
+	case apiPathPrefix + "/catalog":
+		h.serveCatalog(w, r)
+		return
+	case apiPathPrefix + "/needs-you":
+		h.serveNeedsYou(w, r)
+		return
 	case apiPathPrefix + "/start":
 		h.serveStart(w, r)
 		return
@@ -331,13 +350,20 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
-	if len(parts) == 2 && parts[0] == "runs" &&
-		parts[1] == h.runID {
+	if len(parts) == 2 && parts[0] == "runs" {
+		if (h.runID != "" && parts[1] != h.runID) || !httpIdentityPattern.MatchString(parts[1]) {
+			writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+			return
+		}
 		h.serveAsset(w, r, "web/index.html", "text/html; charset=utf-8")
 		return
 	}
 	if len(parts) < 5 || parts[0] != "api" || parts[1] != apiVersion ||
-		parts[2] != "runs" || parts[3] != h.runID {
+		parts[2] != "runs" {
+		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if (h.runID != "" && parts[3] != h.runID) || !httpIdentityPattern.MatchString(parts[3]) {
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
@@ -361,6 +387,48 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 	}
+}
+
+func (h *HTTPHandler) serveCatalog(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if h.catalog == nil {
+		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
+		r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	catalog, err := h.catalog.Catalog(r.Context())
+	if err != nil {
+		writeHTTPError(w, http.StatusServiceUnavailable, errorCode(err))
+		return
+	}
+	writeJSON(w, r, http.StatusOK, catalog)
+}
+
+func (h *HTTPHandler) serveNeedsYou(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if h.catalog == nil {
+		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
+		r.URL.RawQuery != "" {
+		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	needsYou, err := h.catalog.NeedsYou(r.Context())
+	if err != nil {
+		writeHTTPError(w, http.StatusServiceUnavailable, errorCode(err))
+		return
+	}
+	writeJSON(w, r, http.StatusOK, needsYou)
 }
 
 func (h *HTTPHandler) serveAttentionAnswer(
@@ -470,17 +538,17 @@ func (h *HTTPHandler) serveEvents(
 		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
-	after, limit, ok := eventQuery(r)
+	after, limit, track, ok := eventQuery(r)
 	if !ok {
 		writeHTTPError(w, http.StatusBadRequest, "INVALID_EVENT_WINDOW")
 		return
 	}
 	if r.Method == http.MethodGet &&
 		strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		h.serveSSE(w, r, runID, after, limit)
+		h.serveSSE(w, r, runID, after, limit, track)
 		return
 	}
-	page, err := h.projector.Events(r.Context(), runID, after, limit)
+	page, err := h.projector.Events(r.Context(), runID, after, limit, track)
 	if err != nil {
 		writeHTTPError(w, http.StatusServiceUnavailable, errorCode(err))
 		return
@@ -488,18 +556,18 @@ func (h *HTTPHandler) serveEvents(
 	writeJSON(w, r, http.StatusOK, page)
 }
 
-func eventQuery(r *http.Request) (int64, int, bool) {
+func eventQuery(r *http.Request) (int64, int, string, bool) {
 	values := r.URL.Query()
 	for key, items := range values {
-		if (key != "after" && key != "limit") || len(items) != 1 {
-			return 0, 0, false
+		if (key != "after" && key != "limit" && key != "track") || len(items) != 1 {
+			return 0, 0, "", false
 		}
 	}
 	after := int64(0)
 	if value := values.Get("after"); value != "" {
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || parsed < 0 {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		after = parsed
 	}
@@ -507,7 +575,7 @@ func eventQuery(r *http.Request) (int64, int, bool) {
 		parsed, err := strconv.ParseInt(last, 10, 64)
 		if err != nil || parsed < 0 ||
 			(values.Has("after") && parsed < after) {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		after = parsed
 	}
@@ -515,11 +583,12 @@ func eventQuery(r *http.Request) (int64, int, bool) {
 	if value := values.Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 256 {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		limit = parsed
 	}
-	return after, limit, true
+	track := values.Get("track")
+	return after, limit, track, true
 }
 
 func (h *HTTPHandler) serveSSE(
@@ -528,6 +597,7 @@ func (h *HTTPHandler) serveSSE(
 	runID string,
 	after int64,
 	limit int,
+	track ...string,
 ) {
 	select {
 	case h.sse <- struct{}{}:
@@ -548,7 +618,7 @@ func (h *HTTPHandler) serveSSE(
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		page, err := h.projector.Events(r.Context(), runID, after, limit)
+		page, err := h.projector.Events(r.Context(), runID, after, limit, track...)
 		if err != nil {
 			_, _ = io.WriteString(w, "event: unavailable\ndata: {\"code\":\"REPLAY_UNAVAILABLE\"}\n\n")
 			flusher.Flush()

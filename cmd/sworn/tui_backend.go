@@ -5,13 +5,19 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 	"github.com/swornagent/sworn/internal/tui"
@@ -123,6 +129,7 @@ func (b *projectTUIBackend) Board(
 			Checked:          presentation.Checked,
 			CaptainAuthority: captainDelegationTUILabel(snapshot.CaptainDelegation),
 			ThroughOffset:    snapshot.ThroughOffset,
+			ManifestDir:      project.paths.manifestDir,
 		}, nil
 	}
 	if release.diagnostic != "" {
@@ -131,11 +138,12 @@ func (b *projectTUIBackend) Board(
 			Diagnostics: []cockpit.Diagnostic{{
 				Code: release.diagnostic,
 			}},
-			Status:   "Needs confirmation",
-			What:     "Sworn found saved run information, but this release's saved state could not be read.",
-			Next:     "Review this release, then refresh.",
-			NeedsYou: "Yes — review this release before delivery can start.",
-			Checked:  "Saved run information and the local Sworn release record.",
+			Status:      "Needs confirmation",
+			What:        "Sworn found saved run information, but this release's saved state could not be read.",
+			Next:        "Review this release, then refresh.",
+			NeedsYou:    "Yes — review this release before delivery can start.",
+			Checked:     "Saved run information and the local Sworn release record.",
+			ManifestDir: project.paths.manifestDir,
 		}, nil
 	}
 
@@ -148,6 +156,21 @@ func (b *projectTUIBackend) Board(
 		Release:    release.name,
 	})
 	if err != nil {
+		code := baton.ErrorCode(err)
+		if code != "" {
+			return tui.Board{
+				Selection: selection,
+				Diagnostics: []cockpit.Diagnostic{{
+					Code: code,
+				}},
+				Status:      "Needs confirmation",
+				What:        "Sworn found saved run information, but this release's saved state could not be read.",
+				Next:        "Review this release, then refresh.",
+				NeedsYou:    "Yes — review this release before delivery can start.",
+				Checked:     "Saved run information and the local Sworn release record.",
+				ManifestDir: project.paths.manifestDir,
+			}, nil
+		}
 		return tui.Board{}, errors.New("project board is unavailable")
 	}
 	snapshot := cockpit.ProjectRelease(state)
@@ -179,6 +202,11 @@ func (b *projectTUIBackend) Board(
 		}
 	}
 	presentation := snapshot.Presentation
+	if release.manifest == "" && !journalUnavailable {
+		if presentation.Next == "Start delivery." || presentation.Next == "" {
+			presentation.Next = "Provide a run definition in " + project.paths.manifestDir + " before starting delivery."
+		}
+	}
 	if journalUnavailable {
 		presentation.Status = "Needs confirmation"
 		presentation.What = "Sworn could not confirm the saved run records."
@@ -189,12 +217,224 @@ func (b *projectTUIBackend) Board(
 	return tui.Board{
 		Selection: selection, Graph: snapshot.Graph,
 		Actions: actions, Diagnostics: snapshot.Diagnostics,
-		Status:   presentation.Status,
-		What:     presentation.What,
-		Next:     presentation.Next,
-		NeedsYou: presentation.NeedsYou,
-		Checked:  presentation.Checked,
+		Status:      presentation.Status,
+		What:        presentation.What,
+		Next:        presentation.Next,
+		NeedsYou:    presentation.NeedsYou,
+		Checked:     presentation.Checked,
+		ManifestDir: project.paths.manifestDir,
 	}, nil
+}
+
+func (b *projectTUIBackend) Config(
+	ctx context.Context,
+) (tui.ConfigView, error) {
+	if b == nil || ctx == nil {
+		return tui.ConfigView{}, errors.New("project configuration is unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return tui.ConfigView{}, err
+	}
+
+	configView := tui.ConfigView{
+		JournalPath: tui.ConfigItem{
+			Value:  project.paths.journal,
+			Source: projectConfigSource(project.paths.root, project.paths.journal),
+		},
+		ManifestDir: tui.ConfigItem{
+			Value:  project.paths.manifestDir,
+			Source: projectConfigSource(project.paths.root, project.paths.manifestDir),
+		},
+		DriverConfig: tui.ConfigItem{
+			Value:  project.paths.config,
+			Source: projectConfigSource(project.paths.root, project.paths.config),
+		},
+	}
+
+	projectConfig, configured, err := gitx.LoadProjectConfig(project.paths.root)
+	_ = err
+	projectJSONPath := filepath.Join(project.paths.root, filepath.FromSlash(gitx.ProjectConfigPath))
+	projectSource := projectConfigSource(project.paths.root, projectJSONPath)
+	if !configured {
+		projectSource += " (default)"
+	}
+	configView.RecordsRoot = tui.ConfigItem{
+		Value:  projectConfig.RecordsRoot,
+		Source: projectSource,
+	}
+	configView.JournalsRoot = tui.ConfigItem{
+		Value:  projectConfig.JournalsRoot,
+		Source: projectSource,
+	}
+
+	if project.operatorConfig != "" {
+		operatorSource := projectConfigSource(project.paths.root, project.operatorConfig)
+		settings, err := loadOperatorSettings(project.operatorConfig)
+		if err == nil {
+			listen := settings.localListen
+			if listen == "" {
+				listen = "(not configured)"
+			}
+			configView.OperatorListen = tui.ConfigItem{
+				Value:  listen,
+				Source: operatorSource,
+			}
+			otel := ""
+			if settings.otel != nil {
+				otel = settings.otel.Endpoint
+			}
+			if otel == "" {
+				otel = "(not configured)"
+			}
+			configView.OperatorOTel = tui.ConfigItem{
+				Value:  otel,
+				Source: operatorSource,
+			}
+		} else {
+			configView.OperatorListen = tui.ConfigItem{
+				Value:  "(unreadable)",
+				Source: operatorSource,
+			}
+			configView.OperatorOTel = tui.ConfigItem{
+				Value:  "(unreadable)",
+				Source: operatorSource,
+			}
+		}
+	} else {
+		configView.OperatorListen = tui.ConfigItem{
+			Value:  "(not configured)",
+			Source: "(none)",
+		}
+		configView.OperatorOTel = tui.ConfigItem{
+			Value:  "(not configured)",
+			Source: "(none)",
+		}
+	}
+
+	driverSource := projectConfigSource(project.paths.root, project.paths.config)
+	if body, err := os.ReadFile(project.paths.config); err == nil {
+		var driverConfig driver.DriverConfig
+		if jsonErr := json.Unmarshal(body, &driverConfig); jsonErr == nil {
+			for _, p := range driverConfig.Profiles {
+				configView.Profiles = append(configView.Profiles, tui.ProfileViewEntry{
+					Name:    p.Key,
+					Adapter: p.Adapter,
+					Network: string(p.Network),
+					Source:  driverSource,
+				})
+			}
+		}
+	}
+
+	seenRoles := false
+	for _, release := range project.releases {
+		if release.manifest == "" {
+			continue
+		}
+		body, readErr := readManifest(release.manifest)
+		if readErr != nil {
+			continue
+		}
+		manifest, parseErr := runtimepkg.ParseManifest(body)
+		if parseErr != nil {
+			continue
+		}
+		manifestSource := projectConfigSource(project.paths.root, release.manifest)
+		configView.Roles = []tui.RoleMatrixEntry{
+			{Role: "planner", Profile: manifest.Roles.Planner.Profile, Model: manifest.Roles.Planner.Model, Source: manifestSource},
+			{Role: "implementer", Profile: manifest.Roles.Implementer.Profile, Model: manifest.Roles.Implementer.Model, Source: manifestSource},
+			{Role: "captain", Profile: manifest.Roles.Captain.Profile, Model: manifest.Roles.Captain.Model, Source: manifestSource},
+			{Role: "verifier", Profile: manifest.Roles.Verifier.Profile, Model: manifest.Roles.Verifier.Model, Source: manifestSource},
+		}
+		if manifest.Automation != nil && manifest.Automation.Recovery.Profile != "" {
+			configView.Roles = append(configView.Roles, tui.RoleMatrixEntry{
+				Role: "recovery", Profile: manifest.Automation.Recovery.Profile, Model: manifest.Automation.Recovery.Model, Source: manifestSource,
+			})
+		}
+		seenRoles = true
+		break
+	}
+
+	if !seenRoles && len(configView.Profiles) > 0 {
+		for _, profile := range configView.Profiles {
+			configView.Roles = append(configView.Roles, tui.RoleMatrixEntry{
+				Role:    "(profile)",
+				Profile: profile.Name,
+				Model:   "(from manifest)",
+				Source:  driverSource,
+			})
+		}
+	}
+
+	return configView, nil
+}
+
+func projectConfigSource(root, fullPath string) string {
+	if fullPath == "" {
+		return "(none)"
+	}
+	if root != "" && strings.HasPrefix(fullPath, root) {
+		rel, err := filepath.Rel(root, fullPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return fullPath
+}
+
+func (b *projectTUIBackend) Events(
+	ctx context.Context,
+	selection tui.Selection,
+	after int64,
+	limit int,
+	track string,
+) (cockpit.EventPage, error) {
+	if b == nil || ctx == nil {
+		return cockpit.EventPage{}, errors.New("project events are unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	_, run, hasRun, err := resolveTUISelection(project, selection)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	if !hasRun {
+		return cockpit.EventPage{}, errors.New("the selected release has no active run")
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardGit
+	}
+	journalReader, err := journal.OpenReadOnly(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardJournal
+	}
+	defer journalReader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardJournal
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardGit
+	}
+	projector, err := cockpit.NewProjector(
+		journalReader,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	var trackArgs []string
+	if track != "" {
+		trackArgs = []string{track}
+	}
+	return projector.Events(ctx, run.binding.ID, after, limit, trackArgs...)
 }
 
 func captainDelegationTUILabel(value *runtimepkg.CaptainDelegationView) string {
@@ -503,7 +743,7 @@ func startTUIRun(
 	}
 	defer service.Close()
 	defer factory.Close()
-	status, err := service.Start(ctx, body)
+	status, err := service.StartDetached(ctx, body)
 	if err != nil {
 		return errors.New("the run could not be started")
 	}
@@ -542,7 +782,7 @@ func startTUIDelegatedRun(
 	}
 	defer service.Close()
 	defer factory.Close()
-	status, err := service.StartWithCaptainDelegation(ctx, body, envelope)
+	status, err := service.StartWithCaptainDelegationDetached(ctx, body, envelope)
 	if err != nil {
 		return errors.New("the delegated run could not be started")
 	}

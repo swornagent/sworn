@@ -49,6 +49,7 @@ func (f *httpFakeProjector) Events(
 	_ string,
 	after int64,
 	limit int,
+	track ...string,
 ) (EventPage, error) {
 	f.mu.Lock()
 	f.eventAfter = after
@@ -155,6 +156,124 @@ func (f *httpFakeCommands) Approve(
 		SchemaVersion:  runtimepkg.ApprovalResultVersion,
 		AdmissionState: "succeeded",
 	}, nil
+}
+
+type httpFakeCatalog struct {
+	catalog  ProjectCatalog
+	needsYou []NeedsYouItem
+}
+
+func (f *httpFakeCatalog) Catalog(context.Context) (ProjectCatalog, error) {
+	return f.catalog, nil
+}
+
+func (f *httpFakeCatalog) NeedsYou(context.Context) ([]NeedsYouItem, error) {
+	return f.needsYou, nil
+}
+
+func TestHTTPCatalogAndNeedsYouEndpointsInProjectMode(t *testing.T) {
+	t.Parallel()
+
+	fakeCatalog := &httpFakeCatalog{
+		catalog: ProjectCatalog{
+			SchemaVersion: CatalogSchemaVersion,
+			Releases: []CatalogRelease{
+				{Name: "rel-1", State: "ready", Status: "Ready for Implementer"},
+			},
+			Runs: []CatalogRun{
+				{ID: "run-1", Release: "rel-1", State: "running", Status: "Sworn is working"},
+				{ID: "run-2", Release: "rel-1", State: "parked", Status: "Stopped and needs your attention"},
+			},
+			NeedsYou: []NeedsYouItem{
+				{RunID: "run-2", Release: "rel-1", State: "parked", Action: "retry"},
+			},
+		},
+		needsYou: []NeedsYouItem{
+			{RunID: "run-2", Release: "rel-1", State: "parked", Action: "retry"},
+		},
+	}
+	projector := &httpFakeProjector{
+		snapshot: httpSnapshot(),
+		events: EventPage{
+			SchemaVersion: SnapshotSchemaVersion,
+			RunID:         "run-1",
+			Events:        []Evidence{},
+		},
+	}
+	commands := &httpFakeCommands{}
+	handler, err := NewHTTPHandler(projector, commands, HTTPConfig{
+		RunID:       "",
+		Catalog:     fakeCatalog,
+		Host:        testLocalHost,
+		Origin:      testLocalOrigin,
+		BearerToken: []byte(testHTTPToken),
+		MaxSSE:      2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. GET /api/v2/catalog
+	catalogReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/catalog", "127.0.0.1:48000", nil)
+	catalogResp := serve(handler, catalogReq)
+	if catalogResp.Code != http.StatusOK {
+		t.Fatalf("catalog status = %d: %s", catalogResp.Code, catalogResp.Body)
+	}
+	var gotCatalog ProjectCatalog
+	if err := json.Unmarshal(catalogResp.Body.Bytes(), &gotCatalog); err != nil {
+		t.Fatal(err)
+	}
+	if gotCatalog.SchemaVersion != CatalogSchemaVersion || len(gotCatalog.Runs) != 2 || len(gotCatalog.Releases) != 1 {
+		t.Fatalf("catalog = %#v", gotCatalog)
+	}
+
+	// 2. GET /api/v2/needs-you
+	needsReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/needs-you", "127.0.0.1:48001", nil)
+	needsResp := serve(handler, needsReq)
+	if needsResp.Code != http.StatusOK {
+		t.Fatalf("needs-you status = %d: %s", needsResp.Code, needsResp.Body)
+	}
+	var gotNeeds []NeedsYouItem
+	if err := json.Unmarshal(needsResp.Body.Bytes(), &gotNeeds); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotNeeds) != 1 || gotNeeds[0].RunID != "run-2" || gotNeeds[0].Action != "retry" {
+		t.Fatalf("needs-you = %#v", gotNeeds)
+	}
+
+	// 3. Dynamic run pages and snapshots in project mode
+	run1Page := httpRequest(http.MethodGet, testLocalOrigin+"/runs/run-1", "127.0.0.1:48002", nil)
+	if resp := serve(handler, run1Page); resp.Code != http.StatusOK {
+		t.Fatalf("run-1 page = %d", resp.Code)
+	}
+	run2Page := httpRequest(http.MethodGet, testLocalOrigin+"/runs/run-2", "127.0.0.1:48003", nil)
+	if resp := serve(handler, run2Page); resp.Code != http.StatusOK {
+		t.Fatalf("run-2 page = %d", resp.Code)
+	}
+
+	run1Snap := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/snapshot", "127.0.0.1:48004", nil)
+	if resp := serve(handler, run1Snap); resp.Code != http.StatusOK {
+		t.Fatalf("run-1 snapshot = %d: %s", resp.Code, resp.Body)
+	}
+	run2Snap := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-2/snapshot", "127.0.0.1:48005", nil)
+	if resp := serve(handler, run2Snap); resp.Code != http.StatusOK {
+		t.Fatalf("run-2 snapshot = %d: %s", resp.Code, resp.Body)
+	}
+
+	// 4. In per-run mode, /api/v2/catalog is not found
+	perRunHandler, _, _ := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	perRunCatalog := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/catalog", "127.0.0.1:48006", nil)
+	if resp := serve(perRunHandler, perRunCatalog); resp.Code != http.StatusNotFound {
+		t.Fatalf("per-run catalog status = %d, want 404", resp.Code)
+	}
+	perRunNeeds := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/needs-you", "127.0.0.1:48007", nil)
+	if resp := serve(perRunHandler, perRunNeeds); resp.Code != http.StatusNotFound {
+		t.Fatalf("per-run needs-you status = %d, want 404", resp.Code)
+	}
+	perRunOtherPage := httpRequest(http.MethodGet, testLocalOrigin+"/runs/run-2", "127.0.0.1:48008", nil)
+	if resp := serve(perRunHandler, perRunOtherPage); resp.Code != http.StatusNotFound {
+		t.Fatalf("per-run other run page status = %d, want 404", resp.Code)
+	}
 }
 
 func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
@@ -1021,6 +1140,17 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 			headResponse.Code,
 			headResponse.Body,
 		)
+	}
+
+	trackRequest := httpRequest(
+		http.MethodGet,
+		testLocalOrigin+"/api/v2/runs/run-1/events?after=0&limit=10&track=T1",
+		"127.0.0.1:45003",
+		nil,
+	)
+	trackResp := serve(handler, trackRequest)
+	if trackResp.Code != http.StatusOK {
+		t.Fatalf("track-filtered events status = %d: %s", trackResp.Code, trackResp.Body)
 	}
 }
 

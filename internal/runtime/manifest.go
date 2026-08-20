@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -59,6 +60,25 @@ func IsCode(err error, code string) bool {
 		return true
 	}
 	return false
+}
+
+type OwnerTransitionError struct {
+	ExpiresAt time.Time
+}
+
+func (e *OwnerTransitionError) Error() string {
+	if e == nil || e.ExpiresAt.IsZero() {
+		return "owner lease active"
+	}
+	return fmt.Sprintf("owner lease active until %s", e.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+func OwnerLeaseExpiry(err error) (time.Time, bool) {
+	var transition *OwnerTransitionError
+	if errors.As(err, &transition) && transition != nil && !transition.ExpiresAt.IsZero() {
+		return transition.ExpiresAt, true
+	}
+	return time.Time{}, false
 }
 
 type ProjectAuthority struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
@@ -461,6 +462,8 @@ func (s *Service) finishTrackBaseEffect(
 ) error {
 	wire := wireTrackBaseResult(result)
 	body := mustJSON(wire)
+	parts := strings.Split(wire.ConsumerRef, "/")
+	track := parts[len(parts)-1]
 	completion := journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID,
 		Token: effect.CurrentClaim, State: journal.Succeeded,
@@ -470,8 +473,12 @@ func (s *Service) finishTrackBaseEffect(
 			Body: body,
 		}},
 		EventKind: "track_base_prepared",
-		EventBody: body,
-		At:        s.now().UTC(),
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: effect.ID,
+			WorkID:   effect.BeforeDigest,
+			Track:    track,
+		}),
+		At: s.now().UTC(),
 	}
 	var err error
 	if recovery == "" {
@@ -559,8 +566,12 @@ func (s *Service) recoverTrackBaseEffect(
 				RunID: owner.RunID, EffectID: effect.ID,
 				Token:     effect.CurrentClaim,
 				EventKind: "track_base_uncertain",
-				EventBody: []byte(effect.ID),
-				At:        s.now().UTC(),
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID: effect.ID,
+					WorkID:   effect.BeforeDigest,
+					Track:    request.Consumer.Track,
+				}),
+				At: s.now().UTC(),
 			},
 			journal.RecoveryAmbiguous,
 		)
@@ -699,8 +710,12 @@ func (s *Service) runTrackBaseEffect(
 				State:     journal.OperationalFailed,
 				ErrorCode: stableErrorCode(actionErr),
 				EventKind: "track_base_operational_failure",
-				EventBody: []byte(id),
-				At:        s.now().UTC(),
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID: id,
+					WorkID:   workID,
+					Track:    request.Consumer.Track,
+				}),
+				At: s.now().UTC(),
 			},
 		); err != nil {
 			return gitx.PrepareTrackBaseResult{},

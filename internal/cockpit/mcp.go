@@ -229,7 +229,7 @@ func (h *HTTPHandler) callMCPStatus(r *http.Request, request mcpRequest, argumen
 	var input struct {
 		RunID string `json:"run_id"`
 	}
-	if strictJSON(arguments, &input) != nil || input.RunID != h.runID {
+	if strictJSON(arguments, &input) != nil || (h.runID != "" && input.RunID != h.runID) || (h.runID == "" && !httpIdentityPattern.MatchString(input.RunID)) {
 		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
 		return response
 	}

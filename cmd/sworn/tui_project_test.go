@@ -330,6 +330,10 @@ func TestDiscoverProjectManifestsAdmitsOnlyExactSafeUniqueRepositoryFiles(
 func projectRepositoryFixture(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err == nil {
+		root = canonicalRoot
+	}
 	projectGit(t, root, "init", "--quiet", "--initial-branch=main")
 	if err := os.WriteFile(
 		filepath.Join(root, "README.md"),
@@ -412,7 +416,7 @@ func projectWriteManifest(
 			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
 		Driver: &runtimepkg.FakeDriverConfig{
-			Executable: "/bin/true",
+			Executable: "/usr/bin/true",
 			Digest:     "sha256:" + strings.Repeat("a", 64),
 			AdapterKey: "fixture",
 			Profile:    "fixture",
@@ -449,24 +453,4 @@ func projectWriteManifest(
 	if err := os.WriteFile(filepath.Join(directory, name), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func projectReleaseNames(releases []projectRelease) []string {
-	result := make([]string, len(releases))
-	for index, release := range releases {
-		result[index] = release.name
-	}
-	return result
-}
-
-func projectFindRelease(
-	releases []projectRelease,
-	name string,
-) (projectRelease, bool) {
-	for _, release := range releases {
-		if release.name == name {
-			return release, true
-		}
-	}
-	return projectRelease{}, false
 }

@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +67,396 @@ func initTestProject(t *testing.T) string {
 	return resolved
 }
 
+func setupMockAgentAndEnvironment(t *testing.T) (string, string) {
+	t.Helper()
+	temp := t.TempDir()
+
+	// Mock runtime targets
+	var targets []string
+	for i, name := range []string{"hosts", "nsswitch.conf", "resolv.conf", "ca-certificates.crt"} {
+		path := filepath.Join(temp, "etc", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("mock target %d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, path)
+	}
+	oldTargets := initRuntimeTargets
+	initRuntimeTargets = targets
+	t.Cleanup(func() {
+		initRuntimeTargets = oldTargets
+	})
+
+	// Mock claude CLI binary
+	binDir := filepath.Join(temp, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudePath := filepath.Join(binDir, "claude")
+	claudeScript := "#!/usr/bin/sh\necho '2.1.220 (Claude Code)'\n"
+	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock credentials
+	homeDir := filepath.Join(temp, "home")
+	credDir := filepath.Join(homeDir, ".config", "sworn", ".claude")
+	if err := os.MkdirAll(credDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	credFile := filepath.Join(credDir, ".credentials.json")
+	if err := os.WriteFile(credFile, []byte(`{"token":"mock"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
+	t.Setenv(gitx.EnvCredentialsDir, "")
+
+	return binDir, homeDir
+}
+
+// A1: In an empty project, init interactively confirms each artifact before writing
+// (driver config from agent detection, operator config with the local listen default, the .sworn surface)
+// and ends by naming the next command: pinned by cmd/sworn fixtures driving the prompt sequence over a scripted stdin.
+func TestInitA1EmptyProjectInteractiveWalk(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	stdin := strings.NewReader("y\ny\ny\n")
+	var stdout, stderr bytes.Buffer
+	code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runInitWithIO exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+
+	out := stdout.String()
+	// Confirms each artifact
+	if !strings.Contains(out, "created "+filepath.Join(root, ".sworn")+"/") {
+		t.Fatalf("surface directory not confirmed/created in stdout: %s", out)
+	}
+	if !strings.Contains(out, "created "+filepath.Join(root, ".sworn", "runs")+"/") {
+		t.Fatalf("runs directory not confirmed/created in stdout: %s", out)
+	}
+	if !strings.Contains(out, "created "+filepath.Join(root, ".sworn", ".gitignore")) {
+		t.Fatalf(".gitignore not confirmed/created in stdout: %s", out)
+	}
+	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "drivers.json")) {
+		t.Fatalf("driver config not confirmed/written in stdout: %s", out)
+	}
+	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator config not confirmed/written in stdout: %s", out)
+	}
+	// Ends by naming next command
+	if !strings.Contains(out, "sworn driver doctor") {
+		t.Fatalf("next command 'sworn driver doctor' not found in stdout: %s", out)
+	}
+
+	// Verify file permissions and content on disk
+	ignBody, err := os.ReadFile(filepath.Join(root, ".sworn", ".gitignore"))
+	if err != nil || string(ignBody) != canonicalGitignore {
+		t.Fatalf(".gitignore content mismatch: %q, err=%v", ignBody, err)
+	}
+
+	driversInfo, err := os.Stat(filepath.Join(root, ".sworn", "drivers.json"))
+	if err != nil || driversInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("drivers.json stat/perm error: info=%v, err=%v", driversInfo, err)
+	}
+
+	opInfo, err := os.Stat(filepath.Join(root, ".sworn", "operator.json"))
+	if err != nil || opInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("operator.json stat/perm error: info=%v, err=%v", opInfo, err)
+	}
+	opBody, err := os.ReadFile(filepath.Join(root, ".sworn", "operator.json"))
+	if err != nil || !bytes.Equal(opBody, buildDefaultOperatorConfig()) {
+		t.Fatalf("operator.json content mismatch: %s", opBody)
+	}
+	if !validOperatorFileInfo(opInfo) {
+		t.Fatalf("validOperatorFileInfo failed on created operator.json")
+	}
+	if _, err := parseOperatorConfig(opBody); err != nil {
+		t.Fatalf("parseOperatorConfig failed on created operator.json: %v", err)
+	}
+}
+
+// A2: Re-running init in a configured project reports what exists and what would change,
+// and changes nothing without confirmation: pinned by an idempotence fixture asserting
+// byte-identical files after a default-accepting re-run.
+func TestInitA2IdempotenceAndDivergence(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	// Step 1: Initial run with --yes to set up the project.
+	var stdout1, stderr1 bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout1, &stderr1); code != 0 {
+		t.Fatalf("initial run failed: %d, stderr=%s", code, stderr1.String())
+	}
+
+	files := []string{
+		filepath.Join(root, ".sworn", ".gitignore"),
+		filepath.Join(root, ".sworn", "drivers.json"),
+		filepath.Join(root, ".sworn", "operator.json"),
+	}
+	hashesBefore := make(map[string]string)
+	for _, f := range files {
+		h, err := sha256Hex(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hashesBefore[f] = h
+	}
+
+	// Step 2: Re-run with default-accepting input (empty line / EOF).
+	var stdout2, stderr2 bytes.Buffer
+	stdin2 := strings.NewReader("\n\n\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin2, &stdout2, &stderr2); code != 0 {
+		t.Fatalf("re-run failed: %d, stderr=%s", code, stderr2.String())
+	}
+
+	out2 := stdout2.String()
+	if !strings.Contains(out2, "Project surface already current") {
+		t.Fatalf("re-run did not report surface current: %s", out2)
+	}
+	if !strings.Contains(out2, "AI connection file already current") {
+		t.Fatalf("re-run did not report drivers.json current: %s", out2)
+	}
+	if !strings.Contains(out2, "Operator configuration already current") {
+		t.Fatalf("re-run did not report operator.json current: %s", out2)
+	}
+
+	// Verify byte-identical files
+	for _, f := range files {
+		h, err := sha256Hex(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h != hashesBefore[f] {
+			t.Fatalf("file %s was modified on re-run: before=%s after=%s", f, hashesBefore[f], h)
+		}
+	}
+
+	// Step 3: Divergent files test. Modify drivers.json and operator.json.
+	customDriver := []byte(`{"schema_version":"kept-custom"}`)
+	if err := os.WriteFile(filepath.Join(root, ".sworn", "drivers.json"), customDriver, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	customOperator := []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:8888\"\n  }\n}\n")
+	if err := os.WriteFile(filepath.Join(root, ".sworn", "operator.json"), customOperator, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default-accepting re-run on divergent files defaults to No [y/N]
+	var stdout3, stderr3 bytes.Buffer
+	stdin3 := strings.NewReader("\n\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
+		t.Fatalf("divergent re-run exit code = %d, want 0", code)
+	}
+	out3 := stdout3.String()
+	if !strings.Contains(out3, "differs from proposed configuration") {
+		t.Fatalf("diff summary not rendered for divergent config: %s", out3)
+	}
+	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "drivers.json")) {
+		t.Fatalf("drivers.json was not reported kept: %s", out3)
+	}
+	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator.json was not reported kept: %s", out3)
+	}
+
+	// Files must remain untouched
+	currentDriver, _ := os.ReadFile(filepath.Join(root, ".sworn", "drivers.json"))
+	if !bytes.Equal(currentDriver, customDriver) {
+		t.Fatalf("divergent drivers.json was modified: %q", currentDriver)
+	}
+	currentOperator, _ := os.ReadFile(filepath.Join(root, ".sworn", "operator.json"))
+	if !bytes.Equal(currentOperator, customOperator) {
+		t.Fatalf("divergent operator.json was modified: %q", currentOperator)
+	}
+
+	// Step 4: Explicit replacement with --force replaces divergent files
+	var stdout4, stderr4 bytes.Buffer
+	if code := runInit([]string{"--project", root, "--force"}, &stdout4, &stderr4); code != 0 {
+		t.Fatalf("--force run failed: %d, stderr=%s", code, stderr4.String())
+	}
+	out4 := stdout4.String()
+	if !strings.Contains(out4, "replaced "+filepath.Join(root, ".sworn", "drivers.json")) {
+		t.Fatalf("drivers.json was not reported replaced: %s", out4)
+	}
+	if !strings.Contains(out4, "replaced "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator.json was not reported replaced: %s", out4)
+	}
+}
+
+// A3: --yes answers every prompt with its default and stays scriptable in CI:
+// pinned by a non-interactive fixture producing the same artifacts as the interactive defaults path.
+func TestInitA3YesFlagScriptability(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	rootInteractive := initTestProject(t)
+	rootYes := initTestProject(t)
+
+	// Interactive defaults
+	var stdoutI, stderrI bytes.Buffer
+	stdinI := strings.NewReader("\n\n\n")
+	if code := runInitWithIO([]string{"--project", rootInteractive}, stdinI, &stdoutI, &stderrI); code != 0 {
+		t.Fatalf("interactive init failed: %d, stderr=%s", code, stderrI.String())
+	}
+
+	// Non-interactive --yes
+	var stdoutY, stderrY bytes.Buffer
+	if code := runInit([]string{"--project", rootYes, "--yes"}, &stdoutY, &stderrY); code != 0 {
+		t.Fatalf("non-interactive --yes init failed: %d, stderr=%s", code, stderrY.String())
+	}
+
+	// Compare artifacts
+	for _, rel := range []string{
+		filepath.Join(".sworn", ".gitignore"),
+		filepath.Join(".sworn", "drivers.json"),
+		filepath.Join(".sworn", "operator.json"),
+	} {
+		bodyI, err := os.ReadFile(filepath.Join(rootInteractive, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodyY, err := os.ReadFile(filepath.Join(rootYes, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(bodyI, bodyY) {
+			t.Fatalf("artifact %s mismatch between interactive default and --yes:\ninteractive:\n%s\n--yes:\n%s", rel, bodyI, bodyY)
+		}
+	}
+}
+
+// A4: init writes .sworn/operator.json with the conventional shape when absent,
+// and never touches an existing one without confirmation: pinned by fixtures over absent,
+// present-identical, and present-divergent cases.
+func TestInitA4OperatorConfigScaffolding(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+	opPath := filepath.Join(root, ".sworn", "operator.json")
+
+	// Absent case
+	var stdout1, stderr1 bytes.Buffer
+	stdin1 := strings.NewReader("y\ny\ny\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin1, &stdout1, &stderr1); code != 0 {
+		t.Fatalf("absent init failed: %d, stderr=%s", code, stderr1.String())
+	}
+	if !strings.Contains(stdout1.String(), "wrote "+opPath) {
+		t.Fatalf("did not report wrote operator.json: %s", stdout1.String())
+	}
+	body, err := os.ReadFile(opPath)
+	if err != nil || !bytes.Equal(body, buildDefaultOperatorConfig()) {
+		t.Fatalf("operator.json content incorrect: %s", body)
+	}
+	info, err := os.Stat(opPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("operator.json mode is not 0600: %v", info)
+	}
+
+	// Present-identical case
+	var stdout2, stderr2 bytes.Buffer
+	stdin2 := strings.NewReader("")
+	if code := runInitWithIO([]string{"--project", root}, stdin2, &stdout2, &stderr2); code != 0 {
+		t.Fatalf("present-identical init failed: %d, stderr=%s", code, stderr2.String())
+	}
+	if !strings.Contains(stdout2.String(), "Operator configuration already current: "+opPath) {
+		t.Fatalf("did not report operator.json already current: %s", stdout2.String())
+	}
+
+	// Present-divergent case 1: Content divergence
+	customContent := []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:9090\"\n  }\n}\n")
+	if err := os.WriteFile(opPath, customContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout3, stderr3 bytes.Buffer
+	stdin3 := strings.NewReader("n\n") // Decline replacement
+	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
+		t.Fatalf("divergent decline init failed: %d, stderr=%s", code, stderr3.String())
+	}
+	if !strings.Contains(stdout3.String(), "kept existing "+opPath) {
+		t.Fatalf("did not report kept existing operator.json: %s", stdout3.String())
+	}
+	currentBody, _ := os.ReadFile(opPath)
+	if !bytes.Equal(currentBody, customContent) {
+		t.Fatalf("operator.json was modified despite declining: %s", currentBody)
+	}
+
+	// Present-divergent case 2: Non-0600 mode with identical content (Captain Correction 5)
+	if err := os.WriteFile(opPath, buildDefaultOperatorConfig(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(opPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout4, stderr4 bytes.Buffer
+	stdin4 := strings.NewReader("n\n") // Decline
+	if code := runInitWithIO([]string{"--project", root}, stdin4, &stdout4, &stderr4); code != 0 {
+		t.Fatalf("mode-divergent decline failed: %d, stderr=%s", code, stderr4.String())
+	}
+	out4 := stdout4.String()
+	if strings.Contains(out4, "Operator configuration already current") {
+		t.Fatalf("mode 0644 was incorrectly reported as 'already current': %s", out4)
+	}
+	if !strings.Contains(out4, "differs from proposed configuration") || !strings.Contains(out4, "mode: 0644") {
+		t.Fatalf("diff summary did not report mode 0644 divergence: %s", out4)
+	}
+
+	// Replacing mode-divergent file with 'y' resets mode to 0600
+	var stdout5, stderr5 bytes.Buffer
+	stdin5 := strings.NewReader("y\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin5, &stdout5, &stderr5); code != 0 {
+		t.Fatalf("mode-divergent replace failed: %d, stderr=%s", code, stderr5.String())
+	}
+	info5, err := os.Stat(opPath)
+	if err != nil || info5.Mode().Perm() != 0o600 {
+		t.Fatalf("replaced operator.json mode is not 0600: %v", info5)
+	}
+}
+
+// Captain Correction 4: Handle no-agent empty project so the walk completes
+// with driver config reported missing, operator config and surface created,
+// and exit code 1.
+func TestInitNoAgentEmptyProject(t *testing.T) {
+	temp := t.TempDir()
+	binDir := filepath.Join(temp, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	if err := os.Symlink(gitPath, filepath.Join(binDir, "git")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir) // PATH has only git, no codex or claude
+
+	root := initTestProject(t)
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\n")
+	code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("runInitWithIO exit code = %d, want 1 for missing driver config", code)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "AI driver configuration: missing") {
+		t.Fatalf("stdout did not report driver config missing: %s", out)
+	}
+	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator.json was not written in no-agent walk: %s", out)
+	}
+	if !strings.Contains(out, "created "+filepath.Join(root, ".sworn", ".gitignore")) {
+		t.Fatalf(".gitignore was not created in no-agent walk: %s", out)
+	}
+	if !strings.Contains(out, "Sworn cannot start a run until an AI connection file exists at") {
+		t.Fatalf("closing advice missing: %s", out)
+	}
+}
+
 // The project directory holds absolute host paths, binary digests, and the run
 // journal. None of it belongs in a repository other people clone, so init must
 // exclude the whole directory except the records root, whose committed
@@ -88,9 +481,12 @@ func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	}
 }
 
+// Reconciled for Captain Correction 1:
 // Run definitions record the exact fingerprint of the connection file, so
-// silently rewriting it would invalidate them. Refusing is the safe default.
+// silently rewriting it would invalidate them. Re-running reports what exists
+// and what would change, and defaults to keeping the existing file untouched.
 func TestInitRefusesToReplaceAnExistingConnectionFile(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
 	home := filepath.Join(root, ".sworn")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -103,15 +499,20 @@ func TestInitRefusesToReplaceAnExistingConnectionFile(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := runInit([]string{"--project", root}, &stdout, &stderr); code == 0 {
-		t.Fatal("init reported success while refusing to write")
+	stdin := strings.NewReader("n\n") // Decline replacement
+	code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("init re-run exit code = %d, want 0; stderr:\n%s", code, stderr.String())
 	}
 	current, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(current, original) {
 		t.Fatalf("existing connection file was modified: %q", current)
 	}
-	if !strings.Contains(stderr.String(), "--force") {
-		t.Fatalf("refusal does not name the way forward: %s", stderr.String())
+	if !strings.Contains(stdout.String(), "kept existing "+path) {
+		t.Fatalf("output did not report keeping existing file: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "differs from proposed configuration") {
+		t.Fatalf("output did not report diff: %s", stdout.String())
 	}
 	// The closing advice must not claim the file is missing when it is present.
 	if strings.Contains(stdout.String(), "until an AI connection file exists") {
@@ -220,4 +621,13 @@ func TestAgentReportedVersionReadsEachFamilyFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sha256Hex(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:]), nil
 }

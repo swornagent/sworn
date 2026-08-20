@@ -19,10 +19,11 @@ const (
 )
 
 type projectPaths struct {
-	root        string
-	journal     string
-	config      string
-	manifestDir string
+	root           string
+	journal        string
+	config         string
+	manifestDir    string
+	operatorConfig string
 }
 
 type projectRun struct {
@@ -41,10 +42,11 @@ type projectRelease struct {
 }
 
 type projectCatalog struct {
-	paths       projectPaths
-	repository  *gitx.Repository
-	releases    []projectRelease
-	diagnostics []string
+	paths          projectPaths
+	repository     *gitx.Repository
+	releases       []projectRelease
+	diagnostics    []string
+	operatorConfig string
 }
 
 func discoverProject(
@@ -112,6 +114,11 @@ func discoverProject(
 	}
 
 	var diagnostics []string
+	operatorConfigPath, operatorDiagnostic := discoverOperatorConfig(paths)
+	if operatorDiagnostic != "" {
+		diagnostics = append(diagnostics, operatorDiagnostic)
+	}
+
 	runs, journalDiagnostic := discoverProjectRuns(ctx, paths)
 	if journalDiagnostic != "" {
 		diagnostics = append(diagnostics, journalDiagnostic)
@@ -129,8 +136,8 @@ func discoverProject(
 			byRelease[run.Release] = entry
 		}
 		entry.runs = append(entry.runs, projectRun{
-			binding:     run,
-			journalPath: paths.journal,
+			binding:     run.Run,
+			journalPath: run.journalPath,
 			configPath:  existingRegularFile(paths.config),
 		})
 	}
@@ -145,6 +152,7 @@ func discoverProject(
 	return projectCatalog{
 		paths: paths, repository: repository,
 		releases: releases, diagnostics: diagnostics,
+		operatorConfig: operatorConfigPath,
 	}, nil
 }
 
@@ -160,10 +168,11 @@ func resolveProjectPaths(
 	}
 	journalsRoot := filepath.FromSlash(project.JournalsRoot)
 	defaults := projectPaths{
-		root:        root,
-		journal:     filepath.Join(root, journalsRoot, "sworn.db"),
-		config:      filepath.Join(root, journalsRoot, "drivers.json"),
-		manifestDir: filepath.Join(root, journalsRoot, "runs"),
+		root:           root,
+		journal:        filepath.Join(root, journalsRoot, "sworn.db"),
+		config:         filepath.Join(root, journalsRoot, "drivers.json"),
+		manifestDir:    filepath.Join(root, journalsRoot, "runs"),
+		operatorConfig: filepath.Join(root, journalsRoot, "operator.json"),
 	}
 	for _, override := range []struct {
 		value       string
@@ -185,28 +194,104 @@ func resolveProjectPaths(
 	return defaults, nil
 }
 
+func discoverOperatorConfig(paths projectPaths) (string, string) {
+	if paths.operatorConfig == "" {
+		return "", ""
+	}
+	info, err := os.Lstat(paths.operatorConfig)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", ""
+	}
+	if err != nil || !validOperatorFileInfo(info) {
+		return "", "OPERATOR_CONFIG_UNAVAILABLE"
+	}
+	if _, err := loadOperatorSettings(paths.operatorConfig); err != nil {
+		return "", "OPERATOR_CONFIG_UNAVAILABLE"
+	}
+	return paths.operatorConfig, ""
+}
+
+type discoveredRun struct {
+	journal.Run
+	journalPath string
+}
+
 func discoverProjectRuns(
 	ctx context.Context,
 	paths projectPaths,
-) ([]journal.Run, string) {
+) ([]discoveredRun, string) {
 	info, err := os.Lstat(paths.journal)
+	if err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return nil, "SWORN_UNAVAILABLE"
+	}
+	journalDir := filepath.Dir(paths.journal)
+	entries, err := os.ReadDir(journalDir)
 	if errors.Is(err, os.ErrNotExist) {
-		return []journal.Run{}, ""
-	}
-	if err != nil || !info.Mode().IsRegular() ||
-		info.Mode()&os.ModeSymlink != 0 {
+		if os.IsNotExist(err) {
+			return []discoveredRun{}, ""
+		}
 		return nil, "SWORN_UNAVAILABLE"
 	}
-	store, err := journal.OpenReadOnly(ctx, paths.journal)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []discoveredRun{}, ""
+		}
 		return nil, "SWORN_UNAVAILABLE"
 	}
-	defer store.Close()
-	runs, err := store.RunBindings(ctx)
-	if err != nil {
-		return nil, "SWORN_UNAVAILABLE"
+
+	seenPaths := make(map[string]bool)
+	var candidatePaths []string
+	if info != nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		candidatePaths = append(candidatePaths, paths.journal)
+		seenPaths[paths.journal] = true
 	}
-	return runs, ""
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == "sworn.db" || strings.HasSuffix(name, ".db") || strings.HasSuffix(name, ".sqlite") {
+			fullPath := filepath.Join(journalDir, name)
+			if !seenPaths[fullPath] {
+				fileInfo, statErr := os.Lstat(fullPath)
+				if statErr == nil && fileInfo.Mode().IsRegular() && fileInfo.Mode()&os.ModeSymlink == 0 {
+					candidatePaths = append(candidatePaths, fullPath)
+					seenPaths[fullPath] = true
+				}
+			}
+		}
+	}
+	sort.Strings(candidatePaths)
+
+	var allRuns []discoveredRun
+	seenRunIDs := make(map[string]bool)
+	for _, candPath := range candidatePaths {
+		store, err := journal.OpenReadOnly(ctx, candPath)
+		if err != nil {
+			if len(candidatePaths) == 1 && candPath == paths.journal {
+				return nil, "SWORN_UNAVAILABLE"
+			}
+			continue
+		}
+		runs, err := store.RunBindings(ctx)
+		_ = store.Close()
+		if err != nil {
+			if len(candidatePaths) == 1 && candPath == paths.journal {
+				return nil, "SWORN_UNAVAILABLE"
+			}
+			continue
+		}
+		for _, r := range runs {
+			if !seenRunIDs[r.ID] {
+				seenRunIDs[r.ID] = true
+				allRuns = append(allRuns, discoveredRun{
+					Run:         r,
+					journalPath: candPath,
+				})
+			}
+		}
+	}
+	return allRuns, ""
 }
 
 type projectManifest struct {
@@ -281,4 +366,24 @@ func latestProjectRun(release projectRelease) (projectRun, bool) {
 		}
 	}
 	return latest, true
+}
+
+func projectReleaseNames(releases []projectRelease) []string {
+	result := make([]string, len(releases))
+	for index, release := range releases {
+		result[index] = release.name
+	}
+	return result
+}
+
+func projectFindRelease(
+	releases []projectRelease,
+	name string,
+) (projectRelease, bool) {
+	for _, release := range releases {
+		if release.name == name {
+			return release, true
+		}
+	}
+	return projectRelease{}, false
 }

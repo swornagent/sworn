@@ -11,12 +11,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
@@ -125,24 +128,70 @@ func parseServeOptions(args []string) (serveOptions, bool) {
 		}
 		values[name] = value
 	}
-	if values["--run"] == "" || values["--journal"] == "" ||
-		!operatorIdentityPattern.MatchString(values["--run"]) ||
-		!absoluteCleanOperatorPath(values["--journal"]) ||
-		(values["--manifest"] != "" &&
-			!absoluteCleanOperatorPath(values["--manifest"])) ||
-		(values["--config"] != "" &&
-			!absoluteCleanOperatorPath(values["--config"])) ||
-		(values["--operator-config"] != "" &&
-			!absoluteCleanOperatorPath(values["--operator-config"])) {
+	runID := values["--run"]
+	journalPath := values["--journal"]
+	manifestPath := values["--manifest"]
+	driverConfig := values["--config"]
+	operatorConfig := values["--operator-config"]
+
+	if (runID == "" && journalPath != "") || (runID != "" && journalPath == "") {
 		return serveOptions{}, false
 	}
+	if runID != "" && !operatorIdentityPattern.MatchString(runID) {
+		return serveOptions{}, false
+	}
+	if journalPath != "" && !absoluteCleanOperatorPath(journalPath) {
+		return serveOptions{}, false
+	}
+	if manifestPath != "" && !absoluteCleanOperatorPath(manifestPath) {
+		return serveOptions{}, false
+	}
+	if runID == "" && manifestPath != "" {
+		return serveOptions{}, false
+	}
+	if driverConfig != "" && !absoluteCleanOperatorPath(driverConfig) {
+		return serveOptions{}, false
+	}
+	if operatorConfig != "" && !absoluteCleanOperatorPath(operatorConfig) {
+		return serveOptions{}, false
+	}
+	if operatorConfig == "" {
+		operatorConfig = resolveDefaultOperatorConfig()
+	}
 	return serveOptions{
-		runID:          values["--run"],
-		journalPath:    values["--journal"],
-		manifestPath:   values["--manifest"],
-		driverConfig:   values["--config"],
-		operatorConfig: values["--operator-config"],
+		runID:          runID,
+		journalPath:    journalPath,
+		manifestPath:   manifestPath,
+		driverConfig:   driverConfig,
+		operatorConfig: operatorConfig,
 	}, true
+}
+
+func resolveDefaultOperatorConfig() string {
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return ""
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	repo, err := gitx.Open(filepath.Clean(cwd), gitExecutable)
+	if err != nil {
+		return ""
+	}
+	paths, err := resolveProjectPaths(repo.Root(), "", "", "")
+	if err != nil {
+		return ""
+	}
+	info, err := os.Lstat(paths.operatorConfig)
+	if err != nil {
+		return ""
+	}
+	if info != nil {
+		return paths.operatorConfig
+	}
+	return ""
 }
 
 func absoluteCleanOperatorPath(value string) bool {
@@ -164,6 +213,478 @@ func serveOperator(
 	if err != nil {
 		return err
 	}
+	if options.runID == "" {
+		return serveProjectOperator(parent, options, settings, stdout)
+	}
+	return serveRunOperator(parent, options, settings, stdout)
+}
+
+type projectOperatorService struct {
+	paths         projectPaths
+	gitExecutable string
+	driverConfig  string
+}
+
+func (s *projectOperatorService) Catalog(ctx context.Context) (cockpit.ProjectCatalog, error) {
+	if ctx == nil {
+		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "INVALID_REQUEST"}
+	}
+	repo, err := gitx.Open(s.paths.root, s.gitExecutable)
+	if err != nil {
+		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "GIT_UNAVAILABLE"}
+	}
+	gitRepo := baton.UseGitRepository(repo)
+	releaseRefs, err := baton.ListReleaseRefs(gitRepo)
+	if err != nil {
+		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "BATON_UNAVAILABLE"}
+	}
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	var releases []cockpit.ProjectReleaseInfo
+	for _, ref := range releaseRefs {
+		state, stateErr := baton.ReadState(gitRepo, ref.Release, inertness)
+		if stateErr != nil {
+			releases = append(releases, cockpit.ProjectReleaseInfo{
+				Name:       ref.Release,
+				SourceRef:  ref.Ref,
+				State:      "not_started",
+				Status:     "Ready for Sworn",
+				Diagnostic: "BATON_UNAVAILABLE",
+			})
+			continue
+		}
+		st, statusStr := cockpit.ReleaseStateAndStatus(state)
+		diagCode := ""
+		if len(state.Diagnostics) > 0 {
+			diagCode = state.Diagnostics[0].Code
+		}
+		releases = append(releases, cockpit.ProjectReleaseInfo{
+			Name:       ref.Release,
+			SourceRef:  ref.Ref,
+			State:      st,
+			Status:     statusStr,
+			Diagnostic: diagCode,
+		})
+	}
+	manifests := discoverProjectManifests(s.paths)
+	for relName, m := range manifests {
+		found := false
+		for i := range releases {
+			if releases[i].Name == relName {
+				found = true
+				if m.diagnostic != "" && releases[i].Diagnostic == "" {
+					releases[i].Diagnostic = m.diagnostic
+				}
+				break
+			}
+		}
+		if !found {
+			releases = append(releases, cockpit.ProjectReleaseInfo{
+				Name:       relName,
+				State:      "not_started",
+				Status:     "Ready for Sworn",
+				Diagnostic: "BATON_UNAVAILABLE",
+			})
+		}
+	}
+	sort.Slice(releases, func(i, j int) bool {
+		return releases[i].Name < releases[j].Name
+	})
+
+	runs, diag := discoverProjectRuns(ctx, s.paths)
+	var diagnostics []cockpit.Diagnostic
+	if diag != "" {
+		diagnostics = append(diagnostics, cockpit.Diagnostic{Code: diag})
+	}
+
+	var runStatuses []cockpit.DiscoveredRunStatus
+	for _, run := range runs {
+		statusReader, err := runtimepkg.OpenStatusService(ctx, run.journalPath)
+		if err != nil {
+			continue
+		}
+		status, err := statusReader.Status(ctx, run.ID)
+		_ = statusReader.Close()
+		if err != nil {
+			continue
+		}
+		store, err := journal.OpenReadOnly(ctx, run.journalPath)
+		var attentions []journal.AttentionProjection
+		if err == nil {
+			attentions, _ = store.Attentions(ctx, run.ID)
+			_ = store.Close()
+		}
+		runStatuses = append(runStatuses, cockpit.DiscoveredRunStatus{
+			Binding:    run.Run,
+			Status:     status,
+			Attentions: attentions,
+		})
+	}
+
+	return cockpit.BuildProjectCatalog(releases, runStatuses, diagnostics), nil
+}
+
+func (s *projectOperatorService) NeedsYou(ctx context.Context) ([]cockpit.NeedsYouItem, error) {
+	catalog, err := s.Catalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return catalog.NeedsYou, nil
+}
+
+func (s *projectOperatorService) findRunJournal(ctx context.Context, runID string) (string, error) {
+	runs, _ := discoverProjectRuns(ctx, s.paths)
+	for _, run := range runs {
+		if run.ID == runID {
+			return run.journalPath, nil
+		}
+	}
+	return "", &cockpit.Error{Code: "RUN_NOT_FOUND"}
+}
+
+func (s *projectOperatorService) Snapshot(ctx context.Context, runID string) (cockpit.Snapshot, error) {
+	journalPath, err := s.findRunJournal(ctx, runID)
+	if err != nil {
+		return cockpit.Snapshot{}, err
+	}
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		return cockpit.Snapshot{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		return cockpit.Snapshot{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(s.gitExecutable)
+	if err != nil {
+		return cockpit.Snapshot{}, &cockpit.Error{Code: "GIT_UNAVAILABLE"}
+	}
+	projector, err := cockpit.NewProjector(store, statusReader, stateReader)
+	if err != nil {
+		return cockpit.Snapshot{}, err
+	}
+	return projector.Snapshot(ctx, runID)
+}
+
+func (s *projectOperatorService) Events(ctx context.Context, runID string, after int64, limit int, track ...string) (cockpit.EventPage, error) {
+	journalPath, err := s.findRunJournal(ctx, runID)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(s.gitExecutable)
+	if err != nil {
+		return cockpit.EventPage{}, &cockpit.Error{Code: "GIT_UNAVAILABLE"}
+	}
+	projector, err := cockpit.NewProjector(store, statusReader, stateReader)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	return projector.Events(ctx, runID, after, limit, track...)
+}
+
+func (s *projectOperatorService) Start(ctx context.Context, command cockpit.StartCommand) (runtimepkg.RunStatus, error) {
+	return runtimepkg.RunStatus{}, &cockpit.Error{Code: "COMMAND_UNAVAILABLE"}
+}
+
+func (s *projectOperatorService) Control(ctx context.Context, command cockpit.ControlCommand) (runtimepkg.RunStatus, error) {
+	journalPath, err := s.findRunJournal(ctx, command.RunID)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	runtimeService, driverFactory, err := openRuntimeService(ctx, journalPath, s.driverConfig)
+	if err != nil {
+		return runtimepkg.RunStatus{}, &cockpit.Error{Code: "OPERATOR_UNAVAILABLE"}
+	}
+	defer runtimeService.Close()
+	if driverFactory != nil {
+		defer driverFactory.Close()
+	}
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		return runtimepkg.RunStatus{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	facade, err := cockpit.NewCommandFacade(runtimeService, store, nil)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	return facade.Control(ctx, command)
+}
+
+func (s *projectOperatorService) AnswerAttention(ctx context.Context, command cockpit.AnswerAttentionCommand) (runtimepkg.RunStatus, error) {
+	journalPath, err := s.findRunJournal(ctx, command.RunID)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	runtimeService, driverFactory, err := openRuntimeService(ctx, journalPath, s.driverConfig)
+	if err != nil {
+		return runtimepkg.RunStatus{}, &cockpit.Error{Code: "OPERATOR_UNAVAILABLE"}
+	}
+	defer runtimeService.Close()
+	if driverFactory != nil {
+		defer driverFactory.Close()
+	}
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		return runtimepkg.RunStatus{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	facade, err := cockpit.NewCommandFacade(runtimeService, store, nil)
+	if err != nil {
+		return runtimepkg.RunStatus{}, err
+	}
+	return facade.AnswerAttention(ctx, command)
+}
+
+func (s *projectOperatorService) Redeliver(ctx context.Context, command cockpit.RedeliveryCommand) error {
+	journalPath, err := s.findRunJournal(ctx, command.RunID)
+	if err != nil {
+		return err
+	}
+	runtimeService, driverFactory, err := openRuntimeService(ctx, journalPath, s.driverConfig)
+	if err != nil {
+		return &cockpit.Error{Code: "OPERATOR_UNAVAILABLE"}
+	}
+	defer runtimeService.Close()
+	if driverFactory != nil {
+		defer driverFactory.Close()
+	}
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		return &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	facade, err := cockpit.NewCommandFacade(runtimeService, store, nil)
+	if err != nil {
+		return err
+	}
+	return facade.Redeliver(ctx, command)
+}
+
+func (s *projectOperatorService) Approve(ctx context.Context, command runtimepkg.ApprovalCommand) (runtimepkg.ApprovalResult, error) {
+	journalPath, err := s.findRunJournal(ctx, command.RunID)
+	if err != nil {
+		return runtimepkg.ApprovalResult{}, err
+	}
+	runtimeService, driverFactory, err := openRuntimeService(ctx, journalPath, s.driverConfig)
+	if err != nil {
+		return runtimepkg.ApprovalResult{}, &cockpit.Error{Code: "OPERATOR_UNAVAILABLE"}
+	}
+	defer runtimeService.Close()
+	if driverFactory != nil {
+		defer driverFactory.Close()
+	}
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		return runtimepkg.ApprovalResult{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	facade, err := cockpit.NewCommandFacade(runtimeService, store, nil)
+	if err != nil {
+		return runtimepkg.ApprovalResult{}, err
+	}
+	return facade.Approve(ctx, command)
+}
+
+func serveProjectOperator(
+	parent context.Context,
+	options serveOptions,
+	settings operatorSettings,
+	stdout io.Writer,
+) error {
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	repo, err := gitx.Open(filepath.Clean(cwd), gitExecutable)
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	paths, err := resolveProjectPaths(repo.Root(), "", options.driverConfig, "")
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	service := &projectOperatorService{
+		paths:         paths,
+		gitExecutable: gitExecutable,
+		driverConfig:  options.driverConfig,
+	}
+
+	listeners, err := bindOperatorListeners(settings)
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	defer listeners.close()
+
+	telemetry := observe.Noop()
+	if settings.otel != nil {
+		telemetry, err = observe.NewOTLP(
+			parent,
+			*settings.otel,
+			swornVersion,
+		)
+		if err != nil {
+			return errors.New("operator unavailable")
+		}
+	}
+	telemetryOpen := true
+	defer func() {
+		if telemetryOpen {
+			shutdownTelemetry(
+				telemetry.Shutdown,
+				operatorShutdownTimeout,
+			)
+		}
+	}()
+
+	localHandler, err := cockpit.NewHTTPHandler(
+		service,
+		service,
+		cockpit.HTTPConfig{
+			RunID:     "",
+			Catalog:   service,
+			Host:      settings.localListen,
+			Origin:    "http://" + settings.localListen,
+			Telemetry: telemetryHealthAdapter{telemetry: telemetry},
+		},
+	)
+	if err != nil {
+		return errors.New("operator unavailable")
+	}
+	localServer := newOperatorHTTPServer(localHandler)
+	var publicServer *http.Server
+	if settings.public != nil {
+		publicHandler, err := cockpit.NewHTTPHandler(
+			service,
+			service,
+			cockpit.HTTPConfig{
+				RunID:       "",
+				Catalog:     service,
+				Host:        settings.public.host,
+				Origin:      settings.public.origin,
+				BearerToken: settings.public.token,
+			},
+		)
+		if err != nil {
+			return errors.New("operator unavailable")
+		}
+		publicServer = newOperatorHTTPServer(publicHandler)
+	}
+
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	localServer.BaseContext = func(net.Listener) context.Context { return ctx }
+	if publicServer != nil {
+		publicServer.BaseContext = func(net.Listener) context.Context {
+			return ctx
+		}
+	}
+
+	var workers sync.WaitGroup
+	serverErrors := make(chan error, 2)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		if err := localServer.Serve(listeners.local); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			select {
+			case serverErrors <- err:
+			default:
+			}
+		}
+	}()
+	if publicServer != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			if err := publicServer.Serve(listeners.public); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				select {
+				case serverErrors <- err:
+				default:
+				}
+			}
+		}()
+	}
+
+	var serveErr error
+	if _, err := io.WriteString(stdout, "sworn serve: ready\n"); err != nil {
+		serveErr = errors.New("operator unavailable")
+		cancel()
+	}
+
+	if serveErr == nil {
+		select {
+		case <-ctx.Done():
+		case serveErr = <-serverErrors:
+		}
+	}
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(),
+		operatorShutdownTimeout,
+	)
+	defer shutdownCancel()
+	var shutdowns sync.WaitGroup
+	shutdownErrors := make(chan error, 2)
+	shutdownServer := func(server *http.Server) {
+		defer shutdowns.Done()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			_ = server.Close()
+			select {
+			case shutdownErrors <- err:
+			default:
+			}
+		}
+	}
+	shutdowns.Add(1)
+	go shutdownServer(localServer)
+	if publicServer != nil {
+		shutdowns.Add(1)
+		go shutdownServer(publicServer)
+	}
+	shutdowns.Wait()
+	close(shutdownErrors)
+	var shutdownErr error
+	for err := range shutdownErrors {
+		if shutdownErr == nil {
+			shutdownErr = err
+		}
+	}
+	workers.Wait()
+	shutdownTelemetry(telemetry.Shutdown, operatorShutdownTimeout)
+	telemetryOpen = false
+	if serveErr != nil || shutdownErr != nil {
+		return errors.New("operator unavailable")
+	}
+	return nil
+}
+
+func serveRunOperator(
+	parent context.Context,
+	options serveOptions,
+	settings operatorSettings,
+	stdout io.Writer,
+) error {
 	manifest, err := admitOperatorManifest(options)
 	if err != nil {
 		return err
