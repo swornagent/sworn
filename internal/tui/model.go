@@ -25,6 +25,7 @@ type screen uint8
 const (
 	screenCatalog screen = iota
 	screenBoard
+	screenConfig
 )
 
 type overlay uint8
@@ -42,10 +43,11 @@ type model struct {
 	version string
 	backend Backend
 
-	screen  screen
-	overlay overlay
-	width   int
-	height  int
+	screen         screen
+	previousScreen screen
+	overlay        overlay
+	width          int
+	height         int
 
 	catalog       Catalog
 	catalogCursor int
@@ -55,6 +57,9 @@ type model struct {
 	actionCursor  int
 	pendingAction cockpit.Action
 	answer        string
+
+	configView ConfigView
+	configErr  string
 
 	generation uint64
 	loading    bool
@@ -75,6 +80,12 @@ type boardResultMsg struct {
 	generation uint64
 	selection  Selection
 	board      Board
+	err        error
+}
+
+type configResultMsg struct {
+	generation uint64
+	config     ConfigView
 	err        error
 }
 
@@ -107,17 +118,16 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.generation != m.generation {
 			return m, nil
 		}
-		if m.overlay != overlayNone {
+		if m.overlay != overlayNone || m.loading {
 			return m, scheduleRefresh(m.generation)
-		}
-		if m.loading || m.executing {
-			return m, nil
 		}
 		return m, m.beginRefresh()
 	case catalogResultMsg:
 		return m, m.acceptCatalog(msg)
 	case boardResultMsg:
 		return m, m.acceptBoard(msg)
+	case configResultMsg:
+		return m, m.acceptConfig(msg)
 	case executeResultMsg:
 		return m, m.acceptExecution(msg)
 	case tea.KeyMsg:
@@ -136,9 +146,6 @@ func (m *model) handleKey(key tea.KeyMsg) tea.Cmd {
 	}
 	if key.String() == "q" && m.overlay != overlayConfirm {
 		return tea.Quit
-	}
-	if m.executing {
-		return nil
 	}
 
 	switch m.overlay {
@@ -163,16 +170,42 @@ func (m *model) handleKey(key tea.KeyMsg) tea.Cmd {
 	case "?":
 		m.overlay = overlayHelp
 		return nil
+	case "c":
+		if m.screen == screenConfig {
+			m.screen = m.previousScreen
+			m.errMsg = ""
+			m.statusMsg = ""
+			return nil
+		}
+		m.previousScreen = m.screen
+		m.screen = screenConfig
+		m.errMsg = ""
+		m.statusMsg = ""
+		return m.beginConfig(true)
 	case "r":
 		if m.loading {
 			return nil
 		}
 		return m.beginRefresh()
 	}
+	if m.screen == screenConfig {
+		return m.handleConfigKey(key)
+	}
 	if m.screen == screenCatalog {
 		return m.handleCatalogKey(key)
 	}
 	return m.handleBoardKey(key)
+}
+
+func (m *model) handleConfigKey(key tea.KeyMsg) tea.Cmd {
+	switch key.String() {
+	case "esc", "left":
+		m.screen = m.previousScreen
+		m.errMsg = ""
+		m.statusMsg = ""
+		return nil
+	}
+	return nil
 }
 
 func (m *model) handleCatalogKey(key tea.KeyMsg) tea.Cmd {
@@ -220,7 +253,10 @@ func (m *model) handleBoardKey(key tea.KeyMsg) tea.Cmd {
 			m.nodeCursor--
 		}
 	case "a":
-		if !m.controlsAllowed() || len(m.board.Actions) == 0 {
+		if !m.controlsAllowed() {
+			return nil
+		}
+		if len(m.board.Actions) == 0 && (m.selection.RunID != "" || m.board.ManifestDir == "") {
 			return nil
 		}
 		m.actionCursor = 0
@@ -338,7 +374,7 @@ func confirmAction(kind string) bool {
 }
 
 func (m *model) controlsAllowed() bool {
-	return m.screen == screenBoard && !m.board.Stale && !m.executing &&
+	return m.screen == screenBoard && !m.executing &&
 		m.board.Selection == m.selection
 }
 
@@ -373,6 +409,9 @@ func (m *model) closeOverlay() {
 }
 
 func (m *model) beginRefresh() tea.Cmd {
+	if m.screen == screenConfig {
+		return m.beginConfig(false)
+	}
 	if m.screen == screenBoard {
 		return m.beginBoard(false)
 	}
@@ -395,6 +434,15 @@ func (m *model) beginBoard(supersede bool) tea.Cmd {
 	m.generation++
 	m.loading = true
 	return boardCmd(m.ctx, m.backend, m.generation, m.selection)
+}
+
+func (m *model) beginConfig(supersede bool) tea.Cmd {
+	if m.loading && !supersede {
+		return nil
+	}
+	m.generation++
+	m.loading = true
+	return configCmd(m.ctx, m.backend, m.generation)
 }
 
 func (m *model) finishRefresh() tea.Cmd {
@@ -450,6 +498,19 @@ func (m *model) acceptBoard(msg boardResultMsg) tea.Cmd {
 	return m.finishRefresh()
 }
 
+func (m *model) acceptConfig(msg configResultMsg) tea.Cmd {
+	if msg.generation != m.generation || m.screen != screenConfig {
+		return nil
+	}
+	if msg.err != nil {
+		m.configErr = "Could not load project configuration."
+		return m.finishRefresh()
+	}
+	m.configView = msg.config
+	m.configErr = ""
+	return m.finishRefresh()
+}
+
 func (m *model) acceptExecution(msg executeResultMsg) tea.Cmd {
 	if !m.executing {
 		return nil
@@ -492,6 +553,17 @@ func boardCmd(
 		return boardResultMsg{
 			generation: generation, selection: selection, board: board, err: err,
 		}
+	}
+}
+
+func configCmd(
+	ctx context.Context,
+	backend Backend,
+	generation uint64,
+) tea.Cmd {
+	return func() tea.Msg {
+		config, err := backend.Config(ctx)
+		return configResultMsg{generation: generation, config: config, err: err}
 	}
 }
 

@@ -91,11 +91,14 @@ func TestMissingReleaseBoardUsesSwornOwnedLanguage(t *testing.T) {
 type fakeBackend struct {
 	catalog      Catalog
 	boards       map[Selection]Board
+	config       ConfigView
 	catalogErr   error
 	boardErr     error
+	configErr    error
 	executeErr   error
 	catalogCalls int
 	boardCall    []Selection
+	configCalls  int
 	executed     []executeCall
 }
 
@@ -129,6 +132,11 @@ func (f *fakeBackend) Events(
 	_ string,
 ) (cockpit.EventPage, error) {
 	return cockpit.EventPage{}, nil
+}
+
+func (f *fakeBackend) Config(_ context.Context) (ConfigView, error) {
+	f.configCalls++
+	return f.config, f.configErr
 }
 
 func TestCatalogNavigationOpensExactBoardAndMovesGraphSelection(t *testing.T) {
@@ -433,19 +441,259 @@ func TestSmallTerminalStaysBounded(t *testing.T) {
 	}
 }
 
-func TestStaleBoardShowsNoUsableControls(t *testing.T) {
+// A5: Control lockout derives from executability truth, not staleness: a stale-but-controllable board offers its legal actions.
+func TestStaleControllableBoardOffersLegalActions(t *testing.T) {
 	selection := Selection{Release: "release", RunID: "run", Source: "source"}
 	action := cockpit.Action{Kind: "pause", ExpectedGeneration: 2}
 	backend, m := readyBoardModel(selection, action)
 	m.board.Stale = true
 	m.width, m.height = 100, 30
 
-	if command := updateModel(t, m, runeKey('a')); command != nil ||
-		m.overlay != overlayNone || len(backend.executed) != 0 {
-		t.Fatal("stale board exposed a control")
+	// 'a' opens actions overlay despite board.Stale = true
+	_ = updateModel(t, m, runeKey('a'))
+	if m.overlay != overlayActions {
+		t.Fatalf("stale controllable board did not open actions overlay: overlay = %d", m.overlay)
 	}
-	if !strings.Contains(m.View(), "Controls disabled while stale") {
-		t.Fatalf("stale explanation missing:\n%s", m.View())
+
+	// Rendered actions view lists available controls
+	actionsView := m.renderActions(100, 20)
+	if !strings.Contains(actionsView, "Pause safely") {
+		t.Fatalf("renderActions omitted available action on stale board:\n%s", actionsView)
+	}
+	if strings.Contains(actionsView, "Refresh before changing this run") {
+		t.Fatalf("renderActions still displayed stale lockout text:\n%s", actionsView)
+	}
+
+	// Selecting the action executes it
+	executeCmd := updateModel(t, m, specialKey(tea.KeyEnter))
+	if executeCmd == nil {
+		t.Fatal("selecting action on stale board did not produce execute command")
+	}
+	updateModel(t, m, executeCmd())
+	if len(backend.executed) != 1 || backend.executed[0].action != action {
+		t.Fatalf("executed = %#v, want %#v", backend.executed, action)
+	}
+}
+
+// A1: Starting a run from the TUI uses the detached drive and the screen stays interactive - tick updates continue and keys respond while the run executes.
+func TestModelInteractiveDuringExecution(t *testing.T) {
+	selection := Selection{Release: "release-1", RunID: "run-1", Source: "source"}
+	action := cockpit.Action{Kind: "pause", ExpectedGeneration: 2}
+	backend, m := readyBoardModel(selection, action)
+	m.executing = true
+
+	// Navigation keys respond during execution
+	updateModel(t, m, runeKey('j'))
+	if m.nodeCursor != 1 {
+		t.Fatalf("navigation while executing failed: nodeCursor = %d, want 1", m.nodeCursor)
+	}
+	updateModel(t, m, runeKey('k'))
+	if m.nodeCursor != 0 {
+		t.Fatalf("navigation while executing failed: nodeCursor = %d, want 0", m.nodeCursor)
+	}
+
+	// Help key responds during execution
+	updateModel(t, m, runeKey('?'))
+	if m.overlay != overlayHelp {
+		t.Fatalf("help key while executing failed: overlay = %d, want overlayHelp", m.overlay)
+	}
+	updateModel(t, m, specialKey(tea.KeyEsc))
+	if m.overlay != overlayNone {
+		t.Fatalf("close help while executing failed: overlay = %d", m.overlay)
+	}
+
+	// Config toggle responds during execution
+	cmd := updateModel(t, m, runeKey('c'))
+	if m.screen != screenConfig || cmd == nil {
+		t.Fatalf("config key while executing failed: screen = %d", m.screen)
+	}
+	updateModel(t, m, specialKey(tea.KeyEsc))
+	if m.screen != screenBoard {
+		t.Fatalf("esc back from config failed: screen = %d", m.screen)
+	}
+
+	// Tick updates continue and trigger refresh cmd while executing
+	tickCmd := updateModel(t, m, refreshDueMsg{generation: m.generation})
+	if tickCmd == nil || !m.loading {
+		t.Fatalf("refreshDueMsg while executing did not begin refresh: cmd=%v, loading=%t", tickCmd != nil, m.loading)
+	}
+	// Finish refresh reschedules tick
+	finishCmd := updateModel(t, m, boardResultMsg{generation: m.generation, selection: selection, board: m.board})
+	if finishCmd == nil || m.loading {
+		t.Fatalf("finishRefresh did not reschedule tick: finishCmd=%v, loading=%t", finishCmd != nil, m.loading)
+	}
+
+	// Loading state reschedules tick without dropping
+	m.loading = true
+	rescheduleCmd := updateModel(t, m, refreshDueMsg{generation: m.generation})
+	if rescheduleCmd == nil {
+		t.Fatal("refreshDueMsg while loading dropped the tick timer")
+	}
+
+	// Quit keys work during execution
+	quitCmd := updateModel(t, m, runeKey('q'))
+	if quitCmd == nil {
+		t.Fatal("q while executing did not return quit command")
+	}
+	_ = backend
+}
+
+// A3: PLAN_NOT_FOUND, INVALID_PLAN_FENCE, REF_NOT_FOUND, and INVALID_HEAD_OBJECT each render a plain-language explanation and next step.
+func TestDiagnosticExplanationsIncludeExplanationAndNextStep(t *testing.T) {
+	selection := Selection{Release: "release-1", Source: "source"}
+	codes := []struct {
+		code            string
+		wantExplanation string
+		wantNextStep    string
+	}{
+		{
+			code:            "PLAN_NOT_FOUND",
+			wantExplanation: "release plan could not be found",
+			wantNextStep:    "Commit an approved plan before starting delivery",
+		},
+		{
+			code:            "INVALID_PLAN_FENCE",
+			wantExplanation: "plan format or version is not recognized",
+			wantNextStep:    "Format the plan with ```baton-plan-v2",
+		},
+		{
+			code:            "REF_NOT_FOUND",
+			wantExplanation: "release reference could not be found",
+			wantNextStep:    "Check that the release branch exists",
+		},
+		{
+			code:            "INVALID_HEAD_OBJECT",
+			wantExplanation: "release commit object is invalid",
+			wantNextStep:    "Check that the release commit is present",
+		},
+	}
+
+	for _, tc := range codes {
+		t.Run(tc.code, func(t *testing.T) {
+			m := &model{
+				ctx: context.Background(), version: "test", screen: screenBoard,
+				selection: selection,
+				board: Board{
+					Selection:   selection,
+					Diagnostics: []cockpit.Diagnostic{{Code: tc.code}},
+					Status:      "Needs confirmation",
+				},
+			}
+			view := m.renderBoard(120, 30)
+			if !strings.Contains(strings.ToLower(view), strings.ToLower(tc.wantExplanation)) {
+				t.Fatalf("board for %s missing explanation %q:\n%s", tc.code, tc.wantExplanation, view)
+			}
+			if !strings.Contains(strings.ToLower(view), strings.ToLower(tc.wantNextStep)) {
+				t.Fatalf("board for %s missing next step %q:\n%s", tc.code, tc.wantNextStep, view)
+			}
+		})
+	}
+}
+
+// A3: No-manifest state names the location searched.
+func TestNoManifestBoardNamesSearchedDirectory(t *testing.T) {
+	selection := Selection{Release: "release-unstarted", Source: "source"}
+	manifestPath := "/project/root/.sworn/runs"
+	m := &model{
+		ctx: context.Background(), version: "test", screen: screenBoard,
+		selection: selection,
+		board: Board{
+			Selection:   selection,
+			ManifestDir: manifestPath,
+			Actions:     []cockpit.Action{},
+			Status:      "Ready to start",
+			What:        "Awaiting run definition.",
+			Next:        "Provide a run definition in " + manifestPath + " before starting delivery.",
+		},
+	}
+
+	// Board view names searched path
+	view := m.renderBoard(100, 30)
+	if !strings.Contains(view, manifestPath) {
+		t.Fatalf("board view omitted searched manifest directory %q:\n%s", manifestPath, view)
+	}
+
+	// Actions overlay names searched path and next step
+	m.overlay = overlayActions
+	actionsView := m.renderActions(100, 20)
+	if !strings.Contains(actionsView, manifestPath) {
+		t.Fatalf("actions overlay omitted searched manifest directory %q:\n%s", manifestPath, actionsView)
+	}
+	if !strings.Contains(strings.ReplaceAll(actionsView, "\n", " "), "Provide a run manifest before starting delivery") {
+		t.Fatalf("actions overlay omitted next step guidance:\n%s", actionsView)
+	}
+}
+
+// A4: A config view shows the resolved role-to-profile/model matrix from drivers.json, the operator config's listen and telemetry endpoints, the records root, and the journal/manifest paths in use, each labelled with its source file.
+func TestConfigViewSurfacesResolvedMatrixAndSourceFilesWithoutSecrets(t *testing.T) {
+	cfg := ConfigView{
+		Roles: []RoleMatrixEntry{
+			{Role: "planner", Profile: "google-native", Model: "gemini-3.7-flash", Source: ".sworn/runs/delivery.json"},
+			{Role: "implementer", Profile: "anthropic-native", Model: "claude-3-7-sonnet", Source: ".sworn/runs/delivery.json"},
+			{Role: "captain", Profile: "deepseek-direct", Model: "deepseek-reasoner", Source: ".sworn/runs/delivery.json"},
+			{Role: "verifier", Profile: "qwen-cloud", Model: "qwen-max", Source: ".sworn/runs/delivery.json"},
+			{Role: "recovery", Profile: "anthropic-native", Model: "claude-3-7-sonnet", Source: ".sworn/runs/delivery.json"},
+		},
+		Profiles: []ProfileViewEntry{
+			{Name: "google-native", Adapter: "gemini", Network: "required", Source: ".sworn/drivers.json"},
+			{Name: "anthropic-native", Adapter: "native", Network: "required", Source: ".sworn/drivers.json"},
+		},
+		OperatorListen: ConfigItem{Value: "127.0.0.1:7337", Source: ".sworn/operator.json"},
+		OperatorOTel:   ConfigItem{Value: "http://localhost:4318", Source: ".sworn/operator.json"},
+		RecordsRoot:    ConfigItem{Value: ".baton/records", Source: "docs/sworn/sworn.json"},
+		JournalsRoot:   ConfigItem{Value: ".sworn", Source: "docs/sworn/sworn.json"},
+		JournalPath:    ConfigItem{Value: "/repo/.sworn/sworn.db", Source: "docs/sworn/sworn.json"},
+		ManifestDir:    ConfigItem{Value: "/repo/.sworn/runs", Source: "docs/sworn/sworn.json"},
+		DriverConfig:   ConfigItem{Value: "/repo/.sworn/drivers.json", Source: "docs/sworn/sworn.json"},
+	}
+
+	backend := &fakeBackend{config: cfg}
+	m := newModel(context.Background(), "test", backend)
+	m.screen = screenConfig
+	m.configView = cfg
+	m.loading = false
+	m.width, m.height = 100, 40
+
+	view := m.View()
+
+	// Roles & models
+	for _, role := range cfg.Roles {
+		if !strings.Contains(view, role.Role) || !strings.Contains(view, role.Profile) || !strings.Contains(view, role.Model) {
+			t.Fatalf("config view missing role entry %v:\n%s", role, view)
+		}
+		if !strings.Contains(view, role.Source) {
+			t.Fatalf("config view missing source label for role %v:\n%s", role, view)
+		}
+	}
+
+	// Profiles
+	for _, profile := range cfg.Profiles {
+		if !strings.Contains(view, profile.Name) || !strings.Contains(view, profile.Adapter) {
+			t.Fatalf("config view missing profile entry %v:\n%s", profile, view)
+		}
+	}
+
+	// Operator listen & telemetry
+	if !strings.Contains(view, "127.0.0.1:7337") || !strings.Contains(view, ".sworn/operator.json") {
+		t.Fatalf("config view missing operator listen:\n%s", view)
+	}
+	if !strings.Contains(view, "http://localhost:4318") {
+		t.Fatalf("config view missing operator telemetry:\n%s", view)
+	}
+
+	// Records root & paths
+	if !strings.Contains(view, ".baton/records") || !strings.Contains(view, "docs/sworn/sworn.json") {
+		t.Fatalf("config view missing records root:\n%s", view)
+	}
+	if !strings.Contains(view, "/repo/.sworn/sworn.db") || !strings.Contains(view, "/repo/.sworn/runs") {
+		t.Fatalf("config view missing journal or manifest paths:\n%s", view)
+	}
+
+	// Secret-free verification
+	for _, secret := range []string{"sk-", "bearer", "password", "token", "credential_source"} {
+		if strings.Contains(strings.ToLower(view), secret) {
+			t.Fatalf("config view leaked secret token %q:\n%s", secret, view)
+		}
 	}
 }
 

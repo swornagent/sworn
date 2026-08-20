@@ -14,6 +14,7 @@ type Backend interface {
 	Board(context.Context, Selection) (Board, error)
 	Execute(context.Context, Selection, cockpit.Action, string) error
 	Events(context.Context, Selection, int64, int, string) (cockpit.EventPage, error)
+	Config(context.Context) (ConfigView, error)
 }
 
 // Selection is the immutable identity carried through asynchronous board and
@@ -53,4 +54,40 @@ type Board struct {
 	CaptainAuthority string
 	Stale            bool
 	ThroughOffset    int64
+	ManifestDir      string
+}
+
+// ConfigView holds the resolved read-only configuration surfaced to the operator.
+type ConfigView struct {
+	Roles          []RoleMatrixEntry
+	Profiles       []ProfileViewEntry
+	OperatorListen ConfigItem
+	OperatorOTel   ConfigItem
+	RecordsRoot    ConfigItem
+	JournalsRoot   ConfigItem
+	JournalPath    ConfigItem
+	ManifestDir    ConfigItem
+	DriverConfig   ConfigItem
+}
+
+// ConfigItem is one configuration property paired with its source file or origin.
+type ConfigItem struct {
+	Value  string
+	Source string
+}
+
+// RoleMatrixEntry binds one agent responsibility to its assigned profile and model.
+type RoleMatrixEntry struct {
+	Role    string
+	Profile string
+	Model   string
+	Source  string
+}
+
+// ProfileViewEntry represents one driver profile definition.
+type ProfileViewEntry struct {
+	Name    string
+	Adapter string
+	Network string
+	Source  string
 }
