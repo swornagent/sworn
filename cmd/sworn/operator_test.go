@@ -1394,3 +1394,390 @@ func TestOperatorErrorsNeverContainConfigSecrets(t *testing.T) {
 		t.Fatalf("error exposed secret: %v", err)
 	}
 }
+
+func TestServeOptionsFlaglessProjectModeAndConventions(t *testing.T) {
+	root, _ := projectRepositoryFixture(t)
+	t.Chdir(root)
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	operatorConfigPath := filepath.Join(stateDir, "operator.json")
+	configBody := []byte(`{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444"}}`)
+	if err := os.WriteFile(operatorConfigPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Present convention: resolves .sworn/operator.json
+	opts, ok := parseServeOptions([]string{})
+	if !ok || opts.runID != "" || opts.journalPath != "" || opts.operatorConfig != operatorConfigPath {
+		t.Fatalf("present convention = %#v, %t", opts, ok)
+	}
+
+	// 2. Explicit flag: explicit flag wins
+	explicitPath := filepath.Join(t.TempDir(), "explicit.json")
+	if err := os.WriteFile(explicitPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts, ok = parseServeOptions([]string{"--operator-config", explicitPath})
+	if !ok || opts.operatorConfig != explicitPath {
+		t.Fatalf("explicit override = %#v, %t", opts, ok)
+	}
+
+	// 3. Absent convention: when operator.json is missing, defaults to empty
+	if err := os.Remove(operatorConfigPath); err != nil {
+		t.Fatal(err)
+	}
+	opts, ok = parseServeOptions([]string{})
+	if !ok || opts.operatorConfig != "" {
+		t.Fatalf("absent convention = %#v, %t", opts, ok)
+	}
+
+	// 4. Partial flag refusals
+	for _, partial := range [][]string{
+		{"--run", "run-1"},
+		{"--journal", filepath.Join(stateDir, "sworn.db")},
+		{"--manifest", filepath.Join(stateDir, "runs", "manifest.json")},
+	} {
+		if _, ok := parseServeOptions(partial); ok {
+			t.Fatalf("partial options %v admitted unexpectedly", partial)
+		}
+	}
+}
+
+func TestProjectServeEndToEndMultiJournalDiscoveryAndLiveFollow(t *testing.T) {
+	root, head := projectRepositoryFixture(t)
+	t.Chdir(root)
+
+	projectCreateReleaseRef(t, root, "delivery-alpha", head)
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	_ = listener.Close()
+
+	configBody, err := json.Marshal(operatorConfig{
+		SchemaVersion: operatorConfigSchemaVersion,
+		Local:         operatorLocalConfig{Listen: address},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorConfigPath := filepath.Join(stateDir, "operator.json")
+	if err := os.WriteFile(operatorConfigPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// 1. First journal: sworn.db with run-healthy
+	journal1 := filepath.Join(stateDir, "sworn.db")
+	store1, err := journal.Open(ctx, journal1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	manifestBody1 := operatorProjectManifestBody(t, "run-healthy", root, "delivery-alpha", "Healthy delivery.")
+	manifest1, err := cockpit.AdmitManifest(manifestBody1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store1.RegisterRun(ctx, journal.Run{
+		ID:             "run-healthy",
+		ManifestDigest: manifest1.Digest(),
+		Repository:     root,
+		Release:        "delivery-alpha",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store1.RecordCommand(ctx, journal.Command{
+		RunID:     "run-healthy",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody1,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store1.Close()
+
+	// 2. Second journal: secondary.sqlite with run-parked (exhausted attempt -> parked state)
+	journal2 := filepath.Join(stateDir, "secondary.sqlite")
+	store2, err := journal.Open(ctx, journal2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBody2 := operatorProjectManifestBody(t, "run-parked", root, "delivery-alpha", "Parked run.")
+	manifest2, err := cockpit.AdmitManifest(manifestBody2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store2.RegisterRun(ctx, journal.Run{
+		ID:             "run-parked",
+		ManifestDigest: manifest2.Digest(),
+		Repository:     root,
+		Release:        "delivery-alpha",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store2.RecordCommand(ctx, journal.Command{
+		RunID:     "run-parked",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody2,
+		CreatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	workID := "sha256:" + strings.Repeat("c", 64)
+	attempt := journal.EffectAttempt{WorkID: workID, Epoch: 1, Try: 3}
+	effectID := journal.AttemptEffectID(workID, 1, 3)
+	dummyDigest := "sha256:" + strings.Repeat("0", 64)
+	if err := store2.EnsureAttempt(ctx, journal.Command{
+		RunID:     "run-parked",
+		ReplayKey: effectID,
+		Kind:      "driver.dispatch",
+		Payload:   []byte("{}\n"),
+		CreatedAt: now.Add(time.Minute),
+	}, journal.Effect{
+		RunID:          "run-parked",
+		ID:             effectID,
+		ReplayKey:      effectID,
+		Kind:           "driver.dispatch",
+		State:          journal.OperationalFailed,
+		BeforeDigest:   dummyDigest,
+		ExpectedDigest: dummyDigest,
+		UpdatedAt:      now.Add(time.Minute),
+	}, attempt); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store2.Claim(ctx, "run-parked", effectID, now.Add(time.Minute), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store2.Complete(ctx, journal.Completion{
+		RunID:     "run-parked",
+		EffectID:  effectID,
+		Token:     claim.Token,
+		State:     journal.OperationalFailed,
+		ErrorCode: "driver_error",
+		EventKind: "effect_failed",
+		At:        now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store2.Close()
+
+	// 3. Start sworn serve in project mode (flagless)
+	serveCtx, cancelServe := context.WithCancel(context.Background())
+	defer cancelServe()
+	var stdout synchronizedBuffer
+	serveResult := make(chan error, 1)
+	go func() {
+		serveResult <- serveOperator(serveCtx, serveOptions{
+			operatorConfig: operatorConfigPath,
+		}, &stdout)
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(stdout.String(), "sworn serve: ready\n") &&
+		time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(stdout.String(), "sworn serve: ready\n") {
+		cancelServe()
+		t.Fatalf("serve did not become ready: %s", stdout.String())
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: nil},
+		Timeout:   3 * time.Second,
+	}
+
+	// 4. Acceptance A1: sworn serve with no flags serves every discoverable run and release
+	catalogResp, err := client.Get("http://" + address + "/api/v2/catalog")
+	if err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	var catalog cockpit.ProjectCatalog
+	if err := json.NewDecoder(catalogResp.Body).Decode(&catalog); err != nil {
+		_ = catalogResp.Body.Close()
+		cancelServe()
+		t.Fatal(err)
+	}
+	_ = catalogResp.Body.Close()
+	if catalog.SchemaVersion != cockpit.CatalogSchemaVersion {
+		cancelServe()
+		t.Fatalf("catalog schema = %q, want %q", catalog.SchemaVersion, cockpit.CatalogSchemaVersion)
+	}
+	if len(catalog.Releases) != 1 || catalog.Releases[0].Name != "delivery-alpha" {
+		cancelServe()
+		t.Fatalf("catalog releases = %#v", catalog.Releases)
+	}
+	if len(catalog.Runs) != 2 {
+		cancelServe()
+		t.Fatalf("catalog runs count = %d, want 2: %#v", len(catalog.Runs), catalog.Runs)
+	}
+
+	// 5. Acceptance A3: needs-you view surfaces parked/attention runs
+	needsResp, err := client.Get("http://" + address + "/api/v2/needs-you")
+	if err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	var needs []cockpit.NeedsYouItem
+	if err := json.NewDecoder(needsResp.Body).Decode(&needs); err != nil {
+		_ = needsResp.Body.Close()
+		cancelServe()
+		t.Fatal(err)
+	}
+	_ = needsResp.Body.Close()
+	if len(needs) != 1 || needs[0].RunID != "run-parked" || needs[0].Action != "retry" {
+		cancelServe()
+		t.Fatalf("needs = %#v", needs)
+	}
+
+	// 6. Acceptance A2: add a new journal while serve is running and observe catalog refresh
+	journal3 := filepath.Join(stateDir, "live.sqlite")
+	store3, err := journal.Open(ctx, journal3)
+	if err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	manifestBody3 := operatorProjectManifestBody(t, "run-live", root, "delivery-alpha", "Live newly added run.")
+	manifest3, err := cockpit.AdmitManifest(manifestBody3)
+	if err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	if err := store3.RegisterRun(ctx, journal.Run{
+		ID:             "run-live",
+		ManifestDigest: manifest3.Digest(),
+		Repository:     root,
+		Release:        "delivery-alpha",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now.Add(2 * time.Minute),
+	}); err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	if err := store3.RecordCommand(ctx, journal.Command{
+		RunID:     "run-live",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody3,
+		CreatedAt: now.Add(2 * time.Minute),
+	}); err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	_ = store3.Close()
+
+	// Query catalog again — new run must appear without restart
+	refreshResp, err := client.Get("http://" + address + "/api/v2/catalog")
+	if err != nil {
+		cancelServe()
+		t.Fatal(err)
+	}
+	var refreshedCatalog cockpit.ProjectCatalog
+	if err := json.NewDecoder(refreshResp.Body).Decode(&refreshedCatalog); err != nil {
+		_ = refreshResp.Body.Close()
+		cancelServe()
+		t.Fatal(err)
+	}
+	_ = refreshResp.Body.Close()
+	if len(refreshedCatalog.Runs) != 3 {
+		cancelServe()
+		t.Fatalf("refreshed catalog runs count = %d, want 3: %#v", len(refreshedCatalog.Runs), refreshedCatalog.Runs)
+	}
+	foundLive := false
+	for _, r := range refreshedCatalog.Runs {
+		if r.ID == "run-live" {
+			foundLive = true
+			break
+		}
+	}
+	if !foundLive {
+		cancelServe()
+		t.Fatalf("run-live missing from refreshed catalog: %#v", refreshedCatalog.Runs)
+	}
+
+	cancelServe()
+	select {
+	case err := <-serveResult:
+		if err != nil {
+			t.Fatalf("serve shutdown error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not shut down on cancel")
+	}
+}
+
+func operatorProjectManifestBody(t *testing.T, runID, repository, release, intent string) []byte {
+	t.Helper()
+	profile := driver.RoleSelection{
+		Profile: "fixture",
+		Model:   "fixture-model",
+	}
+	manifest := runtimepkg.Manifest{
+		GitIdentity:       gitx.Identity{Name: "Operator Test Engine", Email: "engine@example.test"},
+		SchemaVersion:     runtimepkg.ManifestVersion,
+		RunID:             runID,
+		Repository:        repository,
+		Release:           release,
+		TargetRef:         "refs/heads/main",
+		Intent:            intent,
+		MaxParallelTracks: 1,
+		Authority: runtimepkg.ProjectAuthority{
+			Project: "acme-repo", ExternalAuthorizer: "operator",
+		},
+		Driver: &runtimepkg.FakeDriverConfig{
+			Executable: "/bin/true",
+			Digest:     "sha256:" + strings.Repeat("a", 64),
+			AdapterKey: "fixture",
+			Profile:    "fixture",
+		},
+		Roles: driver.RoleSelections{
+			Planner:     profile,
+			Implementer: profile,
+			Captain:     profile,
+			Verifier:    profile,
+		},
+		Automation: &runtimepkg.AutomationSelections{
+			Recovery: profile,
+		},
+		Limits: driver.Limits{
+			TimeoutMillis: 1,
+			OutputBytes:   1,
+		},
+		Scripts: []runtimepkg.ScriptedAttempt{{
+			Responsibility: driver.PlannerProposal,
+			BatonAttempt:   1,
+			Epoch:          1,
+			Try:            1,
+			Behavior:       "none",
+		}},
+	}
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, '\n')
+	if _, err := runtimepkg.ParseManifest(body); err != nil {
+		t.Fatalf("manifest fixture: %v", err)
+	}
+	return body
+}
