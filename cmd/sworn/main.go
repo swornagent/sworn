@@ -44,7 +44,7 @@ Commands:
 
 Exact syntax:
   sworn version [--json]
-  sworn init [--project ABS] [--force]
+  sworn init [--project ABS] [--force] [--yes]
   sworn tui [--project ABS] [--journal ABS] [--config ABS] [--manifest-dir ABS]
   sworn run [<release>] [--manifest ABS] [--journal ABS] [--config ABS] [--detached]
   sworn pause|cancel --run ID --journal ABS --command ID --generation N
