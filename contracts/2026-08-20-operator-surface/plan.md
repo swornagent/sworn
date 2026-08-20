@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-20-operator-surface",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "72967b25526dd8b596d64573f4e20a9b1218f94c",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-20-operator-surface/1",
+  "approval_ref": "operator://2026-08-20-operator-surface/2",
   "tracks": [
     {
       "id": "T1-surface",
@@ -33,8 +33,8 @@
         {
           "id": "S3-verb-truthfulness",
           "outcome": "Control verbs tell the truth about why nothing happened: a takeover during an unexpired owner lease returns a named wait signal with the remaining lease time instead of a silent status dump, and the board's takeover hint derives from the actual admission conditions - so the operator's next command is informed, not guessed.",
-          "contract_path": "contracts/2026-08-20-operator-surface/S3-verb-truthfulness.json",
-          "digest": "sha256:1939f88b60593423420a25bafa440ebb5b2222121745448435394f0bb4f37d4d",
+          "contract_path": "contracts/2026-08-20-operator-surface/rev2/S3-verb-truthfulness.json",
+          "digest": "sha256:97c61e68089e082f3230915de9fbbca4eff127cf8b1b73ce82d9eb1d596618e1",
           "depends_on": [],
           "consumes": [],
           "touchpoints": ["internal/runtime", "cmd/sworn", "internal/cockpit", "internal/observe", "internal/tui"]
