@@ -209,6 +209,10 @@ type NotificationView struct {
 type Evidence struct {
 	Offset    int64     `json:"offset"`
 	Kind      string    `json:"kind"`
+	EffectID  string    `json:"effect_id,omitempty"`
+	WorkID    string    `json:"work_id,omitempty"`
+	Track     string    `json:"track,omitempty"`
+	Slice     string    `json:"slice,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

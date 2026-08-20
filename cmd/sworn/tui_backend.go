@@ -197,6 +197,60 @@ func (b *projectTUIBackend) Board(
 	}, nil
 }
 
+func (b *projectTUIBackend) Events(
+	ctx context.Context,
+	selection tui.Selection,
+	after int64,
+	limit int,
+	track string,
+) (cockpit.EventPage, error) {
+	if b == nil || ctx == nil {
+		return cockpit.EventPage{}, errors.New("project events are unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	_, run, hasRun, err := resolveTUISelection(project, selection)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	if !hasRun {
+		return cockpit.EventPage{}, errors.New("the selected release has no active run")
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardGit
+	}
+	journalReader, err := journal.OpenReadOnly(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardJournal
+	}
+	defer journalReader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardJournal
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		return cockpit.EventPage{}, errRunBoardGit
+	}
+	projector, err := cockpit.NewProjector(
+		journalReader,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		return cockpit.EventPage{}, err
+	}
+	var trackArgs []string
+	if track != "" {
+		trackArgs = []string{track}
+	}
+	return projector.Events(ctx, run.binding.ID, after, limit, trackArgs...)
+}
+
 func captainDelegationTUILabel(value *runtimepkg.CaptainDelegationView) string {
 	if value == nil {
 		return "External human approval"

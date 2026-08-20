@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -518,6 +519,197 @@ func TestProjectorEventsExcludeBodies(t *testing.T) {
 		!page.HasMore || len(page.Events) != 1 ||
 		page.Events[0].Kind != "effect_completed" {
 		t.Fatalf("event page = %#v", page)
+	}
+}
+
+func TestProjectorEvidenceAssociationDisambiguationAndLegacyCleanProjection(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	// 1. New-format event association JSON
+	assocBytes := runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+		EffectID: "effect-100",
+		WorkID:   "work-100",
+		Track:    "T1",
+		Slice:    "S1",
+	})
+	newFormatEv := projectEvidence(journal.EventFact{
+		Offset:    1,
+		Kind:      "dispatch_completed",
+		SafeBody:  assocBytes,
+		CreatedAt: now,
+	})
+	if newFormatEv.EffectID != "effect-100" || newFormatEv.WorkID != "work-100" ||
+		newFormatEv.Track != "T1" || newFormatEv.Slice != "S1" {
+		t.Fatalf("new format evidence = %#v", newFormatEv)
+	}
+	jsonBytes, err := json.Marshal(newFormatEv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"effect_id":"effect-100"`, `"work_id":"work-100"`, `"track":"T1"`, `"slice":"S1"`} {
+		if !strings.Contains(string(jsonBytes), expected) {
+			t.Fatalf("marshaled JSON missing %s: %s", expected, string(jsonBytes))
+		}
+	}
+
+	// 2. Legacy string body
+	legacyStringEv := projectEvidence(journal.EventFact{
+		Offset:    2,
+		Kind:      "dispatch_operational_failure",
+		SafeBody:  []byte("work_verification"),
+		CreatedAt: now,
+	})
+	if legacyStringEv.EffectID != "" || legacyStringEv.WorkID != "" ||
+		legacyStringEv.Track != "" || legacyStringEv.Slice != "" {
+		t.Fatalf("legacy string body populated association: %#v", legacyStringEv)
+	}
+	legacyJSON, err := json.Marshal(legacyStringEv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"effect_id", "work_id", "track", "slice"} {
+		if strings.Contains(string(legacyJSON), forbidden) {
+			t.Fatalf("legacy string body JSON leaked %s: %s", forbidden, string(legacyJSON))
+		}
+	}
+
+	// 3. Legacy sealedRecord JSON body (has "slice" field, but no effect_id/work_id)
+	sealedRecordJSON := []byte(`{"slice":"S1","binds":"` + strings.Repeat("a", 40) + `","before":"` + strings.Repeat("b", 40) + `","candidate":"` + strings.Repeat("c", 40) + `"}`)
+	legacySealedEv := projectEvidence(journal.EventFact{
+		Offset:    3,
+		Kind:      "candidate_sealed",
+		SafeBody:  sealedRecordJSON,
+		CreatedAt: now,
+	})
+	if legacySealedEv.EffectID != "" || legacySealedEv.WorkID != "" ||
+		legacySealedEv.Track != "" || legacySealedEv.Slice != "" {
+		t.Fatalf("legacy sealedRecord JSON body falsely populated association (collision): %#v", legacySealedEv)
+	}
+
+	// 4. Legacy RecoveryStepReceipt JSON body (has "step", "automatic_actions", etc.)
+	recoveryReceiptJSON := []byte(`{"step":{"run_id":"run-1","step_id":"sha256:` + strings.Repeat("a", 64) + `","ordinal":1,"kind":"prose_nudge"},"automatic_actions":1,"corrections":0,"nudges":1,"advisories":0,"same_progress":0,"parked":false}`)
+	legacyRecoveryEv := projectEvidence(journal.EventFact{
+		Offset:    4,
+		Kind:      "turn_recovery_step_reserved",
+		SafeBody:  recoveryReceiptJSON,
+		CreatedAt: now,
+	})
+	if legacyRecoveryEv.EffectID != "" || legacyRecoveryEv.WorkID != "" ||
+		legacyRecoveryEv.Track != "" || legacyRecoveryEv.Slice != "" {
+		t.Fatalf("legacy RecoveryStepReceipt JSON body falsely populated association: %#v", legacyRecoveryEv)
+	}
+
+	// 5. Empty / nil SafeBody
+	nilEv := projectEvidence(journal.EventFact{
+		Offset:    5,
+		Kind:      "run_started",
+		SafeBody:  nil,
+		CreatedAt: now,
+	})
+	if nilEv.EffectID != "" || nilEv.WorkID != "" ||
+		nilEv.Track != "" || nilEv.Slice != "" {
+		t.Fatalf("nil SafeBody populated association: %#v", nilEv)
+	}
+}
+
+func TestProjectorEventsFilteredByTrack(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{
+			calls: &calls,
+			window: journal.EventWindow{
+				Events: []journal.EventFact{
+					{
+						Offset: 1, Kind: "dispatch_completed",
+						SafeBody: runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+							EffectID: "eff-1", WorkID: "work-1", Track: "T1", Slice: "S1",
+						}),
+						CreatedAt: now.Add(time.Second),
+					},
+					{
+						Offset: 2, Kind: "dispatch_completed",
+						SafeBody: runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+							EffectID: "eff-2", WorkID: "work-2", Track: "T2", Slice: "S2",
+						}),
+						CreatedAt: now.Add(2 * time.Second),
+					},
+					{
+						Offset: 3, Kind: "planner_replan_scheduled",
+						SafeBody: runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+							EffectID: "eff-3", WorkID: "work-3", Track: "", Slice: "",
+						}),
+						CreatedAt: now.Add(3 * time.Second),
+					},
+					{
+						Offset: 4, Kind: "captain_plan_decided",
+						SafeBody:  nil, // run-scoped legacy / body-free
+						CreatedAt: now.Add(4 * time.Second),
+					},
+					{
+						Offset: 5, Kind: "candidate_prepared",
+						SafeBody: runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+							EffectID: "eff-5", WorkID: "work-5", Track: "T1", Slice: "S1",
+						}),
+						CreatedAt: now.Add(5 * time.Second),
+					},
+				},
+				Through: 5, EventOffset: 5, HasMore: false,
+			},
+		},
+		&fakeRuntime{calls: &calls},
+		&fakeStateReader{calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Query filtered by track T1: must receive only T1 events (1, 5) plus run-scoped (3, 4)
+	pageT1, err := projector.Events(context.Background(), "run-1", 0, 10, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pageT1.Events) != 4 {
+		t.Fatalf("T1 page event count = %d, want 4 (offsets 1, 3, 4, 5): %#v", len(pageT1.Events), pageT1.Events)
+	}
+	var offsetsT1 []int64
+	for _, ev := range pageT1.Events {
+		offsetsT1 = append(offsetsT1, ev.Offset)
+		if ev.Track != "" && ev.Track != "T1" {
+			t.Fatalf("T1 page included non-T1 track row: %#v", ev)
+		}
+	}
+	if !reflect.DeepEqual(offsetsT1, []int64{1, 3, 4, 5}) {
+		t.Fatalf("T1 page offsets = %v, want [1, 3, 4, 5]", offsetsT1)
+	}
+
+	// 2. Query filtered by track T2: must receive only T2 events (2) plus run-scoped (3, 4)
+	pageT2, err := projector.Events(context.Background(), "run-1", 0, 10, "T2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offsetsT2 []int64
+	for _, ev := range pageT2.Events {
+		offsetsT2 = append(offsetsT2, ev.Offset)
+		if ev.Track != "" && ev.Track != "T2" {
+			t.Fatalf("T2 page included non-T2 track row: %#v", ev)
+		}
+	}
+	if !reflect.DeepEqual(offsetsT2, []int64{2, 3, 4}) {
+		t.Fatalf("T2 page offsets = %v, want [2, 3, 4]", offsetsT2)
+	}
+
+	// 3. Query without track filter: receives all events (1, 2, 3, 4, 5)
+	pageAll, err := projector.Events(context.Background(), "run-1", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pageAll.Events) != 5 {
+		t.Fatalf("unfiltered page count = %d, want 5: %#v", len(pageAll.Events), pageAll.Events)
 	}
 }
 

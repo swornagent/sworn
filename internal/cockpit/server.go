@@ -47,7 +47,7 @@ var embeddedWeb embed.FS
 
 type SnapshotAPI interface {
 	Snapshot(context.Context, string) (Snapshot, error)
-	Events(context.Context, string, int64, int) (EventPage, error)
+	Events(context.Context, string, int64, int, ...string) (EventPage, error)
 }
 
 type CommandAPI interface {
@@ -538,17 +538,17 @@ func (h *HTTPHandler) serveEvents(
 		writeHTTPError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
-	after, limit, ok := eventQuery(r)
+	after, limit, track, ok := eventQuery(r)
 	if !ok {
 		writeHTTPError(w, http.StatusBadRequest, "INVALID_EVENT_WINDOW")
 		return
 	}
 	if r.Method == http.MethodGet &&
 		strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		h.serveSSE(w, r, runID, after, limit)
+		h.serveSSE(w, r, runID, after, limit, track)
 		return
 	}
-	page, err := h.projector.Events(r.Context(), runID, after, limit)
+	page, err := h.projector.Events(r.Context(), runID, after, limit, track)
 	if err != nil {
 		writeHTTPError(w, http.StatusServiceUnavailable, errorCode(err))
 		return
@@ -556,18 +556,18 @@ func (h *HTTPHandler) serveEvents(
 	writeJSON(w, r, http.StatusOK, page)
 }
 
-func eventQuery(r *http.Request) (int64, int, bool) {
+func eventQuery(r *http.Request) (int64, int, string, bool) {
 	values := r.URL.Query()
 	for key, items := range values {
-		if (key != "after" && key != "limit") || len(items) != 1 {
-			return 0, 0, false
+		if (key != "after" && key != "limit" && key != "track") || len(items) != 1 {
+			return 0, 0, "", false
 		}
 	}
 	after := int64(0)
 	if value := values.Get("after"); value != "" {
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || parsed < 0 {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		after = parsed
 	}
@@ -575,7 +575,7 @@ func eventQuery(r *http.Request) (int64, int, bool) {
 		parsed, err := strconv.ParseInt(last, 10, 64)
 		if err != nil || parsed < 0 ||
 			(values.Has("after") && parsed < after) {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		after = parsed
 	}
@@ -583,11 +583,12 @@ func eventQuery(r *http.Request) (int64, int, bool) {
 	if value := values.Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 256 {
-			return 0, 0, false
+			return 0, 0, "", false
 		}
 		limit = parsed
 	}
-	return after, limit, true
+	track := values.Get("track")
+	return after, limit, track, true
 }
 
 func (h *HTTPHandler) serveSSE(
@@ -596,6 +597,7 @@ func (h *HTTPHandler) serveSSE(
 	runID string,
 	after int64,
 	limit int,
+	track ...string,
 ) {
 	select {
 	case h.sse <- struct{}{}:
@@ -616,7 +618,7 @@ func (h *HTTPHandler) serveSSE(
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		page, err := h.projector.Events(r.Context(), runID, after, limit)
+		page, err := h.projector.Events(r.Context(), runID, after, limit, track...)
 		if err != nil {
 			_, _ = io.WriteString(w, "event: unavailable\ndata: {\"code\":\"REPLAY_UNAVAILABLE\"}\n\n")
 			flusher.Flush()

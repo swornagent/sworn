@@ -121,6 +121,16 @@ func (f *fakeBackend) Execute(
 	return f.executeErr
 }
 
+func (f *fakeBackend) Events(
+	_ context.Context,
+	_ Selection,
+	_ int64,
+	_ int,
+	_ string,
+) (cockpit.EventPage, error) {
+	return cockpit.EventPage{}, nil
+}
+
 func TestCatalogNavigationOpensExactBoardAndMovesGraphSelection(t *testing.T) {
 	first := Selection{Release: "release-1", RunID: "run-1", Source: "source-1"}
 	second := Selection{Release: "release-2", RunID: "run-2", Source: "source-2"}

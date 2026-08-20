@@ -83,6 +83,36 @@ func NewProjector(
 	}, nil
 }
 
+type windowReader interface {
+	ReadWindow(
+		ctx context.Context,
+		runID string,
+		afterOffset int64,
+		limit int,
+	) (journal.Window, error)
+}
+
+func projectEvidence(fact journal.EventFact) Evidence {
+	evidence := Evidence{
+		Offset:    fact.Offset,
+		Kind:      fact.Kind,
+		CreatedAt: fact.CreatedAt,
+	}
+	if len(fact.SafeBody) == 0 {
+		return evidence
+	}
+	var assoc runtimepkg.EventAssociation
+	if err := json.Unmarshal(fact.SafeBody, &assoc); err == nil {
+		if assoc.EffectID != "" && assoc.WorkID != "" {
+			evidence.EffectID = assoc.EffectID
+			evidence.WorkID = assoc.WorkID
+			evidence.Track = assoc.Track
+			evidence.Slice = assoc.Slice
+		}
+	}
+	return evidence
+}
+
 func (p *Projector) Snapshot(
 	ctx context.Context,
 	runID string,
@@ -124,6 +154,23 @@ func (p *Projector) Snapshot(
 			secondState,
 			secondStateErr,
 		) {
+			if wr, ok := p.journal.(windowReader); ok && len(observation.Events) > 0 {
+				after := observation.Events[0].Offset - 1
+				if after < 0 {
+					after = 0
+				}
+				if rw, err := wr.ReadWindow(ctx, runID, after, observationEventLimit); err == nil {
+					rawBodies := make(map[int64][]byte, len(rw.Snapshot.Events))
+					for _, ev := range rw.Snapshot.Events {
+						rawBodies[ev.Offset] = ev.Body
+					}
+					for i := range observation.Events {
+						if raw, found := rawBodies[observation.Events[i].Offset]; found {
+							observation.Events[i].SafeBody = raw
+						}
+					}
+				}
+			}
 			stateAvailable := firstStateErr == nil
 			return buildSnapshot(
 				observation,
@@ -142,9 +189,14 @@ func (p *Projector) Events(
 	runID string,
 	afterOffset int64,
 	limit int,
+	track ...string,
 ) (EventPage, error) {
 	if p == nil || ctx == nil || runID == "" {
 		return EventPage{}, fail("INVALID_REQUEST")
+	}
+	var filterTrack string
+	if len(track) > 0 {
+		filterTrack = track[0]
 	}
 	window, err := p.journal.EventsAfter(ctx, runID, afterOffset, limit)
 	if err != nil {
@@ -158,12 +210,24 @@ func (p *Projector) Events(
 		EventOffset:   window.EventOffset,
 		HasMore:       window.HasMore,
 	}
+	var rawBodies map[int64][]byte
+	if wr, ok := p.journal.(windowReader); ok && len(window.Events) > 0 {
+		if rw, err := wr.ReadWindow(ctx, runID, afterOffset, limit); err == nil {
+			rawBodies = make(map[int64][]byte, len(rw.Snapshot.Events))
+			for _, ev := range rw.Snapshot.Events {
+				rawBodies[ev.Offset] = ev.Body
+			}
+		}
+	}
 	for _, event := range window.Events {
-		result.Events = append(result.Events, Evidence{
-			Offset:    event.Offset,
-			Kind:      event.Kind,
-			CreatedAt: event.CreatedAt,
-		})
+		fact := event
+		if raw, found := rawBodies[event.Offset]; found {
+			fact.SafeBody = raw
+		}
+		evidence := projectEvidence(fact)
+		if filterTrack == "" || evidence.Track == "" || evidence.Track == filterTrack {
+			result.Events = append(result.Events, evidence)
+		}
 	}
 	return result, nil
 }
@@ -366,11 +430,7 @@ func buildSnapshot(
 		)
 	}
 	for _, event := range observation.Events {
-		result.Evidence = append(result.Evidence, Evidence{
-			Offset:    event.Offset,
-			Kind:      event.Kind,
-			CreatedAt: event.CreatedAt,
-		})
+		result.Evidence = append(result.Evidence, projectEvidence(event))
 	}
 	if !stateAvailable {
 		result.Graph.Nodes = []Node{{

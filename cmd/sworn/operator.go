@@ -370,7 +370,7 @@ func (s *projectOperatorService) Snapshot(ctx context.Context, runID string) (co
 	return projector.Snapshot(ctx, runID)
 }
 
-func (s *projectOperatorService) Events(ctx context.Context, runID string, after int64, limit int) (cockpit.EventPage, error) {
+func (s *projectOperatorService) Events(ctx context.Context, runID string, after int64, limit int, track ...string) (cockpit.EventPage, error) {
 	journalPath, err := s.findRunJournal(ctx, runID)
 	if err != nil {
 		return cockpit.EventPage{}, err
@@ -393,7 +393,7 @@ func (s *projectOperatorService) Events(ctx context.Context, runID string, after
 	if err != nil {
 		return cockpit.EventPage{}, err
 	}
-	return projector.Events(ctx, runID, after, limit)
+	return projector.Events(ctx, runID, after, limit, track...)
 }
 
 func (s *projectOperatorService) Start(ctx context.Context, command cockpit.StartCommand) (runtimepkg.RunStatus, error) {

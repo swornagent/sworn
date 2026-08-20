@@ -436,6 +436,7 @@ func (f *fakeOperatorProjector) Events(
 	string,
 	int64,
 	int,
+	...string,
 ) (cockpit.EventPage, error) {
 	f.eventCalls++
 	return cockpit.EventPage{SchemaVersion: cockpit.SnapshotSchemaVersion}, nil

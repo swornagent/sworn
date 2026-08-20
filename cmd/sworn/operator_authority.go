@@ -99,6 +99,7 @@ func (p *operatorProjector) Events(
 	runID string,
 	after int64,
 	limit int,
+	track ...string,
 ) (cockpit.EventPage, error) {
 	if p == nil || p.authority == nil || p.delegate == nil ||
 		runID != p.authority.runID {
@@ -107,7 +108,7 @@ func (p *operatorProjector) Events(
 	if err := p.authority.require(ctx); err != nil {
 		return cockpit.EventPage{}, err
 	}
-	return p.delegate.Events(ctx, runID, after, limit)
+	return p.delegate.Events(ctx, runID, after, limit, track...)
 }
 
 func (c *operatorCommands) Start(

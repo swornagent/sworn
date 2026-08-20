@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1324,5 +1325,180 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 	dispatchT3 := effects[journal.AttemptEffectID(dispatchWork, 1, 3)]
 	if !dispatchT3.Derived {
 		t.Fatalf("driver.dispatch effect not marked as Derived: %#v", dispatchT3)
+	}
+}
+
+func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repository
+
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte("```baton-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestValue.Authority.BootstrapApprovedPlanDigest = nil
+
+	for index := range manifestValue.Scripts {
+		script := &manifestValue.Scripts[index]
+		if script.Responsibility != driver.PlannerProposal {
+			continue
+		}
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission, err := driver.DecodeSubmission(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission.Plan, err = driver.NewPlanBytes(plan.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		script.Submission = encodeSubmission(t, submission)
+	}
+
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	submissions := make(map[string][]byte, len(manifest.value.Scripts))
+	for _, script := range manifest.value.Scripts {
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submissions[invocationID(manifest.value.RunID, script)] = encoded
+	}
+
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		submission := submissions[invocation.Request.InvocationID]
+		if len(submission) == 0 {
+			t.Fatalf("unexpected invocation %s", invocation.Request.InvocationID)
+		}
+		if strings.Contains(invocation.Request.InvocationID, "implementer_implementation") {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("impl content\n"),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submission,
+				SubmissionDigest: driver.Digest(submission),
+			},
+		}, nil
+	})
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "association-test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if status.State != "awaiting_approval" {
+		t.Fatalf("status = %q, want 'awaiting_approval'", status.State)
+	}
+
+	offer, err := service.ApprovalOffer(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Approve(ctx, offer.Command); err != nil {
+		t.Fatalf("Approve failed: %v", err)
+	}
+
+	status, err = service.Wait(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+	if status.State != "complete" {
+		t.Fatalf("status = %q, want 'complete'; effects=%#v", status.State, status.Effects)
+	}
+
+	snapshot, err := store.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Events) == 0 {
+		t.Fatal("no events journaled")
+	}
+
+	observedKinds := make(map[string]int)
+	for _, event := range snapshot.Events {
+		observedKinds[event.Kind]++
+		if len(event.Body) == 0 {
+			continue
+		}
+		var assoc EventAssociation
+		if err := json.Unmarshal(event.Body, &assoc); err != nil {
+			continue
+		}
+		if assoc.EffectID == "" || assoc.WorkID == "" {
+			t.Fatalf("event %s (offset %d) has empty EffectID or WorkID: %#v", event.Kind, event.Offset, assoc)
+		}
+		switch event.Kind {
+		case "candidate_sealed", "candidate_prepared":
+			if assoc.Slice != "S1" {
+				t.Fatalf("event %s has unexpected slice %q", event.Kind, assoc.Slice)
+			}
+			if assoc.Track != "T1" {
+				t.Fatalf("event %s has unexpected track %q", event.Kind, assoc.Track)
+			}
+		case "dispatch_completed":
+			if assoc.Slice != "" && assoc.Slice != "S1" {
+				t.Fatalf("dispatch_completed has unexpected slice %q", assoc.Slice)
+			}
+		}
+	}
+
+	for _, requiredKind := range []string{
+		"candidate_sealed", "candidate_prepared", "dispatch_completed", "baton_action_completed",
+	} {
+		if observedKinds[requiredKind] == 0 {
+			t.Fatalf("required event kind %s was not observed (observed: %v)", requiredKind, observedKinds)
+		}
 	}
 }

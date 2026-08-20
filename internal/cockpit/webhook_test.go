@@ -1369,3 +1369,45 @@ func TestWebhookPayloadVocabularyStaysContentFree(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhookProjectsEventsCarryingAssociationsWithoutLeak(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+
+	assocBytes := runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{
+		EffectID: "effect-100",
+		WorkID:   "work-100",
+		Track:    "T1",
+		Slice:    "S1",
+	})
+	if err := store.AppendEvent(ctx, run.ID, "dispatch_completed", assocBytes, now); err != nil {
+		t.Fatal(err)
+	}
+
+	destinations := testWebhookDestinations()
+	service := testWebhookService(t, store, destinations)
+	service.now = func() time.Time { return now.Add(time.Second) }
+
+	for _, destination := range destinations {
+		result, err := service.Project(ctx, run.ID, destination.ID)
+		if err != nil {
+			t.Fatalf("project failed on association-carrying event: %v", err)
+		}
+		if result.Projected != 1 {
+			t.Fatalf("projected = %d, want 1", result.Projected)
+		}
+		notifications, err := store.Notifications(ctx, run.ID, destination.ID, 10)
+		if err != nil || len(notifications) != 1 {
+			t.Fatalf("notifications = %#v, %v", notifications, err)
+		}
+		body := notifications[0].Body
+		for _, forbidden := range []string{"effect-100", "work-100", "T1", "S1", "SafeBody", "safe_body"} {
+			if bytes.Contains(body, []byte(forbidden)) {
+				t.Fatalf("webhook notification leaked association content %q: %s", forbidden, string(body))
+			}
+		}
+	}
+}

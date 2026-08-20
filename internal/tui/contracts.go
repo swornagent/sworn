@@ -13,6 +13,7 @@ type Backend interface {
 	Catalog(context.Context) (Catalog, error)
 	Board(context.Context, Selection) (Board, error)
 	Execute(context.Context, Selection, cockpit.Action, string) error
+	Events(context.Context, Selection, int64, int, string) (cockpit.EventPage, error)
 }
 
 // Selection is the immutable identity carried through asynchronous board and

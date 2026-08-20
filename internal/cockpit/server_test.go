@@ -49,6 +49,7 @@ func (f *httpFakeProjector) Events(
 	_ string,
 	after int64,
 	limit int,
+	track ...string,
 ) (EventPage, error) {
 	f.mu.Lock()
 	f.eventAfter = after
@@ -1139,6 +1140,17 @@ func TestHTTPSSEUsesExactOffsetsAndNativeResume(t *testing.T) {
 			headResponse.Code,
 			headResponse.Body,
 		)
+	}
+
+	trackRequest := httpRequest(
+		http.MethodGet,
+		testLocalOrigin+"/api/v2/runs/run-1/events?after=0&limit=10&track=T1",
+		"127.0.0.1:45003",
+		nil,
+	)
+	trackResp := serve(handler, trackRequest)
+	if trackResp.Code != http.StatusOK {
+		t.Fatalf("track-filtered events status = %d: %s", trackResp.Code, trackResp.Body)
 	}
 }
 

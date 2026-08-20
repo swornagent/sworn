@@ -1507,11 +1507,15 @@ func persistedBatonAction(engine *engine, kind string,
 func (s *Service) finishClaimedAction(ctx context.Context, owner journal.OwnerLease,
 	effect journal.Effect, result baton.ActionResult, fresh bool) error {
 	body := mustJSON(result)
+	assocBody := MarshalAssociation(EventAssociation{
+		EffectID: effect.ID,
+		WorkID:   effect.BeforeDigest,
+	})
 	completion := journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
 		State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "baton_action_result", Body: body}},
-		EventKind: "baton_action_recovered", EventBody: []byte(effect.Kind),
+		EventKind: "baton_action_recovered", EventBody: assocBody,
 		At: s.now().UTC(),
 	}
 	if fresh {
@@ -1531,10 +1535,14 @@ func (s *Service) finishClaimedAction(ctx context.Context, owner journal.OwnerLe
 
 func (s *Service) finishClaimedFailure(ctx context.Context, owner journal.OwnerLease,
 	effect journal.Effect, code string) error {
+	assocBody := MarshalAssociation(EventAssociation{
+		EffectID: effect.ID,
+		WorkID:   effect.BeforeDigest,
+	})
 	completion := journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
 		State: journal.OperationalFailed, ErrorCode: code,
-		EventKind: "effect_operational_failure", EventBody: []byte(effect.Kind),
+		EventKind: "effect_operational_failure", EventBody: assocBody,
 		At: s.now().UTC(),
 	}
 	if err := s.journal.CompleteOwned(
@@ -1548,6 +1556,10 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 	owner journal.OwnerLease, effect journal.Effect, command batonActionCommand,
 	action func() (baton.ActionResult, error), fresh, allowCrash bool,
 ) (actionTruth, baton.ActionResult, error) {
+	batonUncertainBody := MarshalAssociation(EventAssociation{
+		EffectID: effect.ID,
+		WorkID:   effect.BeforeDigest,
+	})
 	truth, observed, err := classifyBatonAction(engine, effect.Kind, command)
 	if err != nil && truth != actionAmbiguous {
 		return truth, baton.ActionResult{}, err
@@ -1569,7 +1581,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 		_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 			journal.Completion{
 				RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
-				EventKind: "baton_action_uncertain", EventBody: []byte(effect.Kind),
+				EventKind: "baton_action_uncertain", EventBody: batonUncertainBody,
 				At: s.now().UTC(),
 			}, journal.RecoveryAmbiguous)
 		return truth, baton.ActionResult{}, runtimeFail("RECOVERY_UNCERTAIN", err)
@@ -1581,7 +1593,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 				journal.Completion{
 					RunID: owner.RunID, EffectID: effect.ID,
 					Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-					EventBody: []byte(effect.Kind), At: s.now().UTC(),
+					EventBody: batonUncertainBody, At: s.now().UTC(),
 				}, journal.RecoveryAmbiguous)
 			return actionAmbiguous, baton.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", err)
@@ -1625,7 +1637,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 					journal.Completion{
 						RunID: owner.RunID, EffectID: effect.ID,
 						Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-						EventBody: []byte(effect.Kind), At: s.now().UTC(),
+						EventBody: batonUncertainBody, At: s.now().UTC(),
 					}, journal.RecoveryAmbiguous)
 				return actionAmbiguous, baton.ActionResult{},
 					runtimeFail(
@@ -1643,7 +1655,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 				journal.Completion{
 					RunID: owner.RunID, EffectID: effect.ID,
 					Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-					EventBody: []byte(effect.Kind), At: s.now().UTC(),
+					EventBody: batonUncertainBody, At: s.now().UTC(),
 				}, journal.RecoveryAmbiguous)
 			return actionAmbiguous, baton.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", errors.Join(actionErr, classifyErr))
@@ -1678,7 +1690,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 				RunID: owner.RunID, EffectID: effect.ID,
 				Token:     effect.CurrentClaim,
 				EventKind: "baton_action_uncertain",
-				EventBody: []byte(effect.Kind),
+				EventBody: batonUncertainBody,
 				At:        s.now().UTC(),
 			},
 			journal.RecoveryAmbiguous,
@@ -2449,7 +2461,13 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 				journal.Completion{RunID: owner.RunID, EffectID: effectID,
 					Token: claim.Token, State: journal.Succeeded, Result: body,
 					Receipts:  []journal.Receipt{{Kind: "git_candidate", Body: body}},
-					EventKind: "candidate_sealed", EventBody: body, At: s.now().UTC()}); err != nil {
+					EventKind: "candidate_sealed",
+					EventBody: MarshalAssociation(EventAssociation{
+						EffectID: cycle.PreparedEffect,
+						WorkID:   cycle.PreparedWork,
+						Track:    cycle.Track,
+						Slice:    cycle.Slice,
+					}), At: s.now().UTC()}); err != nil {
 				return runtimeFail("JOURNAL_WRITE_FAILED", err)
 			}
 			return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
@@ -2538,8 +2556,13 @@ func (s *Service) executeClaimedImplementationCycle(
 				Body: body,
 			}},
 			EventKind: "candidate_sealed",
-			EventBody: body,
-			At:        s.now().UTC(),
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: active.cycle.PreparedEffect,
+				WorkID:   active.cycle.PreparedWork,
+				Track:    active.cycle.Track,
+				Slice:    active.cycle.Slice,
+			}),
+			At: s.now().UTC(),
 		},
 	); err != nil {
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -2970,12 +2993,17 @@ func (s *Service) completeImplementationFailure(ctx context.Context, owner journ
 	if len(result) > 0 {
 		resultBytes = result[0]
 	}
+	work, _, _ := attemptIdentity(effectID)
+	assocBody := MarshalAssociation(EventAssociation{
+		EffectID: effectID,
+		WorkID:   work,
+	})
 	if err := s.journal.CompleteOwned(ctx, owner, journal.Completion{
 		RunID: owner.RunID, EffectID: effectID, Token: token,
 		State: journal.OperationalFailed, ErrorCode: code,
 		Result:    resultBytes,
 		EventKind: "implementation_operational_failure",
-		EventBody: []byte(effectID), At: s.now().UTC(),
+		EventBody: assocBody, At: s.now().UTC(),
 	}); err != nil {
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
@@ -3583,14 +3611,25 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 			_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 				journal.Completion{RunID: owner.RunID, EffectID: cycle.PreparedEffect,
 					Token: preparedClaim.Token, EventKind: "seal_uncertain",
-					EventBody: []byte(cycle.Slice), At: s.now().UTC()},
+					EventBody: MarshalAssociation(EventAssociation{
+						EffectID: cycle.PreparedEffect,
+						WorkID:   cycle.PreparedWork,
+						Track:    cycle.Track,
+						Slice:    cycle.Slice,
+					}), At: s.now().UTC()},
 				journal.RecoveryAmbiguous)
 			return sealedRecord{}, runtimeFail("RECOVERY_UNCERTAIN", rollbackErr)
 		}
 		_ = s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
 			RunID: owner.RunID, EffectID: cycle.PreparedEffect, Token: preparedClaim.Token,
 			State: journal.OperationalFailed, ErrorCode: "stale_dispatch",
-			EventKind: "seal_rolled_back", EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+			EventKind: "seal_rolled_back",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: cycle.PreparedEffect,
+				WorkID:   cycle.PreparedWork,
+				Track:    cycle.Track,
+				Slice:    cycle.Slice,
+			}), At: s.now().UTC(),
 		})
 		return sealedRecord{}, runtimeFail("STALE_DISPATCH", err)
 	}
@@ -3601,7 +3640,13 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	if err := s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
 		RunID: owner.RunID, EffectID: cycle.PreparedEffect, Token: preparedClaim.Token,
 		State: journal.Succeeded, Result: body,
-		EventKind: "candidate_prepared", EventBody: body, At: s.now().UTC(),
+		EventKind: "candidate_prepared",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: cycle.PreparedEffect,
+			WorkID:   cycle.PreparedWork,
+			Track:    cycle.Track,
+			Slice:    cycle.Slice,
+		}), At: s.now().UTC(),
 	}); err != nil {
 		return sealedRecord{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
@@ -3710,18 +3755,24 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 					prepared.State = journal.Claimed
 					prepared.CurrentClaim = claim.Token
 				}
+				cycleAssoc := MarshalAssociation(EventAssociation{
+					EffectID: cycle.PreparedEffect,
+					WorkID:   cycle.PreparedWork,
+					Track:    cycle.Track,
+					Slice:    cycle.Slice,
+				})
 				completions := []journal.Completion{{
 					RunID: owner.RunID, EffectID: effect.ID,
 					Token:     effect.CurrentClaim,
 					EventKind: "implementation_uncertain",
-					EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+					EventBody: cycleAssoc, At: s.now().UTC(),
 				}}
 				if prepared.State == journal.Claimed {
 					completions = append(completions, journal.Completion{
 						RunID: owner.RunID, EffectID: prepared.ID,
 						Token:     prepared.CurrentClaim,
 						EventKind: "implementation_preparation_uncertain",
-						EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+						EventBody: cycleAssoc, At: s.now().UTC(),
 					})
 				}
 				if dispatch.State == journal.Claimed {
@@ -3729,7 +3780,7 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 						RunID: owner.RunID, EffectID: dispatch.ID,
 						Token:     dispatch.CurrentClaim,
 						EventKind: "implementation_dispatch_uncertain",
-						EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+						EventBody: cycleAssoc, At: s.now().UTC(),
 					})
 				}
 				if err := s.journal.ReconcileManyOwned(
@@ -3789,7 +3840,13 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 		case journal.Uncertain:
 			_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 				RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
-				EventKind: "implementation_uncertain", EventBody: []byte(cycle.Slice),
+				EventKind: "implementation_uncertain",
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID: cycle.PreparedEffect,
+					WorkID:   cycle.PreparedWork,
+					Track:    cycle.Track,
+					Slice:    cycle.Slice,
+				}),
 				At: s.now().UTC(),
 			}, journal.RecoveryAmbiguous)
 			return sealedRecord{}, false, runtimeFail("RECOVERY_UNCERTAIN", nil)
@@ -3820,7 +3877,13 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 			RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
 			State: journal.Succeeded, Result: body,
 			Receipts:  []journal.Receipt{{Kind: "git_candidate", Body: body}},
-			EventKind: "candidate_reconciled", EventBody: body, At: s.now().UTC(),
+			EventKind: "candidate_reconciled",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: cycle.PreparedEffect,
+				WorkID:   cycle.PreparedWork,
+				Track:    cycle.Track,
+				Slice:    cycle.Slice,
+			}), At: s.now().UTC(),
 		}, journal.RecoveryAllNew); err != nil {
 			return sealedRecord{}, false, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
@@ -3832,18 +3895,24 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 	dispatch, dispatchErr := s.journal.Effect(ctx, owner.RunID, cycle.DispatchEffect)
 	if dispatchErr == nil && (dispatch.State == journal.Claimed ||
 		dispatch.State == journal.Uncertain) {
+		cycleAssoc := MarshalAssociation(EventAssociation{
+			EffectID: cycle.PreparedEffect,
+			WorkID:   cycle.PreparedWork,
+			Track:    cycle.Track,
+			Slice:    cycle.Slice,
+		})
 		completions := []journal.Completion{{
 			RunID: owner.RunID, EffectID: effect.ID,
 			Token:     effect.CurrentClaim,
 			EventKind: "implementation_uncertain",
-			EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+			EventBody: cycleAssoc, At: s.now().UTC(),
 		}}
 		if dispatch.State == journal.Claimed {
 			completions = append(completions, journal.Completion{
 				RunID: owner.RunID, EffectID: dispatch.ID,
 				Token:     dispatch.CurrentClaim,
 				EventKind: "implementation_dispatch_uncertain",
-				EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+				EventBody: cycleAssoc, At: s.now().UTC(),
 			})
 		}
 		if err := s.journal.ReconcileManyOwned(
@@ -3870,7 +3939,12 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 				RunID: owner.RunID, EffectID: effect.ID,
 				Token:     effect.CurrentClaim,
 				EventKind: "implementation_preparation_missing",
-				EventBody: []byte(cycle.Slice), At: s.now().UTC(),
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID: cycle.PreparedEffect,
+					WorkID:   cycle.PreparedWork,
+					Track:    cycle.Track,
+					Slice:    cycle.Slice,
+				}), At: s.now().UTC(),
 			},
 			journal.RecoveryAmbiguous,
 		); err != nil {
@@ -3887,7 +3961,13 @@ func (s *Service) interruptImplementationCycle(ctx context.Context, engine *engi
 	effect journal.Effect) (sealedRecord, bool, error) {
 	if err := s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
-		EventKind: "implementation_reconciled_all_old", EventBody: []byte(cycle.Slice),
+		EventKind: "implementation_reconciled_all_old",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: cycle.PreparedEffect,
+			WorkID:   cycle.PreparedWork,
+			Track:    cycle.Track,
+			Slice:    cycle.Slice,
+		}),
 		At: s.now().UTC(),
 	}, journal.RecoveryAllOld); err != nil {
 		return sealedRecord{}, false, runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -4236,7 +4316,13 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 			journal.Completion{
 				RunID: owner.RunID, EffectID: cycle.PreparedEffect,
 				Token: claimToken, State: journal.Succeeded, Result: body,
-				EventKind: "candidate_reconciled", EventBody: body,
+				EventKind: "candidate_reconciled",
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID: cycle.PreparedEffect,
+					WorkID:   cycle.PreparedWork,
+					Track:    cycle.Track,
+					Slice:    cycle.Slice,
+				}),
 				At: s.now().UTC(),
 			},
 			journal.RecoveryAllNew,
@@ -4349,7 +4435,13 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 	if err := s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 		journal.Completion{RunID: owner.RunID, EffectID: cycle.PreparedEffect,
 			Token: claimToken, State: journal.Succeeded, Result: body,
-			EventKind: "candidate_reconciled", EventBody: body, At: s.now().UTC(),
+			EventKind: "candidate_reconciled",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: cycle.PreparedEffect,
+				WorkID:   cycle.PreparedWork,
+				Track:    cycle.Track,
+				Slice:    cycle.Slice,
+			}), At: s.now().UTC(),
 		}, journal.RecoveryAllNew); err != nil {
 		return sealedRecord{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
@@ -4370,7 +4462,13 @@ func (s *Service) reclaimAllOldPreparedSeal(
 	if err := s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 		RunID: owner.RunID, EffectID: cycle.PreparedEffect,
 		Token:     prepared.CurrentClaim,
-		EventKind: "seal_reconciled_all_old", EventBody: []byte(cycle.Slice),
+		EventKind: "seal_reconciled_all_old",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: cycle.PreparedEffect,
+			WorkID:   cycle.PreparedWork,
+			Track:    cycle.Track,
+			Slice:    cycle.Slice,
+		}),
 		At: s.now().UTC(),
 	}, journal.RecoveryAllOld); err != nil {
 		return journal.Effect{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -4455,7 +4553,12 @@ func (s *Service) completeRecoveredImplementation(ctx context.Context,
 			RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
 			State: journal.Succeeded, Result: body,
 			Receipts:  []journal.Receipt{{Kind: "git_candidate", Body: body}},
-			EventKind: "candidate_reconciled", EventBody: body, At: s.now().UTC(),
+			EventKind: "candidate_reconciled",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: effect.ID,
+				WorkID:   effect.BeforeDigest,
+				Slice:    record.Slice,
+			}), At: s.now().UTC(),
 		}, journal.RecoveryAllNew); err != nil {
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
@@ -4476,7 +4579,11 @@ func (s *Service) completeRecoveredPreparedSeal(
 			RunID: owner.RunID, EffectID: effect.ID,
 			Token: effect.CurrentClaim, State: journal.Succeeded,
 			Result: body, EventKind: "candidate_prepared_recovered",
-			EventBody: body, At: s.now().UTC(),
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: effect.ID,
+				WorkID:   effect.BeforeDigest,
+				Slice:    record.Slice,
+			}), At: s.now().UTC(),
 		},
 		journal.RecoveryAllNew,
 	); err != nil {
@@ -4498,7 +4605,11 @@ func (s *Service) markPreparedSealUncertain(
 		journal.Completion{
 			RunID: owner.RunID, EffectID: effect.ID,
 			Token: effect.CurrentClaim, EventKind: "seal_uncertain",
-			EventBody: []byte(slice), At: s.now().UTC(),
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: effect.ID,
+				WorkID:   effect.BeforeDigest,
+				Slice:    slice,
+			}), At: s.now().UTC(),
 		},
 		journal.RecoveryAmbiguous,
 	); reconcileErr != nil {
@@ -4525,7 +4636,12 @@ func (s *Service) markSealCycleUncertain(
 			RunID: owner.RunID, EffectID: effect.ID,
 			Token:     effect.CurrentClaim,
 			EventKind: "seal_cycle_uncertain",
-			EventBody: []byte(cycle.Slice), At: at,
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: cycle.PreparedEffect,
+				WorkID:   cycle.PreparedWork,
+				Track:    cycle.Track,
+				Slice:    cycle.Slice,
+			}), At: at,
 		})
 	}
 	if len(completions) != 0 {
