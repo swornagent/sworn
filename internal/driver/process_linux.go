@@ -20,23 +20,6 @@ import (
 
 const processTerminationGrace = 250 * time.Millisecond
 
-const (
-	// testUncontainedDispatchEnv is the sole environment signal for the
-	// test-only uncontained dispatch mode. It is a request, never a route: a
-	// binary that did not link the gate refuses it in platformInvoke before
-	// any driver or sandbox interaction, so the environment value alone can
-	// never enable the uncontained branch.
-	testUncontainedDispatchEnv = "SWORN_TEST_UNCONTAINED_DISPATCH"
-	// testUncontainedGuestWorkspaceEnv and testUncontainedGuestInputsEnv are
-	// the engine-set guest-path overrides that let a fake driver resolve the
-	// guest paths (/workspace and /sworn/inputs) it cannot otherwise see in an
-	// uncontained dispatch. They exist only in the controlled environment the
-	// engine builds for the gate-linked uncontained branch; the contained
-	// branch's --clearenv plus fixed --setenv list never carries them.
-	testUncontainedGuestWorkspaceEnv = "SWORN_TEST_GUEST_WORKSPACE"
-	testUncontainedGuestInputsEnv    = "SWORN_TEST_GUEST_INPUTS"
-)
-
 // testUncontainedDispatch is the link-time test-only gate for the uncontained
 // dispatch branch, mirroring the established runtime.testHooksFromEnv pattern.
 // A production build links the zero value (""), which has no manifest, config,

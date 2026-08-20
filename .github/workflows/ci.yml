@@ -94,6 +94,12 @@ jobs:
         run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
       - name: Vet
         run: go vet ./...
+      - name: Portable build (darwin)
+        # Cross-compile only: everything here runs on Linux, so a symbol left
+        # in a _linux.go file that neutral code references breaks operator
+        # laptops days before anyone notices. Windows is not covered - gitx
+        # has known pre-existing unix syscall use.
+        run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./...
       - name: Official binary
         run: |
           CGO_ENABLED=0 go build \
