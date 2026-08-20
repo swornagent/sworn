@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
@@ -1028,6 +1029,17 @@ func writeCommandFailure(
 	code := commandErrorCode(err)
 	message := fallback
 	switch code {
+	case "OWNER_TRANSITION_PENDING":
+		if expiry, ok := runtimepkg.OwnerLeaseExpiry(err); ok {
+			remaining := time.Until(expiry).Round(time.Second)
+			if remaining > 0 {
+				message = fmt.Sprintf("The previous Sworn process has not released its owner lease yet. Wait %s for the lease to expire before retrying.", remaining)
+			} else {
+				message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+			}
+		} else {
+			message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+		}
 	case "APPROVAL_PENDING":
 		message = "The plan is waiting for approval."
 	case "RECOVERY_UNCERTAIN":

@@ -1087,7 +1087,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 		fixture.ctx,
 		fixture.owner.RunID,
 	)
-	if err != nil || status.State != "takeover_required" {
+	if err != nil || status.State != "running" {
 		t.Fatalf("answered without owner = %#v, %v", status, err)
 	}
 	restartedOwner, err := fixture.store.AcquireOwner(

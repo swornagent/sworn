@@ -63,3 +63,59 @@ func TestPresentSnapshotPrioritisesUnconfirmedFactsAndHumanAttention(
 		t.Fatalf("retry presentation = %#v", got)
 	}
 }
+
+func TestBoardRenderingForUnexpiredOwnerRendersRunningWithoutTakeoverHint(t *testing.T) {
+	t.Parallel()
+
+	snapshot := Snapshot{
+		Run: RunView{
+			ID:    "run-unexpired",
+			State: "running",
+		},
+		Runtime: RuntimeView{
+			Owner: OwnerView{
+				Present: true,
+				Active:  true,
+			},
+		},
+	}
+
+	presentation := PresentSnapshot(snapshot)
+	if presentation.Status != "Sworn is working" {
+		t.Fatalf("presentation.Status = %q, want %q", presentation.Status, "Sworn is working")
+	}
+	if presentation.NeedsYou != "No, unless Sworn asks a question." {
+		t.Fatalf("presentation.NeedsYou = %q", presentation.NeedsYou)
+	}
+	if presentation.Next == "Take over the run so Sworn can recheck it and continue." {
+		t.Fatalf("unexpired owner rendered takeover hint in Next: %q", presentation.Next)
+	}
+}
+
+func TestBoardRenderingForExpiredOwnerRendersTakeoverRequiredWithHint(t *testing.T) {
+	t.Parallel()
+
+	snapshot := Snapshot{
+		Run: RunView{
+			ID:    "run-expired",
+			State: "takeover_required",
+		},
+		Runtime: RuntimeView{
+			Owner: OwnerView{
+				Present: true,
+				Active:  false,
+			},
+		},
+	}
+
+	presentation := PresentSnapshot(snapshot)
+	if presentation.Status != "Resume required" {
+		t.Fatalf("presentation.Status = %q, want %q", presentation.Status, "Resume required")
+	}
+	if presentation.NeedsYou != "Yes — take over the run." {
+		t.Fatalf("presentation.NeedsYou = %q, want %q", presentation.NeedsYou, "Yes — take over the run.")
+	}
+	if presentation.Next != "Take over the run so Sworn can recheck it and continue." {
+		t.Fatalf("presentation.Next = %q, want %q", presentation.Next, "Take over the run so Sworn can recheck it and continue.")
+	}
+}

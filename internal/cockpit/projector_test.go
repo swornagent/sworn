@@ -607,3 +607,30 @@ func TestProjectorSurfacesExactlyOneRetryActionForParkedCycle(t *testing.T) {
 		t.Fatalf("retry action = %#v, want work=%s epoch=1", retryActions[0], cycleWork)
 	}
 }
+
+func TestSafeActionsGatesTakeoverStrictlyOnTakeoverRequired(t *testing.T) {
+	t.Parallel()
+
+	control := journal.ControlProjection{Generation: 1, Desired: "running"}
+
+	runningStatus := runtimepkg.RunStatus{
+		State:             "running",
+		ControlGeneration: 1,
+	}
+	runningActions := safeActions(runningStatus, control)
+	if hasAction(runningActions, "takeover") {
+		t.Fatalf("running state offered takeover action: %#v", runningActions)
+	}
+	if !hasAction(runningActions, "pause") || !hasAction(runningActions, "cancel") {
+		t.Fatalf("running state missing pause/cancel: %#v", runningActions)
+	}
+
+	takeoverStatus := runtimepkg.RunStatus{
+		State:             "takeover_required",
+		ControlGeneration: 1,
+	}
+	takeoverActions := safeActions(takeoverStatus, control)
+	if !hasAction(takeoverActions, "takeover") {
+		t.Fatalf("takeover_required state missing takeover action: %#v", takeoverActions)
+	}
+}

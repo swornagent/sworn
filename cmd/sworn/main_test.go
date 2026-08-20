@@ -596,3 +596,42 @@ func TestRunDetachedRejectsDuplicateAndInvalidShapes(t *testing.T) {
 		}
 	}
 }
+
+func TestTakeoverDuringUnexpiredLeaseExitsNonZeroWithActionableWait(t *testing.T) {
+	journalPath := boardJournalFixture(t)
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := store.AcquireOwner(context.Background(), "run-1", now, 30*time.Second, false); err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"takeover",
+		"--run", "run-1",
+		"--journal", journalPath,
+		"--command", "takeover-1",
+		"--generation", "0",
+	}, &stdout, &stderr)
+
+	if code != 1 {
+		t.Fatalf("takeover exit = %d, want 1", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout was not empty: %q", stdout.String())
+	}
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "sworn takeover: The previous Sworn process has not released its owner lease yet. Wait ") {
+		t.Fatalf("stderr missing actionable wait message: %q", stderrStr)
+	}
+	if !strings.Contains(stderrStr, "Technical code: OWNER_TRANSITION_PENDING") {
+		t.Fatalf("stderr missing technical code: %q", stderrStr)
+	}
+}

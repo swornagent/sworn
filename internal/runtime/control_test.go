@@ -2,12 +2,16 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 )
 
@@ -45,8 +49,14 @@ func TestResumeReportsOwnerTransitionUntilExactReplayCanAcquire(t *testing.T) {
 	command := journal.ControlCommand{
 		RunID: run.ID, ID: "resume-1", Kind: journal.Resume, ExpectedGeneration: 0,
 	}
-	if _, err := service.Control(ctx, command); !IsCode(err, "OWNER_TRANSITION_PENDING") {
-		t.Fatalf("active-owner resume = %v", err)
+	_, ctrlErr := service.Control(ctx, command)
+	t.Logf("ctrlErr = %#v, owner = %#v", ctrlErr, owner)
+	if !IsCode(ctrlErr, "OWNER_TRANSITION_PENDING") {
+		t.Fatalf("active-owner resume = %v", ctrlErr)
+	}
+	expiry, ok := OwnerLeaseExpiry(ctrlErr)
+	if !ok || !expiry.Equal(owner.ExpiresAt) {
+		t.Fatalf("OwnerLeaseExpiry = %v, %t; want %v", expiry, ok, owner.ExpiresAt)
 	}
 	projection, err := store.ControlProjection(ctx, run.ID)
 	if err != nil {
@@ -411,5 +421,488 @@ func TestResumeAndTakeoverReturnPromptlyNamingLiveState(t *testing.T) {
 	}
 	if takeoverStatus.ControlGeneration != 1 {
 		t.Fatalf("takeoverStatus.ControlGeneration = %d, want 1", takeoverStatus.ControlGeneration)
+	}
+}
+
+func TestTakeoverReportsOwnerTransitionWithExpiryUntilOwnerExpires(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 1, 2, 3, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "takeover-trans.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manifest, manifestBody, _ := fixtureManifest(t)
+	run := journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: sha256Digest(manifestBody),
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.AcquireOwner(ctx, run.ID, now, 30*time.Second, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{journal: store, now: func() time.Time { return now }}
+	command := journal.ControlCommand{
+		RunID: run.ID, ID: "takeover-1", Kind: journal.Takeover, ExpectedGeneration: 0,
+	}
+	_, ctrlErr := service.Control(ctx, command)
+	if !IsCode(ctrlErr, "OWNER_TRANSITION_PENDING") {
+		t.Fatalf("active-owner takeover = %v", ctrlErr)
+	}
+	expiry, ok := OwnerLeaseExpiry(ctrlErr)
+	if !ok || !expiry.Equal(owner.ExpiresAt) {
+		t.Fatalf("OwnerLeaseExpiry = %v, %t; want %v", expiry, ok, owner.ExpiresAt)
+	}
+
+	// Advance time past owner lease expiry and verify exact command replay acquires the owner cleanly.
+	expiredAt := now.Add(31 * time.Second)
+	expiredService := &Service{journal: store, now: func() time.Time { return expiredAt }}
+	status, err := expiredService.Control(ctx, command)
+	if err != nil {
+		t.Fatalf("expired-owner takeover = %v", err)
+	}
+	if status.DesiredState != "running" {
+		t.Fatalf("status.DesiredState = %q, want running", status.DesiredState)
+	}
+}
+
+func TestExternalStatusServiceObservingActiveOwnerRunReturnsRunning(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 1, 2, 3, 0, time.UTC)
+	repoPath := productionRepository(t)
+	manifest, _, _ := fixtureManifest(t)
+	manifest.Repository = repoPath
+	manifestBody, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	storePath := filepath.Join(t.TempDir(), "status-active.sqlite")
+	store, err := journal.Open(ctx, storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: sha256Digest(manifestBody),
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireOwner(ctx, run.ID, now, 30*time.Second, false); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readStore, err := journal.OpenReadOnly(ctx, storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readStore.Close()
+	statusService := &Service{journal: readStore, gitExecutable: gitExecutable, now: func() time.Time { return now }}
+	status, err := statusService.Status(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "running" {
+		t.Fatalf("status.State = %q, want running", status.State)
+	}
+}
+
+func TestStatusDerivesTakeoverRequiredWhenOwnerLeaseExpired(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 1, 2, 3, 0, time.UTC)
+	repoPath := productionRepository(t)
+	manifest, _, _ := fixtureManifest(t)
+	manifest.Repository = repoPath
+	manifestBody, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "status-expired.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	run := journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: sha256Digest(manifestBody),
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireOwner(ctx, run.ID, now, time.Second, false); err != nil {
+		t.Fatal(err)
+	}
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusService := &Service{journal: store, gitExecutable: gitExecutable, now: func() time.Time { return now.Add(2 * time.Second) }}
+	status, err := statusService.Status(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "takeover_required" {
+		t.Fatalf("status.State = %q, want takeover_required", status.State)
+	}
+}
+
+func TestStatusDerivesRunningForAnsweredWithoutOwner(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 1, 2, 3, 0, time.UTC)
+	repoPath := productionRepository(t)
+	manifest, _, _ := fixtureManifest(t)
+	manifest.Repository = repoPath
+	manifestBody, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "status-no-owner.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	run := journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: sha256Digest(manifestBody),
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusService := &Service{journal: store, gitExecutable: gitExecutable, now: func() time.Time { return now }}
+	status, err := statusService.Status(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "running" {
+		t.Fatalf("status.State = %q, want running", status.State)
+	}
+}
+
+func TestStatusPreservesCompleteForCompletedRunsWhenOwnerExpired(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nFixture plan.\n",
+	)
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := plan.Digest()
+	manifest.Authority.BootstrapApprovedPlanDigest = &digest
+	manifest.Scripts = []ScriptedAttempt{
+		{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.CaptainReview, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerDesign, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.PlannerProposal, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+	}
+	submission := func(
+		slice string,
+		responsibility driver.Responsibility,
+		batonAttempt int64,
+	) driver.Submission {
+		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
+			BatonAttempt: batonAttempt, Epoch: 1, Try: 1}
+		return driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID(manifest.RunID, script),
+			Responsibility: responsibility,
+			Summary:        "Exact " + string(responsibility) + ".",
+			Detail:         "Bounded fixture detail.",
+		}
+	}
+	planner := submission("", driver.PlannerProposal, 1)
+	planner.Plan, _ = driver.NewPlanBytes(planBytes)
+	design := submission("S1", driver.ImplementerDesign, 1)
+	captain := submission("S1", driver.CaptainReview, 1)
+	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	implementation := submission("S1", driver.ImplementerImplementation, 1)
+	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
+	work := submission("S1", driver.WorkVerification, 1)
+	work.Checks, _ = driver.NewCheckBytes([]byte("work checks\n"))
+	work.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	assembly := submission("", driver.AssemblyVerification, 1)
+	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
+	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	manifest.Scripts[0].Submission = encodeSubmission(t, assembly)
+	manifest.Scripts[1].Submission = encodeSubmission(t, captain)
+	manifest.Scripts[2].Submission = encodeSubmission(t, design)
+	manifest.Scripts[3].Submission = encodeSubmission(t, implementation)
+	manifest.Scripts[4].Submission = encodeSubmission(t, planner)
+	manifest.Scripts[5].Submission = encodeSubmission(t, work)
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repository, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-install the approved plan at commit P.
+	targetP := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	submissions := make(map[string][]byte, len(manifest.Scripts))
+	for _, script := range manifest.Scripts {
+		encoded, decodeErr := base64.StdEncoding.DecodeString(script.Submission)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		submissions[invocationID(manifest.RunID, script)] = encoded
+	}
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		if invocation.Request.Role == driver.RoleImplementer &&
+			invocation.Request.Workspace.Access == driver.ReadWrite {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("implemented one\n"),
+				0o600,
+			); err != nil {
+				return driver.Observation{}, err
+			}
+		}
+		sub := submissions[invocation.Request.InvocationID]
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  sub,
+				SubmissionDigest: driver.Digest(sub),
+			},
+		}, nil
+	})
+
+	path := filepath.Join(t.TempDir(), "complete-expired.sqlite")
+	store, err := journal.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil || status.State != "complete" {
+		t.Fatalf("start error = %v, state = %s", err, status.State)
+	}
+
+	// Acquire owner with 1s lease, then query status 2s later (expired owner).
+	if _, err := store.AcquireOwner(ctx, manifest.RunID, now, time.Second, false); err != nil {
+		t.Fatal(err)
+	}
+
+	statusService := &Service{
+		journal:       store,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now.Add(2 * time.Second) },
+	}
+	expiredStatus, err := statusService.Status(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expiredStatus.State != "complete" {
+		t.Fatalf("expiredStatus.State = %q, want complete", expiredStatus.State)
+	}
+}
+
+func TestStatusPreservesAwaitingApprovalForProposedPlansWhenOwnerExpired(t *testing.T) {
+	ctx := context.Background()
+	fixture := newApprovalRecoveryFixture(t)
+	store, err := journal.Open(ctx, fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Acquire owner with 1s lease
+	if _, err := store.AcquireOwner(ctx, fixture.runID, fixture.now, time.Second, false); err != nil {
+		t.Fatal(err)
+	}
+
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusService := &Service{
+		journal:       store,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return fixture.now.Add(2 * time.Second) },
+	}
+	status, err := statusService.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "awaiting_approval" {
+		t.Fatalf("status.State = %q, want awaiting_approval", status.State)
+	}
+}
+
+func TestSecondProcessAnswerReturnsRunningWhileResidentDriverHoldsOwner(t *testing.T) {
+	fixtureDriver := &turnRecoveryFixtureDriver{
+		parkS1:         true,
+		yieldKind:      driver.YieldQuestion,
+		expectedAnswer: "Use the exact approved fixture value.",
+	}
+	fixture := newProductionImplementationRecoveryFixture(t, fixtureDriver)
+	defer fixture.workspace.Close()
+
+	if err := fixture.store.RecordCommand(
+		fixture.ctx,
+		journal.Command{
+			RunID:     fixture.owner.RunID,
+			ReplayKey: "manifest",
+			Kind:      "start",
+			Payload:   fixture.manifest.raw,
+			CreatedAt: fixture.now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		fixture.workspace,
+		fixture.cycle,
+		fixture.coordinates,
+	); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("human park = %v", err)
+	}
+
+	attentions, err := fixture.store.Attentions(fixture.ctx, fixture.owner.RunID)
+	if err != nil || len(attentions) != 1 || attentions[0].State != journal.AttentionOpen {
+		t.Fatalf("attentions = %#v, %v", attentions, err)
+	}
+	attention := attentions[0]
+
+	// Resident driver continues holding an unexpired owner lease (fixture.owner).
+	// A second process (service2) opens the store and answers the attention.
+	store2, err := journal.Open(fixture.ctx, fixture.store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store2.Close()
+
+	service2 := &Service{
+		journal:       store2,
+		gitExecutable: fixture.service.gitExecutable,
+		now:           func() time.Time { return fixture.now },
+	}
+
+	status, err := service2.AnswerAttention(fixture.ctx, AnswerAttentionCommand{
+		RunID:              fixture.owner.RunID,
+		AttentionID:        attention.Attention.ID,
+		ExpectedGeneration: 1,
+		Answer:             "Use the exact approved fixture value.",
+	})
+	if err != nil {
+		t.Fatalf("second process AnswerAttention error = %v", err)
+	}
+	if status.State != "running" {
+		t.Fatalf("second process AnswerAttention status.State = %q, want running", status.State)
 	}
 }

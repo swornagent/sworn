@@ -1320,6 +1320,13 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 		command,
 		s.now().UTC(),
 	); err != nil {
+		if journal.IsCode(err, "OWNER_ACTIVE") {
+			owner, present, ownerErr := s.journal.CurrentOwner(ctx, command.RunID)
+			if ownerErr == nil && present && !owner.ExpiresAt.IsZero() {
+				return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", &OwnerTransitionError{ExpiresAt: owner.ExpiresAt})
+			}
+			return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", err)
+		}
 		return RunStatus{}, runtimeFail("CONTROL_REJECTED", err)
 	}
 	if command.Kind == journal.Cancel {
@@ -1341,11 +1348,15 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	}
 	owner, err := s.acquireControlOwner(ctx, command, s.now().UTC())
 	if journal.IsCode(err, "OWNER_ACTIVE") {
-		if command.Kind == journal.Resume {
-			// The resume command is durable, but the pausing owner has not
+		if command.Kind == journal.Resume || command.Kind == journal.Takeover {
+			// The control command is durable, but the previous owner has not
 			// released its lease yet. Report the transition explicitly so an
 			// exact replay can acquire ownership instead of falsely claiming
 			// that delivery has resumed.
+			ownerLease, present, ownerErr := s.journal.CurrentOwner(ctx, command.RunID)
+			if ownerErr == nil && present && !ownerLease.ExpiresAt.IsZero() {
+				return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", &OwnerTransitionError{ExpiresAt: ownerLease.ExpiresAt})
+			}
 			return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", err)
 		}
 		return s.Status(ctx, command.RunID)

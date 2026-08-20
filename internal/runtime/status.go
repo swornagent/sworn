@@ -84,14 +84,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
-	attentionParked, answeredWithoutOwner := false, false
+	attentionParked := false
 	for _, attention := range attentionWork {
 		if attention.State == journal.AttentionOpen {
 			attentionParked = true
-		}
-		if attention.State == journal.AttentionAnswered &&
-			!ownerActive {
-			answeredWithoutOwner = true
 		}
 	}
 	derivedWorks := make(map[string]struct{})
@@ -273,10 +269,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "running"
 		} else if parked {
 			result.State = "parked"
-		} else if ownerExpired || answeredWithoutOwner {
-			result.State = "takeover_required"
 		} else if proposalFound && !proposalInstalled {
 			result.State = "awaiting_approval"
+		} else if ownerExpired {
+			result.State = "takeover_required"
+		} else {
+			result.State = "running"
 		}
 	}
 	if stateErr != nil {
@@ -292,14 +290,14 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
-		case active:
-			result.State = "running"
-		case ownerExpired || answeredWithoutOwner:
-			result.State = "takeover_required"
 		case proposalFound && !proposalActivated:
 			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
+		case active:
+			result.State = "running"
+		case ownerExpired:
+			result.State = "takeover_required"
 		default:
 			result.State = "running"
 		}
