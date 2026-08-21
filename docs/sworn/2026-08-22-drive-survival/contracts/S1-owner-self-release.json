@@ -1,0 +1,64 @@
+{
+ "outcome": "A finished or cancelled drive can always hand the run back: releasing an owner claim that is still the current claim succeeds even after its lease expired, so a dead host's claim never strands a run claimed-expired - while a superseded owner stays fenced exactly as before, and renewal of an expired lease stays refused.",
+ "scope": {
+  "include": [
+   "internal/journal",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "acquisition and takeover semantics (who may claim, and when, are unchanged)",
+   "renewal semantics (an expired lease must never be resurrected - only released)",
+   "journal schema changes (existing journals stay valid)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/journal and internal/runtime by import only; no cmd test pins that releasing one's own expired-but-current owner claim fails, and the CLI surface is S2's ground - this slice is constrained to never touch cmd"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "consumes journal and runtime by import only; no cockpit test pins release-of-expired refusal semantics, and acquisition, takeover, and renewal - the semantics its surfaces do observe - are constrained unchanged"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "consumes runtime via cockpit by import only; no observe test pins lease release semantics"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "consumes journal and runtime by import only; no tui test pins lease release semantics, and the TUI surface is S3's ground"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "ReleaseOwner releases the caller's own expired claim while it is still the current claim, with token and generation checked in the same write transaction: pinned by a journal fixture that acquires with a short duration, waits past expiry, observes release succeed, and observes the owner effect return to pending so an ordinary acquire succeeds next. Evidence anchor: the expiry refusal lives in checkOwner (internal/journal/control.go:400-417, the !expiry.After(now) arm) which ReleaseOwner reuses today."
+  },
+  {
+   "id": "A2",
+   "text": "A superseded owner remains fenced: after a takeover reclaims an expired claim, the displaced token's release still fails OWNER_FENCED and moves nothing - pinned by a journal fixture covering release-after-takeover."
+  },
+  {
+   "id": "A3",
+   "text": "RenewOwner semantics are untouched: renewal of an expired lease remains refused (no resurrection race with a successor) - pinned by an explicit expired-renew refusal fixture alongside the existing renewal fixtures staying green."
+  },
+  {
+   "id": "A4",
+   "text": "The drive's own release path benefits end to end: a background drive whose lease expired before its error-path release (the sworn#230 strand: cancelled drive outlives its lease, release refused OWNER_FENCED, owner stranded claimed-expired) now leaves the owner effect released - pinned by a runtime fixture exercising driveOwned's release calls (internal/runtime/scheduler.go:6637-6660) with an expired-but-current lease."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check"
+ ],
+ "constraints": [
+  "This slice changes when a lease may be RELEASED, never who may drive or claim: releasing one's own still-current claim cannot steal anything from a successor, because the token and generation match is transactional and a takeover that already displaced the claim leaves the old token fenced (A2).",
+  "Evidence basis: sworn#230 - under the e2e 300ms lease, a control verb's cancelled background drive that outlived its lease could never release (checkOwner refuses expired), stranding the owner claimed-expired, which run cannot adopt (TAKEOVER_REQUIRED) - a livelock reproduced for 120 seconds of takeover+run retries in TestProductionCrashCutsRecoverToExactlyOneContinuation before the suite was given a longer recovery lease.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
