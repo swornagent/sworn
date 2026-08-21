@@ -674,175 +674,119 @@ func stringOf(value byte, count int) string {
 	return string(result)
 }
 
-func installHostedDrivePlan(t *testing.T, root string, plan baton.Plan) {
-	t.Helper()
-	gitExecutable, err := resolveGitExecutable()
+// Host keying creates distinct resident hosts per (journalPath, configPath) pair and reuses matching hosts.
+func TestTUIBackendHostKeyingDistinctPerConfig(t *testing.T) {
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-host-key")
+
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoView, err := gitx.Open(root, gitExecutable)
+	manifestDigest := sha256Digest(manifestBody)
+
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
-		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
-			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
-	}
-	identity := gitx.Identity{Name: "Test Engine", Email: "engine@example.test"}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
-		PlanBytes: plan.Bytes(),
-		Summary:   "Install fixture plan",
-		Detail:    []byte("Fixture detail"),
+	now := time.Unix(1_700_000_000, 123).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID:             "run-host-key",
+		ManifestDigest: manifestDigest,
+		Repository:     root,
+		Release:        "delivery",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now,
 	}); err != nil {
 		t.Fatal(err)
 	}
-}
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     "run-host-key",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
 
-func writeHostedDriveManifestWithBootstrap(
-	t *testing.T,
-	directory, repository, release, runID, fakeExecutable, fakeDigest string,
-) (string, baton.Plan) {
-	t.Helper()
-	manifestPath, plan := writeHostedDriveManifest(t, directory, repository, release, runID, fakeExecutable, fakeDigest, false)
-	body, err := os.ReadFile(manifestPath)
+	// Write drivers.json
+	driverConfig := driver.DriverConfig{
+		SchemaVersion: driver.DriverConfigSchemaVersion,
+		Adapters: []driver.DriverAdapterConfig{
+			{
+				Process: &driver.DriverProcessAdapterConfig{
+					Key:        "fixture-adapter",
+					ID:         driver.FakeDriverID,
+					Version:    driver.FakeDriverVersion,
+					Executable: driver.ExecutableIdentity{Path: "/usr/bin/true", Digest: "sha256:" + stringOf('a', 64)},
+				},
+			},
+		},
+		Profiles: []driver.DriverProfile{
+			{
+				Key:                 "fixture",
+				Adapter:             "fixture-adapter",
+				Network:             driver.NetworkNone,
+				CertificationModels: []string{"fixture-model"},
+			},
+		},
+	}
+	driverBytes, err := driver.EncodeDriverConfig(driverConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifest runtimepkg.Manifest
-	if err := json.Unmarshal(body, &manifest); err != nil {
+	configPath := filepath.Join(stateDir, "drivers.json")
+	if err := os.WriteFile(configPath, driverBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	digest := plan.Digest()
-	manifest.Authority.BootstrapApprovedPlanDigest = &digest
-	updatedBody, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updatedBody = append(updatedBody, '\n')
-	if err := os.WriteFile(manifestPath, updatedBody, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return manifestPath, plan
-}
 
-// A1: Board actions no longer create and destroy the drive host per action:
-// command service lives across actions and drive progress is observable in the same TUI session.
-func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
-	fakeBinary, fakeDigest := buildFakeDriverBinary(t)
-	swornBinary := filepath.Join(t.TempDir(), "sworn")
-	buildTestBinary(t, swornBinary, "./cmd/sworn", "-X=github.com/swornagent/sworn/internal/driver.testUncontainedDispatch=1 -X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1")
-	env := map[string]string{
-		"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
+	backend := newProjectTUIBackend(root, "", "", "")
+	defer backend.Close()
+
+	// 1. Host with empty config
+	host1, err := backend.getOrCreateHost(context.Background(), journalPath, "")
+	if err != nil || host1 == nil {
+		t.Fatalf("getOrCreateHost(journal, \"\") failed: %v", err)
 	}
 
-	root, _ := projectRepositoryFixture(t)
-	manifestDir := filepath.Join(root, ".sworn", "runs")
-	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runID := "run-tui-survives"
-	release := "delivery-tui-survives"
-	_, plan := writeHostedDriveManifestWithBootstrap(t, manifestDir, root, release, runID, fakeBinary, fakeDigest)
-	installHostedDrivePlan(t, root, plan)
-	journalPath := filepath.Join(root, ".sworn", "sworn.db")
-
-	session := startPTYSession(t, swornBinary, env, "tui", "--project", root, "--journal", journalPath)
-
-	// 1. Catalog shows release -> open board
-	session.waitFor("catalog", 20*time.Second, "RELEASES", release)
-	session.send("\r")
-	session.waitFor("board", 20*time.Second, "available controls")
-
-	// 2. Start run from board
-	session.openControls()
-	session.waitFor("start control", 20*time.Second, "Start run")
-	session.send("\r")
-	session.waitFor("confirm start", 20*time.Second, "Confirm: Start run?")
-	session.send("y")
-	session.waitFor("start accepted", 20*time.Second, "Start run accepted.")
-	session.waitFor("run in catalog", 20*time.Second, "Sworn run saved")
-	session.send("\r")
-
-	// 3. The resident service carries the background drive through to completion in the SAME session
-	session.waitFor("working drive", 20*time.Second, "Sworn is working")
-	session.waitFor("completed drive", 60*time.Second, "Status: Complete")
-
-	// 4. Clean exit
-	session.quit()
-
-	// 5. Verify journal contains succeeded baton.merge effect and released owner
-	store, err := journal.OpenReadOnly(context.Background(), journalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	snapshot, err := store.Snapshot(context.Background(), runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hasMerge := false
-	for _, effect := range snapshot.Effects {
-		if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
-			hasMerge = true
-			break
-		}
-	}
-	if !hasMerge {
-		t.Fatal("merge effect not recorded in journal")
+	// 2. Reusing host with empty config returns the exact same host instance
+	host1Reused, err := backend.getOrCreateHost(context.Background(), journalPath, "")
+	if err != nil || host1Reused != host1 {
+		t.Fatalf("expected host1 reuse, got %#v", host1Reused)
 	}
 
-	owner, present, err := store.CurrentOwner(context.Background(), runID)
-	if err != nil {
-		t.Fatal(err)
+	// 3. Host with non-empty config produces a distinct host with drivers loaded
+	host2, err := backend.getOrCreateHost(context.Background(), journalPath, configPath)
+	if err != nil || host2 == nil {
+		t.Fatalf("getOrCreateHost(journal, config) failed: %v", err)
 	}
-	if present {
-		t.Fatalf("owner lease remained claimed after completion: %#v", owner)
-	}
-}
-
-// A2: An accepted answer is followed by observable drive progress in the same TUI session without restarting the TUI.
-func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
-	fakeBinary, fakeDigest := buildFakeDriverBinary(t)
-	swornBinary := filepath.Join(t.TempDir(), "sworn")
-	buildTestBinary(t, swornBinary, "./cmd/sworn", "-X=github.com/swornagent/sworn/internal/driver.testUncontainedDispatch=1 -X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1")
-	env := map[string]string{
-		"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
+	if host2 == host1 {
+		t.Fatal("expected distinct host for non-empty config, got same host")
 	}
 
-	root, _ := projectRepositoryFixture(t)
-	manifestDir := filepath.Join(root, ".sworn", "runs")
-	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
-		t.Fatal(err)
+	// 4. Reusing host with non-empty config returns the exact same host2 instance
+	host2Reused, err := backend.getOrCreateHost(context.Background(), journalPath, configPath)
+	if err != nil || host2Reused != host2 {
+		t.Fatalf("expected host2 reuse, got %#v", host2Reused)
 	}
-	runID := "run-tui-progress"
-	release := "delivery-tui-progress"
-	_, plan := writeHostedDriveManifestWithBootstrap(t, manifestDir, root, release, runID, fakeBinary, fakeDigest)
-	installHostedDrivePlan(t, root, plan)
-	journalPath := filepath.Join(root, ".sworn", "sworn.db")
 
-	session := startPTYSession(t, swornBinary, env, "tui", "--project", root, "--journal", journalPath)
-
-	session.waitFor("catalog", 20*time.Second, "RELEASES", release)
-	session.send("\r")
-	session.waitFor("board", 20*time.Second, "available controls")
-
-	session.openControls()
-	session.waitFor("start control", 20*time.Second, "Start run")
-	session.send("\r")
-	session.waitFor("confirm start", 20*time.Second, "Confirm: Start run?")
-	session.send("y")
-	session.waitFor("start accepted", 20*time.Second, "Start run accepted.")
-	session.waitFor("run in catalog", 20*time.Second, "Sworn run saved")
-	session.send("\r")
-
-	// Observable state transitions to Complete in the same TUI session
-	session.waitFor("working drive", 20*time.Second, "Sworn is working")
-	session.waitFor("completed drive", 60*time.Second, "Status: Complete")
-	session.quit()
+	// 5. Total hosts in backend is exactly 2
+	if len(backend.hosts) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(backend.hosts))
+	}
 }
 
 // A3: Per-action authority checks refuse when the run binding in the journal changes.

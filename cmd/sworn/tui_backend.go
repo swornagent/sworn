@@ -29,6 +29,11 @@ var (
 	errRunBoardJournal = errors.New("the saved run record is unavailable")
 )
 
+type tuiHostKey struct {
+	journalPath string
+	configPath  string
+}
+
 type projectTUIBackend struct {
 	startPath   string
 	journalPath string
@@ -39,7 +44,7 @@ type projectTUIBackend struct {
 	mu       sync.Mutex
 	closed   bool
 	inFlight sync.WaitGroup
-	hosts    map[string]*tuiResidentHost
+	hosts    map[tuiHostKey]*tuiResidentHost
 }
 
 type tuiResidentHost struct {
@@ -73,7 +78,7 @@ func newProjectTUIBackend(
 		startPath: startPath, journalPath: journalPath,
 		configPath: configPath, manifestDir: manifestDir,
 		commandID: newTUICommandID,
-		hosts:     make(map[string]*tuiResidentHost),
+		hosts:     make(map[tuiHostKey]*tuiResidentHost),
 	}
 }
 
@@ -108,12 +113,16 @@ func (b *projectTUIBackend) getOrCreateHost(
 	journalPath string,
 	configPath string,
 ) (*tuiResidentHost, error) {
+	key := tuiHostKey{
+		journalPath: journalPath,
+		configPath:  configPath,
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return nil, errors.New("project control is unavailable")
 	}
-	if host, ok := b.hosts[journalPath]; ok && host != nil {
+	if host, ok := b.hosts[key]; ok && host != nil {
 		return host, nil
 	}
 	service, factory, err := openRuntimeService(ctx, journalPath, configPath)
@@ -144,9 +153,9 @@ func (b *projectTUIBackend) getOrCreateHost(
 		commands: commands,
 	}
 	if b.hosts == nil {
-		b.hosts = make(map[string]*tuiResidentHost)
+		b.hosts = make(map[tuiHostKey]*tuiResidentHost)
 	}
-	b.hosts[journalPath] = host
+	b.hosts[key] = host
 	return host, nil
 }
 
@@ -636,20 +645,26 @@ func (b *projectTUIBackend) executeRunAction(
 	action cockpit.Action,
 	answer string,
 ) error {
-	configPath := ""
+	configPath := run.configPath
 	var commandID string
 	switch action.Kind {
 	case "approve":
 		if answer != "" || action.Approval == nil {
 			return errors.New("the current board does not allow that action")
 		}
-		configPath = run.configPath
-	case "pause", "resume", "cancel", "takeover", "retry":
+	case "pause", "cancel":
 		if answer != "" {
 			return errors.New("the current board does not allow that action")
 		}
-		kind := journal.ControlKind(action.Kind)
-		configPath = controlConfig(kind, run.configPath)
+		var err error
+		commandID, err = b.commandID()
+		if err != nil {
+			return errors.New("project control is unavailable")
+		}
+	case "resume", "takeover", "retry":
+		if answer != "" {
+			return errors.New("the current board does not allow that action")
+		}
 		var err error
 		commandID, err = b.commandID()
 		if err != nil {
@@ -660,7 +675,6 @@ func (b *projectTUIBackend) executeRunAction(
 			len(answer) > journal.MaxAttentionAnswerBytes {
 			return errors.New("the answer is empty or too long")
 		}
-		configPath = run.configPath
 	case "redeliver":
 		if answer != "" {
 			return errors.New("the current board does not allow that action")
@@ -670,13 +684,11 @@ func (b *projectTUIBackend) executeRunAction(
 			action.CaptainDelegation.Action != "revoke" {
 			return errors.New("the current board does not allow that action")
 		}
-		configPath = run.configPath
 	case "captain_delegation_replace":
 		if strings.TrimSpace(answer) == "" || action.CaptainDelegation == nil ||
 			action.CaptainDelegation.Action != "replace" {
 			return errors.New("the current board does not allow that action")
 		}
-		configPath = run.configPath
 	default:
 		return errors.New("the current board does not allow that action")
 	}
@@ -980,15 +992,6 @@ func hasTUIProjectDiagnostic(diagnostics []string, target string) bool {
 		}
 	}
 	return false
-}
-
-func controlConfig(kind journal.ControlKind, path string) string {
-	switch kind {
-	case journal.Resume, journal.Takeover, journal.Retry:
-		return path
-	default:
-		return ""
-	}
 }
 
 func newTUICommandID() (string, error) {
