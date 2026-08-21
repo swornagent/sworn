@@ -364,24 +364,18 @@ func telemetryParityBackpressuredResume(
 	t.Helper()
 	const path = "/api/v2/runs/e2e-telemetry-parity/commands"
 	blocker.arm()
-	completed := make(chan telemetryParityHTTPResult, 1)
-	go func() {
-		completed <- telemetryParityDoPost(address, path, command)
-	}()
+	// The resume returns once the command is durable; delivery continues on
+	// the resident driver, so the backpressured OTLP request is awaited
+	// separately and delivery completion is proven by the caller's snapshot
+	// poll while the exporter stays blocked.
+	result := telemetryParityDoPost(address, path, command)
+	status := telemetryParityRequirePost(t, path, result)
 	select {
 	case <-blocker.started:
-	case result := <-completed:
-		t.Fatalf("delivery completed before OTLP backpressure: %v", result.err)
 	case <-time.After(15 * time.Second):
 		t.Fatal("delivery produced no backpressured OTLP request")
 	}
-	select {
-	case result := <-completed:
-		return telemetryParityRequirePost(t, path, result)
-	case <-time.After(30 * time.Second):
-		t.Fatal("delivery did not complete under OTLP backpressure")
-	}
-	return swornruntime.RunStatus{}
+	return status
 }
 
 func telemetryParityFinishBackpressure(

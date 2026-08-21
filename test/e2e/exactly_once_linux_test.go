@@ -3,9 +3,12 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,6 +68,55 @@ func exactlyOnceCuts() []exactlyOnceCut {
 // only has to wait out leaseExpiryWait rather than a production lease.
 var exactlyOnceEnvironment = map[string]string{
 	"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+}
+
+// exactlyOnceRecoveryEnvironment gives the restart phase a lease long enough
+// that a control verb's cancelled in-process drive can still release its own
+// claim: ReleaseOwner refuses an expired lease, so under the short crash
+// lease a cancelled recovery that outlives it would strand the owner
+// claimed-expired and only another takeover could clear it.
+var exactlyOnceRecoveryEnvironment = map[string]string{
+	"SWORN_TEST_OWNER_LEASE_MILLIS": "5000",
+}
+
+// runRecoveryDrive runs the binary without asserting its exit status, so the
+// recovery loop can retry the ordinary drive while a cancelled takeover's
+// owner claim clears.
+func runRecoveryDrive(
+	t *testing.T,
+	binary string,
+	environment map[string]string,
+	timeout time.Duration,
+	args ...string,
+) (string, string, int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, args...)
+	overrides := map[string]string{}
+	for key, value := range environment {
+		overrides[key] = value
+	}
+	command.Env = cleanEnvironment(overrides)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := command.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf(
+			"Sworn binary timed out\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	exit := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run Sworn: %v", err)
+		}
+		exit = exitErr.ExitCode()
+	}
+	return stdout.String(), stderr.String(), exit
 }
 
 // assertExactlyOnce is the whole cardinality claim, read out of the real
@@ -250,17 +302,42 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			}
 
 			// The restart. An ordinary binary, after the dead owner's lease
-			// has expired, performs a durable takeover followed by an ordinary drive to completion.
+			// has expired, performs a durable takeover followed by an
+			// ordinary drive to completion. The takeover CLI's own in-process
+			// drive is cancelled when its process exits, and under the short
+			// test lease that cancellation can race lease expiry so its owner
+			// claim lands claimed-expired instead of released; an exact
+			// replay of the same durable takeover is the sanctioned way to
+			// clear it, so the drive retries that pair until ownership is
+			// actually free.
 			leaseExpiryWait()
-			runBinaryWithEnvironmentTimeout(
-				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
-				"takeover", "--run", runID, "--journal", journalPath,
-				"--command", "cut-takeover-1", "--generation", "1",
-			)
-			stdout, stderr := runBinaryWithEnvironmentTimeout(
-				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
-				"run", "--manifest", manifestPath, "--journal", journalPath,
-			)
+			var stdout, stderr string
+			recoveryDeadline := time.Now().Add(120 * time.Second)
+			for {
+				takeoverStdout, takeoverStderr, takeoverExit := runRecoveryDrive(
+					t, recoveryBinary, exactlyOnceRecoveryEnvironment, 600*time.Second,
+					"takeover", "--run", runID, "--journal", journalPath,
+					"--command", "cut-takeover-1", "--generation", "1",
+				)
+				var exit int
+				stdout, stderr, exit = runRecoveryDrive(
+					t, recoveryBinary, exactlyOnceRecoveryEnvironment, 600*time.Second,
+					"run", "--manifest", manifestPath, "--journal", journalPath,
+				)
+				if exit == 0 {
+					break
+				}
+				if !strings.Contains(stderr, "OWNER_UNAVAILABLE") ||
+					time.Now().After(recoveryDeadline) {
+					t.Fatalf(
+						"%s (%s) recovery run exit = %d stdout=%q stderr=%q"+
+							"\ntakeover exit = %d stdout=%q stderr=%q",
+						cut.effect, cut.phase, exit, stdout, stderr,
+						takeoverExit, takeoverStdout, takeoverStderr,
+					)
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
 			if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf(
 					"%s (%s) recovery stdout=%q stderr=%q",

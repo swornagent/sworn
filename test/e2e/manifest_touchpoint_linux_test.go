@@ -278,23 +278,34 @@ func sealAndPassManifestSlice(
 func fetchManifestTouchpointHTTPSnapshot(t *testing.T, address, runID string) cockpit.Snapshot {
 	t.Helper()
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 15 * time.Second}
-	response, err := client.Get("http://" + address + "/api/v2/runs/" + runID + "/snapshot")
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		response, err := client.Get("http://" + address + "/api/v2/runs/" + runID + "/snapshot")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
+		_ = response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A detached drive writing the journal makes the projection
+		// transiently unstable; the honest 409 refusal is retried.
+		if response.StatusCode == http.StatusConflict &&
+			bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+			time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("GET snapshot = %d %s", response.StatusCode, body)
+		}
+		var snapshot cockpit.Snapshot
+		if err := json.Unmarshal(body, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		return snapshot
 	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("GET snapshot = %d %s", response.StatusCode, body)
-	}
-	var snapshot cockpit.Snapshot
-	if err := json.Unmarshal(body, &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	return snapshot
 }
 
 // fetchManifestTouchpointMCPSnapshot calls the one read-only MCP

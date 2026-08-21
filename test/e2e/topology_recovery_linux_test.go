@@ -1096,8 +1096,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if s1Before.Outcome != "blocked" || s2Before.Pass == nil {
 			t.Fatalf("revision trigger state: S1=%#v S2=%#v", s1Before, s2Before)
 		}
-		_, stderr := runBinary(t, swornBinary, 1, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "1")
+		// The resume returns once durable; the drive that meets the
+		// authority conflict is the explicit run of the same journal.
+		_, stderr := runBinary(t, swornBinary, 1,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stderr, "PLAN_AUTHORITY_CONFLICT") {
 			t.Fatalf("revision authority stderr = %q", stderr)
 		}
@@ -1733,10 +1737,15 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			claimed.Candidate,
 		)
 		leaseExpiryWait()
-		_, stderr := runBinary(
-			t, swornBinary, 1,
+		runBinary(
+			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		// The takeover returns once the ownership transition is durable; the
+		// drive that meets the uncertain third state is the explicit run.
+		_, stderr := runBinary(
+			t, swornBinary, 1,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stderr, "RECOVERY_UNCERTAIN") {
 			t.Fatalf("third-state recovery stderr = %q", stderr)
 		}
@@ -1918,15 +1927,17 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatal(err)
 			}
 			leaseExpiryWait()
-			wantExit := 0
-			if preparedCase.parentMode == "succeeded" {
-				wantExit = 1
-			}
-			_, stderr := runBinary(
-				t, swornBinary, wantExit,
+			runBinary(
+				t, swornBinary, 0,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "takeover-1", "--generation", "1")
 			if preparedCase.parentMode == "succeeded" {
+				// The takeover returns once durable; the drive that
+				// meets the impossible succeeded parent is the
+				// explicit run of the same journal.
+				_, stderr := runBinary(
+					t, swornBinary, 1,
+					"run", "--manifest", manifestPath, "--journal", journalPath)
 				if !strings.Contains(stderr, "CORRUPT_JOURNAL") {
 					t.Fatalf(
 						"impossible succeeded parent stderr = %q",
