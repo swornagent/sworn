@@ -1074,6 +1074,96 @@ func TestOwnerLeaseRenewalTakeoverAndCompletionFencing(t *testing.T) {
 	}
 }
 
+func TestReleaseOwnerExpiredCurrentLeaseSucceeds(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	leaseDuration := 500 * time.Millisecond
+	owner, err := store.AcquireOwner(ctx, run.ID, now, leaseDuration, false)
+	if err != nil || owner.Generation != 1 {
+		t.Fatalf("acquire owner = %#v, %v", owner, err)
+	}
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != owner {
+		t.Fatalf("current owner = %#v, %t, %v", observed, present, err)
+	}
+
+	// Release past expiry when still current must succeed (A1).
+	afterExpiry := owner.ExpiresAt.Add(time.Second)
+	if err := store.ReleaseOwner(ctx, owner, afterExpiry); err != nil {
+		t.Fatalf("release of expired current owner = %v, want success", err)
+	}
+
+	// Effect returns to pending; no active/claimed owner remains.
+	observed, present, err = store.CurrentOwner(ctx, run.ID)
+	if err != nil || present {
+		t.Fatalf("current owner after release = %#v, present=%t, want false", observed, present)
+	}
+
+	// An ordinary non-takeover acquire succeeds next.
+	second, err := store.AcquireOwner(ctx, run.ID, afterExpiry.Add(time.Second), time.Minute, false)
+	if err != nil || second.Generation != 2 {
+		t.Fatalf("ordinary acquire after expired release = %#v, %v", second, err)
+	}
+}
+
+func TestReleaseOwnerAfterTakeoverIsFenced(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	first, err := store.AcquireOwner(ctx, run.ID, now, 500*time.Millisecond, false)
+	if err != nil || first.Generation != 1 {
+		t.Fatalf("first owner = %#v, %v", first, err)
+	}
+
+	takeoverAt := first.ExpiresAt.Add(time.Nanosecond)
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "takeover-fencing", Kind: Takeover,
+	}, takeoverAt); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireOwner(ctx, run.ID, takeoverAt, time.Minute, true)
+	if err != nil || second.Generation != 2 {
+		t.Fatalf("takeover owner = %#v, %v", second, err)
+	}
+
+	// Superseded first owner attempting release fails OWNER_FENCED (A2).
+	if err := store.ReleaseOwner(ctx, first, takeoverAt.Add(time.Second)); !IsCode(err, "OWNER_FENCED") {
+		t.Fatalf("superseded owner release = %v, want OWNER_FENCED", err)
+	}
+
+	// Second owner remains active current owner untouched.
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != second {
+		t.Fatalf("current owner after superseded release attempt = %#v, %t, %v", observed, present, err)
+	}
+}
+
+func TestRenewOwnerExpiredLeaseRefused(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, 500*time.Millisecond, false)
+	if err != nil || owner.Generation != 1 {
+		t.Fatalf("acquire owner = %#v, %v", owner, err)
+	}
+
+	// Expired lease renewal must remain refused with OWNER_FENCED (A3).
+	afterExpiry := owner.ExpiresAt.Add(time.Second)
+	if _, err := store.RenewOwner(ctx, owner, afterExpiry, time.Minute); !IsCode(err, "OWNER_FENCED") {
+		t.Fatalf("expired lease renewal = %v, want OWNER_FENCED", err)
+	}
+
+	// Current owner is still un-renewed expired lease.
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != owner {
+		t.Fatalf("current owner after refused renewal = %#v, %t, %v", observed, present, err)
+	}
+}
+
 func TestRetryEpochRequiresExactThreeTryExhaustion(t *testing.T) {
 	t.Parallel()
 	store, run, _, _ := journalFixture(t)

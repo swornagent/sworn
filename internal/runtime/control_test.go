@@ -906,3 +906,75 @@ func TestSecondProcessAnswerReturnsRunningWhileResidentDriverHoldsOwner(t *testi
 		t.Fatalf("second process AnswerAttention status.State = %q, want running", status.State)
 	}
 }
+
+func TestDriveOwnedReleasesExpiredCurrentOwnerOnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "drive-owned-expired-release.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	manifest, manifestBody, _ := fixtureManifest(t)
+	run := journal.Run{
+		ID:             manifest.RunID,
+		ManifestDigest: sha256Digest(manifestBody),
+		Repository:     manifest.Repository,
+		Release:        manifest.Release,
+		TargetRef:      manifest.TargetRef,
+		CreatedAt:      now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: run.ID, ReplayKey: "manifest", Kind: "start",
+		Payload: manifestBody, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	leaseDuration := 500 * time.Millisecond
+	owner, err := store.AcquireOwner(ctx, run.ID, now, leaseDuration, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cancel context to force driveOwnedCycle to return an error (simulating cancelled background drive).
+	cancel()
+
+	// Advance time past owner lease expiry so driveOwned's error release branch exercises an expired-but-current lease.
+	currentTime := owner.ExpiresAt.Add(time.Second)
+	service := &Service{
+		journal: store,
+		now:     func() time.Time { return currentTime },
+	}
+
+	_, driveErr := service.driveOwned(ctx, run.ID, owner)
+	if driveErr == nil {
+		t.Fatal("driveOwned expected error from cancelled context, got nil")
+	}
+	// The drive error must reflect the cancellation, not OWNER_FENCED from failed release.
+	if IsCode(driveErr, "OWNER_FENCED") {
+		t.Fatalf("driveOwned returned OWNER_FENCED from release: %v", driveErr)
+	}
+
+	// Verify owner is no longer claimed (cleanly released).
+	currentOwner, present, err := store.CurrentOwner(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatalf("owner remained claimed after driveOwned error release: %#v", currentOwner)
+	}
+
+	// Verify subsequent ordinary acquire succeeds without takeover required.
+	nextOwner, err := store.AcquireOwner(context.Background(), run.ID, currentTime.Add(time.Second), time.Minute, false)
+	if err != nil {
+		t.Fatalf("ordinary AcquireOwner after expired drive release failed: %v", err)
+	}
+	if nextOwner.Generation != 2 {
+		t.Fatalf("nextOwner.Generation = %d, want 2", nextOwner.Generation)
+	}
+}

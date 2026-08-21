@@ -397,6 +397,24 @@ func (s *Store) AcquireOwner(ctx context.Context, runID string, now time.Time, d
 	return lease, err
 }
 
+func checkCurrentOwner(ctx context.Context, conn *sql.Conn, lease OwnerLease) error {
+	var token string
+	var generation int64
+	if err := conn.QueryRowContext(ctx,
+		`SELECT e.current_claim,
+		        (SELECT count(*) FROM claims WHERE run_id=e.run_id AND effect_id='runtime.owner')
+		 FROM effects e JOIN claims c ON c.run_id=e.run_id AND c.effect_id=e.effect_id
+		  AND c.token=e.current_claim
+		 WHERE e.run_id=? AND e.effect_id='runtime.owner' AND e.state='claimed'`,
+		lease.RunID).Scan(&token, &generation); err != nil {
+		return fail("OWNER_FENCED", nil)
+	}
+	if token != lease.Token || generation != lease.Generation {
+		return fail("OWNER_FENCED", nil)
+	}
+	return nil
+}
+
 func checkOwner(ctx context.Context, conn *sql.Conn, lease OwnerLease, now time.Time) error {
 	var token, expires string
 	var generation int64
@@ -443,7 +461,7 @@ func (s *Store) RenewOwner(ctx context.Context, lease OwnerLease, now time.Time,
 
 func (s *Store) ReleaseOwner(ctx context.Context, lease OwnerLease, now time.Time) error {
 	return s.immediate(ctx, func(conn *sql.Conn) error {
-		if err := checkOwner(ctx, conn, lease, now); err != nil {
+		if err := checkCurrentOwner(ctx, conn, lease); err != nil {
 			return err
 		}
 		return releaseOwnerOnConnection(ctx, conn, lease, now)
@@ -461,7 +479,7 @@ func (s *Store) ReleaseOwnerIfIdle(
 ) (bool, error) {
 	released := false
 	err := s.immediate(ctx, func(conn *sql.Conn) error {
-		if err := checkOwner(ctx, conn, lease, now); err != nil {
+		if err := checkCurrentOwner(ctx, conn, lease); err != nil {
 			return err
 		}
 		control, err := projectionOnConnection(ctx, conn, lease.RunID)
