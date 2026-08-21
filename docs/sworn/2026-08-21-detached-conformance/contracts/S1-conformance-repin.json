@@ -1,0 +1,27 @@
+{
+  "outcome": "The conformance suite tells the truth about detached control verbs: every real-binary scenario that used answer, resume, or takeover as the engine's driver now records the verb's durable return and performs the drive as its own explicit step - so the e2e gate proves the merged detached-drive semantics instead of mourning the old ones, and the CI run on the merge is the release's own green evidence.",
+  "scope": {
+    "include": ["test/e2e"],
+    "exclude": ["any product package - if a scenario cannot be repinned without an engine change, escalate; do not work around", "weakening any exactly-once, cardinality, or authority assertion"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "No conformance scenario asserts a driven state (parked, complete, awaiting_approval) on the immediate stdout of answer, resume, or takeover: each such site records the verb's durable return and then drives the same journal explicitly (a run invocation, or the scenario's resident serve) before asserting the driven state. Evidence anchors: the shared helper answerRecoveryPlannerSummary (test/e2e/turn_recovery_linux_test.go:41) gains the drive step and its callers assert on the drive's output; the pattern grep 'resume\"|answer\"|takeover\"' followed within 14 lines by 'state: parked|complete|awaiting_approval' locates every site, and each is repinned or demonstrably already-true at durable return."},
+    {"id": "A2", "text": "Crash-cut scenarios land their cut on the drive, not the control verb: in test/e2e/exactly_once_linux_test.go the cut becomes a durable resume followed by a crashed drive that exits with the crash hook's signature 86 at the seam, and the restart becomes a durable takeover followed by an ordinary drive that reaches exactly one continuation with unchanged effect-state cardinalities."},
+    {"id": "A3", "text": "The replayed identical MCP answer in test/e2e/captain_delegation_linux_test.go asserts idempotency instead of a refusal shape: the replay duplicates no authority, pinned by the journal cardinality of exactly one attention.answer command per answered attention (extending the test's existing counts block), and run completion is observed by bounded polling of sworn_status (the pattern test/e2e/detached_drive_linux_test.go already pins) rather than asserted on the immediate answer response."},
+    {"id": "A4", "text": "The full e2e package compiles under the contract checks (go vet ./... covers test/e2e), and every repinned scenario preserves its original proof intent - the assertion inventory of each modified test (what invariant it proves) is unchanged or strengthened, never dropped: pinned by the verifier reading each modified scenario against this criterion."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Semantics being pinned (operator-ruled 2026-08-21, from the merged 2026-08-20-operator-surface release): control verbs return once the command is durable; driving is the job of run or a resident serve; an identical-command replay is idempotent and duplicates no authority. The repin encodes these readings; it does not introduce new engine behavior and does not water down what any scenario proves.",
+    "Evidence basis: CI run 32436674619 on the merged release failed 74 e2e tests through one mechanism - conformance scenarios using control verbs as drivers (e.g. exactly_once_linux_test.go expected resume to drive into a crash seam, exit 0 arrived instead of the hook's 86; telemetry_noninterference_linux_test.go:153 expected resume to drive to a driven state and received the durable-return snapshot). The unit suites are green at the same head.",
+    "The executable e2e gate remains CI (ADR-0010 declared-not-executed honesty): the verifier judges the repinned scenarios by reading them against A1-A4 and by the compile coverage in the checks; the first full execution is the CI run on the merge.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}
