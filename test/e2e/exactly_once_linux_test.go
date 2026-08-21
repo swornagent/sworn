@@ -208,14 +208,14 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 	// The recovery binary is an ordinary Sworn: no crash seam at all. Only the
 	// owner lease is pinned, to the value the existing recovery journeys use.
 	recoveryBinary := filepath.Join(buildRoot, "sworn-recovery")
-	buildBinary(t, recoveryBinary, "./cmd/sworn", uncontainedDispatchLDFlags())
+	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags+" "+uncontainedGateLDFlags)
 
 	for _, cut := range exactlyOnceCuts() {
 		t.Run(strings.ReplaceAll(cut.effect, ".", "_"), func(t *testing.T) {
 			crashBinary := filepath.Join(
 				buildRoot, "sworn-cut-"+strings.ReplaceAll(cut.effect, ".", "-"),
 			)
-			buildBinary(t, crashBinary, "./cmd/sworn", uncontainedDispatchLDFlags())
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags+" "+uncontainedGateLDFlags)
 			crashEnvironment := map[string]string{
 				"SWORN_TEST_CRASH_AFTER_EFFECT":   cut.effect,
 				"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,

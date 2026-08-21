@@ -172,11 +172,7 @@ const uncontainedGateLDFlags = "-X=github.com/swornagent/sworn/internal/driver.t
 // uncontained dispatch. Every other e2e test keeps the exact production link
 // flags, so containment-requiring isolation tests are never gate-linked.
 func uncontainedDispatchLDFlags() string {
-	flags := uncontainedGateLDFlags
-	if os.Getenv("SWORN_TEST_UNCONTAINED_DISPATCH") == "1" {
-		flags = hookGateLDFlags + " " + flags
-	}
-	return flags
+	return hookGateLDFlags + " " + uncontainedGateLDFlags
 }
 
 // testLeaseMillis is the shortest owner lease ownerDuration admits. Only
@@ -1021,14 +1017,10 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		)
 		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
-		runBinary(
-			t, swornBinary, 0,
-			"resume", "--run", runID, "--journal", journalPath,
-			"--command", "resume-1", "--generation", "0",
-		)
 		runBinaryWithEnvironment(
 			t, crashBinary, 86, crashEnvironment,
-			"run", "--manifest", manifestPath, "--journal", journalPath,
+			"resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0",
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||

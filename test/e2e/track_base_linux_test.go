@@ -276,10 +276,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				runID,
 				release,
 			)
-			runBinary(
+			runBinaryWithEnvironment(
 				t,
-				normalBinary,
-				0,
+				crashBinary,
+				86,
+				crashEnvironment,
 				"resume",
 				"--run",
 				runID,
@@ -289,17 +290,6 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"resume-1",
 				"--generation",
 				"0",
-			)
-			runBinaryWithEnvironment(
-				t,
-				crashBinary,
-				86,
-				crashEnvironment,
-				"run",
-				"--manifest",
-				manifestPath,
-				"--journal",
-				journalPath,
 			)
 			ref := "refs/heads/track/" + release + "/T1"
 			command := exec.Command(
@@ -413,10 +403,11 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				release,
 				initialBytes,
 			)
-			runBinary(
+			runBinaryWithEnvironment(
 				t,
-				normalBinary,
-				0,
+				crashBinary,
+				86,
+				crashEnvironment,
 				"resume",
 				"--run",
 				runID,
@@ -426,17 +417,6 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"resume-1",
 				"--generation",
 				"0",
-			)
-			runBinaryWithEnvironment(
-				t,
-				crashBinary,
-				86,
-				crashEnvironment,
-				"run",
-				"--manifest",
-				manifestPath,
-				"--journal",
-				journalPath,
 			)
 			consumerRef := "refs/heads/track/" + release + "/T1"
 			stalePrepared := runGit(

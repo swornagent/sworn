@@ -394,19 +394,6 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 		}
 		runSwornInWorkerSandbox(
 			t,
-			swornBinary,
-			fakeBinary,
-			repository,
-			runRoot,
-			manifestPath,
-			journalPath,
-			0,
-			nil,
-			"resume", "--run", runID, "--journal", journalPath,
-			"--command", "resume-1", "--generation", "0",
-		)
-		runSwornInWorkerSandbox(
-			t,
 			crashBinary,
 			fakeBinary,
 			repository,
@@ -415,7 +402,8 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			journalPath,
 			86,
 			crashEnvironment,
-			"run", "--manifest", manifestPath, "--journal", journalPath,
+			"resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0",
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||

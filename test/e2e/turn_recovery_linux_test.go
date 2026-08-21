@@ -1103,19 +1103,12 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 
 				crashDuringPark := cut == "before_park_commit" ||
 					cut == "after_park_commit"
-				answerPathCrash := cut == "after_answer_commit" ||
-					cut == "after_owner_wake"
 				if crashDuringPark {
 					runBinaryWithEnvironment(
-						t, normalBinary, 0, environment,
+						t, crashBinary, 86, environment,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-crash", "--generation", "0",
 						"--config", configPath,
-					)
-					runBinaryWithEnvironment(
-						t, crashBinary, 86, environment,
-						"run", "--manifest", manifestPath,
-						"--journal", journalPath, "--config", configPath,
 					)
 				} else {
 					runBinaryWithEnvironment(
@@ -1143,28 +1136,13 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						len(board.Runtime.Attentions) != 1 {
 						t.Fatalf("pre-crash board=%q stderr=%q", boardBody, boardErr)
 					}
-					if answerPathCrash {
-						runBinaryWithEnvironment(
-							t, crashBinary, 86, environment,
-							"answer", "--run", runID, "--journal", journalPath,
-							"--attention", board.Runtime.Attentions[0].ID,
-							"--generation", "1", "--answer", answer,
-							"--config", configPath,
-						)
-					} else {
-						runBinaryWithEnvironment(
-							t, normalBinary, 0, environment,
-							"answer", "--run", runID, "--journal", journalPath,
-							"--attention", board.Runtime.Attentions[0].ID,
-							"--generation", "1", "--answer", answer,
-							"--config", configPath,
-						)
-						runBinaryWithEnvironment(
-							t, crashBinary, 86, environment,
-							"run", "--manifest", manifestPath,
-							"--journal", journalPath, "--config", configPath,
-						)
-					}
+					runBinaryWithEnvironment(
+						t, crashBinary, 86, environment,
+						"answer", "--run", runID, "--journal", journalPath,
+						"--attention", board.Runtime.Attentions[0].ID,
+						"--generation", "1", "--answer", answer,
+						"--config", configPath,
+					)
 				}
 
 				if cut == "after_answer_commit" {
