@@ -50,6 +50,7 @@ func runTUI(args []string, stdout, stderr io.Writer) int {
 		options.configPath,
 		options.manifestDir,
 	)
+	defer backend.Close()
 	if err := tui.Run(ctx, swornVersion, backend); err != nil {
 		fmt.Fprintln(
 			stderr,

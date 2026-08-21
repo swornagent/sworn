@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -34,6 +35,35 @@ type projectTUIBackend struct {
 	configPath  string
 	manifestDir string
 	commandID   func() (string, error)
+
+	mu       sync.Mutex
+	closed   bool
+	inFlight sync.WaitGroup
+	hosts    map[string]*tuiResidentHost
+}
+
+type tuiResidentHost struct {
+	service  *runtimepkg.Service
+	factory  *driver.ProductionDriverFactory
+	store    *journal.Store
+	commands *cockpit.CommandFacade
+}
+
+func (h *tuiResidentHost) close() error {
+	if h == nil {
+		return nil
+	}
+	var errs []error
+	if h.service != nil {
+		errs = append(errs, h.service.Close())
+	}
+	if h.store != nil {
+		errs = append(errs, h.store.Close())
+	}
+	if h.factory != nil {
+		errs = append(errs, h.factory.Close())
+	}
+	return errors.Join(errs...)
 }
 
 func newProjectTUIBackend(
@@ -43,7 +73,101 @@ func newProjectTUIBackend(
 		startPath: startPath, journalPath: journalPath,
 		configPath: configPath, manifestDir: manifestDir,
 		commandID: newTUICommandID,
+		hosts:     make(map[string]*tuiResidentHost),
 	}
+}
+
+func (b *projectTUIBackend) Close() error {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil
+	}
+	b.closed = true
+	b.mu.Unlock()
+
+	b.inFlight.Wait()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var errs []error
+	for _, host := range b.hosts {
+		if host != nil {
+			errs = append(errs, host.close())
+		}
+	}
+	b.hosts = nil
+	return errors.Join(errs...)
+}
+
+func (b *projectTUIBackend) getOrCreateHost(
+	ctx context.Context,
+	journalPath string,
+	configPath string,
+) (*tuiResidentHost, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return nil, errors.New("project control is unavailable")
+	}
+	if host, ok := b.hosts[journalPath]; ok && host != nil {
+		return host, nil
+	}
+	service, factory, err := openRuntimeService(ctx, journalPath, configPath)
+	if err != nil {
+		return nil, errors.New("project control is unavailable")
+	}
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		_ = service.Close()
+		if factory != nil {
+			_ = factory.Close()
+		}
+		return nil, errors.New("project control is unavailable")
+	}
+	commands, err := cockpit.NewCommandFacade(service, store, nil)
+	if err != nil {
+		_ = store.Close()
+		_ = service.Close()
+		if factory != nil {
+			_ = factory.Close()
+		}
+		return nil, errors.New("project control is unavailable")
+	}
+	host := &tuiResidentHost{
+		service:  service,
+		factory:  factory,
+		store:    store,
+		commands: commands,
+	}
+	if b.hosts == nil {
+		b.hosts = make(map[string]*tuiResidentHost)
+	}
+	b.hosts[journalPath] = host
+	return host, nil
+}
+
+func (b *projectTUIBackend) commandsForRun(
+	ctx context.Context,
+	run projectRun,
+	configPath string,
+) (*cockpit.CommandFacade, error) {
+	resolvedConfig := configPath
+	if resolvedConfig == "" {
+		resolvedConfig = run.configPath
+	}
+	host, err := b.getOrCreateHost(ctx, run.journalPath, resolvedConfig)
+	if err != nil {
+		return nil, errors.New("project control is unavailable")
+	}
+	binding, err := host.store.RunBinding(ctx, run.binding.ID)
+	if err != nil || !sameTUIRunBinding(binding, run.binding) {
+		return nil, errors.New("project control authority changed")
+	}
+	return host.commands, nil
 }
 
 func (b *projectTUIBackend) Catalog(
@@ -455,6 +579,15 @@ func (b *projectTUIBackend) Execute(
 	if b == nil || ctx == nil {
 		return errors.New("project control is unavailable")
 	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return errors.New("project control is unavailable")
+	}
+	b.inFlight.Add(1)
+	b.mu.Unlock()
+	defer b.inFlight.Done()
+
 	board, err := b.Board(ctx, selection)
 	if err != nil || !exactTUIAction(board.Actions, action) {
 		return errors.New("the current board does not allow that action")
@@ -471,7 +604,7 @@ func (b *projectTUIBackend) Execute(
 		if hasRun || release.manifest == "" || answer != "" {
 			return errors.New("the current board does not allow that action")
 		}
-		return startTUIRun(
+		return b.startTUIRun(
 			ctx,
 			project,
 			release,
@@ -486,7 +619,7 @@ func (b *projectTUIBackend) Execute(
 			strings.TrimSpace(answer) == "" {
 			return errors.New("the current board does not allow that action")
 		}
-		return startTUIDelegatedRun(
+		return b.startTUIDelegatedRun(
 			ctx, project, release, selection, action, []byte(answer),
 			project.paths.journal, existingRegularFile(project.paths.config),
 		)
@@ -548,11 +681,10 @@ func (b *projectTUIBackend) executeRunAction(
 		return errors.New("the current board does not allow that action")
 	}
 
-	commands, closeCommands, err := openTUICommands(ctx, run, configPath)
+	commands, err := b.commandsForRun(ctx, run, configPath)
 	if err != nil {
 		return err
 	}
-	defer closeCommands()
 	switch action.Kind {
 	case "approve":
 		_, err = commands.Approve(ctx, *action.Approval)
@@ -627,41 +759,80 @@ func replayPendingTUIControl(
 	}
 }
 
-func openTUICommands(
+func (b *projectTUIBackend) startTUIRun(
 	ctx context.Context,
-	run projectRun,
-	configPath string,
-) (*cockpit.CommandFacade, func(), error) {
-	service, factory, err := openRuntimeService(
-		ctx,
-		run.journalPath,
-		configPath,
-	)
+	project projectCatalog,
+	release projectRelease,
+	selection tui.Selection,
+	manifestPath, journalPath, configPath string,
+) error {
+	body, err := readManifest(manifestPath)
 	if err != nil {
-		return nil, nil, errors.New("project control is unavailable")
+		return errors.New("the run definition is unavailable")
 	}
-	store, err := journal.Open(ctx, run.journalPath)
+	manifest, err := runtimepkg.ParseManifest(body)
+	if err != nil || manifest.Repository != project.paths.root ||
+		manifest.Release != release.name {
+		return errors.New("the run definition is invalid")
+	}
+	manifestDigest := sha256Digest(body)
+	if tuiSelectionWithManifest(
+		project,
+		release,
+		"",
+		manifestDigest,
+	) != selection {
+		return errors.New("the run definition changed; refresh before starting")
+	}
+	host, err := b.getOrCreateHost(ctx, journalPath, configPath)
 	if err != nil {
-		_ = service.Close()
-		_ = factory.Close()
-		return nil, nil, errors.New("project control is unavailable")
+		return errors.New("project control is unavailable")
 	}
-	closeCommands := func() {
-		_ = store.Close()
-		_ = service.Close()
-		_ = factory.Close()
-	}
-	binding, err := store.RunBinding(ctx, run.binding.ID)
-	if err != nil || !sameTUIRunBinding(binding, run.binding) {
-		closeCommands()
-		return nil, nil, errors.New("project control authority changed")
-	}
-	commands, err := cockpit.NewCommandFacade(service, store, nil)
+	status, err := host.service.StartDetached(ctx, body)
 	if err != nil {
-		closeCommands()
-		return nil, nil, errors.New("project control is unavailable")
+		return errors.New("the run could not be started")
 	}
-	return commands, closeCommands, nil
+	if status.RunID != manifest.RunID || status.ManifestDigest != manifestDigest {
+		return errors.New("the started run did not match the selected definition")
+	}
+	return nil
+}
+
+func (b *projectTUIBackend) startTUIDelegatedRun(
+	ctx context.Context,
+	project projectCatalog,
+	release projectRelease,
+	selection tui.Selection,
+	action cockpit.Action,
+	envelope []byte,
+	journalPath, configPath string,
+) error {
+	body, err := readManifest(release.manifest)
+	if err != nil {
+		return errors.New("the run definition is unavailable")
+	}
+	manifest, err := runtimepkg.ParseManifest(body)
+	binding := action.CaptainDelegation
+	if err != nil || binding == nil || binding.Action != "admit" ||
+		manifest.Repository != project.paths.root || manifest.Release != release.name ||
+		binding.RunID != manifest.RunID || binding.ManifestDigest != sha256Digest(body) ||
+		binding.ActorClass != runtimepkg.CaptainDelegationActorClass ||
+		binding.ActorAuthority != manifest.Authority.ExternalAuthorizer ||
+		tuiSelectionWithManifest(project, release, "", sha256Digest(body)) != selection {
+		return errors.New("the delegated run authority changed; refresh before starting")
+	}
+	host, err := b.getOrCreateHost(ctx, journalPath, configPath)
+	if err != nil {
+		return errors.New("project control is unavailable")
+	}
+	status, err := host.service.StartWithCaptainDelegationDetached(ctx, body, envelope)
+	if err != nil {
+		return errors.New("the delegated run could not be started")
+	}
+	if status.RunID != manifest.RunID || status.ManifestDigest != binding.ManifestDigest {
+		return errors.New("the started run did not match the selected definition")
+	}
+	return nil
 }
 
 func (b *projectTUIBackend) discover(
@@ -710,86 +881,6 @@ func readRunBoard(
 		return cockpit.Snapshot{}, err
 	}
 	return projector.Snapshot(ctx, runID)
-}
-
-func startTUIRun(
-	ctx context.Context,
-	project projectCatalog,
-	release projectRelease,
-	selection tui.Selection,
-	manifestPath, journalPath, configPath string,
-) error {
-	body, err := readManifest(manifestPath)
-	if err != nil {
-		return errors.New("the run definition is unavailable")
-	}
-	manifest, err := runtimepkg.ParseManifest(body)
-	if err != nil || manifest.Repository != project.paths.root ||
-		manifest.Release != release.name {
-		return errors.New("the run definition is invalid")
-	}
-	manifestDigest := sha256Digest(body)
-	if tuiSelectionWithManifest(
-		project,
-		release,
-		"",
-		manifestDigest,
-	) != selection {
-		return errors.New("the run definition changed; refresh before starting")
-	}
-	service, factory, err := openRuntimeService(ctx, journalPath, configPath)
-	if err != nil {
-		return errors.New("project control is unavailable")
-	}
-	defer service.Close()
-	defer factory.Close()
-	status, err := service.StartDetached(ctx, body)
-	if err != nil {
-		return errors.New("the run could not be started")
-	}
-	if status.RunID != manifest.RunID || status.ManifestDigest != manifestDigest {
-		return errors.New("the started run did not match the selected definition")
-	}
-	return nil
-}
-
-func startTUIDelegatedRun(
-	ctx context.Context,
-	project projectCatalog,
-	release projectRelease,
-	selection tui.Selection,
-	action cockpit.Action,
-	envelope []byte,
-	journalPath, configPath string,
-) error {
-	body, err := readManifest(release.manifest)
-	if err != nil {
-		return errors.New("the run definition is unavailable")
-	}
-	manifest, err := runtimepkg.ParseManifest(body)
-	binding := action.CaptainDelegation
-	if err != nil || binding == nil || binding.Action != "admit" ||
-		manifest.Repository != project.paths.root || manifest.Release != release.name ||
-		binding.RunID != manifest.RunID || binding.ManifestDigest != sha256Digest(body) ||
-		binding.ActorClass != runtimepkg.CaptainDelegationActorClass ||
-		binding.ActorAuthority != manifest.Authority.ExternalAuthorizer ||
-		tuiSelectionWithManifest(project, release, "", sha256Digest(body)) != selection {
-		return errors.New("the delegated run authority changed; refresh before starting")
-	}
-	service, factory, err := openRuntimeService(ctx, journalPath, configPath)
-	if err != nil {
-		return errors.New("project control is unavailable")
-	}
-	defer service.Close()
-	defer factory.Close()
-	status, err := service.StartWithCaptainDelegationDetached(ctx, body, envelope)
-	if err != nil {
-		return errors.New("the delegated run could not be started")
-	}
-	if status.RunID != manifest.RunID || status.ManifestDigest != binding.ManifestDigest {
-		return errors.New("the started run did not match the selected definition")
-	}
-	return nil
 }
 
 func resolveTUISelection(
