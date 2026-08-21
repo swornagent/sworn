@@ -268,17 +268,27 @@ func freshAgentCall(
 
 func freshAgentSnapshot(t *testing.T, address string) cockpit.Snapshot {
 	t.Helper()
-	result := freshAgentCall(t, address, "sworn_status", map[string]any{
-		"run_id": freshAgentRunID,
-	})
-	if result.IsError {
-		t.Fatalf("sworn_status = %s", result.Raw)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		result := freshAgentCall(t, address, "sworn_status", map[string]any{
+			"run_id": freshAgentRunID,
+		})
+		if result.IsError {
+			// A detached drive writing the journal makes the projection
+			// transiently unstable; the honest refusal is retried.
+			if bytes.Contains(result.Raw, []byte("SNAPSHOT_UNSTABLE")) &&
+				time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("sworn_status = %s", result.Raw)
+		}
+		var snapshot cockpit.Snapshot
+		if err := json.Unmarshal(result.Structured, &snapshot); err != nil {
+			t.Fatalf("sworn_status content = %s", result.Structured)
+		}
+		return snapshot
 	}
-	var snapshot cockpit.Snapshot
-	if err := json.Unmarshal(result.Structured, &snapshot); err != nil {
-		t.Fatalf("sworn_status content = %s", result.Structured)
-	}
-	return snapshot
 }
 
 // TestRealBinaryFreshAgentSkillToMCPDelivery is A2.
