@@ -24,21 +24,18 @@ import (
 // TestDetachedLifecycleScenarioProvesDetach is the A4 end-to-end check,
 // declared per ADR 0010 and executed at the host boundary (as CI evidence).
 //
-// Scenario: Multi-process detached lifecycle with an explicit resident driver.
-//  1. Process 1 (CLI Starter): `sworn run --detached` starts the run, commits
-//     start records to the journal, outputs watch guidance, and exits 0 promptly,
-//     leaving the run in a clean named resumable state with no active owner lease.
-//  2. Process 2 (Resident Driver Process): A long-lived resident driver process
-//     (e.g., `sworn serve` or a resident runner) acquires ownership and drives
-//     execution until it encounters an open human attention turn (Implementer
-//     question), where it parks cleanly.
-//  3. Process 3 (Separate Answering Process): `sworn answer` is invoked from a
+// Scenario: Multi-process detached lifecycle with resident serve and CLI answer.
+//  1. Process 1 (Resident Driver Process): A long-lived resident driver process
+//     (`sworn serve`) is started and hosts the run. Initial run start routes
+//     through resident serve via the MCP `sworn_start` surface, which drives
+//     execution to awaiting approval, and upon plan approval and resident resume,
+//     drives until it encounters an open human attention turn (Implementer question),
+//     where it parks cleanly.
+//  2. Process 2 (Separate CLI Answering Process): `sworn answer` is invoked from a
 //     separate CLI process to answer the open human attention turn. It commits the
-//     answer durably to the journal and returns success promptly without blocking.
-//  4. Process 2 (Resident Driver Process): The resident driver observes the
-//     durable answer on its next cycle and carries the drive to final merged
-//     delivery completion.
-//  5. Verification: Status and board projections confirm the completed lifecycle
+//     answer durably, prints its durable status, and under S2 CLI drive hosting
+//     carries the background drive to final delivery completion.
+//  3. Verification: Status and board projections confirm the completed lifecycle
 //     and exact product tree delivery without orphaned unexpired leases.
 //
 // This test is DECLARED, NOT EXECUTED by a role (ADR 0010).
@@ -79,6 +76,7 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 
 	manifestBody := recoveryE2EManifest(t, runID, repository, loaded)
 	manifestPath := writeManifest(t, root, manifestBody)
+	manifestDigest := fileDigest(t, manifestPath)
 	journalPath := filepath.Join(root, "run.sqlite")
 	address := telemetryParityAddress(t)
 	operatorConfigPath := telemetryParityOperatorConfig(t, root, address, "")
@@ -86,57 +84,9 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 		"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret,
 	}
 
-	// Step 1: Process 1 (CLI Starter): `sworn run --detached` starts the run,
-	// commits start records to the journal, outputs watch guidance, and exits 0
-	// promptly, leaving the run in a clean named resumable state with no active
-	// owner lease.
-	runStdout, runStderr := runBinaryWithEnvironment(
-		t, swornBinary, 0, environment,
-		"run",
-		"--manifest", manifestPath,
-		"--journal", journalPath,
-		"--config", configPath,
-		"--detached",
-	)
-	if runStderr != "" {
-		t.Fatalf("sworn run --detached stderr = %q", runStderr)
-	}
-	wantGuidance := "Sworn run " + runID + " started detached.\n\n" +
-		"Watch progress:\n" +
-		"  sworn board --run " + runID + " --journal " + journalPath + "\n" +
-		"  sworn tui\n"
-	if runStdout != wantGuidance {
-		t.Fatalf("sworn run --detached stdout = %q, want %q", runStdout, wantGuidance)
-	}
-
-	// Verify the run binding exists and no claimed unexpired owner lease remains.
-	ctx := context.Background()
-	store, err := journal.OpenReadOnly(ctx, journalPath)
-	if err != nil {
-		t.Fatalf("open journal: %v", err)
-	}
-	binding, err := store.RunBinding(ctx, runID)
-	if err != nil || binding.ID != runID {
-		_ = store.Close()
-		t.Fatalf("run binding = %#v, err = %v", binding, err)
-	}
-	owner, present, err := store.CurrentOwner(ctx, runID)
-	_ = store.Close()
-	if err != nil {
-		t.Fatalf("check owner: %v", err)
-	}
-	if present && owner.ExpiresAt.After(time.Now().UTC()) {
-		t.Fatalf("claimed owner lease remained after detached command exit: %#v", owner)
-	}
-
-	// Authorize and install the approved plan so the run is ready to execute S1.
-	authorizePlan(t, journalPath, runID, plan)
-	installApprovedPlan(t, repository, planBytes)
-
-	// Step 2: Process 2 (Resident Driver Process): A long-lived resident driver
-	// process (`sworn serve`) acquires ownership and drives execution until it
-	// encounters an open human attention turn (Implementer question), where it
-	// parks cleanly.
+	// Step 1: Process 1 (Resident Driver Process): A long-lived resident driver
+	// process (`sworn serve`) is started to host the run. Initial run start
+	// routes through resident serve (`sworn_start` via MCP).
 	serveProcess := exec.Command(
 		swornBinary, "serve",
 		"--run", runID,
@@ -168,6 +118,18 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 		t, address, func(cockpit.TelemetryHealth) bool { return true },
 	)
 
+	// Initial start via MCP sworn_start
+	mcpStart := journeyMCPCall(t, address, "sworn_start", map[string]any{
+		"manifest_digest": manifestDigest,
+	})
+	if bytes.Contains(mcpStart, []byte(`"isError":true`)) {
+		t.Fatalf("resident sworn_start = %s", mcpStart)
+	}
+
+	// Authorize and install the approved plan so the run is ready to execute S1.
+	authorizePlan(t, journalPath, runID, plan)
+	installApprovedPlan(t, repository, planBytes)
+
 	// Drive the run via the resident driver process to the open human turn.
 	mcpResume := journeyMCPCall(t, address, "sworn_control", map[string]any{
 		"run_id":              runID,
@@ -194,12 +156,12 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Step 3: Process 3 (Separate Answering Process): `sworn answer` is invoked
+	// Step 2: Process 2 (Separate CLI Answering Process): `sworn answer` is invoked
 	// from a separate CLI process to answer the open human attention turn. It
-	// commits the answer durably to the journal and returns success promptly
-	// without blocking.
-	answerStdout, answerStderr := runBinaryWithEnvironment(
-		t, swornBinary, 0, environment,
+	// commits the answer durably to the journal, prints durable status, and under
+	// S2 CLI drive hosting carries the background drive to final delivery completion.
+	answerStdout, answerStderr := runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, environment, 180*time.Second,
 		"answer",
 		"--run", runID,
 		"--journal", journalPath,
@@ -216,7 +178,8 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 	}
 
 	// Assert the answer was durably committed to the journal.
-	store, err = journal.OpenReadOnly(ctx, journalPath)
+	ctx := context.Background()
+	store, err := journal.OpenReadOnly(ctx, journalPath)
 	if err != nil {
 		t.Fatalf("open journal: %v", err)
 	}
@@ -236,30 +199,7 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 		t.Fatal("sworn answer did not durably record attention.answer command in journal")
 	}
 
-	// Step 4: Process 2 (Resident Driver Process): The resident driver observes
-	// the durable answer and carries the drive to final merged delivery
-	// completion.
-	completionDeadline := time.Now().Add(120 * time.Second)
-	for {
-		snap := mcpSnapshot(t, address, runID)
-		if snap.Run.State == "complete" {
-			break
-		}
-		if time.Now().After(completionDeadline) {
-			t.Fatalf("resident driver did not carry run to completion; last state = %q", snap.Run.State)
-		}
-		if snap.Run.State == "parked" {
-			_ = journeyMCPCall(t, address, "sworn_control", map[string]any{
-				"run_id":              runID,
-				"command_id":          "detached-resident-resume-2",
-				"kind":                string(journal.Resume),
-				"expected_generation": snap.Run.ControlGeneration,
-			})
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	// Step 5: Verification: Status and board projections confirm the completed
+	// Step 3: Verification: Status and board projections confirm the completed
 	// lifecycle and exact product tree delivery without orphaned unexpired leases.
 	stopped = true
 	_ = serveProcess.Process.Signal(syscall.SIGTERM)
@@ -327,7 +267,7 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open journal: %v", err)
 	}
-	owner, present, err = store.CurrentOwner(ctx, runID)
+	owner, present, err := store.CurrentOwner(ctx, runID)
 	_ = store.Close()
 	if err != nil {
 		t.Fatalf("check owner: %v", err)

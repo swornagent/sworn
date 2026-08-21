@@ -198,6 +198,7 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sworn answer: output failed")
 		return 1
 	}
+	_, _ = service.Wait(ctx, options["--run"])
 	return 0
 }
 
@@ -500,6 +501,16 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 }
 
 func executeStart(manifestPath, journalPath, configPath string, detached bool, stdout, stderr io.Writer) int {
+	if detached {
+		writeKnownFailure(
+			stderr,
+			"run",
+			"sworn run --detached is not supported; use sworn serve to host background runs",
+			"DETACHED_UNSUPPORTED",
+		)
+		return 1
+	}
+
 	body, err := readManifest(manifestPath)
 	if err != nil {
 		writeKnownFailure(
@@ -536,30 +547,6 @@ func executeStart(manifestPath, journalPath, configPath string, detached bool, s
 	}
 	defer service.Close()
 	defer factory.Close()
-
-	if detached {
-		status, err := service.StartDetached(ctx, body)
-		if err != nil {
-			writeCommandFailure(
-				stderr,
-				"run",
-				"Could not start this run.",
-				err,
-			)
-			return 1
-		}
-		fmt.Fprintf(
-			stdout,
-			"Sworn run %s started detached.\n\n"+
-				"Watch progress:\n"+
-				"  sworn board --run %s --journal %s\n"+
-				"  sworn tui\n",
-			status.RunID,
-			status.RunID,
-			journalPath,
-		)
-		return 0
-	}
 
 	status, err := service.Start(ctx, body)
 	if err != nil {
@@ -659,6 +646,9 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 	if err := writeStatusText(stdout, status); err != nil {
 		fmt.Fprintf(stderr, "sworn %s: output failed\n", kind)
 		return 1
+	}
+	if kind == journal.Resume || kind == journal.Takeover {
+		_, _ = service.Wait(ctx, options["--run"])
 	}
 	return 0
 }

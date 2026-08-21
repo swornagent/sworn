@@ -3,12 +3,9 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,7 +64,8 @@ func exactlyOnceCuts() []exactlyOnceCut {
 // short owner-lease regime the recovery journeys run under, so a takeover
 // only has to wait out leaseExpiryWait rather than a production lease.
 var exactlyOnceEnvironment = map[string]string{
-	"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+	"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
+	"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
 }
 
 // exactlyOnceRecoveryEnvironment gives the restart phase a lease long enough
@@ -76,47 +74,8 @@ var exactlyOnceEnvironment = map[string]string{
 // lease a cancelled recovery that outlives it would strand the owner
 // claimed-expired and only another takeover could clear it.
 var exactlyOnceRecoveryEnvironment = map[string]string{
-	"SWORN_TEST_OWNER_LEASE_MILLIS": "5000",
-}
-
-// runRecoveryDrive runs the binary without asserting its exit status, so the
-// recovery loop can retry the ordinary drive while a cancelled takeover's
-// owner claim clears.
-func runRecoveryDrive(
-	t *testing.T,
-	binary string,
-	environment map[string]string,
-	timeout time.Duration,
-	args ...string,
-) (string, string, int) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	command := exec.CommandContext(ctx, binary, args...)
-	overrides := map[string]string{}
-	for key, value := range environment {
-		overrides[key] = value
-	}
-	command.Env = cleanEnvironment(overrides)
-	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr = &stdout, &stderr
-	err := command.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Fatalf(
-			"Sworn binary timed out\nstdout:\n%s\nstderr:\n%s",
-			stdout.String(),
-			stderr.String(),
-		)
-	}
-	exit := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			t.Fatalf("run Sworn: %v", err)
-		}
-		exit = exitErr.ExitCode()
-	}
-	return stdout.String(), stderr.String(), exit
+	"SWORN_TEST_OWNER_LEASE_MILLIS":   "5000",
+	"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
 }
 
 // assertExactlyOnce is the whole cardinality claim, read out of the real
@@ -249,17 +208,18 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 	// The recovery binary is an ordinary Sworn: no crash seam at all. Only the
 	// owner lease is pinned, to the value the existing recovery journeys use.
 	recoveryBinary := filepath.Join(buildRoot, "sworn-recovery")
-	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags)
+	buildBinary(t, recoveryBinary, "./cmd/sworn", uncontainedDispatchLDFlags())
 
 	for _, cut := range exactlyOnceCuts() {
 		t.Run(strings.ReplaceAll(cut.effect, ".", "_"), func(t *testing.T) {
 			crashBinary := filepath.Join(
 				buildRoot, "sworn-cut-"+strings.ReplaceAll(cut.effect, ".", "-"),
 			)
-			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			buildBinary(t, crashBinary, "./cmd/sworn", uncontainedDispatchLDFlags())
 			crashEnvironment := map[string]string{
-				"SWORN_TEST_CRASH_AFTER_EFFECT": cut.effect,
-				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+				"SWORN_TEST_CRASH_AFTER_EFFECT":   cut.effect,
+				"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
+				"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
 			}
 
 			repository := newProductRepository(t)
@@ -283,15 +243,11 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			installAndPassComponent(t, repository, release, planBytes)
 			seedHead := runGit(t, repository, "rev-parse", "main")
 
-			// The cut. Durable resume followed by a crashed drive that exits 86 at the seam.
-			runBinaryWithEnvironment(
-				t, recoveryBinary, 0, exactlyOnceEnvironment,
-				"resume", "--run", runID, "--journal", journalPath,
-				"--command", "cut-resume-1", "--generation", "0",
-			)
+			// The cut. Durable resume hosts the drive and exits 86 at the seam.
 			runBinaryWithEnvironment(
 				t, crashBinary, 86, crashEnvironment,
-				"run", "--manifest", manifestPath, "--journal", journalPath,
+				"resume", "--run", runID, "--journal", journalPath,
+				"--command", "cut-resume-1", "--generation", "0",
 			)
 			cutSnapshot := recordedEffectStates(t, journalPath, runID)
 			if cutSnapshot[cut.effect] == 0 {
@@ -302,42 +258,21 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			}
 
 			// The restart. An ordinary binary, after the dead owner's lease
-			// has expired, performs a durable takeover followed by an
-			// ordinary drive to completion. The takeover CLI's own in-process
-			// drive is cancelled when its process exits, and under the short
-			// test lease that cancellation can race lease expiry so its owner
-			// claim lands claimed-expired instead of released; an exact
-			// replay of the same durable takeover is the sanctioned way to
-			// clear it, so the drive retries that pair until ownership is
-			// actually free.
+			// has expired, performs a durable takeover which hosts its drive
+			// to completion.
 			leaseExpiryWait()
-			var stdout, stderr string
-			recoveryDeadline := time.Now().Add(120 * time.Second)
-			for {
-				takeoverStdout, takeoverStderr, takeoverExit := runRecoveryDrive(
-					t, recoveryBinary, exactlyOnceRecoveryEnvironment, 600*time.Second,
-					"takeover", "--run", runID, "--journal", journalPath,
-					"--command", "cut-takeover-1", "--generation", "1",
-				)
-				var exit int
-				stdout, stderr, exit = runRecoveryDrive(
-					t, recoveryBinary, exactlyOnceRecoveryEnvironment, 600*time.Second,
-					"run", "--manifest", manifestPath, "--journal", journalPath,
-				)
-				if exit == 0 {
-					break
-				}
-				if !strings.Contains(stderr, "OWNER_UNAVAILABLE") ||
-					time.Now().After(recoveryDeadline) {
-					t.Fatalf(
-						"%s (%s) recovery run exit = %d stdout=%q stderr=%q"+
-							"\ntakeover exit = %d stdout=%q stderr=%q",
-						cut.effect, cut.phase, exit, stdout, stderr,
-						takeoverExit, takeoverStdout, takeoverStderr,
-					)
-				}
-				time.Sleep(200 * time.Millisecond)
+			takeoverStdout, takeoverStderr := runBinaryWithEnvironmentTimeout(
+				t, recoveryBinary, 0, exactlyOnceRecoveryEnvironment, 600*time.Second,
+				"takeover", "--run", runID, "--journal", journalPath,
+				"--command", "cut-takeover-1", "--generation", "1",
+			)
+			if takeoverStderr != "" || !strings.Contains(takeoverStdout, "Sworn run "+runID) {
+				t.Fatalf("%s (%s) takeover stdout=%q stderr=%q", cut.effect, cut.phase, takeoverStdout, takeoverStderr)
 			}
+			stdout, stderr := runBinaryWithEnvironmentTimeout(
+				t, recoveryBinary, 0, exactlyOnceRecoveryEnvironment, 600*time.Second,
+				"run", "--manifest", manifestPath, "--journal", journalPath,
+			)
 			if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf(
 					"%s (%s) recovery stdout=%q stderr=%q",
