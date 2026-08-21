@@ -343,6 +343,14 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 		"--attention", attention.ID, "--generation", "1",
 		"--answer", journeySummaryAnswer, "--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("cumulative summary answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, environment, 600*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
+		"--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore {
 		t.Fatalf("cumulative summary answer stdout=%q stderr=%q", stdout, stderr)
@@ -370,6 +378,14 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 		t, binary, 0, environment, 600*time.Second,
 		"resume", "--run", cumulativeRunID, "--journal", journalPath,
 		"--command", "cumulative-resume-1", "--generation", "0",
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("cumulative resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, environment, 600*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
 		"--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {

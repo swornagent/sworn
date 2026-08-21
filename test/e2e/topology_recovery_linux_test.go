@@ -821,8 +821,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
@@ -835,8 +836,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		work := parkedWork(t, journalPath, runID)
 		runBinary(t, swornBinary, 0, "retry", "--run", runID, "--journal", journalPath,
 			"--command", "retry-1", "--generation", "1", "--work", work, "--epoch", "1")
-		stdout, _ = runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "2")
+		stdout, _ = runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("retry completion = %q", stdout)
 		}
@@ -852,8 +854,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		command := exec.Command(swornBinary, "resume", "--run", runID, "--journal", journalPath,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		command := exec.Command(swornBinary, "run", "--manifest", manifestPath, "--journal", journalPath)
 		command.Env = cleanEnvironment(nil)
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output
@@ -927,8 +930,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("scope exhaustion status = %q", stdout)
 		}
@@ -1080,8 +1084,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "awaiting_approval") {
 			t.Fatalf("revision proposal = %q", stdout)
 		}
@@ -1131,10 +1136,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
-			preActionCrashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		claimed := claimedAppendAction(t, journalPath, runID)
 		if err := os.WriteFile(
 			filepath.Join(repository, "target-moved.txt"),
@@ -1146,9 +1153,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "add", "--", "target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
 		leaseExpiryWait()
-		stdout, _ := runBinary(t, swornBinary, 0,
+		runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("forward-target recovery = %q", stdout)
 		}
@@ -1183,10 +1192,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
-			preActionCrashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		claimed := claimedAppendAction(t, journalPath, runID)
 		releaseBefore := runGit(
 			t, repository, "rev-parse", "refs/heads/release-wt/"+release)
@@ -1255,10 +1266,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
-			preActionCrashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, preActionCrashBinary, 86,
+			preActionCrashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		claimed := claimedAppendAction(t, journalPath, runID)
 
 		recordPlannerProposalFixture(
@@ -1285,9 +1298,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		leaseExpiryWait()
-		stdout, _ := runBinary(t, swornBinary, 0,
+		runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: awaiting_approval") ||
 			!strings.Contains(stdout, "  authority_state: authority_conflict") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
@@ -1359,9 +1374,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		store, err := journal.OpenReadOnly(
 			context.Background(), journalPath)
 		if err != nil {
@@ -1392,10 +1409,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "add", "--", "install-target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "move target after install")
 		leaseExpiryWait()
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("all-new install recovery = %q", stdout)
 		}
@@ -1488,10 +1508,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					runBinary(t, swornBinary, 0,
 						"run", "--manifest", manifestPath, "--journal", journalPath)
 					authorizePlan(t, journalPath, runID, initialPlan)
-					runBinaryWithEnvironment(t, crash.binary, 86,
-						crash.environment,
+					runBinary(t, swornBinary, 0,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-1", "--generation", "0")
+					runBinaryWithEnvironment(t, crash.binary, 86,
+						crash.environment,
+						"run", "--manifest", manifestPath, "--journal", journalPath)
 					claimed := claimedSeal(t, journalPath, runID)
 					trackAtCrash := runGit(
 						t, repository, "rev-parse", claimed.TrackRef)
@@ -1548,10 +1570,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 
 					leaseExpiryWait()
-					stdout, _ := runBinary(
+					runBinary(
 						t, swornBinary, 0,
 						"takeover", "--run", runID, "--journal", journalPath,
 						"--command", "takeover-1", "--generation", "1")
+					stdout, _ := runBinary(
+						t, swornBinary, 0,
+						"run", "--manifest", manifestPath, "--journal", journalPath)
 					if authorityKind == "target" &&
 						!strings.Contains(stdout, "  state: complete") {
 						t.Fatalf("forward-target seal recovery = %q", stdout)
@@ -1622,10 +1647,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, sealCrashCuts[1].binary, 86,
-			sealCrashCuts[1].environment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, sealCrashCuts[1].binary, 86,
+			sealCrashCuts[1].environment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		claimed := claimedSeal(t, journalPath, runID)
 		if got := runGit(
 			t, repository, "rev-parse", claimed.TrackRef,
@@ -1762,10 +1789,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			claimed.Candidate,
 			third,
 		)
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("restored all-new recovery status = %q", stdout)
 		}
@@ -1842,10 +1872,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			if preparedCase.crash == "git.seal" {
 				crashCut = &sealCrashCuts[1]
 			}
-			runBinaryWithEnvironment(t, crashCut.binary, 86,
-				crashCut.environment,
+			runBinary(t, swornBinary, 0,
 				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "resume-1", "--generation", "0")
+			runBinaryWithEnvironment(t, crashCut.binary, 86,
+				crashCut.environment,
+				"run", "--manifest", manifestPath, "--journal", journalPath)
 			claimed := claimedSeal(t, journalPath, runID)
 			trackBefore := runGit(
 				t, repository, "rev-parse", claimed.TrackRef)
@@ -1890,7 +1922,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			if preparedCase.parentMode == "succeeded" {
 				wantExit = 1
 			}
-			stdout, stderr := runBinary(
+			_, stderr := runBinary(
 				t, swornBinary, wantExit,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "takeover-1", "--generation", "1")
@@ -1917,6 +1949,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				return
 			}
 			if preparedCase.parentMode == "failed" {
+				stdout, _ := runBinary(
+					t, swornBinary, 0,
+					"run", "--manifest", manifestPath, "--journal", journalPath)
 				if !strings.Contains(stdout, "  state: parked") {
 					t.Fatalf("failed parent recovery = %q", stdout)
 				}
@@ -1928,6 +1963,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				return
 			}
+			stdout, _ := runBinary(
+				t, swornBinary, 0,
+				"run", "--manifest", manifestPath, "--journal", journalPath)
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("prepared child recovery = %q", stdout)
 			}
@@ -2022,9 +2060,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			manifestPath := writeManifest(t, root, append(body, '\n'))
 			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 			authorizePlan(t, journalPath, runID, plan)
-			runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+			runBinary(t, swornBinary, 0,
 				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "resume-1", "--generation", "0")
+			runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+				"run", "--manifest", manifestPath, "--journal", journalPath)
 			store, err := journal.OpenReadOnly(context.Background(), journalPath)
 			if err != nil {
 				t.Fatal(err)
@@ -2043,8 +2083,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					cut, claimedIDs, err)
 			}
 			leaseExpiryWait()
-			stdout, _ := runBinary(t, swornBinary, 0, "takeover", "--run", runID,
+			runBinary(t, swornBinary, 0, "takeover", "--run", runID,
 				"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
+			stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 			if !strings.Contains(stdout, "  state: complete") {
 				store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 				snapshot, _ := store.Snapshot(context.Background(), runID)
@@ -2320,9 +2361,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
 		targetBefore := runGit(t, repository, "rev-parse", "main")
-		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
 		if err != nil {
 			t.Fatal(err)
@@ -2404,9 +2447,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+		runBinary(t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0")
+		runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 
 		store, err := journal.OpenReadOnly(context.Background(), journalPath)
 		if err != nil {
@@ -2441,10 +2486,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
 
 		leaseExpiryWait()
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("forward-target driver takeover = %q", stdout)
 		}

@@ -928,6 +928,19 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"--generation",
 			"0",
 		)
+		if stderr != "" {
+			t.Fatalf("resume stderr = %q", stderr)
+		}
+		stdout, stderr = runBinary(
+			t,
+			swornBinary,
+			0,
+			"run",
+			"--manifest",
+			manifestPath,
+			"--journal",
+			journalPath,
+		)
 		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
@@ -979,10 +992,14 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		)
 		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
-		runBinaryWithEnvironment(
-			t, crashBinary, 86, crashEnvironment,
+		runBinary(
+			t, swornBinary, 0,
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0",
+		)
+		runBinaryWithEnvironment(
+			t, crashBinary, 86, crashEnvironment,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||
@@ -1005,10 +1022,14 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
 		}
 		leaseExpiryWait()
-		stdout, _ := runBinaryWithEnvironment(
-			t, crashBinary, 0, crashEnvironment,
+		runBinary(
+			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1",
+		)
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("recovered resume = %q", stdout)
@@ -1040,6 +1061,9 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if stderr != "" {
 			t.Fatalf("transport failure stderr = %q", stderr)
 		}
+		runBinary(
+			t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
+		)
 		status, _ := runBinary(
 			t,
 			swornBinary,

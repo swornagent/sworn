@@ -231,11 +231,15 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			installAndPassComponent(t, repository, release, planBytes)
 			seedHead := runGit(t, repository, "rev-parse", "main")
 
-			// The cut. The run dies at the seam with the world already moved.
+			// The cut. Durable resume followed by a crashed drive that exits 86 at the seam.
 			runBinaryWithEnvironment(
-				t, crashBinary, 86, crashEnvironment,
+				t, recoveryBinary, 0, exactlyOnceEnvironment,
 				"resume", "--run", runID, "--journal", journalPath,
 				"--command", "cut-resume-1", "--generation", "0",
+			)
+			runBinaryWithEnvironment(
+				t, crashBinary, 86, crashEnvironment,
+				"run", "--manifest", manifestPath, "--journal", journalPath,
 			)
 			cutSnapshot := recordedEffectStates(t, journalPath, runID)
 			if cutSnapshot[cut.effect] == 0 {
@@ -246,12 +250,16 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			}
 
 			// The restart. An ordinary binary, after the dead owner's lease
-			// has expired, must reach exactly one continuation.
+			// has expired, performs a durable takeover followed by an ordinary drive to completion.
 			leaseExpiryWait()
-			stdout, stderr := runBinaryWithEnvironmentTimeout(
+			runBinaryWithEnvironmentTimeout(
 				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "cut-takeover-1", "--generation", "1",
+			)
+			stdout, stderr := runBinaryWithEnvironmentTimeout(
+				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
+				"run", "--manifest", manifestPath, "--journal", journalPath,
 			)
 			if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf(

@@ -268,19 +268,18 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				crashHookEnvironmentName(t, crash.cut): "git.prepare_track_base",
 				"SWORN_TEST_OWNER_LEASE_MILLIS":        testLeaseMillis,
 			}
-			repository, journalPath, _ := prepareConsumedBaseRun(
+			repository, journalPath, manifestPath := prepareConsumedBaseRun(
 				t,
-				crashBinary,
+				normalBinary,
 				fakeBinary,
 				fakeDigest,
 				runID,
 				release,
 			)
-			runBinaryWithEnvironment(
+			runBinary(
 				t,
-				crashBinary,
-				86,
-				crashEnvironment,
+				normalBinary,
+				0,
 				"resume",
 				"--run",
 				runID,
@@ -290,6 +289,17 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"resume-1",
 				"--generation",
 				"0",
+			)
+			runBinaryWithEnvironment(
+				t,
+				crashBinary,
+				86,
+				crashEnvironment,
+				"run",
+				"--manifest",
+				manifestPath,
+				"--journal",
+				journalPath,
 			)
 			ref := "refs/heads/track/" + release + "/T1"
 			command := exec.Command(
@@ -310,7 +320,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				)
 			}
 			leaseExpiryWait()
-			stdout, _ := runBinary(
+			runBinary(
 				t,
 				normalBinary,
 				0,
@@ -323,6 +333,16 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"takeover-1",
 				"--generation",
 				"1",
+			)
+			stdout, _ := runBinary(
+				t,
+				normalBinary,
+				0,
+				"run",
+				"--manifest",
+				manifestPath,
+				"--journal",
+				journalPath,
 			)
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("takeover output = %q", stdout)
@@ -393,11 +413,10 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				release,
 				initialBytes,
 			)
-			runBinaryWithEnvironment(
+			runBinary(
 				t,
-				crashBinary,
-				86,
-				crashEnvironment,
+				normalBinary,
+				0,
 				"resume",
 				"--run",
 				runID,
@@ -407,6 +426,17 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"resume-1",
 				"--generation",
 				"0",
+			)
+			runBinaryWithEnvironment(
+				t,
+				crashBinary,
+				86,
+				crashEnvironment,
+				"run",
+				"--manifest",
+				manifestPath,
+				"--journal",
+				journalPath,
 			)
 			consumerRef := "refs/heads/track/" + release + "/T1"
 			stalePrepared := runGit(
@@ -446,7 +476,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"external target movement",
 			)
 			leaseExpiryWait()
-			stdout, _ = runBinary(
+			runBinary(
 				t,
 				normalBinary,
 				0,
@@ -459,6 +489,16 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"takeover-1",
 				"--generation",
 				"1",
+			)
+			stdout, _ = runBinary(
+				t,
+				normalBinary,
+				0,
+				"run",
+				"--manifest",
+				manifestPath,
+				"--journal",
+				journalPath,
 			)
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("forward-target recovery = %q", stdout)

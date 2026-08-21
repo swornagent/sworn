@@ -73,7 +73,16 @@ func answerRecoveryPlannerSummary(
 	if stderr != "" {
 		t.Fatalf("planner summary answer stdout=%q stderr=%q", stdout, stderr)
 	}
-	return stdout
+	manifestPath := filepath.Join(filepath.Dir(journalPath), "manifest.json")
+	driveStdout, driveStderr := runBinaryWithEnvironment(
+		t, binary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
+		"--config", configPath,
+	)
+	if driveStderr != "" {
+		t.Fatalf("planner summary drive stdout=%q stderr=%q", driveStdout, driveStderr)
+	}
+	return driveStdout
 }
 
 type recoveryE2EProvider struct {
@@ -624,6 +633,19 @@ func runDirectTurnRecoveryBaseline(
 		"--generation", "0",
 		"--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("direct resume stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironment(
+		t,
+		swornBinary,
+		0,
+		environment,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+		"--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("direct resume stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -767,6 +789,14 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 		"--command", "human-resume-1", "--generation", "0",
 		"--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("human resume stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath,
+		"--journal", journalPath, "--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("human park stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -818,6 +848,14 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 		"answer", "--run", runID, "--journal", journalPath,
 		"--attention", attention.ID, "--generation", "1",
 		"--answer", answerCanary, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("human answer stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath,
+		"--journal", journalPath, "--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("human answer stdout=%q stderr=%q", stdout, stderr)
@@ -1065,19 +1103,31 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 
 				crashDuringPark := cut == "before_park_commit" ||
 					cut == "after_park_commit"
+				answerPathCrash := cut == "after_answer_commit" ||
+					cut == "after_owner_wake"
 				if crashDuringPark {
 					runBinaryWithEnvironment(
-						t, crashBinary, 86, environment,
+						t, normalBinary, 0, environment,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-crash", "--generation", "0",
 						"--config", configPath,
 					)
+					runBinaryWithEnvironment(
+						t, crashBinary, 86, environment,
+						"run", "--manifest", manifestPath,
+						"--journal", journalPath, "--config", configPath,
+					)
 				} else {
-					stdout, stderr := runBinaryWithEnvironment(
+					runBinaryWithEnvironment(
 						t, normalBinary, 0, environment,
 						"resume", "--run", runID, "--journal", journalPath,
 						"--command", "resume-park", "--generation", "0",
 						"--config", configPath,
+					)
+					stdout, stderr := runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"run", "--manifest", manifestPath,
+						"--journal", journalPath, "--config", configPath,
 					)
 					if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 						t.Fatalf("pre-crash park stdout=%q stderr=%q", stdout, stderr)
@@ -1093,13 +1143,28 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						len(board.Runtime.Attentions) != 1 {
 						t.Fatalf("pre-crash board=%q stderr=%q", boardBody, boardErr)
 					}
-					runBinaryWithEnvironment(
-						t, crashBinary, 86, environment,
-						"answer", "--run", runID, "--journal", journalPath,
-						"--attention", board.Runtime.Attentions[0].ID,
-						"--generation", "1", "--answer", answer,
-						"--config", configPath,
-					)
+					if answerPathCrash {
+						runBinaryWithEnvironment(
+							t, crashBinary, 86, environment,
+							"answer", "--run", runID, "--journal", journalPath,
+							"--attention", board.Runtime.Attentions[0].ID,
+							"--generation", "1", "--answer", answer,
+							"--config", configPath,
+						)
+					} else {
+						runBinaryWithEnvironment(
+							t, normalBinary, 0, environment,
+							"answer", "--run", runID, "--journal", journalPath,
+							"--attention", board.Runtime.Attentions[0].ID,
+							"--generation", "1", "--answer", answer,
+							"--config", configPath,
+						)
+						runBinaryWithEnvironment(
+							t, crashBinary, 86, environment,
+							"run", "--manifest", manifestPath,
+							"--journal", journalPath, "--config", configPath,
+						)
+					}
 				}
 
 				if cut == "after_answer_commit" {
@@ -1119,6 +1184,14 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						"--attention", board.Runtime.Attentions[0].ID,
 						"--generation", "1", "--answer", answer,
 						"--config", configPath,
+					)
+					if stderr != "" {
+						t.Fatalf("answer replay stderr=%q", stderr)
+					}
+					stdout, stderr = runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"run", "--manifest", manifestPath,
+						"--journal", journalPath, "--config", configPath,
 					)
 					if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 						t.Fatalf("answer replay stdout=%q stderr=%q", stdout, stderr)
@@ -1142,7 +1215,15 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						"--generation", fmt.Sprint(board.Run.ControlGeneration),
 						"--config", configPath,
 					)
+					if stderr != "" {
+						t.Fatalf("takeover stderr=%q", stderr)
+					}
 					if crashDuringPark {
+						stdout, stderr = runBinaryWithEnvironment(
+							t, normalBinary, 0, environment,
+							"run", "--manifest", manifestPath,
+							"--journal", journalPath, "--config", configPath,
+						)
 						if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 							t.Fatalf("park takeover stdout=%q stderr=%q", stdout, stderr)
 						}
@@ -1163,7 +1244,15 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 							"--generation", "1", "--answer", answer,
 							"--config", configPath,
 						)
+						if stderr != "" {
+							t.Fatalf("answer after park stderr=%q", stderr)
+						}
 					}
+					stdout, stderr = runBinaryWithEnvironment(
+						t, normalBinary, 0, environment,
+						"run", "--manifest", manifestPath,
+						"--journal", journalPath, "--config", configPath,
+					)
 					if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 						t.Fatalf("crash recovery stdout=%q stderr=%q", stdout, stderr)
 					}
@@ -1294,6 +1383,19 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--generation", "0",
 		"--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("recovery resume stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironment(
+		t,
+		swornBinary,
+		0,
+		environment,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+		"--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		t.Fatalf("recovery park stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -1398,6 +1500,19 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		"--attention", attentionID,
 		"--generation", "1",
 		"--answer", recoveryE2EAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("recovery answer stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironment(
+		t,
+		swornBinary,
+		0,
+		environment,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
 		"--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {

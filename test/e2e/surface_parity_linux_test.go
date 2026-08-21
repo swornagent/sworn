@@ -114,6 +114,16 @@ func (r *surfaceRun) startParked() {
 		"--command", "surface-resume-1", "--generation", "0",
 		"--config", r.configPath,
 	)
+	if stderr != "" {
+		r.t.Fatalf("surface resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		r.t, r.binary, 0, r.environment, 180*time.Second,
+		"run",
+		"--manifest", r.manifestPath,
+		"--journal", r.journalPath,
+		"--config", r.configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		r.t.Fatalf("surface human park stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -649,6 +659,14 @@ func surfaceCLIAnswerAndRefusals(t *testing.T, binary string) {
 		"--attention", turn.ID, "--generation", "1",
 		"--answer", surfaceAnswerCanary, "--config", run.configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("cli answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 180*time.Second,
+		"run", "--manifest", run.manifestPath, "--journal", run.journalPath,
+		"--config", run.configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("cli answer stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -719,9 +737,19 @@ func surfaceMCPAnswerAndRefusals(t *testing.T, binary string, throughSkill bool)
 		t.Fatalf("%s mcp open turns = %#v", label, turns)
 	}
 	answered := mcpAnswer(t, serve.address, run.runID, turns[0].ID)
-	if mcpIsError(answered) ||
-		!bytes.Contains(answered, []byte(`"state":"complete"`)) {
+	if mcpIsError(answered) {
 		t.Fatalf("%s mcp answer = %s", label, answered)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		snap := mcpSnapshot(t, serve.address, run.runID)
+		if snap.Run.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s resident driver did not complete; last state = %q", label, snap.Run.State)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	recordSwornConformance(
 		t, caseAnswerAdmittedOnce, surface, "surface-parity/answer/"+surface,
@@ -822,6 +850,14 @@ func surfaceTUIStaleRefusal(t *testing.T, binary string) {
 		"answer", "--run", run.runID, "--journal", run.journalPath,
 		"--attention", turn.ID, "--generation", "1",
 		"--answer", surfaceAnswerCanary, "--config", run.configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("out-of-band answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 240*time.Second,
+		"run", "--manifest", run.manifestPath, "--journal", run.journalPath,
+		"--config", run.configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("out-of-band answer stdout=%q stderr=%q", stdout, stderr)

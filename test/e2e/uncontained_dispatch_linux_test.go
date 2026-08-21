@@ -322,6 +322,21 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0",
 		)
+		if stderr != "" {
+			t.Fatalf("resume stderr = %q", stderr)
+		}
+		stdout, stderr = runSwornInWorkerSandbox(
+			t,
+			swornBinary,
+			fakeBinary,
+			repository,
+			runRoot,
+			manifestPath,
+			journalPath,
+			0,
+			nil,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
+		)
 		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
@@ -379,6 +394,19 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 		}
 		runSwornInWorkerSandbox(
 			t,
+			swornBinary,
+			fakeBinary,
+			repository,
+			runRoot,
+			manifestPath,
+			journalPath,
+			0,
+			nil,
+			"resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0",
+		)
+		runSwornInWorkerSandbox(
+			t,
 			crashBinary,
 			fakeBinary,
 			repository,
@@ -387,8 +415,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			journalPath,
 			86,
 			crashEnvironment,
-			"resume", "--run", runID, "--journal", journalPath,
-			"--command", "resume-1", "--generation", "0",
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		stateAfterCrash := readBatonState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||
@@ -412,18 +439,30 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
 		}
 		leaseExpiryWait()
-		stdout, _ := runSwornInWorkerSandbox(
+		runSwornInWorkerSandbox(
 			t,
-			crashBinary,
+			swornBinary,
 			fakeBinary,
 			repository,
 			runRoot,
 			manifestPath,
 			journalPath,
 			0,
-			crashEnvironment,
+			nil,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1",
+		)
+		stdout, _ := runSwornInWorkerSandbox(
+			t,
+			swornBinary,
+			fakeBinary,
+			repository,
+			runRoot,
+			manifestPath,
+			journalPath,
+			0,
+			nil,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("recovered resume = %q", stdout)

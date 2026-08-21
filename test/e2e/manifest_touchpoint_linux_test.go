@@ -516,6 +516,12 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 		t, swornBinary, 0, "resume", "--run", runID, "--journal", journalPath,
 		"--command", "resume-1", "--generation", "0",
 	)
+	if stderr != "" {
+		t.Fatalf("resume stderr = %q", stderr)
+	}
+	stdout, stderr = runBinary(
+		t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 	}

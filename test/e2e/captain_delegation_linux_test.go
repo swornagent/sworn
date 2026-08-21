@@ -214,21 +214,28 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 			"run_id": "production-journey", "attention_id": attention,
 			"expected_generation": 1, "answer": journeySummaryAnswer,
 		})
-		if !bytes.Contains(replayed, []byte(`"isError":true`)) {
-			diagnose("replayed MCP answer was admitted", replayed)
+		if bytes.Contains(replayed, []byte(`"isError":true`)) {
+			diagnose("replayed MCP answer was not idempotent", replayed)
 		}
 	}
 	if answered != 2 {
 		diagnose("delegated MCP human turns = "+strconv.Itoa(answered), responseBody)
 	}
-	if !bytes.Contains(responseBody, []byte(`"state":"complete"`)) {
-		diagnose("delegated MCP completion", responseBody)
-	}
-	status := journeyMCPCall(t, address, "sworn_status", map[string]any{
-		"run_id": "production-journey",
-	})
-	if bytes.Contains(status, []byte(`"isError":true`)) {
-		diagnose("delegated MCP status", status)
+	completionDeadline := time.Now().Add(120 * time.Second)
+	for {
+		status := journeyMCPCall(t, address, "sworn_status", map[string]any{
+			"run_id": "production-journey",
+		})
+		if bytes.Contains(status, []byte(`"isError":true`)) {
+			diagnose("delegated MCP status", status)
+		}
+		if bytes.Contains(status, []byte(`"state":"complete"`)) {
+			break
+		}
+		if time.Now().After(completionDeadline) {
+			diagnose("delegated MCP completion deadline exceeded", status)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -252,7 +259,8 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 	for _, event := range snapshot.Events {
 		counts["event:"+event.Kind]++
 	}
-	if counts["command:captain_decision"] != 2 || counts["command:planner_continuation"] != 1 || counts["command:approval"] != 1 ||
+	if counts["command:attention.answer"] != 2 ||
+		counts["command:captain_decision"] != 2 || counts["command:planner_continuation"] != 1 || counts["command:approval"] != 1 ||
 		counts["effect:approval.admit"] != 1 || counts["effect:baton.install"] != 1 ||
 		counts["effect:planner.continue"] != 1 || counts["event:captain_plan_decided"] != 2 {
 		t.Fatalf("delegated cardinalities = %#v", counts)

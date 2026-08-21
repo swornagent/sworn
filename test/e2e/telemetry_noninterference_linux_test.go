@@ -279,12 +279,27 @@ func telemetryParityDelivery(
 			resumeCommand,
 		)
 	}
-	if resume.State != "complete" || resume.Outcome != "merged" {
-		t.Fatalf("resume status = %#v", resume)
+	_ = resume
+
+	var finalStatus cockpit.Snapshot
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		snap := fetchManifestTouchpointHTTPSnapshot(t, address, runID)
+		if snap.Run.State == "complete" {
+			finalStatus = snap
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("resident serve did not complete; last state = %q", snap.Run.State)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if finalStatus.Run.State != "complete" || finalStatus.Run.Outcome != "merged" {
+		t.Fatalf("final run status = %#v", finalStatus.Run)
 	}
 
 	snapshot := telemetryParityBatonSnapshot(t, repository, release)
-	snapshot.States = [2]string{start.State, resume.State}
+	snapshot.States = [2]string{start.State, finalStatus.Run.State}
 	assertDispatchOrder(t, journalPath, runID)
 	if mode.name == "exporter_backpressured" {
 		telemetryParityFinishBackpressure(t, address, blocker)

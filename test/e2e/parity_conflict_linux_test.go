@@ -264,20 +264,17 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		"--command", "resume-1",
 		"--generation", "0",
 	)
-	for generation := int64(1); stderr == "" &&
-		strings.Contains(stdout, "  state: running") &&
-		generation <= 5; generation++ {
-		stdout, stderr = runBinary(
-			t,
-			swornBinary,
-			0,
-			"resume",
-			"--run", "parity-conflict",
-			"--journal", journalPath,
-			"--command", fmt.Sprintf("resume-%d", generation+1),
-			"--generation", fmt.Sprintf("%d", generation),
-		)
+	if stderr != "" {
+		t.Fatalf("conflict resume stderr=%q", stderr)
 	}
+	stdout, stderr = runBinary(
+		t,
+		swornBinary,
+		0,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		state := readBatonState(
 			t,
