@@ -27,7 +27,7 @@
   },
   {
    "id": "A3",
-   "text": "sworn's own facts ride as sworn.* attributes on the dispatch span: run, release, track, slice, role, responsibility, attempt/epoch/try, transport status, and verdict where the dispatch produced one - pinned by the same goldens. No prompt, response, reasoning content, or session identifier appears in any attribute value."
+   "text": "sworn's own facts ride as sworn.* attributes on the dispatch span: run, release, track, slice, role, responsibility, attempt/epoch/try, and transport status - pinned by the same goldens. No sworn.verdict attribute is emitted, and the goldens pin its absence: the r3 captain adjudication (operator-ratified in revision 4) established that no per-dispatch verdict exists on any read surface - effect state is completion state, sealed submissions are content-free by doctrine, and the slice-level last-known-wins outcome would state a false fact on a historical attempt span. The verdict attribute returns only when a content-free decision-outcome fact exists on a read surface (a later slice's write-seam, on the S9 pattern). No prompt, response, reasoning content, or session identifier appears in any attribute value."
   },
   {
    "id": "A4",
@@ -46,7 +46,9 @@
   "Design ruling being encoded (2026-08-20): spans adopt OTel GenAI semantic conventions so any backend renders generations natively; sworn-specific facts ride as sworn.* attributes; verdict-to-score mapping is backend-side - the engine only emits attributes and stays vendor-neutral. Langfuse rendering the stream is operator-side evidence of the outcome, never a test dependency.",
   "The existing sworn.eval metric projection and the cumulative segment span remain: this slice adds the per-dispatch span vocabulary; removals or renames of existing exported names are out of scope, and any payload schema growth is versioned honestly.",
   "The 1024-attribute-group cardinality cap and the lossy non-blocking queue semantics of the telemetry runtime are unchanged (internal/observe/telemetry.go:17,113).",
-  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Revision 4 adjudications carried from the r3 captain receipt: the span name is sworn.dispatch; exactly the three pinned GenAI semconv keys are used verbatim (gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens) and cache/reasoning components ride as sworn.usage.* attributes - no unpinned keys are minted in the semconv namespace.",
+  "Revision 4 scope adjudication: the edit surface does NOT widen into internal/journal - the per-attempt effect identity is joinable inside internal/observe through the cockpit snapshot the evaluator already fetches (Snapshot.Runtime.Attempts carries EffectID; epoch/try parse from the effect id, slice from snapshot evidence, track from the graph), so S2 stays one mechanism in one package."
  ],
  "depends_on": [
   "S1-usage-truth"
