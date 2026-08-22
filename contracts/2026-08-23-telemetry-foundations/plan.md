@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-telemetry-foundations",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 5,
+  "previous_plan": "2f2550fc215324c2a3efd84e79cc923bbe557d06",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-telemetry-foundations/1",
+  "approval_ref": "operator://2026-08-23-telemetry-foundations/5",
   "tracks": [
     {
       "id": "T1-telemetry",
@@ -15,14 +15,16 @@
         {
           "id": "S1-usage-truth",
           "outcome": "The engine's own journals answer the questions the operator today answers with provider consoles and hand probes: every dispatch on a certified surface lands a usage receipt with the full token split the wire actually carried - input, output, cache read, cache write, reasoning - plus wall-clock duration, and an attempt that genuinely cannot report says so loudly with the surface named instead of defaulting silent. The eval summary stops rendering a partial sum as a total: coverage rides in-band with every aggregate, and turn economics - turns, tool calls, call mix per role - become first-class eval facts.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S1-usage-truth.json",
-          "digest": "sha256:dd9c812d7437e07c836512ae20487729392e381cdfe16eaf932b7055b9c159b1",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev3/S1-usage-truth.json",
+          "digest": "sha256:d4f0ebfe05c22bec48283300c7a7565251b3e1359fc97f24feaba09a52bc58c4",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/driver",
+            "internal/journal",
             "internal/observe",
-            "internal/runtime"
+            "internal/runtime",
+            "test/e2e"
           ],
           "waivers": [
             {
@@ -42,8 +44,8 @@
         {
           "id": "S2-genai-spans",
           "outcome": "Any OTel backend renders sworn's runs as native LLM traffic: each dispatch exports a span carrying the GenAI semantic conventions - the real certified model id, the token split including cache and reasoning components, and wall-clock duration - with sworn's own facts riding as sworn.* attributes, and all spans of one run sharing one trace instead of randomized per-record identities.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S2-genai-spans.json",
-          "digest": "sha256:65165a6db3fd7c8477a5541df43a5123c6664ab70ce7c9d96ffccd0e9df6a432",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev4/S2-genai-spans.json",
+          "digest": "sha256:dd5d26cf3e94784b82db1f182a0d480687e0ddc9711bccae0c83e2e450879293",
           "depends_on": [
             "S1-usage-truth"
           ],
@@ -61,8 +63,8 @@
         {
           "id": "S3-runside-export",
           "outcome": "The run owns its telemetry: the engine exports its own OTel from the run process, so a plain sworn run lands in the operator's backend with no cockpit required - through two independently configured channels, the operator's private stream and an opt-in share stream whose versioned schema allowlist makes exporting a prompt-shaped attribute structurally impossible - and sworn init walks the operator through the telemetry step instead of requiring source-reading.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S3-runside-export.json",
-          "digest": "sha256:c137efd42a95837403537d64eeb91936f074789500b200ab0f6ad7bb7a2785b6",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev5/S3-runside-export.json",
+          "digest": "sha256:f7869685d4690cafc27204f71e24b0a5f70a9907f3685c78370e07c31bcb90bb",
           "depends_on": [
             "S2-genai-spans"
           ],
@@ -357,3 +359,81 @@ admission gates, containment, or what any control verb is permitted to
 do; journal schema changes (S6, S8) ship with honest migrations, and
 all schema growth on receipts, eval records, events, and telemetry
 payloads is additive and versioned.
+
+# Revision 2
+
+Captain escalation ee07ebf9 on S1-usage-truth raised one plan decision:
+A4's honest sworn.eval schema bump requires the eval schema-version
+allowlist at internal/journal/observer.go, which revision 1 left outside
+S1's scope. This revision takes the captain's recommended option -
+S1's edit surface gains internal/journal, bounded by an appended
+constraint to exactly that allowlist, with no table change - consistent
+with the approved standing ruling that all schema growth is additive
+and versioned. S2-S9 are retained byte-identical with unchanged
+digests; only S1 is invalidated, and its outcome, acceptance, and
+consumed products are unchanged, so no downstream slice's consumed
+input changes. The revised contract lives at a new path (rev2/) because
+recorded contract files are immutable; its canonical digest
+(sha256:03d55337715f949c71dc3b89afcdde46398a207ac37dd42b745a76963806eda7)
+is byte-for-byte the digest the in-run planner's sealed revision-2
+proposal declared - this revision is that proposal, operator-carried
+per the summary-before-plan doctrine, under
+operator://2026-08-23-telemetry-foundations/2.
+
+# Revision 3
+
+The r2 captain escalation on S1 (design attempt 2) found the second and
+final out-of-scope pin of the eval schema version: two e2e conformance
+assertions (test/e2e/turn_recovery_linux_test.go:711, :1642) pin
+journal.EvalSchemaVersionV2 on live-stamped records, and test/e2e was
+outside S1's surface. An operator sweep of the whole tree confirms
+these two sites and the revision-2 observer.go allowlist are the only
+pins outside S1's existing scope - no further revision of this class
+remains. S1's edit surface gains test/e2e bounded to exactly those
+assertions; everything else is unchanged from revision 2, and S2-S9
+remain byte-identical with unchanged digests. The captain's receipt
+also settled both implementer adjudications (canonical contract digests
+verified binding; no-conversion cost strategy confirmed) - they need
+not recur. Operator-carried under
+operator://2026-08-23-telemetry-foundations/3 per the
+summary-before-plan doctrine.
+
+# Revision 4
+
+S1 is delivered: design PROCEED, candidate built with the captain's
+three bounded corrections, verifier PASS (candidate 9c759de0, r3). The
+r3 captain escalation on S2's first design found A3's sworn.verdict
+unbindable: no per-dispatch verdict exists on any read surface, and
+the slice-level last-known-wins outcome would state a false fact on a
+historical attempt span. This revision takes the captain's preferred
+resolution: A3 drops the verdict attribute and pins its absence; the
+attribute returns only when a content-free decision-outcome fact lands
+on a read surface (a later write-seam slice on the S9 pattern - the
+backend-side score-mapping ruling stays alive for it to feed). The
+captain's J1 and J3 adjudications are carried into contract
+constraints so they survive receipt invalidation: no scope widening
+into internal/journal (the effect-id join lives in the cockpit
+snapshot), span name sworn.dispatch, exactly three verbatim GenAI keys
+with cache/reasoning as sworn.usage.*. S1 and S3-S9 are byte-identical
+with unchanged digests; S1's receipts adopt by ancestry.
+Operator-carried under operator://2026-08-23-telemetry-foundations/4.
+
+# Revision 5
+
+S2 is delivered (design attempt 2 PROCEED with four bounded
+corrections, candidate 7ef01c56, verifier PASS in r4). The r4 captain
+escalation on S3's first design was the right refusal of an authority
+it did not hold: the share channel's default endpoint hostname is an
+outward-facing data-egress decision recorded nowhere. The address
+exists in the ratified record: the human operator ruled 2026-08-20
+that the share-channel gateway runs on Fly at otel.sworn.sh (collector
+gateway, Tigris archive, on the project's own domain). Revision 5
+names it as the shipped default - inert until explicit share opt-in -
+and pins the captain's two chief findings into the contract: the
+export pump covers every cmd/sworn process that hosts delivery (the
+drive-hosting verbs, not only run), and share-channel trace identities
+are never derivable from run identifiers. The additive-top-level share
+block and silent-degradation adjudications are carried as constraints.
+S1, S2, and S4-S9 are byte-identical with unchanged digests; S1 and S2
+receipts adopt by ancestry. Operator-carried under
+operator://2026-08-23-telemetry-foundations/5.
