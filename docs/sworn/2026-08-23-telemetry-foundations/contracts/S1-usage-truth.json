@@ -3,6 +3,7 @@
  "scope": {
   "include": [
    "internal/driver",
+   "internal/journal",
    "internal/observe",
    "internal/runtime"
   ],
@@ -62,7 +63,8 @@
   "Absence stays honest: pointer fields mean not-reported, never measured-zero (the driver.Usage invariant). This slice widens what is captured; it never invents a number the wire did not carry.",
   "The usage receipt schema (sworn.usage receipt, internal/driver/usage.go) and eval record schema (sworn.eval, internal/observe/eval.go:20) may add fields and bump versions; existing journaled histories must still decode - the evaluator reads old journals.",
   "No journal table changes: usage receipts and eval record bodies are opaque blobs by design (internal/journal/schema.sql attempts.usage, eval_records.body).",
-  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Revision 2 scope boundary: internal/journal enters this slice's edit surface solely for the eval schema-version allowlist at internal/journal/observer.go (EvalSchemaVersionV1/V2 must admit the bumped sworn.eval version this slice's A4 requires, so the bumped records stay readable by the observer); no other journal surface is edited and the no-table-change constraint above is unchanged."
  ],
  "depends_on": [],
  "consumes": []
