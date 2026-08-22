@@ -854,9 +854,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		runBinary(t, swornBinary, 0, "resume", "--run", runID, "--journal", journalPath,
-			"--command", "resume-1", "--generation", "0")
-		command := exec.Command(swornBinary, "run", "--manifest", manifestPath, "--journal", journalPath)
+		// The resume hosts the drive, so the resume process itself is the
+		// backgrounded driver whose barrier overlap and pause quiescence
+		// the scenario observes.
+		command := exec.Command(swornBinary, "resume", "--run", runID,
+			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
 		command.Env = cleanEnvironment(nil)
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output
@@ -1086,7 +1088,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		authorizePlan(t, journalPath, runID, initialPlan)
 		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
-		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+		// The hosted resume carries the drive through the revision trigger
+		// and the first recorded, unapproved proposal; the driven state is
+		// read from status rather than performed by a redundant drive.
+		stdout, _ := runBinary(t, swornBinary, 0, "status", "--run", runID,
+			"--journal", journalPath, "--json")
 		if !strings.Contains(stdout, "awaiting_approval") {
 			t.Fatalf("revision proposal = %q", stdout)
 		}
@@ -1096,10 +1102,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if s1Before.Outcome != "blocked" || s2Before.Pass == nil {
 			t.Fatalf("revision trigger state: S1=%#v S2=%#v", s1Before, s2Before)
 		}
-		runBinary(t, swornBinary, 0, "resume", "--run", runID,
-			"--journal", journalPath, "--command", "resume-2", "--generation", "1")
-		// The resume returns once durable; the drive that meets the
-		// authority conflict is the explicit run of the same journal.
+		// A further drive without new exact authority meets the second
+		// scripted proposal and is refused; a hosted resume replay would
+		// swallow that refusal into run state, so the explicit run is the
+		// drive that surfaces it.
 		_, stderr := runBinary(t, swornBinary, 1,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stderr, "PLAN_AUTHORITY_CONFLICT") {
