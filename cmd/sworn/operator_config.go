@@ -34,6 +34,10 @@ type operatorConfig struct {
 	Public        *operatorPublicConfig   `json:"public"`
 	Webhooks      []operatorWebhookConfig `json:"webhooks"`
 	OTel          *observe.Config         `json:"otel"`
+	// Share is the additive opt-in share-channel sibling of the private otel
+	// block (revision-5 ruling: additive top-level block, never a nested
+	// restructuring). It parses and configures independently of otel.
+	Share *observe.ShareConfig `json:"share"`
 }
 
 type operatorLocalConfig struct {
@@ -59,6 +63,7 @@ type operatorSettings struct {
 	public      *operatorPublicSettings
 	webhooks    []cockpit.WebhookDestination
 	otel        *observe.Config
+	share       *observe.ShareConfig
 }
 
 type operatorPublicSettings struct {
@@ -206,12 +211,23 @@ func parseOperatorConfig(body []byte) (operatorSettings, error) {
 		}
 		result.otel = &otelConfig
 	}
+	if config.Share != nil {
+		body, err := json.Marshal(config.Share)
+		if err != nil {
+			return operatorSettings{}, errors.New("operator config unavailable")
+		}
+		shareConfig, err := observe.ParseShareConfig(body)
+		if err != nil {
+			return operatorSettings{}, errors.New("operator config unavailable")
+		}
+		result.share = &shareConfig
+	}
 	return result, nil
 }
 
 func validateExactOperatorFields(body []byte) error {
 	root, err := exactJSONObject(body, []string{
-		"schema_version", "local", "public", "webhooks", "otel",
+		"schema_version", "local", "public", "webhooks", "otel", "share",
 	})
 	if err != nil {
 		return err
@@ -247,18 +263,35 @@ func validateExactOperatorFields(body []byte) error {
 		}
 	}
 	if otel, found := root["otel"]; found && !jsonNull(otel) {
-		fields, err := exactJSONObject(otel, []string{
+		if err := validateExactTelemetryBlock(otel, []string{
 			"schema_version", "endpoint", "headers",
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
-		if headers, found := fields["headers"]; found &&
-			!jsonNull(headers) {
-			var values map[string]json.RawMessage
-			if err := json.Unmarshal(headers, &values); err != nil {
-				return err
-			}
+	}
+	if share, found := root["share"]; found && !jsonNull(share) {
+		if err := validateExactTelemetryBlock(share, []string{
+			"schema_version", "enabled", "endpoint", "headers",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateExactTelemetryBlock(
+	body []byte,
+	allowed []string,
+) error {
+	fields, err := exactJSONObject(body, allowed)
+	if err != nil {
+		return err
+	}
+	if headers, found := fields["headers"]; found &&
+		!jsonNull(headers) {
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal(headers, &values); err != nil {
+			return err
 		}
 	}
 	return nil

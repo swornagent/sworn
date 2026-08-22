@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/observe"
 )
 
 // Runtime files the sandboxed agent CLI needs for name resolution and TLS.
@@ -336,14 +339,30 @@ func buildDefaultOperatorConfig() []byte {
 	return []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:7337\"\n  }\n}\n")
 }
 
+// setupOperatorConfig scaffolds the operator config with the guided
+// telemetry step (A5): interactive runs ask for the private OTLP/HTTP
+// endpoint and the share opt-in, and seed the proposed body from any blocks
+// an existing config already carries, so re-running reports "already
+// current" instead of offering to replace the operator's telemetry config
+// with the bare default. --yes and --force keep the non-interactive path
+// byte-identical to today: no prompt is ever asked and no share/otel block
+// is ever written (C4 - --force's confirm() semantics answer a default-no
+// question with yes, so the share opt-in must never route through confirm).
 func setupOperatorConfig(s *initSession, paths projectPaths) error {
-	body := buildDefaultOperatorConfig()
 	info, statErr := os.Lstat(paths.operatorConfig)
 	if os.IsNotExist(statErr) {
 		prompt := fmt.Sprintf("Write operator configuration with local listen default 127.0.0.1:7337 (%s)?", paths.operatorConfig)
 		if s.confirm(prompt, true) {
 			if err := os.MkdirAll(filepath.Dir(paths.operatorConfig), 0o755); err != nil {
 				return err
+			}
+			body := buildDefaultOperatorConfig()
+			if !s.nonInteractive && !s.force {
+				guided, err := guidedOperatorBody(s)
+				if err != nil {
+					return err
+				}
+				body = guided
 			}
 			if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
 				return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
@@ -358,15 +377,66 @@ func setupOperatorConfig(s *initSession, paths projectPaths) error {
 	if statErr == nil {
 		existing, readErr := os.ReadFile(paths.operatorConfig)
 		isMode600 := info.Mode().Perm() == 0o600 && info.Mode().IsRegular()
-		if readErr == nil && bytes.Equal(existing, body) && isMode600 {
-			fmt.Fprintf(s.out, "  Operator configuration already current: %s\n", paths.operatorConfig)
+		if s.nonInteractive || s.force {
+			// The non-interactive flows are exactly today's: bare default
+			// body, unchanged-file and diff+replace prompts, never a
+			// telemetry question (C4).
+			body := buildDefaultOperatorConfig()
+			if readErr == nil && bytes.Equal(existing, body) && isMode600 {
+				fmt.Fprintf(s.out, "  Operator configuration already current: %s\n", paths.operatorConfig)
+				return nil
+			}
+			fmt.Fprintf(s.out, "  Operator configuration at %s differs from proposed configuration:\n%s", paths.operatorConfig, renderDiff(existing, body, info.Mode(), 0o600))
+			prompt := fmt.Sprintf("Replace operator configuration (%s)?", paths.operatorConfig)
+			if s.confirm(prompt, false) {
+				if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
+					return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+				}
+				if err := os.Chmod(paths.operatorConfig, 0o600); err != nil {
+					return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+				}
+				fmt.Fprintf(s.out, "  replaced %s (local listen 127.0.0.1:7337)\n", paths.operatorConfig)
+			} else {
+				fmt.Fprintf(s.out, "  kept existing %s\n", paths.operatorConfig)
+			}
 			return nil
 		}
 
-		fmt.Fprintf(s.out, "  Operator configuration at %s differs from proposed configuration:\n%s", paths.operatorConfig, renderDiff(existing, body, info.Mode(), 0o600))
+		// Interactive guided flow: seed from the existing file's telemetry
+		// blocks, ask only for what is missing, and leave an unchanged
+		// config byte-identical.
+		proposed, guidedErr := seedGuidedOperatorBody(s, existing)
+		if guidedErr != nil {
+			// The existing file cannot be read as an operator config; keep
+			// it and offer the bare-default replacement exactly as before.
+			body := buildDefaultOperatorConfig()
+			if readErr == nil && bytes.Equal(existing, body) && isMode600 {
+				fmt.Fprintf(s.out, "  Operator configuration already current: %s\n", paths.operatorConfig)
+				return nil
+			}
+			fmt.Fprintf(s.out, "  Operator configuration at %s differs from proposed configuration:\n%s", paths.operatorConfig, renderDiff(existing, body, info.Mode(), 0o600))
+			prompt := fmt.Sprintf("Replace operator configuration (%s)?", paths.operatorConfig)
+			if s.confirm(prompt, false) {
+				if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
+					return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+				}
+				if err := os.Chmod(paths.operatorConfig, 0o600); err != nil {
+					return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+				}
+				fmt.Fprintf(s.out, "  replaced %s (local listen 127.0.0.1:7337)\n", paths.operatorConfig)
+			} else {
+				fmt.Fprintf(s.out, "  kept existing %s\n", paths.operatorConfig)
+			}
+			return nil
+		}
+		if bytes.Equal(proposed, existing) && isMode600 {
+			fmt.Fprintf(s.out, "  Operator configuration already current: %s\n", paths.operatorConfig)
+			return nil
+		}
+		fmt.Fprintf(s.out, "  Operator configuration at %s differs from proposed configuration:\n%s", paths.operatorConfig, renderDiff(existing, proposed, info.Mode(), 0o600))
 		prompt := fmt.Sprintf("Replace operator configuration (%s)?", paths.operatorConfig)
 		if s.confirm(prompt, false) {
-			if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
+			if err := os.WriteFile(paths.operatorConfig, proposed, 0o600); err != nil {
 				return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
 			}
 			if err := os.Chmod(paths.operatorConfig, 0o600); err != nil {
@@ -379,6 +449,191 @@ func setupOperatorConfig(s *initSession, paths projectPaths) error {
 	}
 
 	return nil
+}
+
+// guidedOperatorBody renders a fresh operator config body after the guided
+// telemetry questions (the brand-new scaffold flow).
+func guidedOperatorBody(s *initSession) ([]byte, error) {
+	config, err := parseOperatorBody(buildDefaultOperatorConfig())
+	if err != nil {
+		return nil, err
+	}
+	otelBlock, err := guidedOTelBlock(s)
+	if err != nil {
+		return nil, err
+	}
+	shareBlock, err := guidedShareBlock(s)
+	if err != nil {
+		return nil, err
+	}
+	if otelBlock == nil && shareBlock == nil {
+		return buildDefaultOperatorConfig(), nil
+	}
+	config.OTel = otelBlock
+	config.Share = shareBlock
+	return renderOperatorConfigBody(config), nil
+}
+
+// seedGuidedOperatorBody parses an existing operator config, asks only the
+// telemetry questions whose blocks are absent, and returns the proposed
+// body. When nothing was answered in, it returns the existing bytes exactly,
+// so an operator-edited telemetry config is never offered replacement with
+// the bare default (captain F6).
+func seedGuidedOperatorBody(
+	s *initSession,
+	existing []byte,
+) ([]byte, error) {
+	config, err := parseOperatorBody(existing)
+	if err != nil {
+		return nil, err
+	}
+	var otelBlock *observe.Config
+	var shareBlock *observe.ShareConfig
+	if config.OTel != nil {
+		otelBlock = config.OTel
+	} else {
+		otelBlock, err = guidedOTelBlock(s)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if config.Share != nil {
+		shareBlock = config.Share
+	} else {
+		shareBlock, err = guidedShareBlock(s)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if (config.OTel != nil || otelBlock == nil) &&
+		(config.Share != nil || shareBlock == nil) {
+		return existing, nil
+	}
+	config.OTel = otelBlock
+	config.Share = shareBlock
+	return renderOperatorConfigBody(config), nil
+}
+
+// guidedOTelBlock asks for the private OTLP/HTTP endpoint in free text. An
+// empty answer means no private channel; a non-empty answer must parse
+// through the same strict endpoint rules the operator config uses, or it is
+// reported and skipped. This is interactive-only by construction.
+func guidedOTelBlock(s *initSession) (*observe.Config, error) {
+	if s.nonInteractive || s.force {
+		return nil, nil
+	}
+	endpoint, err := s.promptText("Private telemetry OTLP endpoint (empty to skip)?")
+	if err != nil {
+		return nil, err
+	}
+	if endpoint == "" {
+		return nil, nil
+	}
+	candidate := observe.Config{
+		SchemaVersion: observe.OTelConfigSchemaVersion,
+		Endpoint:      endpoint,
+		Headers:       map[string]string{},
+	}
+	body, err := json.Marshal(candidate)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := observe.ParseConfig(body)
+	if err != nil {
+		fmt.Fprintf(s.out, "  skipped private telemetry (endpoint %q is not a valid OTLP endpoint)\n", endpoint)
+		return nil, nil
+	}
+	return &parsed, nil
+}
+
+// guidedShareBlock asks the share opt-in question (default no). It is
+// interactive-only and must never be answered by a flag: under --force,
+// confirm() turns a default-no question into yes, which would opt an
+// operator into exporting without them ever answering (C4).
+func guidedShareBlock(s *initSession) (*observe.ShareConfig, error) {
+	if s.nonInteractive || s.force {
+		return nil, nil
+	}
+	prompt := fmt.Sprintf("Share fleet telemetry with the Sworn project gateway (%s)?", observe.ShareDefaultEndpoint)
+	if !s.confirm(prompt, false) {
+		return nil, nil
+	}
+	return &observe.ShareConfig{
+		SchemaVersion: observe.ShareConfigSchemaVersion,
+		Enabled:       true,
+		Endpoint:      observe.ShareDefaultEndpoint,
+		Headers:       map[string]string{},
+	}, nil
+}
+
+// promptText reads one free-text line interactively. It is never used on a
+// non-interactive session; a missing or exhausted input yields the empty
+// answer, which declines the question.
+func (s *initSession) promptText(prompt string) (string, error) {
+	if s.nonInteractive || s.force {
+		return "", nil
+	}
+	fmt.Fprintf(s.out, "%s ", prompt)
+	if s.in == nil {
+		fmt.Fprintln(s.out)
+		return "", nil
+	}
+	line, err := s.in.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Fprintln(s.out)
+		return "", nil
+	}
+	return strings.TrimSpace(line), nil
+}
+
+// parseOperatorBody applies the same closed admission rules as
+// parseOperatorConfig but returns the typed body so the guided flow can
+// re-render it with added telemetry blocks.
+func parseOperatorBody(body []byte) (operatorConfig, error) {
+	if len(body) < 2 || len(body) > maxOperatorConfigBytes ||
+		rejectAmbiguousOperatorJSON(body) != nil ||
+		validateExactOperatorFields(body) != nil {
+		return operatorConfig{}, errors.New("operator config unavailable")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var config operatorConfig
+	if err := decoder.Decode(&config); err != nil {
+		return operatorConfig{}, errors.New("operator config unavailable")
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return operatorConfig{}, errors.New("operator config unavailable")
+	}
+	if config.SchemaVersion != operatorConfigSchemaVersion ||
+		len(config.Webhooks) > 32 {
+		return operatorConfig{}, errors.New("operator config unavailable")
+	}
+	return config, nil
+}
+
+// renderOperatorConfigBody renders the canonical pretty scaffold shape with
+// the optional telemetry blocks appended. omitempty keeps the bare default
+// byte-identical to buildDefaultOperatorConfig.
+func renderOperatorConfigBody(config operatorConfig) []byte {
+	body, err := json.MarshalIndent(struct {
+		SchemaVersion string                  `json:"schema_version"`
+		Local         operatorLocalConfig     `json:"local"`
+		Public        *operatorPublicConfig   `json:"public,omitempty"`
+		Webhooks      []operatorWebhookConfig `json:"webhooks,omitempty"`
+		OTel          *observe.Config         `json:"otel,omitempty"`
+		Share         *observe.ShareConfig    `json:"share,omitempty"`
+	}{
+		SchemaVersion: config.SchemaVersion,
+		Local:         config.Local,
+		Public:        config.Public,
+		Webhooks:      config.Webhooks,
+		OTel:          config.OTel,
+		Share:         config.Share,
+	}, "", "  ")
+	if err != nil {
+		return buildDefaultOperatorConfig()
+	}
+	return append(body, '\n')
 }
 
 func renderDiff(existing, proposed []byte, existingMode, expectedMode os.FileMode) string {

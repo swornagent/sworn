@@ -373,6 +373,123 @@ func TestOperatorConfigValidatesPublicWebhookAndOTelBoundaries(t *testing.T) {
 	}
 }
 
+// A2: the share block is an additive sibling that configures independently
+// of the private otel block: absent or enabled:false leaves the channel off,
+// enabled with an empty endpoint carries the shipped default, endpoint and
+// headers override, and an invalid shape is rejected without touching the
+// private channel.
+func TestOperatorConfigShareBlockIsAdditiveAndIndependent(t *testing.T) {
+	t.Parallel()
+
+	base := map[string]any{
+		"schema_version": operatorConfigSchemaVersion,
+		"local":          map[string]any{"listen": "127.0.0.1:7444"},
+	}
+	shareOn := map[string]any{
+		"schema_version": observe.ShareConfigSchemaVersion,
+		"enabled":        true,
+	}
+	shareOverride := map[string]any{
+		"schema_version": observe.ShareConfigSchemaVersion,
+		"enabled":        true,
+		"endpoint":       "http://127.0.0.1:4318/collector",
+		"headers":        map[string]any{"X-Fleet": "project"},
+	}
+	otelBlock := map[string]any{
+		"schema_version": observe.OTelConfigSchemaVersion,
+		"endpoint":       "https://otel.example/collect",
+		"headers":        map[string]any{"Authorization": "private"},
+	}
+	marshal := func(value map[string]any) []byte {
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	with := func(extra map[string]any) map[string]any {
+		result := make(map[string]any, len(base)+len(extra))
+		for key, value := range base {
+			result[key] = value
+		}
+		for key, value := range extra {
+			result[key] = value
+		}
+		return result
+	}
+
+	// Absence: share off, otel untouched.
+	if settings, err := parseOperatorConfig(marshal(base)); err != nil ||
+		settings.share != nil || settings.otel != nil {
+		t.Fatalf("absent share = %#v, %v", settings, err)
+	}
+	// Explicitly disabled block: channel off, block preserved.
+	disabled := with(map[string]any{"share": map[string]any{
+		"schema_version": observe.ShareConfigSchemaVersion,
+		"enabled":        false,
+	}})
+	if settings, err := parseOperatorConfig(marshal(disabled)); err != nil ||
+		settings.share == nil || settings.share.Enabled {
+		t.Fatalf("disabled share = %#v, %v", settings, err)
+	}
+	// Enabled with empty endpoint carries the shipped default.
+	if settings, err := parseOperatorConfig(marshal(with(map[string]any{
+		"share": shareOn,
+	}))); err != nil || settings.share == nil ||
+		!settings.share.Enabled ||
+		settings.share.Endpoint != observe.ShareDefaultEndpoint {
+		t.Fatalf("default-endpoint share = %#v, %v", settings, err)
+	}
+	// Endpoint and headers override.
+	if settings, err := parseOperatorConfig(marshal(with(map[string]any{
+		"share": shareOverride,
+	}))); err != nil || settings.share == nil ||
+		settings.share.Endpoint != "http://127.0.0.1:4318/collector" ||
+		settings.share.Headers["X-Fleet"] != "project" {
+		t.Fatalf("overridden share = %#v, %v", settings, err)
+	}
+	// Both channels configure independently; adding either never touches
+	// the other.
+	if settings, err := parseOperatorConfig(marshal(with(map[string]any{
+		"otel": otelBlock, "share": shareOverride,
+	}))); err != nil || settings.otel == nil ||
+		settings.otel.Endpoint != "https://otel.example/collect" ||
+		settings.share == nil ||
+		settings.share.Endpoint != "http://127.0.0.1:4318/collector" {
+		t.Fatalf("both channels = %#v, %v", settings, err)
+	}
+	// Invalid share shapes are rejected while the private block still
+	// parses on its own.
+	invalid := []map[string]any{
+		{
+			"schema_version": "sworn.otel-config/v1",
+			"enabled":        true,
+		},
+		{
+			"schema_version": observe.ShareConfigSchemaVersion,
+			"enabled":        true,
+			"endpoint":       "http://example.invalid/collector",
+		},
+		{
+			"schema_version": observe.ShareConfigSchemaVersion,
+			"enabled":        true,
+			"extra":          true,
+		},
+	}
+	for index, value := range invalid {
+		if _, err := parseOperatorConfig(marshal(with(map[string]any{
+			"share": value,
+		}))); err == nil {
+			t.Fatalf("invalid share shape %d admitted", index)
+		}
+	}
+	if _, err := parseOperatorConfig(marshal(with(map[string]any{
+		"otel": otelBlock,
+	}))); err != nil {
+		t.Fatalf("private block broke after share validation: %v", err)
+	}
+}
+
 func TestOperatorManifestAdmissionDoesNotCreateRun(t *testing.T) {
 	t.Parallel()
 
