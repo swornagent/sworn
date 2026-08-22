@@ -4,7 +4,7 @@ PRAGMA foreign_keys = ON;
 PRAGMA trusted_schema = OFF;
 PRAGMA busy_timeout = 5000;
 PRAGMA application_id = 1398230866;
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     usage_digest TEXT NOT NULL,
     usage BLOB NOT NULL,
     handoff_digest TEXT,
-    created_at TEXT NOT NULL,
+    created_at TEXT NOT NULL, observation_body BLOB, observation_partial INTEGER NOT NULL DEFAULT 0 CHECK (observation_partial IN (0,1)),
     PRIMARY KEY (run_id, effect_id, attempt),
     FOREIGN KEY (run_id, effect_id) REFERENCES effects(run_id, effect_id)
 ) WITHOUT ROWID, STRICT;

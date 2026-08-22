@@ -69,6 +69,25 @@ type continuationDispatchFact struct {
 	posture  driver.ContinuationPosture
 }
 
+// marshalObservationBody makes the single observation-marshal seam
+// error-aware and loud. json.Marshal on driver.Observation is infallible
+// today — strings, integers, booleans, and byte slices only — but if a
+// future content-bearing field ever makes it fail, the attempt persists the
+// contentless marker body whose digest is self-consistent (never a
+// digested-nothing) and the marshal error is joined into the returned
+// failure so the loud record reaches the dispatcher. The injectable marshal
+// keeps the failure branch pinnable from a unit test.
+func marshalObservationBody(
+	marshal func(any) ([]byte, error),
+	observation driver.Observation,
+) ([]byte, error) {
+	body, err := marshal(observation)
+	if err != nil {
+		return []byte(`{"observation_marshal_error":true}`), err
+	}
+	return body, nil
+}
+
 type continuationPlanAuthority struct {
 	OID      string `json:"oid"`
 	Digest   string `json:"digest"`
@@ -2156,7 +2175,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
 		}
 	}
-	observationBody, _ := json.Marshal(observation)
+	observationBody, marshalErr := marshalObservationBody(
+		json.Marshal,
+		observation,
+	)
 	transport := observation.TransportStatus
 	if transport == "" && invokeErr != nil {
 		transport = driver.RunnerError
@@ -2176,6 +2198,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		code := stableErrorCode(invokeErr)
 		resultBytes := extractRefusalResult(invokeErr)
+		attempt.ObservationBody = observationBody
 		if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
@@ -2185,7 +2208,11 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); err != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
-		return driver.Submission{}, runtimeFail("DRIVER_OPERATIONAL_FAILURE", invokeErr)
+		return driver.Submission{},
+			errors.Join(
+				runtimeFail("DRIVER_OPERATIONAL_FAILURE", invokeErr),
+				marshalErr,
+			)
 	}
 	submission, err := driver.DecodeSubmission(observation.Handoff.SubmissionBytes)
 	if err != nil ||
@@ -2202,6 +2229,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					runtimeFail("INVALID_DRIVER_HANDOFF", err),
 				)
 		}
+		attempt.ObservationBody = observationBody
 		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
@@ -2211,7 +2239,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
-		return driver.Submission{}, runtimeFail("INVALID_DRIVER_HANDOFF", err)
+		return driver.Submission{},
+			errors.Join(runtimeFail("INVALID_DRIVER_HANDOFF", err), marshalErr)
 	}
 	if planErr := s.validateHumanConfirmedPlannerHandoff(
 		completionCtx,
@@ -2224,6 +2253,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		if answered != nil {
 			return driver.Submission{}, preserveAnswered(planErr)
 		}
+		attempt.ObservationBody = observationBody
 		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_human_turn",
@@ -2233,7 +2263,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
-		return driver.Submission{}, planErr
+		return driver.Submission{}, errors.Join(planErr, marshalErr)
 	}
 	if !prepared.fake {
 		currentBody, authorityErr := currentPreparedProductionBody(
@@ -2255,6 +2285,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if authorityErr == nil {
 				code = "stale_authority"
 			}
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2273,9 +2304,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
 			if authorityErr != nil {
-				return driver.Submission{}, authorityErr
+				return driver.Submission{}, errors.Join(authorityErr, marshalErr)
 			}
-			return driver.Submission{}, runtimeFail("STALE_DISPATCH", nil)
+			return driver.Submission{},
+				errors.Join(runtimeFail("STALE_DISPATCH", nil), marshalErr)
 		}
 	}
 	if answered != nil && answered.Attention.HumanTurn != nil {
@@ -2316,6 +2348,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				)
 			}
 			resultBytes := extractRefusalResult(err)
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2334,7 +2367,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				return driver.Submission{},
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
-			return driver.Submission{}, err
+			return driver.Submission{}, errors.Join(err, marshalErr)
 		}
 	}
 	if answered != nil && answered.Attention.HumanTurn != nil {
@@ -2361,6 +2394,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if answered != nil {
 				return driver.Submission{}, preserveAnswered(err)
 			}
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2378,7 +2412,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				return driver.Submission{},
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
-			return driver.Submission{}, err
+			return driver.Submission{}, errors.Join(err, marshalErr)
 		}
 		pendingStored = true
 	}
