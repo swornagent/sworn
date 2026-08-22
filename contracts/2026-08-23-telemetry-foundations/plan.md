@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-telemetry-foundations",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "b7659be8cebe922d72e839af0c1dad4821498694",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-telemetry-foundations/1",
+  "approval_ref": "operator://2026-08-23-telemetry-foundations/2",
   "tracks": [
     {
       "id": "T1-telemetry",
@@ -15,12 +15,13 @@
         {
           "id": "S1-usage-truth",
           "outcome": "The engine's own journals answer the questions the operator today answers with provider consoles and hand probes: every dispatch on a certified surface lands a usage receipt with the full token split the wire actually carried - input, output, cache read, cache write, reasoning - plus wall-clock duration, and an attempt that genuinely cannot report says so loudly with the surface named instead of defaulting silent. The eval summary stops rendering a partial sum as a total: coverage rides in-band with every aggregate, and turn economics - turns, tool calls, call mix per role - become first-class eval facts.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S1-usage-truth.json",
-          "digest": "sha256:dd9c812d7437e07c836512ae20487729392e381cdfe16eaf932b7055b9c159b1",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev2/S1-usage-truth.json",
+          "digest": "sha256:03d55337715f949c71dc3b89afcdde46398a207ac37dd42b745a76963806eda7",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/driver",
+            "internal/journal",
             "internal/observe",
             "internal/runtime"
           ],
@@ -357,3 +358,23 @@ admission gates, containment, or what any control verb is permitted to
 do; journal schema changes (S6, S8) ship with honest migrations, and
 all schema growth on receipts, eval records, events, and telemetry
 payloads is additive and versioned.
+
+# Revision 2
+
+Captain escalation ee07ebf9 on S1-usage-truth raised one plan decision:
+A4's honest sworn.eval schema bump requires the eval schema-version
+allowlist at internal/journal/observer.go, which revision 1 left outside
+S1's scope. This revision takes the captain's recommended option -
+S1's edit surface gains internal/journal, bounded by an appended
+constraint to exactly that allowlist, with no table change - consistent
+with the approved standing ruling that all schema growth is additive
+and versioned. S2-S9 are retained byte-identical with unchanged
+digests; only S1 is invalidated, and its outcome, acceptance, and
+consumed products are unchanged, so no downstream slice's consumed
+input changes. The revised contract lives at a new path (rev2/) because
+recorded contract files are immutable; its canonical digest
+(sha256:03d55337715f949c71dc3b89afcdde46398a207ac37dd42b745a76963806eda7)
+is byte-for-byte the digest the in-run planner's sealed revision-2
+proposal declared - this revision is that proposal, operator-carried
+per the summary-before-plan doctrine, under
+operator://2026-08-23-telemetry-foundations/2.
