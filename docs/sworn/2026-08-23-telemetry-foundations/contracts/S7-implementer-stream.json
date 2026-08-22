@@ -1,0 +1,70 @@
+{
+ "outcome": "The implementer stops being the only unobservable role: google-native dispatches stream, their deltas render live exactly as deepseek and qwen deliberation already does, and thought summaries can be requested - so a forty-minute gemini build shows its work while it happens instead of freezing the log until completion, and the smart-observer doctrine gets its oversight input for the role that writes the code.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "durable observation of worker activity (S8's mechanism; the stream stays presentation-only by the renderer's own doctrine)",
+   "every other adapter's request behavior",
+   "journal, runtime, and cockpit surfaces"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins the gemini transport mode"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins adapter streaming"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins adapter streaming"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; dispatch semantics are constrained unchanged - streamed and unstreamed dispatches produce equivalent receipts by A3"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins adapter streaming"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The google-native adapter requests streamGenerateContent as an operator-configurable streaming mode and feeds arriving deltas to the existing live stream renderer, while terminal validation runs the identical non-streaming accept path over the terminal response object - the same invariant the responses dialect already keeps (internal/driver/stream.go:190 readStreamedResponse returns only the terminal object). Anchors: the hardcoded generateContent suffix at internal/driver/gemini.go:256-257, providerRequest built with no Stream at gemini.go:259-261, and HTTPProfileConfig carrying no streaming knob at all (internal/driver/http.go:43) - streaming is a responses-dialect capability only today (internal/driver/openai.go:90,317-327). Pinned by adapter tests over recorded SSE fixtures."
+  },
+  {
+   "id": "A2",
+   "text": "Pacing counts streamed requests identically: the proactive sliding-minute input-token ledger and the reactive paced-retry path treat a streamed gemini dispatch exactly as an unstreamed one - the ledger sits above the dialect (internal/driver/provider.go:427-484: estimate from request-body bytes, record from accepted usage) but no shipping configuration has ever exercised streaming and pacing together, so this slice pins it by test rather than by construction."
+  },
+  {
+   "id": "A3",
+   "text": "Streamed and unstreamed dispatches are equivalent where it counts: identical usage receipts (including thoughtsTokenCount reaching ReasoningTokens, gemini.go:457-463), identical handoff validation, identical error classification - pinned by a parity test over the same fixture conversation both ways."
+  },
+  {
+   "id": "A4",
+   "text": "Thought summaries are requestable: an operator knob asks Google for thought content (include_thoughts vocabulary - requested nowhere in the tree today; only the thinkingLevel knob exists, gemini.go:66-72,155-160), and when enabled the summaries render live through the renderer's existing reasoning channel; the knob's absence changes nothing. Pinned by request-shape and render tests."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Evidence basis (sworn#225): a ~40-minute gemini implementation dispatch produced zero observable content anywhere until completion; the operator could not distinguish productive work from a hang beyond lease heartbeats, and the S3 five-attempt design churn was caught from captain verdicts only. The ratified smart-observer doctrine treats streamed worker reasoning as an oversight input.",
+  "The stream renderer stays presentation-only (internal/driver/stream.go:20-22: nothing feeds validation, rendering failures are ignored); durable observation is S8's seam, and this slice must not journal stream content.",
+  "The streaming knob is driver configuration: enabling it for a run is a config-digest change at the operator's hand, and the unstreamed path remains fully supported and certified.",
+  "The existing stream byte bound (MaxStreamBytes, stream.go:16) and the transport's redirect and size postures apply to the streamed path unchanged.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

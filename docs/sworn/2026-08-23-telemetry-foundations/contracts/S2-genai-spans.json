@@ -1,0 +1,55 @@
+{
+ "outcome": "Any OTel backend renders sworn's runs as native LLM traffic: each dispatch exports a span carrying the GenAI semantic conventions - the real certified model id, the token split including cache and reasoning components, and wall-clock duration - with sworn's own facts riding as sworn.* attributes, and all spans of one run sharing one trace instead of randomized per-record identities.",
+ "scope": {
+  "include": [
+   "internal/observe"
+  ],
+  "exclude": [
+   "export topology, channels, and where the emitter runs (S3's mechanism; this slice defines what a span says, exercised against a fixture sink through the existing serve-mediated path)",
+   "capture of the underlying facts (S1's mechanism; this slice projects what S1 journals)",
+   "backend-side concerns (verdict-to-score mapping is backend territory by ruling; the engine stays vendor-neutral)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/observe by import only; no cmd test pins span vocabulary, and the serve wiring is untouched by this slice"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A fixture OTLP sink receives one span per dispatch attempt carrying gen_ai.request.model (the certified model id actually dispatched), gen_ai.usage.input_tokens and gen_ai.usage.output_tokens, the cache-read/cache-write/reasoning components when reported, and the attempt's duration - pinned by span-attribute goldens (anchor: internal/observe/telemetry_payload.go:197 - today exactly two synthetic span names, sworn.process.segment and sworn.recovery, and zero gen_ai.* attributes anywhere in the tree)."
+  },
+  {
+   "id": "A2",
+   "text": "Spans of one run share one trace identity, so a backend renders the run as a single trace with dispatch spans inside it - replacing the per-record randomized trace and span ids at internal/observe/telemetry_payload.go:231 - and re-evaluation never exports duplicate span identities for the same attempt."
+  },
+  {
+   "id": "A3",
+   "text": "sworn's own facts ride as sworn.* attributes on the dispatch span: run, release, track, slice, role, responsibility, attempt/epoch/try, transport status, and verdict where the dispatch produced one - pinned by the same goldens. No prompt, response, reasoning content, or session identifier appears in any attribute value."
+  },
+  {
+   "id": "A4",
+   "text": "Partial usage coverage is visible on the span itself: a span whose usage was not reported says so in-band (status attributes from S1's receipt vocabulary), never by silently omitting the attributes - pinned by a golden over a mixed-coverage fixture history."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Design ruling being encoded (2026-08-20): spans adopt OTel GenAI semantic conventions so any backend renders generations natively; sworn-specific facts ride as sworn.* attributes; verdict-to-score mapping is backend-side - the engine only emits attributes and stays vendor-neutral. Langfuse rendering the stream is operator-side evidence of the outcome, never a test dependency.",
+  "The existing sworn.eval metric projection and the cumulative segment span remain: this slice adds the per-dispatch span vocabulary; removals or renames of existing exported names are out of scope, and any payload schema growth is versioned honestly.",
+  "The 1024-attribute-group cardinality cap and the lossy non-blocking queue semantics of the telemetry runtime are unchanged (internal/observe/telemetry.go:17,113).",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S1-usage-truth"
+ ],
+ "consumes": []
+}

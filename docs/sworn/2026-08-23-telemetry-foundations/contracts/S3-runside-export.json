@@ -1,0 +1,66 @@
+{
+ "outcome": "The run owns its telemetry: the engine exports its own OTel from the run process, so a plain sworn run lands in the operator's backend with no cockpit required - through two independently configured channels, the operator's private stream and an opt-in share stream whose versioned schema allowlist makes exporting a prompt-shaped attribute structurally impossible - and sworn init walks the operator through the telemetry step instead of requiring source-reading.",
+ "scope": {
+  "include": [
+   "cmd/sworn",
+   "internal/observe",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "span and metric vocabulary (S2's mechanism)",
+   "the operator-side backend topology (collector gateway, ClickHouse, Langfuse, Grafana - the engine sees only OTLP endpoints by ruling)",
+   "webhooks and the cockpit's non-telemetry surfaces"
+  ],
+  "waivers": [
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/runtime by import only; the cockpit's view surfaces are unchanged - serve stops being the export path but its projection behavior is untouched"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/runtime (via internal/cockpit and directly) by import only; no tui test pins telemetry export"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A plain sworn run with a configured private telemetry channel exports its spans and metrics with no serve process running - pinned by a test driving a run against a fixture OTLP sink. Anchor for the gap: observe.NewOTLP is constructed only at cmd/sworn/operator.go:539 and :819 behind sworn serve, the evaluator pump runs only in the serve goroutine (operator.go:908,1016), and nothing under internal/runtime references internal/observe - today a run without a cockpit emits nothing."
+  },
+  {
+   "id": "A2",
+   "text": "Two channels configure independently in the operator config: the private channel (today's sworn.otel-config/v1 shape: endpoint plus headers) and the share channel, which is absent-by-default until explicitly opted in, carries a default endpoint that is overridable and disableable, and configures without touching the private channel - pinned by config parse tests (anchor: cmd/sworn/operator_config.go:31, observe.Config at internal/observe/config.go:23)."
+  },
+  {
+   "id": "A3",
+   "text": "The share schema is enforced in-engine at the exporter boundary: only the versioned allowlist of named metrics and attributes can cross the share channel, and a test proves an attribute carrying prompt, response, reasoning, session-id, or source content shapes cannot be exported on it - structurally, not by convention. The private channel is not filtered."
+  },
+  {
+   "id": "A4",
+   "text": "Telemetry stays incapable of affecting delivery: export failure, endpoint absence, or a hostile collector degrade telemetry status only - never a run outcome, exit code, or journal write. The existing non-interference conformance evidence (test/e2e TestRealBinaryTelemetryCannotAffectDelivery) keeps passing with run-side export in play, and the lossy non-blocking enqueue posture is preserved (internal/observe/telemetry.go:113)."
+  },
+  {
+   "id": "A5",
+   "text": "sworn init's guided flow gains the telemetry step - private endpoint entry and the share opt-in question - writing the operator config block it scaffolds today without any otel content (anchor: cmd/sworn/init_command.go:336), idempotent on re-run, with --yes preserving the non-interactive path. serve keeps exporting as a view without double-emitting what the run already exported."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Standing ruling (Brad 2026-08-20): export moves RUN-SIDE - the engine emits because the run owns its facts; serve is a view only, never the export path. Serve-per-run as a telemetry requirement dies with this slice.",
+  "Design ruling: two channels, one wire format - both plain OTLP/HTTP with endpoint plus headers; private points wherever the operator says; share defaults to the project gateway. The share allowlist is enforced in-engine here and again at the gateway (the gateway is out of engine scope).",
+  "The privacy promise becomes structural: no prompts, responses, reasoning, session ids, or source content on the share channel - by schema, not by review.",
+  "The e2e conformance gate remains CI-executed (ADR-0010): the verifier judges the non-interference evidence by reading and by the unit-level fixture tests; the first full execution is the CI run on the merge.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S2-genai-spans"
+ ],
+ "consumes": []
+}
