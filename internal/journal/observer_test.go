@@ -801,3 +801,57 @@ func TestObserverAndOutboxReadsRejectMissingRun(t *testing.T) {
 		t.Fatalf("empty destination claim = found=%t, %v", found, err)
 	}
 }
+
+// Revision-2/3 scope boundary: the observer allowlist admits the bumped
+// sworn.eval/v3 records this release's A4 stamps, so the bumped records stay
+// readable beside v1 and v2 histories.
+func TestEvalRecordsAdmitV3SchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		"runtime_progress",
+		[]byte("3"),
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advance := ObserverAdvance{
+		RunID:          run.ID,
+		Observer:       "eval-schema-v3",
+		ExpectedOffset: 0,
+		ThroughOffset:  snapshot.Events[0].Offset,
+		Eval: []EvalDraft{{
+			SourceEventOffset: snapshot.Events[0].Offset,
+			ID:                "v3-record",
+			Body: []byte(
+				`{"schema_version":"sworn.eval/v3",` +
+					`"outcome":"current"}`,
+			),
+		}},
+		At: now.Add(3 * time.Second),
+	}
+	if err := store.AdvanceObserver(ctx, advance); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.EvalRecords(
+		ctx,
+		run.ID,
+		advance.Observer,
+		0,
+		MaxObserverItems,
+	)
+	if err != nil || len(records) != 1 ||
+		records[0].SchemaVersion != EvalSchemaVersionV3 ||
+		!supportedEvalSchemaVersion(records[0].SchemaVersion) {
+		t.Fatalf("records = %#v, %v", records, err)
+	}
+}

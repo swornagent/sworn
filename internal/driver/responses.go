@@ -333,6 +333,23 @@ func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 			}
 		}
 	}
+	// A1: output_tokens_details.reasoning_tokens is the reasoning side of
+	// the Responses vocabulary; the live renderer prints it from the same
+	// payload the parser used to discard, so it now lands on the receipt
+	// exactly like the cached-token detail. A malformed detail is ignored
+	// rather than failing the run: measurement never gates delivery.
+	if detailsValue, present := usage["output_tokens_details"]; present &&
+		detailsValue != nil {
+		details, detailsOK := detailsValue.(map[string]any)
+		if detailsOK {
+			if reasoningValue, present := details["reasoning_tokens"]; present {
+				reasoning, reasoningOK := safeJSONInt(reasoningValue)
+				if reasoningOK {
+					result.ReasoningTokens = &reasoning
+				}
+			}
+		}
+	}
 	return result, nil
 }
 

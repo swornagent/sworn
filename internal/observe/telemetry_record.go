@@ -44,7 +44,14 @@ func validTelemetryRecord(record Record) bool {
 			group.Attempts < 1 || group.Retries < 0 ||
 			group.Retries > group.Attempts ||
 			!validDurationRatio(group.DurationNS, group.Attempts) ||
-			!validUsageSummary(group.Usage, group.Attempts) {
+			!validDurationRatio(
+				group.ObservationDurationNS,
+				group.Attempts,
+			) ||
+			!validGroupIdentity(group.Profile, 128) ||
+			!validGroupIdentity(group.Model, 500) ||
+			!validUsageSummary(group.Usage, group.Attempts) ||
+			!validTurnEconomics(group.TurnEconomics) {
 			return false
 		}
 		var err error
@@ -109,8 +116,16 @@ func validUsageSummary(value UsageSummary, attempts int64) bool {
 		!validNullableText(value.FinishReason) ||
 		(value.ReasoningTokens != nil &&
 			(*value.ReasoningTokens < 0 ||
-				*value.ReasoningTokens > driver.MaxSafeInteger)) {
+				*value.ReasoningTokens > driver.MaxSafeInteger)) ||
+		len(value.UnreportedSurfaces) > maxUnreportedSurfaces {
 		return false
+	}
+	for index, surface := range value.UnreportedSurfaces {
+		if !validGroupIdentity(surface, 128) ||
+			(index > 0 &&
+				value.UnreportedSurfaces[index-1] >= surface) {
+			return false
+		}
 	}
 	if value.InputTokens != nil &&
 		(*value.InputTokens < 0 || *value.OutputTokens < 0) {
@@ -127,7 +142,8 @@ func validUsageSummary(value UsageSummary, attempts int64) bool {
 		return false
 	}
 	for _, cost := range value.Costs {
-		if len(cost.Currency) != 3 || cost.MicroUnits < 0 {
+		if len(cost.Currency) != 3 || cost.MicroUnits < 0 ||
+			cost.Source != driver.CostSourceProviderReported {
 			return false
 		}
 		for _, character := range []byte(cost.Currency) {
@@ -137,6 +153,75 @@ func validUsageSummary(value UsageSummary, attempts int64) bool {
 		}
 	}
 	return true
+}
+
+// validGroupIdentity bounds the free-form group identity facts (profile,
+// model, unreported surface names): non-empty when present, length-bounded,
+// and free of control characters.
+func validGroupIdentity(value string, maximum int) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > maximum {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x1f || (character >= 0x7f && character <= 0x9f) {
+			return false
+		}
+	}
+	return true
+}
+
+func validTurnEconomics(value TurnEconomics) bool {
+	if value.Turns != nil && *value.Turns < 0 {
+		return false
+	}
+	if value.ToolCalls != nil && *value.ToolCalls < 0 {
+		return false
+	}
+	if value.ToolCalls != nil && value.Turns != nil &&
+		*value.ToolCalls > *value.Turns*driver.MaxToolCalls {
+		return false
+	}
+	ratio := value.ToolCallsPerTurn
+	if ratio.Numerator == nil || ratio.Denominator == nil ||
+		*ratio.Numerator < 0 || *ratio.Denominator < 0 {
+		return false
+	}
+	// The ratio is over summed turns: absent turns means denominator zero;
+	// reported turns bind the denominator exactly.
+	if value.Turns == nil {
+		if *ratio.Denominator != 0 {
+			return false
+		}
+	} else if *ratio.Denominator != *value.Turns {
+		return false
+	}
+	var mixTotal int64
+	previous := ""
+	for index, item := range value.ToolCallMix {
+		if !validToolName(item.Name) || item.Count < 1 ||
+			(index > 0 && previous >= item.Name) {
+			return false
+		}
+		mixTotal += item.Count
+		previous = item.Name
+	}
+	if value.ToolCalls != nil && mixTotal > *value.ToolCalls {
+		return false
+	}
+	return true
+}
+
+func validToolName(name string) bool {
+	switch name {
+	case "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+		"sworn_submit", "sworn_yield":
+		return true
+	default:
+		return false
+	}
 }
 
 func validCoverageRatio(value Ratio, attempts int64) bool {
@@ -186,7 +271,11 @@ func cloneRecord(record Record) Record {
 	result.Groups = append([]AttemptGroup(nil), record.Groups...)
 	for index := range result.Groups {
 		result.Groups[index].DurationNS = cloneRatio(record.Groups[index].DurationNS)
+		result.Groups[index].ObservationDurationNS =
+			cloneRatio(record.Groups[index].ObservationDurationNS)
 		result.Groups[index].Usage = cloneUsage(record.Groups[index].Usage)
+		result.Groups[index].TurnEconomics =
+			cloneTurnEconomics(record.Groups[index].TurnEconomics)
 	}
 	result.DurationNS = cloneRatio(record.DurationNS)
 	result.Quality = append([]Quality(nil), record.Quality...)
@@ -241,6 +330,23 @@ func cloneUsage(value UsageSummary) UsageSummary {
 	result.TokenCoverage = cloneRatio(value.TokenCoverage)
 	result.CostCoverage = cloneRatio(value.CostCoverage)
 	result.CacheCoverage = cloneRatio(value.CacheCoverage)
+	result.UnreportedSurfaces = append(
+		[]string(nil),
+		value.UnreportedSurfaces...,
+	)
+	return result
+}
+
+func cloneTurnEconomics(value TurnEconomics) TurnEconomics {
+	result := value
+	if value.Turns != nil {
+		result.Turns = int64Pointer(*value.Turns)
+	}
+	if value.ToolCalls != nil {
+		result.ToolCalls = int64Pointer(*value.ToolCalls)
+	}
+	result.ToolCallsPerTurn = cloneRatio(value.ToolCallsPerTurn)
+	result.ToolCallMix = append([]ToolCallCount(nil), value.ToolCallMix...)
 	return result
 }
 

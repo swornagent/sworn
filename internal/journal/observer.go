@@ -14,6 +14,7 @@ import (
 const (
 	EvalSchemaVersionV1  = "sworn.eval/v1"
 	EvalSchemaVersionV2  = "sworn.eval/v2"
+	EvalSchemaVersionV3  = "sworn.eval/v3"
 	EvalSchemaVersion    = EvalSchemaVersionV2
 	MaxObserverItems     = 256
 	MaxObserverBodyBytes = 64 * 1024
@@ -83,7 +84,7 @@ func evalSchemaVersion(body []byte) (string, error) {
 		return "", fail("INVALID_EVAL_RECORD", nil)
 	}
 	switch envelope.SchemaVersion {
-	case EvalSchemaVersionV1, EvalSchemaVersionV2:
+	case EvalSchemaVersionV1, EvalSchemaVersionV2, EvalSchemaVersionV3:
 		return envelope.SchemaVersion, nil
 	default:
 		return "", fail("INVALID_EVAL_RECORD", nil)
@@ -91,7 +92,9 @@ func evalSchemaVersion(body []byte) (string, error) {
 }
 
 func supportedEvalSchemaVersion(value string) bool {
-	return value == EvalSchemaVersionV1 || value == EvalSchemaVersionV2
+	return value == EvalSchemaVersionV1 ||
+		value == EvalSchemaVersionV2 ||
+		value == EvalSchemaVersionV3
 }
 
 func observerBatchDigest(value ObserverAdvance) string {

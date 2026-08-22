@@ -324,7 +324,7 @@ func validContinuationOutcome(outcome string) bool {
 func zeroDriverObservation(observation driver.Observation) bool {
 	return observation.TransportStatus == "" &&
 		observation.DurationMillis == 0 &&
-		observation.Usage == (driver.UsageReceipt{}) &&
+		observation.Usage.Zero() &&
 		observation.Diagnostic == (driver.Diagnostic{}) &&
 		observation.Handoff == nil &&
 		len(observation.Events) == 0
@@ -2063,9 +2063,31 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		os.Exit(86)
 	}
 	completionCtx := context.WithoutCancel(ctx)
-	usageBody, usageErr := driver.EncodeUsageReceipt(observation.Usage)
+	// The single attempt-write seam: duration, profile, and the certified
+	// model actually dispatched ride on the receipt from here, shared by
+	// every completion path. Legacy-shaped receipts (no surface) are left
+	// untouched so historical blobs keep their exact bytes.
+	stampedUsage := observation.Usage
+	driver.StampAttemptFacts(
+		&stampedUsage,
+		prepared.selected.Profile.Key,
+		prepared.selected.Model,
+		observation.DurationMillis,
+	)
+	usageBody, usageErr := driver.EncodeUsageReceipt(stampedUsage)
 	if usageErr != nil {
-		usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
+		// The A2 loud fallback: an attempt that cannot report still names
+		// the surface and the capture-failed reason instead of defaulting
+		// silent. The surface is the runtime-known adapter id, always a
+		// valid identity, so this construction is infallible in practice.
+		loud, loudErr := driver.UnavailableReceipt(
+			prepared.selected.Adapter.ID,
+			driver.UsageReasonCaptureFailed,
+		)
+		usageBody, loudErr = driver.EncodeUsageReceipt(loud)
+		if loudErr != nil {
+			usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
+		}
 	}
 	observationBody, _ := json.Marshal(observation)
 	transport := observation.TransportStatus

@@ -1012,7 +1012,7 @@ func TestXAIUsageDecorationsDecodeAndStayOutOfAccounting(t *testing.T) {
 			*turn.Usage.CacheReadTokens != 128 {
 			t.Fatalf("Grok responses turn = %#v, %v", turn, err)
 		}
-		receipt, err := NormalizeUsage(turn.Usage, nil)
+		receipt, err := NormalizeUsage(turn.Usage, nil, "sworn.test")
 		if err != nil || receipt.CostStatus != UsageUnavailable ||
 			receipt.CostMicroUnits != nil || receipt.Source != nil {
 			t.Fatalf("Grok accounting = %#v, %v", receipt, err)
@@ -1053,7 +1053,7 @@ func TestXAIUsageDecorationsDecodeAndStayOutOfAccounting(t *testing.T) {
 			*turn.Usage.CacheReadTokens != 128 {
 			t.Fatalf("Grok chat turn = %#v, %v", turn, err)
 		}
-		receipt, err := NormalizeUsage(turn.Usage, nil)
+		receipt, err := NormalizeUsage(turn.Usage, nil, "sworn.test")
 		if err != nil || receipt.CostStatus != UsageUnavailable ||
 			receipt.CostMicroUnits != nil || receipt.Source != nil {
 			t.Fatalf("Grok chat accounting = %#v, %v", receipt, err)
@@ -2392,4 +2392,93 @@ func TestParallelToolCallsRecordedFixturesRoundTrip(t *testing.T) {
 			t.Fatalf("responses input after resume = %d items", len(conversation.input))
 		}
 	})
+}
+
+// A1: the responses usage parser extracts reasoning tokens from the same
+// payload the live renderer prints (stream.go), so the recorded grok fixture
+// that carries output_tokens_details.reasoning_tokens:42 lands on the
+// receipt instead of dying on stderr. Today-before-the-fix this test fails:
+// the receipt dropped the 42.
+func TestResponsesUsageSurfacesReasoningTokensFromRecordedWire(t *testing.T) {
+	t.Parallel()
+	recorded := providerDialectFixture(
+		t,
+		"grok_responses_response_usage.json",
+	)
+	conversation, err := newResponsesConversation(
+		"https://api.x.ai.example.invalid/v1/responses",
+		"grok-4.6",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		"high",
+		nil,
+		false,
+		providerDialectXAIResponses,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	turn, err := conversation.accept(recorded)
+	if err != nil || turn.Usage == nil ||
+		turn.Usage.ReasoningTokens == nil ||
+		*turn.Usage.ReasoningTokens != 42 {
+		t.Fatalf("grok responses reasoning = %#v, %v", turn.Usage, err)
+	}
+	receipt, err := NormalizeUsage(turn.Usage, nil, "sworn.test")
+	if err != nil || receipt.ReasoningTokens == nil ||
+		*receipt.ReasoningTokens != 42 ||
+		receipt.CacheReadTokens == nil ||
+		*receipt.CacheReadTokens != 128 {
+		t.Fatalf("grok responses receipt = %#v, %v", receipt, err)
+	}
+}
+
+// A1: the chat-completions details objects carry the reasoning and cached
+// sides of the standard vocabulary; both now reach the receipt from a
+// recorded-shape fixture, leniently (a malformed detail never fails the run).
+func TestOpenAIChatUsageSurfacesDetailsFromRecordedWire(t *testing.T) {
+	t.Parallel()
+	recorded := providerDialectFixture(
+		t,
+		"openai_chat_usage_details.json",
+	)
+	conversation, err := newOpenAIConversation(
+		"https://api.openai.example.invalid/v1/chat/completions",
+		"gpt-4.1",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		providerDialectOpenAIChat,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+	turn, err := conversation.accept(recorded)
+	if err != nil || turn.Usage == nil ||
+		turn.Usage.CacheReadTokens == nil ||
+		*turn.Usage.CacheReadTokens != 4 ||
+		turn.Usage.ReasoningTokens == nil ||
+		*turn.Usage.ReasoningTokens != 3 {
+		t.Fatalf("chat details turn = %#v, %v", turn.Usage, err)
+	}
+	receipt, err := NormalizeUsage(turn.Usage, nil, "sworn.test")
+	if err != nil || receipt.CacheReadTokens == nil ||
+		*receipt.CacheReadTokens != 4 ||
+		receipt.ReasoningTokens == nil ||
+		*receipt.ReasoningTokens != 3 {
+		t.Fatalf("chat details receipt = %#v, %v", receipt, err)
+	}
+
+	// A malformed detail object is ignored, never a failed run.
+	malformed := []byte(
+		`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":"bogus"},"completion_tokens_details":{"reasoning_tokens":["bogus"]}}}`,
+	)
+	turn, err = conversation.accept(malformed)
+	if err != nil || turn.Usage == nil ||
+		turn.Usage.CacheReadTokens != nil ||
+		turn.Usage.ReasoningTokens != nil {
+		t.Fatalf("malformed details = %#v, %v", turn.Usage, err)
+	}
 }

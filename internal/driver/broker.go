@@ -63,6 +63,7 @@ type nativeBroker struct {
 	listDigest         string
 	expected           *nativeHandshakeEvidence
 	calls              int
+	callsByName        map[string]int64
 	address            string
 	token              []byte
 	session            nativeBrokerSession
@@ -99,6 +100,7 @@ func newNativeBroker(
 		state: brokerClosed, address: listener.Addr().String(),
 		token: token, session: session, listener: listener,
 		terminal: make(chan struct{}), connections: make(map[net.Conn]struct{}),
+		callsByName: make(map[string]int64),
 	}
 	if len(expected) == 1 {
 		value := expected[0]
@@ -152,6 +154,28 @@ func (broker *nativeBroker) Ready() bool {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
 	return broker.ready
+}
+
+// toolCallTotal and toolCallsByName snapshot the per-name executed-call
+// counts for turn-economics capture at the native observation seam.
+func (broker *nativeBroker) toolCallTotal() int64 {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	var total int64
+	for _, count := range broker.callsByName {
+		total += count
+	}
+	return total
+}
+
+func (broker *nativeBroker) toolCallsByName() map[string]int64 {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	result := make(map[string]int64, len(broker.callsByName))
+	for name, count := range broker.callsByName {
+		result[name] = count
+	}
+	return result
 }
 
 func (broker *nativeBroker) HandshakeEvidence() (nativeHandshakeEvidence, error) {
@@ -514,6 +538,9 @@ func (broker *nativeBroker) callTool(
 	result := broker.session.execute(ctx, providerToolCall{
 		ID: "mcp-" + itoa(callNumber), Name: name, Arguments: arguments,
 	})
+	broker.mu.Lock()
+	broker.callsByName[name]++
+	broker.mu.Unlock()
 	terminated, terminalErr := broker.session.terminated()
 	if terminated && IsCode(terminalErr, "RECOVERY_STEP_REFUSED") {
 		broker.finish(brokerTerminal)

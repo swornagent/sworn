@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/driver"
 )
 
 type capturedSpan struct {
@@ -150,16 +152,18 @@ func testTelemetryRecord(sentinel string) Record {
 		Costs: []CostTotal{{
 			Currency:   "AUD",
 			MicroUnits: 70,
+			Source:     driver.CostSourceProviderReported,
 		}},
-		TokenCoverage:    knownRatio(1, 2),
-		CostCoverage:     knownRatio(1, 2),
-		CacheReadTokens:  int64Pointer(80),
-		CacheWriteTokens: int64Pointer(20),
-		CacheCoverage:    knownRatio(1, 2),
-		EffortRequested:  textPointer("high"),
-		EffortReported:   textPointer("high"),
-		FinishReason:     textPointer("stop"),
-		Truncated:        boolPointer(false),
+		TokenCoverage:      knownRatio(1, 2),
+		CostCoverage:       knownRatio(1, 2),
+		CacheReadTokens:    int64Pointer(80),
+		CacheWriteTokens:   int64Pointer(20),
+		CacheCoverage:      knownRatio(1, 2),
+		EffortRequested:    textPointer("high"),
+		EffortReported:     textPointer("high"),
+		FinishReason:       textPointer("stop"),
+		Truncated:          boolPointer(false),
+		UnreportedSurfaces: []string{"sworn.missing"},
 	}
 	return Record{
 		SchemaVersion: EvalSchemaVersion,
@@ -214,15 +218,27 @@ func testTelemetryRecord(sentinel string) Record {
 		DurationNS: knownRatio(30, 2),
 		Usage:      usage,
 		Groups: []AttemptGroup{{
-			Role:           "implementer",
-			Responsibility: "implementer_implementation",
-			Operation:      "driver.dispatch",
-			Transport:      "completed",
-			Outcome:        "succeeded",
-			Attempts:       2,
-			Retries:        1,
-			DurationNS:     knownRatio(30, 2),
-			Usage:          usage,
+			Role:                  "implementer",
+			Responsibility:        "implementer_implementation",
+			Operation:             "driver.dispatch",
+			Transport:             "completed",
+			Outcome:               "succeeded",
+			Attempts:              2,
+			Retries:               1,
+			DurationNS:            knownRatio(30, 2),
+			ObservationDurationNS: knownRatio(30, 2),
+			Profile:               "sworn.test",
+			Model:                 "model-a",
+			Usage:                 usage,
+			TurnEconomics: TurnEconomics{
+				Turns:            int64Pointer(3),
+				ToolCalls:        int64Pointer(2),
+				ToolCallsPerTurn: knownRatio(2, 3),
+				ToolCallMix: []ToolCallCount{
+					{Name: "Bash", Count: 1},
+					{Name: "Read", Count: 1},
+				},
+			},
 		}},
 		Quality: []Quality{
 			{Name: "delivery", Numerator: int64Pointer(1),
@@ -346,6 +362,8 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 		"sworn.operation",
 		"sworn.transport",
 		"sworn.outcome",
+		"sworn.profile",
+		"sworn.model",
 		"sworn.usage_known",
 		"sworn.cache_known",
 		"sworn.effort_reported",
@@ -353,26 +371,47 @@ func TestTelemetryExportsOnlyThePositiveAllowlist(t *testing.T) {
 		"sworn.truncated",
 	)
 	allowedMetricAttributes := map[string]map[string]bool{
-		"sworn.eval.events":                     stringSet("sworn.outcome"),
-		"sworn.eval.continuations":              stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
-		"sworn.eval.continuation.outcomes":      stringSet("sworn.continuation.outcome"),
-		"sworn.eval.turn_recovery.actions":      stringSet("sworn.turn_recovery.action"),
-		"sworn.eval.turn_recovery.outcomes":     stringSet("sworn.turn_recovery.outcome"),
-		"sworn.eval.attempts":                   groupLabels,
-		"sworn.eval.retries":                    groupLabels,
-		"sworn.eval.recoveries":                 stringSet("sworn.recovery", "sworn.outcome"),
-		"sworn.eval.duration_ns.numerator":      groupLabels,
-		"sworn.eval.duration_ns.denominator":    groupLabels,
-		"sworn.eval.input_tokens":               groupLabels,
-		"sworn.eval.output_tokens":              groupLabels,
-		"sworn.eval.usage_coverage.numerator":   groupLabels,
-		"sworn.eval.usage_coverage.denominator": groupLabels,
-		"sworn.eval.cache_read_tokens":          groupLabels,
-		"sworn.eval.cache_write_tokens":         groupLabels,
-		"sworn.eval.cache_coverage.numerator":   groupLabels,
-		"sworn.eval.cache_coverage.denominator": groupLabels,
-		"sworn.eval.quality.numerator":          stringSet("sworn.quality"),
-		"sworn.eval.quality.denominator":        stringSet("sworn.quality"),
+		"sworn.eval.events":                              stringSet("sworn.outcome"),
+		"sworn.eval.continuations":                       stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
+		"sworn.eval.continuation.outcomes":               stringSet("sworn.continuation.outcome"),
+		"sworn.eval.turn_recovery.actions":               stringSet("sworn.turn_recovery.action"),
+		"sworn.eval.turn_recovery.outcomes":              stringSet("sworn.turn_recovery.outcome"),
+		"sworn.eval.attempts":                            groupLabels,
+		"sworn.eval.retries":                             groupLabels,
+		"sworn.eval.recoveries":                          stringSet("sworn.recovery", "sworn.outcome"),
+		"sworn.eval.duration_ns.numerator":               groupLabels,
+		"sworn.eval.duration_ns.denominator":             groupLabels,
+		"sworn.eval.observation_duration_ns.numerator":   groupLabels,
+		"sworn.eval.observation_duration_ns.denominator": groupLabels,
+		"sworn.eval.input_tokens":                        groupLabels,
+		"sworn.eval.output_tokens":                       groupLabels,
+		"sworn.eval.usage_coverage.numerator":            groupLabels,
+		"sworn.eval.usage_coverage.denominator":          groupLabels,
+		"sworn.eval.cache_read_tokens":                   groupLabels,
+		"sworn.eval.cache_write_tokens":                  groupLabels,
+		"sworn.eval.cache_coverage.numerator":            groupLabels,
+		"sworn.eval.cache_coverage.denominator":          groupLabels,
+		"sworn.eval.turns":                               groupLabels,
+		"sworn.eval.tool_calls":                          groupLabels,
+		"sworn.eval.tool_calls_per_turn.numerator":       groupLabels,
+		"sworn.eval.tool_calls_per_turn.denominator":     groupLabels,
+		"sworn.eval.tool_calls.by_name": stringSet(
+			"sworn.role",
+			"sworn.responsibility",
+			"sworn.operation",
+			"sworn.transport",
+			"sworn.outcome",
+			"sworn.profile",
+			"sworn.model",
+			"sworn.usage_known",
+			"sworn.cache_known",
+			"sworn.effort_reported",
+			"sworn.finish_reason",
+			"sworn.truncated",
+			"sworn.tool.name",
+		),
+		"sworn.eval.quality.numerator":   stringSet("sworn.quality"),
+		"sworn.eval.quality.denominator": stringSet("sworn.quality"),
 	}
 	seenNames := make(map[string]bool)
 	for _, point := range metrics {
@@ -577,6 +616,17 @@ func shutdownTelemetry(t *testing.T, telemetry *Telemetry) {
 func stringSet(values ...string) map[string]bool {
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
+		result[value] = true
+	}
+	return result
+}
+
+func appendKey(base map[string]bool, extra ...string) map[string]bool {
+	result := make(map[string]bool, len(base)+len(extra))
+	for value := range base {
+		result[value] = true
+	}
+	for _, value := range extra {
 		result[value] = true
 	}
 	return result

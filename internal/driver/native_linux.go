@@ -199,6 +199,7 @@ type nativeEventState struct {
 	identityAccepted bool
 	usage            Usage
 	hasUsage         bool
+	turns            int64
 	err              error
 }
 
@@ -286,6 +287,8 @@ func (session *nativeAutomationSession) execute(
 		call.Arguments,
 		Usage{},
 		false,
+		0,
+		0,
 	)
 	if err != nil {
 		session.corrections++
@@ -2210,12 +2213,23 @@ func platformRunNative(
 			return Observation{}, closeErr
 		}
 	}
-	usage, err := NormalizeUsage(nil, nil)
+	usage, err := NormalizeUsage(nil, nil, invocation.Selected.Adapter.ID)
 	if hasUsage {
-		usage, err = NormalizeUsage(&usageValue, nil)
+		usage, err = NormalizeUsage(&usageValue, nil, invocation.Selected.Adapter.ID)
 	}
 	if err != nil {
 		return Observation{}, err
+	}
+	if automationRun == nil {
+		state.mu.Lock()
+		turns := state.turns
+		state.mu.Unlock()
+		applyTurnEconomics(
+			&usage,
+			turns,
+			broker.toolCallTotal(),
+			broker.toolCallsByName(),
+		)
 	}
 	if automationRun != nil {
 		automationRun.observation, err = automationSession.complete(usage)
@@ -3203,6 +3217,7 @@ func (state *nativeEventState) accept(body []byte) error {
 			}
 		}
 		if eventType == "result" {
+			state.turns++
 			state.captureUsage(root["usage"])
 		}
 	case ProfileCodex:
@@ -3254,6 +3269,7 @@ func (state *nativeEventState) accept(body []byte) error {
 			); err != nil {
 				return fail("NATIVE_SURFACE_INVALID")
 			}
+			state.turns++
 			state.captureUsage(root["usage"])
 		}
 	default:
@@ -3289,6 +3305,18 @@ func (state *nativeEventState) captureUsage(value any) {
 		return
 	}
 	state.usage = Usage{InputTokens: input, OutputTokens: output}
+	if value, present := usage["cache_read_input_tokens"]; present {
+		read, readOK := safeJSONInt(value)
+		if readOK {
+			state.usage.CacheReadTokens = &read
+		}
+	}
+	if value, present := usage["cache_creation_input_tokens"]; present {
+		write, writeOK := safeJSONInt(value)
+		if writeOK {
+			state.usage.CacheWriteTokens = &write
+		}
+	}
 	state.hasUsage = true
 }
 

@@ -13,7 +13,11 @@ const (
 	telemetryExportInterval      = 5 * time.Second
 	telemetryExportTimeout       = 3 * time.Second
 	// The closed responsibility, operation, transport, outcome, and
-	// usage-known product has 1,008 possible group series.
+	// usage-known vocabularies were 1,008 possible group series. The A4
+	// profile/model labels join that set: distinct eval groups are distinct
+	// series keys by construction, and validTelemetryRecord caps a record at
+	// 512 groups, so the actual series count stays inside this per-metric
+	// cap (an over-cap series is dropped silently, so the cap is the guard).
 	telemetryMetricCardinality = 1024
 )
 
@@ -405,6 +409,8 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			stringTelemetryAttribute("sworn.operation", group.Operation),
 			stringTelemetryAttribute("sworn.transport", group.Transport),
 			stringTelemetryAttribute("sworn.outcome", group.Outcome),
+			stringTelemetryAttribute("sworn.profile", group.Profile),
+			stringTelemetryAttribute("sworn.model", group.Model),
 			stringTelemetryAttribute("sworn.usage_known", usageKnown),
 			stringTelemetryAttribute("sworn.cache_known", cacheKnown),
 			stringTelemetryAttribute("sworn.effort_reported", effortReported),
@@ -435,6 +441,60 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			observedAt,
 			labels,
 		)
+		r.metrics.record(
+			"sworn.eval.observation_duration_ns.numerator",
+			*group.ObservationDurationNS.Numerator,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.observation_duration_ns.denominator",
+			*group.ObservationDurationNS.Denominator,
+			observedAt,
+			labels,
+		)
+		if group.TurnEconomics.Turns != nil {
+			r.metrics.record(
+				"sworn.eval.turns",
+				*group.TurnEconomics.Turns,
+				observedAt,
+				labels,
+			)
+		}
+		if group.TurnEconomics.ToolCalls != nil {
+			r.metrics.record(
+				"sworn.eval.tool_calls",
+				*group.TurnEconomics.ToolCalls,
+				observedAt,
+				labels,
+			)
+		}
+		r.metrics.record(
+			"sworn.eval.tool_calls_per_turn.numerator",
+			*group.TurnEconomics.ToolCallsPerTurn.Numerator,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.tool_calls_per_turn.denominator",
+			*group.TurnEconomics.ToolCallsPerTurn.Denominator,
+			observedAt,
+			labels,
+		)
+		for _, item := range group.TurnEconomics.ToolCallMix {
+			r.metrics.record(
+				"sworn.eval.tool_calls.by_name",
+				item.Count,
+				observedAt,
+				append(
+					append([]telemetryAttribute(nil), labels...),
+					stringTelemetryAttribute(
+						"sworn.tool.name",
+						item.Name,
+					),
+				),
+			)
+		}
 		r.metrics.record(
 			"sworn.eval.usage_coverage.numerator",
 			*group.Usage.TokenCoverage.Numerator,

@@ -426,6 +426,11 @@ func (adapter *loopAdapter) runConversation(
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	// Turn economics are engine-counted facts: every accepted provider turn
+	// counts (prose nudges are turns with zero calls), and every executed
+	// tool call counts by canonical name.
+	var turnCount, toolCallCount int64
+	toolCallsByName := make(map[string]int64)
 	pacer := newInputTokenPacer(adapter.pacingCap)
 	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
@@ -476,6 +481,11 @@ func (adapter *loopAdapter) runConversation(
 			liveStream.driverError("accept", err)
 			return Observation{}, nil, err
 		}
+		turnCount++
+		for _, call := range providerTurn.Calls {
+			toolCallCount++
+			toolCallsByName[call.Name]++
+		}
 		if providerTurn.Usage != nil {
 			if err := addTurnUsage(&total, providerTurn.Usage); err != nil {
 				return Observation{}, nil, err
@@ -488,13 +498,14 @@ func (adapter *loopAdapter) runConversation(
 			effortReported = &value
 		}
 		if providerTurn.Truncated {
-			usage, err := NormalizeUsage(nil, nil)
+			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil)
+				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
 			}
+			applyTurnEconomics(&usage, turnCount, toolCallCount, toolCallsByName)
 			applyInvocationFacts(
 				&usage,
 				effortRequested,
@@ -564,13 +575,14 @@ func (adapter *loopAdapter) runConversation(
 			if closeErr := session.Close(); closeErr != nil {
 				return Observation{}, nil, closeErr
 			}
-			usage, err := NormalizeUsage(nil, nil)
+			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil)
+				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
 			}
+			applyTurnEconomics(&usage, turnCount, toolCallCount, toolCallsByName)
 			applyInvocationFacts(
 				&usage,
 				effortRequested,

@@ -154,9 +154,10 @@ func finishAdapterInvocation(
 	observation Observation,
 	err error,
 ) (Observation, error) {
+	surface := invocation.Selected.Adapter.ID
 	if err != nil {
 		// A transport or adapter failure can never carry a model decision.
-		return sanitizeFailedObservation(observation), normalizeAdapterError(err)
+		return sanitizeFailedObservation(observation, surface), normalizeAdapterError(err)
 	}
 	if err := validateObservation(invocation, observation); err != nil {
 		observation.Handoff = nil
@@ -167,9 +168,9 @@ func finishAdapterInvocation(
 			return observation, err
 		}
 		if IsCode(err, "INVALID_HANDOFF") {
-			return failureObservation("invalid_handoff"), err
+			return failureObservation("invalid_handoff", surface), err
 		}
-		return invalidObservation(), err
+		return invalidObservation(surface), err
 	}
 	return observation, nil
 }
@@ -318,23 +319,36 @@ func validTerminalEventKind(kind string) bool {
 	}
 }
 
-func invalidObservation() Observation {
-	return failureObservation("invalid_observation")
+func invalidObservation(surface string) Observation {
+	return failureObservation("invalid_observation", surface)
 }
 
-func failureObservation(code string) Observation {
+// failureObservation builds the A2 loud unavailable receipt: the surface
+// (adapter id) and the stable capture-failed reason ride on the receipt so
+// an attempt that genuinely cannot report never defaults silent. A surface
+// that fails the adapter-identity bound is impossible from validated
+// invocations; the receipt then falls back to the legacy shape rather than
+// inventing a name.
+func failureObservation(code string, surface string) Observation {
+	usage := UsageReceipt{
+		TokenStatus: UsageUnavailable,
+		CostStatus:  UsageUnavailable,
+	}
+	if loud, err := UnavailableReceipt(surface, UsageReasonCaptureFailed); err == nil {
+		usage = loud
+	}
 	return Observation{
 		TransportStatus: RunnerError,
-		Usage: UsageReceipt{
-			TokenStatus: UsageUnavailable,
-			CostStatus:  UsageUnavailable,
-		},
-		Diagnostic: Diagnostic{Code: code},
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: code},
 	}
 }
 
-func sanitizeFailedObservation(observation Observation) Observation {
-	sanitized := failureObservation("adapter_failed")
+func sanitizeFailedObservation(
+	observation Observation,
+	surface string,
+) Observation {
+	sanitized := failureObservation("adapter_failed", surface)
 	if observation.DurationMillis >= 0 &&
 		observation.DurationMillis <= MaxSafeInteger {
 		sanitized.DurationMillis = observation.DurationMillis

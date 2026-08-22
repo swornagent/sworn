@@ -279,7 +279,7 @@ func TestGeminiNativeUsageMapsReasoningAndCache(t *testing.T) {
 		total.ReasoningTokens == nil || *total.ReasoningTokens != 3696 {
 		t.Fatalf("summed usage = %#v", total)
 	}
-	receipt, err := NormalizeUsage(&total, nil)
+	receipt, err := NormalizeUsage(&total, nil, "sworn.test")
 	if err != nil || receipt.CacheStatus != UsageReported ||
 		receipt.CacheReadTokens == nil ||
 		*receipt.CacheReadTokens != 12263 ||

@@ -222,7 +222,10 @@ func startContinuation(
 	)
 	if invokeErr != nil {
 		if closeErr := closeContinuationState(state); closeErr != nil {
-			return failureObservation("adapter_failed"), nil, fresh, closeErr
+			return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, fresh, closeErr
 		}
 		if isContinuationCancellation(invokeErr) {
 			fresh.Status = ContinuationStatusCancelled
@@ -367,9 +370,12 @@ func resumeContinuation(
 	}
 	if stateCloseErr != nil {
 		_ = closeContinuationState(nextState)
-		return failureObservation("adapter_failed"), nil, ContinuationResult{
-			Mode: mode, Status: resultStatus,
-		}, stateCloseErr
+		return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, ContinuationResult{
+				Mode: mode, Status: resultStatus,
+			}, stateCloseErr
 	}
 	if IsCode(invokeErr, "CONTINUATION_INVALID") {
 		_ = closeContinuationState(nextState)
@@ -408,9 +414,12 @@ func resumeContinuation(
 		return observation, handle, result, retainErr
 	}
 	if closeErr := closeContinuationState(nextState); closeErr != nil {
-		return failureObservation("adapter_failed"), nil, ContinuationResult{
-			Mode: mode, Status: resultStatus,
-		}, closeErr
+		return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, ContinuationResult{
+				Mode: mode, Status: resultStatus,
+			}, closeErr
 	}
 	return observation, nil, ContinuationResult{
 		Mode:   mode,
