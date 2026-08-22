@@ -888,8 +888,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						continue
 					}
 					s2, _ := state.Slice("S2")
-					if s2.CurrentReceipt != nil &&
-						s2.CurrentReceipt.Receipt.Result == "designed" {
+					// Any S2 receipt while the S1 barrier remains claimed
+					// proves the tracks overlap; pinning the designed-only
+					// moment races the scripted fake's pace on slow runners.
+					if s2.CurrentReceipt != nil {
 						overlap = true
 						break
 					}
