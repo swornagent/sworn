@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-telemetry-foundations",
-  "revision": 4,
-  "previous_plan": "0bf35fd98f75ecd308157e3f347337ace4bde883",
+  "revision": 5,
+  "previous_plan": "2f2550fc215324c2a3efd84e79cc923bbe557d06",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-telemetry-foundations/4",
+  "approval_ref": "operator://2026-08-23-telemetry-foundations/5",
   "tracks": [
     {
       "id": "T1-telemetry",
@@ -63,8 +63,8 @@
         {
           "id": "S3-runside-export",
           "outcome": "The run owns its telemetry: the engine exports its own OTel from the run process, so a plain sworn run lands in the operator's backend with no cockpit required - through two independently configured channels, the operator's private stream and an opt-in share stream whose versioned schema allowlist makes exporting a prompt-shaped attribute structurally impossible - and sworn init walks the operator through the telemetry step instead of requiring source-reading.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S3-runside-export.json",
-          "digest": "sha256:c137efd42a95837403537d64eeb91936f074789500b200ab0f6ad7bb7a2785b6",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev5/S3-runside-export.json",
+          "digest": "sha256:f7869685d4690cafc27204f71e24b0a5f70a9907f3685c78370e07c31bcb90bb",
           "depends_on": [
             "S2-genai-spans"
           ],
@@ -417,3 +417,23 @@ snapshot), span name sworn.dispatch, exactly three verbatim GenAI keys
 with cache/reasoning as sworn.usage.*. S1 and S3-S9 are byte-identical
 with unchanged digests; S1's receipts adopt by ancestry.
 Operator-carried under operator://2026-08-23-telemetry-foundations/4.
+
+# Revision 5
+
+S2 is delivered (design attempt 2 PROCEED with four bounded
+corrections, candidate 7ef01c56, verifier PASS in r4). The r4 captain
+escalation on S3's first design was the right refusal of an authority
+it did not hold: the share channel's default endpoint hostname is an
+outward-facing data-egress decision recorded nowhere. The address
+exists in the ratified record: the human operator ruled 2026-08-20
+that the share-channel gateway runs on Fly at otel.sworn.sh (collector
+gateway, Tigris archive, on the project's own domain). Revision 5
+names it as the shipped default - inert until explicit share opt-in -
+and pins the captain's two chief findings into the contract: the
+export pump covers every cmd/sworn process that hosts delivery (the
+drive-hosting verbs, not only run), and share-channel trace identities
+are never derivable from run identifiers. The additive-top-level share
+block and silent-degradation adjudications are carried as constraints.
+S1, S2, and S4-S9 are byte-identical with unchanged digests; S1 and S2
+receipts adopt by ancestry. Operator-carried under
+operator://2026-08-23-telemetry-foundations/5.
