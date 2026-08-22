@@ -1491,6 +1491,15 @@ func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
 			if assoc.Slice != "" && assoc.Slice != "S1" {
 				t.Fatalf("dispatch_completed has unexpected slice %q", assoc.Slice)
 			}
+			if !knownDispatchResponsibility(assoc.Responsibility) {
+				t.Fatalf("dispatch_completed has unexpected responsibility %q", assoc.Responsibility)
+			}
+			assertEventBodyKeysWithin(
+				t,
+				event.Body,
+				[]string{"effect_id", "work_id", "responsibility"},
+				[]string{"effect_id", "work_id", "track", "slice", "responsibility"},
+			)
 		}
 	}
 
@@ -1499,6 +1508,181 @@ func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
 	} {
 		if observedKinds[requiredKind] == 0 {
 			t.Fatalf("required event kind %s was not observed (observed: %v)", requiredKind, observedKinds)
+		}
+	}
+}
+
+// A2: the runtime's attempt-write fallback is loud. An observation whose
+// receipt cannot encode (here: a partial v1-shaped receipt with no cost
+// status) still lands a receipt naming the surface and the capture-failed
+// reason instead of the silent all-unavailable literal.
+func TestRuntimeUsageFallbackNamesSurfaceAndReason(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repository
+
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte("```baton-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestValue.Authority.BootstrapApprovedPlanDigest = nil
+
+	for index := range manifestValue.Scripts {
+		script := &manifestValue.Scripts[index]
+		if script.Responsibility != driver.PlannerProposal {
+			continue
+		}
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission, err := driver.DecodeSubmission(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission.Plan, err = driver.NewPlanBytes(plan.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		script.Submission = encodeSubmission(t, submission)
+	}
+
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submissions := make(map[string][]byte, len(manifest.value.Scripts))
+	for _, script := range manifest.value.Scripts {
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submissions[invocationID(manifest.value.RunID, script)] = encoded
+	}
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		submission := submissions[invocation.Request.InvocationID]
+		if len(submission) == 0 {
+			t.Fatalf("unexpected invocation %s", invocation.Request.InvocationID)
+		}
+		if strings.Contains(
+			invocation.Request.InvocationID,
+			"implementer_implementation",
+		) {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("impl content\n"),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			// A partial receipt with no cost status cannot encode; the seam
+			// must substitute the loud fallback.
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submission,
+				SubmissionDigest: driver.Digest(submission),
+			},
+		}, nil
+	})
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "loud-fallback.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 21, 1, 0, 0, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if status.State != "awaiting_approval" {
+		t.Fatalf("status = %q, want 'awaiting_approval'", status.State)
+	}
+	offer, err := service.ApprovalOffer(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Approve(ctx, offer.Command); err != nil {
+		t.Fatalf("Approve failed: %v", err)
+	}
+	status, err = service.Wait(ctx, manifest.value.RunID)
+	if err != nil || status.State != "complete" {
+		t.Fatalf("Wait failed: state=%q error=%v", status.State, err)
+	}
+	observation, err := store.ReadObservation(
+		ctx,
+		manifest.value.RunID,
+		journal.MaxObservationAttempts,
+		journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Attempts) == 0 {
+		t.Fatal("no attempts journaled")
+	}
+	for _, attempt := range observation.Attempts {
+		var usage driver.UsageReceipt
+		if err := json.Unmarshal(attempt.Usage, &usage); err != nil ||
+			usage.SchemaVersion != driver.UsageSchemaV2 ||
+			usage.Surface != driver.FakeDriverID ||
+			usage.UnavailableReason != driver.UsageReasonCaptureFailed ||
+			usage.TokenStatus != driver.UsageUnavailable {
+			t.Fatalf("fallback usage = %s error=%v", attempt.Usage, err)
+		}
+	}
+}
+
+// Correction 2: the fresh-rehydrate zero-observation predicate keeps its
+// exact semantics through the field-wise receipt emptiness check.
+func TestZeroDriverObservationPredicatePreservesFreshRehydrateSemantics(
+	t *testing.T,
+) {
+	if !zeroDriverObservation(driver.Observation{}) {
+		t.Fatal("zero observation was not detected")
+	}
+	variants := []driver.Observation{
+		{TransportStatus: driver.Completed},
+		{DurationMillis: 1},
+		{Usage: driver.UsageReceipt{TokenStatus: driver.UsageUnavailable}},
+		{Usage: driver.UsageReceipt{SchemaVersion: driver.UsageSchemaV2}},
+		{Diagnostic: driver.Diagnostic{Code: "none"}},
+		{Handoff: &driver.SealedHandoff{}},
+		{Events: []driver.TerminalEvent{{Sequence: 1, Kind: "published"}}},
+	}
+	for _, observation := range variants {
+		if zeroDriverObservation(observation) {
+			t.Fatalf("observation %#v reported zero", observation)
 		}
 	}
 }

@@ -466,6 +466,18 @@ func validateCompletion(completion Completion) error {
 		if err := validateDigest(completion.Attempt.ObservationDigest); err != nil {
 			return err
 		}
+		// The stored body is evidence for the digest, so a present body
+		// must match it before any truncation; the digest always stays
+		// over the full marshaled bytes. An absent body is valid (the
+		// success path and historical callers carry none) and enforces
+		// nothing. Oversize bodies are bounded at write time by the marked
+		// partial prefix, never rejected: rejecting would lose the
+		// evidence this slice exists to keep.
+		if len(completion.Attempt.ObservationBody) > 0 &&
+			digest(completion.Attempt.ObservationBody) !=
+				completion.Attempt.ObservationDigest {
+			return fail("OBSERVATION_DIGEST_MISMATCH", nil)
+		}
 		if len(completion.Attempt.Usage) == 0 ||
 			len(completion.Attempt.Usage) > MaxPayloadBytes {
 			return fail("INVALID_ATTEMPT", nil)
@@ -611,12 +623,26 @@ func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Comple
 	}
 	if completion.Attempt != nil {
 		attempt := completion.Attempt
+		// The bound is the same MaxPayloadBytes the usage receipt already
+		// meets. An oversize body is stored as its explicit prefix with
+		// observation_partial = 1 — a marked partial, never a silent
+		// truncation — and the digest remains over the full bytes.
+		body := append([]byte(nil), attempt.ObservationBody...)
+		partial := 0
+		if len(body) > MaxPayloadBytes {
+			body = body[:MaxPayloadBytes]
+			partial = 1
+		}
+		if len(body) == 0 {
+			body = nil
+		}
 		if _, err := conn.ExecContext(
 			ctx,
 			`INSERT INTO attempts(
 				run_id, effect_id, attempt, responsibility, transport_status,
-				observation_digest, usage_digest, usage, handoff_digest, created_at
-			) VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?)`,
+				observation_digest, usage_digest, usage, handoff_digest, created_at,
+				observation_body, observation_partial
+			) VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
 			completion.RunID,
 			completion.EffectID,
 			attempt.Number,
@@ -627,6 +653,8 @@ func completeOnConnection(ctx context.Context, conn *sql.Conn, completion Comple
 			append([]byte(nil), attempt.Usage...),
 			attempt.HandoffDigest,
 			at,
+			body,
+			partial,
 		); err != nil {
 			return dbError(err)
 		}

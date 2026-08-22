@@ -59,6 +59,17 @@ type HTTPProfileConfig struct {
 	// only when the sliding minute plus the next request would cross it.
 	// Zero disables proactive pacing; reactive 429 pacing always applies.
 	InputTokensPerMinute int64 `json:"input_tokens_per_minute,omitempty"`
+	// Stream enables the Gemini adapter's streamGenerateContent mode: SSE
+	// deltas render live while the reconstructed terminal response object
+	// feeds the exact non-streaming accept path. OpenAI and Bedrock adapters
+	// ignore the field, and an OpenAI profile's own shallower "stream" key
+	// keeps binding its responses-flavour knob unchanged.
+	Stream bool `json:"stream,omitempty"`
+	// IncludeThoughts asks Gemini for thought content in the provider's own
+	// include_thoughts vocabulary. OpenAI and Bedrock adapters ignore the
+	// field. Omission changes nothing: no thinkingConfig is emitted unless a
+	// thinking knob is set.
+	IncludeThoughts bool `json:"include_thoughts,omitempty"`
 }
 
 type httpTransport struct {
@@ -196,6 +207,20 @@ func (transport *httpTransport) roundTrip(
 	}
 	defer response.Body.Close()
 	if request.Stream && response.StatusCode >= 200 && response.StatusCode <= 299 {
+		if request.StreamFormat == geminiStreamFormat {
+			body, streamErr := readGeminiStream(
+				response.Body,
+				transport.config.ResponseBytes,
+				request.StreamModel,
+			)
+			if streamErr != nil {
+				if isContextError(ctx.Err()) {
+					return nil, ctx.Err()
+				}
+				return nil, streamErr
+			}
+			return body, nil
+		}
 		body, streamErr := readStreamedResponse(
 			response.Body,
 			transport.config.ResponseBytes,
@@ -220,30 +245,46 @@ func (transport *httpTransport) roundTrip(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		if response.StatusCode == http.StatusTooManyRequests {
-			delay := providerRetryDelay(response.Header.Get("Retry-After"), body)
+			retryAfter := response.Header.Get("Retry-After")
+			message := providerErrorDetail(body)
+			hard := providerLimitHard(retryAfter, body)
+			delay := providerRetryDelay(retryAfter, body)
 			clearBytes(body)
-			return nil, &ContractError{Code: "PROVIDER_LIMITED", RetryAfter: delay}
+			return nil, &ContractError{
+				Code:       "PROVIDER_LIMITED",
+				Detail:     message,
+				RetryAfter: delay,
+				HardLimit:  hard,
+			}
 		}
+		detail := providerErrorDetail(body)
 		clearBytes(body)
-		return nil, providerHTTPStatusError(response.StatusCode)
+		return nil, providerHTTPStatusError(response.StatusCode, detail)
 	}
 	return body, nil
 }
 
-func providerHTTPStatusError(statusCode int) error {
+// providerHTTPStatusError maps a non-2xx status to the stable provider
+// status vocabulary. detail is the bounded, normalized status-envelope
+// message the caller extracted ("" when none); it rides only the provider
+// status codes, and the dispatcher boundary re-validates it before it can
+// persist or render.
+func providerHTTPStatusError(statusCode int, detail string) error {
+	code := ""
 	switch {
 	case statusCode == http.StatusUnauthorized ||
 		statusCode == http.StatusForbidden:
-		return fail("PROVIDER_AUTHORIZATION_FAILED")
+		code = "PROVIDER_AUTHORIZATION_FAILED"
 	case statusCode == http.StatusTooManyRequests:
-		return fail("PROVIDER_LIMITED")
+		code = "PROVIDER_LIMITED"
 	case statusCode >= 400 && statusCode < 500:
-		return fail("PROVIDER_REQUEST_REJECTED")
+		code = "PROVIDER_REQUEST_REJECTED"
 	case statusCode >= 500 && statusCode < 600:
-		return fail("PROVIDER_UNAVAILABLE")
+		code = "PROVIDER_UNAVAILABLE"
 	default:
-		return fail("PROVIDER_ERROR")
+		code = "PROVIDER_ERROR"
 	}
+	return &ContractError{Code: code, Detail: detail}
 }
 
 func (transport *httpTransport) check(

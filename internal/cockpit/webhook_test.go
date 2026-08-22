@@ -1411,3 +1411,240 @@ func TestWebhookProjectsEventsCarryingAssociationsWithoutLeak(t *testing.T) {
 		}
 	}
 }
+
+// A5: a degradation park produces a notification whose kind names the park
+// class, with the typed Park body carrying cause, count, budget, and knob.
+func TestWebhookProjectsTypedDegradationPark(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	park := runtimepkg.DegradationParkEvent{
+		SchemaVersion: runtimepkg.DegradationParkEventVersion,
+		RunID:         run.ID,
+		Cause:         runtimepkg.ParkCauseDegradation,
+		Count:         4,
+		Budget:        3,
+		UnblockKnob:   runtimepkg.DegradationUnblockKnob,
+		Fallbacks: []runtimepkg.DegradationFallback{
+			{Offset: 1, Reason: "absence"},
+			{Offset: 2, Reason: "absence"},
+			{Offset: 3, Reason: "absence"},
+			{Offset: 4, Reason: "continuation.ledger.step_budget_exhausted"},
+		},
+	}
+	body, err := json.Marshal(park)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		"degradation_budget_parked",
+		body,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	destination := testWebhookDestinations()[0]
+	service := testWebhookService(t, store, []WebhookDestination{destination})
+	service.now = func() time.Time { return now.Add(time.Second) }
+	if _, err := service.Project(ctx, run.ID, destination.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(ctx, run.ID, destination.ID, 10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("notifications = %#v, %v", items, err)
+	}
+	var event webhookEventBody
+	if err := json.Unmarshal(items[0].Body, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.SchemaVersion != WebhookEventSchemaVersion ||
+		event.EventKind != webhookParkUpdated {
+		t.Fatalf("projected park event = %#v", event)
+	}
+	if event.Park == nil ||
+		event.Park.SchemaVersion != park.SchemaVersion ||
+		event.Park.RunID != park.RunID ||
+		event.Park.Cause != park.Cause ||
+		event.Park.Count != park.Count ||
+		event.Park.Budget != park.Budget ||
+		event.Park.UnblockKnob != park.UnblockKnob ||
+		len(event.Park.Fallbacks) != len(park.Fallbacks) {
+		t.Fatalf("typed park body = %#v, want %#v", event.Park, park)
+	}
+	for index, fallback := range park.Fallbacks {
+		if event.Park.Fallbacks[index] != fallback {
+			t.Fatalf("typed park body fallback = %#v, want %#v", event.Park.Fallbacks[index], fallback)
+		}
+	}
+	canonical, err := json.Marshal(event)
+	if err != nil || !bytes.Equal(canonical, items[0].Body) {
+		t.Fatalf("park notification body is not canonical: %s, %v", items[0].Body, err)
+	}
+	// The notification carries only validated typed facts, never the raw
+	// journal bytes it was projected from.
+	for _, forbidden := range []string{"prompt", "transcript", "credential", "/private"} {
+		if bytes.Contains(items[0].Body, []byte(forbidden)) {
+			t.Fatalf("park notification contains %q: %s", forbidden, items[0].Body)
+		}
+	}
+}
+
+// A5 degraded path: when the park body is absent or unparsable, the
+// notification still crosses as park_updated without a Park block — a park
+// notification must never become a dead letter.
+func TestWebhookParkNotificationDegradesToKindOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run := cockpitJournalFixture(t)
+	now := run.CreatedAt.Add(time.Second)
+	// A legacy pre-typed park body: the counted fallback list as a JSON
+	// array. It is not a typed park event, so only the kind crosses.
+	legacy := []byte(`[{"offset":1,"reason":"absence"},{"offset":2,"reason":"absence"},{"offset":3,"reason":"absence"},{"offset":4,"reason":"absence"}]`)
+	if err := store.AppendEvent(
+		ctx,
+		run.ID,
+		"degradation_budget_parked",
+		legacy,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	destination := testWebhookDestinations()[0]
+	service := testWebhookService(t, store, []WebhookDestination{destination})
+	service.now = func() time.Time { return now.Add(time.Second) }
+	if _, err := service.Project(ctx, run.ID, destination.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(ctx, run.ID, destination.ID, 10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("notifications = %#v, %v", items, err)
+	}
+	var event webhookEventBody
+	if err := json.Unmarshal(items[0].Body, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.EventKind != webhookParkUpdated || event.Park != nil {
+		t.Fatalf("kind-only park notification = %#v", event)
+	}
+	// The kind-only notification validates at delivery time too.
+	if code := validateWebhookEvent(
+		service.destinations[destination.ID],
+		items[0],
+	); code != "" {
+		t.Fatalf("kind-only park notification rejected: %q", code)
+	}
+}
+
+// A5 vocabulary: park_updated exists only in the v2 vocabulary, a typed Park
+// block must bind the same run, and queued v1 bodies keep validating.
+func TestWebhookEventVocabularyVersions(t *testing.T) {
+	t.Parallel()
+
+	store, run := cockpitJournalFixture(t)
+	service := testWebhookService(t, store, testWebhookDestinations())
+	endpoint := service.destinations["primary"]
+	now := run.CreatedAt.Add(time.Second)
+
+	park := runtimepkg.DegradationParkEvent{
+		SchemaVersion: runtimepkg.DegradationParkEventVersion,
+		RunID:         run.ID,
+		Cause:         runtimepkg.ParkCauseDegradation,
+		Count:         4,
+		Budget:        3,
+		UnblockKnob:   runtimepkg.DegradationUnblockKnob,
+		Fallbacks: []runtimepkg.DegradationFallback{
+			{Offset: 1, Reason: "absence"},
+			{Offset: 2, Reason: "absence"},
+			{Offset: 3, Reason: "absence"},
+			{Offset: 4, Reason: "absence"},
+		},
+	}
+
+	build := func(
+		schemaVersion, eventKind string,
+		park *runtimepkg.DegradationParkEvent,
+		runID string,
+		offset int64,
+	) journal.Notification {
+		messageID := webhookMessageID(runID, endpoint.binding, offset)
+		body, err := json.Marshal(webhookEventBody{
+			SchemaVersion:      schemaVersion,
+			DestinationID:      endpoint.id,
+			DestinationBinding: endpoint.binding,
+			MessageID:          messageID,
+			RunID:              runID,
+			EventOffset:        offset,
+			EventKind:          eventKind,
+			RecordedAt:         now,
+			Park:               park,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return journal.Notification{
+			RunID:             runID,
+			MessageID:         messageID,
+			SourceEventOffset: offset,
+			Body:              body,
+		}
+	}
+
+	for _, test := range []struct {
+		name   string
+		item   journal.Notification
+		wantOK bool
+	}{
+		{
+			name:   "v2 park with typed body",
+			item:   build(WebhookEventSchemaVersion, webhookParkUpdated, &park, run.ID, 7),
+			wantOK: true,
+		},
+		{
+			name:   "v2 park degraded to kind only",
+			item:   build(WebhookEventSchemaVersion, webhookParkUpdated, nil, run.ID, 8),
+			wantOK: true,
+		},
+		{
+			name:   "v1 classic body keeps validating",
+			item:   build(webhookEventSchemaV1, webhookRunUpdated, nil, run.ID, 9),
+			wantOK: true,
+		},
+		{
+			name:   "v1 cannot carry park_updated",
+			item:   build(webhookEventSchemaV1, webhookParkUpdated, nil, run.ID, 10),
+			wantOK: false,
+		},
+		{
+			name:   "v1 cannot carry a park body",
+			item:   build(webhookEventSchemaV1, webhookRunUpdated, &park, run.ID, 11),
+			wantOK: false,
+		},
+		{
+			name:   "park body on a non-park kind",
+			item:   build(WebhookEventSchemaVersion, webhookRunUpdated, &park, run.ID, 12),
+			wantOK: false,
+		},
+		{
+			name:   "park body for a foreign run",
+			item:   build(WebhookEventSchemaVersion, webhookParkUpdated, &park, "run-other", 13),
+			wantOK: false,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			code := validateWebhookEvent(endpoint, test.item)
+			if test.wantOK && code != "" {
+				t.Fatalf("valid notification rejected: %q", code)
+			}
+			if !test.wantOK && code == "" {
+				t.Fatal("invalid notification accepted")
+			}
+		})
+	}
+}

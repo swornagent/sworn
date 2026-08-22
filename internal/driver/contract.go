@@ -42,14 +42,33 @@ var (
 	digestPattern         = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
-// ContractError carries a stable code and never request, model, stderr, or secret bytes.
+// ContractError carries a stable code and never request, model, stderr, or
+// secret bytes. Per the S5-provider-limit-evidence ruling, Detail carries
+// the provider's own words for exactly the closed provider status family:
+// the status envelope's error.message, normalized to single-line,
+// control-free valid UTF-8 and bounded to maxProviderErrorDetailBytes at
+// extraction, then re-validated at the dispatcher boundary. Request,
+// credential, header, and sibling-envelope bytes structurally cannot enter
+// it; every other code keeps Detail empty.
 type ContractError struct {
-	Code   string
+	Code string
+	// Detail is bounded provider status-envelope text. It is populated only
+	// beside the provider status codes (PROVIDER_LIMITED,
+	// PROVIDER_AUTHORIZATION_FAILED, PROVIDER_REQUEST_REJECTED,
+	// PROVIDER_UNAVAILABLE, PROVIDER_ERROR) and only after normalizeAdapterError
+	// re-validates it against validateText at maxProviderErrorDetailBytes.
 	Detail string
 	// RetryAfter is the provider-advised pacing for a retryable rejection
-	// (429 RetryInfo body or Retry-After header). Zero when the provider
-	// named none. It is advisory transport metadata, never provider content.
+	// (429 RetryInfo body or Retry-After header). Zero when no usable delay
+	// could be read. It is advisory transport metadata, never provider
+	// content.
 	RetryAfter time.Duration
+	// HardLimit marks a PROVIDER_LIMITED error classified as a hard wall: a
+	// 429 that names no retry window (no RetryInfo retryDelay, no Retry-After
+	// header). The dispatch fails immediately instead of pacing into it; a
+	// windowed 429 keeps today's paced path. The flag rides Detail through
+	// the dispatcher boundary for exactly the provider status codes.
+	HardLimit bool
 }
 
 func (e *ContractError) Error() string {

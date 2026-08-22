@@ -30,7 +30,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	ownerActive := ownerPresent && owner.ExpiresAt.After(s.now().UTC())
 	ownerExpired := ownerPresent && !ownerActive
-	result := RunStatus{SchemaVersion: "sworn.run-status/v3", RunID: runID,
+	result := RunStatus{SchemaVersion: "sworn.run-status/v4", RunID: runID,
 		State: "new", DesiredState: control.Desired, ControlGeneration: control.Generation,
 		ManifestDigest: snapshot.Run.ManifestDigest, TargetRef: snapshot.Run.TargetRef,
 		Effects: make([]EffectStatus, 0, len(snapshot.Effects))}
@@ -141,10 +141,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 		}
 	}
-	degradationBudgetExceeded := int64(len(degradationFallbacks(snapshot))) > manifest.value.EffectiveDegradationBudget()
+	degradationCount := int64(len(degradationFallbacks(snapshot)))
+	degradationBudgetExceeded := degradationCount > manifest.value.EffectiveDegradationBudget()
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
-	parked := attentionParked || degradationBudgetExceeded || len(exhausted) != 0
+	exhaustionApplies := len(exhausted) != 0
+	parked := attentionParked || degradationBudgetExceeded || exhaustionApplies
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -243,9 +245,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
-			parked = attentionParked || degradationBudgetExceeded || intersectsWork(exhausted, map[string]struct{}{
+			exhaustionApplies = intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
+			parked = attentionParked || degradationBudgetExceeded || exhaustionApplies
 			parked = parked || humanAuthorityRequired
 		}
 	}
@@ -277,6 +280,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "running"
 		}
 	}
+	if result.State == "parked" {
+		result.Park = parkStatusFor(
+			manifest, humanAuthorityRequired, attentionParked,
+			degradationBudgetExceeded, degradationCount, exhaustionApplies,
+		)
+	}
 	if stateErr != nil {
 		return result, nil
 	}
@@ -286,8 +295,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	parked = humanAuthorityRequired || attentionParked || degradationBudgetExceeded || exhaustedWorkApplies(
+	exhaustionApplies = exhaustedWorkApplies(
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
+	parked = humanAuthorityRequired || attentionParked || degradationBudgetExceeded || exhaustionApplies
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case proposalFound && !proposalActivated:
@@ -301,6 +311,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		default:
 			result.State = "running"
 		}
+	}
+	if result.State == "parked" {
+		result.Park = parkStatusFor(
+			manifest, humanAuthorityRequired, attentionParked,
+			degradationBudgetExceeded, degradationCount, exhaustionApplies,
+		)
 	}
 	return result, nil
 }
@@ -694,24 +710,29 @@ func intersectsWork(left, right map[string]struct{}) bool {
 	return false
 }
 
-type degradationFallback struct {
-	Offset int64  `json:"offset"`
-	Reason string `json:"reason"`
-}
-
-func degradationFallbacks(snapshot journal.Snapshot) []degradationFallback {
-	var fallbacks []degradationFallback
-	for _, event := range snapshot.Events {
-		if strings.Contains(event.Kind, ".continuation.fresh_rehydrate.") {
-			reason := string(event.Body)
-			if reason == "" {
-				reason = "absence"
-			}
-			fallbacks = append(fallbacks, degradationFallback{
-				Offset: event.Offset,
-				Reason: reason,
-			})
-		}
+// parkStatusFor names the park cause with the same precedence the final park
+// computation uses: human authority, attention, degradation, exhaustion. A
+// degradation park carries the gated fallback count, the effective budget,
+// and the manifest knob that unblocks it.
+func parkStatusFor(
+	manifest admittedManifest,
+	humanAuthorityRequired, attentionParked, degradationBudgetExceeded bool,
+	degradationCount int64,
+	exhaustionApplies bool,
+) *ParkStatus {
+	status := &ParkStatus{}
+	switch {
+	case humanAuthorityRequired:
+		status.Cause = ParkCauseHumanAuthority
+	case attentionParked:
+		status.Cause = ParkCauseAttention
+	case degradationBudgetExceeded:
+		status.Cause = ParkCauseDegradation
+		status.FallbackCount = degradationCount
+		status.Budget = manifest.value.EffectiveDegradationBudget()
+		status.UnblockKnob = DegradationUnblockKnob
+	case exhaustionApplies:
+		status.Cause = ParkCauseExhaustion
 	}
-	return fallbacks
+	return status
 }

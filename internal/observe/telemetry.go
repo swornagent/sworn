@@ -13,8 +13,21 @@ const (
 	telemetryExportInterval      = 5 * time.Second
 	telemetryExportTimeout       = 3 * time.Second
 	// The closed responsibility, operation, transport, outcome, and
-	// usage-known product has 1,008 possible group series.
+	// usage-known vocabularies were 1,008 possible group series. The A4
+	// profile/model labels join that set: distinct eval groups are distinct
+	// series keys by construction, and validTelemetryRecord caps a record at
+	// 512 groups, so the actual series count stays inside this per-metric
+	// cap (an over-cap series is dropped silently, so the cap is the guard).
 	telemetryMetricCardinality = 1024
+	// telemetryTraceChunkSpans bounds one trace export batch: the exporter
+	// is built WithMaxRequestSize(1 MiB) and rejects an oversized body
+	// wholesale, so a long cumulative attempt history is exported in
+	// bounded chunks instead of one all-or-nothing request (S2-C3).
+	telemetryTraceChunkSpans = 256
+	// telemetryDedupeMaxRuns bounds the per-run exported-attempt sets.
+	// Attempt identity is derived from durable journal columns only, so
+	// FIFO eviction of a finished run cannot corrupt an active one.
+	telemetryDedupeMaxRuns = 16
 )
 
 type Status struct {
@@ -63,6 +76,44 @@ type telemetryRuntime struct {
 	metrics        metricAccumulator
 	resource       telemetryResource
 	interval       time.Duration
+	// dedupe remembers which attempt span identities were already
+	// exported, per run. It is touched only from the single runtime
+	// goroutine, so it needs no lock.
+	dedupe spanDedupe
+}
+
+// spanDedupe is the bounded export-once state: a per-run set of exported
+// attempt span ids with FIFO eviction across runs.
+type spanDedupe struct {
+	order []string
+	runs  map[string]map[[8]byte]struct{}
+}
+
+func newSpanDedupe() spanDedupe {
+	return spanDedupe{runs: make(map[string]map[[8]byte]struct{})}
+}
+
+func (d *spanDedupe) exported(runID string) map[[8]byte]struct{} {
+	if d.runs == nil {
+		return nil
+	}
+	return d.runs[runID]
+}
+
+func (d *spanDedupe) mark(runID string, ids ...[8]byte) {
+	set := d.runs[runID]
+	if set == nil {
+		set = make(map[[8]byte]struct{})
+		d.runs[runID] = set
+		d.order = append(d.order, runID)
+		if len(d.order) > telemetryDedupeMaxRuns {
+			delete(d.runs, d.order[0])
+			d.order = d.order[1:]
+		}
+	}
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
 }
 
 type telemetryTraceExporter interface {
@@ -107,6 +158,7 @@ func newTelemetry(
 			serviceVersion: version,
 		},
 		interval: interval,
+		dedupe:   newSpanDedupe(),
 	}
 	go runtime.run()
 	return owner, nil
@@ -239,23 +291,62 @@ func (r *telemetryRuntime) dropQueued() {
 }
 
 func (r *telemetryRuntime) emitTrace(record Record) {
-	spans, err := telemetrySpans(record, r.resource)
-	if err != nil {
-		r.owner.failure("trace_build")
+	spans := telemetrySpans(
+		record,
+		r.resource,
+		r.dedupe.exported(record.RunID),
+	)
+	if len(spans) == 0 {
 		return
 	}
-	exportCtx, cancel := context.WithTimeout(
-		context.Background(),
-		telemetryExportTimeout,
-	)
-	err = r.traceExporter.ExportSpans(exportCtx, spans)
-	cancel()
-	if err != nil {
-		r.owner.failure("trace_export")
-		return
+	// Export in bounded chunks so a long cumulative attempt history cannot
+	// fail the whole batch against the exporter's 1 MiB request cap. An
+	// attempt identity joins the exported set only after the chunk that
+	// carried it succeeded (S2-C3).
+	for _, chunk := range telemetrySpanChunks(
+		spans,
+		telemetryTraceChunkSpans,
+	) {
+		exportCtx, cancel := context.WithTimeout(
+			context.Background(),
+			telemetryExportTimeout,
+		)
+		err := r.traceExporter.ExportSpans(exportCtx, chunk)
+		cancel()
+		if err != nil {
+			r.owner.failure("trace_export")
+			return
+		}
+		r.dedupe.mark(record.RunID, chunkDispatchSpanIDs(chunk)...)
 	}
 	r.owner.traceExports.Add(1)
 	r.owner.success()
+}
+
+func telemetrySpanChunks(
+	spans []telemetrySpan,
+	size int,
+) [][]telemetrySpan {
+	var chunks [][]telemetrySpan
+	for len(spans) > 0 {
+		end := size
+		if end > len(spans) {
+			end = len(spans)
+		}
+		chunks = append(chunks, spans[:end])
+		spans = spans[end:]
+	}
+	return chunks
+}
+
+func chunkDispatchSpanIDs(spans []telemetrySpan) [][8]byte {
+	var result [][8]byte
+	for _, span := range spans {
+		if span.name == dispatchSpanName {
+			result = append(result, span.spanID)
+		}
+	}
+	return result
 }
 
 func (r *telemetryRuntime) recordMetrics(record Record) {
@@ -405,6 +496,8 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			stringTelemetryAttribute("sworn.operation", group.Operation),
 			stringTelemetryAttribute("sworn.transport", group.Transport),
 			stringTelemetryAttribute("sworn.outcome", group.Outcome),
+			stringTelemetryAttribute("sworn.profile", group.Profile),
+			stringTelemetryAttribute("sworn.model", group.Model),
 			stringTelemetryAttribute("sworn.usage_known", usageKnown),
 			stringTelemetryAttribute("sworn.cache_known", cacheKnown),
 			stringTelemetryAttribute("sworn.effort_reported", effortReported),
@@ -435,6 +528,60 @@ func (r *telemetryRuntime) recordMetrics(record Record) {
 			observedAt,
 			labels,
 		)
+		r.metrics.record(
+			"sworn.eval.observation_duration_ns.numerator",
+			*group.ObservationDurationNS.Numerator,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.observation_duration_ns.denominator",
+			*group.ObservationDurationNS.Denominator,
+			observedAt,
+			labels,
+		)
+		if group.TurnEconomics.Turns != nil {
+			r.metrics.record(
+				"sworn.eval.turns",
+				*group.TurnEconomics.Turns,
+				observedAt,
+				labels,
+			)
+		}
+		if group.TurnEconomics.ToolCalls != nil {
+			r.metrics.record(
+				"sworn.eval.tool_calls",
+				*group.TurnEconomics.ToolCalls,
+				observedAt,
+				labels,
+			)
+		}
+		r.metrics.record(
+			"sworn.eval.tool_calls_per_turn.numerator",
+			*group.TurnEconomics.ToolCallsPerTurn.Numerator,
+			observedAt,
+			labels,
+		)
+		r.metrics.record(
+			"sworn.eval.tool_calls_per_turn.denominator",
+			*group.TurnEconomics.ToolCallsPerTurn.Denominator,
+			observedAt,
+			labels,
+		)
+		for _, item := range group.TurnEconomics.ToolCallMix {
+			r.metrics.record(
+				"sworn.eval.tool_calls.by_name",
+				item.Count,
+				observedAt,
+				append(
+					append([]telemetryAttribute(nil), labels...),
+					stringTelemetryAttribute(
+						"sworn.tool.name",
+						item.Name,
+					),
+				),
+			)
+		}
 		r.metrics.record(
 			"sworn.eval.usage_coverage.numerator",
 			*group.Usage.TokenCoverage.Numerator,

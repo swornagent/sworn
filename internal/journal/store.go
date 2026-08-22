@@ -26,11 +26,20 @@ const (
 	MaxEventBytes   = 256 * 1024
 	MaxLease        = 15 * time.Minute
 	ApplicationID   = 1_398_230_866
-	SchemaVersion   = 2
+	SchemaVersion   = 3
 
 	legacySchemaVersion        = 1
 	legacySchemaIdentityDigest = "sha256:bb78cc011e12981e7a7d82ac3198936b0a04c9ce8516f062d4d2017957f3cd3e"
-	schemaIdentityDigest       = "sha256:dfb1f66f6b0186165409b98bd684deaabbb5e626c64b8649df7c1c7ab5a229f7"
+	// schemaVersion2 and schemaIdentityDigestV2 pin the pre-S6 attempts
+	// shape. migrateV1ToV2's post-verify checks against the v2 constant
+	// (not the live digest), and the v2→v3 admission gate verifies the
+	// journal is exactly v2 before adding the S6 columns.
+	schemaVersion2         = 2
+	schemaIdentityDigestV2 = "sha256:dfb1f66f6b0186165409b98bd684deaabbb5e626c64b8649df7c1c7ab5a229f7"
+	// schemaIdentityDigest is the live v3 gate: schema.sql authored in the
+	// ALTER-spliced attempts layout so fresh and migrated journals carry
+	// byte-identical sqlite_schema text.
+	schemaIdentityDigest = "sha256:de2b9287785209817e86b83f01ee58d1528f461eedcc399bf9bb585f6b0c371e"
 )
 
 //go:embed schema.sql
@@ -38,6 +47,9 @@ var schema string
 
 //go:embed migrate_v1_to_v2.sql
 var migrationV1ToV2 string
+
+//go:embed migrate_v2_to_v3.sql
+var migrationV2ToV3 string
 
 var (
 	identityPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$`)
@@ -242,6 +254,17 @@ func (s *Store) initialize(ctx context.Context) error {
 			if err := verifySchemaIdentity(ctx, s.conn); err != nil {
 				return err
 			}
+		case schemaVersion2:
+			if err := verifySchemaIdentityAs(
+				ctx,
+				s.conn,
+				schemaIdentityDigestV2,
+			); err != nil {
+				return err
+			}
+			if err := migrateV2ToV3(ctx, s.conn); err != nil {
+				return err
+			}
 		case legacySchemaVersion:
 			if err := verifySchemaIdentityAs(
 				ctx,
@@ -251,6 +274,9 @@ func (s *Store) initialize(ctx context.Context) error {
 				return err
 			}
 			if err := migrateV1ToV2(ctx, s.conn); err != nil {
+				return err
+			}
+			if err := migrateV2ToV3(ctx, s.conn); err != nil {
 				return err
 			}
 		default:
@@ -348,6 +374,36 @@ func migrateV1ToV2(ctx context.Context, conn *sql.Conn) (err error) {
 		}
 	}()
 	if _, err = conn.ExecContext(ctx, migrationV1ToV2); err != nil {
+		return fail("SCHEMA_FAILED", errors.New("journal migration was rejected"))
+	}
+	// v1→v2 lands on the v2 shape, not the live one; the v2 constant is the
+	// gate, and the caller chains migrateV2ToV3 immediately after.
+	if err = verifySchemaIdentityAs(ctx, conn, schemaIdentityDigestV2); err != nil {
+		return err
+	}
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fail("COMMIT_FAILED", errors.New("journal migration acknowledgement unavailable"))
+	}
+	committed = true
+	return nil
+}
+
+// migrateV2ToV3 adds the S6 failed-observation columns on the migrateV1ToV2
+// discipline: claim the write, apply the embedded migration, verify the
+// resulting catalog fingerprints exactly as the shipped v3 schema, then
+// commit. Historical attempts keep NULL observation_body and 0
+// observation_partial, so absence stays distinguishable from corruption.
+func migrateV2ToV3(ctx context.Context, conn *sql.Conn) (err error) {
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fail("DATABASE_BUSY", errors.New("migration write unavailable"))
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if _, err = conn.ExecContext(ctx, migrationV2ToV3); err != nil {
 		return fail("SCHEMA_FAILED", errors.New("journal migration was rejected"))
 	}
 	if err = verifySchemaIdentity(ctx, conn); err != nil {

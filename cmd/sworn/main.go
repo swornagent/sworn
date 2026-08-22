@@ -176,6 +176,16 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 	}
 	defer service.Close()
 	defer factory.Close()
+	host := newRunTelemetryHost(
+		ctx,
+		options["--journal"],
+		options["--run"],
+		service,
+		resolveJournalOperatorConfig(options["--journal"]),
+	)
+	if host != nil {
+		defer host.finish()
+	}
 	status, err := service.AnswerAttention(
 		ctx,
 		runtimepkg.AnswerAttentionCommand{
@@ -521,7 +531,8 @@ func executeStart(manifestPath, journalPath, configPath string, detached bool, s
 		)
 		return 1
 	}
-	if _, err := runtimepkg.ParseManifest(body); err != nil {
+	manifest, err := runtimepkg.ParseManifest(body)
+	if err != nil {
 		writeCommandFailure(
 			stderr,
 			"run",
@@ -547,6 +558,17 @@ func executeStart(manifestPath, journalPath, configPath string, detached bool, s
 	}
 	defer service.Close()
 	defer factory.Close()
+
+	host := newRunTelemetryHost(
+		ctx,
+		journalPath,
+		manifest.RunID,
+		service,
+		resolveJournalOperatorConfig(journalPath),
+	)
+	if host != nil {
+		defer host.finish()
+	}
 
 	status, err := service.Start(ctx, body)
 	if err != nil {
@@ -630,6 +652,20 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 	}
 	defer service.Close()
 	defer factory.Close()
+	// resume and takeover host delivery in this process (Service.Wait); the
+	// export pump rides there exactly as it rides run's service.Start.
+	if kind == journal.Resume || kind == journal.Takeover {
+		host := newRunTelemetryHost(
+			ctx,
+			options["--journal"],
+			options["--run"],
+			service,
+			resolveJournalOperatorConfig(options["--journal"]),
+		)
+		if host != nil {
+			defer host.finish()
+		}
+	}
 	status, err := service.Control(ctx, runtimepkg.ControlCommand{
 		RunID: options["--run"], ID: options["--command"], Kind: kind,
 		ExpectedGeneration: generation, WorkID: options["--work"], ExpectedEpoch: epoch,

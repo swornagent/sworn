@@ -647,6 +647,7 @@ func (adapter *loopAdapter) invokeAutomation(
 	var total Usage
 	usageAvailable := false
 	corrections := 0
+	var turnCount, toolCallCount int64
 	seenIDs := make(map[string]struct{})
 	expected := definitions[0].Name
 	for turn := 0; turn < MaxAutomationTurns; turn++ {
@@ -669,6 +670,10 @@ func (adapter *loopAdapter) invokeAutomation(
 		clearBytes(response)
 		if err != nil {
 			return AutomationObservation{}, err
+		}
+		turnCount++
+		if len(providerTurn.Calls) == 1 {
+			toolCallCount++
 		}
 		if providerTurn.Usage != nil {
 			if providerTurn.Usage.InputTokens < 0 ||
@@ -700,6 +705,8 @@ func (adapter *loopAdapter) invokeAutomation(
 			call.Arguments,
 			total,
 			usageAvailable,
+			turnCount,
+			toolCallCount,
 		)
 		if terminalErr == nil {
 			return observation, nil
@@ -725,18 +732,20 @@ func decodeAutomationTerminal(
 	arguments []byte,
 	total Usage,
 	usageAvailable bool,
+	turns, toolCalls int64,
 ) (AutomationObservation, error) {
 	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
 	if err != nil {
 		return AutomationObservation{}, err
 	}
-	usage, err := NormalizeUsage(nil, nil)
+	usage, err := NormalizeUsage(nil, nil, invocation.Selected.Adapter.ID)
 	if usageAvailable {
-		usage, err = NormalizeUsage(&total, nil)
+		usage, err = NormalizeUsage(&total, nil, invocation.Selected.Adapter.ID)
 	}
 	if err != nil {
 		return AutomationObservation{}, err
 	}
+	applyTurnEconomics(&usage, turns, toolCalls, nil)
 	observation := AutomationObservation{
 		TransportStatus: Completed,
 		DurationMillis:  time.Since(started).Milliseconds(),

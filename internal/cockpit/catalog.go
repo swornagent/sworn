@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -68,7 +69,7 @@ func BuildProjectCatalog(
 	}
 	catalogRuns := make([]CatalogRun, 0, len(runs))
 	for _, run := range runs {
-		presentation := PresentRunState(run.Status.State)
+		presentation := PresentRunState(run.Status.State, run.Status.Park)
 		catalogRuns = append(catalogRuns, CatalogRun{
 			ID:        run.Binding.ID,
 			Release:   run.Binding.Release,
@@ -92,7 +93,7 @@ func BuildProjectCatalog(
 
 // ProjectNeedsYou extracts human-action-required items across runs with precedence:
 // 1. Open attentions ("answer_attention")
-// 2. Parked runs ("retry")
+// 2. Parked runs (retry for real failed work, review_park otherwise)
 // 3. Takeover required ("takeover")
 // 4. Awaiting approval ("approve")
 func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
@@ -118,7 +119,10 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			continue
 		}
 
-		// Precedence 2: Parked run (needs retry)
+		// Precedence 2: Parked run. A park with real failed work keeps the
+		// retry row with its work id; a park with no failed work is never
+		// presented as a retry. A degradation park names its cause, count,
+		// budget, and the manifest knob that unblocks it.
 		if run.Status.State == "parked" {
 			workID := ""
 			for _, effect := range run.Status.Effects {
@@ -127,13 +131,33 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 					break
 				}
 			}
+			if workID != "" {
+				items = append(items, NeedsYouItem{
+					RunID:   run.Binding.ID,
+					Release: run.Binding.Release,
+					State:   "parked",
+					Action:  "retry",
+					Reason:  "Review the failed item, then retry it using the latest action.",
+					WorkID:  workID,
+				})
+				continue
+			}
+			reason := "Review the stopped run before continuing."
+			if run.Status.Park != nil &&
+				run.Status.Park.Cause == runtimepkg.ParkCauseDegradation {
+				reason = fmt.Sprintf(
+					"Sworn rebuilt the model context %d times against a degradation budget of %d. Raise %s in the manifest, then resume the run.",
+					run.Status.Park.FallbackCount,
+					run.Status.Park.Budget,
+					run.Status.Park.UnblockKnob,
+				)
+			}
 			items = append(items, NeedsYouItem{
 				RunID:   run.Binding.ID,
 				Release: run.Binding.Release,
 				State:   "parked",
-				Action:  "retry",
-				Reason:  "Review the failed item, then retry it using the latest action.",
-				WorkID:  workID,
+				Action:  "review_park",
+				Reason:  reason,
 			})
 			continue
 		}

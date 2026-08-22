@@ -674,6 +674,228 @@ func assertTraceWirePayload(t *testing.T, body []byte) {
 	}
 }
 
+// TestOTLPTraceWirePayloadCarriesGenAIDispatchSpans pins A1-A4 on the real
+// OTLP wire format: every span of one run shares one 16-byte TraceId, the
+// dispatch spans parent to the segment span, and the GenAI int64 attributes
+// are proto-encoded exactly.
+func TestOTLPTraceWirePayloadCarriesGenAIDispatchSpans(t *testing.T) {
+	clearBlockedOTelConstructorEnvironment(t)
+	transport := &boundedRequestRoundTripper{}
+	client := func() *http.Client {
+		return &http.Client{
+			Transport: transport,
+			Timeout:   telemetryExportTimeout,
+			CheckRedirect: func(
+				*http.Request,
+				[]*http.Request,
+			) error {
+				return errOTelRedirect
+			},
+		}
+	}
+	telemetry, err := newOTLP(
+		context.Background(),
+		Config{
+			SchemaVersion: OTelConfigSchemaVersion,
+			Endpoint:      "http://127.0.0.1:4318/base",
+			Headers:       map[string]string{},
+		},
+		"0.3.0-dev",
+		client(),
+		client(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !telemetry.TryEnqueue(testTelemetryDispatchRecord(t)) {
+		t.Fatal("record was not accepted")
+	}
+	waitForProcessed(t, telemetry, 1)
+	shutdownTelemetry(t, telemetry)
+
+	transport.mu.Lock()
+	requests := append([]otlpRequest(nil), transport.requests...)
+	transport.mu.Unlock()
+	var traceBody []byte
+	for _, request := range requests {
+		if request.path == "/base/v1/traces" {
+			traceBody = request.body
+		}
+	}
+	if len(traceBody) == 0 {
+		t.Fatalf("no trace request: %#v", requests)
+	}
+	assertDispatchTraceWirePayload(t, traceBody)
+}
+
+func assertDispatchTraceWirePayload(t *testing.T, body []byte) {
+	t.Helper()
+	var request collectortracepb.ExportTraceServiceRequest
+	if err := proto.Unmarshal(body, &request); err != nil {
+		t.Fatalf("decode trace request: %v", err)
+	}
+	if len(request.ResourceSpans) != 1 {
+		t.Fatalf("resource spans = %d", len(request.ResourceSpans))
+	}
+	resourceSpans := request.ResourceSpans[0]
+	assertProtoResource(t, resourceSpans.Resource)
+	if resourceSpans.SchemaUrl != "" ||
+		len(resourceSpans.ScopeSpans) != 1 {
+		t.Fatalf("resource spans = %#v", resourceSpans)
+	}
+	scope := resourceSpans.ScopeSpans[0]
+	if scope.Scope == nil || scope.Scope.Name != "sworn.observe" ||
+		scope.Scope.Version != "" || len(scope.Scope.Attributes) != 0 ||
+		scope.Scope.DroppedAttributesCount != 0 ||
+		scope.SchemaUrl != "" || len(scope.Spans) != 5 {
+		t.Fatalf("scope spans = %#v", scope)
+	}
+	var segment, recovery *tracepb.Span
+	var dispatch []*tracepb.Span
+	for index := range scope.Spans {
+		span := scope.Spans[index]
+		switch span.Name {
+		case "sworn.process.segment":
+			segment = span
+		case "sworn.recovery":
+			recovery = span
+		case "sworn.dispatch":
+			dispatch = append(dispatch, span)
+		default:
+			t.Fatalf("unexpected span name %q", span.Name)
+		}
+	}
+	if segment == nil || recovery == nil || len(dispatch) != 3 {
+		t.Fatalf("span names = %#v", scope.Spans)
+	}
+	for _, span := range append(
+		append([]*tracepb.Span(nil), segment, recovery),
+		dispatch...,
+	) {
+		if len(span.TraceId) != 16 ||
+			!bytes.Equal(span.TraceId, segment.TraceId) {
+			t.Fatalf("trace id = %x", span.TraceId)
+		}
+		if span.Kind != tracepb.Span_SPAN_KIND_INTERNAL ||
+			span.Flags != 257 || span.TraceState != "" ||
+			len(span.Events) != 0 || len(span.Links) != 0 ||
+			span.Status == nil ||
+			span.Status.Code != tracepb.Status_STATUS_CODE_UNSET ||
+			span.Status.Message != "" ||
+			span.DroppedAttributesCount != 0 ||
+			span.DroppedEventsCount != 0 ||
+			span.DroppedLinksCount != 0 {
+			t.Fatalf("unexpected span fields = %#v", span)
+		}
+	}
+	if len(segment.ParentSpanId) != 0 ||
+		!bytes.Equal(recovery.ParentSpanId, segment.SpanId) ||
+		len(segment.SpanId) != 8 || len(recovery.SpanId) != 8 {
+		t.Fatalf("segment/recovery identity is invalid")
+	}
+	byResponsibility := make(map[string]*tracepb.Span)
+	for _, span := range dispatch {
+		if len(span.SpanId) != 8 ||
+			!bytes.Equal(span.ParentSpanId, segment.SpanId) {
+			t.Fatalf("dispatch span identity = %#v", span)
+		}
+		attributes := protoAttributeMap(t, span.Attributes)
+		responsibility, _ := attributes["sworn.responsibility"].(string)
+		if responsibility == "" {
+			t.Fatalf("dispatch span attributes = %#v", attributes)
+		}
+		byResponsibility[responsibility] = span
+	}
+	reported := byResponsibility["implementer_implementation"]
+	if reported == nil {
+		t.Fatalf("reported dispatch span missing")
+	}
+	reportedAttributes := protoAttributeMap(t, reported.Attributes)
+	assertExactKeys(t, reportedAttributes, stringSet(
+		"sworn.run",
+		"sworn.release",
+		"sworn.role",
+		"sworn.responsibility",
+		"sworn.attempt",
+		"sworn.epoch",
+		"sworn.try",
+		"sworn.track",
+		"sworn.slice",
+		"sworn.transport_status",
+		"sworn.outcome",
+		"sworn.usage_status",
+		"gen_ai.request.model",
+		"gen_ai.usage.input_tokens",
+		"gen_ai.usage.output_tokens",
+		"sworn.usage.cache_read_tokens",
+		"sworn.usage.cache_write_tokens",
+		"sworn.usage.reasoning_tokens",
+	))
+	started := time.Date(2026, 7, 29, 1, 2, 4, 0, time.UTC)
+	for key, want := range map[string]any{
+		"gen_ai.request.model":           "gemini-2.5-pro",
+		"gen_ai.usage.input_tokens":      int64(120),
+		"gen_ai.usage.output_tokens":     int64(30),
+		"sworn.usage.cache_read_tokens":  int64(8),
+		"sworn.usage.cache_write_tokens": int64(2),
+		"sworn.usage.reasoning_tokens":   int64(1779),
+		"sworn.usage_status":             "reported",
+		"sworn.run":                      "run-dispatch",
+		"sworn.release":                  "release-dispatch",
+		"sworn.attempt":                  int64(1),
+	} {
+		if got := reportedAttributes[key]; got != want {
+			t.Fatalf("%s = %#v, want %#v", key, got, want)
+		}
+	}
+	if reported.StartTimeUnixNano != uint64(started.UnixNano()) ||
+		reported.EndTimeUnixNano !=
+			uint64(started.Add(time.Second).UnixNano()) {
+		t.Fatalf(
+			"reported timing = %d/%d",
+			reported.StartTimeUnixNano,
+			reported.EndTimeUnixNano,
+		)
+	}
+	loud := byResponsibility["work_verification"]
+	if loud == nil {
+		t.Fatalf("unavailable dispatch span missing")
+	}
+	loudAttributes := protoAttributeMap(t, loud.Attributes)
+	assertExactKeys(t, loudAttributes, stringSet(
+		"sworn.run",
+		"sworn.release",
+		"sworn.role",
+		"sworn.responsibility",
+		"sworn.attempt",
+		"sworn.epoch",
+		"sworn.try",
+		"sworn.track",
+		"sworn.slice",
+		"sworn.transport_status",
+		"sworn.outcome",
+		"sworn.usage_status",
+		"sworn.surface",
+		"sworn.usage_unavailable_reason",
+	))
+	if loudAttributes["sworn.usage_status"] != "unavailable" ||
+		loudAttributes["sworn.surface"] != "sworn.gemini" ||
+		loudAttributes["sworn.usage_unavailable_reason"] !=
+			"wire-lacked-usage" {
+		t.Fatalf("loud attributes = %#v", loudAttributes)
+	}
+	legacy := byResponsibility["captain_review"]
+	if legacy == nil {
+		t.Fatalf("legacy dispatch span missing")
+	}
+	legacyAttributes := protoAttributeMap(t, legacy.Attributes)
+	if legacyAttributes["sworn.usage_status"] != "unavailable" ||
+		legacyAttributes["sworn.surface"] != "unknown" ||
+		legacyAttributes["sworn.usage_unavailable_reason"] != "unknown" {
+		t.Fatalf("legacy attributes = %#v", legacyAttributes)
+	}
+}
+
 func assertMetricWirePayload(t *testing.T, body []byte) {
 	t.Helper()
 	var request collectormetricspb.ExportMetricsServiceRequest
@@ -702,6 +924,8 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 		"sworn.operation",
 		"sworn.transport",
 		"sworn.outcome",
+		"sworn.profile",
+		"sworn.model",
 		"sworn.usage_known",
 		"sworn.cache_known",
 		"sworn.effort_reported",
@@ -709,48 +933,65 @@ func assertMetricWirePayload(t *testing.T, body []byte) {
 		"sworn.truncated",
 	)
 	allowed := map[string]map[string]bool{
-		"sworn.eval.events":                     stringSet("sworn.outcome"),
-		"sworn.eval.continuations":              stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
-		"sworn.eval.continuation.outcomes":      stringSet("sworn.continuation.outcome"),
-		"sworn.eval.turn_recovery.actions":      stringSet("sworn.turn_recovery.action"),
-		"sworn.eval.turn_recovery.outcomes":     stringSet("sworn.turn_recovery.outcome"),
-		"sworn.eval.attempts":                   groupLabels,
-		"sworn.eval.retries":                    groupLabels,
-		"sworn.eval.recoveries":                 stringSet("sworn.recovery", "sworn.outcome"),
-		"sworn.eval.duration_ns.numerator":      groupLabels,
-		"sworn.eval.duration_ns.denominator":    groupLabels,
-		"sworn.eval.input_tokens":               groupLabels,
-		"sworn.eval.output_tokens":              groupLabels,
-		"sworn.eval.usage_coverage.numerator":   groupLabels,
-		"sworn.eval.usage_coverage.denominator": groupLabels,
-		"sworn.eval.cache_read_tokens":          groupLabels,
-		"sworn.eval.cache_write_tokens":         groupLabels,
-		"sworn.eval.cache_coverage.numerator":   groupLabels,
-		"sworn.eval.cache_coverage.denominator": groupLabels,
-		"sworn.eval.quality.numerator":          stringSet("sworn.quality"),
-		"sworn.eval.quality.denominator":        stringSet("sworn.quality"),
+		"sworn.eval.events":                              stringSet("sworn.outcome"),
+		"sworn.eval.continuations":                       stringSet("sworn.continuation.mode", "sworn.continuation.outcome"),
+		"sworn.eval.continuation.outcomes":               stringSet("sworn.continuation.outcome"),
+		"sworn.eval.turn_recovery.actions":               stringSet("sworn.turn_recovery.action"),
+		"sworn.eval.turn_recovery.outcomes":              stringSet("sworn.turn_recovery.outcome"),
+		"sworn.eval.attempts":                            groupLabels,
+		"sworn.eval.retries":                             groupLabels,
+		"sworn.eval.recoveries":                          stringSet("sworn.recovery", "sworn.outcome"),
+		"sworn.eval.duration_ns.numerator":               groupLabels,
+		"sworn.eval.duration_ns.denominator":             groupLabels,
+		"sworn.eval.observation_duration_ns.numerator":   groupLabels,
+		"sworn.eval.observation_duration_ns.denominator": groupLabels,
+		"sworn.eval.input_tokens":                        groupLabels,
+		"sworn.eval.output_tokens":                       groupLabels,
+		"sworn.eval.usage_coverage.numerator":            groupLabels,
+		"sworn.eval.usage_coverage.denominator":          groupLabels,
+		"sworn.eval.cache_read_tokens":                   groupLabels,
+		"sworn.eval.cache_write_tokens":                  groupLabels,
+		"sworn.eval.cache_coverage.numerator":            groupLabels,
+		"sworn.eval.cache_coverage.denominator":          groupLabels,
+		"sworn.eval.turns":                               groupLabels,
+		"sworn.eval.tool_calls":                          groupLabels,
+		"sworn.eval.tool_calls_per_turn.numerator":       groupLabels,
+		"sworn.eval.tool_calls_per_turn.denominator":     groupLabels,
+		"sworn.eval.tool_calls.by_name": appendKey(
+			groupLabels,
+			"sworn.tool.name",
+		),
+		"sworn.eval.quality.numerator":   stringSet("sworn.quality"),
+		"sworn.eval.quality.denominator": stringSet("sworn.quality"),
 	}
 	expectedValues := map[string][]int64{
-		"sworn.eval.events":                     {8},
-		"sworn.eval.continuations":              {1, 1, 1},
-		"sworn.eval.continuation.outcomes":      {1, 1, 2},
-		"sworn.eval.turn_recovery.actions":      {1, 1, 1},
-		"sworn.eval.turn_recovery.outcomes":     {0, 1, 1},
-		"sworn.eval.attempts":                   {2},
-		"sworn.eval.retries":                    {1},
-		"sworn.eval.recoveries":                 {0, 0, 1, 1},
-		"sworn.eval.duration_ns.numerator":      {30},
-		"sworn.eval.duration_ns.denominator":    {2},
-		"sworn.eval.input_tokens":               {120},
-		"sworn.eval.output_tokens":              {30},
-		"sworn.eval.usage_coverage.numerator":   {1},
-		"sworn.eval.usage_coverage.denominator": {2},
-		"sworn.eval.cache_read_tokens":          {80},
-		"sworn.eval.cache_write_tokens":         {20},
-		"sworn.eval.cache_coverage.numerator":   {1},
-		"sworn.eval.cache_coverage.denominator": {2},
-		"sworn.eval.quality.numerator":          {1, 1, 1},
-		"sworn.eval.quality.denominator":        {1, 1, 1},
+		"sworn.eval.events":                              {8},
+		"sworn.eval.continuations":                       {1, 1, 1},
+		"sworn.eval.continuation.outcomes":               {1, 1, 2},
+		"sworn.eval.turn_recovery.actions":               {1, 1, 1},
+		"sworn.eval.turn_recovery.outcomes":              {0, 1, 1},
+		"sworn.eval.attempts":                            {2},
+		"sworn.eval.retries":                             {1},
+		"sworn.eval.recoveries":                          {0, 0, 1, 1},
+		"sworn.eval.duration_ns.numerator":               {30},
+		"sworn.eval.duration_ns.denominator":             {2},
+		"sworn.eval.observation_duration_ns.numerator":   {30},
+		"sworn.eval.observation_duration_ns.denominator": {2},
+		"sworn.eval.input_tokens":                        {120},
+		"sworn.eval.output_tokens":                       {30},
+		"sworn.eval.usage_coverage.numerator":            {1},
+		"sworn.eval.usage_coverage.denominator":          {2},
+		"sworn.eval.cache_read_tokens":                   {80},
+		"sworn.eval.cache_write_tokens":                  {20},
+		"sworn.eval.cache_coverage.numerator":            {1},
+		"sworn.eval.cache_coverage.denominator":          {2},
+		"sworn.eval.turns":                               {3},
+		"sworn.eval.tool_calls":                          {2},
+		"sworn.eval.tool_calls_per_turn.numerator":       {2},
+		"sworn.eval.tool_calls_per_turn.denominator":     {3},
+		"sworn.eval.tool_calls.by_name":                  {1, 1},
+		"sworn.eval.quality.numerator":                   {1, 1, 1},
+		"sworn.eval.quality.denominator":                 {1, 1, 1},
 	}
 	if len(scope.Metrics) != len(expectedValues) {
 		t.Fatalf("metrics = %d", len(scope.Metrics))

@@ -57,8 +57,15 @@ type Attempt struct {
 	Responsibility    string
 	TransportStatus   string
 	ObservationDigest string
-	Usage             []byte
-	HandoffDigest     string
+	// ObservationBody is the marshaled driver observation this attempt's
+	// digest was computed over. It is evidence for the digest, never a
+	// second authority: the write seam re-verifies digest(body) ==
+	// ObservationDigest before persisting. Attempts that legitimately
+	// carry no body (successful dispatches, whose sealed handoff is their
+	// durable record) leave it nil.
+	ObservationBody []byte
+	Usage           []byte
+	HandoffDigest   string
 }
 
 type Receipt struct {

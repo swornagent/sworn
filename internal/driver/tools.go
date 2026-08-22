@@ -78,6 +78,12 @@ type toolSession struct {
 	yield             *Yield
 	scratch           string
 	closed            bool
+	// observer emits the bounded tool-result projection on the
+	// runtime-provided hook; nil when the invocation carries no hook.
+	// redaction holds the credentials bound by runNative; they are
+	// cleared with the session.
+	observer  *toolResultObserver
+	redaction [][]byte
 }
 
 func newToolSession(invocation Invocation) (*toolSession, error) {
@@ -90,10 +96,15 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	session := &toolSession{invocation: invocation, projection: projection}
+	session := &toolSession{
+		invocation: invocation,
+		projection: projection,
+		observer:   newToolResultObserver(invocation.ToolResultHook),
+	}
 	ok := false
 	defer func() {
 		if !ok {
+			session.observer.close()
 			_ = projection.Close()
 			if session.scratch != "" {
 				_ = os.RemoveAll(session.scratch)
@@ -735,7 +746,15 @@ func (session *toolSession) Close() error {
 		return nil
 	}
 	session.closed = true
+	redaction := session.redaction
+	session.redaction = nil
 	session.mu.Unlock()
+	// Drain accepted tool-result events before the session tears down;
+	// the bounded drain never fails or stalls delivery beyond its cap.
+	session.observer.close()
+	for _, secret := range redaction {
+		clearBytes(secret)
+	}
 	var result error
 	if session.invocation.Request.Workspace.Access == ReadOnly {
 		after, err := captureWorkspaceManifest(session.invocation.HostWorkspace)

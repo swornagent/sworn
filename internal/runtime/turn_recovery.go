@@ -67,6 +67,13 @@ type turnRecoveryTotals struct {
 	cost        int64
 	currency    string
 	source      string
+	// A2 fold: the first non-empty surface wins; the unavailable reason is
+	// carried when unanimous and degrades to capture-failed on any
+	// disagreement, so a reconstructed receipt is never a silent default.
+	surface     string
+	reason      string
+	reasonSet   bool
+	reasonMixed bool
 }
 
 func addTurnRecoveryValue(left, right int64) (int64, error) {
@@ -86,6 +93,18 @@ func (total *turnRecoveryTotals) add(
 		return err
 	}
 	total.duration = nextDuration
+	if total.surface == "" {
+		total.surface = usage.Surface
+	}
+	if usage.UnavailableReason != "" {
+		switch {
+		case !total.reasonSet:
+			total.reason = usage.UnavailableReason
+			total.reasonSet = true
+		case total.reason != usage.UnavailableReason:
+			total.reasonMixed = true
+		}
+	}
 	tokenReported := usage.TokenStatus == driver.UsageReported &&
 		usage.InputTokens != nil && usage.OutputTokens != nil
 	costReported := usage.CostStatus == driver.UsageReported &&
@@ -144,9 +163,27 @@ func (total turnRecoveryTotals) apply(
 		return
 	}
 	observation.DurationMillis = total.duration
+	// When the fold carries a surface (every new receipt does), the
+	// reconstructed receipt is v2 and loud: an unavailable fold names the
+	// surface and a stable reason instead of defaulting silent. A fold
+	// reconstructed from legacy accounting carries no surface and keeps the
+	// legacy receipt shape so its bytes stay exactly encodable.
 	usage := driver.UsageReceipt{
 		TokenStatus: driver.UsageUnavailable,
 		CostStatus:  driver.UsageUnavailable,
+	}
+	if total.surface != "" {
+		usage.SchemaVersion = driver.UsageSchemaV2
+		usage.Surface = total.surface
+		usage.CacheStatus = driver.UsageUnavailable
+		if !total.tokenKnown {
+			reason := total.reason
+			if !total.reasonSet || total.reasonMixed ||
+				reason == "" {
+				reason = driver.UsageReasonCaptureFailed
+			}
+			usage.UnavailableReason = reason
+		}
 	}
 	if total.tokenKnown {
 		input, output := total.input, total.output

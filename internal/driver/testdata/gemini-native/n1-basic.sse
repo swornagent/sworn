@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]}}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":".","thoughtSignature":"EqkCCqYCARFNMg8osLAUB3KfHiXVVg7LiC2dIbDH+uR6oPcrjrfLXD2YVvrGYq0CJGkFUmWBOayCFJIkbyP9pjEBMUC1lMsSOSJQyIgyBVri0rcq3l6mcQH0OjoRHnRc20fBK3HFpzauUx9Mm3/4cQVv30hSSfPtvFh5XnsJc39IM23PEDfpoDIE4AGdakTRZHUQrHv6zrlRZ+OqYdJdqZMW5pEmBmzbfGJuBOuH1wBKK1npVSQUZTjGvZ2boy/hhVpwEmasO7zSRc/YzjC0svl3eRmoSSlIBpKaAFOVMr0T+SDKjEaswb7PI+IENJyKYSW/u5k1lhFDdJa/5PGg69r+rZw4bNLqrnD+eRI4lsJtgUFXx+9zs790SGcQu79TVgNK7FFvB0UzQU5B"}]},"finishReason":"STOP","index":0}]}
+
+data: {"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":59,"promptTokensDetails":[{"modality":"TEXT","tokenCount":4}],"thoughtsTokenCount":53,"serviceTier":"standard"},"modelVersion":"gemini-3.7-flash","responseId":"6QuDatWJIaL2juMPw6f2kQs"}
+

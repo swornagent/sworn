@@ -33,6 +33,11 @@ type preparedDriverDispatch struct {
 	expectedDigest     string
 	expectedSubmission []byte
 	fake               bool
+	// toolResultHook is the runtime-provided durable callback for the
+	// bounded tool-result projection; set once in
+	// runDriverEffectWithPreparation and copied into every invocation.
+	// It is runtime-only and never serialized into commandPayload.
+	toolResultHook driver.ToolResultHook
 }
 
 type uncertainHandoffPreparationError struct {
@@ -45,10 +50,47 @@ const (
 	continuationOutcomeFallbackExpired = "fallback_expired"
 )
 
+// continuationFallbackEventVersion is the schema version of the structured
+// fallback event body that replaced the bare reason string.
+const continuationFallbackEventVersion = "sworn.continuation-fallback/v1"
+
+// continuationFallbackEvent is the versioned fallback event body: the
+// standard association fields stay present, with the reason carried
+// additively beside retained (whether a stored handle was actually presented
+// to the adapter) and posture (the adapter's declared continuation posture).
+type continuationFallbackEvent struct {
+	SchemaVersion string `json:"schema_version"`
+	EventAssociation
+	Reason   string `json:"reason"`
+	Retained bool   `json:"retained"`
+	Posture  string `json:"posture"`
+}
+
 type continuationDispatchFact struct {
-	mode    driver.ContinuationMode
-	outcome string
-	reason  string
+	mode     driver.ContinuationMode
+	outcome  string
+	reason   string
+	retained bool
+	posture  driver.ContinuationPosture
+}
+
+// marshalObservationBody makes the single observation-marshal seam
+// error-aware and loud. json.Marshal on driver.Observation is infallible
+// today — strings, integers, booleans, and byte slices only — but if a
+// future content-bearing field ever makes it fail, the attempt persists the
+// contentless marker body whose digest is self-consistent (never a
+// digested-nothing) and the marshal error is joined into the returned
+// failure so the loud record reaches the dispatcher. The injectable marshal
+// keeps the failure branch pinnable from a unit test.
+func marshalObservationBody(
+	marshal func(any) ([]byte, error),
+	observation driver.Observation,
+) ([]byte, error) {
+	body, err := marshal(observation)
+	if err != nil {
+		return []byte(`{"observation_marshal_error":true}`), err
+	}
+	return body, nil
 }
 
 type continuationPlanAuthority struct {
@@ -324,7 +366,7 @@ func validContinuationOutcome(outcome string) bool {
 func zeroDriverObservation(observation driver.Observation) bool {
 	return observation.TransportStatus == "" &&
 		observation.DurationMillis == 0 &&
-		observation.Usage == (driver.UsageReceipt{}) &&
+		observation.Usage.Zero() &&
 		observation.Diagnostic == (driver.Diagnostic{}) &&
 		observation.Handoff == nil &&
 		len(observation.Events) == 0
@@ -413,6 +455,10 @@ func preparedInvocation(
 		Inputs:        prepared.inputs,
 		FakeProfile:   fakeProfile,
 		MaskNames:     append([]string(nil), maskNames...),
+		// Runtime-only authority: the driver emits the tool-result
+		// projection on this hook off its dispatch loop, never failing
+		// or stalling delivery on it.
+		ToolResultHook: prepared.toolResultHook,
 	}
 }
 
@@ -701,6 +747,10 @@ func (s *Service) invokeContinuationTurn(
 	*continuationDispatchFact,
 	error,
 ) {
+	// The adapter-declared continuation posture is queried exactly once per
+	// dispatch and journaled on the fact; the status-time counting gate reads
+	// the journaled fact, never a live type assertion.
+	posture := s.continuationPostureFor(freshInvocation)
 	start := func() (
 		driver.Observation,
 		*driver.Continuation,
@@ -721,6 +771,13 @@ func (s *Service) invokeContinuationTurn(
 	}
 	fallback := entry != nil || policy.missingIsFallback
 	if !matches || !supported || resumeInvocation == nil {
+		// Engine-side non-reuse: no stored handle is presented to the
+		// adapter, so nothing was lost to it. This deliberately includes
+		// entry != nil with !matches — the continuation was bound to
+		// authority (design receipt, binding, or selection digest) that no
+		// longer holds. The fallback event is still journaled, with
+		// retained=false so the degradation gate skips it: losing authority
+		// is not adapter degradation.
 		if err := closeRetainedContinuation(entry); err != nil {
 			return driver.Observation{}, nil, nil, err
 		}
@@ -729,9 +786,11 @@ func (s *Service) invokeContinuationTurn(
 			return observation, next, nil, err
 		}
 		return observation, next, &continuationDispatchFact{
-			mode:    driver.ContinuationModeFreshRehydrate,
-			outcome: continuationOutcomeFallback,
-			reason:  "absence",
+			mode:     driver.ContinuationModeFreshRehydrate,
+			outcome:  continuationOutcomeFallback,
+			reason:   "absence",
+			retained: false,
+			posture:  posture,
 		}, err
 	}
 	observation, next, result, wantsFresh, err :=
@@ -761,12 +820,35 @@ func (s *Service) invokeContinuationTurn(
 	if reason == "" {
 		reason = "absence"
 	}
+	// The resume path: a stored handle was actually presented to the adapter
+	// and the adapter rejected it (unsupported, closed, mismatch, expired, or
+	// overflow). retained=true — for a context-retaining adapter this is
+	// real, counted context loss; for a fresh_by_design adapter the counting
+	// gate skips it because rehydration is that adapter's ordinary operation.
 	observation, next, _, err = start()
 	return observation, next, &continuationDispatchFact{
-		mode:    driver.ContinuationModeFreshRehydrate,
-		outcome: outcome,
-		reason:  reason,
+		mode:     driver.ContinuationModeFreshRehydrate,
+		outcome:  outcome,
+		reason:   reason,
+		retained: true,
+		posture:  posture,
 	}, err
+}
+
+// continuationPostureFor reads the adapter-declared continuation posture
+// through the dispatcher capability. An undeclared posture fails closed as
+// context_retaining.
+func (s *Service) continuationPostureFor(
+	invocation driver.Invocation,
+) driver.ContinuationPosture {
+	if provider, ok := s.dispatcher.(driver.ContinuationPostureDriver); ok {
+		switch posture := provider.ContinuationPosture(invocation); posture {
+		case driver.ContinuationPostureContextRetaining,
+			driver.ContinuationPostureFreshByDesign:
+			return posture
+		}
+	}
+	return driver.ContinuationPostureContextRetaining
 }
 
 func (s *Service) invokePreparedDriver(
@@ -1767,6 +1849,15 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, err
 		}
 	}
+	// Every live dispatch path inherits the same tool-result observation
+	// hook: fresh, continuation resume, recoverable resume, and recovery
+	// automation, through the single preparedInvocation construction site.
+	prepared.toolResultHook = s.toolResultObservationHook(
+		owner,
+		prepared,
+		coordinates,
+		attemptIdentity,
+	)
 	var recovery *turnRecoveryCycle
 	if _, enabled := manifest.value.recoverySelection(); enabled {
 		cycle, cycleErr := turnRecoveryCycleForDispatch(
@@ -1882,9 +1973,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			RunID: manifest.value.RunID, EffectID: replayKey,
 			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
 			EventBody: MarshalAssociation(EventAssociation{
-				EffectID: replayKey,
-				WorkID:   attemptIdentity.WorkID,
-				Slice:    coordinates.Slice,
+				EffectID:       replayKey,
+				WorkID:         attemptIdentity.WorkID,
+				Slice:          coordinates.Slice,
+				Responsibility: coordinates.Responsibility,
 			}), At: s.now().UTC(),
 		}, journal.RecoveryAmbiguous)
 		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
@@ -2032,9 +2124,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		return runtimeFail("RECOVERY_UNCERTAIN", cause)
 	}
 	defaultAssocBody := MarshalAssociation(EventAssociation{
-		EffectID: replayKey,
-		WorkID:   attemptIdentity.WorkID,
-		Slice:    coordinates.Slice,
+		EffectID:       replayKey,
+		WorkID:         attemptIdentity.WorkID,
+		Slice:          coordinates.Slice,
+		Responsibility: coordinates.Responsibility,
 	})
 	eventKind := func(base string) string {
 		kind, kindErr := continuationEventKind(
@@ -2055,7 +2148,20 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if reason == "" {
 				reason = "absence"
 			}
-			return []byte(reason)
+			// The fallback body carries its reason additively beside the
+			// standard association fields, never instead of them: exactly
+			// the events that feed a park keep their effect, work, and
+			// slice identity.
+			var assoc EventAssociation
+			_ = json.Unmarshal(defaultBody, &assoc)
+			body, _ := json.Marshal(continuationFallbackEvent{
+				SchemaVersion:    continuationFallbackEventVersion,
+				EventAssociation: assoc,
+				Reason:           reason,
+				Retained:         continuationFact.retained,
+				Posture:          string(continuationFact.posture),
+			})
+			return body
 		}
 		return defaultBody
 	}
@@ -2063,11 +2169,36 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		os.Exit(86)
 	}
 	completionCtx := context.WithoutCancel(ctx)
-	usageBody, usageErr := driver.EncodeUsageReceipt(observation.Usage)
+	// The single attempt-write seam: duration, profile, and the certified
+	// model actually dispatched ride on the receipt from here, shared by
+	// every completion path. Legacy-shaped receipts (no surface) are left
+	// untouched so historical blobs keep their exact bytes.
+	stampedUsage := observation.Usage
+	driver.StampAttemptFacts(
+		&stampedUsage,
+		prepared.selected.Profile.Key,
+		prepared.selected.Model,
+		observation.DurationMillis,
+	)
+	usageBody, usageErr := driver.EncodeUsageReceipt(stampedUsage)
 	if usageErr != nil {
-		usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
+		// The A2 loud fallback: an attempt that cannot report still names
+		// the surface and the capture-failed reason instead of defaulting
+		// silent. The surface is the runtime-known adapter id, always a
+		// valid identity, so this construction is infallible in practice.
+		loud, loudErr := driver.UnavailableReceipt(
+			prepared.selected.Adapter.ID,
+			driver.UsageReasonCaptureFailed,
+		)
+		usageBody, loudErr = driver.EncodeUsageReceipt(loud)
+		if loudErr != nil {
+			usageBody = []byte(`{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null}`)
+		}
 	}
-	observationBody, _ := json.Marshal(observation)
+	observationBody, marshalErr := marshalObservationBody(
+		json.Marshal,
+		observation,
+	)
 	transport := observation.TransportStatus
 	if transport == "" && invokeErr != nil {
 		transport = driver.RunnerError
@@ -2087,6 +2218,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		code := stableErrorCode(invokeErr)
 		resultBytes := extractRefusalResult(invokeErr)
+		attempt.ObservationBody = observationBody
 		if err := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
@@ -2096,7 +2228,11 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); err != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
-		return driver.Submission{}, runtimeFail("DRIVER_OPERATIONAL_FAILURE", invokeErr)
+		return driver.Submission{},
+			errors.Join(
+				runtimeFail("DRIVER_OPERATIONAL_FAILURE", invokeErr),
+				marshalErr,
+			)
 	}
 	submission, err := driver.DecodeSubmission(observation.Handoff.SubmissionBytes)
 	if err != nil ||
@@ -2113,6 +2249,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					runtimeFail("INVALID_DRIVER_HANDOFF", err),
 				)
 		}
+		attempt.ObservationBody = observationBody
 		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
@@ -2122,7 +2259,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
-		return driver.Submission{}, runtimeFail("INVALID_DRIVER_HANDOFF", err)
+		return driver.Submission{},
+			errors.Join(runtimeFail("INVALID_DRIVER_HANDOFF", err), marshalErr)
 	}
 	if planErr := s.validateHumanConfirmedPlannerHandoff(
 		completionCtx,
@@ -2135,6 +2273,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		if answered != nil {
 			return driver.Submission{}, preserveAnswered(planErr)
 		}
+		attempt.ObservationBody = observationBody
 		if completeErr := s.journal.CompleteOwned(completionCtx, owner, journal.Completion{
 			RunID: manifest.value.RunID, EffectID: replayKey, Token: claim.Token,
 			State: journal.OperationalFailed, ErrorCode: "invalid_human_turn",
@@ -2144,7 +2283,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
-		return driver.Submission{}, planErr
+		return driver.Submission{}, errors.Join(planErr, marshalErr)
 	}
 	if !prepared.fake {
 		currentBody, authorityErr := currentPreparedProductionBody(
@@ -2166,6 +2305,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if authorityErr == nil {
 				code = "stale_authority"
 			}
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2184,9 +2324,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
 			if authorityErr != nil {
-				return driver.Submission{}, authorityErr
+				return driver.Submission{}, errors.Join(authorityErr, marshalErr)
 			}
-			return driver.Submission{}, runtimeFail("STALE_DISPATCH", nil)
+			return driver.Submission{},
+				errors.Join(runtimeFail("STALE_DISPATCH", nil), marshalErr)
 		}
 	}
 	if answered != nil && answered.Attention.HumanTurn != nil {
@@ -2227,6 +2368,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				)
 			}
 			resultBytes := extractRefusalResult(err)
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2245,7 +2387,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				return driver.Submission{},
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
-			return driver.Submission{}, err
+			return driver.Submission{}, errors.Join(err, marshalErr)
 		}
 	}
 	if answered != nil && answered.Attention.HumanTurn != nil {
@@ -2272,6 +2414,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if answered != nil {
 				return driver.Submission{}, preserveAnswered(err)
 			}
+			attempt.ObservationBody = observationBody
 			if completeErr := s.journal.CompleteOwned(
 				completionCtx,
 				owner,
@@ -2289,7 +2432,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				return driver.Submission{},
 					runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 			}
-			return driver.Submission{}, err
+			return driver.Submission{}, errors.Join(err, marshalErr)
 		}
 		pendingStored = true
 	}

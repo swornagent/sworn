@@ -446,13 +446,17 @@ func assertObservationOmits(t *testing.T, observation Observation, value string)
 
 func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	t.Parallel()
-	unavailable, err := NormalizeUsage(nil, nil)
+	const surface = "sworn.test"
+	unavailable, err := NormalizeUsage(nil, nil, surface)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if unavailable.TokenStatus != UsageUnavailable ||
 		unavailable.CostStatus != UsageUnavailable ||
 		unavailable.CacheStatus != UsageUnavailable ||
+		unavailable.SchemaVersion != UsageSchemaV2 ||
+		unavailable.Surface != surface ||
+		unavailable.UnavailableReason != UsageReasonWireLacked ||
 		unavailable.InputTokens != nil || unavailable.OutputTokens != nil ||
 		unavailable.CostMicroUnits != nil || unavailable.Currency != nil ||
 		unavailable.Source != nil ||
@@ -464,7 +468,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(unavailableBody) != `{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"unavailable"}` {
+	if string(unavailableBody) != `{"token_status":"unavailable","input_tokens":null,"output_tokens":null,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"unavailable","schema_version":"sworn.usage/v2","surface":"sworn.test","unavailable_reason":"wire-lacked-usage"}` {
 		t.Fatalf("unavailable receipt = %s", unavailableBody)
 	}
 	zero, err := NormalizeUsage(
@@ -474,12 +478,15 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 			Currency:   "USD",
 			Source:     CostSourceProviderReported,
 		},
+		surface,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if zero.TokenStatus != UsageReported || zero.CostStatus != UsageReported ||
 		zero.CacheStatus != UsageUnavailable ||
+		zero.SchemaVersion != UsageSchemaV2 ||
+		zero.Surface != surface || zero.UnavailableReason != "" ||
 		zero.InputTokens == nil || *zero.InputTokens != 0 ||
 		zero.OutputTokens == nil || *zero.OutputTokens != 0 ||
 		zero.CostMicroUnits == nil || *zero.CostMicroUnits != 0 {
@@ -489,7 +496,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"reported","cost_micro_units":0,"currency":"USD","source":"provider_reported","cache_status":"unavailable"}` {
+	if string(body) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"reported","cost_micro_units":0,"currency":"USD","source":"provider_reported","cache_status":"unavailable","schema_version":"sworn.usage/v2","surface":"sworn.test"}` {
 		t.Fatalf("receipt = %s", body)
 	}
 	// A provider-reported cache pair surfaces as the canonical reported
@@ -504,6 +511,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 			CacheWriteTokens: &write,
 		},
 		nil,
+		surface,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -517,7 +525,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(cachedBody) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40,"cache_write_tokens":60}` {
+	if string(cachedBody) != `{"token_status":"reported","input_tokens":0,"output_tokens":0,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40,"cache_write_tokens":60,"schema_version":"sworn.usage/v2","surface":"sworn.test"}` {
 		t.Fatalf("cached receipt = %s", cachedBody)
 	}
 	// A read-only vocabulary (Gemini, the Responses API) reports the read
@@ -527,7 +535,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 		OutputTokens:     5,
 		CacheReadTokens:  &read,
 		CacheWriteTokens: nil,
-	}, nil)
+	}, nil, surface)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +548,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(readOnlyBody) != `{"token_status":"reported","input_tokens":5,"output_tokens":5,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40}` {
+	if string(readOnlyBody) != `{"token_status":"reported","input_tokens":5,"output_tokens":5,"cost_status":"unavailable","cost_micro_units":null,"currency":null,"source":null,"cache_status":"reported","cache_read_tokens":40,"schema_version":"sworn.usage/v2","surface":"sworn.test"}` {
 		t.Fatalf("read-only receipt = %s", readOnlyBody)
 	}
 	for name, cost := range map[string]CostObservation{
@@ -551,6 +559,7 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 		if _, err := NormalizeUsage(
 			nil,
 			&cost,
+			surface,
 		); !IsCode(err, "INVALID_COST_OBSERVATION") {
 			t.Fatalf("%s error = %v", name, err)
 		}
@@ -620,3 +629,122 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// A2: an unavailable receipt is loud, never a silent default. The failure
+// observation paths name the surface and a stable reason, a silent v2
+// receipt is unencodable, and a legacy v1 blob still decodes and re-encodes
+// byte-identically so old journals stay readable.
+func TestUnavailableReceiptsAreLoudAndLegacyBlobsStayByteIdentical(t *testing.T) {
+	t.Parallel()
+	loud, err := UnavailableReceipt("sworn.test", UsageReasonCaptureFailed)
+	if err != nil || loud.SchemaVersion != UsageSchemaV2 ||
+		loud.Surface != "sworn.test" ||
+		loud.UnavailableReason != UsageReasonCaptureFailed ||
+		loud.TokenStatus != UsageUnavailable {
+		t.Fatalf("loud receipt = %#v, %v", loud, err)
+	}
+	if _, err := EncodeUsageReceipt(loud); err != nil {
+		t.Fatalf("loud receipt encode = %v", err)
+	}
+
+	failed := failureObservation("adapter_failed", "sworn.test")
+	if failed.Usage.SchemaVersion != UsageSchemaV2 ||
+		failed.Usage.Surface != "sworn.test" ||
+		failed.Usage.UnavailableReason != UsageReasonCaptureFailed ||
+		failed.Usage.TokenStatus != UsageUnavailable {
+		t.Fatalf("failure observation = %#v", failed)
+	}
+	sanitized := sanitizeFailedObservation(failed, "sworn.test")
+	if sanitized.Usage.Surface != "sworn.test" ||
+		sanitized.Usage.UnavailableReason != UsageReasonCaptureFailed {
+		t.Fatalf("sanitized observation = %#v", sanitized)
+	}
+
+	// A silent unavailable v2 receipt is unencodable, hence unjournalable.
+	for name, receipt := range map[string]UsageReceipt{
+		"missing surface": {
+			SchemaVersion:     UsageSchemaV2,
+			TokenStatus:       UsageUnavailable,
+			CostStatus:        UsageUnavailable,
+			CacheStatus:       UsageUnavailable,
+			UnavailableReason: UsageReasonCaptureFailed,
+		},
+		"missing reason": {
+			SchemaVersion: UsageSchemaV2,
+			Surface:       "sworn.test",
+			TokenStatus:   UsageUnavailable,
+			CostStatus:    UsageUnavailable,
+			CacheStatus:   UsageUnavailable,
+		},
+		"wrong schema version": {
+			SchemaVersion:     "sworn.usage/v9",
+			Surface:           "sworn.test",
+			TokenStatus:       UsageUnavailable,
+			CostStatus:        UsageUnavailable,
+			CacheStatus:       UsageUnavailable,
+			UnavailableReason: UsageReasonWireLacked,
+		},
+		"reported with reason": {
+			SchemaVersion:     UsageSchemaV2,
+			Surface:           "sworn.test",
+			TokenStatus:       UsageReported,
+			InputTokens:       int64Pointer(1),
+			OutputTokens:      int64Pointer(1),
+			CostStatus:        UsageUnavailable,
+			CacheStatus:       UsageUnavailable,
+			UnavailableReason: UsageReasonWireLacked,
+		},
+	} {
+		if _, err := EncodeUsageReceipt(receipt); err == nil {
+			t.Fatalf("%s receipt was accepted", name)
+		}
+	}
+
+	// Legacy v1 blobs keep today's exact bytes on decode and re-encode.
+	legacy := []byte(
+		`{"token_status":"unavailable","input_tokens":null,` +
+			`"output_tokens":null,"cost_status":"unavailable",` +
+			`"cost_micro_units":null,"currency":null,"source":null}`,
+	)
+	var decoded UsageReceipt
+	if json.Unmarshal(legacy, &decoded) != nil {
+		t.Fatal("legacy decode failed")
+	}
+	reencoded, err := EncodeUsageReceipt(decoded)
+	if err != nil || !bytes.Equal(reencoded, legacy) {
+		t.Fatalf("legacy re-encode = %s, %v", reencoded, err)
+	}
+}
+
+// Correction 2: the field-wise emptiness predicate preserves the exact
+// zero-receipt semantics the fresh-rehydrate detection depends on, including
+// the new fields, now that the receipt carries a slice and is no longer
+// comparable.
+func TestUsageReceiptZeroPreservesFreshRehydrateSemantics(t *testing.T) {
+	t.Parallel()
+	if !(UsageReceipt{}).Zero() {
+		t.Fatal("zero receipt is not zero")
+	}
+	variants := []UsageReceipt{
+		{TokenStatus: UsageUnavailable},
+		{CacheStatus: UsageUnavailable},
+		{SchemaVersion: UsageSchemaV2},
+		{Surface: "sworn.test"},
+		{UnavailableReason: UsageReasonCaptureFailed},
+		{Turns: int64Pointer(1)},
+		{ToolCalls: int64Pointer(1)},
+		{ToolCallsByName: []ToolCallCount{{Name: "Bash", Count: 1}}},
+		{DurationMillis: int64Pointer(1)},
+		{Profile: textPointerForTest("p")},
+		{Model: textPointerForTest("m")},
+	}
+	for _, receipt := range variants {
+		if receipt.Zero() {
+			t.Fatalf("receipt %#v reported zero", receipt)
+		}
+	}
+}
+
+func textPointerForTest(value string) *string { return &value }
+
+func int64Pointer(value int64) *int64 { return &value }

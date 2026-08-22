@@ -26,7 +26,12 @@ import (
 )
 
 const (
-	WebhookEventSchemaVersion = "sworn.webhook-event/v1"
+	// WebhookEventSchemaVersion is the current webhook-event vocabulary. The
+	// v2 bump added the park_updated kind and the typed Park block; queued
+	// notifications recorded under the v1 vocabulary keep validating so a
+	// pre-upgrade outbox is never dead-lettered.
+	WebhookEventSchemaVersion = "sworn.webhook-event/v2"
+	webhookEventSchemaV1      = "sworn.webhook-event/v1"
 	webhookObserverPrefix     = "webhook."
 	webhookProjectionLimit    = 128
 	webhookClaimLease         = 30 * time.Second
@@ -43,6 +48,7 @@ const (
 	webhookControlUpdated  = "control_updated"
 	webhookAttemptUpdated  = "attempt_updated"
 	webhookRecoveryUpdated = "recovery_updated"
+	webhookParkUpdated     = "park_updated"
 )
 
 var (
@@ -169,6 +175,7 @@ type webhookEventBody struct {
 	EventKind          string                           `json:"event_kind"`
 	RecordedAt         time.Time                        `json:"recorded_at"`
 	CaptainDecision    *runtimepkg.CaptainDecisionEvent `json:"captain_decision,omitempty"`
+	Park               *runtimepkg.DegradationParkEvent `json:"park,omitempty"`
 }
 
 type webhookDestinationIdentity struct {
@@ -400,6 +407,28 @@ func (s *WebhookService) Project(
 		0,
 		len(window.Events),
 	)
+	// The park event body is not on the SafeBody allowlist, so the projector
+	// reaches raw bodies for the exact window it is already projecting when
+	// the journal offers the window reader. Every byte stays inside the
+	// strict typed validator: only validated park facts cross this surface.
+	var rawBodies map[int64][]byte
+	if wr, ok := s.journal.(windowReader); ok &&
+		len(window.Events) > 0 {
+		if rw, err := wr.ReadWindow(
+			ctx,
+			runID,
+			cursor,
+			webhookProjectionLimit,
+		); err == nil {
+			rawBodies = make(map[int64][]byte, len(rw.Snapshot.Events))
+			for _, raw := range rw.Snapshot.Events {
+				rawBodies[raw.Offset] = append(
+					[]byte(nil),
+					raw.Body...,
+				)
+			}
+		}
+	}
 	for _, event := range window.Events {
 		messageID := webhookMessageID(
 			runID,
@@ -410,6 +439,10 @@ func (s *WebhookService) Project(
 		if err != nil {
 			return WebhookProjection{}, fail("WEBHOOK_ENCODING_FAILED")
 		}
+		park := safeDegradationParkEvent(
+			event.Kind,
+			rawBodies[event.Offset],
+		)
 		body, err := json.Marshal(webhookEventBody{
 			SchemaVersion:      WebhookEventSchemaVersion,
 			DestinationID:      destinationID,
@@ -420,6 +453,7 @@ func (s *WebhookService) Project(
 			EventKind:          safeWebhookEventKind(event.Kind),
 			RecordedAt:         event.CreatedAt,
 			CaptainDecision:    captainDecision,
+			Park:               park,
 		})
 		if err != nil {
 			return WebhookProjection{}, fail("WEBHOOK_ENCODING_FAILED")
@@ -465,6 +499,26 @@ func safeCaptainDecisionEvent(event journal.EventFact) (*runtimepkg.CaptainDecis
 		return nil, errors.New("invalid captain decision")
 	}
 	return &value, nil
+}
+
+// safeDegradationParkEvent projects a degradation park event body through the
+// strict typed validator. Only validated typed fields are emitted, never raw
+// bytes; when the body is absent, unparsable, or fails validation the result
+// is nil and the notification still crosses with kind=park_updated — a park
+// notification must never become a dead letter because its detail was
+// unreadable.
+func safeDegradationParkEvent(
+	kind string,
+	raw []byte,
+) *runtimepkg.DegradationParkEvent {
+	if kind != "degradation_budget_parked" || len(raw) == 0 {
+		return nil
+	}
+	event, err := runtimepkg.ParseDegradationParkEvent(raw)
+	if err != nil {
+		return nil
+	}
+	return event
 }
 
 func webhookMessageID(
@@ -753,11 +807,16 @@ func validateWebhookEvent(
 		value.DestinationBinding != endpoint.binding {
 		return "WEBHOOK_CONFIG_CHANGED"
 	}
-	if value.SchemaVersion != WebhookEventSchemaVersion ||
+	if (value.SchemaVersion != WebhookEventSchemaVersion &&
+		value.SchemaVersion != webhookEventSchemaV1) ||
 		value.MessageID != item.MessageID ||
 		value.RunID != item.RunID ||
 		value.EventOffset != item.SourceEventOffset ||
-		value.EventOffset < 1 || !validSafeWebhookEventKind(value.EventKind) ||
+		value.EventOffset < 1 ||
+		!validSafeWebhookEventKind(
+			value.SchemaVersion,
+			value.EventKind,
+		) ||
 		value.RecordedAt.IsZero() ||
 		webhookMessageID(
 			value.RunID,
@@ -773,11 +832,22 @@ func validateWebhookEvent(
 			return "WEBHOOK_PAYLOAD_INVALID"
 		}
 	}
+	if value.Park != nil {
+		body, marshalErr := json.Marshal(value.Park)
+		validated, validateErr := runtimepkg.ParseDegradationParkEvent(body)
+		if marshalErr != nil || validateErr != nil ||
+			validated.RunID != value.RunID ||
+			value.EventKind != webhookParkUpdated {
+			return "WEBHOOK_PAYLOAD_INVALID"
+		}
+	}
 	return ""
 }
 
 func safeWebhookEventKind(kind string) string {
 	switch {
+	case kind == "degradation_budget_parked":
+		return webhookParkUpdated
 	case kind == "control_accepted" ||
 		kind == "owner_acquired" ||
 		kind == "owner_released":
@@ -806,11 +876,15 @@ func safeWebhookEventKind(kind string) string {
 	}
 }
 
-func validSafeWebhookEventKind(kind string) bool {
+func validSafeWebhookEventKind(schemaVersion, kind string) bool {
 	switch kind {
 	case webhookRunUpdated, webhookControlUpdated, webhookAttemptUpdated,
 		webhookRecoveryUpdated:
 		return true
+	case webhookParkUpdated:
+		// park_updated exists only in the v2 vocabulary; a v1 body can
+		// never carry it.
+		return schemaVersion == WebhookEventSchemaVersion
 	default:
 		return false
 	}

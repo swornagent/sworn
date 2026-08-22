@@ -16,6 +16,13 @@ const (
 	OTelConfigSchemaVersion = "sworn.otel-config/v1"
 	MaxOTelConfigBytes      = 16 * 1024
 	maxOTelHeaders          = 16
+	// ShareConfigSchemaVersion is the additive share-channel block schema
+	// carried beside the private otel block in the operator config.
+	ShareConfigSchemaVersion = "sworn.share-otel-config/v1"
+	// ShareDefaultEndpoint is the operator-ruled share-channel gateway
+	// address (2026-08-20 ruling, carried in plan revision 5). It is inert
+	// until an operator explicitly opts the share channel in.
+	ShareDefaultEndpoint = "https://otel.sworn.sh"
 )
 
 var headerNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
@@ -43,6 +50,58 @@ func ParseConfig(body []byte) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	return result, nil
+}
+
+// ShareConfig is the opt-in share channel block. Absent from the operator
+// config, or present with enabled:false, the channel is off. Enabled with an
+// empty endpoint carries the shipped default gateway; endpoint and headers
+// are validated with the same closed rules as the private channel, so the
+// two channels can never be configured through each other.
+type ShareConfig struct {
+	SchemaVersion string            `json:"schema_version"`
+	Enabled       bool              `json:"enabled"`
+	Endpoint      string            `json:"endpoint"`
+	Headers       map[string]string `json:"headers"`
+}
+
+// ParseShareConfig canonicalizes one share-channel block. A disabled block
+// is returned as-is (its endpoint is never contacted, so nothing about it is
+// validated); an enabled block must carry a valid OTLP/HTTP endpoint and
+// headers, with the shipped default endpoint filled in when empty.
+func ParseShareConfig(body []byte) (ShareConfig, error) {
+	if len(body) < 2 || len(body) > MaxOTelConfigBytes {
+		return ShareConfig{}, fail("INVALID_SHARE_CONFIG")
+	}
+	var result ShareConfig
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return ShareConfig{}, fail("INVALID_SHARE_CONFIG")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return ShareConfig{}, fail("INVALID_SHARE_CONFIG")
+	}
+	if result.SchemaVersion != ShareConfigSchemaVersion {
+		return ShareConfig{}, fail("INVALID_SHARE_CONFIG")
+	}
+	if !result.Enabled {
+		return result, nil
+	}
+	endpoint := result.Endpoint
+	if endpoint == "" {
+		endpoint = ShareDefaultEndpoint
+	}
+	canonical, _, _, err := canonicalConfig(Config{
+		SchemaVersion: OTelConfigSchemaVersion,
+		Endpoint:      endpoint,
+		Headers:       result.Headers,
+	})
+	if err != nil {
+		return ShareConfig{}, err
+	}
+	result.Endpoint = canonical.Endpoint
+	result.Headers = canonical.Headers
 	return result, nil
 }
 

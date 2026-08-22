@@ -814,22 +814,26 @@ func serveRunOperator(
 	}
 	defer listeners.close()
 
-	telemetry := observe.Noop()
-	if settings.otel != nil {
-		telemetry, err = observe.NewOTLP(
-			parent,
-			*settings.otel,
-			swornVersion,
-		)
-		if err != nil {
-			return errors.New("operator unavailable")
-		}
+	// serve keeps exporting as a view (A5/C6): both configured channels are
+	// built through the same helper the run-side host uses and every record
+	// is enqueued into each. The private channel keeps its fail-fast posture;
+	// the share channel must never turn a serve startup into a failure.
+	telemetry, shareTelemetry, err := buildTelemetryChannels(
+		parent,
+		settings,
+	)
+	if err != nil {
+		return errors.New("operator unavailable")
 	}
 	telemetryOpen := true
 	defer func() {
 		if telemetryOpen {
 			shutdownTelemetry(
 				telemetry.Shutdown,
+				operatorShutdownTimeout,
+			)
+			shutdownTelemetry(
+				shareTelemetry.Shutdown,
 				operatorShutdownTimeout,
 			)
 		}
@@ -910,6 +914,7 @@ func serveRunOperator(
 			authority,
 			evaluator,
 			telemetry,
+			shareTelemetry,
 			options.runID,
 		)
 	}()
@@ -978,6 +983,7 @@ func serveRunOperator(
 	}
 	workers.Wait()
 	shutdownTelemetry(telemetry.Shutdown, operatorShutdownTimeout)
+	shutdownTelemetry(shareTelemetry.Shutdown, operatorShutdownTimeout)
 	telemetryOpen = false
 	if serveErr != nil || shutdownErr != nil {
 		return errors.New("operator unavailable")
@@ -1017,7 +1023,8 @@ func runEvaluationLoop(
 	ctx context.Context,
 	authority *operatorRunAuthority,
 	evaluator *observe.Evaluator,
-	telemetry *observe.Telemetry,
+	privateTelemetry *observe.Telemetry,
+	shareTelemetry *observe.Telemetry,
 	runID string,
 ) {
 	if !waitForRunAuthority(ctx, authority, operatorPollInterval) {
@@ -1028,7 +1035,8 @@ func runEvaluationLoop(
 	for {
 		record, advanced, _ := evaluator.Advance(ctx, runID)
 		if advanced {
-			telemetry.TryEnqueue(record)
+			privateTelemetry.TryEnqueue(record)
+			shareTelemetry.TryEnqueue(record)
 		}
 		select {
 		case <-ctx.Done():

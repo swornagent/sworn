@@ -199,6 +199,7 @@ type nativeEventState struct {
 	identityAccepted bool
 	usage            Usage
 	hasUsage         bool
+	turns            int64
 	err              error
 }
 
@@ -286,6 +287,8 @@ func (session *nativeAutomationSession) execute(
 		call.Arguments,
 		Usage{},
 		false,
+		0,
+		0,
 	)
 	if err != nil {
 		session.corrections++
@@ -309,6 +312,20 @@ func (session *nativeAutomationSession) terminated() (bool, error) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return session.terminal, session.terminalErr
+}
+
+// observeToolResultTurn is a deliberate no-op: automation dispatches carry
+// no tool-result hook by construction (AutomationInvocation has no
+// ToolResultHook), and their results are synthetic recovery/advisory
+// decisions, not worker-visible tool results crossing back into a model.
+func (session *nativeAutomationSession) observeToolResultTurn(
+	_ int64,
+	_ []providerToolResult,
+) {
+}
+
+func (session *nativeAutomationSession) redactionSecrets() [][]byte {
+	return nil
 }
 
 func (session *nativeAutomationSession) complete(
@@ -1958,6 +1975,21 @@ func platformRunNative(
 		),
 		broker: broker, launch: launch,
 	}
+	if batonSession != nil {
+		// Bind the credentials the engine actually holds at the broker
+		// seam — capability, capture bearer, launch credential snapshot —
+		// so the emitted projection redacts them before anything leaves
+		// the driver. The automation session needs none of this.
+		batonSession.bindRedactionSecrets(append(
+			redactionSecretSet(capability, captureToken),
+			nativeSecretFragments(credentialBefore)...,
+		))
+		broker.bindTurnSource(func() int64 {
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			return state.turns
+		})
+	}
 	if err := command.Start(); err != nil {
 		return Observation{}, fail("PROCESS_START_FAILED")
 	}
@@ -2205,17 +2237,32 @@ func platformRunNative(
 		}
 		return Observation{}, fail("MISSING_SUBMISSION")
 	}
+	// Ordering constraint: any pending turn that crossed must be emitted
+	// before the tool session closes, or its observer would see the
+	// session as already closed and drop the events.
+	broker.flushPending()
 	if batonSession != nil {
 		if closeErr := batonSession.Close(); closeErr != nil {
 			return Observation{}, closeErr
 		}
 	}
-	usage, err := NormalizeUsage(nil, nil)
+	usage, err := NormalizeUsage(nil, nil, invocation.Selected.Adapter.ID)
 	if hasUsage {
-		usage, err = NormalizeUsage(&usageValue, nil)
+		usage, err = NormalizeUsage(&usageValue, nil, invocation.Selected.Adapter.ID)
 	}
 	if err != nil {
 		return Observation{}, err
+	}
+	if automationRun == nil {
+		state.mu.Lock()
+		turns := state.turns
+		state.mu.Unlock()
+		applyTurnEconomics(
+			&usage,
+			turns,
+			broker.toolCallTotal(),
+			broker.toolCallsByName(),
+		)
 	}
 	if automationRun != nil {
 		automationRun.observation, err = automationSession.complete(usage)
@@ -3203,6 +3250,7 @@ func (state *nativeEventState) accept(body []byte) error {
 			}
 		}
 		if eventType == "result" {
+			state.turns++
 			state.captureUsage(root["usage"])
 		}
 	case ProfileCodex:
@@ -3254,6 +3302,7 @@ func (state *nativeEventState) accept(body []byte) error {
 			); err != nil {
 				return fail("NATIVE_SURFACE_INVALID")
 			}
+			state.turns++
 			state.captureUsage(root["usage"])
 		}
 	default:
@@ -3289,6 +3338,18 @@ func (state *nativeEventState) captureUsage(value any) {
 		return
 	}
 	state.usage = Usage{InputTokens: input, OutputTokens: output}
+	if value, present := usage["cache_read_input_tokens"]; present {
+		read, readOK := safeJSONInt(value)
+		if readOK {
+			state.usage.CacheReadTokens = &read
+		}
+	}
+	if value, present := usage["cache_creation_input_tokens"]; present {
+		write, writeOK := safeJSONInt(value)
+		if writeOK {
+			state.usage.CacheWriteTokens = &write
+		}
+	}
 	state.hasUsage = true
 }
 

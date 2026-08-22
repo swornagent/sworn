@@ -2352,3 +2352,48 @@ func buildNativeContinuation(t *testing.T) string {
 	}
 	return nativeContinuationBinary
 }
+
+// A1: the native CLI capture becomes family-aware - the cache pair the
+// claude/codex wires carry (cache_read_input_tokens,
+// cache_creation_input_tokens) reaches the state usage beside the core pair,
+// and every result/turn.completed event counts as one turn for A5.
+func TestNativeEventStateCapturesFullWireSplitAndTurns(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude}
+	body := []byte(
+		`{"type":"result","usage":{"input_tokens":10,"output_tokens":3,` +
+			`"cache_read_input_tokens":4,"cache_creation_input_tokens":5}}`,
+	)
+	if err := state.accept(body); err != nil {
+		t.Fatal(err)
+	}
+	if !state.hasUsage ||
+		state.usage.InputTokens != 10 ||
+		state.usage.OutputTokens != 3 ||
+		state.usage.CacheReadTokens == nil ||
+		*state.usage.CacheReadTokens != 4 ||
+		state.usage.CacheWriteTokens == nil ||
+		*state.usage.CacheWriteTokens != 5 ||
+		state.usage.ReasoningTokens != nil ||
+		state.turns != 1 {
+		t.Fatalf("claude capture = %#v", state.usage)
+	}
+
+	codex := &nativeEventState{family: ProfileCodex}
+	if err := codex.accept([]byte(
+		`{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":2,` +
+			`"cache_read_input_tokens":1,"cache_creation_input_tokens":9}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if !codex.hasUsage ||
+		codex.usage.InputTokens != 7 ||
+		codex.usage.OutputTokens != 2 ||
+		codex.usage.CacheReadTokens == nil ||
+		*codex.usage.CacheReadTokens != 1 ||
+		codex.usage.CacheWriteTokens == nil ||
+		*codex.usage.CacheWriteTokens != 9 ||
+		codex.turns != 1 {
+		t.Fatalf("codex capture = %#v", codex.usage)
+	}
+}

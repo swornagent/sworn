@@ -142,7 +142,11 @@ func (arbiter *terminalArbiter) Write(body []byte) (int, error) {
 				arbiter.failLocked("driver_transport_failed", fail("TRANSPORT_FAILURE"), fatalTransport)
 				break
 			}
-			usage, err := NormalizeUsage(result.Usage, result.Cost)
+			usage, err := NormalizeUsage(
+				result.Usage,
+				result.Cost,
+				arbiter.binding.AdapterID,
+			)
 			if err != nil {
 				arbiter.failLocked("invalid_usage", err, fatalProtocol)
 				break
