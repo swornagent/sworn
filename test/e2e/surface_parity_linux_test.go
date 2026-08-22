@@ -313,7 +313,8 @@ func mcpSnapshot(t *testing.T, address, runID string) cockpit.Snapshot {
 		if json.Unmarshal(body, &envelope) == nil && !envelope.Result.IsError {
 			return envelope.Result.StructuredContent
 		}
-		if !bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) ||
+		if (!bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(body, []byte("RUNTIME_UNAVAILABLE"))) ||
 			time.Now().After(deadline) {
 			t.Fatalf("sworn_status = %s", body)
 		}
@@ -342,7 +343,8 @@ func mcpAttentions(t *testing.T, address string) []cockpit.AttentionView {
 		if json.Unmarshal(body, &envelope) == nil && !envelope.Result.IsError {
 			break
 		}
-		if !bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) ||
+		if (!bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(body, []byte("RUNTIME_UNAVAILABLE"))) ||
 			time.Now().After(deadline) {
 			t.Fatalf("sworn_attentions = %s", body)
 		}

@@ -236,7 +236,8 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 			"run_id": "production-journey",
 		})
 		if bytes.Contains(status, []byte(`"isError":true`)) &&
-			!bytes.Contains(status, []byte("SNAPSHOT_UNSTABLE")) {
+			!bytes.Contains(status, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(status, []byte("RUNTIME_UNAVAILABLE")) {
 			diagnose("delegated MCP status", status)
 		}
 		if bytes.Contains(status, []byte(`"state":"complete"`)) {

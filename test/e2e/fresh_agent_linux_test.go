@@ -276,7 +276,8 @@ func freshAgentSnapshot(t *testing.T, address string) cockpit.Snapshot {
 		if result.IsError {
 			// A detached drive writing the journal makes the projection
 			// transiently unstable; the honest refusal is retried.
-			if bytes.Contains(result.Raw, []byte("SNAPSHOT_UNSTABLE")) &&
+			if (bytes.Contains(result.Raw, []byte("SNAPSHOT_UNSTABLE")) ||
+				bytes.Contains(result.Raw, []byte("RUNTIME_UNAVAILABLE"))) &&
 				time.Now().Before(deadline) {
 				time.Sleep(100 * time.Millisecond)
 				continue

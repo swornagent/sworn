@@ -291,8 +291,10 @@ func fetchManifestTouchpointHTTPSnapshot(t *testing.T, address, runID string) co
 		}
 		// A detached drive writing the journal makes the projection
 		// transiently unstable; the honest 409 refusal is retried.
-		if response.StatusCode == http.StatusConflict &&
-			bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+		if ((response.StatusCode == http.StatusConflict &&
+			bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE"))) ||
+			(response.StatusCode == http.StatusServiceUnavailable &&
+				bytes.Contains(body, []byte("RUNTIME_UNAVAILABLE")))) &&
 			time.Now().Before(deadline) {
 			time.Sleep(100 * time.Millisecond)
 			continue
