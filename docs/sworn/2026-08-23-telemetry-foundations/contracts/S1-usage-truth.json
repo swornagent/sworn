@@ -5,7 +5,8 @@
    "internal/driver",
    "internal/journal",
    "internal/observe",
-   "internal/runtime"
+   "internal/runtime",
+   "test/e2e"
   ],
   "exclude": [
    "OTel span and metric vocabulary (S2's mechanism; this slice makes the facts true in receipts and eval records, S2 exports them)",
@@ -64,7 +65,8 @@
   "The usage receipt schema (sworn.usage receipt, internal/driver/usage.go) and eval record schema (sworn.eval, internal/observe/eval.go:20) may add fields and bump versions; existing journaled histories must still decode - the evaluator reads old journals.",
   "No journal table changes: usage receipts and eval record bodies are opaque blobs by design (internal/journal/schema.sql attempts.usage, eval_records.body).",
   "Check evidence belongs in the submission's checks field, never in files added to the repository.",
-  "Revision 2 scope boundary: internal/journal enters this slice's edit surface solely for the eval schema-version allowlist at internal/journal/observer.go (EvalSchemaVersionV1/V2 must admit the bumped sworn.eval version this slice's A4 requires, so the bumped records stay readable by the observer); no other journal surface is edited and the no-table-change constraint above is unchanged."
+  "Revision 2 scope boundary: internal/journal enters this slice's edit surface solely for the eval schema-version allowlist at internal/journal/observer.go (EvalSchemaVersionV1/V2 must admit the bumped sworn.eval version this slice's A4 requires, so the bumped records stay readable by the observer); no other journal surface is edited and the no-table-change constraint above is unchanged.",
+  "Revision 3 scope boundary: test/e2e enters this slice's edit surface solely for the eval schema-version conformance assertions - test/e2e/turn_recovery_linux_test.go:711 and :1642 pin journal.EvalSchemaVersionV2 on records that internal/observe/eval.go:514 stamps live, so they follow the bumped sworn.eval version A4 requires (the same minimal shape revision 2 used for internal/journal). No other e2e assertion is weakened or edited, and the e2e gate remains CI-executed, declared not executed, per ADR-0010."
  ],
  "depends_on": [],
  "consumes": []
