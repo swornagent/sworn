@@ -49,6 +49,8 @@ func geminiNativeProbeConversation(
 		[]byte(prompt),
 		2000,
 		thinkingLevel,
+		false,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -418,6 +420,8 @@ func TestGeminiNativeCertificationPassesForGoogleNativeProfile(t *testing.T) {
 			[]byte(`Call the probe tool with value 7.`),
 			2000,
 			"LOW",
+			false,
+			false,
 		)
 		if err != nil {
 			return err

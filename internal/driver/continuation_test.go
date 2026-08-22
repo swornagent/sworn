@@ -610,6 +610,8 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 		[]byte(`{"prompt":"bounded"}`),
 		0,
 		"",
+		false,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -711,6 +713,7 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 		"https://generativelanguage.example.invalid", "gemini-3-pro",
 		toolDefinitions(ReadOnly), []byte(`{}`),
 		0, "",
+		false, false,
 	)
 	defer fresh.close()
 	if _, err := fresh.accept(bad); !IsCode(err, "CONTINUATION_INVALID") {
@@ -726,6 +729,7 @@ func TestGeminiReplaysThoughtSignaturesAndParallelCorrelationInWireOrder(t *test
 		"https://generativelanguage.example.invalid", "gemini-3-pro",
 		toolDefinitions(ReadOnly), []byte(`{}`),
 		0, "",
+		false, false,
 	)
 	defer unsigned.close()
 	if _, err := unsigned.accept(missing); !IsCode(err, "CONTINUATION_INVALID") {

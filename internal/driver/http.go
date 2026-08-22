@@ -59,6 +59,17 @@ type HTTPProfileConfig struct {
 	// only when the sliding minute plus the next request would cross it.
 	// Zero disables proactive pacing; reactive 429 pacing always applies.
 	InputTokensPerMinute int64 `json:"input_tokens_per_minute,omitempty"`
+	// Stream enables the Gemini adapter's streamGenerateContent mode: SSE
+	// deltas render live while the reconstructed terminal response object
+	// feeds the exact non-streaming accept path. OpenAI and Bedrock adapters
+	// ignore the field, and an OpenAI profile's own shallower "stream" key
+	// keeps binding its responses-flavour knob unchanged.
+	Stream bool `json:"stream,omitempty"`
+	// IncludeThoughts asks Gemini for thought content in the provider's own
+	// include_thoughts vocabulary. OpenAI and Bedrock adapters ignore the
+	// field. Omission changes nothing: no thinkingConfig is emitted unless a
+	// thinking knob is set.
+	IncludeThoughts bool `json:"include_thoughts,omitempty"`
 }
 
 type httpTransport struct {
@@ -196,6 +207,20 @@ func (transport *httpTransport) roundTrip(
 	}
 	defer response.Body.Close()
 	if request.Stream && response.StatusCode >= 200 && response.StatusCode <= 299 {
+		if request.StreamFormat == geminiStreamFormat {
+			body, streamErr := readGeminiStream(
+				response.Body,
+				transport.config.ResponseBytes,
+				request.StreamModel,
+			)
+			if streamErr != nil {
+				if isContextError(ctx.Err()) {
+					return nil, ctx.Err()
+				}
+				return nil, streamErr
+			}
+			return body, nil
+		}
 		body, streamErr := readStreamedResponse(
 			response.Body,
 			transport.config.ResponseBytes,

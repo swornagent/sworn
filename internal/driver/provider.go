@@ -31,6 +31,14 @@ type providerRequest struct {
 	// transport renders them live and returns the terminal event's embedded
 	// response object as the body, so validation is unchanged.
 	Stream bool
+	// StreamFormat names the SSE dialect of a streamed request: "" is the
+	// responses-flavour SSE and "gemini" is the generateContent SSE. Every
+	// other adapter leaves it empty, so its behavior is untouched.
+	StreamFormat string
+	// StreamModel is the presentation label for streamed deltas (the model
+	// shown in the live turn header). It rides for rendering only; nothing
+	// in validation or dispatch semantics reads it.
+	StreamModel string
 }
 
 type providerTurn struct {

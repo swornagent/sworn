@@ -1441,6 +1441,8 @@ func TestGeminiConversationSurfacesCacheAndTruncation(t *testing.T) {
 		[]byte(`{"prompt":"bounded"}`),
 		0,
 		"",
+		false,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
