@@ -622,6 +622,12 @@ func (adapter *loopAdapter) runConversation(
 				return Observation{}, nil, terminalErr
 			}
 			if retain {
+				// Project the exact results slice this appendResults
+				// crossing receives, ahead of per-dialect formatting, so
+				// the observed bytes are the model-facing bytes. A
+				// !retain terminal turn appends nothing to any model and
+				// therefore emits nothing.
+				session.observeToolResultTurn(turnCount, results)
 				if err := conversation.appendResults(results); err != nil {
 					liveStream.driverError("append-results-terminal", err)
 					return Observation{}, nil, err
@@ -668,6 +674,10 @@ func (adapter *loopAdapter) runConversation(
 				bytes:        replayBytes,
 			}, nil
 		}
+		// Project the exact results slice this appendResults crossing
+		// receives, ahead of per-dialect formatting, so the observed
+		// bytes are the model-facing bytes.
+		session.observeToolResultTurn(turnCount, results)
 		if err := conversation.appendResults(results); err != nil {
 			liveStream.driverError("append-results", err)
 			return Observation{}, nil, err

@@ -314,6 +314,20 @@ func (session *nativeAutomationSession) terminated() (bool, error) {
 	return session.terminal, session.terminalErr
 }
 
+// observeToolResultTurn is a deliberate no-op: automation dispatches carry
+// no tool-result hook by construction (AutomationInvocation has no
+// ToolResultHook), and their results are synthetic recovery/advisory
+// decisions, not worker-visible tool results crossing back into a model.
+func (session *nativeAutomationSession) observeToolResultTurn(
+	_ int64,
+	_ []providerToolResult,
+) {
+}
+
+func (session *nativeAutomationSession) redactionSecrets() [][]byte {
+	return nil
+}
+
 func (session *nativeAutomationSession) complete(
 	usage UsageReceipt,
 ) (AutomationObservation, error) {
@@ -1961,6 +1975,21 @@ func platformRunNative(
 		),
 		broker: broker, launch: launch,
 	}
+	if batonSession != nil {
+		// Bind the credentials the engine actually holds at the broker
+		// seam — capability, capture bearer, launch credential snapshot —
+		// so the emitted projection redacts them before anything leaves
+		// the driver. The automation session needs none of this.
+		batonSession.bindRedactionSecrets(append(
+			redactionSecretSet(capability, captureToken),
+			nativeSecretFragments(credentialBefore)...,
+		))
+		broker.bindTurnSource(func() int64 {
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			return state.turns
+		})
+	}
 	if err := command.Start(); err != nil {
 		return Observation{}, fail("PROCESS_START_FAILED")
 	}
@@ -2208,6 +2237,10 @@ func platformRunNative(
 		}
 		return Observation{}, fail("MISSING_SUBMISSION")
 	}
+	// Ordering constraint: any pending turn that crossed must be emitted
+	// before the tool session closes, or its observer would see the
+	// session as already closed and drop the events.
+	broker.flushPending()
 	if batonSession != nil {
 		if closeErr := batonSession.Close(); closeErr != nil {
 			return Observation{}, closeErr

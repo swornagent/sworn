@@ -94,6 +94,12 @@ type Invocation struct {
 	Inputs           []InputContent
 	FakeProfile      FakeProfile
 	RecoveryStepHook RecoveryStepHook
+	// ToolResultHook is the runtime-provided durable callback for the
+	// bounded tool-result projection. It is runtime-only authority: the
+	// driver emits on it through the observer pump and never blocks or
+	// fails a dispatch on it. A nil hook disables observation entirely
+	// (certification, capture, fake, and automation paths).
+	ToolResultHook ToolResultHook
 	// MaskNames are the workspace-relative names the containment mask must
 	// always protect, derived by the engine from the configured project roots
 	// (records and journals) plus .git. They are computed by the engine and

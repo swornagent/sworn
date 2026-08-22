@@ -33,6 +33,11 @@ type preparedDriverDispatch struct {
 	expectedDigest     string
 	expectedSubmission []byte
 	fake               bool
+	// toolResultHook is the runtime-provided durable callback for the
+	// bounded tool-result projection; set once in
+	// runDriverEffectWithPreparation and copied into every invocation.
+	// It is runtime-only and never serialized into commandPayload.
+	toolResultHook driver.ToolResultHook
 }
 
 type uncertainHandoffPreparationError struct {
@@ -450,6 +455,10 @@ func preparedInvocation(
 		Inputs:        prepared.inputs,
 		FakeProfile:   fakeProfile,
 		MaskNames:     append([]string(nil), maskNames...),
+		// Runtime-only authority: the driver emits the tool-result
+		// projection on this hook off its dispatch loop, never failing
+		// or stalling delivery on it.
+		ToolResultHook: prepared.toolResultHook,
 	}
 }
 
@@ -1840,6 +1849,15 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, err
 		}
 	}
+	// Every live dispatch path inherits the same tool-result observation
+	// hook: fresh, continuation resume, recoverable resume, and recovery
+	// automation, through the single preparedInvocation construction site.
+	prepared.toolResultHook = s.toolResultObservationHook(
+		owner,
+		prepared,
+		coordinates,
+		attemptIdentity,
+	)
 	var recovery *turnRecoveryCycle
 	if _, enabled := manifest.value.recoverySelection(); enabled {
 		cycle, cycleErr := turnRecoveryCycleForDispatch(
