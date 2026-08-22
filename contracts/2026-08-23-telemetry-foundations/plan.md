@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-telemetry-foundations",
-  "revision": 3,
-  "previous_plan": "cfdd148ba4154f93681a93ec16bb68342c146fd0",
+  "revision": 4,
+  "previous_plan": "0bf35fd98f75ecd308157e3f347337ace4bde883",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-telemetry-foundations/3",
+  "approval_ref": "operator://2026-08-23-telemetry-foundations/4",
   "tracks": [
     {
       "id": "T1-telemetry",
@@ -44,8 +44,8 @@
         {
           "id": "S2-genai-spans",
           "outcome": "Any OTel backend renders sworn's runs as native LLM traffic: each dispatch exports a span carrying the GenAI semantic conventions - the real certified model id, the token split including cache and reasoning components, and wall-clock duration - with sworn's own facts riding as sworn.* attributes, and all spans of one run sharing one trace instead of randomized per-record identities.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/S2-genai-spans.json",
-          "digest": "sha256:65165a6db3fd7c8477a5541df43a5123c6664ab70ce7c9d96ffccd0e9df6a432",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev4/S2-genai-spans.json",
+          "digest": "sha256:dd5d26cf3e94784b82db1f182a0d480687e0ddc9711bccae0c83e2e450879293",
           "depends_on": [
             "S1-usage-truth"
           ],
@@ -397,3 +397,23 @@ verified binding; no-conversion cost strategy confirmed) - they need
 not recur. Operator-carried under
 operator://2026-08-23-telemetry-foundations/3 per the
 summary-before-plan doctrine.
+
+# Revision 4
+
+S1 is delivered: design PROCEED, candidate built with the captain's
+three bounded corrections, verifier PASS (candidate 9c759de0, r3). The
+r3 captain escalation on S2's first design found A3's sworn.verdict
+unbindable: no per-dispatch verdict exists on any read surface, and
+the slice-level last-known-wins outcome would state a false fact on a
+historical attempt span. This revision takes the captain's preferred
+resolution: A3 drops the verdict attribute and pins its absence; the
+attribute returns only when a content-free decision-outcome fact lands
+on a read surface (a later write-seam slice on the S9 pattern - the
+backend-side score-mapping ruling stays alive for it to feed). The
+captain's J1 and J3 adjudications are carried into contract
+constraints so they survive receipt invalidation: no scope widening
+into internal/journal (the effect-id join lives in the cockpit
+snapshot), span name sworn.dispatch, exactly three verbatim GenAI keys
+with cache/reasoning as sworn.usage.*. S1 and S3-S9 are byte-identical
+with unchanged digests; S1's receipts adopt by ancestry.
+Operator-carried under operator://2026-08-23-telemetry-foundations/4.
