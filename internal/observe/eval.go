@@ -23,6 +23,10 @@ const (
 	// maxUnreportedSurfaces bounds the A3 naming list so a hostile or
 	// pathological receipt population cannot inflate the record.
 	maxUnreportedSurfaces = 64
+	// dispatchEffectKind is the driver effect kind whose attempts become
+	// sworn.dispatch spans (S2-C4: a non-dispatch attempt must not mint a
+	// dispatch span).
+	dispatchEffectKind = "driver.dispatch"
 )
 
 type Error struct {
@@ -186,6 +190,17 @@ type Record struct {
 	Usage         UsageSummary        `json:"usage"`
 	Groups        []AttemptGroup      `json:"groups"`
 	Quality       []Quality           `json:"quality"`
+
+	// dispatchAttempts is the in-memory per-attempt carrier (S2): one entry
+	// per journal attempt fact in journal order, holding only durable
+	// fields. encoding/json skips unexported fields, so the persisted
+	// sworn.eval/v3 body stays byte-identical; no schema bump and no
+	// internal/journal allowlist edit.
+	dispatchAttempts []dispatchAttempt
+	// spanJoin carries the bounded cockpit-snapshot window the dispatch
+	// span needs for the A3 effect-identity join (attempts, evidence, and
+	// the slice->track map). It rides unexported for the same reason.
+	spanJoin spanJoin
 }
 
 // Advance persists one cumulative, canonical evaluation record at a stable
@@ -261,16 +276,63 @@ func (e *Evaluator) Advance(
 }
 
 type aggregate struct {
-	events       int64
-	attempts     int64
-	retries      int64
-	recovery     RecoverySummary
-	continuation continuationAggregate
-	turnRecovery turnRecoveryAggregate
-	duration     int64
-	usage        usageAggregate
-	groups       map[groupKey]*groupAggregate
-	err          error
+	events           int64
+	attempts         int64
+	retries          int64
+	recovery         RecoverySummary
+	continuation     continuationAggregate
+	turnRecovery     turnRecoveryAggregate
+	duration         int64
+	usage            usageAggregate
+	groups           map[groupKey]*groupAggregate
+	dispatchAttempts []dispatchAttempt
+	err              error
+}
+
+// dispatchAttempt is one carrier entry: the durable journal facts of one
+// attempt plus its canonical usage bytes. It deliberately carries no
+// snapshot-joined value, so attempt identity can never drift as the
+// 256-entry cockpit window slides.
+type dispatchAttempt struct {
+	effectKind     string
+	effectState    string
+	responsibility string
+	attempt        int64
+	transport      string
+	startedAt      time.Time
+	finishedAt     time.Time
+	usageBytes     []byte
+}
+
+// spanJoin is the bounded snapshot window the dispatch-span builder joins
+// against for A3 identity attributes. It is rebuilt per evaluation record
+// and carried unexported to the telemetry runtime.
+type spanJoin struct {
+	attempts []cockpit.AttemptView
+	evidence []cockpit.Evidence
+	// sliceTracks maps the graph node id ("slice:"+slice) to its track,
+	// the fallback for evidence bodies that carry no Track.
+	sliceTracks map[string]string
+}
+
+func spanJoinFromSnapshot(snapshot cockpit.Snapshot) spanJoin {
+	join := spanJoin{
+		attempts: append(
+			[]cockpit.AttemptView(nil),
+			snapshot.Runtime.Attempts...,
+		),
+		evidence: append(
+			[]cockpit.Evidence(nil),
+			snapshot.Evidence...,
+		),
+		sliceTracks: make(map[string]string),
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "slice" && node.ID != "" && node.Track != "" {
+			join.sliceTracks[node.ID] = node.Track
+		}
+	}
+	return join
 }
 
 type groupKey struct {
@@ -381,6 +443,16 @@ func (a *aggregate) addAttempt(fact journal.EvaluationFact) {
 		a.err = err
 		return
 	}
+	a.dispatchAttempts = append(a.dispatchAttempts, dispatchAttempt{
+		effectKind:     fact.EffectKind,
+		effectState:    boundedEffectState(fact.EffectState),
+		responsibility: boundedResponsibility(fact.Responsibility),
+		attempt:        fact.Attempt,
+		transport:      boundedTransport(fact.Transport),
+		startedAt:      fact.StartedAt,
+		finishedAt:     fact.FinishedAt,
+		usageBytes:     append([]byte(nil), fact.Usage...),
+	})
 	key := groupKey{
 		role:           roleForResponsibility(fact.Responsibility),
 		responsibility: boundedResponsibility(fact.Responsibility),
@@ -700,6 +772,12 @@ func (a *aggregate) record(
 		Usage:         a.usage.summary(a.attempts),
 		Groups:        groups,
 		Quality:       graphQuality(snapshot.Graph),
+
+		dispatchAttempts: append(
+			[]dispatchAttempt(nil),
+			a.dispatchAttempts...,
+		),
+		spanJoin: spanJoinFromSnapshot(snapshot),
 	}, nil
 }
 
@@ -865,7 +943,7 @@ func roleForResponsibility(value string) string {
 }
 
 func boundedOperation(value string) string {
-	if value == "driver.dispatch" {
+	if value == dispatchEffectKind {
 		return value
 	}
 	return "other"

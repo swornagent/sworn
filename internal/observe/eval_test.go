@@ -256,8 +256,25 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 	if err := json.Unmarshal(store.advance.Eval[0].Body, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(persisted, record) {
-		t.Fatalf("persisted = %#v\nrecord = %#v", persisted, record)
+	// S2-C1: the live record carries the unexported dispatch-span carrier,
+	// which encoding/json skips. The durable body is pinned against the
+	// carrier-cleared record, and the bytes themselves are pinned to the
+	// sworn.eval/v3 exported schema (no new field, no version bump).
+	cleared := record
+	cleared.dispatchAttempts = nil
+	cleared.spanJoin = spanJoin{}
+	if !reflect.DeepEqual(persisted, cleared) {
+		t.Fatalf("persisted = %#v\nrecord = %#v", persisted, cleared)
+	}
+	strict := json.NewDecoder(bytes.NewReader(store.advance.Eval[0].Body))
+	strict.DisallowUnknownFields()
+	var strictlyPersisted Record
+	if err := strict.Decode(&strictlyPersisted); err != nil {
+		t.Fatalf("persisted body carries a field outside sworn.eval/v3: %v", err)
+	}
+	if strictlyPersisted.SchemaVersion != EvalSchemaVersion {
+		t.Fatalf("persisted schema = %q, want %q",
+			strictlyPersisted.SchemaVersion, EvalSchemaVersion)
 	}
 
 	again, changed, err := evaluator.Advance(
@@ -702,6 +719,153 @@ func TestEvaluatorSurfacesProviderTruncationFacts(t *testing.T) {
 		group.Truncated == nil || !*group.Truncated ||
 		group.CacheReadTokens == nil || *group.CacheReadTokens != 2 {
 		t.Fatalf("group truncation usage = %#v", group)
+	}
+}
+
+// S2 carrier seam: the evaluator carries one entry per attempt fact in
+// journal order (including non-dispatch effects, which the span builder
+// later filters), plus the bounded snapshot join window the dispatch span
+// needs for effect identity. The carrier is unexported and never enters
+// the durable body (pinned by the strict decode in
+// TestEvaluatorPersistsCanonicalCumulativeRecord).
+func TestEvaluatorCarriesDispatchAttemptCarrierInJournalOrder(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(2 * time.Second)
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: []journal.EvaluationFact{
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "driver.dispatch",
+				EffectState:    journal.Succeeded,
+				Attempt:        1,
+				Responsibility: "implementer_implementation",
+				Transport:      "completed",
+				Usage: []byte(
+					`{"token_status":"reported","input_tokens":7,` +
+						`"output_tokens":3,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,` +
+						`"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: started.Add(time.Second),
+			},
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "git.seal",
+				EffectState:    journal.Pending,
+				Attempt:        1,
+				Responsibility: "implementer_implementation",
+				Transport:      "completed",
+				Usage: []byte(
+					`{"token_status":"unavailable","input_tokens":null,` +
+						`"output_tokens":null,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: started.Add(time.Second),
+			},
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "driver.dispatch",
+				EffectState:    journal.OperationalFailed,
+				Attempt:        2,
+				Responsibility: "work_verification",
+				Transport:      "timeout",
+				Usage: []byte(
+					`{"token_status":"unavailable","input_tokens":null,` +
+						`"output_tokens":null,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: finished,
+			},
+		},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		Runtime: cockpit.RuntimeView{
+			Attempts: []cockpit.AttemptView{
+				{
+					EffectID:       "attempt/work-a/e2/t3",
+					Number:         1,
+					Responsibility: "implementer_implementation",
+					Transport:      "completed",
+					CreatedAt:      started.Add(time.Second),
+				},
+				{
+					EffectID:       "attempt/work-b/e1/t1",
+					Number:         2,
+					Responsibility: "work_verification",
+					Transport:      "timeout",
+					CreatedAt:      finished,
+				},
+			},
+		},
+		Evidence: []cockpit.Evidence{
+			{
+				EffectID:  "attempt/work-a/e2/t3",
+				WorkID:    "work-a",
+				Slice:     "S2-genai-spans",
+				CreatedAt: started.Add(time.Second),
+			},
+		},
+		Graph: cockpit.Graph{Nodes: []cockpit.Node{
+			{
+				ID: "slice:S2-genai-spans", Kind: "slice",
+				Track: "T1-telemetry",
+			},
+		}},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(context.Background(), "run-1")
+	if err != nil || !changed {
+		t.Fatalf("advance = %t, %v", changed, err)
+	}
+	if len(record.dispatchAttempts) != 3 {
+		t.Fatalf("carrier = %#v", record.dispatchAttempts)
+	}
+	if record.dispatchAttempts[0].effectKind != "driver.dispatch" ||
+		record.dispatchAttempts[1].effectKind != "git.seal" ||
+		record.dispatchAttempts[2].effectKind != "driver.dispatch" {
+		t.Fatalf("carrier journal order = %#v", record.dispatchAttempts)
+	}
+	if record.dispatchAttempts[0].effectState != "succeeded" ||
+		record.dispatchAttempts[0].responsibility !=
+			"implementer_implementation" ||
+		record.dispatchAttempts[0].attempt != 1 ||
+		record.dispatchAttempts[0].transport != "completed" ||
+		record.dispatchAttempts[0].startedAt != started ||
+		record.dispatchAttempts[0].finishedAt != started.Add(time.Second) {
+		t.Fatalf("carrier entry = %#v", record.dispatchAttempts[0])
+	}
+	if _, err := decodeUsage(record.dispatchAttempts[0].usageBytes); err != nil {
+		t.Fatalf("carrier usage bytes = %v", err)
+	}
+	if record.dispatchAttempts[2].effectState != "operational_failed" ||
+		record.dispatchAttempts[2].transport != "timeout" ||
+		record.dispatchAttempts[2].attempt != 2 {
+		t.Fatalf("carrier entry = %#v", record.dispatchAttempts[2])
+	}
+	if len(record.spanJoin.attempts) != 2 ||
+		len(record.spanJoin.evidence) != 1 ||
+		record.spanJoin.sliceTracks["slice:S2-genai-spans"] !=
+			"T1-telemetry" {
+		t.Fatalf("span join = %#v", record.spanJoin)
 	}
 }
 

@@ -287,6 +287,24 @@ func cloneRecord(record Record) Record {
 				int64Pointer(*record.Quality[index].Denominator)
 		}
 	}
+	result.dispatchAttempts = cloneDispatchAttempts(record.dispatchAttempts)
+	// spanJoin is read-only after construction; the bounded window data is
+	// shared, never mutated.
+	result.spanJoin = record.spanJoin
+	return result
+}
+
+func cloneDispatchAttempts(values []dispatchAttempt) []dispatchAttempt {
+	if values == nil {
+		return nil
+	}
+	result := append([]dispatchAttempt(nil), values...)
+	for index := range result {
+		result[index].usageBytes = append(
+			[]byte(nil),
+			values[index].usageBytes...,
+		)
+	}
 	return result
 }
 
