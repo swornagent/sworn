@@ -943,6 +943,12 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 				if _, laneParked := parked[work]; laneParked {
 					continue
 				}
+				slice := ""
+				track := ""
+				if dispatch.production != nil {
+					slice = dispatch.production.Context.Slice
+					track = dispatch.production.Context.Track
+				}
 				if err := s.journal.ReconcileOwned(
 					context.WithoutCancel(ctx),
 					owner,
@@ -951,8 +957,13 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 						EffectID:  effect.ID,
 						Token:     effect.CurrentClaim,
 						EventKind: "dispatch_uncertain",
-						EventBody: []byte(command.Kind),
-						At:        s.now().UTC(),
+						EventBody: MarshalAssociation(EventAssociation{
+							EffectID: effect.ID,
+							WorkID:   work,
+							Track:    track,
+							Slice:    slice,
+						}),
+						At: s.now().UTC(),
 					},
 					journal.RecoveryAmbiguous,
 				); err != nil {

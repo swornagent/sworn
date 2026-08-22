@@ -1,0 +1,65 @@
+{
+ "outcome": "The terminal board keeps its promise after you press enter: a TUI action that starts a drive hands it to a resident per-project command host that outlives the action, so an accepted answer is followed by the delivery actually continuing while the person watches - and quitting the TUI is an ordinary host death, recoverable like any other, never a silent stall dressed up as success.",
+ "scope": {
+  "include": [
+   "cmd/sworn",
+   "internal/tui",
+   "internal/cockpit",
+   "test/e2e"
+  ],
+  "exclude": [
+   "one-shot CLI verbs (S2's mechanism)",
+   "lease and ownership semantics (S1's mechanism)",
+   "board layout, key bindings, and read-surface behavior (this slice changes who hosts drives, not what the board shows or refuses)"
+  ],
+  "waivers": [
+   {
+    "package": "internal/observe",
+    "reason": "consumes cockpit by import only; no observe test pins who hosts TUI-started drives"
+   },
+   {
+    "package": "internal/journal",
+    "reason": "consumed by import; lease semantics are S1's ground and this slice is constrained to leave ownership untouched"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "consumed by import; Service.Wait and drive hosting primitives are used as-is, with any behavioral change to them out of scope"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Board actions no longer create and destroy the drive host per action: the command service that hosts drives lives for the TUI's binding to the project run, across actions. Evidence anchor: openTUICommands/closeCommands (cmd/sworn/tui_backend.go) open a fresh service per action and the deferred close cancels the drive the action just started and closes the journal store beneath it - the sworn#230 trace shows the TUI answer's drive dying 337ms in with JOURNAL_READ_FAILED/DATABASE_FAILED. Pinned by a fixture over the TUI backend's action path asserting the drive an answer starts survives the action's return."
+  },
+  {
+   "id": "A2",
+   "text": "An accepted answer is followed by observable drive progress in the same TUI session: the board reaches the run's next driven state without restarting the TUI - pinned by a tui fixture driving answer through the backend and observing the subsequent state transition."
+  },
+  {
+   "id": "A3",
+   "text": "Per-action authority checks are unchanged: the run-binding validation that today refuses 'project control authority changed' still happens on every action, and the stale-authority refusal behavior (surfaceTUIStaleRefusal) is untouched - pinned by existing fixtures staying green."
+  },
+  {
+   "id": "A4",
+   "text": "The surfaceTUIAnswer phase of TestSwornConformanceObservableSurfaceParity (test/e2e/surface_parity_linux_test.go) is this slice's CI evidence, declared not executed (ADR 0010): the run reaches complete under the scenario's existing completion poll before the TUI quits. No exactly-once, cardinality, or authority assertion is weakened."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check"
+ ],
+ "constraints": [
+  "Semantics being pinned (operator-ruled 2026-08-21 on sworn#230, human-ratified in session): the TUI is a resident surface - drives started by its actions are hosted by a service whose lifetime is the TUI's binding to the run, not the action's. Quitting the TUI mid-drive is host death: the lease lapses or releases (S1) and the run recovers through the existing paths - it must never be left claimed-unexpired.",
+  "History pinned so it is not repeated: pre-detached, this same path drove synchronously on the action and froze the TUI (the 2026-08-01 dogfood defect); the operator-surface S2 change backgrounded the drive and the per-action teardown then cancelled it - the freeze was traded for a silent stall. This slice must produce neither: the action returns promptly AND the drive continues.",
+  "The executable e2e gate remains CI (ADR-0010): the verifier judges A4 by reading the scenario against resident-host semantics and by compile coverage; the first full execution is the CI run on the merge.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S1-owner-self-release"
+ ],
+ "consumes": []
+}

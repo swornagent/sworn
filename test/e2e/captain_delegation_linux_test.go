@@ -196,13 +196,25 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 	}
 	// Each summary turn is read and answered through a freshly connected
 	// client. Answering the same turn twice must not duplicate any authority.
-	answered := 0
-	for range 4 {
-		attention, found := journeyMCPOpenHumanTurn(t, address)
-		if !found {
-			break
+	// The answer returns once durable while the resident driver carries the
+	// run to the next summary turn, so the second turn is awaited rather
+	// than read from the answer's immediate output; an already-answered turn
+	// still reading open means the drive has not resolved it yet.
+	answered := map[string]bool{}
+	answerDeadline := time.Now().Add(120 * time.Second)
+	for len(answered) < 2 {
+		if time.Now().After(answerDeadline) {
+			diagnose(
+				"delegated MCP human turns = "+strconv.Itoa(len(answered)),
+				responseBody,
+			)
 		}
-		answered++
+		attention, found := journeyMCPOpenHumanTurn(t, address)
+		if !found || answered[attention] {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		answered[attention] = true
 		responseBody = journeyMCPCall(t, address, "sworn_answer_attention", map[string]any{
 			"run_id": "production-journey", "attention_id": attention,
 			"expected_generation": 1, "answer": journeySummaryAnswer,
@@ -214,21 +226,27 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 			"run_id": "production-journey", "attention_id": attention,
 			"expected_generation": 1, "answer": journeySummaryAnswer,
 		})
-		if !bytes.Contains(replayed, []byte(`"isError":true`)) {
-			diagnose("replayed MCP answer was admitted", replayed)
+		if bytes.Contains(replayed, []byte(`"isError":true`)) {
+			diagnose("replayed MCP answer was not idempotent", replayed)
 		}
 	}
-	if answered != 2 {
-		diagnose("delegated MCP human turns = "+strconv.Itoa(answered), responseBody)
-	}
-	if !bytes.Contains(responseBody, []byte(`"state":"complete"`)) {
-		diagnose("delegated MCP completion", responseBody)
-	}
-	status := journeyMCPCall(t, address, "sworn_status", map[string]any{
-		"run_id": "production-journey",
-	})
-	if bytes.Contains(status, []byte(`"isError":true`)) {
-		diagnose("delegated MCP status", status)
+	completionDeadline := time.Now().Add(120 * time.Second)
+	for {
+		status := journeyMCPCall(t, address, "sworn_status", map[string]any{
+			"run_id": "production-journey",
+		})
+		if bytes.Contains(status, []byte(`"isError":true`)) &&
+			!bytes.Contains(status, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(status, []byte("RUNTIME_UNAVAILABLE")) {
+			diagnose("delegated MCP status", status)
+		}
+		if bytes.Contains(status, []byte(`"state":"complete"`)) {
+			break
+		}
+		if time.Now().After(completionDeadline) {
+			diagnose("delegated MCP completion deadline exceeded", status)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
@@ -252,7 +270,8 @@ func TestRealBinaryDelegatedCaptainProceedInstallsRC14AndContinuesSerially(t *te
 	for _, event := range snapshot.Events {
 		counts["event:"+event.Kind]++
 	}
-	if counts["command:captain_decision"] != 2 || counts["command:planner_continuation"] != 1 || counts["command:approval"] != 1 ||
+	if counts["command:attention.answer"] != 2 ||
+		counts["command:captain_decision"] != 2 || counts["command:planner_continuation"] != 1 || counts["command:approval"] != 1 ||
 		counts["effect:approval.admit"] != 1 || counts["effect:baton.install"] != 1 ||
 		counts["effect:planner.continue"] != 1 || counts["event:captain_plan_decided"] != 2 {
 		t.Fatalf("delegated cardinalities = %#v", counts)

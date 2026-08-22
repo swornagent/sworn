@@ -171,6 +171,13 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 		"resume", "--run", runID, "--journal", journalPath,
 		"--command", "evidence-resume-1", "--generation", "0",
 	)
+	if stderr != "" {
+		t.Fatalf("assembly evidence resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinary(
+		t, swornBinary, 0,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("assembly evidence run stdout=%q stderr=%q", stdout, stderr)
 	}

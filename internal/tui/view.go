@@ -33,6 +33,8 @@ func (m *model) View() string {
 	var body string
 	if m.overlay != overlayNone {
 		body = m.renderOverlay(width, bodyHeight)
+	} else if m.screen == screenConfig {
+		body = m.renderConfig(width, bodyHeight)
 	} else if m.screen == screenBoard {
 		body = m.renderBoard(width, bodyHeight)
 	} else {
@@ -47,7 +49,9 @@ func (m *model) View() string {
 func (m *model) renderHeader(width int) string {
 	location := "releases"
 	connection := ""
-	if m.screen == screenBoard {
+	if m.screen == screenConfig {
+		location = "config"
+	} else if m.screen == screenBoard {
 		location = m.selection.Release
 		switch {
 		case m.board.Stale:
@@ -75,7 +79,8 @@ func (m *model) renderStatus(width int) string {
 		style = faultStyle
 	} else if message == "" && m.loading &&
 		((m.screen == screenCatalog && len(m.catalog.Entries) == 0) ||
-			(m.screen == screenBoard && m.board.Status == "")) {
+			(m.screen == screenBoard && m.board.Status == "") ||
+			(m.screen == screenConfig && len(m.configView.Roles) == 0 && len(m.configView.Profiles) == 0)) {
 		message = "Checking the latest saved facts…"
 	}
 	return style.Copy().Width(width).Render(truncate(" "+message, width))
@@ -84,9 +89,11 @@ func (m *model) renderStatus(width int) string {
 func (m *model) renderFooter(width int) string {
 	content := " ? help   r refresh   q quit"
 	if m.screen == screenCatalog {
-		content = " ↑/k ↓/j move   enter open   ? help   q quit"
-	} else {
-		content = " ↑/k ↓/j move   a actions   esc releases   ? help   q quit"
+		content = " ↑/k ↓/j move   enter open   c config   ? help   q quit"
+	} else if m.screen == screenBoard {
+		content = " ↑/k ↓/j move   a actions   c config   esc releases   ? help   q quit"
+	} else if m.screen == screenConfig {
+		content = " esc back   r refresh   ? help   q quit"
 	}
 	if m.overlay == overlayAnswer {
 		content = " ctrl+s send   enter newline   esc cancel"
@@ -288,12 +295,15 @@ func (m *model) detailLines(width, height int) []string {
 	if node.HasBaton {
 		lines = append(lines, batonStyle.Render(truncate("Handoff recorded", width)))
 	}
-	if m.board.Stale {
-		lines = append(lines, faultStyle.Render(truncate("Controls disabled while stale", width)))
-	} else if len(m.board.Actions) > 0 {
+	if len(m.board.Actions) > 0 {
 		lines = append(lines, swornStyle.Render(truncate(fmt.Sprintf(
 			"a  %d available controls", len(m.board.Actions),
 		), width)))
+	} else if m.selection.RunID == "" && m.board.ManifestDir != "" {
+		lines = append(lines, quietStyle.Render(truncate(
+			"No run definition in "+m.board.ManifestDir,
+			width,
+		)))
 	}
 	if len(m.board.Diagnostics) > 0 {
 		lines = append(lines, faultStyle.Render(truncate(
@@ -305,6 +315,76 @@ func (m *model) detailLines(width, height int) []string {
 		lines = lines[:height]
 	}
 	return lines
+}
+
+func (m *model) renderConfig(width, height int) string {
+	lines := []string{titleStyle.Render(truncate("PROJECT CONFIGURATION", width))}
+	if m.configErr != "" {
+		lines = append(lines, "", faultStyle.Render(truncate(m.configErr, width)))
+		return strings.Join(lines, "\n")
+	}
+	if m.loading && len(m.configView.Roles) == 0 && len(m.configView.Profiles) == 0 {
+		lines = append(lines, "", quietStyle.Render(truncate("Loading configuration…", width)))
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, swornStyle.Render(truncate("ROLE MATRIX", width)))
+	if len(m.configView.Roles) == 0 {
+		lines = append(lines, quietStyle.Render(truncate("  No roles configured yet.", width)))
+	} else {
+		for _, role := range m.configView.Roles {
+			label := fmt.Sprintf("  %-12s %s / %s", safeText(role.Role), safeText(role.Profile), safeText(role.Model))
+			if role.Source != "" {
+				label += "  " + quietStyle.Render("("+safeText(role.Source)+")")
+			}
+			lines = append(lines, truncate(label, width))
+		}
+	}
+
+	if len(m.configView.Profiles) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, swornStyle.Render(truncate("PROFILES", width)))
+		for _, profile := range m.configView.Profiles {
+			label := fmt.Sprintf("  %-12s %s (net: %s)", safeText(profile.Name), safeText(profile.Adapter), safeText(profile.Network))
+			if profile.Source != "" {
+				label += "  " + quietStyle.Render("("+safeText(profile.Source)+")")
+			}
+			lines = append(lines, truncate(label, width))
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, swornStyle.Render(truncate("OPERATOR SERVICE", width)))
+	lines = append(lines, m.renderConfigItem("Listen", m.configView.OperatorListen, width)...)
+	lines = append(lines, m.renderConfigItem("Telemetry", m.configView.OperatorOTel, width)...)
+
+	lines = append(lines, "")
+	lines = append(lines, swornStyle.Render(truncate("STORAGE & PATHS", width)))
+	lines = append(lines, m.renderConfigItem("Records root", m.configView.RecordsRoot, width)...)
+	lines = append(lines, m.renderConfigItem("Journals root", m.configView.JournalsRoot, width)...)
+	lines = append(lines, m.renderConfigItem("Journal path", m.configView.JournalPath, width)...)
+	lines = append(lines, m.renderConfigItem("Manifests dir", m.configView.ManifestDir, width)...)
+	if m.configView.DriverConfig.Value != "" {
+		lines = append(lines, m.renderConfigItem("Drivers config", m.configView.DriverConfig, width)...)
+	}
+
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *model) renderConfigItem(label string, item ConfigItem, width int) []string {
+	value := item.Value
+	if value == "" {
+		value = "(not configured)"
+	}
+	text := fmt.Sprintf("  %-14s %s", label+":", safeText(value))
+	if item.Source != "" {
+		text += "  " + quietStyle.Render("("+safeText(item.Source)+")")
+	}
+	return []string{truncate(text, width)}
 }
 
 func (m *model) renderOverlay(width, height int) string {
@@ -326,8 +406,9 @@ func (m *model) renderHelp(width, height int) string {
 	lines := []string{
 		titleStyle.Render("HELP"),
 		"↑/k  move up", "↓/j  move down", "enter  open or select",
-		"a  available run controls", "r  refresh saved facts",
-		"esc  close or go back", "q  quit", "?  close help",
+		"a  available run controls", "c  project configuration",
+		"r  refresh saved facts", "esc  close or go back",
+		"q  quit", "?  close help",
 	}
 	if height < len(lines) {
 		lines = lines[:height]
@@ -340,9 +421,19 @@ func (m *model) renderHelp(width, height int) string {
 
 func (m *model) renderActions(width, height int) string {
 	lines := []string{titleStyle.Render("AVAILABLE CONTROLS")}
-	if m.board.Stale {
-		return strings.Join(append(lines,
-			faultStyle.Render("Refresh before changing this run.")), "\n")
+	if len(m.board.Actions) == 0 {
+		msg := "No controls available."
+		if m.selection.RunID == "" && m.board.ManifestDir != "" {
+			msg = fmt.Sprintf("No run definition found in %s. Provide a run manifest before starting delivery.", m.board.ManifestDir)
+		}
+		lines = append(lines, "")
+		for _, wrapped := range wrapText(msg, width) {
+			lines = append(lines, quietStyle.Render(wrapped))
+		}
+		if len(lines) > height {
+			lines = lines[:height]
+		}
+		return strings.Join(lines, "\n")
 	}
 	for index, action := range m.board.Actions {
 		line := "  " + m.actionLabel(action)
@@ -496,6 +587,14 @@ func diagnosticExplanation(code string) string {
 		return "Only the most recent saved questions fit on this board."
 	case "OUTBOX_TRUNCATED":
 		return "Only the most recent notifications fit on this board."
+	case "PLAN_NOT_FOUND":
+		return "The release plan could not be found. Commit an approved plan before starting delivery."
+	case "INVALID_PLAN_FENCE":
+		return "The release plan format or version is not recognized. Format the plan with ```baton-plan-v2 before continuing."
+	case "REF_NOT_FOUND":
+		return "The release reference could not be found. Check that the release branch exists in the repository."
+	case "INVALID_HEAD_OBJECT":
+		return "The release commit object is invalid. Check that the release commit is present in the repository."
 	default:
 		return "Sworn found something in the saved release that needs review."
 	}

@@ -1,0 +1,27 @@
+{
+  "outcome": "sworn init becomes the guided front door: run in a project it walks the operator through what exists and what is missing - driver config with agent detection, the operator config, and where records will live - writes what was chosen, is idempotent on re-run (showing a diff-shaped summary instead of overwriting silently), and ends by printing the exact next command; --yes preserves the non-interactive scriptable path.",
+  "scope": {
+    "include": ["cmd/sworn"],
+    "exclude": ["telemetry-channel prompts (the guided telemetry step arrives with the telemetry-foundations release; this slice scaffolds the operator config file with its existing shape)", "plan or release authoring (init prepares the project, never records authority)", "interactive TUI forms (line-oriented prompts; the TUI reads config, init writes it)"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "In an empty project, init interactively confirms each artifact before writing (driver config from agent detection, operator config with the local listen default, the .sworn surface) and ends by naming the next command: pinned by cmd/sworn fixtures driving the prompt sequence over a scripted stdin."},
+    {"id": "A2", "text": "Re-running init in a configured project reports what exists and what would change, and changes nothing without confirmation: pinned by an idempotence fixture asserting byte-identical files after a default-accepting re-run."},
+    {"id": "A3", "text": "--yes answers every prompt with its default and stays scriptable in CI: pinned by a non-interactive fixture producing the same artifacts as the interactive defaults path."},
+    {"id": "A4", "text": "init writes .sworn/operator.json with the conventional shape when absent, and never touches an existing one without confirmation: pinned by fixtures over absent, present-identical, and present-divergent cases."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Init never writes credentials and never prints secret values; it points at credential locations.",
+    "Everything init writes is plain reviewable JSON in the project; no hidden state.",
+    "Evidence basis: init scaffolds directories and drivers.json but no operator config (cmd/sworn/init_command.go), so telemetry and serve configuration require reading the source today; ruling 2026-08-20 makes init the guided per-project setup.",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

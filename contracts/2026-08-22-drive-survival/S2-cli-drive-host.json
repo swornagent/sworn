@@ -1,0 +1,65 @@
+{
+ "outcome": "A one-shot CLI verb that starts a drive hosts it to its natural stop: answer, resume, and takeover print their durable status and then the process carries the background drive until the run parks, completes, or refuses - and run --detached stops lying, refusing with a stable coded error that names the resident serve path until a real detach exists. Killing the host mid-drive stays recoverable, and nothing changes what any verb is permitted to do.",
+ "scope": {
+  "include": [
+   "cmd/sworn",
+   "internal/runtime",
+   "test/e2e"
+  ],
+  "exclude": [
+   "serve and TUI drive hosting (the resident surfaces are S3's mechanism; Service.Close teardown-cancel semantics for them are unchanged)",
+   "lease and ownership semantics (S1 owns the release change; acquisition and takeover are untouched)",
+   "a daemonized detach (out of scope entirely - the flag refuses honestly instead)"
+  ],
+  "waivers": [
+   {
+    "package": "internal/cockpit",
+    "reason": "consumes runtime by import only; the resident serve's drive hosting and Service.Close teardown semantics are constrained unchanged by this slice"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "consumes runtime via cockpit by import only; no observe test pins CLI process lifecycle"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "consumes runtime by import only; the TUI's drive hosting is S3's mechanism and this slice is constrained not to touch it"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "After answer, resume, or takeover writes its durable status output, the CLI process waits for the background drive it started before tearing down, and its exit code continues to reflect command admission - never the hosted drive's run-level outcome. Evidence anchors: Service.Wait (internal/runtime/service.go:327) exists today with zero production callers; runAnswer and runControl (cmd/sworn/main.go) defer service.Close(), whose cancel currently kills the drive milliseconds after it starts (the sworn#230 traces). Pinned by cmd/sworn fixtures asserting the drive's effects are journaled by the time the process exits, and that a drive ending in a run-level refusal still exits 0 with the refusal left readable in run state."
+  },
+  {
+   "id": "A2",
+   "text": "run --detached refuses with a stable coded error naming the resident serve path, instead of printing 'started detached' and cancelling the drive at process exit (cmd/sworn/main.go executeStart detached branch), and the refusal leaves no owner claim behind - pinned by a cmd/sworn fixture."
+  },
+  {
+   "id": "A3",
+   "text": "The detached lifecycle conformance scenario is this slice's CI evidence, declared not executed (ADR 0010): TestDetachedLifecycleScenarioProvesDetach (test/e2e/detached_drive_linux_test.go) reaches state complete after the second-process CLI answer, with scenario comments aligned to hosted-drive semantics; the exactly-once restart flow may simplify its recovery retry accordingly. No exactly-once, cardinality, or authority assertion is weakened anywhere in test/e2e."
+  },
+  {
+   "id": "A4",
+   "text": "A host killed mid-drive lands in the already-recoverable state: a fixture kills the hosting process between the durable status and drive completion and shows the run recovers through the existing takeover-then-drive path with unchanged effect-state cardinalities."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check"
+ ],
+ "constraints": [
+  "Semantics being pinned (operator-ruled 2026-08-21 on sworn#230, human-ratified in session): the verb's OUTPUT returns once the command is durable and names the live state; the PROCESS that started a drive hosts it in its own lifetime. This is S2-detached-drive's own outcome ('the drive continues under a background owner in the same process lifetime') made true for the one-shot CLI, where today Service.Close cancels the drive it just started.",
+  "Evidence basis: sworn#230 traces - a CLI answer's drive died at 34ms, a takeover's at 688ms (DATABASE_FAILED = context cancelled), and run --detached prints 'Watch progress:' then cancels its own drive; TestDetachedLifecycleScenarioProvesDetach wedges at state running for its full 120s deadline on the merged engine.",
+  "Retry and the non-drive control verbs are untouched: they never start a drive, so there is nothing to host.",
+  "The executable e2e gate remains CI (ADR-0010): the verifier judges A3 by reading the scenario against hosted-drive semantics and by compile coverage; the first full execution is the CI run on the merge.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S1-owner-self-release"
+ ],
+ "consumes": []
+}

@@ -239,6 +239,14 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		"--attention", attention.ID, "--generation", "1",
 		"--answer", journeySummaryAnswer, "--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("legacy resume answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, environment, 600*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
+		"--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
 		t.Fatalf("legacy resume answer stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -249,6 +257,14 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		t, binary, 0, environment, 600*time.Second,
 		"resume", "--run", legacySwornRunID, "--journal", journalPath,
 		"--command", "legacy-resume-1", "--generation", "0",
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("legacy resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, environment, 600*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath,
 		"--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {

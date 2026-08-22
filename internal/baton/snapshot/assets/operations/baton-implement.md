@@ -26,7 +26,7 @@ paths and extra checks are evidence unless they change behavior, consumed
 product, contract, authority, or an external decision.
 
 Product code, build, test, package, deploy, hooks, and runtime MUST NOT read or
-depend on reserved `.baton/releases`; do not modify it.
+depend on the reserved records root; do not modify it.
 
 ## Actions
 

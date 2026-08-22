@@ -899,6 +899,23 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--answer", journeySummaryAnswer,
 		"--config", configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t,
+		swornBinary,
+		0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
+		"--config", configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore {
 		t.Fatalf("production summary answer stdout=%q stderr=%q", stdout, stderr)
@@ -938,6 +955,23 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		"--journal", journalPath,
 		"--command", "resume-1",
 		"--generation", "0",
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t,
+		swornBinary,
+		0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"run",
+		"--manifest", manifestPath,
+		"--journal", journalPath,
 		"--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {

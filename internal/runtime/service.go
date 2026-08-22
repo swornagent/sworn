@@ -67,6 +67,17 @@ type Service struct {
 
 	continuationMu sync.Mutex
 	continuations  map[string]*retainedContinuation
+
+	backgroundMu     sync.Mutex
+	backgroundCancel map[string]context.CancelFunc
+	backgroundRuns   map[string]*backgroundRun
+	backgroundWait   sync.WaitGroup
+}
+
+type backgroundRun struct {
+	done   chan struct{}
+	status RunStatus
+	err    error
 }
 
 type retainedContinuation struct {
@@ -115,6 +126,7 @@ type EffectStatus struct {
 	Kind      string `json:"kind"`
 	State     string `json:"state"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Derived   bool   `json:"derived,omitempty"`
 }
 
 type engine struct {
@@ -259,6 +271,15 @@ func (s *Service) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.backgroundMu.Lock()
+	for _, cancel := range s.backgroundCancel {
+		cancel()
+	}
+	s.backgroundCancel = nil
+	s.backgroundMu.Unlock()
+
+	s.backgroundWait.Wait()
+
 	cleanupErr := s.closeAllContinuations()
 	if s.journal == nil {
 		return cleanupErr
@@ -267,6 +288,63 @@ func (s *Service) Close() error {
 		cleanupErr,
 		s.journal.Close(),
 	)
+}
+
+func (s *Service) startBackgroundDrive(runID string, owner journal.OwnerLease) *backgroundRun {
+	s.backgroundMu.Lock()
+	if s.backgroundCancel == nil {
+		s.backgroundCancel = make(map[string]context.CancelFunc)
+	}
+	if s.backgroundRuns == nil {
+		s.backgroundRuns = make(map[string]*backgroundRun)
+	}
+	if priorCancel, exists := s.backgroundCancel[runID]; exists {
+		priorCancel()
+	}
+	bgCtx, cancel := context.WithCancel(context.Background())
+	s.backgroundCancel[runID] = cancel
+	run := &backgroundRun{done: make(chan struct{})}
+	s.backgroundRuns[runID] = run
+	s.backgroundWait.Add(1)
+	s.backgroundMu.Unlock()
+
+	go func() {
+		defer s.backgroundWait.Done()
+		defer close(run.done)
+		defer func() {
+			s.backgroundMu.Lock()
+			if s.backgroundCancel != nil {
+				delete(s.backgroundCancel, runID)
+			}
+			s.backgroundMu.Unlock()
+		}()
+		run.status, run.err = s.driveOwned(bgCtx, runID, owner)
+	}()
+
+	return run
+}
+
+func (s *Service) Wait(ctx context.Context, runID string) (RunStatus, error) {
+	if s == nil || s.journal == nil || ctx == nil {
+		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	s.backgroundMu.Lock()
+	run := s.backgroundRuns[runID]
+	s.backgroundMu.Unlock()
+
+	if run == nil {
+		return s.Status(ctx, runID)
+	}
+
+	select {
+	case <-run.done:
+		if run.err != nil && !IsCode(run.err, "EFFECT_PARKED") {
+			return run.status, run.err
+		}
+		return s.Status(ctx, runID)
+	case <-ctx.Done():
+		return RunStatus{}, ctx.Err()
+	}
 }
 
 const (
@@ -595,6 +673,35 @@ func (s *Service) Start(ctx context.Context, manifestBytes []byte) (RunStatus, e
 	return s.driveOwned(ctx, manifest.value.RunID, owner)
 }
 
+func (s *Service) StartDetached(ctx context.Context, manifestBytes []byte) (RunStatus, error) {
+	if s == nil || s.journal == nil || ctx == nil {
+		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	manifest, err := admitManifest(manifestBytes)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if err := s.validateDriverConfigMode(manifest); err != nil {
+		return RunStatus{}, err
+	}
+	now := s.now().UTC()
+	if err := s.journal.RegisterRun(ctx, journal.Run{ID: manifest.value.RunID,
+		ManifestDigest: manifest.digest, Repository: manifest.value.Repository,
+		Release: manifest.value.Release, TargetRef: manifest.value.TargetRef, CreatedAt: now}); err != nil {
+		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	if err := s.journal.RecordCommand(ctx, journal.Command{RunID: manifest.value.RunID,
+		ReplayKey: "manifest", Kind: "start", Payload: manifest.raw, CreatedAt: now}); err != nil {
+		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	owner, err := s.journal.AcquireOwner(ctx, manifest.value.RunID, now, ownerDuration(), false)
+	if err != nil {
+		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	s.startBackgroundDrive(manifest.value.RunID, owner)
+	return s.Status(ctx, manifest.value.RunID)
+}
+
 // StartWithCaptainDelegation atomically establishes the run record before
 // admitting external Captain authority, and admits that authority before the
 // first Planner dispatch. It is the only delegated-run bootstrap path.
@@ -693,6 +800,104 @@ func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes,
 		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
 	}
 	return s.driveOwned(ctx, manifest.value.RunID, owner)
+}
+
+func (s *Service) StartWithCaptainDelegationDetached(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
+	if s == nil || s.journal == nil || ctx == nil {
+		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
+	}
+	manifest, err := admitManifest(manifestBytes)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if err = s.validateDriverConfigMode(manifest); err != nil {
+		return RunStatus{}, err
+	}
+	envelope, err := ParseCaptainDelegation(envelopeBytes)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if envelope.Envelope.RunID != manifest.value.RunID || envelope.Envelope.ManifestDigest != manifest.digest {
+		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+	}
+	if envelope.Envelope.Project != manifest.value.Authority.Project ||
+		envelope.Envelope.Release != manifest.value.Release ||
+		envelope.Envelope.TargetRef != manifest.value.TargetRef {
+		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+	}
+	existingRun := false
+	if binding, bindingErr := s.journal.RunBinding(ctx, manifest.value.RunID); bindingErr == nil {
+		existingRun = true
+		if binding.ManifestDigest != manifest.digest || binding.Repository != manifest.value.Repository ||
+			binding.Release != manifest.value.Release || binding.TargetRef != manifest.value.TargetRef {
+			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		}
+	} else if !journal.IsCode(bindingErr, "RUN_NOT_FOUND") {
+		return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", bindingErr)
+	}
+	if !existingRun {
+		if err := s.validateCaptainDelegationGitFacts(manifest, envelope.Envelope); err != nil {
+			return RunStatus{}, err
+		}
+	}
+	now := s.now().UTC()
+	delegationCommand := CaptainDelegationCommand{
+		SchemaVersion: CaptainDelegationCommandVersion,
+		Action:        "admit", RunID: manifest.value.RunID,
+		ManifestDigest: manifest.digest,
+		ActorClass:     CaptainDelegationActorClass,
+		ActorAuthority: manifest.value.Authority.ExternalAuthorizer,
+		EnvelopeDigest: envelope.Digest,
+		EnvelopeBytes:  envelope.Bytes,
+	}
+	payload, err := CanonicalCaptainDelegationCommand(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	replay, effectID, _, err := captainDelegationIdentity(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	_, resultBody, err := canonicalCaptainDelegationResult(delegationCommand)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if existingRun {
+		snapshot, snapshotErr := s.journal.Snapshot(ctx, manifest.value.RunID)
+		if snapshotErr != nil {
+			return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
+		}
+		manifestFound, authorityFound, effectFound := false, false, false
+		for _, stored := range snapshot.Commands {
+			manifestFound = manifestFound || stored.ReplayKey == "manifest" && stored.Kind == "start" && bytes.Equal(stored.Payload, manifest.raw)
+			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "captain_delegation" && bytes.Equal(stored.Payload, payload)
+		}
+		for _, stored := range snapshot.Effects {
+			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == captainDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
+		}
+		if !manifestFound || !authorityFound || !effectFound {
+			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_STALE", nil)
+		}
+	}
+	if err = s.journal.RegisterRunCommandsEffect(
+		ctx,
+		journal.Run{ID: manifest.value.RunID, ManifestDigest: manifest.digest, Repository: manifest.value.Repository, Release: manifest.value.Release, TargetRef: manifest.value.TargetRef, CreatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: "manifest", Kind: "start", Payload: manifest.raw, CreatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "captain_delegation", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: captainDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
+	); err != nil {
+		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	_, err = s.captainDelegationAt(ctx, delegationCommand, now)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	owner, err := s.journal.AcquireOwner(ctx, manifest.value.RunID, s.now().UTC(), ownerDuration(), false)
+	if err != nil {
+		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
+	}
+	s.startBackgroundDrive(manifest.value.RunID, owner)
+	return s.Status(ctx, manifest.value.RunID)
 }
 
 func proposalReplayKey(revision int64, sourceWork string) string {
@@ -1095,7 +1300,8 @@ func (s *Service) AnswerAttention(
 	if attention.Attention.HumanTurn != nil {
 		crashHumanTurnBarrier("after_owner_wake")
 	}
-	return s.driveOwned(ctx, command.RunID, owner)
+	s.startBackgroundDrive(command.RunID, owner)
+	return s.Status(ctx, command.RunID)
 }
 
 func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatus, error) {
@@ -1114,6 +1320,13 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 		command,
 		s.now().UTC(),
 	); err != nil {
+		if journal.IsCode(err, "OWNER_ACTIVE") {
+			owner, present, ownerErr := s.journal.CurrentOwner(ctx, command.RunID)
+			if ownerErr == nil && present && !owner.ExpiresAt.IsZero() {
+				return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", &OwnerTransitionError{ExpiresAt: owner.ExpiresAt})
+			}
+			return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", err)
+		}
 		return RunStatus{}, runtimeFail("CONTROL_REJECTED", err)
 	}
 	if command.Kind == journal.Cancel {
@@ -1135,11 +1348,15 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	}
 	owner, err := s.acquireControlOwner(ctx, command, s.now().UTC())
 	if journal.IsCode(err, "OWNER_ACTIVE") {
-		if command.Kind == journal.Resume {
-			// The resume command is durable, but the pausing owner has not
+		if command.Kind == journal.Resume || command.Kind == journal.Takeover {
+			// The control command is durable, but the previous owner has not
 			// released its lease yet. Report the transition explicitly so an
 			// exact replay can acquire ownership instead of falsely claiming
 			// that delivery has resumed.
+			ownerLease, present, ownerErr := s.journal.CurrentOwner(ctx, command.RunID)
+			if ownerErr == nil && present && !ownerLease.ExpiresAt.IsZero() {
+				return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", &OwnerTransitionError{ExpiresAt: ownerLease.ExpiresAt})
+			}
 			return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", err)
 		}
 		return s.Status(ctx, command.RunID)
@@ -1147,7 +1364,8 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	if err != nil {
 		return RunStatus{}, runtimeFail("OWNER_UNAVAILABLE", err)
 	}
-	return s.driveOwned(ctx, command.RunID, owner)
+	s.startBackgroundDrive(command.RunID, owner)
+	return s.Status(ctx, command.RunID)
 }
 
 func (s *Service) acquireControlOwner(
@@ -1210,6 +1428,16 @@ func stableErrorCode(err error) string {
 	if errors.As(err, &contractErr) &&
 		runtimeIdentityPattern.MatchString(contractErr.Code) {
 		return contractErr.Code
+	}
+	var journalErr *journal.Error
+	if errors.As(err, &journalErr) &&
+		runtimeIdentityPattern.MatchString(journalErr.Code) {
+		return journalErr.Code
+	}
+	var recordErr *baton.RecordError
+	if errors.As(err, &recordErr) &&
+		runtimeIdentityPattern.MatchString(recordErr.Code) {
+		return recordErr.Code
 	}
 	return "operational_failure"
 }

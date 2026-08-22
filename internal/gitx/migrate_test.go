@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -178,6 +179,95 @@ func TestMigrateLegacyRecordsExactTransitionMarkerAndIdempotency(t *testing.T) {
 	}
 
 	// Idempotency: a second confirmed run refuses.
+	if _, err := repository.MigrateLegacyRecords(MigrateRecordsRequest{
+		Confirmed: true, Identity: testIdentity,
+	}); err == nil {
+		t.Fatal("second migration ran")
+	} else {
+		requireGitxErrorCode(t, err, "NOTHING_TO_MIGRATE")
+	}
+}
+
+func TestMigrateLegacyRecordsToConfiguredNonDefaultRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	git, err := ResolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(git, "init", "--quiet", "--initial-branch=main", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	configBody := `{
+  "schema_version": "` + ProjectConfigSchemaVersion + `",
+  "records_root": ".custom/records",
+  "journals_root": ".sworn",
+  "contracts_root": "contracts",
+  "commit_prefix": "sworn",
+  "documents_root": "docs/sworn"
+}
+`
+	if err := os.MkdirAll(filepath.Join(root, "docs", "sworn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ProjectConfigPath)), []byte(configBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, root, nil, "add", "--", filepath.FromSlash(ProjectConfigPath))
+	runTestGit(t, root, nil, "commit", "--quiet", "-m", "add config")
+
+	repository, err := Open(root, git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.RecordRoot() != ".custom/records" {
+		t.Fatalf("repository RecordRoot() = %q, want .custom/records", repository.RecordRoot())
+	}
+
+	before, _ := seedLegacyRecords(t, repository, []string{"rel-custom"})
+	migration, err := repository.MigrateLegacyRecords(MigrateRecordsRequest{
+		Confirmed: true, Identity: testIdentity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(migration.Releases, []string{"rel-custom"}) {
+		t.Fatalf("migrated releases = %v", migration.Releases)
+	}
+
+	// The current branch head is the migration commit with the marker subject.
+	headText := runTestGit(t, root, nil, "rev-parse", "HEAD")
+	if headText != migration.Commit.String() {
+		t.Fatalf("HEAD = %s, want migration commit %s", headText, migration.Commit)
+	}
+	if parent := runTestGit(t, root, nil, "rev-parse", "HEAD^"); parent != before.String() {
+		t.Fatalf("migration parent = %s, want %s", parent, before)
+	}
+
+	// Relocated plan exists under .custom/records.
+	body := runTestGit(t, root, nil, "show", "HEAD:.custom/records/rel-custom/plan.md")
+	if body != "plan for rel-custom" {
+		t.Fatalf("custom record = %q", body)
+	}
+
+	// No plan under .sworn/records or .baton/releases.
+	raw := runTestGit(t, root, nil, "ls-tree", "-r", "--name-only", "HEAD")
+	if strings.Contains(raw, DefaultRecordsRoot) {
+		t.Fatalf("default records root %s was created in custom migration", DefaultRecordsRoot)
+	}
+	if strings.Contains(raw, LegacyRecordsRoot) {
+		t.Fatalf("legacy records root %s remains after custom migration", LegacyRecordsRoot)
+	}
+
+	// Release ref carries custom record.
+	ref := "refs/heads/release-wt/rel-custom"
+	refHead := runTestGit(t, root, nil, "rev-parse", ref)
+	refBody := runTestGit(t, root, nil, "show", refHead+":.custom/records/rel-custom/plan.md")
+	if refBody != "plan for rel-custom" {
+		t.Fatalf("custom ref record = %q", refBody)
+	}
+
+	// Idempotency.
 	if _, err := repository.MigrateLegacyRecords(MigrateRecordsRequest{
 		Confirmed: true, Identity: testIdentity,
 	}); err == nil {

@@ -14,8 +14,8 @@
     },
     {
       "path": "baton/CONFORMANCE.md",
-      "size": 7471,
-      "sha256": "sha256:24fdbca209e1c91b93922105f234bfcc32642a8d5d2a02b0084853894824358b"
+      "size": 7481,
+      "sha256": "sha256:172d6a6c6ca41b395cb674718e991e0374de6ac6d7b3072f301c572610aebedc"
     },
     {
       "path": "baton/CORE.md",
@@ -24,8 +24,8 @@
     },
     {
       "path": "baton/PROTOCOL.md",
-      "size": 12862,
-      "sha256": "sha256:0ee98b67c573d48f4e5631db1ccfafb661da07ba804563dd874d078199fe3321"
+      "size": 12867,
+      "sha256": "sha256:db5ff3bfa8bc855efbb00d817cfd12ed3997a821a47e7a83208a28ebae44ff03"
     },
     {
       "path": "baton/RATIONALE.md",
@@ -54,8 +54,8 @@
     },
     {
       "path": "operations/baton-implement.md",
-      "size": 2881,
-      "sha256": "sha256:268dad4ce9a5b3d3ceac8a9fb30ecb868c4592b2e161b462cf13eec1f8efe205"
+      "size": 2880,
+      "sha256": "sha256:1c63e5ef0f026626f89c5cd0fe389793b03c0857fbf99c95f67c484c87265342"
     },
     {
       "path": "operations/baton-merge.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "operations/baton-verify.md",
-      "size": 3400,
-      "sha256": "sha256:c495b643c47d009e02e04b5af233855e9f15bca9848d08bbecfd8abbea1b99e0"
+      "size": 3399,
+      "sha256": "sha256:82ec2129c56371d327122aeb4fd13d49523a1b0bacff3d2e591722e2c98e023d"
     },
     {
       "path": "reference/board/oracle.mjs",

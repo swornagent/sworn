@@ -50,11 +50,21 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Provision Linux sandbox
+        # Hosted runners intermittently hang inside this step with zero
+        # output (sworn#223, four occurrences); the step timeout converts a
+        # silent hour-long squat into a fast, attributable failure, and the
+        # markers make a hang distinguishable from slow apt work.
+        timeout-minutes: 8
         shell: bash
         run: |
           set -euo pipefail
+          echo "::group::apt"
+          echo "provision: apt-get update starting"
           sudo apt-get update
+          echo "provision: apt-get install starting"
           sudo apt-get install --yes --no-install-recommends bubblewrap
+          echo "provision: apt done"
+          echo "::endgroup::"
           if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]]; then
             echo 1 | sudo tee \
               /proc/sys/kernel/unprivileged_userns_clone >/dev/null
@@ -84,6 +94,12 @@ jobs:
         run: go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...
       - name: Vet
         run: go vet ./...
+      - name: Portable build (darwin)
+        # Cross-compile only: everything here runs on Linux, so a symbol left
+        # in a _linux.go file that neutral code references breaks operator
+        # laptops days before anyone notices. Windows is not covered - gitx
+        # has known pre-existing unix syscall use.
+        run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./...
       - name: Official binary
         run: |
           CGO_ENABLED=0 go build \
@@ -120,14 +136,14 @@ jobs:
           set -euo pipefail
           unformatted="$(
             git ls-files -z -- '*.go' \
-              ':(exclude,top).baton/releases/**' |
+              ':(exclude,top).sworn/records/**' |
               xargs -0 -r gofmt -l
           )"
           test -z "$unformatted"
           product_pathspec=(
             .
-            ':(exclude,top).baton/releases'
-            ':(exclude,top).baton/releases/**'
+            ':(exclude,top).sworn/records'
+            ':(exclude,top).sworn/records/**'
           )
           git diff --check -- "${product_pathspec[@]}"
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then

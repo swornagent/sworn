@@ -246,6 +246,15 @@ func (r *Repository) ProjectConfig() ProjectConfig {
 	return r.config
 }
 
+// RecordRoot returns the resolved records root for this repository
+// (documented default DefaultRecordsRoot when the committed project file is absent).
+func (r *Repository) RecordRoot() string {
+	if r == nil || r.recordRoot == "" {
+		return DefaultRecordsRoot
+	}
+	return r.recordRoot
+}
+
 // DocumentsRoot returns the resolved documents root for this repository
 // (documented default when the committed project file is absent).
 func (r *Repository) DocumentsRoot() string {

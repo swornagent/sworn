@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"io"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -11,6 +12,9 @@ import (
 func Run(ctx context.Context, version string, backend Backend) error {
 	if ctx == nil || backend == nil {
 		return errors.New("tui unavailable")
+	}
+	if closer, ok := backend.(io.Closer); ok {
+		defer closer.Close()
 	}
 	program := tea.NewProgram(
 		newModel(ctx, version, backend),

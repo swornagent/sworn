@@ -81,7 +81,7 @@ func runMigrateRecords(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Migrated %d release records from .baton/releases to %s.\n",
-		len(migration.Releases), gitx.DefaultRecordsRoot)
+		len(migration.Releases), repository.RecordRoot())
 	for _, release := range migration.Releases {
 		fmt.Fprintf(stdout, "  %s\n", release)
 	}

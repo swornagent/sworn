@@ -1,0 +1,27 @@
+{
+  "outcome": "A parked run survives forward motion of its target: saved-plan adoption accepts an approved receipt whose bound target is an ancestor of the live head - the staleness model baton already enforces - while true divergence and stale lineage still refuse, so an additive commit during a park never again strands a run at INVALID_AUTHORITY with no recovery verb.",
+  "scope": {
+    "include": ["internal/runtime", "cmd/sworn", "internal/cockpit", "internal/observe", "internal/tui", "test/e2e"],
+    "exclude": ["changing baton's staleness semantics (internal/baton targetStale / TARGET_DIVERGED stays the single reference model, untouched)", "the dispatch-replay identity check (STALE_DISPATCH compares a wire capture by equality deliberately and keeps doing so)", "new operator verbs or approval-rebind commands"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "With an approved plan receipt bound to commit P and the target head advanced to a descendant of P, saved-plan adoption succeeds and the run drives: pinned by a runtime adoption fixture whose repository advances the target one additive commit past the receipt target - the exact case internal/baton/rc13_target_movement_test.go proves baton considers not stale - read through the adoption table internal/runtime/authority_test.go pins today."},
+    {"id": "A2", "text": "A target head that does not contain the receipt target still refuses INVALID_AUTHORITY, and a state with stale lineage still refuses: the divergent-head and stale-lineage rows of the adoption table in internal/runtime/authority_test.go remain refusals."},
+    {"id": "A3", "text": "An ancestry probe that itself fails surfaces the git error code, never a silent INVALID_AUTHORITY: pinned by an adoption fixture with a broken repository handle asserting the returned code."},
+    {"id": "A4", "text": "sworn status over a journal whose approved target is an ancestor of the advanced head reports the authority approved, not invalid_authority: pinned through the status read-path fixture in internal/runtime."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "baton's ancestry semantics are the single reference: adoption consults ancestry through the existing git primitive; no third staleness definition is introduced.",
+    "Evidence basis: one additive commit during a park cost a hand-rewritten approve commit and a deleted track ref to recover (sworn#211, google-native-driver r6).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

@@ -1074,6 +1074,96 @@ func TestOwnerLeaseRenewalTakeoverAndCompletionFencing(t *testing.T) {
 	}
 }
 
+func TestReleaseOwnerExpiredCurrentLeaseSucceeds(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	leaseDuration := 500 * time.Millisecond
+	owner, err := store.AcquireOwner(ctx, run.ID, now, leaseDuration, false)
+	if err != nil || owner.Generation != 1 {
+		t.Fatalf("acquire owner = %#v, %v", owner, err)
+	}
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != owner {
+		t.Fatalf("current owner = %#v, %t, %v", observed, present, err)
+	}
+
+	// Release past expiry when still current must succeed (A1).
+	afterExpiry := owner.ExpiresAt.Add(time.Second)
+	if err := store.ReleaseOwner(ctx, owner, afterExpiry); err != nil {
+		t.Fatalf("release of expired current owner = %v, want success", err)
+	}
+
+	// Effect returns to pending; no active/claimed owner remains.
+	observed, present, err = store.CurrentOwner(ctx, run.ID)
+	if err != nil || present {
+		t.Fatalf("current owner after release = %#v, present=%t, want false", observed, present)
+	}
+
+	// An ordinary non-takeover acquire succeeds next.
+	second, err := store.AcquireOwner(ctx, run.ID, afterExpiry.Add(time.Second), time.Minute, false)
+	if err != nil || second.Generation != 2 {
+		t.Fatalf("ordinary acquire after expired release = %#v, %v", second, err)
+	}
+}
+
+func TestReleaseOwnerAfterTakeoverIsFenced(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	first, err := store.AcquireOwner(ctx, run.ID, now, 500*time.Millisecond, false)
+	if err != nil || first.Generation != 1 {
+		t.Fatalf("first owner = %#v, %v", first, err)
+	}
+
+	takeoverAt := first.ExpiresAt.Add(time.Nanosecond)
+	if _, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "takeover-fencing", Kind: Takeover,
+	}, takeoverAt); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireOwner(ctx, run.ID, takeoverAt, time.Minute, true)
+	if err != nil || second.Generation != 2 {
+		t.Fatalf("takeover owner = %#v, %v", second, err)
+	}
+
+	// Superseded first owner attempting release fails OWNER_FENCED (A2).
+	if err := store.ReleaseOwner(ctx, first, takeoverAt.Add(time.Second)); !IsCode(err, "OWNER_FENCED") {
+		t.Fatalf("superseded owner release = %v, want OWNER_FENCED", err)
+	}
+
+	// Second owner remains active current owner untouched.
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != second {
+		t.Fatalf("current owner after superseded release attempt = %#v, %t, %v", observed, present, err)
+	}
+}
+
+func TestRenewOwnerExpiredLeaseRefused(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, 500*time.Millisecond, false)
+	if err != nil || owner.Generation != 1 {
+		t.Fatalf("acquire owner = %#v, %v", owner, err)
+	}
+
+	// Expired lease renewal must remain refused with OWNER_FENCED (A3).
+	afterExpiry := owner.ExpiresAt.Add(time.Second)
+	if _, err := store.RenewOwner(ctx, owner, afterExpiry, time.Minute); !IsCode(err, "OWNER_FENCED") {
+		t.Fatalf("expired lease renewal = %v, want OWNER_FENCED", err)
+	}
+
+	// Current owner is still un-renewed expired lease.
+	observed, present, err := store.CurrentOwner(ctx, run.ID)
+	if err != nil || !present || observed != owner {
+		t.Fatalf("current owner after refused renewal = %#v, %t, %v", observed, present, err)
+	}
+}
+
 func TestRetryEpochRequiresExactThreeTryExhaustion(t *testing.T) {
 	t.Parallel()
 	store, run, _, _ := journalFixture(t)
@@ -1250,5 +1340,115 @@ func TestAnySucceededTryGuardAllowsNormalRetryAndDerivedEffects(t *testing.T) {
 	fail(derivedWork, 1)
 	if err := ensure(derivedWork, 2); err != nil {
 		t.Fatalf("try two with succeeded derived child = %v", err)
+	}
+}
+
+func TestDerivedWorkInheritsParentCycleRetryEpoch(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+
+	cycleWork := digest([]byte("seal-cycle-work"))
+	dispatchWork := digest([]byte("derived-dispatch-work"))
+
+	// Epoch 1: cycleWork and dispatchWork both run 3 tries and fail (OperationalFailed at try 3)
+	for try := int64(1); try <= 3; try++ {
+		// Cycle work
+		cycleEffectID := AttemptEffectID(cycleWork, 1, try)
+		cycleCmd := Command{RunID: run.ID, ReplayKey: cycleEffectID, Kind: "git.seal",
+			Payload: []byte("cycle"), CreatedAt: now}
+		cycleEff := Effect{RunID: run.ID, ID: cycleEffectID, ReplayKey: cycleEffectID, Kind: cycleCmd.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")), UpdatedAt: now}
+		if err := store.EnsureAttempt(ctx, cycleCmd, cycleEff,
+			EffectAttempt{WorkID: cycleWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatalf("ensure cycle try %d: %v", try, err)
+		}
+		claim, err := store.Claim(ctx, run.ID, cycleEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: cycleEffectID,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Derived dispatch work
+		dispatchEffectID := AttemptEffectID(dispatchWork, 1, try)
+		dispatchCmd := Command{RunID: run.ID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch"), CreatedAt: now}
+		dispatchEff := Effect{RunID: run.ID, ID: dispatchEffectID, ReplayKey: dispatchEffectID, Kind: dispatchCmd.Kind,
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")), UpdatedAt: now}
+		if err := store.EnsureAttempt(ctx, dispatchCmd, dispatchEff,
+			EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: try}); err != nil {
+			t.Fatalf("ensure dispatch try %d: %v", try, err)
+		}
+		claim, err = store.Claim(ctx, run.ID, dispatchEffectID, now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Complete(ctx, Completion{RunID: run.ID, EffectID: dispatchEffectID,
+			Token: claim.Token, State: OperationalFailed, ErrorCode: "transport",
+			EventKind: "failed", At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Retry ONLY the cycle work (ExpectedEpoch: 1)
+	receipt, err := store.ApplyControl(ctx, ControlCommand{
+		RunID: run.ID, ID: "retry-cycle-1", Kind: Retry, WorkID: cycleWork, ExpectedEpoch: 1,
+	}, now)
+	if err != nil || receipt.Epoch != 2 {
+		t.Fatalf("retry cycle work = %#v, %v", receipt, err)
+	}
+
+	// Admit cycle work at epoch 2 try 1
+	cycleEpoch2ID := AttemptEffectID(cycleWork, 2, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: cycleEpoch2ID, Kind: "git.seal",
+			Payload: []byte("cycle-retry"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: cycleEpoch2ID, ReplayKey: cycleEpoch2ID, Kind: "git.seal",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: cycleWork, Epoch: 2, Try: 1},
+	); err != nil {
+		t.Fatalf("ensure cycle at epoch 2: %v", err)
+	}
+
+	// Derived work at epoch 2 try 1 (was not directly retried via ApplyControl, so projection.RetryEpochs has no entry for it)
+	// It should inherit epoch 2 and succeed with no STALE_RETRY_EPOCH
+	dispatchEpoch2ID := AttemptEffectID(dispatchWork, 2, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: dispatchEpoch2ID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch-retry"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: dispatchEpoch2ID, ReplayKey: dispatchEpoch2ID, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: dispatchWork, Epoch: 2, Try: 1},
+	); err != nil {
+		t.Fatalf("ensure derived dispatch at epoch 2: %v", err)
+	}
+
+	// Read back from journal effects table
+	eff, err := store.Effect(ctx, run.ID, dispatchEpoch2ID)
+	if err != nil {
+		t.Fatalf("read back derived dispatch effect at epoch 2: %v", err)
+	}
+	if eff.ID != dispatchEpoch2ID || eff.State != Pending {
+		t.Fatalf("derived dispatch effect = %#v", eff)
+	}
+
+	// Verify superseded replay at epoch 1 still fails closed with STALE_RETRY_EPOCH
+	dispatchOldID := AttemptEffectID(dispatchWork, 1, 1)
+	if err := store.EnsureAttempt(ctx,
+		Command{RunID: run.ID, ReplayKey: dispatchOldID, Kind: "driver.dispatch",
+			Payload: []byte("dispatch-old"), CreatedAt: now},
+		Effect{RunID: run.ID, ID: dispatchOldID, ReplayKey: dispatchOldID, Kind: "driver.dispatch",
+			BeforeDigest: digest([]byte("before")), ExpectedDigest: digest([]byte("after")),
+			UpdatedAt: now},
+		EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: 1},
+	); !IsCode(err, "STALE_RETRY_EPOCH") {
+		t.Fatalf("stale derived dispatch replay = %v, want STALE_RETRY_EPOCH", err)
 	}
 }

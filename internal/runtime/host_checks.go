@@ -305,7 +305,12 @@ func (s *Service) journalHostCheckRefusal(
 		RunID: engine.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
 		State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "check_refusal", Body: body}},
-		EventKind: "host_check_refused", EventBody: []byte(sliceID + "\x00" + check),
+		EventKind: "host_check_refused",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: effectID,
+			WorkID:   work,
+			Slice:    sliceID,
+		}),
 		At: s.now().UTC(),
 	})
 }
@@ -384,7 +389,12 @@ func (s *Service) executeHostCheck(
 		RunID: engine.manifest.value.RunID, EffectID: effectID,
 		Token: effect.CurrentClaim, State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "host_check_result", Body: body}},
-		EventKind: "host_check_completed", EventBody: []byte(sliceID + "\x00" + check + "\x00" + result.Outcome),
+		EventKind: "host_check_completed",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: effectID,
+			WorkID:   work,
+			Slice:    sliceID,
+		}),
 		At: s.now().UTC(),
 	}); err != nil {
 		return hostCheckResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -569,7 +579,13 @@ func (s *Service) recoverHostCheckClaims(
 						Kind: "check_refusal", Body: command.Payload,
 					}},
 					EventKind: "host_check_refused",
-					EventBody: []byte(effect.ID), At: s.now().UTC(),
+					EventBody: MarshalAssociation(EventAssociation{
+						EffectID: effect.ID,
+						WorkID: hostCheckRefusalWork(
+							refusal.Slice, refusal.Candidate,
+							refusal.Check, refusal.Reason),
+						Slice: refusal.Slice,
+					}), At: s.now().UTC(),
 				}); err != nil {
 				return true, runtimeFail("JOURNAL_WRITE_FAILED", err)
 			}
@@ -634,8 +650,14 @@ func (s *Service) executeHostCheckFromRecovery(
 		Token: effect.CurrentClaim, State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "host_check_result", Body: body}},
 		EventKind: "host_check_completed",
-		EventBody: []byte(command.Slice + "\x00" + command.Check + "\x00" + result.Outcome),
-		At:        s.now().UTC(),
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: effect.ID,
+			WorkID: hostCheckWork(
+				command.Slice, command.Candidate,
+				command.ContractDigest, command.Check),
+			Slice: command.Slice,
+		}),
+		At: s.now().UTC(),
 	}); err != nil {
 		return hostCheckResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}

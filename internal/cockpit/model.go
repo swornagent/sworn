@@ -6,7 +6,47 @@ import (
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-const SnapshotSchemaVersion = "sworn.cockpit/v2"
+const (
+	SnapshotSchemaVersion = "sworn.cockpit/v2"
+	CatalogSchemaVersion  = "sworn.cockpit-catalog/v1"
+)
+
+type ProjectCatalog struct {
+	SchemaVersion string           `json:"schema_version"`
+	Releases      []CatalogRelease `json:"releases"`
+	Runs          []CatalogRun     `json:"runs"`
+	NeedsYou      []NeedsYouItem   `json:"needs_you"`
+	Diagnostics   []Diagnostic     `json:"diagnostics,omitempty"`
+}
+
+type CatalogRelease struct {
+	Name       string `json:"name"`
+	SourceRef  string `json:"source_ref,omitempty"`
+	State      string `json:"state"`
+	Status     string `json:"status"`
+	Diagnostic string `json:"diagnostic,omitempty"`
+}
+
+type CatalogRun struct {
+	ID        string    `json:"id"`
+	Release   string    `json:"release"`
+	State     string    `json:"state"`
+	Status    string    `json:"status"`
+	What      string    `json:"what"`
+	Next      string    `json:"next"`
+	NeedsYou  string    `json:"needs_you"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type NeedsYouItem struct {
+	RunID       string `json:"run_id"`
+	Release     string `json:"release"`
+	State       string `json:"state"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason,omitempty"`
+	AttentionID string `json:"attention_id,omitempty"`
+	WorkID      string `json:"work_id,omitempty"`
+}
 
 type Snapshot struct {
 	SchemaVersion     string                            `json:"schema_version"`
@@ -136,6 +176,7 @@ type EffectView struct {
 	Kind      string `json:"kind"`
 	State     string `json:"state"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Derived   bool   `json:"derived,omitempty"`
 }
 
 type AttemptView struct {
@@ -168,6 +209,10 @@ type NotificationView struct {
 type Evidence struct {
 	Offset    int64     `json:"offset"`
 	Kind      string    `json:"kind"`
+	EffectID  string    `json:"effect_id,omitempty"`
+	WorkID    string    `json:"work_id,omitempty"`
+	Track     string    `json:"track,omitempty"`
+	Slice     string    `json:"slice,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

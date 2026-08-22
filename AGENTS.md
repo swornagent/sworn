@@ -35,7 +35,7 @@ dependency only with the behavior that consumes it and a clear removal cost.
 - Unknown state, capability, authority, evidence or recovery facts fail closed
   before an external effect.
 
-`.baton/releases` is control authority only. It is never a product, model,
+`.sworn/records` is control authority only. It is never a product, model,
 check, workspace, candidate, build or package input. Product identity excludes
 it while preserving exact Git provenance separately.
 

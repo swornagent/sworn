@@ -1828,6 +1828,12 @@ func (s *Service) persistHumanParkCheckpoint(
 	if err != nil {
 		return runtimeFail("EFFECT_CLAIM_FAILED", err)
 	}
+	slice := ""
+	track := command.Step.Binding.LaneID
+	if command.Attention.Attention.HumanTurn != nil {
+		slice = command.Attention.Attention.HumanTurn.Slice
+		track = command.Attention.Attention.HumanTurn.Track
+	}
 	if err := s.journal.CompleteOwned(
 		context.WithoutCancel(ctx),
 		owner,
@@ -1835,7 +1841,12 @@ func (s *Service) persistHumanParkCheckpoint(
 			RunID: owner.RunID, EffectID: id, Token: claim.Token,
 			State: journal.Succeeded, Result: body,
 			EventKind: "human_turn.park_checkpointed",
-			EventBody: []byte(command.Attention.Attention.ID), At: now,
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: id,
+				WorkID:   command.Step.Binding.ProgressID,
+				Track:    track,
+				Slice:    slice,
+			}), At: now,
 		},
 	); err != nil {
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)

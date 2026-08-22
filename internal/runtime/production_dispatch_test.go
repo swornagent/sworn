@@ -158,6 +158,10 @@ func drivePlannerSummaryTurns(
 			ExpectedGeneration: 1,
 			Answer:             plannerSummaryAnswer,
 		})
+		if err != nil {
+			return status, err
+		}
+		status, err = service.Wait(ctx, runID)
 	}
 	t.Fatal("production planner summary turns did not settle")
 	return RunStatus{}, nil

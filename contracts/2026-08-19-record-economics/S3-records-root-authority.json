@@ -1,0 +1,35 @@
+{
+  "outcome": "The records root has one authority: write, read, migration, reservation guards, and the by-hand recording instructions all resolve the project's configured records root, with the legacy .baton/releases read path surviving only as an explicit observable compatibility shim - so a completed release never again re-introduces a tracked legacy path or re-trips the fresh-clone gate.",
+  "scope": {
+    "include": ["internal/gitx", "internal/baton", "internal/driver", "internal/skill", "cmd/sworn", "tools/batongolden", "tools/batonassets", "test/e2e", "AGENTS.md", "README.md", ".gitattributes", ".github"],
+    "exclude": ["renaming or revaluing the exported root constants (DefaultRecordsRoot stays .sworn/records, LegacyRecordsRoot stays .baton/releases)", "the containment mask surface (.baton, .sworn and .git stay reserved for workers regardless of shim state)", "relocating already-recorded history outside the sanctioned migration"],
+    "waivers": [
+      {"package": "internal/runtime", "reason": "its tests reference the records root only through the exported gitx constants, whose names and values this slice is constrained to keep; runtime behaviour is untouched"},
+      {"package": "internal/cockpit", "reason": "consumes gitx and baton by import only; no records-root behaviour is pinned by its tests and the constants it could see are constrained unchanged"},
+      {"package": "internal/observe", "reason": "consumes gitx by import only; no records-root behaviour is pinned by its tests and the constants it could see are constrained unchanged"},
+      {"package": "internal/tui", "reason": "consumes gitx and baton by import only; no records-root behaviour is pinned by its tests and the constants it could see are constrained unchanged"}
+    ]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "With a project configured to a non-default records_root, migration relocates records into that root and every reader and reservation guard resolves the same root: pinned by a non-default-root migration case in internal/gitx/migrate_test.go and configured-root guard cases in internal/baton's record fixtures."},
+    {"id": "A2", "text": "The legacy read fallback is explicit and observable: a record readable only at the legacy root resolves solely when the compatibility shim admits it and each firing is visible in the read state, pinned by internal/baton/legacy_fallback_test.go re-expressed against the shim; the real-binary legacy resume in test/e2e/legacy_migration_linux_test.go stays green."},
+    {"id": "A3", "text": "No recording instruction names the legacy root as authority: AGENTS.md and the embedded operation and protocol assets direct recorders to the configured records root, with the embedded-asset digest chain regenerated - pinned by the asset verification tests in internal/baton."},
+    {"id": "A4", "text": "The public surface agrees with the shim: the fresh-clone gate's declared-versus-executed status matches its own header claim, and the .gitattributes and CI pathspec text pinned by cmd/sworn/allowlist_invariants_test.go matches the shim state."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Exported constant names and values are unchanged; the four waived packages depend on exactly that stability.",
+    "Workers' containment view is unchanged: .baton, .sworn and .git remain reserved and masked regardless of shim state (internal/driver's immutability pins).",
+    "Legacy-era history keeps resuming: the real-binary legacy resume e2e is a hard floor, not a negotiable expectation.",
+    "Evidence basis: the engine's write fence already refuses legacy writes (NON_RECORD_CHANGE); the recurrences were authored by the by-hand procedure following doc surfaces that still name .baton/releases as authority, and a one-time migration has left 22 marker commits across refs (sworn#215).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

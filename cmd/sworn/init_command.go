@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -24,6 +26,8 @@ var initRuntimeTargets = []string{
 	"/etc/resolv.conf",
 	"/etc/ssl/certs/ca-certificates.crt",
 }
+
+const canonicalGitignore = "*\n!records/\n!records/**\n"
 
 // initAgent is one agent CLI Sworn can drive natively.
 type initAgent struct {
@@ -50,16 +54,76 @@ func initAgents() []initAgent {
 	}
 }
 
+type initSession struct {
+	in             *bufio.Reader
+	out            io.Writer
+	errOut         io.Writer
+	nonInteractive bool
+	force          bool
+}
+
+func newInitSession(in io.Reader, out, errOut io.Writer, nonInteractive, force bool) *initSession {
+	var reader *bufio.Reader
+	if in != nil {
+		reader = bufio.NewReader(in)
+	}
+	return &initSession{
+		in:             reader,
+		out:            out,
+		errOut:         errOut,
+		nonInteractive: nonInteractive,
+		force:          force,
+	}
+}
+
+func (s *initSession) confirm(prompt string, defaultYes bool) bool {
+	if s.force && !defaultYes {
+		return true
+	}
+	if s.nonInteractive {
+		return defaultYes
+	}
+	defaultHint := "[Y/n]"
+	if !defaultYes {
+		defaultHint = "[y/N]"
+	}
+	fmt.Fprintf(s.out, "%s %s ", prompt, defaultHint)
+	if s.in == nil {
+		fmt.Fprintln(s.out)
+		return defaultYes
+	}
+	line, err := s.in.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Fprintln(s.out)
+		return defaultYes
+	}
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return defaultYes
+	}
+	if strings.EqualFold(trimmed, "y") || strings.EqualFold(trimmed, "yes") {
+		return true
+	}
+	if strings.EqualFold(trimmed, "n") || strings.EqualFold(trimmed, "no") {
+		return false
+	}
+	return defaultYes
+}
+
 func runInit(args []string, stdout, stderr io.Writer) int {
+	return runInitWithIO(args, os.Stdin, stdout, stderr)
+}
+
+func runInitWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	options, ok := parseOptionsWithOptionalValues(
 		args,
 		nil,
 		[]string{"--project"},
 		nil,
-		[]string{"--force"},
+		[]string{"--force", "--yes", "-y"},
 	)
 	if !ok {
-		fmt.Fprintln(stderr, "usage: sworn init [--project ABS] [--force]")
+		fmt.Fprintln(stderr, "usage: sworn init [--project ABS] [--force] [--yes]")
 		return 2
 	}
 
@@ -79,43 +143,39 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	created, err := prepareProjectDirectories(paths)
-	if err != nil {
-		writeKnownFailure(
-			stderr,
-			"init",
-			"Sworn could not prepare the project directory .sworn.",
-			"",
-		)
-		return 1
-	}
+	forced := options["--force"] == "true"
+	nonInteractive := options["--yes"] == "true" || options["-y"] == "true"
+	session := newInitSession(stdin, stdout, stderr, nonInteractive, forced)
 
 	fmt.Fprintf(stdout, "Project: %s\n", root)
-	for _, line := range created {
-		fmt.Fprintf(stdout, "  created %s\n", line)
-	}
 
-	_, forced := options["--force"]
-	wrote, err := writeProjectDriverConfig(paths.config, forced)
-	if err != nil {
-		fmt.Fprintln(stdout)
-		writeKnownFailure(stderr, "init", err.Error(), "")
-		reportProjectReleases(stdout, root)
-		if _, statErr := os.Stat(paths.config); os.IsNotExist(statErr) {
-			fmt.Fprintln(
-				stdout,
-				"\nSworn cannot start a run until an AI connection file exists at",
-			)
-			fmt.Fprintf(stdout, "  %s\n", paths.config)
-		}
+	if err := setupProjectSurface(session, paths); err != nil {
+		writeKnownFailure(stderr, "init", "Sworn could not prepare the project directory .sworn.", "")
 		return 1
 	}
-	if wrote != "" {
-		fmt.Fprintf(stdout, "  %s\n", wrote)
+
+	if err := setupDriverConfig(session, paths); err != nil {
+		writeKnownFailure(stderr, "init", err.Error(), "")
+		return 1
+	}
+
+	if err := setupOperatorConfig(session, paths); err != nil {
+		writeKnownFailure(stderr, "init", err.Error(), "")
+		return 1
 	}
 
 	reportProjectReleases(stdout, root)
 	reportNextStep(stdout, paths)
+
+	if _, statErr := os.Stat(paths.config); os.IsNotExist(statErr) {
+		fmt.Fprintln(
+			stdout,
+			"\nSworn cannot start a run until an AI connection file exists at",
+		)
+		fmt.Fprintf(stdout, "  %s\n", paths.config)
+		return 1
+	}
+
 	return 0
 }
 
@@ -142,78 +202,207 @@ func initProjectRoot(override string) (string, error) {
 	return repository.Root(), nil
 }
 
-// prepareProjectDirectories creates .sworn and its manifest directory, and
-// writes an allowlist-shaped nested .gitignore so the records root (the
-// machine authority a release needs on a fresh clone) stays trackable while
-// journals and working files stay excluded. The nested .gitignore stays local
-// and is never committed; the root .gitignore carries the committed allowlist
-// negation for the records root.
-func prepareProjectDirectories(paths projectPaths) ([]string, error) {
-	var created []string
+func setupProjectSurface(s *initSession, paths projectPaths) error {
 	home := filepath.Dir(paths.config)
-	for _, directory := range []string{home, paths.manifestDir} {
-		info, err := os.Stat(directory)
-		switch {
-		case err == nil && info.IsDir():
-		case os.IsNotExist(err):
-			if err := os.MkdirAll(directory, 0o755); err != nil {
-				return nil, err
+	manifestDir := paths.manifestDir
+	ignorePath := filepath.Join(home, ".gitignore")
+
+	homeInfo, homeErr := os.Stat(home)
+	homeExists := homeErr == nil && homeInfo.IsDir()
+
+	manInfo, manErr := os.Stat(manifestDir)
+	manExists := manErr == nil && manInfo.IsDir()
+
+	ignInfo, ignErr := os.Lstat(ignorePath)
+	ignExists := ignErr == nil && ignInfo.Mode().IsRegular()
+
+	var ignContent []byte
+	ignMatches := false
+	if ignExists {
+		ignContent, _ = os.ReadFile(ignorePath)
+		ignMatches = bytes.Equal(ignContent, []byte(canonicalGitignore))
+	}
+
+	if homeExists && manExists && ignExists && ignMatches {
+		fmt.Fprintf(s.out, "  Project surface already current: %s/\n", home)
+		return nil
+	}
+
+	if !homeExists || !manExists || !ignExists {
+		prompt := fmt.Sprintf("Create project surface (%s/, %s/, %s)?", home, manifestDir, ignorePath)
+		if s.confirm(prompt, true) {
+			if !homeExists {
+				if err := os.MkdirAll(home, 0o755); err != nil {
+					return err
+				}
+				fmt.Fprintf(s.out, "  created %s/\n", home)
 			}
-			created = append(created, directory+"/")
-		default:
-			return nil, fmt.Errorf("%s is not a directory", directory)
+			if !manExists {
+				if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+					return err
+				}
+				fmt.Fprintf(s.out, "  created %s/\n", manifestDir)
+			}
+			if !ignExists {
+				if err := os.WriteFile(ignorePath, []byte(canonicalGitignore), 0o644); err != nil {
+					return err
+				}
+				fmt.Fprintf(s.out, "  created %s\n", ignorePath)
+			}
+		} else {
+			fmt.Fprintln(s.out, "  skipped project surface")
 		}
 	}
-	ignore := filepath.Join(home, ".gitignore")
-	if _, err := os.Stat(ignore); os.IsNotExist(err) {
-		// Allowlist-shaped: everything under .sworn is excluded except the
-		// records root, whose committed authority a fresh clone must carry.
-		if err := os.WriteFile(ignore, []byte("*\n!records/\n!records/**\n"), 0o644); err != nil {
-			return nil, err
+
+	if ignExists && !ignMatches {
+		fmt.Fprintf(s.out, "  .gitignore at %s differs from canonical allowlist:\n%s", ignorePath, renderDiff(ignContent, []byte(canonicalGitignore), ignInfo.Mode(), 0o644))
+		if s.confirm(fmt.Sprintf("Replace %s?", ignorePath), false) {
+			if err := os.WriteFile(ignorePath, []byte(canonicalGitignore), 0o644); err != nil {
+				return err
+			}
+			if err := os.Chmod(ignorePath, 0o644); err != nil {
+				return err
+			}
+			fmt.Fprintf(s.out, "  replaced %s\n", ignorePath)
+		} else {
+			fmt.Fprintf(s.out, "  kept existing %s\n", ignorePath)
 		}
-		created = append(created, ignore)
 	}
-	return created, nil
+
+	return nil
 }
 
-// writeProjectDriverConfig derives an AI connection file from the agent CLI
-// installed on this machine. It returns the reported action, or an error whose
-// message is written for a person to act on.
-func writeProjectDriverConfig(path string, force bool) (string, error) {
-	existing, err := os.ReadFile(path)
-	switch {
-	case err == nil && !force:
-		return "", fmt.Errorf(
-			"An AI connection file already exists at %s.\n"+
-				"Sworn will not change it, because run definitions record its exact fingerprint\n"+
-				"and rewriting it would invalidate them. Re-run with --force to replace it.",
-			path,
-		)
-	case err != nil && !os.IsNotExist(err):
-		return "", fmt.Errorf("The AI connection file at %s could not be read.", path)
+func setupDriverConfig(s *initSession, paths projectPaths) error {
+	agent, agentErr := detectInitAgent()
+	if agentErr != nil {
+		if _, statErr := os.Stat(paths.config); statErr == nil {
+			fmt.Fprintf(s.out, "  AI connection file present: %s\n", paths.config)
+		} else {
+			fmt.Fprintf(s.out, "  AI driver configuration: missing (%s)\n", strings.ReplaceAll(strings.TrimSpace(agentErr.Error()), "\n", " "))
+		}
+		return nil
 	}
 
-	agent, err := detectInitAgent()
-	if err != nil {
-		return "", err
-	}
 	body, err := buildDriverConfig(agent)
 	if err != nil {
-		return "", err
+		fmt.Fprintf(s.out, "  AI driver configuration: unavailable (%s)\n", err.Error())
+		return nil
 	}
-	if len(existing) != 0 && string(existing) == string(body) {
-		return "AI connection file already current: " + path, nil
+
+	info, statErr := os.Lstat(paths.config)
+	if os.IsNotExist(statErr) {
+		prompt := fmt.Sprintf("Write AI driver configuration for %s %s (%s)?", agent.name, agent.version, paths.config)
+		if s.confirm(prompt, true) {
+			if err := os.MkdirAll(filepath.Dir(paths.config), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(paths.config, body, 0o600); err != nil {
+				return fmt.Errorf("The AI connection file at %s could not be written.", paths.config)
+			}
+			fmt.Fprintf(s.out, "  wrote %s (%s %s)\n", paths.config, agent.name, agent.version)
+		} else {
+			fmt.Fprintf(s.out, "  skipped %s\n", paths.config)
+		}
+		return nil
 	}
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		return "", fmt.Errorf("The AI connection file at %s could not be written.", path)
+
+	if statErr == nil {
+		existing, readErr := os.ReadFile(paths.config)
+		isMode600 := info.Mode().Perm() == 0o600 && info.Mode().IsRegular()
+		if readErr == nil && bytes.Equal(existing, body) && isMode600 {
+			fmt.Fprintf(s.out, "  AI connection file already current: %s\n", paths.config)
+			return nil
+		}
+
+		fmt.Fprintf(s.out, "  AI connection file at %s differs from proposed configuration:\n%s", paths.config, renderDiff(existing, body, info.Mode(), 0o600))
+		prompt := fmt.Sprintf("Replace AI driver configuration (%s)?", paths.config)
+		if s.confirm(prompt, false) {
+			if err := os.WriteFile(paths.config, body, 0o600); err != nil {
+				return fmt.Errorf("The AI connection file at %s could not be written.", paths.config)
+			}
+			if err := os.Chmod(paths.config, 0o600); err != nil {
+				return fmt.Errorf("The AI connection file at %s could not be written.", paths.config)
+			}
+			fmt.Fprintf(s.out, "  replaced %s (%s %s)\n", paths.config, agent.name, agent.version)
+		} else {
+			fmt.Fprintf(s.out, "  kept existing %s\n", paths.config)
+		}
 	}
-	action := "wrote"
-	if len(existing) != 0 {
-		action = "replaced"
+
+	return nil
+}
+
+func buildDefaultOperatorConfig() []byte {
+	return []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:7337\"\n  }\n}\n")
+}
+
+func setupOperatorConfig(s *initSession, paths projectPaths) error {
+	body := buildDefaultOperatorConfig()
+	info, statErr := os.Lstat(paths.operatorConfig)
+	if os.IsNotExist(statErr) {
+		prompt := fmt.Sprintf("Write operator configuration with local listen default 127.0.0.1:7337 (%s)?", paths.operatorConfig)
+		if s.confirm(prompt, true) {
+			if err := os.MkdirAll(filepath.Dir(paths.operatorConfig), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
+				return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+			}
+			fmt.Fprintf(s.out, "  wrote %s (local listen 127.0.0.1:7337)\n", paths.operatorConfig)
+		} else {
+			fmt.Fprintf(s.out, "  skipped %s\n", paths.operatorConfig)
+		}
+		return nil
 	}
-	return fmt.Sprintf(
-		"%s %s (%s %s)", action, path, agent.name, agent.version,
-	), nil
+
+	if statErr == nil {
+		existing, readErr := os.ReadFile(paths.operatorConfig)
+		isMode600 := info.Mode().Perm() == 0o600 && info.Mode().IsRegular()
+		if readErr == nil && bytes.Equal(existing, body) && isMode600 {
+			fmt.Fprintf(s.out, "  Operator configuration already current: %s\n", paths.operatorConfig)
+			return nil
+		}
+
+		fmt.Fprintf(s.out, "  Operator configuration at %s differs from proposed configuration:\n%s", paths.operatorConfig, renderDiff(existing, body, info.Mode(), 0o600))
+		prompt := fmt.Sprintf("Replace operator configuration (%s)?", paths.operatorConfig)
+		if s.confirm(prompt, false) {
+			if err := os.WriteFile(paths.operatorConfig, body, 0o600); err != nil {
+				return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+			}
+			if err := os.Chmod(paths.operatorConfig, 0o600); err != nil {
+				return fmt.Errorf("The operator configuration at %s could not be written.", paths.operatorConfig)
+			}
+			fmt.Fprintf(s.out, "  replaced %s (local listen 127.0.0.1:7337)\n", paths.operatorConfig)
+		} else {
+			fmt.Fprintf(s.out, "  kept existing %s\n", paths.operatorConfig)
+		}
+	}
+
+	return nil
+}
+
+func renderDiff(existing, proposed []byte, existingMode, expectedMode os.FileMode) string {
+	var sb strings.Builder
+	if existingMode != 0 && existingMode.Perm() != expectedMode.Perm() {
+		sb.WriteString(fmt.Sprintf("  --- mode: 0%o\n  +++ mode: 0%o\n", existingMode.Perm(), expectedMode.Perm()))
+	}
+	existingStr := strings.TrimRight(string(existing), "\n")
+	proposedStr := strings.TrimRight(string(proposed), "\n")
+	if existingStr == proposedStr {
+		return sb.String()
+	}
+	sb.WriteString("  --- existing\n  +++ proposed\n")
+	if len(existingStr) > 0 {
+		for _, line := range strings.Split(existingStr, "\n") {
+			sb.WriteString("  - " + line + "\n")
+		}
+	}
+	if len(proposedStr) > 0 {
+		for _, line := range strings.Split(proposedStr, "\n") {
+			sb.WriteString("  + " + line + "\n")
+		}
+	}
+	return sb.String()
 }
 
 type detectedAgent struct {

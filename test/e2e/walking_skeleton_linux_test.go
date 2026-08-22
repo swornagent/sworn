@@ -172,11 +172,7 @@ const uncontainedGateLDFlags = "-X=github.com/swornagent/sworn/internal/driver.t
 // uncontained dispatch. Every other e2e test keeps the exact production link
 // flags, so containment-requiring isolation tests are never gate-linked.
 func uncontainedDispatchLDFlags() string {
-	flags := uncontainedGateLDFlags
-	if os.Getenv("SWORN_TEST_UNCONTAINED_DISPATCH") == "1" {
-		flags = hookGateLDFlags + " " + flags
-	}
-	return flags
+	return hookGateLDFlags + " " + uncontainedGateLDFlags
 }
 
 // testLeaseMillis is the shortest owner lease ownerDuration admits. Only
@@ -669,11 +665,40 @@ func assertDispatchOrder(t *testing.T, journalPath, runID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	effectsByReplayKey := map[string]journal.Effect{}
+	for _, effect := range snapshot.Effects {
+		effectsByReplayKey[effect.ReplayKey] = effect
+	}
 	var got []string
 	for _, event := range snapshot.Events {
-		if event.Kind == "dispatch_completed" {
-			got = append(got, string(event.Body))
+		if event.Kind != "dispatch_completed" {
+			continue
 		}
+		// The event body carries content-free association; the dispatched
+		// responsibility is read from the sealed submission the associated
+		// effect recorded.
+		var association struct {
+			EffectID string `json:"effect_id"`
+		}
+		if json.Unmarshal(event.Body, &association) != nil ||
+			association.EffectID == "" {
+			t.Fatalf("dispatch_completed body = %q", event.Body)
+		}
+		effect, found := effectsByReplayKey[association.EffectID]
+		if !found {
+			t.Fatalf("dispatch_completed names unknown effect %q", association.EffectID)
+		}
+		var sealed struct {
+			Responsibility string `json:"responsibility"`
+		}
+		if json.Unmarshal(effect.Result, &sealed) != nil ||
+			sealed.Responsibility == "" {
+			t.Fatalf(
+				"effect %q submission has no responsibility: %q",
+				association.EffectID, effect.Result,
+			)
+		}
+		got = append(got, sealed.Responsibility)
 	}
 	want := []string{
 		string(driver.PlannerProposal),
@@ -928,6 +953,19 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"--generation",
 			"0",
 		)
+		if stderr != "" {
+			t.Fatalf("resume stderr = %q", stderr)
+		}
+		stdout, stderr = runBinary(
+			t,
+			swornBinary,
+			0,
+			"run",
+			"--manifest",
+			manifestPath,
+			"--journal",
+			journalPath,
+		)
 		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
@@ -1005,10 +1043,14 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			t.Fatalf("crash-cut merge effect = %#v, err = %v", mergeEffect, snapshotErr)
 		}
 		leaseExpiryWait()
-		stdout, _ := runBinaryWithEnvironment(
-			t, crashBinary, 0, crashEnvironment,
+		runBinary(
+			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1",
+		)
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath,
 		)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("recovered resume = %q", stdout)
@@ -1040,6 +1082,9 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if stderr != "" {
 			t.Fatalf("transport failure stderr = %q", stderr)
 		}
+		runBinary(
+			t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath,
+		)
 		status, _ := runBinary(
 			t,
 			swornBinary,

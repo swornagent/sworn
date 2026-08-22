@@ -114,6 +114,16 @@ func (r *surfaceRun) startParked() {
 		"--command", "surface-resume-1", "--generation", "0",
 		"--config", r.configPath,
 	)
+	if stderr != "" {
+		r.t.Fatalf("surface resume stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		r.t, r.binary, 0, r.environment, 180*time.Second,
+		"run",
+		"--manifest", r.manifestPath,
+		"--journal", r.journalPath,
+		"--config", r.configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
 		r.t.Fatalf("surface human park stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -283,28 +293,40 @@ func (p *serveProcess) stop(strict bool) {
 	}
 }
 
-// mcpSnapshot reads the projection through the MCP surface.
+// mcpSnapshot reads the projection through the MCP surface. A detached drive
+// writing the journal makes the projection transiently unstable, so the
+// honest SNAPSHOT_UNSTABLE refusal is retried rather than fatal.
 func mcpSnapshot(t *testing.T, address, runID string) cockpit.Snapshot {
 	t.Helper()
-	body := journeyMCPCall(t, address, "sworn_status", map[string]any{
-		"run_id": runID,
-	})
-	var envelope struct {
-		Result struct {
-			IsError           bool             `json:"isError"`
-			StructuredContent cockpit.Snapshot `json:"structuredContent"`
-		} `json:"result"`
+	var body []byte
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		body = journeyMCPCall(t, address, "sworn_status", map[string]any{
+			"run_id": runID,
+		})
+		var envelope struct {
+			Result struct {
+				IsError           bool             `json:"isError"`
+				StructuredContent cockpit.Snapshot `json:"structuredContent"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(body, &envelope) == nil && !envelope.Result.IsError {
+			return envelope.Result.StructuredContent
+		}
+		if (!bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(body, []byte("RUNTIME_UNAVAILABLE"))) ||
+			time.Now().After(deadline) {
+			t.Fatalf("sworn_status = %s", body)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if json.Unmarshal(body, &envelope) != nil || envelope.Result.IsError {
-		t.Fatalf("sworn_status = %s", body)
-	}
-	return envelope.Result.StructuredContent
 }
 
-// mcpAttentions reads the open human-only turns through the MCP surface.
+// mcpAttentions reads the open human-only turns through the MCP surface,
+// retrying the transient SNAPSHOT_UNSTABLE refusal a detached drive causes.
 func mcpAttentions(t *testing.T, address string) []cockpit.AttentionView {
 	t.Helper()
-	body := journeyMCPCall(t, address, "sworn_attentions", map[string]any{})
+	var body []byte
 	var envelope struct {
 		Result struct {
 			IsError           bool `json:"isError"`
@@ -313,8 +335,20 @@ func mcpAttentions(t *testing.T, address string) []cockpit.AttentionView {
 			} `json:"structuredContent"`
 		} `json:"result"`
 	}
-	if json.Unmarshal(body, &envelope) != nil || envelope.Result.IsError {
-		t.Fatalf("sworn_attentions = %s", body)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		body = journeyMCPCall(t, address, "sworn_attentions", map[string]any{})
+		envelope.Result.IsError = false
+		envelope.Result.StructuredContent.Attentions = nil
+		if json.Unmarshal(body, &envelope) == nil && !envelope.Result.IsError {
+			break
+		}
+		if (!bytes.Contains(body, []byte("SNAPSHOT_UNSTABLE")) &&
+			!bytes.Contains(body, []byte("RUNTIME_UNAVAILABLE"))) ||
+			time.Now().After(deadline) {
+			t.Fatalf("sworn_attentions = %s", body)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	var open []cockpit.AttentionView
 	for _, attention := range envelope.Result.StructuredContent.Attentions {
@@ -649,6 +683,14 @@ func surfaceCLIAnswerAndRefusals(t *testing.T, binary string) {
 		"--attention", turn.ID, "--generation", "1",
 		"--answer", surfaceAnswerCanary, "--config", run.configPath,
 	)
+	if stderr != "" {
+		t.Fatalf("cli answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 180*time.Second,
+		"run", "--manifest", run.manifestPath, "--journal", run.journalPath,
+		"--config", run.configPath,
+	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("cli answer stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -719,9 +761,19 @@ func surfaceMCPAnswerAndRefusals(t *testing.T, binary string, throughSkill bool)
 		t.Fatalf("%s mcp open turns = %#v", label, turns)
 	}
 	answered := mcpAnswer(t, serve.address, run.runID, turns[0].ID)
-	if mcpIsError(answered) ||
-		!bytes.Contains(answered, []byte(`"state":"complete"`)) {
+	if mcpIsError(answered) {
 		t.Fatalf("%s mcp answer = %s", label, answered)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		snap := mcpSnapshot(t, serve.address, run.runID)
+		if snap.Run.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s resident driver did not complete; last state = %q", label, snap.Run.State)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	recordSwornConformance(
 		t, caseAnswerAdmittedOnce, surface, "surface-parity/answer/"+surface,
@@ -776,6 +828,16 @@ func surfaceTUIAnswer(t *testing.T, binary string) {
 		"accepted answer", 240*time.Second,
 		"Answer: "+surfaceQuestionCanary+" accepted.",
 	)
+	// The answer returns once durable while the TUI process's own service
+	// carries the drive, so completion is awaited before the TUI - and with
+	// it the drive it hosts - is quit.
+	completionDeadline := time.Now().Add(120 * time.Second)
+	for run.status().State != "complete" {
+		if time.Now().After(completionDeadline) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	session.quit()
 
 	if state := run.status().State; state != "complete" {
@@ -822,6 +884,14 @@ func surfaceTUIStaleRefusal(t *testing.T, binary string) {
 		"answer", "--run", run.runID, "--journal", run.journalPath,
 		"--attention", turn.ID, "--generation", "1",
 		"--answer", surfaceAnswerCanary, "--config", run.configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("out-of-band answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 240*time.Second,
+		"run", "--manifest", run.manifestPath, "--journal", run.journalPath,
+		"--config", run.configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("out-of-band answer stdout=%q stderr=%q", stdout, stderr)

@@ -397,6 +397,24 @@ func (s *Store) AcquireOwner(ctx context.Context, runID string, now time.Time, d
 	return lease, err
 }
 
+func checkCurrentOwner(ctx context.Context, conn *sql.Conn, lease OwnerLease) error {
+	var token string
+	var generation int64
+	if err := conn.QueryRowContext(ctx,
+		`SELECT e.current_claim,
+		        (SELECT count(*) FROM claims WHERE run_id=e.run_id AND effect_id='runtime.owner')
+		 FROM effects e JOIN claims c ON c.run_id=e.run_id AND c.effect_id=e.effect_id
+		  AND c.token=e.current_claim
+		 WHERE e.run_id=? AND e.effect_id='runtime.owner' AND e.state='claimed'`,
+		lease.RunID).Scan(&token, &generation); err != nil {
+		return fail("OWNER_FENCED", nil)
+	}
+	if token != lease.Token || generation != lease.Generation {
+		return fail("OWNER_FENCED", nil)
+	}
+	return nil
+}
+
 func checkOwner(ctx context.Context, conn *sql.Conn, lease OwnerLease, now time.Time) error {
 	var token, expires string
 	var generation int64
@@ -443,7 +461,7 @@ func (s *Store) RenewOwner(ctx context.Context, lease OwnerLease, now time.Time,
 
 func (s *Store) ReleaseOwner(ctx context.Context, lease OwnerLease, now time.Time) error {
 	return s.immediate(ctx, func(conn *sql.Conn) error {
-		if err := checkOwner(ctx, conn, lease, now); err != nil {
+		if err := checkCurrentOwner(ctx, conn, lease); err != nil {
 			return err
 		}
 		return releaseOwnerOnConnection(ctx, conn, lease, now)
@@ -461,7 +479,7 @@ func (s *Store) ReleaseOwnerIfIdle(
 ) (bool, error) {
 	released := false
 	err := s.immediate(ctx, func(conn *sql.Conn) error {
-		if err := checkOwner(ctx, conn, lease, now); err != nil {
+		if err := checkCurrentOwner(ctx, conn, lease); err != nil {
 			return err
 		}
 		control, err := projectionOnConnection(ctx, conn, lease.RunID)
@@ -563,21 +581,43 @@ func (s *Store) EnsureAttempt(ctx context.Context, command Command, effect Effec
 			// A work with no retry history follows its first writer's epoch:
 			// derived works (such as seal preparation) inherit their parent
 			// cycle's epoch after a retry, and the exclusive owner lease
-			// already serializes writers. A conflicting earlier epoch on
+			// already serializes writers. A conflicting later epoch on
 			// disk still fails closed below.
-			var conflicting int
-			if err := conn.QueryRowContext(ctx,
-				`SELECT count(*) FROM effects
-				  WHERE run_id = ? AND effect_id LIKE ?
-				    AND effect_id NOT LIKE ?`,
-				command.RunID,
-				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+"/%",
-				"attempt/"+strings.TrimPrefix(attempt.WorkID, "sha256:")+
-					"/e"+strconv.FormatInt(attempt.Epoch, 10)+"/%",
-			).Scan(&conflicting); err != nil {
+			workPrefix := "attempt/" + strings.TrimPrefix(attempt.WorkID, "sha256:") + "/"
+			rows, err := conn.QueryContext(ctx,
+				`SELECT effect_id FROM effects WHERE run_id = ? AND effect_id LIKE ?`,
+				command.RunID, workPrefix+"%")
+			if err != nil {
 				return dbError(err)
 			}
-			if conflicting != 0 {
+			var stale bool
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					_ = rows.Close()
+					return dbError(err)
+				}
+				rest := strings.TrimPrefix(id, workPrefix)
+				if strings.HasPrefix(rest, "e") {
+					epochStr := rest[1:]
+					if slash := strings.Index(epochStr, "/"); slash >= 0 {
+						epochStr = epochStr[:slash]
+					}
+					if diskEpoch, err := strconv.ParseInt(epochStr, 10, 64); err == nil {
+						if diskEpoch > attempt.Epoch {
+							stale = true
+						}
+					}
+				}
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				return dbError(err)
+			}
+			if err := rows.Close(); err != nil {
+				return dbError(err)
+			}
+			if stale {
 				return fail("STALE_RETRY_EPOCH", nil)
 			}
 			epoch = attempt.Epoch

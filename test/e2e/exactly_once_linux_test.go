@@ -64,7 +64,18 @@ func exactlyOnceCuts() []exactlyOnceCut {
 // short owner-lease regime the recovery journeys run under, so a takeover
 // only has to wait out leaseExpiryWait rather than a production lease.
 var exactlyOnceEnvironment = map[string]string{
-	"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+	"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
+	"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
+}
+
+// exactlyOnceRecoveryEnvironment gives the restart phase a lease long enough
+// that a control verb's cancelled in-process drive can still release its own
+// claim: ReleaseOwner refuses an expired lease, so under the short crash
+// lease a cancelled recovery that outlives it would strand the owner
+// claimed-expired and only another takeover could clear it.
+var exactlyOnceRecoveryEnvironment = map[string]string{
+	"SWORN_TEST_OWNER_LEASE_MILLIS":   "5000",
+	"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
 }
 
 // assertExactlyOnce is the whole cardinality claim, read out of the real
@@ -197,17 +208,18 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 	// The recovery binary is an ordinary Sworn: no crash seam at all. Only the
 	// owner lease is pinned, to the value the existing recovery journeys use.
 	recoveryBinary := filepath.Join(buildRoot, "sworn-recovery")
-	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags)
+	buildBinary(t, recoveryBinary, "./cmd/sworn", hookGateLDFlags+" "+uncontainedGateLDFlags)
 
 	for _, cut := range exactlyOnceCuts() {
 		t.Run(strings.ReplaceAll(cut.effect, ".", "_"), func(t *testing.T) {
 			crashBinary := filepath.Join(
 				buildRoot, "sworn-cut-"+strings.ReplaceAll(cut.effect, ".", "-"),
 			)
-			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+			buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags+" "+uncontainedGateLDFlags)
 			crashEnvironment := map[string]string{
-				"SWORN_TEST_CRASH_AFTER_EFFECT": cut.effect,
-				"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
+				"SWORN_TEST_CRASH_AFTER_EFFECT":   cut.effect,
+				"SWORN_TEST_OWNER_LEASE_MILLIS":   testLeaseMillis,
+				"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
 			}
 
 			repository := newProductRepository(t)
@@ -231,7 +243,7 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			installAndPassComponent(t, repository, release, planBytes)
 			seedHead := runGit(t, repository, "rev-parse", "main")
 
-			// The cut. The run dies at the seam with the world already moved.
+			// The cut. Durable resume hosts the drive and exits 86 at the seam.
 			runBinaryWithEnvironment(
 				t, crashBinary, 86, crashEnvironment,
 				"resume", "--run", runID, "--journal", journalPath,
@@ -246,12 +258,20 @@ func TestProductionCrashCutsRecoverToExactlyOneContinuation(t *testing.T) {
 			}
 
 			// The restart. An ordinary binary, after the dead owner's lease
-			// has expired, must reach exactly one continuation.
+			// has expired, performs a durable takeover which hosts its drive
+			// to completion.
 			leaseExpiryWait()
-			stdout, stderr := runBinaryWithEnvironmentTimeout(
-				t, recoveryBinary, 0, exactlyOnceEnvironment, 600*time.Second,
+			takeoverStdout, takeoverStderr := runBinaryWithEnvironmentTimeout(
+				t, recoveryBinary, 0, exactlyOnceRecoveryEnvironment, 600*time.Second,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "cut-takeover-1", "--generation", "1",
+			)
+			if takeoverStderr != "" || !strings.Contains(takeoverStdout, "Sworn run "+runID) {
+				t.Fatalf("%s (%s) takeover stdout=%q stderr=%q", cut.effect, cut.phase, takeoverStdout, takeoverStderr)
+			}
+			stdout, stderr := runBinaryWithEnvironmentTimeout(
+				t, recoveryBinary, 0, exactlyOnceRecoveryEnvironment, 600*time.Second,
+				"run", "--manifest", manifestPath, "--journal", journalPath,
 			)
 			if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf(

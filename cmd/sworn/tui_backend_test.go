@@ -11,9 +11,11 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+	"github.com/swornagent/sworn/internal/tui"
 )
 
 type pendingTUIControls struct {
@@ -354,6 +356,270 @@ func TestPendingTUIControlReplaysTheExactCommandUntilAccepted(t *testing.T) {
 	}
 }
 
+// A2: Quitting and reopening the TUI reattaches to the still-running run with its live state: pinned by a backend fixture over a run owned by a background drive.
+func TestTUIReattachesToBackgroundDrivenRun(t *testing.T) {
+	t.Parallel()
+
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-bg")
+
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256Digest(manifestBody)
+
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 123).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID:             "run-bg",
+		ManifestDigest: manifestDigest,
+		Repository:     root,
+		Release:        "delivery",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     "run-bg",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate active background drive owner
+	if _, err := store.AcquireOwner(context.Background(), "run-bg", now, 5*time.Minute, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(context.Background(), "run-bg", "started", []byte("run started in background"), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. First TUI session attaches
+	backend1 := newProjectTUIBackend(root, "", "", "")
+	catalog1, err := backend1.Catalog(context.Background())
+	if err != nil {
+		t.Fatalf("catalog1 failed: %v", err)
+	}
+	if len(catalog1.Entries) != 1 || catalog1.Entries[0].Selection.RunID != "run-bg" {
+		t.Fatalf("catalog1 entries = %#v", catalog1.Entries)
+	}
+	board1, err := backend1.Board(context.Background(), catalog1.Entries[0].Selection)
+	if err != nil {
+		t.Fatalf("board1 failed: %v", err)
+	}
+	if board1.Selection.RunID != "run-bg" {
+		t.Fatalf("board1 runID = %q, want run-bg", board1.Selection.RunID)
+	}
+	initialOffset := board1.ThroughOffset
+
+	// 2. Simulate quitting TUI: drop backend1 and simulate background drive continuing to append events
+	store2, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now2 := now.Add(time.Second)
+	if err := store2.AppendEvent(context.Background(), "run-bg", "work_advancing", []byte("slice in progress"), now2); err != nil {
+		t.Fatal(err)
+	}
+	_ = store2.Close()
+
+	// 3. Reopen TUI: create new backend instance and reattach
+	backend2 := newProjectTUIBackend(root, "", "", "")
+	catalog2, err := backend2.Catalog(context.Background())
+	if err != nil {
+		t.Fatalf("catalog2 failed: %v", err)
+	}
+	if len(catalog2.Entries) != 1 || catalog2.Entries[0].Selection.RunID != "run-bg" {
+		t.Fatalf("catalog2 entries = %#v", catalog2.Entries)
+	}
+	board2, err := backend2.Board(context.Background(), catalog2.Entries[0].Selection)
+	if err != nil {
+		t.Fatalf("board2 failed: %v", err)
+	}
+	if board2.Selection.RunID != "run-bg" {
+		t.Fatalf("board2 runID = %q, want run-bg", board2.Selection.RunID)
+	}
+	if board2.ThroughOffset <= initialOffset {
+		t.Fatalf("board2 throughOffset = %d, want > initial %d", board2.ThroughOffset, initialOffset)
+	}
+}
+
+// A3: Baton unreadable codes propagate from Board with diagnostics and searched manifest location.
+func TestBoardPropagatesBatonDiagnosticsAndSearchedManifestDir(t *testing.T) {
+	t.Parallel()
+
+	root, head := projectRepositoryFixture(t)
+	// Create release ref with no plan committed -> PLAN_NOT_FOUND
+	projectCreateReleaseRef(t, root, "unplanned", head)
+
+	manifestDir := filepath.Join(root, ".sworn", "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := newProjectTUIBackend(root, "", "", "")
+	catalog, err := backend.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Entries) != 1 {
+		t.Fatalf("catalog entries = %#v", catalog.Entries)
+	}
+	board, err := backend.Board(context.Background(), catalog.Entries[0].Selection)
+	if err != nil {
+		t.Fatalf("board failed: %v", err)
+	}
+	if !hasTUIDiagnostic(board.Diagnostics, "PLAN_NOT_FOUND") {
+		t.Fatalf("board diagnostics = %#v, want PLAN_NOT_FOUND", board.Diagnostics)
+	}
+	if board.ManifestDir != manifestDir {
+		t.Fatalf("board ManifestDir = %q, want %q", board.ManifestDir, manifestDir)
+	}
+}
+
+// A4: Config view shows resolved role matrix, operator endpoints, records root, and journal/manifest paths with source files.
+func TestBackendConfigResolvesMatrixAndSourceFiles(t *testing.T) {
+	t.Parallel()
+
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-1")
+
+	// Write docs/sworn/sworn.json
+	projectConfigDir := filepath.Join(root, "docs", "sworn")
+	if err := os.MkdirAll(projectConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectConfigJSON := `{
+  "schema_version": "sworn.project-config/v1",
+  "records_root": ".baton/records",
+  "journals_root": ".sworn"
+}`
+	if err := os.WriteFile(filepath.Join(projectConfigDir, "sworn.json"), []byte(projectConfigJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write operator.json
+	operatorJSON := `{
+  "schema_version": "sworn.operator-config/v1",
+  "local": {
+    "listen": "127.0.0.1:7337"
+  },
+  "otel": {
+    "schema_version": "sworn.otel-config/v1",
+    "endpoint": "http://127.0.0.1:4318",
+    "headers": {}
+  }
+}`
+	if err := os.WriteFile(filepath.Join(stateDir, "operator.json"), []byte(operatorJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write drivers.json
+	driverConfig := driver.DriverConfig{
+		SchemaVersion: driver.DriverConfigSchemaVersion,
+		Adapters: []driver.DriverAdapterConfig{
+			{
+				Process: &driver.DriverProcessAdapterConfig{
+					Key:        "fixture-adapter",
+					ID:         driver.FakeDriverID,
+					Version:    driver.FakeDriverVersion,
+					Executable: driver.ExecutableIdentity{Path: "/usr/bin/true", Digest: "sha256:" + stringOf('a', 64)},
+				},
+			},
+		},
+		Profiles: []driver.DriverProfile{
+			{
+				Key:                 "fixture",
+				Adapter:             "fixture-adapter",
+				Network:             driver.NetworkNone,
+				CertificationModels: []string{"fixture-model"},
+			},
+		},
+	}
+	driverBytes, err := driver.EncodeDriverConfig(driverConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "drivers.json"), driverBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := newProjectTUIBackend(root, "", "", "")
+	cfg, err := backend.Config(context.Background())
+	if err != nil {
+		t.Fatalf("Config failed: %v", err)
+	}
+
+	// Operator listen & OTel
+	if cfg.OperatorListen.Value != "127.0.0.1:7337" || cfg.OperatorListen.Source != filepath.Join(".sworn", "operator.json") {
+		t.Fatalf("OperatorListen = %#v", cfg.OperatorListen)
+	}
+	if cfg.OperatorOTel.Value != "http://127.0.0.1:4318" || cfg.OperatorOTel.Source != filepath.Join(".sworn", "operator.json") {
+		t.Fatalf("OperatorOTel = %#v", cfg.OperatorOTel)
+	}
+
+	// Records & paths
+	if cfg.RecordsRoot.Value != ".baton/records" || cfg.RecordsRoot.Source != filepath.Join("docs", "sworn", "sworn.json") {
+		t.Fatalf("RecordsRoot = %#v", cfg.RecordsRoot)
+	}
+	if cfg.JournalsRoot.Value != ".sworn" || cfg.JournalsRoot.Source != filepath.Join("docs", "sworn", "sworn.json") {
+		t.Fatalf("JournalsRoot = %#v", cfg.JournalsRoot)
+	}
+	if cfg.JournalPath.Value != filepath.Join(root, ".sworn", "sworn.db") {
+		t.Fatalf("JournalPath = %#v", cfg.JournalPath)
+	}
+	if cfg.ManifestDir.Value != filepath.Join(root, ".sworn", "runs") {
+		t.Fatalf("ManifestDir = %#v", cfg.ManifestDir)
+	}
+
+	// Profiles from drivers.json
+	if len(cfg.Profiles) != 1 || cfg.Profiles[0].Name != "fixture" || cfg.Profiles[0].Adapter != "fixture-adapter" {
+		t.Fatalf("Profiles = %#v", cfg.Profiles)
+	}
+
+	// Role matrix from manifest
+	if len(cfg.Roles) != 5 {
+		t.Fatalf("Roles = %#v, want 5 entries", cfg.Roles)
+	}
+	manifestRelSource := filepath.Join(".sworn", "runs", "delivery.json")
+	for _, r := range cfg.Roles {
+		if r.Profile != "fixture" || r.Model != "fixture-model" || r.Source != manifestRelSource {
+			t.Fatalf("Role entry unexpected = %#v", r)
+		}
+	}
+}
+
 func projectTUIPlan(t *testing.T, release string) []byte {
 	t.Helper()
 	metadata := baton.Metadata{
@@ -406,4 +672,223 @@ func stringOf(value byte, count int) string {
 		result[index] = value
 	}
 	return string(result)
+}
+
+// Host keying creates distinct resident hosts per (journalPath, configPath) pair and reuses matching hosts.
+func TestTUIBackendHostKeyingDistinctPerConfig(t *testing.T) {
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-host-key")
+
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256Digest(manifestBody)
+
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 123).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID:             "run-host-key",
+		ManifestDigest: manifestDigest,
+		Repository:     root,
+		Release:        "delivery",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     "run-host-key",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	// Write drivers.json
+	driverConfig := driver.DriverConfig{
+		SchemaVersion: driver.DriverConfigSchemaVersion,
+		Adapters: []driver.DriverAdapterConfig{
+			{
+				Process: &driver.DriverProcessAdapterConfig{
+					Key:        "fixture-adapter",
+					ID:         driver.FakeDriverID,
+					Version:    driver.FakeDriverVersion,
+					Executable: driver.ExecutableIdentity{Path: "/usr/bin/true", Digest: "sha256:" + stringOf('a', 64)},
+				},
+			},
+		},
+		Profiles: []driver.DriverProfile{
+			{
+				Key:                 "fixture",
+				Adapter:             "fixture-adapter",
+				Network:             driver.NetworkNone,
+				CertificationModels: []string{"fixture-model"},
+			},
+		},
+	}
+	driverBytes, err := driver.EncodeDriverConfig(driverConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(stateDir, "drivers.json")
+	if err := os.WriteFile(configPath, driverBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := newProjectTUIBackend(root, "", "", "")
+	defer backend.Close()
+
+	// 1. Host with empty config
+	host1, err := backend.getOrCreateHost(context.Background(), journalPath, "")
+	if err != nil || host1 == nil {
+		t.Fatalf("getOrCreateHost(journal, \"\") failed: %v", err)
+	}
+
+	// 2. Reusing host with empty config returns the exact same host instance
+	host1Reused, err := backend.getOrCreateHost(context.Background(), journalPath, "")
+	if err != nil || host1Reused != host1 {
+		t.Fatalf("expected host1 reuse, got %#v", host1Reused)
+	}
+
+	// 3. Host with non-empty config produces a distinct host with drivers loaded
+	host2, err := backend.getOrCreateHost(context.Background(), journalPath, configPath)
+	if err != nil || host2 == nil {
+		t.Fatalf("getOrCreateHost(journal, config) failed: %v", err)
+	}
+	if host2 == host1 {
+		t.Fatal("expected distinct host for non-empty config, got same host")
+	}
+
+	// 4. Reusing host with non-empty config returns the exact same host2 instance
+	host2Reused, err := backend.getOrCreateHost(context.Background(), journalPath, configPath)
+	if err != nil || host2Reused != host2 {
+		t.Fatalf("expected host2 reuse, got %#v", host2Reused)
+	}
+
+	// 5. Total hosts in backend is exactly 2
+	if len(backend.hosts) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(backend.hosts))
+	}
+}
+
+// A3: Per-action authority checks refuse when the run binding in the journal changes.
+func TestTUIBackendPerActionAuthorityCheckPreserved(t *testing.T) {
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-auth-test")
+
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256Digest(manifestBody)
+
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 123).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID:             "run-auth-test",
+		ManifestDigest: manifestDigest,
+		Repository:     root,
+		Release:        "delivery",
+		TargetRef:      "refs/heads/main",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(context.Background(), journal.Command{
+		RunID:     "run-auth-test",
+		ReplayKey: "manifest",
+		Kind:      "start",
+		Payload:   manifestBody,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	backend := newProjectTUIBackend(root, "", "", "")
+	defer backend.Close()
+
+	run := projectRun{
+		binding: journal.Run{
+			ID:             "run-auth-test",
+			ManifestDigest: manifestDigest,
+			Repository:     root,
+			Release:        "delivery",
+			TargetRef:      "refs/heads/main",
+			CreatedAt:      now,
+		},
+		journalPath: journalPath,
+	}
+
+	// Valid binding check succeeds
+	facade, err := backend.commandsForRun(context.Background(), run, "")
+	if err != nil || facade == nil {
+		t.Fatalf("expected valid commands, got err: %v", err)
+	}
+
+	// Stale / mismatched binding check fails with "project control authority changed"
+	staleRun := run
+	staleRun.binding.ManifestDigest = "sha256:" + strings.Repeat("f", 64)
+	_, err = backend.commandsForRun(context.Background(), staleRun, "")
+	if err == nil || err.Error() != "project control authority changed" {
+		t.Fatalf("expected 'project control authority changed', got: %v", err)
+	}
+}
+
+// Bounded correction: projectTUIBackend.Close() is safe against concurrent in-flight Execute goroutines.
+func TestTUIBackendCloseWaitsForInFlightExecute(t *testing.T) {
+	backend := newProjectTUIBackend("/nonexistent", "", "", "")
+
+	// Simulate concurrent in-flight Execute and Close
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = backend.Execute(context.Background(), tui.Selection{
+			Release: "rel", RunID: "run-1", Source: "src",
+		}, cockpit.Action{Kind: "pause"}, "")
+	}()
+
+	_ = backend.Close()
+	<-done
+
+	// Subsequent Close is idempotent and subsequent Execute fails safely
+	if err := backend.Close(); err != nil {
+		t.Fatalf("second Close failed: %v", err)
+	}
+	err := backend.Execute(context.Background(), tui.Selection{}, cockpit.Action{Kind: "pause"}, "")
+	if err == nil {
+		t.Fatal("Execute after Close succeeded, want error")
+	}
 }

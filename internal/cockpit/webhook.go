@@ -448,9 +448,6 @@ func (s *WebhookService) Project(
 
 func safeCaptainDecisionEvent(event journal.EventFact) (*runtimepkg.CaptainDecisionEvent, error) {
 	if event.Kind != "captain_plan_decided" {
-		if len(event.SafeBody) != 0 {
-			return nil, errors.New("unexpected event body")
-		}
 		return nil, nil
 	}
 	var value runtimepkg.CaptainDecisionEvent

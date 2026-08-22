@@ -41,11 +41,11 @@ Every implementation MUST:
     Git-configuration fallback, while treating that identity as attribution
     rather than Baton authority.
 
-`.baton/releases` is structurally reserved for Baton metadata: product code,
-build, test, package, deploy, hooks, and runtime MUST NOT read or depend on it;
-only Baton's record writer may modify it; product identity ignores exactly this
-directory; plan product scope cannot include it; and candidates preserve it from
-their exact implementation base.
+The configured records root is structurally reserved for Baton metadata:
+product code, build, test, package, deploy, hooks, and runtime MUST NOT read or
+depend on it; only Baton's record writer may modify it; product identity ignores
+exactly this directory; plan product scope cannot include it; and candidates
+preserve it from their exact implementation base.
 
 A consuming design MUST be reviewed against an exact base containing the
 applicable producer `PASS` authorities. Before design and again before

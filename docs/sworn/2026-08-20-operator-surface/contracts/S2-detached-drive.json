@@ -1,0 +1,28 @@
+{
+  "outcome": "Control verbs stop holding the run hostage: Start, AnswerAttention, and Control return once the command is durable while the drive continues under a background owner in the same process lifetime or a named resumable state - so a closed laptop lid, a piped answer, or a timeout wrapper can never again orphan a run mid-dispatch.",
+  "scope": {
+    "include": ["internal/runtime", "cmd/sworn", "internal/cockpit", "internal/observe", "internal/tui", "test/e2e"],
+    "exclude": ["journal schema or control-gate changes (owner lease semantics are unchanged; existing journals stay valid)", "a system daemon or service manager (in-process background ownership plus the existing resume path only)", "changing what any verb is permitted to do (only when it returns)"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "sworn answer returns success once the answer is durably recorded, with the drive continuing: pinned by a runtime fixture asserting the verb returns while the run subsequently reaches its next effect, and that killing the caller after return does not orphan the run into a claimed-unexpired state."},
+    {"id": "A2", "text": "sworn run offers a detached mode where the command returns after the run is claimed and driving, printing where to watch it; the foreground mode remains: pinned by cmd/sworn fixtures over both modes."},
+    {"id": "A3", "text": "Resume and takeover return once ownership transition is durable, and their status output names the run's live state rather than blocking until completion: pinned by runtime control fixtures."},
+    {"id": "A4", "text": "The real-binary lifecycle scenario proves detach: start detached, answer from a second process, observe completion - declared as CI evidence in test/e2e (ADR 0010), not executed by any role."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "Exactly one owner drives at a time; the lease model is untouched - this slice changes who waits, never who owns.",
+    "A durable-then-die failure between record and drive must land in an already-recoverable state (the existing resume path), never a new wedge class.",
+    "Evidence basis: AnswerAttention and Control end in driveOwned on the caller's goroutine (internal/runtime/service.go:1083-1100, :1151, :1176); a piped answer orphaned a run twice in one night (sworn#192); the TUI freezes because Start drives its foreground (cmd/sworn/tui_backend.go:506).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

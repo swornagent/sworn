@@ -1,0 +1,28 @@
+{
+  "outcome": "A parked implementation cycle recovers with one retry: a derived work whose own epoch holds no attempts follows its parent cycle's retry epoch - the inheritance the journal's own comment already promises - and the board offers exactly one retry action per parked cycle, so the seal/dispatch epoch-skew wedge becomes unreachable instead of unwinnable.",
+  "scope": {
+    "include": ["internal/journal", "internal/runtime", "internal/cockpit", "internal/tui", "cmd/sworn", "internal/observe", "test/e2e"],
+    "exclude": ["journal schema changes or migration of recorded journals (existing journal files stay readable, their recorded epochs stay valid)", "automatic retries (retry remains an explicit operator command)", "relaxing three-try exhaustion for the work actually retried"]
+  },
+  "acceptance": [
+    {"id": "A1", "text": "The r4 wedge is the regression corpus: a journal fixture holding a seal-cycle work and its derived dispatch work both OperationalFailed at try 3 of epoch 1 accepts one retry of the cycle work, after which attempt admission for the derived work at the new epoch succeeds - read back from the journal effects table with no STALE_RETRY_EPOCH - pinned in internal/journal/store_test.go."},
+    {"id": "A2", "text": "A parked cycle surfaces exactly one retry action, the cycle work, with no second action for its derived work: pinned by the projector action-set fixture in internal/cockpit/projector_test.go and the parked-set fixture over internal/runtime's status read path."},
+    {"id": "A3", "text": "Existing epoch protections hold unmodified: TestRetryEpochRequiresExactThreeTryExhaustion in internal/journal/store_test.go passes as written - superseded epochs still refuse STALE_RETRY_EPOCH and an unexhausted work still refuses WORK_NOT_EXHAUSTED."},
+    {"id": "A4", "text": "The real-binary park-and-retry scenario recovers with the single cycle retry: the parked-lane recovery case in test/e2e/topology_recovery_linux_test.go, declared as CI evidence (ADR 0010), not executed by any role."}
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "gofmt -l ./cmd ./internal ./tools ./test",
+    "git diff --check"
+  ],
+  "constraints": [
+    "No journal schema change and no migration: the fix is admission semantics over the existing effects and commands tables; journals recorded before this slice remain readable unmodified.",
+    "Error codes are never renamed; STALE_RETRY_EPOCH and WORK_NOT_EXHAUSTED keep their meanings for the work actually retried.",
+    "Evidence basis: loop-economics r4 wedged permanently past every recovery verb; escape cost the run id and its journal continuity (sworn#216).",
+    "The e2e check is declared, not executed by a role (ADR 0010).",
+    "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  ],
+  "depends_on": [], "consumes": []
+}

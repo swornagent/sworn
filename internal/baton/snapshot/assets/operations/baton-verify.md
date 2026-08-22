@@ -28,7 +28,7 @@ checks are evidence, not scope failures by themselves. They cannot excuse a
 material behavior, consumed product, contract, or authority change.
 
 Ensure product code, build, test, package, deploy, hooks, and runtime neither
-read nor depend on reserved `.baton/releases`; verify the candidate preserves it
+read nor depend on the reserved records root; verify the candidate preserves it
 from its exact implementation base.
 
 ## Actions

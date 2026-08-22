@@ -398,12 +398,32 @@ func parkedWork(t *testing.T, journalPath, runID string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	derived := make(map[string]struct{})
+	for _, command := range snapshot.Commands {
+		if command.Kind == "git.seal" {
+			var probe struct {
+				DispatchWork string `json:"dispatch_work"`
+				PreparedWork string `json:"prepared_work"`
+			}
+			if json.Unmarshal(command.Payload, &probe) == nil {
+				if probe.DispatchWork != "" {
+					derived[probe.DispatchWork] = struct{}{}
+				}
+				if probe.PreparedWork != "" {
+					derived[probe.PreparedWork] = struct{}{}
+				}
+			}
+		}
+	}
 	for _, effect := range snapshot.Effects {
-		if effect.Kind == "driver.dispatch" && effect.State == journal.OperationalFailed &&
+		if effect.State == journal.OperationalFailed &&
 			strings.HasSuffix(effect.ID, "/t3") {
 			parts := strings.Split(effect.ID, "/")
 			if len(parts) == 4 {
-				return "sha256:" + parts[1]
+				work := "sha256:" + parts[1]
+				if _, isDerived := derived[work]; !isDerived {
+					return work
+				}
 			}
 		}
 	}
@@ -801,8 +821,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
@@ -815,8 +836,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		work := parkedWork(t, journalPath, runID)
 		runBinary(t, swornBinary, 0, "retry", "--run", runID, "--journal", journalPath,
 			"--command", "retry-1", "--generation", "1", "--work", work, "--epoch", "1")
-		stdout, _ = runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-2", "--generation", "2")
+		stdout, _ = runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("retry completion = %q", stdout)
 		}
@@ -832,8 +854,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, body)
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		command := exec.Command(swornBinary, "resume", "--run", runID, "--journal", journalPath,
-			"--command", "resume-1", "--generation", "0")
+		// The resume hosts the drive, so the resume process itself is the
+		// backgrounded driver whose barrier overlap and pause quiescence
+		// the scenario observes.
+		command := exec.Command(swornBinary, "resume", "--run", runID,
+			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
 		command.Env = cleanEnvironment(nil)
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output
@@ -863,8 +888,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						continue
 					}
 					s2, _ := state.Slice("S2")
-					if s2.CurrentReceipt != nil &&
-						s2.CurrentReceipt.Receipt.Result == "designed" {
+					// Any S2 receipt while the S1 barrier remains claimed
+					// proves the tracks overlap; pinning the designed-only
+					// moment races the scripted fake's pace on slow runners.
+					if s2.CurrentReceipt != nil {
 						overlap = true
 						break
 					}
@@ -907,8 +934,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, plan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("scope exhaustion status = %q", stdout)
 		}
@@ -929,6 +957,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		outerByWork := make(map[string]map[string]journal.Effect)
 		dispatchIDs := make(map[string]struct{})
 		scopeFailures := 0
+		admissionRefusals := 0
 		prepared := false
 		for _, effect := range snapshot.Effects {
 			switch effect.Kind {
@@ -951,15 +980,21 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					t.Fatalf("duplicate outer try %s for %s", parts[3], workID)
 				}
 				outerByWork[workID][parts[3]] = effect
-				if effect.State != journal.OperationalFailed ||
-					(effect.ErrorCode != "CANDIDATE_SCOPE_FAILED" &&
-						effect.ErrorCode != "operational_failure") {
+				if effect.State != journal.OperationalFailed {
 					t.Fatalf("outer implementation failure = %#v", effect)
 				}
-				if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+				switch effect.ErrorCode {
+				case "CANDIDATE_SCOPE_FAILED":
 					scopeFailures++
-				} else {
+				case "WORK_ALREADY_SUCCEEDED":
+					// The first try's inner dispatch succeeded before the
+					// seal refused its scope; later tries refuse at
+					// admission because a succeeded work is never re-paid
+					// within its epoch. No dispatch exists for these tries.
+					admissionRefusals++
 					continue
+				default:
+					t.Fatalf("outer implementation failure = %#v", effect)
 				}
 				command, ok := commands[effect.ReplayKey]
 				if !ok {
@@ -1019,10 +1054,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("scope failure attempts for %s = %#v", workID, attempts)
 			}
 		}
-		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 || prepared {
+		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 ||
+			admissionRefusals != 2 || prepared {
 			t.Fatalf(
-				"scope failure evidence: works=%d dispatches=%d scope=%d prepared=%t err=%v",
-				len(outerByWork), len(dispatchIDs), scopeFailures, prepared, err)
+				"scope failure evidence: works=%d dispatches=%d scope=%d refused=%d prepared=%t err=%v",
+				len(outerByWork), len(dispatchIDs), scopeFailures,
+				admissionRefusals, prepared, err)
 		}
 	})
 
@@ -1051,8 +1088,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		manifestPath := writeManifest(t, root, append(body, '\n'))
 		runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		stdout, _ := runBinary(t, swornBinary, 0, "resume", "--run", runID,
+		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		// The hosted resume carries the drive through the revision trigger
+		// and the first recorded, unapproved proposal; the driven state is
+		// read from status rather than performed by a redundant drive.
+		stdout, _ := runBinary(t, swornBinary, 0, "status", "--run", runID,
+			"--journal", journalPath, "--json")
 		if !strings.Contains(stdout, "awaiting_approval") {
 			t.Fatalf("revision proposal = %q", stdout)
 		}
@@ -1062,8 +1104,12 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if s1Before.Outcome != "blocked" || s2Before.Pass == nil {
 			t.Fatalf("revision trigger state: S1=%#v S2=%#v", s1Before, s2Before)
 		}
-		_, stderr := runBinary(t, swornBinary, 1, "resume", "--run", runID,
-			"--journal", journalPath, "--command", "resume-2", "--generation", "1")
+		// A further drive without new exact authority meets the second
+		// scripted proposal and is refused; a hosted resume replay would
+		// swallow that refusal into run state, so the explicit run is the
+		// drive that surfaces it.
+		_, stderr := runBinary(t, swornBinary, 1,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stderr, "PLAN_AUTHORITY_CONFLICT") {
 			t.Fatalf("revision authority stderr = %q", stderr)
 		}
@@ -1117,9 +1163,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "add", "--", "target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
 		leaseExpiryWait()
-		stdout, _ := runBinary(t, swornBinary, 0,
+		runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("forward-target recovery = %q", stdout)
 		}
@@ -1256,9 +1304,11 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		leaseExpiryWait()
-		stdout, _ := runBinary(t, swornBinary, 0,
+		runBinary(t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: awaiting_approval") ||
 			!strings.Contains(stdout, "  authority_state: authority_conflict") {
 			store, _ := journal.OpenReadOnly(context.Background(), journalPath)
@@ -1363,10 +1413,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "add", "--", "install-target-moved.txt")
 		runGit(t, repository, "commit", "--quiet", "-m", "move target after install")
 		leaseExpiryWait()
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("all-new install recovery = %q", stdout)
 		}
@@ -1519,10 +1572,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 
 					leaseExpiryWait()
-					stdout, _ := runBinary(
+					runBinary(
 						t, swornBinary, 0,
 						"takeover", "--run", runID, "--journal", journalPath,
 						"--command", "takeover-1", "--generation", "1")
+					stdout, _ := runBinary(
+						t, swornBinary, 0,
+						"run", "--manifest", manifestPath, "--journal", journalPath)
 					if authorityKind == "target" &&
 						!strings.Contains(stdout, "  state: complete") {
 						t.Fatalf("forward-target seal recovery = %q", stdout)
@@ -1677,10 +1733,15 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			claimed.Candidate,
 		)
 		leaseExpiryWait()
-		_, stderr := runBinary(
-			t, swornBinary, 1,
+		runBinary(
+			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		// The takeover returns once the ownership transition is durable; the
+		// drive that meets the uncertain third state is the explicit run.
+		_, stderr := runBinary(
+			t, swornBinary, 1,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stderr, "RECOVERY_UNCERTAIN") {
 			t.Fatalf("third-state recovery stderr = %q", stderr)
 		}
@@ -1733,10 +1794,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			claimed.Candidate,
 			third,
 		)
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("restored all-new recovery status = %q", stdout)
 		}
@@ -1857,15 +1921,17 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatal(err)
 			}
 			leaseExpiryWait()
-			wantExit := 0
-			if preparedCase.parentMode == "succeeded" {
-				wantExit = 1
-			}
-			stdout, stderr := runBinary(
-				t, swornBinary, wantExit,
+			runBinary(
+				t, swornBinary, 0,
 				"takeover", "--run", runID, "--journal", journalPath,
 				"--command", "takeover-1", "--generation", "1")
 			if preparedCase.parentMode == "succeeded" {
+				// The takeover returns once durable; the drive that
+				// meets the impossible succeeded parent is the
+				// explicit run of the same journal.
+				_, stderr := runBinary(
+					t, swornBinary, 1,
+					"run", "--manifest", manifestPath, "--journal", journalPath)
 				if !strings.Contains(stderr, "CORRUPT_JOURNAL") {
 					t.Fatalf(
 						"impossible succeeded parent stderr = %q",
@@ -1888,6 +1954,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				return
 			}
 			if preparedCase.parentMode == "failed" {
+				stdout, _ := runBinary(
+					t, swornBinary, 0,
+					"run", "--manifest", manifestPath, "--journal", journalPath)
 				if !strings.Contains(stdout, "  state: parked") {
 					t.Fatalf("failed parent recovery = %q", stdout)
 				}
@@ -1899,6 +1968,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				}
 				return
 			}
+			stdout, _ := runBinary(
+				t, swornBinary, 0,
+				"run", "--manifest", manifestPath, "--journal", journalPath)
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("prepared child recovery = %q", stdout)
 			}
@@ -2014,8 +2086,9 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					cut, claimedIDs, err)
 			}
 			leaseExpiryWait()
-			stdout, _ := runBinary(t, swornBinary, 0, "takeover", "--run", runID,
+			runBinary(t, swornBinary, 0, "takeover", "--run", runID,
 				"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
+			stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 			if !strings.Contains(stdout, "  state: complete") {
 				store, _ := journal.OpenReadOnly(context.Background(), journalPath)
 				snapshot, _ := store.Snapshot(context.Background(), runID)
@@ -2412,10 +2485,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runGit(t, repository, "commit", "--quiet", "-m", "external target move")
 
 		leaseExpiryWait()
-		stdout, _ := runBinary(
+		runBinary(
 			t, swornBinary, 0,
 			"takeover", "--run", runID, "--journal", journalPath,
 			"--command", "takeover-1", "--generation", "1")
+		stdout, _ := runBinary(
+			t, swornBinary, 0,
+			"run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("forward-target driver takeover = %q", stdout)
 		}
