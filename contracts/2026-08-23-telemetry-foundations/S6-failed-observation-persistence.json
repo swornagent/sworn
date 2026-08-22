@@ -1,0 +1,67 @@
+{
+ "outcome": "A failed dispatch leaves evidence, not just a fingerprint: the observation a failed attempt was digested from is durably readable - its transport status, duration, diagnostic code, terminal events, and usage - so diagnosing a runner_error means reading the journal, never brute-forcing a digest hunt against bytes the engine threw away.",
+ "scope": {
+  "include": [
+   "internal/journal",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "successful attempts (the sealed handoff is their durable record; this slice persists evidence for attempts that produced no handoff)",
+   "provider error message content (S5's mechanism)",
+   "tool results and worker output (S8's mechanism)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/journal and internal/runtime by import only; no cmd test pins failed-attempt observation storage"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/journal and internal/runtime by import only; no cockpit test pins attempt observation storage"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/journal and internal/runtime via internal/cockpit by import only; eval reads the usage receipt, whose shape this slice does not touch"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/journal and internal/runtime by import only; no tui test pins attempt observation storage"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Every attempt that completes without a sealed handoff - runner_error, invalid_driver_handoff, operational failure - persists its marshaled observation body durably, associated to the attempt whose observation_digest it matches. Anchor: internal/runtime/dispatch.go:2070-2083, where observationBody has exactly two uses today - digest and drop - and the attempts schema (internal/journal/schema.sql:60-73) holds no body column, so the digest's pre-image exists nowhere in the system. Pinned by journal and dispatch tests covering the runner_error and invalid_driver_handoff branches (dispatch.go:2084-2124)."
+  },
+  {
+   "id": "A2",
+   "text": "The persisted body is digest-verified and bounded honestly: reading it back re-verifies against the attempt's observation_digest (the evaluation read path's CORRUPT_JOURNAL posture at internal/journal/evaluation.go:143-146 is the precedent), and if a bound must truncate, the truncation is explicit - a marked partial body, never a silent one; the digest always remains over the full marshaled bytes."
+  },
+  {
+   "id": "A3",
+   "text": "The evidence is reachable without archaeology: a journal read surface returns the failed attempt's observation for a given effect and attempt, and the marshal error silently discarded at dispatch.go:2070 no longer produces a digested-nothing - a failed marshal is itself recorded loudly. Pinned by store API tests."
+  },
+  {
+   "id": "A4",
+   "text": "The journal schema change ships with an honest migration: existing journals open cleanly, their historical failed attempts simply have no stored body, and reads say so distinguishably from corruption."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Evidence basis (2026-08-22, drive-survival r3): the sonnet verifier's first dispatch runner_error'd twice, ~35-40 minutes each, with identical observation digests and zero readable detail on any durable surface - the diagnosis cost a brute-force digest hunt. This slice is that gap's structural fix.",
+  "The observation body is contentless by construction today - driver.Observation's Diagnostic carries a code and byte counts, never stderr content (internal/driver/invoke.go:109-113,124-132) - and persistence must preserve that property: this slice stores what the engine already digests, and any future content-bearing observation field meets the bound and the secret-guard posture at this seam.",
+  "The digest stays the identity: stored bytes are evidence for the existing digest, never a second authority; nothing about attempt identity, admission, or retry semantics changes.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Schema migration follows the journal's existing migration discipline (the migrate_v1_to_v2 precedent) and the full unit suite is the compatibility gate."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

@@ -1,0 +1,69 @@
+{
+ "outcome": "The degradation budget measures degradation relative to what the adapter can actually do, and a degradation park names itself everywhere it surfaces: routine transport weather on an adapter that rehydrates by design no longer walks a long run into a park, while real repeated context loss still does - and when it does, status, board, and webhook name the cause, the count, the budget, and the manifest knob that unblocks it, instead of a flat 'parked' dressed up as a failed work item.",
+ "scope": {
+  "include": [
+   "internal/cockpit",
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "provider error content (S5's mechanism)",
+   "observation body persistence (S6's mechanism)",
+   "what parks a run besides the degradation counting gate (attention parks, exhaustion parks, and human-authority holds keep their semantics)",
+   "the observe continuation aggregate's content-free posture (internal/observe/continuation.go stays deliberately contentless)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver, internal/runtime, and internal/cockpit by import only; no cmd test pins degradation counting or park presentation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/runtime and internal/driver via internal/cockpit by import only; the observe continuation aggregate is constrained unchanged by this slice"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/cockpit, internal/driver, and internal/runtime by import only; the tui renders the cockpit's park presentation and pins none of its wording"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Counting is gated on real loss: a continuation.fresh_rehydrate fallback counts toward the degradation budget only when the dispatch actually had a retained continuation to lose - an adapter whose declared continuation posture makes fresh rehydration its ordinary operation accumulates zero budget from transport churn, while a continuation-bearing adapter losing a retained session still counts. Anchors: the substring count at internal/runtime/status.go:702-728 over every fresh_rehydrate event; the fallback facts at internal/runtime/dispatch.go:722-736 (missingIsFallback) and :751-768; the per-dialect continuation declaration at internal/driver/provider.go:90-101. Evidence basis: operator-surface r2 parked at 4 counts of routine paced retries on google-native while every degraded output went on to pass independent verification (sworn#227)."
+  },
+  {
+   "id": "A2",
+   "text": "Fallback events stay associated: the continuation event body carries its reason additively alongside the standard association fields, not instead of them - today the eventBody closure at internal/runtime/dispatch.go:2045-2059 replaces the association with the bare reason string, so exactly the events that feed a park are the ones that lost their effect, work, and slice identity. Pinned by an event-body test."
+  },
+  {
+   "id": "A3",
+   "text": "The park names itself on the status seam: run status distinguishes the park cause (degradation, attention, exhaustion, human authority - anchor: RunStatus at internal/runtime/service.go:93-113 carries a flat 'parked' with no cause field), and a degradation park's status carries the fallback count, the effective budget, and limits.degradation_budget as the unblock knob - pinned by runtime status tests over a fixture journal that crosses the budget."
+  },
+  {
+   "id": "A4",
+   "text": "The board stops misdescribing a degradation park: the cockpit presentation for a degradation park names repeated context rebuilds and the budget knob instead of 'One work item needs an answer or has failed repeatedly' (internal/cockpit/presentation.go:70-74), and the needs-you catalog stops emitting a retry action with an empty work id for a park that has no failed work (internal/cockpit/catalog.go:121-139) - pinned by cockpit projection tests."
+  },
+  {
+   "id": "A5",
+   "text": "The webhook names the park: a degradation park produces a notification whose kind names the park class instead of falling through to the run_updated default (internal/cockpit/webhook.go:779-807; the typed captain_plan_decided body at webhook.go:411 is the precedent for a classified event crossing this surface) - pinned by a webhook projection test, with the kind validator's vocabulary versioned honestly."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The oversight intent survives intact: repeated silent context rebuilds on an adapter that should hold context still deserve a human look, and the park stays a computed condition over journal history - this slice recalibrates the signal, it does not soften the gate.",
+  "The counting gate must not depend on runtime type assertions alone: whether an adapter's fresh rehydration is ordinary or degraded is a declared property of the adapter's continuation posture, readable at the counting site (today support is only a Go interface assertion at internal/runtime/dispatch.go:813, and no capability declaration exists in the driver contract).",
+  "Existing journaled histories keep evaluating: the counting change applies at status computation, and a journal recorded before this slice still opens and reports honestly.",
+  "This slice changes which events count and how parks present - never what any control verb is permitted to do.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
