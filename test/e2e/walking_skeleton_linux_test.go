@@ -674,31 +674,26 @@ func assertDispatchOrder(t *testing.T, journalPath, runID string) {
 		if event.Kind != "dispatch_completed" {
 			continue
 		}
-		// The event body carries content-free association; the dispatched
-		// responsibility is read from the sealed submission the associated
-		// effect recorded.
+		// The event body carries the dispatched responsibility directly
+		// alongside the effect, work, and slice association.
 		var association struct {
-			EffectID string `json:"effect_id"`
+			EffectID       string `json:"effect_id"`
+			Responsibility string `json:"responsibility"`
 		}
 		if json.Unmarshal(event.Body, &association) != nil ||
 			association.EffectID == "" {
 			t.Fatalf("dispatch_completed body = %q", event.Body)
 		}
-		effect, found := effectsByReplayKey[association.EffectID]
-		if !found {
+		if _, found := effectsByReplayKey[association.EffectID]; !found {
 			t.Fatalf("dispatch_completed names unknown effect %q", association.EffectID)
 		}
-		var sealed struct {
-			Responsibility string `json:"responsibility"`
-		}
-		if json.Unmarshal(effect.Result, &sealed) != nil ||
-			sealed.Responsibility == "" {
+		if association.Responsibility == "" {
 			t.Fatalf(
-				"effect %q submission has no responsibility: %q",
-				association.EffectID, effect.Result,
+				"dispatch_completed body has no responsibility: %q",
+				event.Body,
 			)
 		}
-		got = append(got, sealed.Responsibility)
+		got = append(got, association.Responsibility)
 	}
 	want := []string{
 		string(driver.PlannerProposal),

@@ -945,9 +945,12 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 				}
 				slice := ""
 				track := ""
+				var responsibility driver.Responsibility
 				if dispatch.production != nil {
 					slice = dispatch.production.Context.Slice
 					track = dispatch.production.Context.Track
+					responsibility =
+						dispatch.production.Context.Responsibility
 				}
 				if err := s.journal.ReconcileOwned(
 					context.WithoutCancel(ctx),
@@ -958,10 +961,11 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 						Token:     effect.CurrentClaim,
 						EventKind: "dispatch_uncertain",
 						EventBody: MarshalAssociation(EventAssociation{
-							EffectID: effect.ID,
-							WorkID:   work,
-							Track:    track,
-							Slice:    slice,
+							EffectID:       effect.ID,
+							WorkID:         work,
+							Track:          track,
+							Slice:          slice,
+							Responsibility: responsibility,
 						}),
 						At: s.now().UTC(),
 					},

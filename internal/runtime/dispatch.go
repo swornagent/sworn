@@ -1973,9 +1973,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			RunID: manifest.value.RunID, EffectID: replayKey,
 			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
 			EventBody: MarshalAssociation(EventAssociation{
-				EffectID: replayKey,
-				WorkID:   attemptIdentity.WorkID,
-				Slice:    coordinates.Slice,
+				EffectID:       replayKey,
+				WorkID:         attemptIdentity.WorkID,
+				Slice:          coordinates.Slice,
+				Responsibility: coordinates.Responsibility,
 			}), At: s.now().UTC(),
 		}, journal.RecoveryAmbiguous)
 		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
@@ -2123,9 +2124,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		return runtimeFail("RECOVERY_UNCERTAIN", cause)
 	}
 	defaultAssocBody := MarshalAssociation(EventAssociation{
-		EffectID: replayKey,
-		WorkID:   attemptIdentity.WorkID,
-		Slice:    coordinates.Slice,
+		EffectID:       replayKey,
+		WorkID:         attemptIdentity.WorkID,
+		Slice:          coordinates.Slice,
+		Responsibility: coordinates.Responsibility,
 	})
 	eventKind := func(base string) string {
 		kind, kindErr := continuationEventKind(

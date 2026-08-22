@@ -1491,6 +1491,15 @@ func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
 			if assoc.Slice != "" && assoc.Slice != "S1" {
 				t.Fatalf("dispatch_completed has unexpected slice %q", assoc.Slice)
 			}
+			if !knownDispatchResponsibility(assoc.Responsibility) {
+				t.Fatalf("dispatch_completed has unexpected responsibility %q", assoc.Responsibility)
+			}
+			assertEventBodyKeysWithin(
+				t,
+				event.Body,
+				[]string{"effect_id", "work_id", "responsibility"},
+				[]string{"effect_id", "work_id", "track", "slice", "responsibility"},
+			)
 		}
 	}
 
