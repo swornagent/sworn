@@ -763,8 +763,12 @@ func (transport *bedrockTransport) roundTrip(
 		return nil, fail("OUTPUT_OVERFLOW")
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		// Bedrock's error envelope is not the {"error":{"message":...}} shape
+		// the detail extractor anchors, so no message is read here: the
+		// stable code stays the only fact, and a bedrock 429 keeps
+		// HardLimit false so it stays on today's default-paced path.
 		clearBytes(body)
-		return nil, providerHTTPStatusError(response.StatusCode)
+		return nil, providerHTTPStatusError(response.StatusCode, "")
 	}
 	return body, nil
 }

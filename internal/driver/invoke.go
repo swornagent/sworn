@@ -406,6 +406,14 @@ func sanitizeFailedObservation(
 	return sanitized
 }
 
+// normalizeAdapterError maps adapter errors to the stable dispatcher
+// vocabulary. Adapter-provided wrapping text cannot escape, with one bounded
+// exception recorded by the S5-provider-limit-evidence ruling: the five
+// provider status codes carry the status envelope's error.message as Detail
+// after it passes validateText at maxProviderErrorDetailBytes, so a provider
+// limit is diagnosable from the durable failure record and the live stream.
+// Every other code, and any non-conforming detail, is dropped exactly as
+// before.
 func normalizeAdapterError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -415,6 +423,15 @@ func normalizeAdapterError(err error) error {
 	}
 	var contractErr *ContractError
 	if errors.As(err, &contractErr) && validAdapterErrorCode(contractErr.Code) {
+		if providerStatusCode(contractErr.Code) &&
+			validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
+			// Bounded, re-validated provider words ride the stable code.
+			return &ContractError{
+				Code:      contractErr.Code,
+				Detail:    contractErr.Detail,
+				HardLimit: contractErr.HardLimit,
+			}
+		}
 		// Recreate the error so adapter-provided wrapping text cannot escape.
 		return fail(contractErr.Code)
 	}

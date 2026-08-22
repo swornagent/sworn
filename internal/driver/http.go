@@ -220,30 +220,46 @@ func (transport *httpTransport) roundTrip(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		if response.StatusCode == http.StatusTooManyRequests {
-			delay := providerRetryDelay(response.Header.Get("Retry-After"), body)
+			retryAfter := response.Header.Get("Retry-After")
+			message := providerErrorDetail(body)
+			hard := providerLimitHard(retryAfter, body)
+			delay := providerRetryDelay(retryAfter, body)
 			clearBytes(body)
-			return nil, &ContractError{Code: "PROVIDER_LIMITED", RetryAfter: delay}
+			return nil, &ContractError{
+				Code:       "PROVIDER_LIMITED",
+				Detail:     message,
+				RetryAfter: delay,
+				HardLimit:  hard,
+			}
 		}
+		detail := providerErrorDetail(body)
 		clearBytes(body)
-		return nil, providerHTTPStatusError(response.StatusCode)
+		return nil, providerHTTPStatusError(response.StatusCode, detail)
 	}
 	return body, nil
 }
 
-func providerHTTPStatusError(statusCode int) error {
+// providerHTTPStatusError maps a non-2xx status to the stable provider
+// status vocabulary. detail is the bounded, normalized status-envelope
+// message the caller extracted ("" when none); it rides only the provider
+// status codes, and the dispatcher boundary re-validates it before it can
+// persist or render.
+func providerHTTPStatusError(statusCode int, detail string) error {
+	code := ""
 	switch {
 	case statusCode == http.StatusUnauthorized ||
 		statusCode == http.StatusForbidden:
-		return fail("PROVIDER_AUTHORIZATION_FAILED")
+		code = "PROVIDER_AUTHORIZATION_FAILED"
 	case statusCode == http.StatusTooManyRequests:
-		return fail("PROVIDER_LIMITED")
+		code = "PROVIDER_LIMITED"
 	case statusCode >= 400 && statusCode < 500:
-		return fail("PROVIDER_REQUEST_REJECTED")
+		code = "PROVIDER_REQUEST_REJECTED"
 	case statusCode >= 500 && statusCode < 600:
-		return fail("PROVIDER_UNAVAILABLE")
+		code = "PROVIDER_UNAVAILABLE"
 	default:
-		return fail("PROVIDER_ERROR")
+		code = "PROVIDER_ERROR"
 	}
+	return &ContractError{Code: code, Detail: detail}
 }
 
 func (transport *httpTransport) check(
