@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-telemetry-foundations",
-  "revision": 2,
-  "previous_plan": "b7659be8cebe922d72e839af0c1dad4821498694",
+  "revision": 3,
+  "previous_plan": "cfdd148ba4154f93681a93ec16bb68342c146fd0",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-telemetry-foundations/2",
+  "approval_ref": "operator://2026-08-23-telemetry-foundations/3",
   "tracks": [
     {
       "id": "T1-telemetry",
@@ -15,15 +15,16 @@
         {
           "id": "S1-usage-truth",
           "outcome": "The engine's own journals answer the questions the operator today answers with provider consoles and hand probes: every dispatch on a certified surface lands a usage receipt with the full token split the wire actually carried - input, output, cache read, cache write, reasoning - plus wall-clock duration, and an attempt that genuinely cannot report says so loudly with the surface named instead of defaulting silent. The eval summary stops rendering a partial sum as a total: coverage rides in-band with every aggregate, and turn economics - turns, tool calls, call mix per role - become first-class eval facts.",
-          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev2/S1-usage-truth.json",
-          "digest": "sha256:03d55337715f949c71dc3b89afcdde46398a207ac37dd42b745a76963806eda7",
+          "contract_path": "contracts/2026-08-23-telemetry-foundations/rev3/S1-usage-truth.json",
+          "digest": "sha256:d4f0ebfe05c22bec48283300c7a7565251b3e1359fc97f24feaba09a52bc58c4",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/driver",
             "internal/journal",
             "internal/observe",
-            "internal/runtime"
+            "internal/runtime",
+            "test/e2e"
           ],
           "waivers": [
             {
@@ -378,3 +379,21 @@ is byte-for-byte the digest the in-run planner's sealed revision-2
 proposal declared - this revision is that proposal, operator-carried
 per the summary-before-plan doctrine, under
 operator://2026-08-23-telemetry-foundations/2.
+
+# Revision 3
+
+The r2 captain escalation on S1 (design attempt 2) found the second and
+final out-of-scope pin of the eval schema version: two e2e conformance
+assertions (test/e2e/turn_recovery_linux_test.go:711, :1642) pin
+journal.EvalSchemaVersionV2 on live-stamped records, and test/e2e was
+outside S1's surface. An operator sweep of the whole tree confirms
+these two sites and the revision-2 observer.go allowlist are the only
+pins outside S1's existing scope - no further revision of this class
+remains. S1's edit surface gains test/e2e bounded to exactly those
+assertions; everything else is unchanged from revision 2, and S2-S9
+remain byte-identical with unchanged digests. The captain's receipt
+also settled both implementer adjudications (canonical contract digests
+verified binding; no-conversion cost strategy confirmed) - they need
+not recur. Operator-carried under
+operator://2026-08-23-telemetry-foundations/3 per the
+summary-before-plan doctrine.
