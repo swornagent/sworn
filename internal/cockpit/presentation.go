@@ -1,5 +1,11 @@
 package cockpit
 
+import (
+	"fmt"
+
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+)
+
 // RunPresentation explains a stable run state without replacing the raw value
 // used by JSON, journals, or other machine-facing contracts.
 type RunPresentation struct {
@@ -11,10 +17,19 @@ type RunPresentation struct {
 }
 
 // PresentRunState returns the human explanation shared by command-line and
-// terminal views.
-func PresentRunState(state string) RunPresentation {
+// terminal views. The optional park status is read when present so a
+// degradation park names its cause instead of the flat parked text.
+func PresentRunState(
+	state string,
+	park ...*runtimepkg.ParkStatus,
+) RunPresentation {
 	presentation := RunPresentation{
 		Checked: "The latest saved run record.",
+	}
+	degradationPark := false
+	if len(park) > 0 && park[0] != nil &&
+		park[0].Cause == runtimepkg.ParkCauseDegradation {
+		degradationPark = true
 	}
 	switch state {
 	case "new":
@@ -68,10 +83,22 @@ func PresentRunState(state string) RunPresentation {
 		presentation.Next = "No delivery work remains for this run."
 		presentation.NeedsYou = "No."
 	case "parked":
-		presentation.Status = "Stopped and needs your attention"
-		presentation.What = "One work item needs an answer or has failed repeatedly."
-		presentation.Next = "Open the latest board to answer the question or review the retry action."
-		presentation.NeedsYou = "Yes — review the stopped work."
+		if degradationPark {
+			parked := park[0]
+			presentation.Status = "Stopped after repeated context loss"
+			presentation.What = fmt.Sprintf(
+				"Sworn rebuilt the model context %d times against a degradation budget of %d.",
+				parked.FallbackCount,
+				parked.Budget,
+			)
+			presentation.Next = "Raise limits.degradation_budget in the manifest, then resume the run."
+			presentation.NeedsYou = "Yes — review the repeated context rebuilds before continuing."
+		} else {
+			presentation.Status = "Stopped and needs your attention"
+			presentation.What = "One work item needs an answer or has failed repeatedly."
+			presentation.Next = "Open the latest board to answer the question or review the retry action."
+			presentation.NeedsYou = "Yes — review the stopped work."
+		}
 	case "takeover_required":
 		presentation.Status = "Resume required"
 		presentation.What = "The previous Sworn process stopped and no process currently owns the run."
@@ -99,7 +126,7 @@ func PresentRunState(state string) RunPresentation {
 // PresentSnapshot adds the human-attention and diagnostic facts available to
 // the board without changing the underlying snapshot.
 func PresentSnapshot(snapshot Snapshot) RunPresentation {
-	presentation := PresentRunState(snapshot.Run.State)
+	presentation := PresentRunState(snapshot.Run.State, snapshot.Run.Park)
 	for _, diagnostic := range snapshot.Diagnostics {
 		if diagnostic.Code != "BATON_UNAVAILABLE" {
 			continue
@@ -122,6 +149,12 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 		return presentation
 	}
 	if snapshot.Run.State == "parked" {
+		// A degradation park names its cause even when a retry action for
+		// unrelated failed work happens to be on the same board.
+		if snapshot.Run.Park != nil &&
+			snapshot.Run.Park.Cause == runtimepkg.ParkCauseDegradation {
+			return presentation
+		}
 		for _, action := range snapshot.Actions {
 			if action.Kind != "retry" {
 				continue

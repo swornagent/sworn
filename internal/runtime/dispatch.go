@@ -45,10 +45,28 @@ const (
 	continuationOutcomeFallbackExpired = "fallback_expired"
 )
 
+// continuationFallbackEventVersion is the schema version of the structured
+// fallback event body that replaced the bare reason string.
+const continuationFallbackEventVersion = "sworn.continuation-fallback/v1"
+
+// continuationFallbackEvent is the versioned fallback event body: the
+// standard association fields stay present, with the reason carried
+// additively beside retained (whether a stored handle was actually presented
+// to the adapter) and posture (the adapter's declared continuation posture).
+type continuationFallbackEvent struct {
+	SchemaVersion string `json:"schema_version"`
+	EventAssociation
+	Reason   string `json:"reason"`
+	Retained bool   `json:"retained"`
+	Posture  string `json:"posture"`
+}
+
 type continuationDispatchFact struct {
-	mode    driver.ContinuationMode
-	outcome string
-	reason  string
+	mode     driver.ContinuationMode
+	outcome  string
+	reason   string
+	retained bool
+	posture  driver.ContinuationPosture
 }
 
 type continuationPlanAuthority struct {
@@ -701,6 +719,10 @@ func (s *Service) invokeContinuationTurn(
 	*continuationDispatchFact,
 	error,
 ) {
+	// The adapter-declared continuation posture is queried exactly once per
+	// dispatch and journaled on the fact; the status-time counting gate reads
+	// the journaled fact, never a live type assertion.
+	posture := s.continuationPostureFor(freshInvocation)
 	start := func() (
 		driver.Observation,
 		*driver.Continuation,
@@ -721,6 +743,13 @@ func (s *Service) invokeContinuationTurn(
 	}
 	fallback := entry != nil || policy.missingIsFallback
 	if !matches || !supported || resumeInvocation == nil {
+		// Engine-side non-reuse: no stored handle is presented to the
+		// adapter, so nothing was lost to it. This deliberately includes
+		// entry != nil with !matches — the continuation was bound to
+		// authority (design receipt, binding, or selection digest) that no
+		// longer holds. The fallback event is still journaled, with
+		// retained=false so the degradation gate skips it: losing authority
+		// is not adapter degradation.
 		if err := closeRetainedContinuation(entry); err != nil {
 			return driver.Observation{}, nil, nil, err
 		}
@@ -729,9 +758,11 @@ func (s *Service) invokeContinuationTurn(
 			return observation, next, nil, err
 		}
 		return observation, next, &continuationDispatchFact{
-			mode:    driver.ContinuationModeFreshRehydrate,
-			outcome: continuationOutcomeFallback,
-			reason:  "absence",
+			mode:     driver.ContinuationModeFreshRehydrate,
+			outcome:  continuationOutcomeFallback,
+			reason:   "absence",
+			retained: false,
+			posture:  posture,
 		}, err
 	}
 	observation, next, result, wantsFresh, err :=
@@ -761,12 +792,35 @@ func (s *Service) invokeContinuationTurn(
 	if reason == "" {
 		reason = "absence"
 	}
+	// The resume path: a stored handle was actually presented to the adapter
+	// and the adapter rejected it (unsupported, closed, mismatch, expired, or
+	// overflow). retained=true — for a context-retaining adapter this is
+	// real, counted context loss; for a fresh_by_design adapter the counting
+	// gate skips it because rehydration is that adapter's ordinary operation.
 	observation, next, _, err = start()
 	return observation, next, &continuationDispatchFact{
-		mode:    driver.ContinuationModeFreshRehydrate,
-		outcome: outcome,
-		reason:  reason,
+		mode:     driver.ContinuationModeFreshRehydrate,
+		outcome:  outcome,
+		reason:   reason,
+		retained: true,
+		posture:  posture,
 	}, err
+}
+
+// continuationPostureFor reads the adapter-declared continuation posture
+// through the dispatcher capability. An undeclared posture fails closed as
+// context_retaining.
+func (s *Service) continuationPostureFor(
+	invocation driver.Invocation,
+) driver.ContinuationPosture {
+	if provider, ok := s.dispatcher.(driver.ContinuationPostureDriver); ok {
+		switch posture := provider.ContinuationPosture(invocation); posture {
+		case driver.ContinuationPostureContextRetaining,
+			driver.ContinuationPostureFreshByDesign:
+			return posture
+		}
+	}
+	return driver.ContinuationPostureContextRetaining
 }
 
 func (s *Service) invokePreparedDriver(
@@ -2055,7 +2109,20 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			if reason == "" {
 				reason = "absence"
 			}
-			return []byte(reason)
+			// The fallback body carries its reason additively beside the
+			// standard association fields, never instead of them: exactly
+			// the events that feed a park keep their effect, work, and
+			// slice identity.
+			var assoc EventAssociation
+			_ = json.Unmarshal(defaultBody, &assoc)
+			body, _ := json.Marshal(continuationFallbackEvent{
+				SchemaVersion:    continuationFallbackEventVersion,
+				EventAssociation: assoc,
+				Reason:           reason,
+				Retained:         continuationFact.retained,
+				Posture:          string(continuationFact.posture),
+			})
+			return body
 		}
 		return defaultBody
 	}

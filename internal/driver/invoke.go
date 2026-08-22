@@ -41,6 +41,30 @@ type ContinuationDriver interface {
 
 var _ ContinuationDriver = Dispatcher{}
 
+// ContinuationPostureDriver is the additive, opt-in declaration capability:
+// it tells the degradation counter whether an adapter's fresh rehydration is
+// ordinary operation (fresh_by_design) or lost context (context_retaining).
+// Driver.Invoke and the turn contract are unchanged; a driver that does not
+// declare a posture is read as context_retaining.
+type ContinuationPostureDriver interface {
+	Driver
+	ContinuationPosture(Invocation) ContinuationPosture
+}
+
+var _ ContinuationPostureDriver = Dispatcher{}
+
+// ContinuationPosture returns the selected adapter's declared continuation
+// posture. It consults the private opt-in adapter capability and fails closed
+// to context_retaining for adapters that declare nothing.
+func (Dispatcher) ContinuationPosture(invocation Invocation) ContinuationPosture {
+	if declaration, ok := invocation.Selected.adapter.(interface {
+		declaredContinuationPosture() ContinuationPosture
+	}); ok {
+		return declaration.declaredContinuationPosture()
+	}
+	return ContinuationPostureContextRetaining
+}
+
 // RecoverableTurnDriver resumes only the exact yielded worker responsibility.
 // A nil handle starts a fresh turn; a nil handle with input explicitly
 // rehydrates a lost or expired turn without granting submission authority.

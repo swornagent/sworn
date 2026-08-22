@@ -15,7 +15,9 @@ import (
 	"github.com/swornagent/sworn/internal/journal"
 )
 
-// A2: Test that fresh_rehydrate fallback event bodies name the reason
+// A2: Test that fresh_rehydrate fallback event bodies carry the reason
+// additively beside the association fields, the retained fact, and the
+// declared posture.
 func TestFreshRehydrateFallbackEventBodyNamesReason(t *testing.T) {
 	t.Parallel()
 
@@ -65,11 +67,29 @@ func TestFreshRehydrateFallbackEventBodyNamesReason(t *testing.T) {
 
 		found := false
 		for _, event := range snapshot.Events {
-			if strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
-				found = true
-				if string(event.Body) != siteLabel {
-					t.Fatalf("event body = %q, want %q (kind: %s)", string(event.Body), siteLabel, event.Kind)
-				}
+			if !strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
+				continue
+			}
+			found = true
+			var body continuationFallbackEvent
+			if err := json.Unmarshal(event.Body, &body); err != nil {
+				t.Fatalf("event body is not structured: %v (raw: %s)", err, string(event.Body))
+			}
+			if body.SchemaVersion != continuationFallbackEventVersion {
+				t.Fatalf("schema_version = %q, want %q", body.SchemaVersion, continuationFallbackEventVersion)
+			}
+			if body.Reason != siteLabel {
+				t.Fatalf("reason = %q, want %q", body.Reason, siteLabel)
+			}
+			if !body.Retained {
+				t.Fatalf("retained = false, want true: a stored handle was presented and rejected")
+			}
+			if body.Posture != string(driver.ContinuationPostureContextRetaining) {
+				t.Fatalf("posture = %q, want %q", body.Posture, driver.ContinuationPostureContextRetaining)
+			}
+			// A2: the association fields ride alongside the reason.
+			if body.EffectID == "" || body.WorkID == "" {
+				t.Fatalf("fallback event lost its association: %#v", body)
 			}
 		}
 		if !found {
@@ -122,12 +142,23 @@ func TestFreshRehydrateFallbackEventBodyNamesReason(t *testing.T) {
 
 		found := false
 		for _, event := range snapshot.Events {
-			if strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback_expired") ||
-				strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
-				found = true
-				if string(event.Body) != "expiry" {
-					t.Fatalf("event body = %q, want 'expiry' (kind: %s)", string(event.Body), event.Kind)
-				}
+			if !strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback_expired") &&
+				!strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
+				continue
+			}
+			found = true
+			var body continuationFallbackEvent
+			if err := json.Unmarshal(event.Body, &body); err != nil {
+				t.Fatalf("event body is not structured: %v (raw: %s)", err, string(event.Body))
+			}
+			if body.Reason != "expiry" {
+				t.Fatalf("reason = %q, want 'expiry'", body.Reason)
+			}
+			if !body.Retained {
+				t.Fatalf("retained = false, want true: a stored handle was presented and expired")
+			}
+			if body.Posture != string(driver.ContinuationPostureContextRetaining) {
+				t.Fatalf("posture = %q, want %q", body.Posture, driver.ContinuationPostureContextRetaining)
 			}
 		}
 		if !found {
@@ -154,11 +185,24 @@ func TestFreshRehydrateFallbackEventBodyNamesReason(t *testing.T) {
 
 		found := false
 		for _, event := range snapshot.Events {
-			if strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
-				found = true
-				if string(event.Body) != "absence" {
-					t.Fatalf("event body = %q, want 'absence' (kind: %s)", string(event.Body), event.Kind)
-				}
+			if !strings.Contains(event.Kind, ".continuation.fresh_rehydrate.fallback") {
+				continue
+			}
+			found = true
+			var body continuationFallbackEvent
+			if err := json.Unmarshal(event.Body, &body); err != nil {
+				t.Fatalf("event body is not structured: %v (raw: %s)", err, string(event.Body))
+			}
+			if body.Reason != "absence" {
+				t.Fatalf("reason = %q, want 'absence'", body.Reason)
+			}
+			// Correction 2: engine-side non-reuse (no stored handle was
+			// presented to the adapter) is retained=false.
+			if body.Retained {
+				t.Fatalf("retained = true, want false: no stored handle was presented to the adapter")
+			}
+			if body.Posture != string(driver.ContinuationPostureContextRetaining) {
+				t.Fatalf("posture = %q, want %q", body.Posture, driver.ContinuationPostureContextRetaining)
 			}
 		}
 		if !found {
@@ -167,10 +211,147 @@ func TestFreshRehydrateFallbackEventBodyNamesReason(t *testing.T) {
 	})
 }
 
-// A3: Test degradation budget exceeded parks the run at a safe boundary
-func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
+// A1: the counting gate reads the structured facts: a fallback counts only
+// when the dispatch actually had a retained continuation to lose and the
+// adapter declares context retention.
+func TestDegradationFallbacksGatedOnRetainedAndPosture(t *testing.T) {
 	t.Parallel()
 
+	structured := func(retained bool, posture string) []byte {
+		body, err := json.Marshal(continuationFallbackEvent{
+			SchemaVersion: continuationFallbackEventVersion,
+			EventAssociation: EventAssociation{
+				EffectID: "attempt/" + strings.Repeat("a", 64) + "/e1/t1",
+				WorkID:   "sha256:" + strings.Repeat("a", 64),
+				Slice:    "S1",
+			},
+			Reason:   "absence",
+			Retained: retained,
+			Posture:  posture,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+
+	snapshot := func(bodies ...[]byte) journal.Snapshot {
+		events := make([]journal.Event, 0, len(bodies))
+		for index, body := range bodies {
+			events = append(events, journal.Event{
+				Offset: int64(index + 1),
+				Kind:   "dispatch_completed.continuation.fresh_rehydrate.fallback",
+				Body:   body,
+			})
+		}
+		return journal.Snapshot{Events: events}
+	}
+
+	for _, test := range []struct {
+		name     string
+		snapshot journal.Snapshot
+		want     int
+	}{
+		{
+			name: "retained context_retaining counts",
+			snapshot: snapshot(
+				structured(true, "context_retaining"),
+				structured(true, "context_retaining"),
+				structured(true, "context_retaining"),
+				structured(true, "context_retaining"),
+			),
+			want: 4,
+		},
+		{
+			name: "engine-side non-reuse does not count",
+			snapshot: snapshot(
+				structured(false, "context_retaining"),
+				structured(false, "context_retaining"),
+				structured(false, "context_retaining"),
+				structured(false, "context_retaining"),
+			),
+			want: 0,
+		},
+		{
+			name: "fresh_by_design churn does not count",
+			snapshot: snapshot(
+				structured(true, "fresh_by_design"),
+				structured(true, "fresh_by_design"),
+				structured(true, "fresh_by_design"),
+				structured(true, "fresh_by_design"),
+			),
+			want: 0,
+		},
+		{
+			name: "legacy bare-string bodies keep counting",
+			snapshot: snapshot(
+				[]byte("absence"),
+				[]byte("continuation.ledger.step_budget_exhausted"),
+				[]byte("expiry"),
+				[]byte("absence"),
+			),
+			want: 4,
+		},
+		{
+			name: "unknown posture fails closed as counting",
+			snapshot: snapshot(
+				structured(true, ""),
+				structured(true, ""),
+			),
+			want: 2,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := degradationFallbacks(test.snapshot); len(got) != test.want {
+				t.Fatalf("degradationFallbacks = %d items (%#v), want %d", len(got), got, test.want)
+			}
+		})
+	}
+}
+
+// Correction 2: a structured retained=false fact is engine-side non-reuse,
+// including the entry-present-but-mismatched case (the design receipt,
+// binding, or selection digest changed). It is journaled and not counted.
+func TestEntryPresentButMismatchedDispatchIsNotDegradation(t *testing.T) {
+	t.Parallel()
+
+	body, err := json.Marshal(continuationFallbackEvent{
+		SchemaVersion: continuationFallbackEventVersion,
+		EventAssociation: EventAssociation{
+			EffectID: "attempt/" + strings.Repeat("b", 64) + "/e1/t1",
+			WorkID:   "sha256:" + strings.Repeat("b", 64),
+		},
+		Reason:   "absence",
+		Retained: false,
+		Posture:  string(driver.ContinuationPostureContextRetaining),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{Events: []journal.Event{{
+		Offset: 1,
+		Kind:   "dispatch_completed.continuation.fresh_rehydrate.fallback",
+		Body:   body,
+	}}}
+	if got := degradationFallbacks(snapshot); len(got) != 0 {
+		t.Fatalf("entry-present-but-mismatched dispatch counted: %#v", got)
+	}
+}
+
+type degradationStatusFixture struct {
+	ctx      context.Context
+	manifest admittedManifest
+	store    *journal.Store
+	owner    journal.OwnerLease
+	now      time.Time
+	service  *Service
+	engine   *engine
+}
+
+func newDegradationStatusFixture(t *testing.T) *degradationStatusFixture {
+	t.Helper()
 	ctx := context.Background()
 	repository := productionRepository(t)
 	config := productionConfig(t)
@@ -206,7 +387,6 @@ func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	dispatcher := fixtureDriver(func(_ context.Context, invocation driver.Invocation) (driver.Observation, error) {
 		return driver.Observation{}, nil
 	})
@@ -219,7 +399,6 @@ func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-
 	planBytes, _ := runtimePlan(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
 	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
@@ -228,8 +407,159 @@ func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	return &degradationStatusFixture{
+		ctx: ctx, manifest: manifest, store: store, owner: owner,
+		now: now, service: service, engine: engine,
+	}
+}
 
-	// Budget is default 3. Record 3 fallback events -> should NOT park.
+func (f *degradationStatusFixture) appendStructuredFallback(
+	t *testing.T,
+	retained bool,
+	posture string,
+	index int,
+) {
+	t.Helper()
+	body, err := json.Marshal(continuationFallbackEvent{
+		SchemaVersion: continuationFallbackEventVersion,
+		EventAssociation: EventAssociation{
+			EffectID: "attempt/" + strings.Repeat("c", 64) + "/e1/t1",
+			WorkID:   "sha256:" + strings.Repeat("c", 64),
+		},
+		Reason:   "absence",
+		Retained: retained,
+		Posture:  posture,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.AppendEvent(f.ctx, f.manifest.value.RunID,
+		"dispatch_completed.continuation.fresh_rehydrate.fallback",
+		body, f.now.Add(time.Duration(index)*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A1: the status count gate reads the journaled facts. An adapter whose
+// declared posture makes fresh rehydration its ordinary operation, and a
+// dispatch with nothing retained, accumulate zero budget.
+func TestStatusParkCountsOnlyRealLoss(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		retained bool
+		posture  string
+		park     bool
+	}{
+		{
+			name:     "context_retaining retained loss parks",
+			retained: true,
+			posture:  string(driver.ContinuationPostureContextRetaining),
+			park:     true,
+		},
+		{
+			name:     "fresh_by_design churn never parks",
+			retained: true,
+			posture:  string(driver.ContinuationPostureFreshByDesign),
+			park:     false,
+		},
+		{
+			name:     "engine-side non-reuse never parks",
+			retained: false,
+			posture:  string(driver.ContinuationPostureContextRetaining),
+			park:     false,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newDegradationStatusFixture(t)
+			// Default budget is 3; four events cross it when they count.
+			for i := 1; i <= 4; i++ {
+				fixture.appendStructuredFallback(
+					t, test.retained, test.posture, i,
+				)
+			}
+			status, err := fixture.service.Status(
+				fixture.ctx,
+				fixture.manifest.value.RunID,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.State == "parked" != test.park {
+				t.Fatalf("state = %q, want parked=%t (status = %#v)", status.State, test.park, status)
+			}
+			if !test.park {
+				if status.Park != nil {
+					t.Fatalf("non-counting churn produced a park status: %#v", status.Park)
+				}
+				return
+			}
+			if status.Park == nil ||
+				status.Park.Cause != ParkCauseDegradation ||
+				status.Park.FallbackCount != 4 ||
+				status.Park.Budget != 3 ||
+				status.Park.UnblockKnob != DegradationUnblockKnob {
+				t.Fatalf("degradation park = %#v, want cause=%q count=4 budget=3 knob=%q",
+					status.Park, ParkCauseDegradation, DegradationUnblockKnob)
+			}
+		})
+	}
+}
+
+// A3: the park cause precedence mirrors the final park computation:
+// human authority, attention, degradation, exhaustion.
+func TestParkStatusForCausePrecedence(t *testing.T) {
+	t.Parallel()
+
+	manifest := admittedManifest{value: Manifest{}}
+
+	human := parkStatusFor(manifest, true, true, true, 7, true)
+	if human.Cause != ParkCauseHumanAuthority {
+		t.Fatalf("human authority precedence = %#v", human)
+	}
+
+	attention := parkStatusFor(manifest, false, true, true, 7, true)
+	if attention.Cause != ParkCauseAttention {
+		t.Fatalf("attention precedence = %#v", attention)
+	}
+
+	degradation := parkStatusFor(manifest, false, false, true, 7, true)
+	if degradation.Cause != ParkCauseDegradation ||
+		degradation.FallbackCount != 7 ||
+		degradation.Budget != 3 ||
+		degradation.UnblockKnob != DegradationUnblockKnob {
+		t.Fatalf("degradation park = %#v", degradation)
+	}
+
+	exhaustion := parkStatusFor(manifest, false, false, false, 0, true)
+	if exhaustion.Cause != ParkCauseExhaustion {
+		t.Fatalf("exhaustion park = %#v", exhaustion)
+	}
+	if exhaustion.FallbackCount != 0 ||
+		exhaustion.Budget != 0 ||
+		exhaustion.UnblockKnob != "" {
+		t.Fatalf("non-degradation park carries degradation facts: %#v", exhaustion)
+	}
+}
+
+// A3: Test degradation budget exceeded parks the run at a safe boundary
+func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDegradationStatusFixture(t)
+	ctx := fixture.ctx
+	manifest := fixture.manifest
+	store := fixture.store
+	service := fixture.service
+	engine := fixture.engine
+	owner := fixture.owner
+	now := fixture.now
+
+	// Budget is default 3. Record 3 legacy fallback events -> should NOT
+	// park; a journal recorded before this slice keeps its evaluation.
 	for i := 1; i <= 3; i++ {
 		if err := store.AppendEvent(ctx, manifest.value.RunID,
 			"dispatch_completed.continuation.fresh_rehydrate.fallback",
@@ -261,6 +591,15 @@ func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
 	if status.State != "parked" {
 		t.Fatalf("expected state = parked with 4 fallbacks (budget=3), got: %s", status.State)
 	}
+	// A3: the status seam names the park: cause, count, budget, and knob.
+	if status.Park == nil ||
+		status.Park.Cause != ParkCauseDegradation ||
+		status.Park.FallbackCount != 4 ||
+		status.Park.Budget != 3 ||
+		status.Park.UnblockKnob != DegradationUnblockKnob {
+		t.Fatalf("degradation park = %#v, want cause=%q count=4 budget=3 knob=%q",
+			status.Park, ParkCauseDegradation, DegradationUnblockKnob)
+	}
 
 	// Verify driveLoop halts and records degradation_budget_parked event
 	driveErr := service.driveLoop(ctx, engine, owner, false)
@@ -284,16 +623,136 @@ func TestDegradationBudgetExceededParksRunAtSafeBoundary(t *testing.T) {
 		t.Fatal("expected degradation_budget_parked event in journal")
 	}
 
-	var recordedFallbacks []degradationFallback
-	if err := json.Unmarshal(parkEvent.Body, &recordedFallbacks); err != nil {
-		t.Fatalf("cannot unmarshal degradation_budget_parked body: %v (raw: %s)", err, string(parkEvent.Body))
+	// The typed park event carries cause, count, budget, knob, and the
+	// counted fallback list, and round-trips the strict parser exactly.
+	parsed, err := ParseDegradationParkEvent(parkEvent.Body)
+	if err != nil {
+		t.Fatalf("cannot parse degradation_budget_parked body: %v (raw: %s)", err, string(parkEvent.Body))
 	}
-	if len(recordedFallbacks) != 4 {
-		t.Fatalf("recorded fallbacks count = %d, want 4", len(recordedFallbacks))
+	if parsed.RunID != manifest.value.RunID ||
+		parsed.Cause != ParkCauseDegradation ||
+		parsed.Count != 4 ||
+		parsed.Budget != 3 ||
+		parsed.UnblockKnob != DegradationUnblockKnob {
+		t.Fatalf("typed park event = %#v", parsed)
 	}
-	if recordedFallbacks[3].Reason != "continuation.ledger.step_budget_exhausted" {
-		t.Fatalf("recorded fallbacks[3].Reason = %q, want 'continuation.ledger.step_budget_exhausted'", recordedFallbacks[3].Reason)
+	if len(parsed.Fallbacks) != 4 {
+		t.Fatalf("recorded fallbacks count = %d, want 4", len(parsed.Fallbacks))
 	}
+	if parsed.Fallbacks[3].Reason != "continuation.ledger.step_budget_exhausted" {
+		t.Fatalf("recorded fallbacks[3].Reason = %q, want 'continuation.ledger.step_budget_exhausted'", parsed.Fallbacks[3].Reason)
+	}
+}
+
+// TestParseDegradationParkEventValidation pins the strict egress-side gate:
+// canonical encoding, closed fields, and honest facts.
+func TestParseDegradationParkEventValidation(t *testing.T) {
+	t.Parallel()
+
+	valid := func() DegradationParkEvent {
+		return DegradationParkEvent{
+			SchemaVersion: DegradationParkEventVersion,
+			RunID:         "run-degradation",
+			Cause:         ParkCauseDegradation,
+			Count:         4,
+			Budget:        3,
+			UnblockKnob:   DegradationUnblockKnob,
+			Fallbacks: []DegradationFallback{
+				{Offset: 1, Reason: "absence"},
+				{Offset: 2, Reason: "absence"},
+				{Offset: 3, Reason: "absence"},
+				{Offset: 4, Reason: "expiry"},
+			},
+		}
+	}
+
+	body, err := json.Marshal(valid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseDegradationParkEvent(body)
+	if err != nil || parsed.Count != 4 || parsed.RunID != "run-degradation" {
+		t.Fatalf("valid park event rejected: %#v, %v", parsed, err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*DegradationParkEvent)
+	}{
+		{
+			name:   "unknown schema version",
+			mutate: func(value *DegradationParkEvent) { value.SchemaVersion = "sworn.degradation-park/v2" },
+		},
+		{
+			name:   "wrong cause",
+			mutate: func(value *DegradationParkEvent) { value.Cause = "attention" },
+		},
+		{
+			name:   "count does not cross budget",
+			mutate: func(value *DegradationParkEvent) { value.Count = 3 },
+		},
+		{
+			name:   "count does not match fallbacks",
+			mutate: func(value *DegradationParkEvent) { value.Count = 5 },
+		},
+		{
+			name:   "wrong knob",
+			mutate: func(value *DegradationParkEvent) { value.UnblockKnob = "limits.other" },
+		},
+		{
+			name:   "empty fallback reason",
+			mutate: func(value *DegradationParkEvent) { value.Fallbacks[0].Reason = "" },
+		},
+		{
+			name:   "zero fallback offset",
+			mutate: func(value *DegradationParkEvent) { value.Fallbacks[0].Offset = 0 },
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			value := valid()
+			test.mutate(&value)
+			body, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed, err := ParseDegradationParkEvent(body); err == nil {
+				t.Fatalf("mutated park event accepted: %#v", parsed)
+			}
+		})
+	}
+
+	t.Run("legacy array body is not a typed park event", func(t *testing.T) {
+		t.Parallel()
+		legacy := `[{"offset":1,"reason":"absence"}]`
+		if parsed, err := ParseDegradationParkEvent([]byte(legacy)); err == nil {
+			t.Fatalf("legacy body parsed as typed park event: %#v", parsed)
+		}
+	})
+
+	t.Run("noncanonical bytes rejected", func(t *testing.T) {
+		t.Parallel()
+		noncanonical, err := json.MarshalIndent(valid(), "", " ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed, err := ParseDegradationParkEvent(noncanonical); err == nil {
+			t.Fatalf("noncanonical park event accepted: %#v", parsed)
+		}
+	})
+
+	t.Run("unknown field rejected", func(t *testing.T) {
+		t.Parallel()
+		body, err := json.Marshal(valid())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = bytes.Replace(body, []byte(`{"schema_version"`), []byte(`{"future_field":"x","schema_version"`), 1)
+		if parsed, err := ParseDegradationParkEvent(body); err == nil {
+			t.Fatalf("unknown field accepted: %#v", parsed)
+		}
+	})
 }
 
 // A4: Test manifest degradation budget admission, round-trip, and defaults

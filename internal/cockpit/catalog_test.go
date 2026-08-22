@@ -201,6 +201,68 @@ func TestProjectNeedsYouSurfacesParkedAndAttentionRuns(t *testing.T) {
 	}
 }
 
+// A4: the needs-you catalog names a degradation park and never presents a
+// park without failed work as a retry with an empty work id.
+func TestProjectNeedsYouNamesDegradationPark(t *testing.T) {
+	t.Parallel()
+
+	degradation := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-degradation",
+				Release: "release-degradation",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-degradation",
+				State: "parked",
+				Park: &runtimepkg.ParkStatus{
+					Cause:         runtimepkg.ParkCauseDegradation,
+					FallbackCount: 4,
+					Budget:        3,
+					UnblockKnob:   runtimepkg.DegradationUnblockKnob,
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(degradation)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != "review_park" ||
+		item.WorkID != "" ||
+		item.State != "parked" ||
+		!strings.Contains(item.Reason, "4 times") ||
+		!strings.Contains(item.Reason, "budget of 3") ||
+		!strings.Contains(item.Reason, "limits.degradation_budget") {
+		t.Fatalf("degradation needs-you item = %#v", item)
+	}
+
+	// A park with no failed work and no degradation fact is still never
+	// presented as a retry with an empty work id.
+	other := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-other",
+				Release: "release-other",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-other",
+				State: "parked",
+				Park: &runtimepkg.ParkStatus{
+					Cause: runtimepkg.ParkCauseHumanAuthority,
+				},
+			},
+		},
+	}
+	otherNeedsYou := ProjectNeedsYou(other)
+	if len(otherNeedsYou) != 1 ||
+		otherNeedsYou[0].Action != "review_park" ||
+		otherNeedsYou[0].WorkID != "" {
+		t.Fatalf("other park needs-you = %#v", otherNeedsYou)
+	}
+}
+
 func TestBuildProjectCatalogIncludesReleasesRunsAndNeedsYou(t *testing.T) {
 	t.Parallel()
 

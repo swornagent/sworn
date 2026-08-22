@@ -104,6 +104,43 @@ func (dialect providerDialect) continuationMode() ContinuationMode {
 	}
 }
 
+// ContinuationPosture declares whether fresh rehydration is ordinary
+// operation for an adapter. Degradation counting reads this declaration: an
+// adapter that rehydrates by design accumulates zero degradation budget from
+// transport churn, while a continuation-bearing adapter losing a retained
+// session still counts. An adapter that declares nothing is read as
+// context_retaining (fail-closed).
+type ContinuationPosture string
+
+const (
+	ContinuationPostureContextRetaining ContinuationPosture = "context_retaining"
+	ContinuationPostureFreshByDesign    ContinuationPosture = "fresh_by_design"
+)
+
+// continuationPosture sits beside continuationMode: the mode says how a
+// retained conversation replays, the posture says whether losing that replay
+// is degradation at all. Gemini is the google-native stateless per-request
+// surface whose engine continuation is a replay cache (sworn#227), so fresh
+// rehydration is its ordinary operation; every other dialect retains context
+// by design and loses real session state on a fresh rehydrate.
+func (dialect providerDialect) continuationPosture() ContinuationPosture {
+	switch dialect {
+	case providerDialectGemini:
+		return ContinuationPostureFreshByDesign
+	case providerDialectOpenAIResponses,
+		providerDialectOpenAIChat,
+		providerDialectOpenRouterChat,
+		providerDialectOpaqueChat,
+		providerDialectGoogleChat,
+		providerDialectXAIChat,
+		providerDialectXAIResponses,
+		providerDialectBedrockConverse:
+		return ContinuationPostureContextRetaining
+	default:
+		return ContinuationPostureContextRetaining
+	}
+}
+
 type loopAdapter struct {
 	identity  AdapterIdentity
 	family    ProfileFamily
@@ -159,6 +196,16 @@ func (adapter *loopAdapter) Identity() AdapterIdentity {
 		return AdapterIdentity{}
 	}
 	return adapter.identity
+}
+
+// declaredContinuationPosture implements the private opt-in capability the
+// Dispatcher reads through ContinuationPosture. It is a per-dialect
+// declaration, never a per-dispatch inference.
+func (adapter *loopAdapter) declaredContinuationPosture() ContinuationPosture {
+	if adapter == nil {
+		return ContinuationPostureContextRetaining
+	}
+	return adapter.dialect.continuationPosture()
 }
 
 func (adapter *loopAdapter) profileFamily() ProfileFamily {
