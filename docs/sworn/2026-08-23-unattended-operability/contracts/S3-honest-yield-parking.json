@@ -1,0 +1,65 @@
+{
+ "outcome": "A worker asking an honest question is heard the first time: a question or blocked yield opens an answerable attention immediately - the worker's own words on the board, no try consumed, the conversation retained so the answer resumes it in place - instead of two thirds of the try budget burning while automation forwards 'no sealed submission' at a worker that asked for help.",
+ "scope": {
+  "include": [
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the human-only yield kinds (human_choice and human_confirmation already park correctly on first occurrence and are untouched)",
+   "the recovery-budget nudging doctrine for operational recovery (call-less turns, prose nudges, and submission corrections keep their many-nudges tolerance - nudges-per-completion stays a model quality metric, not a failure)",
+   "attention answer semantics, board presentation, and the answer verb (they already work; this slice makes them reachable)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins yield routing; the attention surfaces they render are consumed unchanged"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins yield routing; the attention surfaces they render are consumed unchanged"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins yield routing; the attention surfaces they render are consumed unchanged"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins yield routing; the attention surfaces they render are consumed unchanged"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "First-occurrence parking: a question or blocked yield opens the attention on its first occurrence without consuming a try. Today only YieldHumanChoice and YieldHumanConfirmation route to the human park (the kind test at internal/runtime/turn_recovery.go:1343-1356); question and blocked fall into the automation loop, whose only forwardable fact on this path is the literal string 'no sealed submission' (the eligible-facts gate at internal/driver/automation.go:205-230 against the three facts built at turn_recovery.go:871-893) - repeated up to a 10,000-action budget. Pinned by turn-recovery tests: one question yield produces one open attention and an unconsumed try. Evidence basis: sworn#191 - two of three tries burned before an answerable attention surfaced, and the same correct guard implementation was written three times and survived nowhere."
+  },
+  {
+   "id": "A2",
+   "text": "The worker's words reach the operator verbatim: the opened attention carries the yield's own message as its question (the park machinery already does this - parkTurnRecoveryReplacingBound passes the message through at turn_recovery.go:2266-2277, and the board's needs-you row surfaces attention questions verbatim at internal/cockpit/catalog.go:101-119) - pinned by a test asserting the question text end to end."
+  },
+  {
+   "id": "A3",
+   "text": "The answer resumes the same conversation: the park retains the worker's continuation (the retention at turn_recovery.go:2306-2314), the answered attention resumes the yielded worker with the answer in place, and the park survives host death recoverable through the existing paths - the durability posture of the park checkpoint is chosen deliberately and pinned (the human-park variant persists a crash-barrier checkpoint at turn_recovery.go:1820-1892 and the plain variant does not; an answerable park that dies with its host would re-burn exactly the work this slice protects). Pinned by a yield-park-answer-resume fixture including a host-death crash cut."
+  },
+  {
+   "id": "A4",
+   "text": "Escalation stays possible: a worker that yields blocked repeatedly after answers, or whose question genuinely cannot be answered, still reaches the existing park-for-human and exhaustion paths - first-occurrence parking never becomes an infinite ask-answer loop; a bounded ask count per work is pinned by test."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The yield vocabulary is settled (internal/driver/yield.go:19-26): this slice changes where question and blocked route, never what they mean; human-only kinds keep their stricter durable-checkpoint semantics.",
+  "The captain-advisory path (RecoveryAskCaptain) remains available before the park where the model elects it; what dies is the content-free resume loop as the default fate of an honest question.",
+  "Evidence anchor for the cost: docs/captures/2026-08-11-sworn-engine-recording-dogfood-defects.md F16.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

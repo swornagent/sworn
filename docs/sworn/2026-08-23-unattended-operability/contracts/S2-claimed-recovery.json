@@ -1,0 +1,63 @@
+{
+ "outcome": "A cleanly-released run with expired claimed effects is recoverable instead of permanently wedged: re-entry reconciles the expired claim rather than looping RECOVERY_UNCERTAIN, the operator can always authorize a way forward, and the board's next step is derived from the same gate conditions the control verbs actually check - never advice the verbs refuse.",
+ "scope": {
+  "include": [
+   "internal/cockpit",
+   "internal/journal",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the crash-recovery matrix for killed hosts (drive-survival delivered host-death recovery; this slice covers the clean-release-around-a-claimed-effect shape that falls between the kill and clean paths)",
+   "claim acquisition, takeover fencing, and lease semantics for live owners (unchanged)",
+   "retry epoch doctrine (#216 unchanged)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins claimed-effect reconciliation or uncertain-state presentation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins claimed-effect reconciliation or uncertain-state presentation"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins claimed-effect reconciliation or uncertain-state presentation"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The claimed-case reconciles: at re-entry, a driver.dispatch (or paired external effect) found claimed with an expired claim and no live owner is reconciled - the engine determines whether the external action left durable evidence (a sealed handoff receipt, a journaled attempt) and either adopts the result or clears the claim for a fresh try - instead of writing dispatch_uncertain and aborting RECOVERY_UNCERTAIN on every re-entry forever (the branch at internal/runtime/dispatch.go:1939-1982, which today cannot even see claim expiry: journal.Effect carries CurrentClaim but no expiry, internal/journal/model.go:32-45, while ExpiresAt lives only on journal.Claim). Pinned by runtime tests over the sworn#207 reproduction shape: clean release, claimed dispatch, claim expired hours earlier."
+  },
+  {
+   "id": "A2",
+   "text": "The operator always has an admissible verb: in the reconciled-uncertain shape, either reconciliation itself unblocks the run, or retry is admissible so the operator can authorize fresh tries - never the sworn#207 lockout where run loops RECOVERY_UNCERTAIN, takeover refuses because the cleanly-released owner is invisible (currentOwnerOnConnection returns found=false for pending-empty, internal/journal/control.go:173-208), and retry refuses because no /t3 operational failure was ever written (control.go:265-279). Pinned by an end-to-end runtime test driving the wedge shape to a recovered run."
+  },
+  {
+   "id": "A3",
+   "text": "The board tells the truth it checks: the uncertain state's presentation derives from the same gate conditions the verbs evaluate - an uncertain run yields a needs-you row (today ProjectNeedsYou matches attention, parked, takeover_required, awaiting_approval and an uncertain run produces no row at all, internal/cockpit/catalog.go:99-186) and its next-step text names a verb that is currently admissible, never the unimplemented 'Recover the run' (presentation.go:107-111) or a takeover the gate refuses. Pinned by cockpit projection tests over the wedge fixture."
+  },
+  {
+   "id": "A4",
+   "text": "Control refusals carry their reason: CONTROL_REJECTED distinguishes at least stale-generation from not-takeoverable, and ATTENTION_REJECTED names the oversize-answer bound when that is the cause - the sworn#207 unlabelled-refusal tail - pinned by control tests asserting distinct detail per refusal cause."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Exactly-once discipline is the boundary: reconciliation may adopt durable evidence or clear a claim for a fresh try only when the journal proves which is safe; when it genuinely cannot tell, the uncertain state remains - but as an answerable, presented state with an admissible operator verb, never a silent loop.",
+  "Evidence basis: run 2026-08-17-google-native-driver-r3 (journal preserved as the reproduction bundle) - the escape cost a journal abandonment, an in-flight try, and a re-asked attention whose answer lived only in the dead journal.",
+  "The status vocabulary may grow (a reconciled or answerable-uncertain presentation) but existing states keep their meanings; no exactly-once, cardinality, or authority assertion weakens anywhere in test/e2e.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
