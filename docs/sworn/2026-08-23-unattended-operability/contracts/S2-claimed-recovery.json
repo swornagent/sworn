@@ -4,7 +4,8 @@
   "include": [
    "internal/cockpit",
    "internal/journal",
-   "internal/runtime"
+   "internal/runtime",
+   "test/e2e"
   ],
   "exclude": [
    "the crash-recovery matrix for killed hosts (drive-survival delivered host-death recovery; this slice covers the clean-release-around-a-claimed-effect shape that falls between the kill and clean paths)",
@@ -56,7 +57,8 @@
   "Exactly-once discipline is the boundary: reconciliation may adopt durable evidence or clear a claim for a fresh try only when the journal proves which is safe; when it genuinely cannot tell, the uncertain state remains - but as an answerable, presented state with an admissible operator verb, never a silent loop.",
   "Evidence basis: run 2026-08-17-google-native-driver-r3 (journal preserved as the reproduction bundle) - the escape cost a journal abandonment, an in-flight try, and a re-asked attention whose answer lived only in the dead journal.",
   "The status vocabulary may grow (a reconciled or answerable-uncertain presentation) but existing states keep their meanings; no exactly-once, cardinality, or authority assertion weakens anywhere in test/e2e.",
-  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Revision 2 scope boundary: test/e2e enters this slice's edit surface solely for the claimed-state and uncertain-state recovery conformance scenarios in test/e2e/topology_recovery_linux_test.go - the file the r2 candidate had to touch (CANDIDATE_SCOPE_FAILED named exactly this one path) because its scenarios pin the pre-reconciliation RECOVERY_UNCERTAIN semantics this slice replaces; an operator sweep confirms it is the only e2e surface pinning those semantics. Repinned scenarios encode the reconciled semantics; no exactly-once, cardinality, or authority assertion is weakened anywhere in test/e2e, and the e2e gate remains CI-executed, declared not executed, per ADR-0010."
  ],
  "depends_on": [],
  "consumes": []

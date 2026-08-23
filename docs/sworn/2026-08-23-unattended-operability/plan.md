@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-unattended-operability",
-  "revision": 1,
-  "previous_plan": null,
+  "revision": 2,
+  "previous_plan": "db5a0372a49e7c8b225627f23a3af124b2a08da9",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-unattended-operability/1",
+  "approval_ref": "operator://2026-08-23-unattended-operability/2",
   "tracks": [
     {
       "id": "T1-unattended",
@@ -48,14 +48,15 @@
         {
           "id": "S2-claimed-recovery",
           "outcome": "A cleanly-released run with expired claimed effects is recoverable instead of permanently wedged: re-entry reconciles the expired claim rather than looping RECOVERY_UNCERTAIN, the operator can always authorize a way forward, and the board's next step is derived from the same gate conditions the control verbs actually check - never advice the verbs refuse.",
-          "contract_path": "contracts/2026-08-23-unattended-operability/S2-claimed-recovery.json",
-          "digest": "sha256:e1f2e7f15b239ea5f8dcdc8b506008778a83a849549c82f79ba3e6c70bc4167b",
+          "contract_path": "contracts/2026-08-23-unattended-operability/rev2/S2-claimed-recovery.json",
+          "digest": "sha256:fc18991c0fb53cfdc6483f80d61adf6259ba3028905a6ff80fa13e60bdf3a4a8",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
             "internal/cockpit",
             "internal/journal",
-            "internal/runtime"
+            "internal/runtime",
+            "test/e2e"
           ],
           "waivers": [
             {
@@ -346,3 +347,20 @@ release does not alter trust rules, receipt identity, approval
 semantics, containment, or what any control verb is permitted to do;
 new manifest knobs follow the validated-bounds pattern with defaults
 preserving today's behavior, and all vocabulary growth is additive.
+
+# Revision 2
+
+S1 is delivered (candidate 20a83ef2, verifier PASS in r2). The r2 S2
+build proved the contract one surface short the honest way: the
+candidate was refused CANDIDATE_SCOPE_FAILED naming exactly one path,
+test/e2e/topology_recovery_linux_test.go, whose claimed-state
+scenarios pin the pre-reconciliation RECOVERY_UNCERTAIN semantics S2
+replaces - the same class as telemetry-foundations revision 3, caught
+this time by the scope gate instead of a captain escalation, with the
+new failed-observation and tool-result machinery from the previous
+release providing the diagnosis in one journal query. An operator
+sweep confirms that file is the only e2e surface pinning those
+semantics. S2's edit surface gains test/e2e bounded to exactly those
+scenarios; S1 and S3-S8 are byte-identical with unchanged digests and
+S1's receipts adopt by ancestry. Operator-carried under
+operator://2026-08-23-unattended-operability/2.
