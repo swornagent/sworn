@@ -179,10 +179,10 @@ func uncontainedDispatchLDFlags() string {
 // tests that deliberately wait out a claim set it; every other test keeps
 // the production 30s lease so a loaded machine cannot expire a live claim
 // mid-dispatch.
-const testLeaseMillis = "300"
+const testLeaseMillis = "1500"
 
 // leaseExpiryWait outlasts testLeaseMillis with scheduling slack.
-func leaseExpiryWait() { time.Sleep(450 * time.Millisecond) }
+func leaseExpiryWait() { time.Sleep(2250 * time.Millisecond) }
 
 // crashHookEnvironmentName maps a runtime hook variable name (the historic
 // ldflags spelling some tables still parameterize over) to its SWORN_TEST_*
