@@ -1,0 +1,68 @@
+{
+ "outcome": "Aggregator dialects stop failing on decoration: OpenRouter's responses surface works on a released engine instead of a hand-patched binary - usage decorations tolerated with the cost decoration captured as provider-reported cost, data-only SSE streams recognized, and the chat root's provider field admitted so the stale qwen-via-openrouter certification becomes honest again.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "new adapters or endpoints (the openrouter-responses adapter is operator configuration; this slice makes the shipped decoders honest about aggregator shapes)",
+   "pacing, certification flow, and containment",
+   "every non-openai adapter family"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins provider response decoration handling"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins provider response decoration handling"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins provider response decoration handling"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; decode tolerance changes no runtime-visible contract"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins provider response decoration handling"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The responses usage parser tolerates OpenRouter's aggregator decorations - cost, cost_details, is_byok - instead of failing the turn INVALID_USAGE (the closed optional list at internal/driver/responses.go:298-301), and the cost decoration is captured as provider-reported cost in the usage vocabulary the 2026-08-23-telemetry-foundations S1 slice established, never discarded. Pinned by parser tests over recorded OpenRouter response fixtures. Evidence basis: certifying stealth/ox-alpha failed certification_usage_failed on exactly this until an operator binary patch (preserved at the release ops home as operator-engine-patches.diff)."
+  },
+  {
+   "id": "A2",
+   "text": "The SSE reader handles data-only streams: when a provider emits no event: field lines (OpenRouter), the event name falls back to the payload's self-describing type field before the event is dropped (internal/driver/stream.go:255-270 - today the terminal event is never recognized and the whole stream dies PROVIDER_TRANSPORT_FAILED), while event:-labeled streams (deepseek, qwencloud) parse exactly as before. Pinned by fixture tests over both stream shapes, including a recorded OpenRouter stream whose terminal carries the full response object."
+  },
+  {
+   "id": "A3",
+   "text": "The chat-completions accept path admits the root-level provider decoration OpenRouter injects into every response (the closed root list at internal/driver/openai.go:470 - today any openrouter-chat response fails continuation.openai.accept_root_invalid, which means the recorded qwen/qwen3.8-max certification on that profile is stale and unreproducible). Pinned by a recorded chat fixture; the field is tolerated and ignored."
+  },
+  {
+   "id": "A4",
+   "text": "Decoration stays decoration: no tolerated field beyond the captured cost feeds accounting, validation, or continuation state - pinned by tests asserting identical turns with and without the decorations, differing only in the cost observation."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Evidence basis (2026-08-23, ox-alpha certification session): three tolerance gaps found in sequence - INVALID_USAGE on the cost decorations, PROVIDER_TRANSPORT_FAILED on data-only SSE, accept_root_invalid on the chat provider field. The first two ship today as uncommitted operator patches in the release ops binary; this slice is their honest landing with tests.",
+  "The strict-decoder posture survives: unknown fields outside the named decorations still fail closed. This slice names specific aggregator vocabulary; it does not open the decoders.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
