@@ -1,0 +1,73 @@
+{
+ "outcome": "The engine's own journals answer the questions the operator today answers with provider consoles and hand probes: every dispatch on a certified surface lands a usage receipt with the full token split the wire actually carried - input, output, cache read, cache write, reasoning - plus wall-clock duration, and an attempt that genuinely cannot report says so loudly with the surface named instead of defaulting silent. The eval summary stops rendering a partial sum as a total: coverage rides in-band with every aggregate, and turn economics - turns, tool calls, call mix per role - become first-class eval facts.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/journal",
+   "internal/observe",
+   "internal/runtime",
+   "test/e2e"
+  ],
+  "exclude": [
+   "OTel span and metric vocabulary (S2's mechanism; this slice makes the facts true in receipts and eval records, S2 exports them)",
+   "export topology and channels (S3's mechanism)",
+   "journal schema (the usage receipt and eval record bodies are opaque JSON blobs; no table change)",
+   "provider request behavior (no adapter changes what it sends; this slice only captures what comes back)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver, internal/observe, and internal/runtime by import only; no cmd test pins usage-receipt or eval-record content, and the CLI surface is untouched by this slice"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver and internal/runtime by import only; no cockpit test pins token capture or eval aggregation, and presentation is untouched by this slice"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver (via internal/cockpit) and internal/runtime by import only; no tui test pins usage or eval content"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "On every certified provider surface whose wire response carries usage, the attempt's usage receipt reports token_status=reported with the full split the wire offered - input, output, and the cache-read, cache-write, and reasoning components when present (driver.Usage, internal/driver/contract.go:146; NormalizeUsage, internal/driver/usage.go:43). Pinned by per-adapter response-mapping tests over recorded wire shapes for each certified adapter family (responses, openai chat, gemini native, claude and codex native). The sharpest instance is pinned by name: the responses usage parser never extracts reasoning tokens (internal/driver/responses.go:298-337) while the live renderer reads and prints that very field from the same payloads (internal/driver/stream.go:159-164) - reasoning counts scroll past on stderr and die there; gemini is the only adapter whose reasoning tokens reach the journal today. A wire body that names a number and a receipt that drops it is a failing test."
+  },
+  {
+   "id": "A2",
+   "text": "An attempt whose usage receipt reports token_status=unavailable is loud, never a silent default: the receipt names the reporting surface (adapter id) and a stable reason, distinguishing wire-lacked-usage from capture-failed (today's silent paths: the blanket default at internal/driver/invoke.go:329 and the hardcoded all-unavailable fallback literal at internal/runtime/dispatch.go:2068). Pinned by tests that an unavailable receipt always carries surface and reason."
+  },
+  {
+   "id": "A3",
+   "text": "The eval summary cannot render a partial sum as a total: token, cost, and cache aggregates carry their coverage in-band wherever the totals go (the mechanism at internal/observe/eval.go:538-547 sums only reporting attempts while coverage lives in a separate ratio), and a summary over mixed coverage names the non-reporting surfaces. Pinned by observe tests: an aggregate over 10 attempts of which 3 reported renders as a coverage-qualified figure naming what is missing, never as a bare number."
+  },
+  {
+   "id": "A4",
+   "text": "Per-attempt wall-clock duration, provider-reported cost, and the dispatched model identity reach the durable eval path: the observation's duration (driver.Observation.DurationMillis, internal/driver/invoke.go:124), any wire-reported cost distinguished from nominal computed cost, and the profile and certified model id actually dispatched all land in the eval record. Pinned by eval fixture tests; the eval record schema version reflects the new fields honestly."
+  },
+  {
+   "id": "A5",
+   "text": "Turn economics are first-class eval facts: turns per dispatch, tool calls per turn, and tool-call mix, attributable per role, land in eval records and the existing metric projection. Pinned by observe tests over a fixture dispatch history."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "This is sworn#209 plus the day-1 telemetry ruling: eval capture is the data moat and cannot be backfilled - live runs were journaling input_tokens: null while the driver demonstrably held the numbers, and the 2026-08-17 Gemini TPM diagnosis had to come from the provider console instead of our own journals.",
+  "Absence stays honest: pointer fields mean not-reported, never measured-zero (the driver.Usage invariant). This slice widens what is captured; it never invents a number the wire did not carry.",
+  "The usage receipt schema (sworn.usage receipt, internal/driver/usage.go) and eval record schema (sworn.eval, internal/observe/eval.go:20) may add fields and bump versions; existing journaled histories must still decode - the evaluator reads old journals.",
+  "No journal table changes: usage receipts and eval record bodies are opaque blobs by design (internal/journal/schema.sql attempts.usage, eval_records.body).",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Revision 2 scope boundary: internal/journal enters this slice's edit surface solely for the eval schema-version allowlist at internal/journal/observer.go (EvalSchemaVersionV1/V2 must admit the bumped sworn.eval version this slice's A4 requires, so the bumped records stay readable by the observer); no other journal surface is edited and the no-table-change constraint above is unchanged.",
+  "Revision 3 scope boundary: test/e2e enters this slice's edit surface solely for the eval schema-version conformance assertions - test/e2e/turn_recovery_linux_test.go:711 and :1642 pin journal.EvalSchemaVersionV2 on records that internal/observe/eval.go:514 stamps live, so they follow the bumped sworn.eval version A4 requires (the same minimal shape revision 2 used for internal/journal). No other e2e assertion is weakened or edited, and the e2e gate remains CI-executed, declared not executed, per ADR-0010."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

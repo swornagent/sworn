@@ -31,6 +31,14 @@ type providerRequest struct {
 	// transport renders them live and returns the terminal event's embedded
 	// response object as the body, so validation is unchanged.
 	Stream bool
+	// StreamFormat names the SSE dialect of a streamed request: "" is the
+	// responses-flavour SSE and "gemini" is the generateContent SSE. Every
+	// other adapter leaves it empty, so its behavior is untouched.
+	StreamFormat string
+	// StreamModel is the presentation label for streamed deltas (the model
+	// shown in the live turn header). It rides for rendering only; nothing
+	// in validation or dispatch semantics reads it.
+	StreamModel string
 }
 
 type providerTurn struct {
@@ -104,6 +112,43 @@ func (dialect providerDialect) continuationMode() ContinuationMode {
 	}
 }
 
+// ContinuationPosture declares whether fresh rehydration is ordinary
+// operation for an adapter. Degradation counting reads this declaration: an
+// adapter that rehydrates by design accumulates zero degradation budget from
+// transport churn, while a continuation-bearing adapter losing a retained
+// session still counts. An adapter that declares nothing is read as
+// context_retaining (fail-closed).
+type ContinuationPosture string
+
+const (
+	ContinuationPostureContextRetaining ContinuationPosture = "context_retaining"
+	ContinuationPostureFreshByDesign    ContinuationPosture = "fresh_by_design"
+)
+
+// continuationPosture sits beside continuationMode: the mode says how a
+// retained conversation replays, the posture says whether losing that replay
+// is degradation at all. Gemini is the google-native stateless per-request
+// surface whose engine continuation is a replay cache (sworn#227), so fresh
+// rehydration is its ordinary operation; every other dialect retains context
+// by design and loses real session state on a fresh rehydrate.
+func (dialect providerDialect) continuationPosture() ContinuationPosture {
+	switch dialect {
+	case providerDialectGemini:
+		return ContinuationPostureFreshByDesign
+	case providerDialectOpenAIResponses,
+		providerDialectOpenAIChat,
+		providerDialectOpenRouterChat,
+		providerDialectOpaqueChat,
+		providerDialectGoogleChat,
+		providerDialectXAIChat,
+		providerDialectXAIResponses,
+		providerDialectBedrockConverse:
+		return ContinuationPostureContextRetaining
+	default:
+		return ContinuationPostureContextRetaining
+	}
+}
+
 type loopAdapter struct {
 	identity  AdapterIdentity
 	family    ProfileFamily
@@ -159,6 +204,16 @@ func (adapter *loopAdapter) Identity() AdapterIdentity {
 		return AdapterIdentity{}
 	}
 	return adapter.identity
+}
+
+// declaredContinuationPosture implements the private opt-in capability the
+// Dispatcher reads through ContinuationPosture. It is a per-dialect
+// declaration, never a per-dispatch inference.
+func (adapter *loopAdapter) declaredContinuationPosture() ContinuationPosture {
+	if adapter == nil {
+		return ContinuationPostureContextRetaining
+	}
+	return adapter.dialect.continuationPosture()
 }
 
 func (adapter *loopAdapter) profileFamily() ProfileFamily {
@@ -426,6 +481,11 @@ func (adapter *loopAdapter) runConversation(
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	// Turn economics are engine-counted facts: every accepted provider turn
+	// counts (prose nudges are turns with zero calls), and every executed
+	// tool call counts by canonical name.
+	var turnCount, toolCallCount int64
+	toolCallsByName := make(map[string]int64)
 	pacer := newInputTokenPacer(adapter.pacingCap)
 	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
@@ -476,6 +536,11 @@ func (adapter *loopAdapter) runConversation(
 			liveStream.driverError("accept", err)
 			return Observation{}, nil, err
 		}
+		turnCount++
+		for _, call := range providerTurn.Calls {
+			toolCallCount++
+			toolCallsByName[call.Name]++
+		}
 		if providerTurn.Usage != nil {
 			if err := addTurnUsage(&total, providerTurn.Usage); err != nil {
 				return Observation{}, nil, err
@@ -488,13 +553,14 @@ func (adapter *loopAdapter) runConversation(
 			effortReported = &value
 		}
 		if providerTurn.Truncated {
-			usage, err := NormalizeUsage(nil, nil)
+			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil)
+				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
 			}
+			applyTurnEconomics(&usage, turnCount, toolCallCount, toolCallsByName)
 			applyInvocationFacts(
 				&usage,
 				effortRequested,
@@ -556,6 +622,12 @@ func (adapter *loopAdapter) runConversation(
 				return Observation{}, nil, terminalErr
 			}
 			if retain {
+				// Project the exact results slice this appendResults
+				// crossing receives, ahead of per-dialect formatting, so
+				// the observed bytes are the model-facing bytes. A
+				// !retain terminal turn appends nothing to any model and
+				// therefore emits nothing.
+				session.observeToolResultTurn(turnCount, results)
 				if err := conversation.appendResults(results); err != nil {
 					liveStream.driverError("append-results-terminal", err)
 					return Observation{}, nil, err
@@ -564,13 +636,14 @@ func (adapter *loopAdapter) runConversation(
 			if closeErr := session.Close(); closeErr != nil {
 				return Observation{}, nil, closeErr
 			}
-			usage, err := NormalizeUsage(nil, nil)
+			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil)
+				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
 			}
+			applyTurnEconomics(&usage, turnCount, toolCallCount, toolCallsByName)
 			applyInvocationFacts(
 				&usage,
 				effortRequested,
@@ -601,6 +674,10 @@ func (adapter *loopAdapter) runConversation(
 				bytes:        replayBytes,
 			}, nil
 		}
+		// Project the exact results slice this appendResults crossing
+		// receives, ahead of per-dialect formatting, so the observed
+		// bytes are the model-facing bytes.
+		session.observeToolResultTurn(turnCount, results)
 		if err := conversation.appendResults(results); err != nil {
 			liveStream.driverError("append-results", err)
 			return Observation{}, nil, err

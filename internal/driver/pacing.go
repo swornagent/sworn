@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Provider pacing bounds. Pacing is strictly reactive-or-at-the-wall: a
@@ -34,7 +35,10 @@ const (
 
 // providerRetryDelay extracts the provider-advised retry delay from a 429
 // response: google.rpc.RetryInfo in the body first, then a Retry-After
-// seconds header. Zero means the provider named none.
+// seconds header. Zero means no usable seconds delay could be read; whether
+// the provider named a window at all (whatever its value parses to) is
+// providerNamesRetryWindow's question, and classification keys on that
+// signal, never on this parse.
 func providerRetryDelay(retryAfterHeader string, body []byte) time.Duration {
 	var envelope struct {
 		Error struct {
@@ -63,6 +67,175 @@ func providerRetryDelay(retryAfterHeader string, body []byte) time.Duration {
 	return 0
 }
 
+// maxProviderErrorDetailBytes bounds the provider status-envelope message
+// that may ride a ContractError as Detail (S5-provider-limit-evidence). The
+// dispatcher boundary re-validates against the same bound.
+const maxProviderErrorDetailBytes = 512
+
+// providerErrorDetail extracts the provider's own words from a non-2xx
+// status envelope: the {"error":{"message":...}} shape the google.rpc.Status
+// and OpenAI error envelopes share. Only error.message is ever read, so
+// request bytes, headers, credentials, and every sibling envelope field
+// structurally cannot enter the result. The message is normalized to
+// single-line, control-free, whitespace-collapsed valid UTF-8 and bounded
+// at maxProviderErrorDetailBytes on a UTF-8 rune boundary, so the
+// dispatcher boundary's validateText re-validation is a no-op for anything
+// extracted here. A missing, non-string, or empty message and an
+// unparseable body all yield "".
+func providerErrorDetail(body []byte) string {
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil ||
+		envelope.Error.Message == "" {
+		return ""
+	}
+	return normalizeProviderErrorDetail(envelope.Error.Message)
+}
+
+// normalizeProviderErrorDetail renders one provider message into the only
+// shape validateText accepts at the dispatcher boundary: every rune the
+// secret-guard posture rejects (C0 0x00-0x1f and C1 0x7f-0x9f) becomes a
+// space, whitespace runs collapse to one space, the result is trimmed, and
+// invalid UTF-8 is resolved deterministically by Go's rune decoding (an
+// invalid byte decodes as U+FFFD). The final bytes are cut at the last
+// UTF-8 rune boundary within maxProviderErrorDetailBytes. A message that
+// normalizes to nothing yields "".
+func normalizeProviderErrorDetail(message string) string {
+	var builder strings.Builder
+	builder.Grow(len(message))
+	spaceRun := false
+	for _, r := range message {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) || r == ' ' {
+			if spaceRun {
+				continue
+			}
+			spaceRun = true
+			builder.WriteByte(' ')
+			continue
+		}
+		spaceRun = false
+		builder.WriteRune(r)
+	}
+	normalized := strings.TrimSpace(builder.String())
+	if normalized == "" {
+		return ""
+	}
+	if len(normalized) <= maxProviderErrorDetailBytes {
+		return normalized
+	}
+	bounded := normalized[:maxProviderErrorDetailBytes]
+	for len(bounded) > 0 && !utf8.ValidString(bounded) {
+		bounded = bounded[:len(bounded)-1]
+	}
+	return bounded
+}
+
+// providerNamesRetryWindow reports whether a 429 names a retry window by
+// signal, not by parse value: a google.rpc.RetryInfo detail carrying a
+// non-empty retryDelay, or a non-empty Retry-After header. The paced path
+// wins whenever a window signal is present, whatever its value parses to —
+// an HTTP-date Retry-After, a fractional or zero delay, or a RetryInfo
+// whose retryDelay fails ParseDuration all stay paced — so classification
+// never guesses from a parser result.
+func providerNamesRetryWindow(retryAfterHeader string, body []byte) bool {
+	if strings.TrimSpace(retryAfterHeader) != "" {
+		return true
+	}
+	var envelope struct {
+		Error struct {
+			Details []struct {
+				Type       string `json:"@type"`
+				RetryDelay string `json:"retryDelay"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false
+	}
+	for _, detail := range envelope.Error.Details {
+		if strings.HasSuffix(detail.Type, "google.rpc.RetryInfo") &&
+			detail.RetryDelay != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// hardLimitPhrases is the closed hard-cap phrase table: the monthly or
+// daily spend-cap exhaustion shapes the S5 ruling names. Matching is
+// case-insensitive and over the normalized provider message, so an
+// unrecognized shape never fires.
+var hardLimitPhrases = []string{
+	"spending limit",
+	"spend limit",
+	"spending cap",
+	"spend cap",
+	"billing account",
+}
+
+// hardLimitExhausted matches the closed hard-cap phrase table over a
+// normalized provider message. It is consulted only behind the no-window
+// branch of providerLimitHard, so a matched phrase can never override a
+// provider-named retry window; and today's classifier fires hard on every
+// windowless 429 regardless of the phrase, so the table is
+// classification-inert by ruling (Captain C2). It stays as the recorded
+// exhaustion-shape vocabulary the provider-error taxonomy this slice opens
+// will read, and it is unit-pinned here rather than dropped.
+func hardLimitExhausted(message string) bool {
+	lower := strings.ToLower(message)
+	for _, phrase := range hardLimitPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// providerLimitHard classifies a 429 as a hard wall that must fail the
+// dispatch immediately instead of burning the paced-retry budget. It fires
+// only on affirmative evidence: the provider named no retry window (no
+// RetryInfo retryDelay, no Retry-After header). A named window always takes
+// today's paced path, whatever its value parses to. The hard-cap phrase
+// table is evaluated behind the no-window branch so a matched phrase can
+// never override a named window; see hardLimitExhausted.
+func providerLimitHard(retryAfterHeader string, body []byte) bool {
+	if providerNamesRetryWindow(retryAfterHeader, body) {
+		return false
+	}
+	_ = hardLimitExhausted(providerErrorDetail(body))
+	return true
+}
+
+// providerStatusCode reports whether code belongs to the closed provider
+// status family whose bounded envelope message may ride ContractError.Detail
+// past the dispatcher boundary (S5-provider-limit-evidence). Every other
+// code keeps dropping adapter text exactly as before.
+func providerStatusCode(code string) bool {
+	switch code {
+	case "PROVIDER_LIMITED",
+		"PROVIDER_AUTHORIZATION_FAILED",
+		"PROVIDER_REQUEST_REJECTED",
+		"PROVIDER_UNAVAILABLE",
+		"PROVIDER_ERROR":
+		return true
+	default:
+		return false
+	}
+}
+
+// hardLimited reports whether an error is a classified hard wall: exactly
+// PROVIDER_LIMITED carrying HardLimit. Such an error fails the dispatch
+// after the one transport attempt that produced it — zero sleeps, zero
+// budget drain, and no notify — instead of default-pacing into a wall.
+func hardLimited(err error) bool {
+	var contractErr *ContractError
+	return errors.As(err, &contractErr) &&
+		contractErr.Code == "PROVIDER_LIMITED" && contractErr.HardLimit
+}
+
 // pacedRetryDelay renders the wait for one 429: the provider's advisory
 // when present, the default otherwise, clamped to [floor, cap].
 func pacedRetryDelay(err error) time.Duration {
@@ -85,7 +258,9 @@ func pacedRetryDelay(err error) time.Duration {
 // request bytes are re-sent after the provider-advised delay, so a paced
 // turn never restarts the dispatch or re-sends the whole context. budget is
 // shared across the conversation; when it or the per-request retry bound is
-// exhausted the limited error propagates exactly as before.
+// exhausted the limited error propagates exactly as before. A hard wall
+// (PROVIDER_LIMITED with HardLimit) returns after the single attempt that
+// produced it: no sleep, no budget drain, and no notify.
 func pacedRoundTrip(
 	ctx context.Context,
 	do func() ([]byte, error),
@@ -95,7 +270,7 @@ func pacedRoundTrip(
 ) ([]byte, error) {
 	response, err := do()
 	for attempt := 0; attempt < MaxProviderPacedRetries; attempt++ {
-		if err == nil || !IsCode(err, "PROVIDER_LIMITED") {
+		if err == nil || !IsCode(err, "PROVIDER_LIMITED") || hardLimited(err) {
 			return response, err
 		}
 		delay := pacedRetryDelay(err)

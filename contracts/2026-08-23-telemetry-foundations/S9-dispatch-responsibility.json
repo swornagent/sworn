@@ -1,0 +1,61 @@
+{
+ "outcome": "Dispatch events name what was dispatched again: the association body for the dispatch event family carries the responsibility alongside effect, work, and slice - restoring the additivity operator-surface S5 promised and did not keep - and the conformance suite reads it directly instead of joining through sealed submissions to learn what the event stream used to say.",
+ "scope": {
+  "include": [
+   "internal/runtime",
+   "test/e2e"
+  ],
+  "exclude": [
+   "every non-dispatch event family's body",
+   "model output in event bodies (the association stays content-free of provider content)",
+   "webhook and cockpit projections (they classify by kind and offset; body enrichment is additive beneath them)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/runtime by import only; no cmd test pins dispatch event bodies"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/runtime by import only; the webhook and projector classify by kind and offset, and body enrichment is additive beneath them"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/runtime via internal/cockpit by import only; the continuation aggregate parses kinds, never dispatch bodies"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/runtime by import only; no tui test pins dispatch event bodies"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "dispatch_completed and dispatch_operational_failure event bodies carry the dispatched responsibility alongside the association fields (internal/runtime/association.go MarshalAssociation; the pre-S5 body was coordinates.Responsibility outright - git show d36227da~1:internal/runtime/dispatch.go - and the post-S5 body at the dispatch.go eventBody sites dropped it). Pinned by runtime event-body tests across the dispatch family."
+  },
+  {
+   "id": "A2",
+   "text": "The conformance suite derives dispatch order from the event bodies directly again: assertDispatchOrder (test/e2e/walking_skeleton_linux_test.go) reads responsibility from the event, and the interim join through the effect's sealed submission is retired - declared CI evidence per ADR-0010, first executed by the CI run on the merge."
+  },
+  {
+   "id": "A3",
+   "text": "The body stays content-free of model output: responsibility is the engine's own dispatch coordinate, and no provider content, prompt, or submission text enters any event body - pinned by the same tests."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Approving this slice is the sworn#229 ruling: the association-only dispatch body is ruled a regression against operator-surface S5's stated additivity, and the fix is to restore responsibility additively - not to reinterpret S5's note as superseded. If the operator strikes this slice before approval, sworn#229 remains open for a standalone ruling.",
+  "Additive only: consumers of the current association shape keep working; the e2e change removes the workaround, never weakens an assertion (no exactly-once, cardinality, or authority assertion is weakened anywhere in test/e2e).",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

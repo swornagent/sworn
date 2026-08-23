@@ -5444,11 +5444,19 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 				}
 			}
 			if !hasParkEvent {
+				body, err := degradationParkEvent(
+					owner.RunID,
+					engine.manifest.value.EffectiveDegradationBudget(),
+					fallbacks,
+				)
+				if err != nil {
+					return err
+				}
 				_ = s.journal.AppendEvent(
 					ctx,
 					owner.RunID,
 					"degradation_budget_parked",
-					mustJSON(fallbacks),
+					body,
 					s.now().UTC(),
 				)
 			}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/observe"
 )
 
 // TestAgentCredentialSourceUsesResolvedCredentialsDir proves the A2 default
@@ -248,7 +249,12 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Default-accepting re-run on divergent files defaults to No [y/N]
+	// Default-accepting re-run on divergent files: drivers.json defaults to
+	// No [y/N], while the operator config now runs the guided telemetry step
+	// (S3-A5): both telemetry questions default to declining, so the
+	// proposed body equals the existing bytes exactly and the operator's own
+	// config is reported current instead of offered replacement with the
+	// bare default (captain F6).
 	var stdout3, stderr3 bytes.Buffer
 	stdin3 := strings.NewReader("\n\n")
 	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
@@ -261,8 +267,8 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "drivers.json")) {
 		t.Fatalf("drivers.json was not reported kept: %s", out3)
 	}
-	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "operator.json")) {
-		t.Fatalf("operator.json was not reported kept: %s", out3)
+	if !strings.Contains(out3, "Operator configuration already current: "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator.json was not reported current: %s", out3)
 	}
 
 	// Files must remain untouched
@@ -365,18 +371,21 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 		t.Fatalf("did not report operator.json already current: %s", stdout2.String())
 	}
 
-	// Present-divergent case 1: Content divergence
+	// Present-divergent case 1: Content divergence. The guided telemetry
+	// step declines both questions (S3-A5), so the proposed body equals the
+	// existing bytes and the operator's own config is reported current
+	// rather than offered replacement with the bare default.
 	customContent := []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:9090\"\n  }\n}\n")
 	if err := os.WriteFile(opPath, customContent, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout3, stderr3 bytes.Buffer
-	stdin3 := strings.NewReader("n\n") // Decline replacement
+	stdin3 := strings.NewReader("\n\n") // Decline endpoint, decline share
 	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
 		t.Fatalf("divergent decline init failed: %d, stderr=%s", code, stderr3.String())
 	}
-	if !strings.Contains(stdout3.String(), "kept existing "+opPath) {
-		t.Fatalf("did not report kept existing operator.json: %s", stdout3.String())
+	if !strings.Contains(stdout3.String(), "Operator configuration already current: "+opPath) {
+		t.Fatalf("did not report operator.json current: %s", stdout3.String())
 	}
 	currentBody, _ := os.ReadFile(opPath)
 	if !bytes.Equal(currentBody, customContent) {
@@ -403,9 +412,11 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 		t.Fatalf("diff summary did not report mode 0644 divergence: %s", out4)
 	}
 
-	// Replacing mode-divergent file with 'y' resets mode to 0600
+	// Replacing mode-divergent file with 'y' resets mode to 0600. The two
+	// guided telemetry questions come first and are declined with empty
+	// answers, then the replacement prompt accepts.
 	var stdout5, stderr5 bytes.Buffer
-	stdin5 := strings.NewReader("y\n")
+	stdin5 := strings.NewReader("\n\ny\n")
 	if code := runInitWithIO([]string{"--project", root}, stdin5, &stdout5, &stderr5); code != 0 {
 		t.Fatalf("mode-divergent replace failed: %d, stderr=%s", code, stderr5.String())
 	}
@@ -630,4 +641,137 @@ func sha256Hex(path string) (string, error) {
 	}
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
+}
+
+// S3-A5: the interactive guided telemetry step writes the private otel block
+// and the share opt-in block when answered, keeps mode 0600, and re-runs
+// idempotently to "already current" with byte-identical content.
+func TestInitTelemetryStepGuidedWalkWritesAndIsIdempotent(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+	opPath := filepath.Join(root, ".sworn", "operator.json")
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\ny\nhttp://127.0.0.1:4318\ny\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr); code != 0 {
+		t.Fatalf("guided init failed: %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "wrote "+opPath) {
+		t.Fatalf("did not report wrote operator.json: %s", stdout.String())
+	}
+	info, err := os.Stat(opPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("operator.json stat/perm error: info=%v, err=%v", info, err)
+	}
+	body, err := os.ReadFile(opPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := parseOperatorConfig(body)
+	if err != nil {
+		t.Fatalf("guided operator config did not parse: %v\n%s", err, body)
+	}
+	if settings.otel == nil ||
+		!strings.HasPrefix(settings.otel.Endpoint, "http://127.0.0.1:4318") {
+		t.Fatalf("private telemetry block missing or wrong: %#v", settings.otel)
+	}
+	if settings.share == nil || !settings.share.Enabled ||
+		settings.share.Endpoint != observe.ShareDefaultEndpoint {
+		t.Fatalf("share block missing or wrong: %#v", settings.share)
+	}
+
+	// Idempotent re-run: no questions remain and the file is untouched.
+	var stdout2, stderr2 bytes.Buffer
+	if code := runInitWithIO([]string{"--project", root}, strings.NewReader(""), &stdout2, &stderr2); code != 0 {
+		t.Fatalf("guided re-run failed: %d, stderr=%s", code, stderr2.String())
+	}
+	if !strings.Contains(stdout2.String(), "Operator configuration already current: "+opPath) {
+		t.Fatalf("re-run did not report operator.json current: %s", stdout2.String())
+	}
+	after, err := os.ReadFile(opPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, body) {
+		t.Fatalf("operator.json changed on idempotent re-run:\nbefore:\n%s\nafter:\n%s", body, after)
+	}
+}
+
+// S3-A5: declining both telemetry questions leaves the exact bare scaffold
+// byte-identical to today's buildDefaultOperatorConfig.
+func TestInitTelemetryStepDeclineKeepsBareDefault(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+	opPath := filepath.Join(root, ".sworn", "operator.json")
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\ny\n\nn\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr); code != 0 {
+		t.Fatalf("declined init failed: %d, stderr=%s", code, stderr.String())
+	}
+	body, err := os.ReadFile(opPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, buildDefaultOperatorConfig()) {
+		t.Fatalf("declined operator config differs from bare default:\n%s", body)
+	}
+	if bytes.Contains(body, []byte("otel")) || bytes.Contains(body, []byte("share")) {
+		t.Fatalf("declined operator config carries telemetry blocks:\n%s", body)
+	}
+}
+
+// S3-A5: a non-empty private endpoint must parse through the strict OTLP
+// endpoint rules or it is reported and skipped, never written.
+func TestInitTelemetryStepRejectsInvalidEndpoint(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+	opPath := filepath.Join(root, ".sworn", "operator.json")
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\ny\nnot-an-endpoint\nn\n")
+	if code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr); code != 0 {
+		t.Fatalf("invalid-endpoint init failed: %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "skipped private telemetry") {
+		t.Fatalf("invalid endpoint was not reported skipped: %s", stdout.String())
+	}
+	body, err := os.ReadFile(opPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, buildDefaultOperatorConfig()) {
+		t.Fatalf("invalid endpoint leaked a telemetry block:\n%s", body)
+	}
+}
+
+// S3-C4: the share opt-in (and the private-endpoint entry) is
+// interactive-only. Under --yes and under --force no telemetry question is
+// asked and the written body is byte-identical to today's
+// buildDefaultOperatorConfig - even when the stdin would answer yes.
+func TestInitTelemetryFlagsNeverAskOrOptIn(t *testing.T) {
+	for _, flag := range []string{"--yes", "--force"} {
+		t.Run(flag, func(t *testing.T) {
+			setupMockAgentAndEnvironment(t)
+			root := initTestProject(t)
+			opPath := filepath.Join(root, ".sworn", "operator.json")
+
+			var stdout, stderr bytes.Buffer
+			stdin := strings.NewReader("y\ny\ny\nhttp://127.0.0.1:4318\ny\n")
+			if code := runInitWithIO([]string{"--project", root, flag}, stdin, &stdout, &stderr); code != 0 {
+				t.Fatalf("flag init failed: %d, stderr=%s", code, stderr.String())
+			}
+			if strings.Contains(stdout.String(), "Private telemetry OTLP endpoint") ||
+				strings.Contains(stdout.String(), "Share fleet telemetry") {
+				t.Fatalf("%s asked a telemetry question: %s", flag, stdout.String())
+			}
+			body, err := os.ReadFile(opPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(body, buildDefaultOperatorConfig()) {
+				t.Fatalf("%s operator config differs from bare default:\n%s", flag, body)
+			}
+		})
+	}
 }

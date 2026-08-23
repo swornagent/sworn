@@ -1,0 +1,62 @@
+{
+ "outcome": "Continuation lifetime is an operator decision and expiry degrades instead of detonating: the 24-hour retention becomes a manifest knob so multi-day releases stop aging out legitimately resumable state, and a continuation that expires mid-yield falls back to a labeled fresh rehydrate exactly as it already does at dispatch start - never a hard INVALID_CONTINUATION that burns the cycle.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "continuation modes, the ledger, and replay correlation semantics (the vocabulary is settled; this slice changes lifetime governance and one failure path's grace)",
+   "degradation counting (posture-gated counting delivered in telemetry-foundations S4; an expired fallback on a context-retaining adapter still counts as real degradation)",
+   "the operational re-entry recipe (fresh-journal-per-revision remains an operator choice)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins continuation lifetime or yield-resume fallback semantics"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins continuation lifetime or yield-resume fallback semantics"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins continuation lifetime or yield-resume fallback semantics"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins continuation lifetime or yield-resume fallback semantics"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Continuation retention is a manifest limit: maxContinuationLifetime (internal/driver/continuation.go:45, unexported compile-time 24h, stamped per-suspend at continuation.go:635) becomes an operator knob in manifest limits with a validated bound and the current value as default; the native session-root reaper (internal/driver/native_linux.go:882-886) follows the same governed value. Pinned by driver tests over expiry boundaries. Evidence basis: sworn#204 - multi-day releases age out legitimately resumable state by construction."
+  },
+  {
+   "id": "A2",
+   "text": "Mid-yield expiry degrades gracefully: when a retained continuation expires during the yield-resume loop, the cycle proceeds on a fresh rehydrate with the fallback_expired outcome labeled - today the start path degrades exactly this way (internal/runtime/dispatch.go:812-830 maps ContinuationStatusExpired to fallback_expired) while the yield-resume path hard-fails, because validRetainedContinuationMode rejects fresh_rehydrate and the default branch fires runtimeFail INVALID_CONTINUATION (internal/runtime/turn_recovery.go:1208-1234; the same asymmetry at :1257,:1274). The asymmetry dies: both paths degrade with the same labeled outcome. Pinned by turn-recovery tests over an expired-mid-yield fixture."
+  },
+  {
+   "id": "A3",
+   "text": "Every remaining INVALID_CONTINUATION site in the yield path carries its condition label (the site-label doctrine): the compound conditions at turn_recovery.go:1185 and the yield branch's default are distinguishable in the journaled failure, so a real contradiction is tellable from an expiry that should have degraded - pinned by tests asserting distinct labels per condition."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Honest absence stays honest: an expired continuation is a real context loss and its fallback_expired fact keeps feeding the degradation budget on context-retaining adapters - this slice softens the failure mode, never the signal.",
+  "The lifetime knob follows the manifest-limits pattern (validated bounds, default preserves today's behavior, new knob means new config-digest discipline at the operator's hand).",
+  "sworn#204's other arms are delivered or out of scope: fallback reasons land in event bodies and posture-gated counting shipped with telemetry-foundations S4; repair-dispatch continuity design remains future work and is not smuggled in here.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

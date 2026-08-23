@@ -1,0 +1,63 @@
+{
+ "outcome": "A captain escalation recovers unattended: the planner is steered into its summary-before-plan turn instead of dying on it, that turn surfaces as an ordinary answerable attention the operator answers headless, the resumed planner's plan bytes are accepted end-to-end, and a sealed proposal's plan bytes survive every dispatch outcome - so a plan revision never again requires an operator to reconstruct approved-candidate bytes from streamed logs.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/journal",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the summary-before-plan doctrine itself (a production planner emits plan bytes only from a human-confirmed turn - that rule is correct and stays; this slice makes it survivable, not optional)",
+   "plan admission, digest validation, and approval semantics",
+   "role prompt assets (the steering happens at the submission surface, not by asset edits)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins planner submission steering or proposal persistence"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins planner submission steering or proposal persistence"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins planner submission steering or proposal persistence"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins planner submission steering or proposal persistence"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A planner_proposal submission carrying plan bytes on a first terminal - the summary-before-plan violation - is refused at the submission layer as a bounded in-session correction naming the yield-first flow, instead of being sealed and then completing the whole dispatch operational_failed invalid_human_turn (internal/runtime/dispatch.go:2279, gate at internal/runtime/turn_recovery.go:2007). The planner can yield its summary in the same session and no try is consumed by the violation. Pinned by driver submission tests. Evidence basis: six planner dispatches across telemetry-foundations r1-r3 died on this gate (four invalid_human_turn, plus an output overflow and a corrupted retry burned in the same doomed loop), parking three runs."
+  },
+  {
+   "id": "A2",
+   "text": "The full replan turn works headless end-to-end: the planner's yielded summary opens an answerable attention bound to the dispatch through the existing human-park checkpoint, the answer control verb answers it with no TUI or serve required, the resumed planner emits its plan bytes, and the proposal is accepted - pinned by a runtime fixture walking escalate, planner yield, answer, resume, accepted proposal in one journal."
+  },
+  {
+   "id": "A3",
+   "text": "Sealed proposal bytes are durable: a planner_proposal submission's plan ExactBytes persist in the journal at seal time, associated to the attempt, readable regardless of the dispatch's subsequent outcome - never again existing only in a sandbox scratch that is destroyed with the session. Pinned by journal tests covering seal-then-fail paths. Evidence basis: telemetry-foundations rev2's sealed 21,488-byte plan survived nowhere (the sworn#195 postscript incident reproduced exactly) and was reconstructed operator-side from streamed logs and canonical-digest verification."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The authority model is unchanged: plan bytes still only leave a human-confirmed turn, the human still answers, approval still binds exact bytes. This slice changes where the violation is caught (submission correction, not dispatch death) and what survives (the sealed bytes), never who decides.",
+  "The submission-correction precedent is the shape: rejectSubmission's bounded corrections with durable accounting (internal/driver/tools.go, RecoveryStepSubmissionCorrection) - the yield-first steering is the same mechanism pointed at the planner's shape rule.",
+  "The operator-carried revision path (record a revision operator-side, fresh run adopts by ancestry) remains valid and unaffected - this slice adds the unattended path, it does not remove the attended one.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

@@ -182,7 +182,11 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 		record.Usage.InputTokens == nil || *record.Usage.InputTokens != 0 ||
 		record.Usage.OutputTokens == nil || *record.Usage.OutputTokens != 0 ||
 		len(record.Usage.Costs) != 1 ||
-		record.Usage.Costs[0] != (CostTotal{Currency: "USD", MicroUnits: 0}) ||
+		record.Usage.Costs[0] != (CostTotal{
+			Currency:   "USD",
+			MicroUnits: 0,
+			Source:     driver.CostSourceProviderReported,
+		}) ||
 		*record.Usage.TokenCoverage.Numerator != 1 ||
 		*record.Usage.TokenCoverage.Denominator != 2 ||
 		record.Usage.CacheReadTokens == nil ||
@@ -252,8 +256,25 @@ func TestEvaluatorPersistsCanonicalCumulativeRecord(t *testing.T) {
 	if err := json.Unmarshal(store.advance.Eval[0].Body, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(persisted, record) {
-		t.Fatalf("persisted = %#v\nrecord = %#v", persisted, record)
+	// S2-C1: the live record carries the unexported dispatch-span carrier,
+	// which encoding/json skips. The durable body is pinned against the
+	// carrier-cleared record, and the bytes themselves are pinned to the
+	// sworn.eval/v3 exported schema (no new field, no version bump).
+	cleared := record
+	cleared.dispatchAttempts = nil
+	cleared.spanJoin = spanJoin{}
+	if !reflect.DeepEqual(persisted, cleared) {
+		t.Fatalf("persisted = %#v\nrecord = %#v", persisted, cleared)
+	}
+	strict := json.NewDecoder(bytes.NewReader(store.advance.Eval[0].Body))
+	strict.DisallowUnknownFields()
+	var strictlyPersisted Record
+	if err := strict.Decode(&strictlyPersisted); err != nil {
+		t.Fatalf("persisted body carries a field outside sworn.eval/v3: %v", err)
+	}
+	if strictlyPersisted.SchemaVersion != EvalSchemaVersion {
+		t.Fatalf("persisted schema = %q, want %q",
+			strictlyPersisted.SchemaVersion, EvalSchemaVersion)
 	}
 
 	again, changed, err := evaluator.Advance(
@@ -698,5 +719,507 @@ func TestEvaluatorSurfacesProviderTruncationFacts(t *testing.T) {
 		group.Truncated == nil || !*group.Truncated ||
 		group.CacheReadTokens == nil || *group.CacheReadTokens != 2 {
 		t.Fatalf("group truncation usage = %#v", group)
+	}
+}
+
+// S2 carrier seam: the evaluator carries one entry per attempt fact in
+// journal order (including non-dispatch effects, which the span builder
+// later filters), plus the bounded snapshot join window the dispatch span
+// needs for effect identity. The carrier is unexported and never enters
+// the durable body (pinned by the strict decode in
+// TestEvaluatorPersistsCanonicalCumulativeRecord).
+func TestEvaluatorCarriesDispatchAttemptCarrierInJournalOrder(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(2 * time.Second)
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: []journal.EvaluationFact{
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "driver.dispatch",
+				EffectState:    journal.Succeeded,
+				Attempt:        1,
+				Responsibility: "implementer_implementation",
+				Transport:      "completed",
+				Usage: []byte(
+					`{"token_status":"reported","input_tokens":7,` +
+						`"output_tokens":3,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,` +
+						`"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: started.Add(time.Second),
+			},
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "git.seal",
+				EffectState:    journal.Pending,
+				Attempt:        1,
+				Responsibility: "implementer_implementation",
+				Transport:      "completed",
+				Usage: []byte(
+					`{"token_status":"unavailable","input_tokens":null,` +
+						`"output_tokens":null,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: started.Add(time.Second),
+			},
+			{
+				Kind:           journal.EvaluationAttempt,
+				EffectKind:     "driver.dispatch",
+				EffectState:    journal.OperationalFailed,
+				Attempt:        2,
+				Responsibility: "work_verification",
+				Transport:      "timeout",
+				Usage: []byte(
+					`{"token_status":"unavailable","input_tokens":null,` +
+						`"output_tokens":null,"cost_status":"unavailable",` +
+						`"cost_micro_units":null,"currency":null,"source":null}`,
+				),
+				StartedAt:  started,
+				FinishedAt: finished,
+			},
+		},
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		Runtime: cockpit.RuntimeView{
+			Attempts: []cockpit.AttemptView{
+				{
+					EffectID:       "attempt/work-a/e2/t3",
+					Number:         1,
+					Responsibility: "implementer_implementation",
+					Transport:      "completed",
+					CreatedAt:      started.Add(time.Second),
+				},
+				{
+					EffectID:       "attempt/work-b/e1/t1",
+					Number:         2,
+					Responsibility: "work_verification",
+					Transport:      "timeout",
+					CreatedAt:      finished,
+				},
+			},
+		},
+		Evidence: []cockpit.Evidence{
+			{
+				EffectID:  "attempt/work-a/e2/t3",
+				WorkID:    "work-a",
+				Slice:     "S2-genai-spans",
+				CreatedAt: started.Add(time.Second),
+			},
+		},
+		Graph: cockpit.Graph{Nodes: []cockpit.Node{
+			{
+				ID: "slice:S2-genai-spans", Kind: "slice",
+				Track: "T1-telemetry",
+			},
+		}},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(context.Background(), "run-1")
+	if err != nil || !changed {
+		t.Fatalf("advance = %t, %v", changed, err)
+	}
+	if len(record.dispatchAttempts) != 3 {
+		t.Fatalf("carrier = %#v", record.dispatchAttempts)
+	}
+	if record.dispatchAttempts[0].effectKind != "driver.dispatch" ||
+		record.dispatchAttempts[1].effectKind != "git.seal" ||
+		record.dispatchAttempts[2].effectKind != "driver.dispatch" {
+		t.Fatalf("carrier journal order = %#v", record.dispatchAttempts)
+	}
+	if record.dispatchAttempts[0].effectState != "succeeded" ||
+		record.dispatchAttempts[0].responsibility !=
+			"implementer_implementation" ||
+		record.dispatchAttempts[0].attempt != 1 ||
+		record.dispatchAttempts[0].transport != "completed" ||
+		record.dispatchAttempts[0].startedAt != started ||
+		record.dispatchAttempts[0].finishedAt != started.Add(time.Second) {
+		t.Fatalf("carrier entry = %#v", record.dispatchAttempts[0])
+	}
+	if _, err := decodeUsage(record.dispatchAttempts[0].usageBytes); err != nil {
+		t.Fatalf("carrier usage bytes = %v", err)
+	}
+	if record.dispatchAttempts[2].effectState != "operational_failed" ||
+		record.dispatchAttempts[2].transport != "timeout" ||
+		record.dispatchAttempts[2].attempt != 2 {
+		t.Fatalf("carrier entry = %#v", record.dispatchAttempts[2])
+	}
+	if len(record.spanJoin.attempts) != 2 ||
+		len(record.spanJoin.evidence) != 1 ||
+		record.spanJoin.sliceTracks["slice:S2-genai-spans"] !=
+			"T1-telemetry" {
+		t.Fatalf("span join = %#v", record.spanJoin)
+	}
+}
+
+// A3: an aggregate over mixed coverage is never rendered as a bare total.
+// Coverage rides in-band and the non-reporting surfaces are named, at the
+// record level and every per-role group level.
+func TestEvalCoverageNamesUnreportedSurfaces(t *testing.T) {
+	t.Parallel()
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(time.Second)
+	reported := driver.UsageReceipt{
+		SchemaVersion: driver.UsageSchemaV2,
+		Surface:       "sworn.reporting",
+		TokenStatus:   driver.UsageReported,
+		InputTokens:   int64Pointer(7),
+		OutputTokens:  int64Pointer(3),
+		CostStatus:    driver.UsageUnavailable,
+		CacheStatus:   driver.UsageUnavailable,
+	}
+	reportedBody, err := driver.EncodeUsageReceipt(reported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []journal.EvaluationFact{}
+	unreported := []string{
+		"sworn.s1", "sworn.s2", "sworn.s3", "sworn.s4", "sworn.s5",
+		"sworn.s6", "sworn.s7",
+	}
+	for index := 0; index < 10; index++ {
+		var body []byte
+		if index < 3 {
+			body = reportedBody
+		} else {
+			loud := reported
+			loud.TokenStatus = driver.UsageUnavailable
+			loud.InputTokens = nil
+			loud.OutputTokens = nil
+			loud.Surface = unreported[index-3]
+			loud.UnavailableReason = driver.UsageReasonWireLacked
+			body, err = driver.EncodeUsageReceipt(loud)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		facts = append(facts, journal.EvaluationFact{
+			Kind:           journal.EvaluationAttempt,
+			EffectKind:     "driver.dispatch",
+			EffectState:    journal.Succeeded,
+			Attempt:        int64(index + 1),
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage:          body,
+			StartedAt:      started,
+			FinishedAt:     finished,
+		})
+	}
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: facts,
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(context.Background(), "run-1")
+	if err != nil || !changed {
+		t.Fatalf("advance = %t, %v", changed, err)
+	}
+	if *record.Usage.TokenCoverage.Numerator != 3 ||
+		*record.Usage.TokenCoverage.Denominator != 10 {
+		t.Fatalf("record coverage = %#v", record.Usage.TokenCoverage)
+	}
+	if len(record.Usage.UnreportedSurfaces) != 7 {
+		t.Fatalf("record surfaces = %#v", record.Usage.UnreportedSurfaces)
+	}
+	for index, want := range unreported {
+		if record.Usage.UnreportedSurfaces[index] != want {
+			t.Fatalf("record surfaces = %#v", record.Usage.UnreportedSurfaces)
+		}
+	}
+	if len(record.Groups) != 1 {
+		t.Fatalf("groups = %#v", record.Groups)
+	}
+	groupUsage := record.Groups[0].Usage
+	if *groupUsage.TokenCoverage.Numerator != 3 ||
+		*groupUsage.TokenCoverage.Denominator != 10 ||
+		len(groupUsage.UnreportedSurfaces) != 7 {
+		t.Fatalf("group usage = %#v", groupUsage)
+	}
+
+	// A legacy silent blob contributes the honest literal "unknown".
+	legacyStore := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-legacy", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: []journal.EvaluationFact{{
+			Kind:           journal.EvaluationAttempt,
+			EffectKind:     "driver.dispatch",
+			EffectState:    journal.OperationalFailed,
+			Attempt:        1,
+			Responsibility: "work_verification",
+			Transport:      "timeout",
+			Usage: []byte(
+				`{"token_status":"unavailable","input_tokens":null,` +
+					`"output_tokens":null,"cost_status":"unavailable",` +
+					`"cost_micro_units":null,"currency":null,"source":null}`,
+			),
+			StartedAt:  started,
+			FinishedAt: finished,
+		}},
+	}
+	legacyProjector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-legacy", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	legacyEvaluator, err := NewEvaluator(
+		legacyStore,
+		legacyProjector,
+		"0.3.0-dev",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRecord, changed, err := legacyEvaluator.Advance(
+		context.Background(),
+		"run-legacy",
+	)
+	if err != nil || !changed ||
+		len(legacyRecord.Usage.UnreportedSurfaces) != 1 ||
+		legacyRecord.Usage.UnreportedSurfaces[0] != "unknown" {
+		t.Fatalf("legacy naming = %#v, %t, %v", legacyRecord.Usage, changed, err)
+	}
+}
+
+// A4+A5+correction 1: two models dispatched under one role stay truthful and
+// distinct. Duration, profile, certified model, cost source, and turn
+// economics land in the eval record, and every group's metric series
+// survives the projection with profile/model in the label set.
+func TestEvalRecordCarriesAttemptFactsAndKeepsMixedModelGroupsDistinct(
+	t *testing.T,
+) {
+	t.Parallel()
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(time.Second)
+	buildReceipt := func(
+		surface, profile, model string,
+		durationMillis, turns, toolCalls int64,
+		mix []driver.ToolCallCount,
+	) []byte {
+		t.Helper()
+		receipt := driver.UsageReceipt{
+			SchemaVersion:   driver.UsageSchemaV2,
+			Surface:         surface,
+			TokenStatus:     driver.UsageReported,
+			InputTokens:     int64Pointer(7),
+			OutputTokens:    int64Pointer(3),
+			CostStatus:      driver.UsageReported,
+			CostMicroUnits:  int64Pointer(10),
+			Currency:        textPointer("USD"),
+			Source:          textPointer(driver.CostSourceProviderReported),
+			CacheStatus:     driver.UsageUnavailable,
+			DurationMillis:  int64Pointer(durationMillis),
+			Profile:         textPointer(profile),
+			Model:           textPointer(model),
+			Turns:           int64Pointer(turns),
+			ToolCalls:       int64Pointer(toolCalls),
+			ToolCallsByName: mix,
+		}
+		body, err := driver.EncodeUsageReceipt(receipt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	mixA := []driver.ToolCallCount{
+		{Name: "Bash", Count: 1},
+		{Name: "Read", Count: 2},
+	}
+	mixB := []driver.ToolCallCount{
+		{Name: "Edit", Count: 2},
+	}
+	facts := []journal.EvaluationFact{
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 1,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage: buildReceipt(
+				"sworn.a", "profile-p1", "model-m1", 100, 2, 3, mixA,
+			),
+			StartedAt: started, FinishedAt: finished,
+		},
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 2,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage: buildReceipt(
+				"sworn.a", "profile-p1", "model-m1", 200, 2, 3, mixA,
+			),
+			StartedAt: started, FinishedAt: finished,
+		},
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 3,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage: buildReceipt(
+				"sworn.b", "profile-p2", "model-m2", 40, 4, 2, mixB,
+			),
+			StartedAt: started, FinishedAt: finished,
+		},
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 4,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage: buildReceipt(
+				"sworn.b", "profile-p2", "model-m2", 60, 4, 2, mixB,
+			),
+			StartedAt: started, FinishedAt: finished,
+		},
+	}
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-1", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: facts,
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-1", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(context.Background(), "run-1")
+	if err != nil || !changed {
+		t.Fatalf("advance = %t, %v", changed, err)
+	}
+	if record.SchemaVersion != journal.EvalSchemaVersionV3 {
+		t.Fatalf("schema = %q", record.SchemaVersion)
+	}
+	if len(record.Groups) != 2 {
+		t.Fatalf("groups = %#v", record.Groups)
+	}
+	var groupOne, groupTwo AttemptGroup
+	for _, group := range record.Groups {
+		switch group.Profile {
+		case "profile-p1":
+			groupOne = group
+		case "profile-p2":
+			groupTwo = group
+		}
+	}
+	if groupOne.Model != "model-m1" || groupTwo.Model != "model-m2" {
+		t.Fatalf("group identity = %#v", record.Groups)
+	}
+	if groupOne.ObservationDurationNS.Numerator == nil ||
+		*groupOne.ObservationDurationNS.Numerator != 300*1_000_000 ||
+		*groupOne.ObservationDurationNS.Denominator != 2 ||
+		groupTwo.ObservationDurationNS.Numerator == nil ||
+		*groupTwo.ObservationDurationNS.Numerator != 100*1_000_000 ||
+		*groupTwo.ObservationDurationNS.Denominator != 2 {
+		t.Fatalf("observation duration = %#v / %#v",
+			groupOne.ObservationDurationNS,
+			groupTwo.ObservationDurationNS,
+		)
+	}
+	if len(groupOne.Usage.Costs) != 1 ||
+		groupOne.Usage.Costs[0].Source !=
+			driver.CostSourceProviderReported {
+		t.Fatalf("cost source = %#v", groupOne.Usage.Costs)
+	}
+	if groupOne.TurnEconomics.Turns == nil ||
+		*groupOne.TurnEconomics.Turns != 4 ||
+		groupOne.TurnEconomics.ToolCalls == nil ||
+		*groupOne.TurnEconomics.ToolCalls != 6 ||
+		*groupOne.TurnEconomics.ToolCallsPerTurn.Numerator != 6 ||
+		*groupOne.TurnEconomics.ToolCallsPerTurn.Denominator != 4 ||
+		len(groupOne.TurnEconomics.ToolCallMix) != 2 ||
+		groupOne.TurnEconomics.ToolCallMix[0] !=
+			(ToolCallCount{Name: "Bash", Count: 2}) ||
+		groupOne.TurnEconomics.ToolCallMix[1] !=
+			(ToolCallCount{Name: "Read", Count: 4}) {
+		t.Fatalf("turn economics = %#v", groupOne.TurnEconomics)
+	}
+	if groupTwo.TurnEconomics.Turns == nil ||
+		*groupTwo.TurnEconomics.Turns != 8 ||
+		groupTwo.TurnEconomics.ToolCalls == nil ||
+		*groupTwo.TurnEconomics.ToolCalls != 4 ||
+		len(groupTwo.TurnEconomics.ToolCallMix) != 1 ||
+		groupTwo.TurnEconomics.ToolCallMix[0] !=
+			(ToolCallCount{Name: "Edit", Count: 4}) {
+		t.Fatalf("turn economics two = %#v", groupTwo.TurnEconomics)
+	}
+
+	// Correction 1: every group's metric series survives the projection.
+	traceExporter := &captureTraceExporter{started: make(chan struct{})}
+	metricExporter := &captureMetricExporter{}
+	telemetry, err := newTelemetry(
+		traceExporter,
+		metricExporter,
+		"0.3.0-dev",
+		4,
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !telemetry.TryEnqueue(record) {
+		t.Fatal("record was not accepted")
+	}
+	waitForProcessed(t, telemetry, 1)
+	shutdownTelemetry(t, telemetry)
+	metrics, _ := metricExporter.snapshot()
+	profileLabels := map[string]bool{"profile-p1": false, "profile-p2": false}
+	for _, metric := range metrics {
+		if metric.name != "sworn.eval.attempts" {
+			continue
+		}
+		profile, ok := metric.attributes["sworn.profile"].(string)
+		if ok {
+			if _, exists := profileLabels[profile]; exists {
+				profileLabels[profile] = true
+			}
+		}
+	}
+	if !profileLabels["profile-p1"] || !profileLabels["profile-p2"] {
+		t.Fatalf("mixed-model group series collapsed: %#v", metrics)
 	}
 }

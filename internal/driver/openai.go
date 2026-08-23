@@ -847,6 +847,34 @@ func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
 		}
 		result.CacheWriteTokens = &write
 	}
+	// A1: the chat-completions details objects carry the reasoning and
+	// cached-token sides of the standard vocabulary. They are extracted
+	// leniently (a malformed detail is ignored, never a failed run) so the
+	// full wire split reaches the receipt.
+	if detailsValue, present := usage["prompt_tokens_details"]; present &&
+		detailsValue != nil {
+		details, detailsOK := detailsValue.(map[string]any)
+		if detailsOK {
+			if cachedValue, present := details["cached_tokens"]; present {
+				cached, cachedOK := safeJSONInt(cachedValue)
+				if cachedOK {
+					result.CacheReadTokens = &cached
+				}
+			}
+		}
+	}
+	if detailsValue, present := usage["completion_tokens_details"]; present &&
+		detailsValue != nil {
+		details, detailsOK := detailsValue.(map[string]any)
+		if detailsOK {
+			if reasoningValue, present := details["reasoning_tokens"]; present {
+				reasoning, reasoningOK := safeJSONInt(reasoningValue)
+				if reasoningOK {
+					result.ReasoningTokens = &reasoning
+				}
+			}
+		}
+	}
 	return result, nil
 }
 

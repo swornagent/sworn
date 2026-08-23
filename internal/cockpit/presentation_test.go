@@ -1,6 +1,11 @@
 package cockpit
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
+)
 
 func TestPresentRunStateExplainsEveryRecordedState(t *testing.T) {
 	t.Parallel()
@@ -61,6 +66,61 @@ func TestPresentSnapshotPrioritisesUnconfirmedFactsAndHumanAttention(
 	}
 	if got := PresentSnapshot(retry); got.Status != "Stopped after repeated failures" {
 		t.Fatalf("retry presentation = %#v", got)
+	}
+}
+
+// A4: the board names a degradation park instead of the flat parked text.
+func TestPresentRunStateNamesDegradationPark(t *testing.T) {
+	t.Parallel()
+
+	degradation := PresentRunState("parked", &runtimepkg.ParkStatus{
+		Cause:         runtimepkg.ParkCauseDegradation,
+		FallbackCount: 4,
+		Budget:        3,
+		UnblockKnob:   runtimepkg.DegradationUnblockKnob,
+	})
+	if degradation.Status != "Stopped after repeated context loss" {
+		t.Fatalf("status = %q, want degradation status", degradation.Status)
+	}
+	if !strings.Contains(degradation.What, "4 times") ||
+		!strings.Contains(degradation.What, "budget of 3") {
+		t.Fatalf("what = %q, want count and budget", degradation.What)
+	}
+	if !strings.Contains(degradation.Next, "limits.degradation_budget") {
+		t.Fatalf("next = %q, want the unblock knob", degradation.Next)
+	}
+	if !strings.Contains(degradation.NeedsYou, "repeated context rebuilds") {
+		t.Fatalf("needs_you = %q, want the rebuild review", degradation.NeedsYou)
+	}
+
+	// A nil park keeps the existing flat wording.
+	flat := PresentRunState("parked")
+	if flat.Status != "Stopped and needs your attention" {
+		t.Fatalf("nil-park status = %q, want the flat parked status", flat.Status)
+	}
+
+	// A non-degradation park keeps the existing flat wording too.
+	attention := PresentRunState("parked", &runtimepkg.ParkStatus{
+		Cause: runtimepkg.ParkCauseAttention,
+	})
+	if attention.Status != "Stopped and needs your attention" {
+		t.Fatalf("attention-park status = %q, want the flat parked status", attention.Status)
+	}
+
+	// The board snapshot carries the park through PresentSnapshot.
+	snapshot := PresentSnapshot(Snapshot{
+		Run: RunView{
+			State: "parked",
+			Park: &runtimepkg.ParkStatus{
+				Cause:         runtimepkg.ParkCauseDegradation,
+				FallbackCount: 4,
+				Budget:        3,
+				UnblockKnob:   runtimepkg.DegradationUnblockKnob,
+			},
+		},
+	})
+	if snapshot.Status != "Stopped after repeated context loss" {
+		t.Fatalf("snapshot presentation = %#v", snapshot)
 	}
 }
 

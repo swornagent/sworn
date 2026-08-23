@@ -1,0 +1,62 @@
+{
+ "outcome": "One corrupted tool call no longer costs an hour of finished work: a malformed provider tool call is corrected in-conversation - the defect named back to the model through the same bounded correction machinery submissions already use - and only persistent corruption fails the dispatch, so a provider's transient markup leak becomes a thirty-second nudge instead of a dead try.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "well-formed tool calls, tool execution, and result semantics (unchanged)",
+   "the native CLI path (its tool calls arrive through the MCP surface with its own protocol guards)",
+   "continuation replay validation for recorded turns (a malformed call in a replayed history stays a replay integrity failure)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins tool-call decode correction"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins tool-call decode correction"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins tool-call decode correction"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins tool-call decode correction"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A malformed function call in a live turn becomes a bounded in-conversation correction instead of a dead dispatch: today any of the ten decode failures (responsesFunctionCall, internal/driver/responses.go:431-472 - missing ids, invalid names, oversized or invalid-JSON arguments) aborts the whole turn from accept's per-item loop (responses.go:234-240), discards well-formed sibling calls, exits the conversation loop (provider.go:533-537), and burns one of the work's three tries as CONTINUATION_INVALID. After this slice the model receives a correction naming the malformed call and the defect class, the conversation continues, and the correction is durably accounted. Pinned by driver tests over recorded malformed shapes including the observed DSML leak. Evidence basis: three deepseek-v4-pro tool-call corruptions across telemetry-foundations r2-r5, each costing a full dispatch retry of ~an hour."
+  },
+  {
+   "id": "A2",
+   "text": "The correction rides the existing bounded machinery: a session counter with a declared maximum in the house pattern, terminal on exhaustion with a named code, and each correction durably reserved through the recovery-step hook before it is delivered - the submission-correction structure (rejectSubmission, internal/driver/tools.go:478-510; reserveRecoveryStep, internal/driver/recoverable.go:74-88) and the call-less prose-nudge precedent (provider.go:576-593, 'a call-less turn is nudged, never failed') are the shapes; the journal's RecoveryMalformedCorrection kind (wired at internal/runtime/turn_recovery.go:791-808) already exists to receive it. Pinned by tests asserting the reservation, the bound, and the terminal code."
+  },
+  {
+   "id": "A3",
+   "text": "Corruption stays visible: each correction is journaled with the defect site label (the continuation.toolcall_decode.* vocabulary survives as the classification), so a provider's corruption rate is a readable fact in the run's history rather than a silent absorption - pinned by a test reading the accounting back from the journal."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The tool-call protocol's integrity guards do not loosen: a malformed call is never executed, never partially honored, and never registered in the continuation ledger as if well-formed; the correction is about giving the model a chance to re-emit, not about tolerating the malformation.",
+  "Whether correction happens per-item (quarantining the bad call while honoring well-formed siblings, which requires a ledger-registered synthetic call id) or per-turn (nudge-and-retry the whole turn, losing siblings but needing no synthetic ids) is the implementer's design decision inside these bounds; the captain judges the trade.",
+  "Exhaustion behavior is today's behavior: when corrections run out, the dispatch fails with the same classification it would have had on first failure - this slice adds grace, never a new failure mode.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

@@ -167,7 +167,10 @@ func startRecoverableTurn(
 	if invokeErr != nil {
 		closeErr := closeContinuationState(state)
 		if closeErr != nil {
-			return failureObservation("adapter_failed"), nil, fresh, closeErr
+			return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, fresh, closeErr
 		}
 		if isContinuationCancellation(invokeErr) {
 			fresh.Status = ContinuationStatusCancelled
@@ -180,7 +183,10 @@ func startRecoverableTurn(
 		closeErr := closeContinuationState(state)
 		fresh.Status = ContinuationStatusCompleted
 		if closeErr != nil {
-			return failureObservation("adapter_failed"), nil, fresh, closeErr
+			return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, fresh, closeErr
 		}
 		return observation, nil, fresh, nil
 	}
@@ -337,9 +343,12 @@ func resumeRecoverableTurn(
 	}
 	if stateCloseErr != nil {
 		_ = closeContinuationState(nextState)
-		return failureObservation("adapter_failed"), nil, ContinuationResult{
-			Mode: mode, Status: status,
-		}, stateCloseErr
+		return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, ContinuationResult{
+				Mode: mode, Status: status,
+			}, stateCloseErr
 	}
 	if IsCode(invokeErr, "CONTINUATION_INVALID") {
 		_ = closeContinuationState(nextState)
@@ -375,9 +384,12 @@ func resumeRecoverableTurn(
 		return observation, handle, result, retainErr
 	}
 	if closeErr := closeContinuationState(nextState); closeErr != nil {
-		return failureObservation("adapter_failed"), nil, ContinuationResult{
-			Mode: mode, Status: status,
-		}, closeErr
+		return failureObservation(
+				"adapter_failed",
+				invocation.Selected.Adapter.ID,
+			), nil, ContinuationResult{
+				Mode: mode, Status: status,
+			}, closeErr
 	}
 	return observation, nil, ContinuationResult{
 		Mode: mode, Status: status,

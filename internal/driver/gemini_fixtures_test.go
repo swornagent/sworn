@@ -49,6 +49,8 @@ func geminiNativeProbeConversation(
 		[]byte(prompt),
 		2000,
 		thinkingLevel,
+		false,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +281,7 @@ func TestGeminiNativeUsageMapsReasoningAndCache(t *testing.T) {
 		total.ReasoningTokens == nil || *total.ReasoningTokens != 3696 {
 		t.Fatalf("summed usage = %#v", total)
 	}
-	receipt, err := NormalizeUsage(&total, nil)
+	receipt, err := NormalizeUsage(&total, nil, "sworn.test")
 	if err != nil || receipt.CacheStatus != UsageReported ||
 		receipt.CacheReadTokens == nil ||
 		*receipt.CacheReadTokens != 12263 ||
@@ -418,6 +420,8 @@ func TestGeminiNativeCertificationPassesForGoogleNativeProfile(t *testing.T) {
 			[]byte(`Call the probe tool with value 7.`),
 			2000,
 			"LOW",
+			false,
+			false,
 		)
 		if err != nil {
 			return err

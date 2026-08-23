@@ -708,7 +708,7 @@ func runDirectTurnRecoveryBaseline(
 	// The baseline still crosses the Planner's summary boundary - that is one
 	// human escalation every production run now has - but its implementation
 	// turn is direct, which is what this baseline exists to measure.
-	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
+	if record.SchemaVersion != journal.EvalSchemaVersionV3 ||
 		record.TurnRecovery.Recovered != 1 ||
 		record.TurnRecovery.HumanEscalations != 1 ||
 		record.TurnRecovery.FalseAcceptances != 0 ||
@@ -1175,7 +1175,7 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						t.Fatalf("answer replay stdout=%q stderr=%q", stdout, stderr)
 					}
 				} else {
-					time.Sleep(450 * time.Millisecond)
+					leaseExpiryWait()
 					boardBody, boardErr := runBinary(
 						t, normalBinary, 0,
 						"board", "--run", runID,
@@ -1639,7 +1639,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	wantDuration := targetFacts[0].FinishedAt.Sub(
 		targetFacts[0].StartedAt,
 	).Nanoseconds()
-	if record.SchemaVersion != journal.EvalSchemaVersionV2 ||
+	if record.SchemaVersion != journal.EvalSchemaVersionV3 ||
 		record.TurnRecovery.Recovered != 2 ||
 		record.TurnRecovery.HumanEscalations != 2 ||
 		record.TurnRecovery.FalseAcceptances != 0 ||

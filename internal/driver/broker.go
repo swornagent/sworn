@@ -44,6 +44,14 @@ type nativeBrokerSession interface {
 	brokerToolDefinitions() []providerToolDefinition
 	execute(context.Context, providerToolCall) providerToolResult
 	terminated() (bool, error)
+	// observeToolResultTurn projects one turn of results that crossed
+	// back into the model onto the runtime-provided hook. The automation
+	// session implements it as a no-op: automation dispatches journal
+	// nothing by construction.
+	observeToolResultTurn(turn int64, results []providerToolResult)
+	// redactionSecrets returns the credentials the engine holds at the
+	// broker seam; the projection redacts them before emission.
+	redactionSecrets() [][]byte
 }
 
 type nativeBroker struct {
@@ -63,6 +71,7 @@ type nativeBroker struct {
 	listDigest         string
 	expected           *nativeHandshakeEvidence
 	calls              int
+	callsByName        map[string]int64
 	address            string
 	token              []byte
 	session            nativeBrokerSession
@@ -72,6 +81,11 @@ type nativeBroker struct {
 	closeOnce          sync.Once
 	connMu             sync.Mutex
 	connections        map[net.Conn]struct{}
+	// turnSource attributes crossings to the native state's turn counter;
+	// pending coalesces one turn until it changes or the broker finishes.
+	turnSource  func() int64
+	pendingTurn int64
+	pending     []providerToolResult
 }
 
 func newNativeBroker(
@@ -99,6 +113,7 @@ func newNativeBroker(
 		state: brokerClosed, address: listener.Addr().String(),
 		token: token, session: session, listener: listener,
 		terminal: make(chan struct{}), connections: make(map[net.Conn]struct{}),
+		callsByName: make(map[string]int64),
 	}
 	if len(expected) == 1 {
 		value := expected[0]
@@ -131,6 +146,60 @@ func (broker *nativeBroker) URL() string {
 	return "http://" + broker.address + "/mcp"
 }
 
+// bindTurnSource wires the native state's turn counter into the broker so
+// per-turn coalescing attributes each crossing to the turn the model was
+// in. Production runNative always binds it; an unbound broker (unit
+// fixtures) falls back to per-call turn attribution by call ordinal.
+func (broker *nativeBroker) bindTurnSource(source func() int64) {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	broker.turnSource = source
+}
+
+func (broker *nativeBroker) currentTurnLocked(callNumber int64) int64 {
+	if broker.turnSource == nil {
+		return callNumber
+	}
+	return broker.turnSource()
+}
+
+// observeCallResult records one crossing into the current turn's pending
+// coalescing bucket and flushes the previous turn when the turn changes.
+// It is called only after the RECOVERY_STEP_REFUSED early return, so a
+// result that never crosses is never journaled.
+func (broker *nativeBroker) observeCallResult(
+	callNumber int64,
+	result providerToolResult,
+) {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	turn := broker.currentTurnLocked(callNumber)
+	if len(broker.pending) != 0 && broker.pendingTurn != turn {
+		broker.flushPendingLocked()
+	}
+	broker.pendingTurn = turn
+	broker.pending = append(broker.pending, result)
+}
+
+// flushPending emits the current pending turn, if any. It is idempotent and
+// is also called explicitly by runNative before the tool session closes.
+func (broker *nativeBroker) flushPending() {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	broker.flushPendingLocked()
+}
+
+func (broker *nativeBroker) flushPendingLocked() {
+	if len(broker.pending) == 0 {
+		return
+	}
+	turn := broker.pendingTurn
+	records := broker.pending
+	broker.pending = nil
+	broker.pendingTurn = 0
+	broker.session.observeToolResultTurn(turn, records)
+}
+
 func (broker *nativeBroker) capability() []byte {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
@@ -152,6 +221,28 @@ func (broker *nativeBroker) Ready() bool {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
 	return broker.ready
+}
+
+// toolCallTotal and toolCallsByName snapshot the per-name executed-call
+// counts for turn-economics capture at the native observation seam.
+func (broker *nativeBroker) toolCallTotal() int64 {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	var total int64
+	for _, count := range broker.callsByName {
+		total += count
+	}
+	return total
+}
+
+func (broker *nativeBroker) toolCallsByName() map[string]int64 {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	result := make(map[string]int64, len(broker.callsByName))
+	for name, count := range broker.callsByName {
+		result[name] = count
+	}
+	return result
 }
 
 func (broker *nativeBroker) HandshakeEvidence() (nativeHandshakeEvidence, error) {
@@ -202,6 +293,9 @@ func (broker *nativeBroker) finish(state brokerState) {
 		broker.state = state
 		broker.closeOnce.Do(func() { close(broker.terminal) })
 	}
+	// Results that already crossed still belong in the durable stream:
+	// flush the pending turn before the broker goes quiet.
+	broker.flushPendingLocked()
 	broker.mu.Unlock()
 }
 
@@ -514,6 +608,9 @@ func (broker *nativeBroker) callTool(
 	result := broker.session.execute(ctx, providerToolCall{
 		ID: "mcp-" + itoa(callNumber), Name: name, Arguments: arguments,
 	})
+	broker.mu.Lock()
+	broker.callsByName[name]++
+	broker.mu.Unlock()
 	terminated, terminalErr := broker.session.terminated()
 	if terminated && IsCode(terminalErr, "RECOVERY_STEP_REFUSED") {
 		broker.finish(brokerTerminal)
@@ -526,6 +623,11 @@ func (broker *nativeBroker) callTool(
 		)
 		return
 	}
+	// The result crosses into the model here; project it at this exact
+	// seam, after the refused early return and before writeBrokerResult,
+	// so the journaled bytes are exactly what the native model receives
+	// as `"text": string(result.Content)`.
+	broker.observeCallResult(int64(callNumber), result)
 	writeBrokerResult(writer, id, map[string]any{
 		"content": []map[string]any{{
 			"type": "text", "text": string(result.Content),

@@ -649,7 +649,7 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("PRAGMA user_version = 3"); err != nil {
+	if _, err := db.Exec("PRAGMA user_version = 4"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -657,6 +657,39 @@ func TestOpenRejectsForeignApplicationAndSchemaIdentity(t *testing.T) {
 	}
 	if _, err := Open(ctx, path); !IsCode(err, "IDENTITY_MISMATCH") {
 		t.Fatalf("foreign schema identity = %v", err)
+	}
+}
+
+func downgradeExactV3ToV2(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// ALTER TABLE DROP COLUMN restores the pre-S6 attempts text byte-for-
+	// byte, so the recovered catalog fingerprints as the preserved v2 gate.
+	statements := []string{
+		"ALTER TABLE attempts DROP COLUMN observation_partial",
+		"ALTER TABLE attempts DROP COLUMN observation_body",
+		"PRAGMA user_version = 2",
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	got, err := schemaFingerprint(context.Background(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != schemaIdentityDigestV2 {
+		t.Fatalf("recovered v2 fingerprint = %s, want %s", got, schemaIdentityDigestV2)
 	}
 }
 
@@ -668,6 +701,10 @@ func downgradeExactV2ToV1(t *testing.T, path string, mutate bool) {
 	}
 	defer db.Close()
 	statements := []string{
+		// The live journal is v3: drop the S6 columns first so the attempts
+		// catalog text is exactly the historical v1/v2 shape again.
+		"ALTER TABLE attempts DROP COLUMN observation_partial",
+		"ALTER TABLE attempts DROP COLUMN observation_body",
 		"DROP INDEX outbox_delivery_order",
 		"DROP INDEX eval_records_by_run_offset",
 		"DROP TABLE notification_outbox",
@@ -732,7 +769,99 @@ func TestOpenMigratesOnlyExactV1AndPreservesExistingFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := Open(ctx, filepath.Join(t.TempDir(), "fresh-v2.sqlite"))
+	fresh, err := Open(ctx, filepath.Join(t.TempDir(), "fresh-v3.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	freshFingerprint, err := schemaFingerprint(ctx, fresh.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedFingerprint != freshFingerprint ||
+		freshFingerprint != schemaIdentityDigest {
+		t.Fatalf(
+			"fresh/migrated parity = fresh %s migrated %s want %s",
+			freshFingerprint,
+			migratedFingerprint,
+			schemaIdentityDigest,
+		)
+	}
+}
+
+func TestOpenMigratesOnlyExactV2AndPreservesExistingFacts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, run, _, effect := journalFixture(t)
+	path := store.Path()
+	// Seed a historical failed attempt in the pre-S6 shape: an attempt row
+	// with a digest and no observation body.
+	now := run.CreatedAt.Add(time.Second)
+	claim, err := store.Claim(ctx, run.ID, effect.ID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{
+		RunID: run.ID, EffectID: effect.ID, Token: claim.Token,
+		State: OperationalFailed, ErrorCode: "runner_error",
+		Attempt: &Attempt{
+			Number:            1,
+			Responsibility:    "implementer_implementation",
+			TransportStatus:   "runner_error",
+			ObservationDigest: digest([]byte("observation")),
+			Usage:             []byte(`{"token_status":"unavailable"}`),
+		},
+		EventKind: "dispatch_operational_failure",
+		At:        now.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	downgradeExactV3ToV2(t, path)
+
+	readOnly, err := OpenReadOnly(ctx, path)
+	if !IsCode(err, "IDENTITY_MISMATCH") || readOnly != nil {
+		t.Fatalf("v2 read-only admission = %#v, %v", readOnly, err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	snapshot, err := migrated.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Run.ID != run.ID || len(snapshot.Commands) != 1 || len(snapshot.Effects) != 1 {
+		t.Fatalf("migrated facts = %#v", snapshot)
+	}
+	// The historical row reads as distinguishably absent — Stored=false,
+	// never CORRUPT_JOURNAL — and its pre-S6 facts are intact.
+	observed, err := migrated.AttemptObservation(ctx, run.ID, effect.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Stored || observed.Partial || observed.Body != nil {
+		t.Fatalf("historical attempt observation = %#v, want stored=false", observed)
+	}
+	if observed.Number != 1 ||
+		observed.Responsibility != "implementer_implementation" ||
+		observed.Transport != "runner_error" ||
+		observed.Digest != digest([]byte("observation")) {
+		t.Fatalf("historical attempt facts = %#v", observed)
+	}
+	if err := verifySchemaIdentity(ctx, migrated.conn); err != nil {
+		t.Fatal(err)
+	}
+	migratedFingerprint, err := schemaFingerprint(ctx, migrated.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := Open(ctx, filepath.Join(t.TempDir(), "fresh-v3.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

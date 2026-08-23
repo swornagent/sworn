@@ -289,6 +289,7 @@ func buildSnapshot(
 			TargetHead:        status.TargetHead,
 			ReleaseHead:       status.ReleaseHead,
 			Outcome:           status.Outcome,
+			Park:              status.Park,
 		},
 		Runtime: RuntimeView{
 			Owner: OwnerView{

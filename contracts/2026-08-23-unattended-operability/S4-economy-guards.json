@@ -1,0 +1,66 @@
+{
+ "outcome": "The manifest's economic limits actually govern every dispatch, and a run that stops making real progress parks early with the evidence attached: a per-work turn and output-token budget catches the nine-hundred-turn slice that try-counting misses, N consecutive identical failures on one work park before the try budget burns, and the timeout and output limits the operator already declares finally bind on the API conversation path they have never governed.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the degradation budget (delivered and recalibrated in 2026-08-23-telemetry-foundations S4; unchanged here)",
+   "park presentation and webhook delivery (delivered there too; the new parks ride the existing named-park surfaces)",
+   "retry semantics and epoch machinery (#216's one-retry-per-cycle doctrine unchanged)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins economy budgets; the park surfaces they render were pinned by the previous release and are consumed unchanged"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins economy budgets; the park surfaces they render were pinned by the previous release and are consumed unchanged"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins economy budgets; the park surfaces they render were pinned by the previous release and are consumed unchanged"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins economy budgets; the park surfaces they render were pinned by the previous release and are consumed unchanged"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Per-work economy budgets exist in manifest limits - maximum turns and maximum output tokens per work item - and a dispatch crossing either parks the work at the next safe boundary reporting spent-versus-budget. The counting seam already exists unconsumed: turnCount and toolCallCount accumulate in the conversation loop (internal/driver/provider.go:487,537-540) and land in usage receipts (applyTurnEconomics, internal/driver/usage.go:258-279) that nothing in internal/runtime or internal/journal reads today; the only turn bound is the runaway guard MaxProviderTurns=1000 (provider.go:11-14,491) whose own comment says it is not a work budget. Evidence basis: the ~900-turn slice of 2026-08-12-configurable-paths burned inside the guard by design, invisible to try counting because each try was making progress (sworn#205 guard 2). Pinned by driver and runtime tests."
+  },
+  {
+   "id": "A2",
+   "text": "N consecutive operational failures with the same error code on one work item park the work early - before try exhaustion - with the failure code and its detail attached to the park. The history is durable and enumerable today: per-try codes land on effects.error_code (internal/journal/schema.sql:29,42) keyed by AttemptEffectID work/epoch/try (internal/journal/control.go:61-63), and the per-work exhaustion scan at internal/runtime/status.go:120-142 is the existing shape to extend. Evidence basis: three ~600-turn tries burned against one invisible seal refusal, identical error each time (sworn#205 guard 3; the refusal detail now survives via telemetry-foundations S5). The threshold is a manifest knob with a sane default; pinned by runtime tests over a fixture journal."
+  },
+  {
+   "id": "A3",
+   "text": "The limits the operator already declares bind everywhere: Limits.TimeoutMillis bounds the API conversation path, which today receives no deadline at all (the loop adapter passes the caller context straight through, provider.go:247-279; providerTimeout at internal/driver/http.go:377 has zero non-test callers; the shared client is built with Timeout: 0) - and Limits.OutputBytes reaches the conversation surfaces beyond the one adapter wired today (only gemini consumes it, internal/driver/gemini.go:117,147). A dispatch exceeding its wall clock fails with a named timeout code, never hangs unbounded. Pinned by driver tests."
+  },
+  {
+   "id": "A4",
+   "text": "Every new park names itself through the surfaces the previous release built: run status carries the park cause and the budget figures, the board describes it truthfully, and the webhook kind names the park class - pinned by the same projection tests that pinned the degradation park, extended for the new causes."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Operator directive being encoded (2026-08-15, sworn#205): when a quality-preserving mechanism stops working, the human is alerted and the run pauses at a safe boundary - the loop never silently degrades and keeps burning tokens. These guards are runtime policy evaluated by the reducer with journaled effects, never telemetry (telemetry is optional, bounded, lossy, and never controls a run).",
+  "Budgets are manifest knobs with validated bounds following the degradation_budget pattern (internal/driver/contract.go:138-149); absent knobs get defaults that do not bind a careful worker (a careful implementer pass needs ~30 tool turns; defaults must sit far above that and far below runaway).",
+  "Guard evaluation is computed over journal history like every park condition - a re-drive of a journal that crossed a budget re-parks; raising the knob is a new manifest and fresh journal, the recovery path proven across two releases.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

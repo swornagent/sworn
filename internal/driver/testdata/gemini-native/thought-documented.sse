@@ -1,0 +1,5 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Let me think this through.","thought":true}]}}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"The probe returned 49."}]},"finishReason":"STOP","index":0}]}
+
+data: {"usageMetadata":{"promptTokenCount":92,"candidatesTokenCount":13,"totalTokenCount":120,"thoughtsTokenCount":15,"serviceTier":"standard"},"modelVersion":"gemini-3.7-flash","responseId":"thought-stream-documented-format"}

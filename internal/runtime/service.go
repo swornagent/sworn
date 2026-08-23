@@ -110,6 +110,18 @@ type RunStatus struct {
 	CaptainDelegation  *CaptainDelegationView `json:"captain_delegation,omitempty"`
 	Effects            []EffectStatus         `json:"effects"`
 	EventOffset        int64                  `json:"event_offset"`
+	Park               *ParkStatus            `json:"park,omitempty"`
+}
+
+// ParkStatus names why a run is parked. Cause is one of degradation,
+// attention, exhaustion, or human_authority; a degradation park additionally
+// carries the gated fallback count, the effective budget, and the manifest
+// knob that unblocks it.
+type ParkStatus struct {
+	Cause         string `json:"cause"`
+	FallbackCount int64  `json:"fallback_count,omitempty"`
+	Budget        int64  `json:"budget,omitempty"`
+	UnblockKnob   string `json:"unblock_knob,omitempty"`
 }
 
 type CaptainDelegationView struct {

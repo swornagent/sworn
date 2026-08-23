@@ -41,6 +41,30 @@ type ContinuationDriver interface {
 
 var _ ContinuationDriver = Dispatcher{}
 
+// ContinuationPostureDriver is the additive, opt-in declaration capability:
+// it tells the degradation counter whether an adapter's fresh rehydration is
+// ordinary operation (fresh_by_design) or lost context (context_retaining).
+// Driver.Invoke and the turn contract are unchanged; a driver that does not
+// declare a posture is read as context_retaining.
+type ContinuationPostureDriver interface {
+	Driver
+	ContinuationPosture(Invocation) ContinuationPosture
+}
+
+var _ ContinuationPostureDriver = Dispatcher{}
+
+// ContinuationPosture returns the selected adapter's declared continuation
+// posture. It consults the private opt-in adapter capability and fails closed
+// to context_retaining for adapters that declare nothing.
+func (Dispatcher) ContinuationPosture(invocation Invocation) ContinuationPosture {
+	if declaration, ok := invocation.Selected.adapter.(interface {
+		declaredContinuationPosture() ContinuationPosture
+	}); ok {
+		return declaration.declaredContinuationPosture()
+	}
+	return ContinuationPostureContextRetaining
+}
+
 // RecoverableTurnDriver resumes only the exact yielded worker responsibility.
 // A nil handle starts a fresh turn; a nil handle with input explicitly
 // rehydrates a lost or expired turn without granting submission authority.
@@ -70,6 +94,12 @@ type Invocation struct {
 	Inputs           []InputContent
 	FakeProfile      FakeProfile
 	RecoveryStepHook RecoveryStepHook
+	// ToolResultHook is the runtime-provided durable callback for the
+	// bounded tool-result projection. It is runtime-only authority: the
+	// driver emits on it through the observer pump and never blocks or
+	// fails a dispatch on it. A nil hook disables observation entirely
+	// (certification, capture, fake, and automation paths).
+	ToolResultHook ToolResultHook
 	// MaskNames are the workspace-relative names the containment mask must
 	// always protect, derived by the engine from the configured project roots
 	// (records and journals) plus .git. They are computed by the engine and
@@ -154,9 +184,10 @@ func finishAdapterInvocation(
 	observation Observation,
 	err error,
 ) (Observation, error) {
+	surface := invocation.Selected.Adapter.ID
 	if err != nil {
 		// A transport or adapter failure can never carry a model decision.
-		return sanitizeFailedObservation(observation), normalizeAdapterError(err)
+		return sanitizeFailedObservation(observation, surface), normalizeAdapterError(err)
 	}
 	if err := validateObservation(invocation, observation); err != nil {
 		observation.Handoff = nil
@@ -167,9 +198,9 @@ func finishAdapterInvocation(
 			return observation, err
 		}
 		if IsCode(err, "INVALID_HANDOFF") {
-			return failureObservation("invalid_handoff"), err
+			return failureObservation("invalid_handoff", surface), err
 		}
-		return invalidObservation(), err
+		return invalidObservation(surface), err
 	}
 	return observation, nil
 }
@@ -318,23 +349,36 @@ func validTerminalEventKind(kind string) bool {
 	}
 }
 
-func invalidObservation() Observation {
-	return failureObservation("invalid_observation")
+func invalidObservation(surface string) Observation {
+	return failureObservation("invalid_observation", surface)
 }
 
-func failureObservation(code string) Observation {
+// failureObservation builds the A2 loud unavailable receipt: the surface
+// (adapter id) and the stable capture-failed reason ride on the receipt so
+// an attempt that genuinely cannot report never defaults silent. A surface
+// that fails the adapter-identity bound is impossible from validated
+// invocations; the receipt then falls back to the legacy shape rather than
+// inventing a name.
+func failureObservation(code string, surface string) Observation {
+	usage := UsageReceipt{
+		TokenStatus: UsageUnavailable,
+		CostStatus:  UsageUnavailable,
+	}
+	if loud, err := UnavailableReceipt(surface, UsageReasonCaptureFailed); err == nil {
+		usage = loud
+	}
 	return Observation{
 		TransportStatus: RunnerError,
-		Usage: UsageReceipt{
-			TokenStatus: UsageUnavailable,
-			CostStatus:  UsageUnavailable,
-		},
-		Diagnostic: Diagnostic{Code: code},
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: code},
 	}
 }
 
-func sanitizeFailedObservation(observation Observation) Observation {
-	sanitized := failureObservation("adapter_failed")
+func sanitizeFailedObservation(
+	observation Observation,
+	surface string,
+) Observation {
+	sanitized := failureObservation("adapter_failed", surface)
 	if observation.DurationMillis >= 0 &&
 		observation.DurationMillis <= MaxSafeInteger {
 		sanitized.DurationMillis = observation.DurationMillis
@@ -368,6 +412,14 @@ func sanitizeFailedObservation(observation Observation) Observation {
 	return sanitized
 }
 
+// normalizeAdapterError maps adapter errors to the stable dispatcher
+// vocabulary. Adapter-provided wrapping text cannot escape, with one bounded
+// exception recorded by the S5-provider-limit-evidence ruling: the five
+// provider status codes carry the status envelope's error.message as Detail
+// after it passes validateText at maxProviderErrorDetailBytes, so a provider
+// limit is diagnosable from the durable failure record and the live stream.
+// Every other code, and any non-conforming detail, is dropped exactly as
+// before.
 func normalizeAdapterError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -377,6 +429,15 @@ func normalizeAdapterError(err error) error {
 	}
 	var contractErr *ContractError
 	if errors.As(err, &contractErr) && validAdapterErrorCode(contractErr.Code) {
+		if providerStatusCode(contractErr.Code) &&
+			validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
+			// Bounded, re-validated provider words ride the stable code.
+			return &ContractError{
+				Code:      contractErr.Code,
+				Detail:    contractErr.Detail,
+				HardLimit: contractErr.HardLimit,
+			}
+		}
 		// Recreate the error so adapter-provided wrapping text cannot escape.
 		return fail(contractErr.Code)
 	}

@@ -1,0 +1,66 @@
+{
+ "outcome": "A provider limit is diagnosable from sworn's own surfaces in seconds instead of hours: the provider's own words survive into the durable failure record and the live stream at least once per dispatch, and a hard wall - a monthly spend cap, a no-window quota - fails the dispatch immediately with that message instead of politely burning the paced-retry budget into it for hours.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "degradation counting and park presentation (S4's mechanism)",
+   "retry semantics when the provider names a retry window (paced behavior with RetryInfo or Retry-After present is unchanged)",
+   "provider-request behavior (nothing changes what is sent)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver and internal/runtime by import only; no cmd test pins transport error content"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver and internal/runtime by import only; no cockpit test pins provider error detail"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/runtime and internal/driver via internal/cockpit by import only; no observe test pins transport error content"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver (via internal/cockpit) and internal/runtime by import only; no tui test pins provider error detail"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The provider's message survives the transport: a 429's error message rides the contract error as bounded detail instead of being cleared at internal/driver/http.go:220-226 (providerRetryDelay at internal/driver/pacing.go:38-64 already decodes the very envelope whose message field goes unread), and non-429 provider errors carry their status envelope message the same way instead of the body-blind mapping at http.go:225-246. Pinned by transport tests over recorded 429 and 5xx bodies including the real Google spend-cap shape."
+  },
+  {
+   "id": "A2",
+   "text": "The message reaches the operator on both surfaces: the durable failure result journaled for a limit-failed dispatch carries the provider message (via the refusal-result path at internal/runtime/production_dispatch.go:1067 - today nil for every 429 because Detail is always empty), and the live stream renders it instead of the bare code (internal/driver/stream.go:174-187 today prints 'driver contract: PROVIDER_LIMITED' and nothing else). Pinned by tests on both paths."
+  },
+  {
+   "id": "A3",
+   "text": "Hard walls stop being treated as weather: a 429 that names no retry window, or that matches a hard-exhaustion shape such as a monthly or daily spend cap, fails the dispatch without draining the paced-retry budget (internal/driver/pacing.go:88-115 - up to 20 retries against a 10-minute budget today), and the failure carries the provider message; a 429 with RetryInfo or Retry-After keeps exactly today's paced behavior. Pinned by pacing tests over both shapes. Evidence basis: operator-surface S7 burned two full retry epochs - 6 tries, 100+ paced holds - against a monthly spending cap whose message sat in every single 429 body while the engine flattened each one to PROVIDER_LIMITED (sworn#227 postscript); a 40-token direct curl exposed it in one shot."
+  },
+  {
+   "id": "A4",
+   "text": "Capture is bounded and secret-safe: provider message detail is length-bounded, passes the existing secret-guard posture before persisting or rendering, and never carries request content or credentials - pinned by tests; the design comment at internal/driver/contract.go:47-52 declaring retry metadata 'never provider content' is updated to record this ruling rather than silently contradicted."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Classification is conservative: an unrecognized 429 shape follows today's paced path - the hard-exhaustion fast-fail fires only on affirmative evidence (no retry window named, or a matched hard-cap shape), never on a guess.",
+  "PROVIDER_LIMITED stays the stable code on every one of these paths; the message is detail alongside the code, not a new code vocabulary - downstream classification (invoke.go admission, certification readiness at internal/driver/profile.go:141) is unchanged.",
+  "This is the first arm of the provider-error taxonomy direction (typed error kinds); this slice delivers the evidence and the hard-wall distinction without committing the full taxonomy.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

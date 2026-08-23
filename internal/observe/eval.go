@@ -17,9 +17,16 @@ import (
 )
 
 const (
-	EvalSchemaVersion = "sworn.eval/v2"
+	EvalSchemaVersion = "sworn.eval/v3"
 	EvalObserver      = "eval.core"
 	maxStableReads    = 2
+	// maxUnreportedSurfaces bounds the A3 naming list so a hostile or
+	// pathological receipt population cannot inflate the record.
+	maxUnreportedSurfaces = 64
+	// dispatchEffectKind is the driver effect kind whose attempts become
+	// sworn.dispatch spans (S2-C4: a non-dispatch attempt must not mint a
+	// dispatch span).
+	dispatchEffectKind = "driver.dispatch"
 )
 
 type Error struct {
@@ -84,6 +91,9 @@ type Quality struct {
 type CostTotal struct {
 	Currency   string `json:"currency"`
 	MicroUnits int64  `json:"micro_units"`
+	// Source distinguishes a provider-reported figure from any nominal
+	// computed figure. Only typed provider reports are admitted.
+	Source string `json:"source"`
 }
 
 type UsageSummary struct {
@@ -105,18 +115,50 @@ type UsageSummary struct {
 	EffortReported  *string `json:"effort_reported"`
 	FinishReason    *string `json:"finish_reason"`
 	Truncated       *bool   `json:"truncated"`
+	// UnreportedSurfaces names, sorted and de-duplicated, the surfaces whose
+	// attempts could not report tokens. A legacy silent blob contributes the
+	// honest literal "unknown". Coverage plus this naming ride in-band
+	// wherever a total goes, so a partial sum is never rendered as a total.
+	UnreportedSurfaces []string `json:"unreported_surfaces,omitempty"`
 }
 
 type AttemptGroup struct {
-	Role           string       `json:"role"`
-	Responsibility string       `json:"responsibility"`
-	Operation      string       `json:"operation"`
-	Transport      string       `json:"transport"`
-	Outcome        string       `json:"outcome"`
-	Attempts       int64        `json:"attempts"`
-	Retries        int64        `json:"retries"`
-	DurationNS     Ratio        `json:"duration_ns"`
-	Usage          UsageSummary `json:"usage"`
+	Role           string `json:"role"`
+	Responsibility string `json:"responsibility"`
+	Operation      string `json:"operation"`
+	Transport      string `json:"transport"`
+	Outcome        string `json:"outcome"`
+	Attempts       int64  `json:"attempts"`
+	Retries        int64  `json:"retries"`
+	// DurationNS is the event-derived duration kept for continuity;
+	// ObservationDurationNS is the attempt-observed wall-clock duration
+	// stamped on receipts at the runtime's single attempt-write seam.
+	DurationNS            Ratio `json:"duration_ns"`
+	ObservationDurationNS Ratio `json:"observation_duration_ns"`
+	// Profile and Model are the profile and certified model id actually
+	// dispatched, per the A4 identity facts; empty on legacy receipts that
+	// predate the stamp.
+	Profile string       `json:"profile"`
+	Model   string       `json:"model"`
+	Usage   UsageSummary `json:"usage"`
+	// TurnEconomics is the A5 turn-economics aggregate: turns, tool calls,
+	// tool calls per turn, and the per-name call mix, attributable per role.
+	TurnEconomics TurnEconomics `json:"turn_economics"`
+}
+
+// TurnEconomics aggregates the engine-counted turn facts across the
+// attempts of one group. Each ratio's denominator is the attempt count; a
+// numerator sums only attempts that reported the fact.
+type TurnEconomics struct {
+	Turns            *int64          `json:"turns"`
+	ToolCalls        *int64          `json:"tool_calls"`
+	ToolCallsPerTurn Ratio           `json:"tool_calls_per_turn"`
+	ToolCallMix      []ToolCallCount `json:"tool_call_mix,omitempty"`
+}
+
+type ToolCallCount struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
 }
 
 type RecoverySummary struct {
@@ -148,6 +190,17 @@ type Record struct {
 	Usage         UsageSummary        `json:"usage"`
 	Groups        []AttemptGroup      `json:"groups"`
 	Quality       []Quality           `json:"quality"`
+
+	// dispatchAttempts is the in-memory per-attempt carrier (S2): one entry
+	// per journal attempt fact in journal order, holding only durable
+	// fields. encoding/json skips unexported fields, so the persisted
+	// sworn.eval/v3 body stays byte-identical; no schema bump and no
+	// internal/journal allowlist edit.
+	dispatchAttempts []dispatchAttempt
+	// spanJoin carries the bounded cockpit-snapshot window the dispatch
+	// span needs for the A3 effect-identity join (attempts, evidence, and
+	// the slice->track map). It rides unexported for the same reason.
+	spanJoin spanJoin
 }
 
 // Advance persists one cumulative, canonical evaluation record at a stable
@@ -223,16 +276,63 @@ func (e *Evaluator) Advance(
 }
 
 type aggregate struct {
-	events       int64
-	attempts     int64
-	retries      int64
-	recovery     RecoverySummary
-	continuation continuationAggregate
-	turnRecovery turnRecoveryAggregate
-	duration     int64
-	usage        usageAggregate
-	groups       map[groupKey]*groupAggregate
-	err          error
+	events           int64
+	attempts         int64
+	retries          int64
+	recovery         RecoverySummary
+	continuation     continuationAggregate
+	turnRecovery     turnRecoveryAggregate
+	duration         int64
+	usage            usageAggregate
+	groups           map[groupKey]*groupAggregate
+	dispatchAttempts []dispatchAttempt
+	err              error
+}
+
+// dispatchAttempt is one carrier entry: the durable journal facts of one
+// attempt plus its canonical usage bytes. It deliberately carries no
+// snapshot-joined value, so attempt identity can never drift as the
+// 256-entry cockpit window slides.
+type dispatchAttempt struct {
+	effectKind     string
+	effectState    string
+	responsibility string
+	attempt        int64
+	transport      string
+	startedAt      time.Time
+	finishedAt     time.Time
+	usageBytes     []byte
+}
+
+// spanJoin is the bounded snapshot window the dispatch-span builder joins
+// against for A3 identity attributes. It is rebuilt per evaluation record
+// and carried unexported to the telemetry runtime.
+type spanJoin struct {
+	attempts []cockpit.AttemptView
+	evidence []cockpit.Evidence
+	// sliceTracks maps the graph node id ("slice:"+slice) to its track,
+	// the fallback for evidence bodies that carry no Track.
+	sliceTracks map[string]string
+}
+
+func spanJoinFromSnapshot(snapshot cockpit.Snapshot) spanJoin {
+	join := spanJoin{
+		attempts: append(
+			[]cockpit.AttemptView(nil),
+			snapshot.Runtime.Attempts...,
+		),
+		evidence: append(
+			[]cockpit.Evidence(nil),
+			snapshot.Evidence...,
+		),
+		sliceTracks: make(map[string]string),
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "slice" && node.ID != "" && node.Track != "" {
+			join.sliceTracks[node.ID] = node.Track
+		}
+	}
+	return join
 }
 
 type groupKey struct {
@@ -241,6 +341,8 @@ type groupKey struct {
 	operation      string
 	transport      string
 	outcome        string
+	profile        string
+	model          string
 }
 
 type groupAggregate struct {
@@ -248,6 +350,15 @@ type groupAggregate struct {
 	retries  int64
 	duration int64
 	usage    usageAggregate
+	// observationDuration sums the receipt-stamped wall-clock durations
+	// (milliseconds) of attempts that reported them.
+	observationDuration int64
+	// turns/toolCalls/toolCallMix aggregate the A5 turn economics.
+	turns          int64
+	turnsKnown     int64
+	toolCalls      int64
+	toolCallsKnown int64
+	toolCallMix    map[string]int64
 }
 
 type usageAggregate struct {
@@ -268,6 +379,9 @@ type usageAggregate struct {
 	effortReported  *string
 	finishReason    *string
 	truncated       *bool
+	// unreported names, per surface, the attempts whose receipts could not
+	// report tokens.
+	unreported map[string]int64
 }
 
 func newAggregate() *aggregate {
@@ -329,16 +443,30 @@ func (a *aggregate) addAttempt(fact journal.EvaluationFact) {
 		a.err = err
 		return
 	}
+	a.dispatchAttempts = append(a.dispatchAttempts, dispatchAttempt{
+		effectKind:     fact.EffectKind,
+		effectState:    boundedEffectState(fact.EffectState),
+		responsibility: boundedResponsibility(fact.Responsibility),
+		attempt:        fact.Attempt,
+		transport:      boundedTransport(fact.Transport),
+		startedAt:      fact.StartedAt,
+		finishedAt:     fact.FinishedAt,
+		usageBytes:     append([]byte(nil), fact.Usage...),
+	})
 	key := groupKey{
 		role:           roleForResponsibility(fact.Responsibility),
 		responsibility: boundedResponsibility(fact.Responsibility),
 		operation:      boundedOperation(fact.EffectKind),
 		transport:      boundedTransport(fact.Transport),
 		outcome:        boundedEffectState(fact.EffectState),
+		profile:        usageProfile(usage),
+		model:          usageModel(usage),
 	}
 	group := a.groups[key]
 	if group == nil {
-		group = &groupAggregate{}
+		group = &groupAggregate{
+			toolCallMix: make(map[string]int64),
+		}
 		a.groups[key] = group
 	}
 	retry := int64(0)
@@ -366,11 +494,94 @@ func (a *aggregate) addAttempt(fact journal.EvaluationFact) {
 			return
 		}
 	}
+	if usage.DurationMillis != nil {
+		group.observationDuration, a.err = safeAdd(
+			group.observationDuration,
+			*usage.DurationMillis*1_000_000,
+		)
+		if a.err != nil {
+			return
+		}
+	}
+	if usage.Turns != nil {
+		group.turns, a.err = safeAdd(group.turns, *usage.Turns)
+		if a.err != nil {
+			return
+		}
+		group.turnsKnown, a.err = safeAdd(group.turnsKnown, 1)
+		if a.err != nil {
+			return
+		}
+	}
+	if usage.ToolCalls != nil {
+		group.toolCalls, a.err = safeAdd(group.toolCalls, *usage.ToolCalls)
+		if a.err != nil {
+			return
+		}
+		group.toolCallsKnown, a.err = safeAdd(group.toolCallsKnown, 1)
+		if a.err != nil {
+			return
+		}
+	}
+	for _, item := range usage.ToolCallsByName {
+		group.toolCallMix[item.Name], a.err = safeAdd(
+			group.toolCallMix[item.Name],
+			item.Count,
+		)
+		if a.err != nil {
+			return
+		}
+	}
 	if err := a.usage.add(usage); err != nil {
 		a.err = err
 		return
 	}
 	a.err = group.usage.add(usage)
+}
+
+func usageProfile(receipt driver.UsageReceipt) string {
+	if receipt.Profile == nil {
+		return ""
+	}
+	return *receipt.Profile
+}
+
+func usageModel(receipt driver.UsageReceipt) string {
+	if receipt.Model == nil {
+		return ""
+	}
+	return *receipt.Model
+}
+
+// turnEconomics aggregates the A5 facts of one group. Turns and tool calls
+// are summed over the attempts that reported them (nil is honest absence);
+// tool_calls_per_turn rides as a ratio over the summed turns, and the mix is
+// the sorted per-name total over the closed tool vocabulary.
+func (g *groupAggregate) turnEconomics() TurnEconomics {
+	result := TurnEconomics{
+		ToolCallsPerTurn: knownRatio(g.toolCalls, g.turns),
+	}
+	if g.turnsKnown != 0 {
+		result.Turns = int64Pointer(g.turns)
+	}
+	if g.toolCallsKnown != 0 {
+		result.ToolCalls = int64Pointer(g.toolCalls)
+	}
+	if len(g.toolCallMix) != 0 {
+		mix := make([]ToolCallCount, 0, len(g.toolCallMix))
+		for name, count := range g.toolCallMix {
+			if count > 0 {
+				mix = append(mix, ToolCallCount{Name: name, Count: count})
+			}
+		}
+		sort.Slice(mix, func(left, right int) bool {
+			return mix[left].Name < mix[right].Name
+		})
+		if len(mix) != 0 {
+			result.ToolCallMix = mix
+		}
+	}
+	return result
 }
 
 func (u *usageAggregate) add(receipt driver.UsageReceipt) error {
@@ -388,6 +599,22 @@ func (u *usageAggregate) add(receipt driver.UsageReceipt) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		// A3: name the non-reporting surface. A loud v2 receipt supplies the
+		// adapter id; a legacy silent blob contributes the honest literal
+		// "unknown".
+		var err error
+		surface := receipt.Surface
+		if surface == "" {
+			surface = "unknown"
+		}
+		if u.unreported == nil {
+			u.unreported = make(map[string]int64)
+		}
+		u.unreported[surface], err = safeAdd(u.unreported[surface], 1)
+		if err != nil {
+			return err
+		}
 	}
 	if receipt.CostStatus == driver.UsageReported {
 		var err error
@@ -398,8 +625,11 @@ func (u *usageAggregate) add(receipt driver.UsageReceipt) error {
 		if u.costs == nil {
 			u.costs = make(map[string]int64)
 		}
-		u.costs[*receipt.Currency], err = safeAdd(
-			u.costs[*receipt.Currency],
+		// The currency+source pair is the cost identity; the source keeps a
+		// provider-reported figure distinguished from any nominal computed
+		// figure.
+		u.costs[*receipt.Currency+"\x00"+*receipt.Source], err = safeAdd(
+			u.costs[*receipt.Currency+"\x00"+*receipt.Source],
 			*receipt.CostMicroUnits,
 		)
 		if err != nil {
@@ -479,15 +709,19 @@ func (a *aggregate) record(
 	groups := make([]AttemptGroup, 0, len(a.groups))
 	for key, group := range a.groups {
 		groups = append(groups, AttemptGroup{
-			Role:           key.role,
-			Responsibility: key.responsibility,
-			Operation:      key.operation,
-			Transport:      key.transport,
-			Outcome:        key.outcome,
-			Attempts:       group.attempts,
-			Retries:        group.retries,
-			DurationNS:     knownRatio(group.duration, group.attempts),
-			Usage:          group.usage.summary(group.attempts),
+			Role:                  key.role,
+			Responsibility:        key.responsibility,
+			Operation:             key.operation,
+			Transport:             key.transport,
+			Outcome:               key.outcome,
+			Attempts:              group.attempts,
+			Retries:               group.retries,
+			DurationNS:            knownRatio(group.duration, group.attempts),
+			ObservationDurationNS: knownRatio(group.observationDuration, group.attempts),
+			Profile:               key.profile,
+			Model:                 key.model,
+			Usage:                 group.usage.summary(group.attempts),
+			TurnEconomics:         group.turnEconomics(),
 		})
 	}
 	sort.Slice(groups, func(left, right int) bool {
@@ -504,7 +738,13 @@ func (a *aggregate) record(
 		if l.Transport != r.Transport {
 			return l.Transport < r.Transport
 		}
-		return l.Outcome < r.Outcome
+		if l.Outcome != r.Outcome {
+			return l.Outcome < r.Outcome
+		}
+		if l.Profile != r.Profile {
+			return l.Profile < r.Profile
+		}
+		return l.Model < r.Model
 	})
 	if snapshot.Run.ID != window.Run.ID ||
 		snapshot.Run.Release != window.Run.Release {
@@ -532,6 +772,12 @@ func (a *aggregate) record(
 		Usage:         a.usage.summary(a.attempts),
 		Groups:        groups,
 		Quality:       graphQuality(snapshot.Graph),
+
+		dispatchAttempts: append(
+			[]dispatchAttempt(nil),
+			a.dispatchAttempts...,
+		),
+		spanJoin: spanJoinFromSnapshot(snapshot),
 	}, nil
 }
 
@@ -547,14 +793,21 @@ func (u usageAggregate) summary(denominator int64) UsageSummary {
 	}
 	if u.costKnown != 0 {
 		result.Costs = make([]CostTotal, 0, len(u.costs))
-		for currency, total := range u.costs {
+		for key, total := range u.costs {
+			currency, source := splitCostKey(key)
 			result.Costs = append(result.Costs, CostTotal{
 				Currency:   currency,
 				MicroUnits: total,
+				Source:     source,
 			})
 		}
 		sort.Slice(result.Costs, func(left, right int) bool {
-			return result.Costs[left].Currency < result.Costs[right].Currency
+			if result.Costs[left].Currency != result.Costs[right].Currency {
+				return result.Costs[left].Currency <
+					result.Costs[right].Currency
+			}
+			return result.Costs[left].Source <
+				result.Costs[right].Source
 		})
 	}
 	if u.cacheKnown != 0 {
@@ -584,7 +837,25 @@ func (u usageAggregate) summary(denominator int64) UsageSummary {
 		value := *u.truncated
 		result.Truncated = &value
 	}
+	if len(u.unreported) != 0 {
+		surfaces := make([]string, 0, len(u.unreported))
+		for surface := range u.unreported {
+			surfaces = append(surfaces, surface)
+		}
+		sort.Strings(surfaces)
+		if len(surfaces) > maxUnreportedSurfaces {
+			surfaces = surfaces[:maxUnreportedSurfaces]
+		}
+		result.UnreportedSurfaces = surfaces
+	}
 	return result
+}
+
+func splitCostKey(key string) (string, string) {
+	if index := strings.IndexByte(key, '\x00'); index >= 0 {
+		return key[:index], key[index+1:]
+	}
+	return key, driver.CostSourceProviderReported
 }
 
 func decodeUsage(body []byte) (driver.UsageReceipt, error) {
@@ -672,7 +943,7 @@ func roleForResponsibility(value string) string {
 }
 
 func boundedOperation(value string) string {
-	if value == "driver.dispatch" {
+	if value == dispatchEffectKind {
 		return value
 	}
 	return "other"

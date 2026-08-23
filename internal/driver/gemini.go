@@ -22,6 +22,13 @@ type geminiConversation struct {
 	// (omitted when unset, never a hardcoded default).
 	maxOutputTokens int64
 	thinkingLevel   string
+	// stream requests streamGenerateContent SSE instead of generateContent;
+	// includeThoughts asks for thought content in the provider's own
+	// include_thoughts vocabulary. Both are adapter configuration, and both
+	// default false, so a conversation built without them sends today's
+	// exact non-streaming request bytes.
+	stream          bool
+	includeThoughts bool
 }
 
 type geminiContent struct {
@@ -62,9 +69,11 @@ type geminiDeclaration struct {
 
 // geminiThinkingConfig and geminiGenerationConfig render the recorded
 // generationConfig shape: maxOutputTokens then thinkingConfig, each omitted
-// when the operator left the knob unset.
+// when the operator left the knob unset. thinkingLevel and includeThoughts
+// are independent operator knobs; the provider owns their combination.
 type geminiThinkingConfig struct {
-	ThinkingLevel string `json:"thinkingLevel"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
+	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
 }
 
 type geminiGenerationConfig struct {
@@ -106,6 +115,7 @@ func NewGeminiAdapter(
 		return newGeminiConversation(
 			config.Endpoint, model, tools, prompt,
 			limits.OutputBytes, config.ThinkingLevel,
+			config.Stream, config.IncludeThoughts,
 		)
 	}
 	configuration := struct {
@@ -129,6 +139,8 @@ func newGeminiConversation(
 	prompt []byte,
 	maxOutputTokens int64,
 	thinkingLevel string,
+	stream bool,
+	includeThoughts bool,
 ) (*geminiConversation, error) {
 	if validateEndpoint(baseURL) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -149,6 +161,8 @@ func newGeminiConversation(
 		ledger:          newContinuationLedger(),
 		maxOutputTokens: maxOutputTokens,
 		thinkingLevel:   thinkingLevel,
+		stream:          stream,
+		includeThoughts: includeThoughts,
 	}, nil
 }
 
@@ -230,10 +244,15 @@ func (conversation *geminiConversation) request() (providerRequest, error) {
 	generation := geminiGenerationConfig{
 		MaxOutputTokens: conversation.maxOutputTokens,
 	}
-	if conversation.thinkingLevel != "" {
-		generation.ThinkingConfig = &geminiThinkingConfig{
-			ThinkingLevel: conversation.thinkingLevel,
+	if conversation.thinkingLevel != "" || conversation.includeThoughts {
+		thinking := &geminiThinkingConfig{}
+		if conversation.thinkingLevel != "" {
+			thinking.ThinkingLevel = conversation.thinkingLevel
 		}
+		if conversation.includeThoughts {
+			thinking.IncludeThoughts = true
+		}
+		generation.ThinkingConfig = thinking
 	}
 	body, err := json.Marshal(struct {
 		Contents []geminiContent `json:"contents"`
@@ -252,11 +271,24 @@ func (conversation *geminiConversation) request() (providerRequest, error) {
 		clearBytes(body)
 		return providerRequest{}, fail("RESOURCE_LIMIT")
 	}
+	// Streaming is requested on the URL, never in the JSON body, so the
+	// request body stays byte-identical between streamed and unstreamed
+	// modes and pacing estimates them identically.
+	suffix := ":generateContent"
+	if conversation.stream {
+		suffix = ":streamGenerateContent?alt=sse"
+	}
 	endpoint := strings.TrimSuffix(conversation.baseURL, "/") +
-		"/v1beta/models/" + url.PathEscape(conversation.model) + ":generateContent"
-	return providerRequest{
+		"/v1beta/models/" + url.PathEscape(conversation.model) + suffix
+	request := providerRequest{
 		Method: "POST", URL: endpoint, ContentType: "application/json", Body: body,
-	}, nil
+	}
+	if conversation.stream {
+		request.Stream = true
+		request.StreamFormat = geminiStreamFormat
+		request.StreamModel = conversation.model
+	}
+	return request, nil
 }
 
 func (conversation *geminiConversation) accept(body []byte) (providerTurn, error) {
@@ -331,7 +363,7 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		part, partErr := closedObject(
 			rawPart,
 			nil,
-			[]string{"text", "functionCall", "thoughtSignature"},
+			[]string{"text", "functionCall", "thought", "thoughtSignature"},
 		)
 		if partErr != nil {
 			return providerTurn{}, failContinuation("continuation.gemini.accept_part_object_invalid")
@@ -340,6 +372,28 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		functionValue, hasCall := part["functionCall"]
 		if hasText == hasCall {
 			return providerTurn{}, failContinuation("continuation.gemini.accept_part_ambiguous")
+		}
+		// "thought" admits the provider's thought-content vocabulary when the
+		// operator asked for it. Exactly true marks a thought part; false is
+		// equivalent to absence, and a non-boolean value fails closed.
+		thought := false
+		if thoughtValue, present := part["thought"]; present {
+			flag, ok := thoughtValue.(bool)
+			if !ok {
+				return providerTurn{}, failContinuation("continuation.gemini.accept_thought_field_invalid")
+			}
+			thought = flag
+		}
+		if thought {
+			if hasCall {
+				return providerTurn{}, failContinuation("continuation.gemini.accept_thought_on_function_call_invalid")
+			}
+			// A thought part is admitted and then dropped: it is rendering
+			// and measurement only, never replayed into conversation contents
+			// (the provider rejects thought parts in replay), and its
+			// thoughtSignature, if any, drops with it. Visible parts plus
+			// retained signatures keep continuation intact.
+			continue
 		}
 		decoded := geminiPart{}
 		if hasText {
@@ -398,6 +452,12 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 			return providerTurn{}, failContinuation("continuation.gemini.accept_thought_signature_missing")
 		}
 		parts = append(parts, decoded)
+	}
+	// A turn whose parts are all thought parts carries no visible content
+	// and no calls: it fails closed rather than masquerading as an empty
+	// success. Mixed turns keep their visible parts exactly as before.
+	if len(parts) == 0 {
+		return providerTurn{}, failContinuation("continuation.gemini.accept_all_parts_thought")
 	}
 	if len(opaque) > 0 {
 		retained, retainErr := conversation.ledger.retain(opaque...)

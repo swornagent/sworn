@@ -1732,6 +1732,23 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 					next, fact, freshFallbacks, err,
 				)
 			}
+			// Correction 2: an entry-present-but-mismatched dispatch is
+			// engine-side non-reuse — the continuation was bound to
+			// authority that no longer holds, so retained=false and the
+			// degradation gate skips it.
+			if fact.retained {
+				t.Fatalf(
+					"drift fallback retained = true, want false: %#v",
+					fact,
+				)
+			}
+			if fact.posture != driver.ContinuationPostureContextRetaining {
+				t.Fatalf(
+					"drift fallback posture = %q, want %q",
+					fact.posture,
+					driver.ContinuationPostureContextRetaining,
+				)
+			}
 			freshFallbacks = 0
 		})
 	}

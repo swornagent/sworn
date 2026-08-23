@@ -52,11 +52,57 @@ type tuiResidentHost struct {
 	factory  *driver.ProductionDriverFactory
 	store    *journal.Store
 	commands *cockpit.CommandFacade
+
+	// telemetry holds one silently-fail-open run-side export host per run
+	// this resident host started (C3: sworn tui hosts delivery in-process
+	// via StartDetached/StartWithCaptainDelegationDetached, so its runs must
+	// export exactly as run's do). Teardown is bound to the resident host's
+	// close path.
+	telemetryMu sync.Mutex
+	telemetry   []*runTelemetryHost
+}
+
+// attachTelemetry starts one run-side export host for a run this resident
+// host just started. Construction is fail-open: a nil or disabled host is a
+// no-op, and the run's behavior is untouched either way.
+func (h *tuiResidentHost) attachTelemetry(
+	ctx context.Context,
+	journalPath, runID, operatorConfigPath string,
+) {
+	if h == nil {
+		return
+	}
+	telemetryHost := newRunTelemetryHost(
+		ctx,
+		journalPath,
+		runID,
+		h.service,
+		operatorConfigPath,
+	)
+	if telemetryHost == nil {
+		return
+	}
+	h.telemetryMu.Lock()
+	if h.telemetry != nil {
+		h.telemetry = append(h.telemetry, telemetryHost)
+	}
+	h.telemetryMu.Unlock()
 }
 
 func (h *tuiResidentHost) close() error {
 	if h == nil {
 		return nil
+	}
+	// Finish telemetry hosts before closing the service and store they
+	// project from; their teardown is bounded and never fails the close.
+	h.telemetryMu.Lock()
+	telemetryHosts := h.telemetry
+	h.telemetry = nil
+	h.telemetryMu.Unlock()
+	for _, telemetryHost := range telemetryHosts {
+		if telemetryHost != nil {
+			telemetryHost.finish()
+		}
 	}
 	var errs []error
 	if h.service != nil {
@@ -807,6 +853,12 @@ func (b *projectTUIBackend) startTUIRun(
 	if status.RunID != manifest.RunID || status.ManifestDigest != manifestDigest {
 		return errors.New("the started run did not match the selected definition")
 	}
+	host.attachTelemetry(
+		ctx,
+		journalPath,
+		manifest.RunID,
+		project.operatorConfig,
+	)
 	return nil
 }
 
@@ -844,6 +896,12 @@ func (b *projectTUIBackend) startTUIDelegatedRun(
 	if status.RunID != manifest.RunID || status.ManifestDigest != binding.ManifestDigest {
 		return errors.New("the started run did not match the selected definition")
 	}
+	host.attachTelemetry(
+		ctx,
+		journalPath,
+		manifest.RunID,
+		project.operatorConfig,
+	)
 	return nil
 }
 

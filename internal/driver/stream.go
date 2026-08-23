@@ -16,9 +16,10 @@ import (
 // MaxProviderResponseBytes without ever binding an honest stream.
 const MaxStreamBytes = 16_777_216
 
-// streamRenderer writes a live, human-readable rendering of Responses-API
-// SSE events to stderr. It is presentation only: nothing here feeds
-// validation, and rendering failures are ignored.
+// streamRenderer writes a live, human-readable rendering of provider SSE
+// events (Responses-API and generateContent dialects) to stderr. It is
+// presentation only: nothing here feeds validation, and rendering failures
+// are ignored.
 type streamRenderer struct {
 	mu        sync.Mutex
 	out       io.Writer
@@ -78,7 +79,8 @@ func (renderer *streamRenderer) event(name string, data []byte) {
 			envelope.Response.Model,
 			envelope.Response.Reasoning.Effort,
 		)))
-	case "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
+	case "response.reasoning_text.delta", "response.reasoning_summary_text.delta",
+		"gemini.reasoning.delta":
 		var event struct {
 			Delta string `json:"delta"`
 		}
@@ -90,7 +92,7 @@ func (renderer *streamRenderer) event(name string, data []byte) {
 			}
 			fmt.Fprint(renderer.out, renderer.dim(event.Delta))
 		}
-	case "response.output_text.delta":
+	case "response.output_text.delta", "gemini.text.delta":
 		var event struct {
 			Delta string `json:"delta"`
 		}
@@ -127,6 +129,66 @@ func (renderer *streamRenderer) event(name string, data []byte) {
 	case "response.function_call_arguments.done":
 		renderer.breakFlow()
 		fmt.Fprintln(renderer.out)
+	case "gemini.turn":
+		var envelope struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(data, &envelope)
+		renderer.breakFlow()
+		fmt.Fprintf(
+			renderer.out,
+			"%s\n",
+			renderer.bold(fmt.Sprintf("── %s turn ──", envelope.Model)),
+		)
+	case "gemini.function_call":
+		var event struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(data, &event) == nil && event.Name != "" {
+			renderer.breakFlow()
+			fmt.Fprintf(
+				renderer.out,
+				"%s ",
+				renderer.bold("⚙ "+event.Name),
+			)
+		}
+	case "gemini.function_call.arguments.delta":
+		var event struct {
+			Delta string `json:"delta"`
+		}
+		if json.Unmarshal(data, &event) == nil {
+			fmt.Fprint(renderer.out, event.Delta)
+		}
+	case "gemini.function_call.arguments.done":
+		renderer.breakFlow()
+		fmt.Fprintln(renderer.out)
+	case "gemini.completed":
+		var envelope struct {
+			FinishReason string `json:"finish_reason"`
+			Usage        *struct {
+				PromptTokens     int64  `json:"prompt_tokens"`
+				CandidatesTokens int64  `json:"candidates_tokens"`
+				CachedTokens     *int64 `json:"cached_tokens"`
+				ThoughtsTokens   *int64 `json:"thoughts_tokens"`
+			} `json:"usage"`
+		}
+		_ = json.Unmarshal(data, &envelope)
+		renderer.breakFlow()
+		summary := "status=" + envelope.FinishReason
+		if usage := envelope.Usage; usage != nil {
+			summary += fmt.Sprintf(
+				" in=%d out=%d",
+				usage.PromptTokens,
+				usage.CandidatesTokens,
+			)
+			if usage.CachedTokens != nil {
+				summary += fmt.Sprintf(" cached=%d", *usage.CachedTokens)
+			}
+			if usage.ThoughtsTokens != nil {
+				summary += fmt.Sprintf(" reasoning=%d", *usage.ThoughtsTokens)
+			}
+		}
+		fmt.Fprintf(renderer.out, "%s\n", renderer.dim("── "+summary+" ──"))
 	case "response.completed", "response.incomplete", "response.failed":
 		var envelope struct {
 			Response struct {

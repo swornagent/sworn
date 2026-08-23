@@ -1,0 +1,71 @@
+{
+ "outcome": "What a worker sees becomes observable: every tool result that crosses back into the model also lands in the run's durable event stream - byte-identical to what the model received up to an honest bound, carrying full identity - so an operator, captain, or future orchestrator can act on evidence like 'the suite returned ISOLATION_UNAVAILABLE 155 times' instead of watching a worker react to invisible facts, and hand-reading raw transcripts stops being the only diagnostic path.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/journal",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "presentation surfaces (the cockpit projector, board, and TUI consume the events through the existing feed; new rendering is out of scope)",
+   "a full-fidelity transcript store (the per-invocation scratch is destroyed with its session, internal/driver/tools.go:749; the bounded journaled projection is this slice's durable surface)",
+   "provider output deltas (already rendered live; S7 covers the gemini gap)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver, internal/journal, and internal/runtime by import only; no cmd test pins tool-result events"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver, internal/journal, and internal/runtime by import only; the SSE invalidate-tick contract is constrained untouched and no cockpit test pins the new event kind"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/journal and internal/runtime via internal/cockpit by import only; the eval observer ignores the new event kind by construction"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver, internal/journal, and internal/runtime by import only; presentation of the new events is out of scope"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "One canonical projection: the observed bytes are taken at the single seam where tool results are produced for the model (toolSession.execute and the in-order collection at internal/driver/provider.go:546-604, ahead of the per-dialect appendResults formatting), so the model-facing content and the observed content cannot diverge - pinned by a test asserting byte-identity between the appended result and the emitted event body up to the declared bound. Anchor for the gap: internal/driver imports neither internal/journal nor internal/observe, tool-result content today never leaves the process, and the measured cost is real (798 tool calls in one run, zero observable results, sworn#195)."
+  },
+  {
+   "id": "A2",
+   "text": "Bounded honestly: each event carries a head and tail within a declared bound with an explicit truncation marker naming the omitted byte count - bounding is never silent omission - and the existing tool-result truncation semantics toward the model (MaxToolResultBytes, internal/driver/tools.go:227-230) are unchanged."
+  },
+  {
+   "id": "A3",
+   "text": "Identity on every event: run, track, slice, role, responsibility, invocation attempt, turn, and an in-turn sequence - sufficient to derive a per-track stream and to bind a cursor to a position - journaled through the existing events and observer_cursors machinery (internal/journal/schema.sql:85,101), with replay from a cursor yielding the same stream. Pinned by journal tests."
+  },
+  {
+   "id": "A4",
+   "text": "Redaction happens at the emit seam, before anything leaves the driver: command output can carry credentials, so the emitted projection passes the existing secret-guard posture, and a test proves a planted credential in tool output does not reach the journaled event."
+  },
+  {
+   "id": "A5",
+   "text": "Emission never changes delivery: the events cross from the driver loop on a runtime-provided hook (the RecoveryStepHook at internal/driver/recoverable.go:28, wired at internal/runtime/dispatch.go:432, is the precedent for a durable callback into the loop), and an emission failure degrades observation only - it never fails, stalls, or alters an otherwise-successful dispatch. Pinned by a fault-injection test."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "This is the precondition for intervention, not spectating (sworn#195): every defect in the dogfood set so far was found by hand-reading raw transcripts, which cannot scale to parallel tracks or be delegated to a blind orchestrator; the sworn#195 postscript's unreadable-approved-plan incident is the same flattening on the submission path.",
+  "Volume discipline: the bound and any per-turn coalescing must keep a measured run's event growth proportionate (hundreds of tool calls per dispatch is the observed norm); the journal is the system of record, not a transcript dump.",
+  "The events are additive: no existing event kind, body, or consumer changes meaning; the cockpit's SSE invalidate-tick contract (internal/cockpit/server.go:625-645) is untouched - clients discover the new events by re-fetching as they already do.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
