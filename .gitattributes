@@ -17,3 +17,6 @@
 # Markdown hard line breaks are two trailing spaces by specification, so a
 # whitespace check on prose flags valid syntax rather than a defect.
 *.md -whitespace
+# SSE wire recordings end events with protocol-mandated blank lines;
+# the whitespace check must not police captured wire bytes.
+internal/driver/testdata/**/*.sse -whitespace
