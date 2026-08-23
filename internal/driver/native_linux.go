@@ -2105,11 +2105,29 @@ func platformRunNative(
 		}
 	}
 	defer clearBytes(credentialAfter)
+	// Capture the post-run expiry verdict before the lease closes: the
+	// terminal classification site runs after the close, when the lease file
+	// is already gone. For continuations the verdict reuses credentialAfter;
+	// fresh dispatches (launch == nil) hold no credential bytes, so take one
+	// bounded fail-open snapshot here. The snapshot never enters the
+	// containsAny leak-scan set, which would change surface semantics.
+	nowMillis := time.Now().UnixMilli()
+	staleCredential := nativeCredentialStale(config.Family, credentialAfter, nowMillis)
+	if !staleCredential && launch == nil {
+		if body, snapErr := snapshotNativeCredential(
+			credential.File(),
+			config.MaxCredentialBytes,
+		); snapErr == nil {
+			staleCredential = nativeCredentialStale(config.Family, body, nowMillis)
+			clearBytes(body)
+		}
+	}
 	if err := credential.Close(); err != nil {
 		credentialClosed = true
 		return Observation{}, err
 	}
 	credentialClosed = true
+	credentialRotated := credential.benignRotation()
 	if launch != nil {
 		if launch.state == nil ||
 			launch.state.validateRetainedHome(config) != nil ||
@@ -2230,7 +2248,11 @@ func platformRunNative(
 	}
 	if !terminated {
 		if waitErr != nil {
-			return Observation{}, fail("PROVIDER_TRANSPORT_FAILED")
+			return Observation{}, nativeSpontaneousExitFailure(
+				staleCredential,
+				config.Family,
+				waitErr,
+			)
 		}
 		if automationRun != nil {
 			return Observation{}, fail("AUTOMATION_PROTOCOL_FAILED")
@@ -2275,13 +2297,61 @@ func platformRunNative(
 		return Observation{}, fail("NATIVE_SURFACE_INVALID")
 	}
 	if yielded := batonSession.yielded(); yielded != nil {
-		return completedYieldObservation(started, usage, yielded), nil
+		return withCredentialRotationEvent(
+			completedYieldObservation(started, usage, yielded),
+			credentialRotated,
+		), nil
 	}
-	return completedToolObservation(
-		started,
-		usage,
-		batonSession.handoff(),
+	return withCredentialRotationEvent(
+		completedToolObservation(
+			started,
+			usage,
+			batonSession.handoff(),
+		),
+		credentialRotated,
 	), nil
+}
+
+// nativeSpontaneousExitFailure classifies the terminal-site case the
+// contract names: the CLI exited on its own before the session terminated.
+// A positively-expired credential outranks everything - it is the engine's
+// own verified fact, not weather. Otherwise a clean exit whose code is the
+// family's pinned auth exit vocabulary is positively an auth-class failure.
+// Everything else stays PROVIDER_TRANSPORT_FAILED exactly as before. The
+// exit code is the only observable process fact consulted: stderr remains a
+// pure leak check and unparsable stdout remains NATIVE_SURFACE_INVALID.
+func nativeSpontaneousExitFailure(
+	staleCredential bool,
+	family ProfileFamily,
+	waitErr error,
+) error {
+	if staleCredential {
+		return fail("CREDENTIAL_STALE")
+	}
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		if code, ok := nativeAuthExitCode(family); ok &&
+			code != 1 && exitErr.ExitCode() == code {
+			return fail("PROVIDER_AUTHORIZATION_FAILED")
+		}
+	}
+	return fail("PROVIDER_TRANSPORT_FAILED")
+}
+
+// withCredentialRotationEvent appends the admitted credential_rotated
+// terminal event when the lease verified a benign atomic-rename rotation at
+// close. The sequence continues the completed observation's contiguous run,
+// so the observation stays valid under validateObservation; when no rotation
+// was verified the observation is returned unchanged.
+func withCredentialRotationEvent(observation Observation, rotated bool) Observation {
+	if !rotated {
+		return observation
+	}
+	observation.Events = append(observation.Events, TerminalEvent{
+		Sequence: uint64(len(observation.Events) + 1),
+		Kind:     "credential_rotated",
+	})
+	return observation
 }
 
 func waitNativeCaptureGate(

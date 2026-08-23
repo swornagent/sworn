@@ -339,7 +339,8 @@ func validTerminalEventKind(kind string) bool {
 		"input_projection_removed",
 		"producers_joined",
 		"yield_accepted",
-		"engine_stop_after_yield":
+		"engine_stop_after_yield",
+		"credential_rotated":
 		return true
 	default:
 		const fatalPrefix = "fatal:"
@@ -534,6 +535,7 @@ func validAdapterErrorCode(code string) bool {
 		"CREDENTIAL_UNAVAILABLE",
 		"CREDENTIAL_NOT_CERTIFIED",
 		"CREDENTIAL_IDENTITY_CHANGED",
+		"CREDENTIAL_STALE",
 		"NATIVE_NOT_CERTIFIED",
 		"NATIVE_SURFACE_INVALID",
 		"INVALID_BROKER",
