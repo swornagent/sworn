@@ -179,10 +179,10 @@ func uncontainedDispatchLDFlags() string {
 // tests that deliberately wait out a claim set it; every other test keeps
 // the production 30s lease so a loaded machine cannot expire a live claim
 // mid-dispatch.
-const testLeaseMillis = "300"
+const testLeaseMillis = "1500"
 
 // leaseExpiryWait outlasts testLeaseMillis with scheduling slack.
-func leaseExpiryWait() { time.Sleep(450 * time.Millisecond) }
+func leaseExpiryWait() { time.Sleep(2250 * time.Millisecond) }
 
 // crashHookEnvironmentName maps a runtime hook variable name (the historic
 // ldflags spelling some tables still parameterize over) to its SWORN_TEST_*
@@ -288,45 +288,6 @@ func runBinaryWithEnvironmentTimeout(
 		)
 	}
 	return stdout.String(), stderr.String()
-}
-
-// runBinaryWithEnvironmentExitCode runs the binary like
-// runBinaryWithEnvironment but returns the exit code instead of asserting
-// it, for scenario legs whose expected exit depends on runner timing.
-func runBinaryWithEnvironmentExitCode(
-	t *testing.T,
-	binary string,
-	environment map[string]string,
-	args ...string,
-) (int, string, string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, binary, args...)
-	overrides := map[string]string{}
-	for key, value := range environment {
-		overrides[key] = value
-	}
-	command.Env = cleanEnvironment(overrides)
-	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr = &stdout, &stderr
-	err := command.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Fatalf(
-			"Sworn binary timed out\nstdout:\n%s\nstderr:\n%s",
-			stdout.String(),
-			stderr.String(),
-		)
-	}
-	exit := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			t.Fatalf("run Sworn: %v", err)
-		}
-		exit = exitErr.ExitCode()
-	}
-	return exit, stdout.String(), stderr.String()
 }
 
 func runGit(t *testing.T, repository string, args ...string) string {

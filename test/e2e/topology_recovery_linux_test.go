@@ -1454,40 +1454,6 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 	})
 
-	// resumeUntilSealCrash drives the staged run toward the scripted seal
-	// crash cut. Under the short test lease a hosted drive on a loaded runner
-	// can lose its lease before reaching the seal and end by admission (exit
-	// 0) with the run recoverable - the product's own semantics - so a fresh
-	// resume command re-drives until the cut's signature (exit 86) fires.
-	resumeUntilSealCrash := func(
-		t *testing.T,
-		binary string,
-		environment map[string]string,
-		journalPath, runID string,
-	) {
-		t.Helper()
-		for attempt := 1; attempt <= 5; attempt++ {
-			command := "resume-1"
-			if attempt > 1 {
-				command = fmt.Sprintf("resume-1-r%d", attempt)
-			}
-			exit, stdout, stderr := runBinaryWithEnvironmentExitCode(
-				t, binary, environment,
-				"resume", "--run", runID, "--journal", journalPath,
-				"--command", command, "--generation", "0")
-			if exit == 86 {
-				return
-			}
-			if exit != 0 {
-				t.Fatalf(
-					"seal-crash resume attempt %d exit = %d, want 86 or a "+
-						"recoverable 0\nstdout:\n%s\nstderr:\n%s",
-					attempt, exit, stdout, stderr)
-			}
-		}
-		t.Fatal("seal crash cut never fired across 5 recoverable resumes")
-	}
-
 	sealCrashCuts := []struct {
 		name        string
 		binary      string
@@ -1683,9 +1649,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		runBinary(t, swornBinary, 0,
 			"run", "--manifest", manifestPath, "--journal", journalPath)
 		authorizePlan(t, journalPath, runID, initialPlan)
-		resumeUntilSealCrash(
-			t, sealCrashCuts[1].binary, sealCrashCuts[1].environment,
-			journalPath, runID)
+		runBinaryWithEnvironment(t, sealCrashCuts[1].binary, 86,
+			sealCrashCuts[1].environment,
+			"resume", "--run", runID, "--journal", journalPath,
+			"--command", "resume-1", "--generation", "0")
 		claimed := claimedSeal(t, journalPath, runID)
 		if got := runGit(
 			t, repository, "rev-parse", claimed.TrackRef,
@@ -1910,9 +1877,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			if preparedCase.crash == "git.seal" {
 				crashCut = &sealCrashCuts[1]
 			}
-			resumeUntilSealCrash(
-				t, crashCut.binary, crashCut.environment,
-				journalPath, runID)
+			runBinaryWithEnvironment(t, crashCut.binary, 86,
+				crashCut.environment,
+				"resume", "--run", runID, "--journal", journalPath,
+				"--command", "resume-1", "--generation", "0")
 			claimed := claimedSeal(t, journalPath, runID)
 			trackBefore := runGit(
 				t, repository, "rev-parse", claimed.TrackRef)
