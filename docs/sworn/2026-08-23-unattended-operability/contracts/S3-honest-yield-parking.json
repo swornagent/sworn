@@ -2,7 +2,8 @@
  "outcome": "A worker asking an honest question is heard the first time: a question or blocked yield opens an answerable attention immediately - the worker's own words on the board, no try consumed, the conversation retained so the answer resumes it in place - instead of two thirds of the try budget burning while automation forwards 'no sealed submission' at a worker that asked for help.",
  "scope": {
   "include": [
-   "internal/runtime"
+   "internal/runtime",
+   "test/e2e"
   ],
   "exclude": [
    "the human-only yield kinds (human_choice and human_confirmation already park correctly on first occurrence and are untouched)",
@@ -58,7 +59,8 @@
   "The yield vocabulary is settled (internal/driver/yield.go:19-26): this slice changes where question and blocked route, never what they mean; human-only kinds keep their stricter durable-checkpoint semantics.",
   "The captain-advisory path (RecoveryAskCaptain) remains available before the park where the model elects it; what dies is the content-free resume loop as the default fate of an honest question.",
   "Evidence anchor for the cost: docs/captures/2026-08-11-sworn-engine-recording-dogfood-defects.md F16.",
-  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "Revision 3 scope boundary: test/e2e enters this slice's edit surface solely for the turn-recovery conformance scenario in test/e2e/turn_recovery_linux_test.go - the file the Captain escalated over (S3-honest-yield-parking captain escalate, receipt ea900b94): no in-scope implementation of A1 can keep it green, because TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce pins the pre-S3 question/blocked flow's aggregate implementation usage fold 28/20 (lines 1537-1538 and 1649-1651), which includes the automation invocation this slice removes from the first-occurrence yield; under first-occurrence answerable parking the fold becomes 21/15, so the scenario is repinned to the reconciled accounting. An operator sweep confirms it is the only e2e surface pinning that accounting; no exactly-once, cardinality, or authority assertion is weakened anywhere in test/e2e, and the e2e gate remains CI-executed, declared not executed, per ADR-0010."
  ],
  "depends_on": [],
  "consumes": []
