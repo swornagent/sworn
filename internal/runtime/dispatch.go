@@ -1761,7 +1761,7 @@ func (s *Service) persistHumanHandoffCheckpoint(
 func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
-	owner journal.OwnerLease) (driver.Submission, error) {
+	owner journal.OwnerLease, implementationGoverned bool) (driver.Submission, error) {
 	return s.runDriverEffectWithPreparation(
 		ctx,
 		engine,
@@ -1772,6 +1772,7 @@ func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 		before,
 		owner,
 		nil,
+		implementationGoverned,
 	)
 }
 
@@ -1779,7 +1780,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
 	owner journal.OwnerLease,
-	prepareHandoff func(driver.Submission) error) (
+	prepareHandoff func(driver.Submission) error,
+	implementationGoverned bool) (
 	submissionResult driver.Submission,
 	resultErr error,
 ) {
@@ -1969,17 +1971,67 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				break
 			}
 		}
-		_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
-			RunID: manifest.value.RunID, EffectID: replayKey,
-			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
-			EventBody: MarshalAssociation(EventAssociation{
-				EffectID:       replayKey,
-				WorkID:         attemptIdentity.WorkID,
-				Slice:          coordinates.Slice,
-				Responsibility: coordinates.Responsibility,
-			}), At: s.now().UTC(),
-		}, journal.RecoveryAmbiguous)
-		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
+		if implementationGoverned {
+			// A seal-cycle child keeps its coupled recovery: ambiguity is
+			// written here and the cycle machinery resolves parent and
+			// child atomically. The ownerless-claimed reconciliation gate
+			// is for the direct-dispatch shape only.
+			_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
+				RunID: manifest.value.RunID, EffectID: replayKey,
+				Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID:       replayKey,
+					WorkID:         attemptIdentity.WorkID,
+					Slice:          coordinates.Slice,
+					Responsibility: coordinates.Responsibility,
+				}), At: s.now().UTC(),
+			}, journal.RecoveryAmbiguous)
+			return driver.Submission{},
+				runtimeFail("RECOVERY_UNCERTAIN", nil)
+		}
+		resolution, err := s.reconcileOwnerlessClaimedDispatch(
+			ctx,
+			owner,
+			effect,
+			attemptIdentity.WorkID,
+			"",
+			coordinates.Slice,
+			coordinates.Responsibility,
+		)
+		if err != nil {
+			return driver.Submission{}, err
+		}
+		switch resolution {
+		case ownerlessClaimCleared:
+			effect, err = s.journal.Effect(
+				ctx,
+				manifest.value.RunID,
+				replayKey,
+			)
+			if err != nil {
+				return driver.Submission{},
+					runtimeFail("JOURNAL_READ_FAILED", err)
+			}
+			if effect.State != journal.Pending ||
+				effect.CurrentClaim != "" {
+				return driver.Submission{},
+					runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			claim, err = s.journal.ClaimOwned(
+				ctx,
+				owner,
+				replayKey,
+				s.now().UTC(),
+				effectLease,
+			)
+			if err != nil {
+				return driver.Submission{},
+					runtimeFail("EFFECT_CLAIM_FAILED", err)
+			}
+		default:
+			return driver.Submission{},
+				runtimeFail("RECOVERY_UNCERTAIN", nil)
+		}
 	case journal.Pending:
 		claim, err = s.journal.ClaimOwned(
 			ctx,

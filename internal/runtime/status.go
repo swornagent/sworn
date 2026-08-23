@@ -28,7 +28,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if err != nil {
 		return RunStatus{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	ownerActive := ownerPresent && owner.ExpiresAt.After(s.now().UTC())
+	// One clock read feeds every owner-liveness and recovery-guidance fact
+	// in this Status, so RunStatus stays stable across a lease boundary
+	// straddle instead of flapping SNAPSHOT_UNSTABLE.
+	now := s.now().UTC()
+	ownerActive := ownerPresent && owner.ExpiresAt.After(now)
 	ownerExpired := ownerPresent && !ownerActive
 	result := RunStatus{SchemaVersion: "sworn.run-status/v4", RunID: runID,
 		State: "new", DesiredState: control.Desired, ControlGeneration: control.Generation,
@@ -85,6 +89,18 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
 	attentionParked := false
+	// Recovery guidance derives from the same snapshot, clock read, and
+	// journal.RetryAdmissibleEffect predicate the control verbs evaluate.
+	// The first current-epoch dispatch that admits retry wins; otherwise
+	// an expired-but-present owner offers takeover; otherwise a claimed
+	// dispatch inside its lease window offers resume with the lease reason.
+	var recovery, recoveryResume *RecoveryAction
+	retryReason := "The last dispatch of this work cannot be confirmed. " +
+		"Retry it to start a fresh try."
+	resumeReason := "A dispatch claim is still inside its lease window. " +
+		"Resume the run after the lease expires and Sworn will recheck it."
+	takeoverReason := "Take over the expired owner so Sworn can recheck " +
+		"the run and continue."
 	for _, attention := range attentionWork {
 		if attention.State == journal.AttentionOpen {
 			attentionParked = true
@@ -128,6 +144,42 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		active = active || (effect.State == journal.Claimed && ownerActive)
 		uncertain = uncertain || effect.State == journal.Uncertain ||
 			(effect.State == journal.Claimed && !ownerActive)
+		if effect.Kind == "driver.dispatch" {
+			if recoveryWork, recoveryEpoch, _, coordErr :=
+				attemptCoordinates(effect.ID); coordErr == nil {
+				currentEpoch := control.RetryEpochs[recoveryWork]
+				if currentEpoch == 0 {
+					currentEpoch = 1
+				}
+				if recoveryEpoch == currentEpoch {
+					if journal.RetryAdmissibleEffect(
+						effect.State,
+						effect.CurrentClaimExpiresAt,
+						now,
+						ownerActive,
+					) {
+						if recovery == nil {
+							recovery = &RecoveryAction{
+								Action:   string(journal.Retry),
+								WorkID:   recoveryWork,
+								Epoch:    recoveryEpoch,
+								EffectID: effect.ID,
+								Reason:   retryReason,
+							}
+						}
+					} else if effect.State == journal.Claimed &&
+						recoveryResume == nil {
+						recoveryResume = &RecoveryAction{
+							Action:   string(journal.Resume),
+							WorkID:   recoveryWork,
+							Epoch:    recoveryEpoch,
+							EffectID: effect.ID,
+							Reason:   resumeReason,
+						}
+					}
+				}
+			}
+		}
 		if effect.State == journal.OperationalFailed && strings.HasSuffix(effect.ID, "/t3") && !isDerived {
 			if len(parts) == 4 {
 				epoch, _ := strconv.ParseInt(strings.TrimPrefix(parts[2], "e"), 10, 64)
@@ -285,6 +337,28 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			manifest, humanAuthorityRequired, attentionParked,
 			degradationBudgetExceeded, degradationCount, exhaustionApplies,
 		)
+	}
+	if recovery == nil && ownerExpired {
+		recovery = &RecoveryAction{
+			Action: string(journal.Takeover),
+			Reason: takeoverReason,
+		}
+	}
+	if recovery == nil {
+		recovery = recoveryResume
+	}
+	if recovery == nil {
+		// Every uncertain run names an admissible verb: resume is admitted
+		// by the control gate whenever the desired state is running, so
+		// the board never names a verb ApplyControl will refuse.
+		recovery = &RecoveryAction{
+			Action: string(journal.Resume),
+			Reason: "Resume the run so Sworn can recheck the " +
+				"unresolved work.",
+		}
+	}
+	if result.State == "uncertain" {
+		result.Recovery = recovery
 	}
 	if stateErr != nil {
 		return result, nil

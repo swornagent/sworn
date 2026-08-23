@@ -65,6 +65,7 @@ func TestRetryDispatchCarriesPriorSubmissionSummaryAndDetail(t *testing.T) {
 		fixture.cycle.Before,
 		fixture.owner,
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("runDriverEffectWithPreparation failed: %v", err)

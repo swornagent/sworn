@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -237,8 +238,22 @@ func validateAttentionRecord(value attentionCommandRecord) error {
 			return fail("INVALID_ATTENTION", nil)
 		}
 	case attentionAnswerAction:
-		if value.ExpectedGeneration != 1 ||
-			!validAttentionMessage(value.Message, MaxAttentionAnswerBytes) {
+		if value.ExpectedGeneration != 1 {
+			return fail("INVALID_ATTENTION", nil)
+		}
+		if len(value.Message) > MaxAttentionAnswerBytes {
+			// The oversize bound is named in the detail so an operator can
+			// see why the answer was refused, before the generic
+			// INVALID_ATTENTION that shares this arm.
+			return fail(
+				"ATTENTION_ANSWER_OVERSIZE",
+				fmt.Errorf(
+					"answer exceeds the %d-byte attention answer limit",
+					MaxAttentionAnswerBytes,
+				),
+			)
+		}
+		if !validAttentionMessage(value.Message, MaxAttentionAnswerBytes) {
 			return fail("INVALID_ATTENTION", nil)
 		}
 	case attentionResolveAction:

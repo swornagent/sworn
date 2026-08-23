@@ -1350,6 +1350,7 @@ func TestPendingV1ImplementationDispatchReplaysWithoutConflict(
 		},
 		fixture.cycle.Before,
 		fixture.owner,
+		true,
 	)
 	if err != nil {
 		t.Fatal(err)

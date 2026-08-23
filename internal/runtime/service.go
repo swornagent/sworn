@@ -111,6 +111,21 @@ type RunStatus struct {
 	Effects            []EffectStatus         `json:"effects"`
 	EventOffset        int64                  `json:"event_offset"`
 	Park               *ParkStatus            `json:"park,omitempty"`
+	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
+}
+
+// RecoveryAction names the one control verb currently admissible for a run
+// in the reconciled-uncertain shape. It is derived in Status from the same
+// snapshot, clock read, and gate predicates the control verbs evaluate, so
+// the board never names a verb ApplyControl will refuse. Action is one of
+// retry, takeover, or resume; WorkID and Epoch are present when the action
+// targets one work item.
+type RecoveryAction struct {
+	Action   string `json:"action"`
+	WorkID   string `json:"work_id,omitempty"`
+	Epoch    int64  `json:"epoch,omitempty"`
+	EffectID string `json:"effect_id,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // ParkStatus names why a run is parked. Cause is one of degradation,

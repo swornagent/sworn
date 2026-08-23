@@ -1111,6 +1111,7 @@ func TestProductionPlannerCannotEmitPlanBytesBeforeItsHumanTurn(
 		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
 		before,
 		owner,
+		false,
 	)
 	if !IsCode(err, "INVALID_HUMAN_TURN") {
 		t.Fatalf("unconfirmed plan bytes = %v", err)
@@ -1279,6 +1280,7 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 			journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
 			before,
 			owner,
+			false,
 		)
 	}
 	// A2: the production Planner's first terminal is the human-only summary
@@ -2770,6 +2772,72 @@ func TestProductionPreparedCandidateWithClaimedDispatchBecomesCoupledUncertainty
 	}
 }
 
+// C7: the dispatch-path claimed writer is reachable by seal-cycle children
+// through runProductionImplementationDispatch, so its reconciliation gate
+// must leave governed children on their coupled path: a claimed
+// implementation dispatch still writes dispatch_uncertain and refuses with
+// RECOVERY_UNCERTAIN instead of being independently cleared or preserved.
+func TestGovernedSealCycleChildKeepsCoupledUncertaintyOnDispatchFallback(
+	t *testing.T,
+) {
+	fixture := newProductionImplementationRecoveryFixture(t, nil)
+	_, _, dispatchClaim := prepareClaimedProductionImplementation(
+		t,
+		fixture,
+		"governed child contents\n",
+	)
+	if dispatchClaim.Token == "" {
+		t.Fatal("production dispatch claim is empty")
+	}
+	_, err := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(err, "RECOVERY_UNCERTAIN") {
+		t.Fatalf("governed dispatch fallback = %v", err)
+	}
+	effect, effectErr := fixture.store.Effect(
+		fixture.ctx,
+		fixture.owner.RunID,
+		fixture.cycle.DispatchEffect,
+	)
+	if effectErr != nil {
+		t.Fatal(effectErr)
+	}
+	if effect.State != journal.Uncertain ||
+		effect.CurrentClaim != "" {
+		t.Fatalf("governed coupled child = %#v", effect)
+	}
+	snapshot, snapshotErr := fixture.store.Snapshot(
+		fixture.ctx,
+		fixture.owner.RunID,
+	)
+	if snapshotErr != nil {
+		t.Fatal(snapshotErr)
+	}
+	uncertainEvents := 0
+	for _, event := range snapshot.Events {
+		if event.Kind == "dispatch_uncertain" {
+			uncertainEvents++
+		}
+	}
+	if uncertainEvents != 1 {
+		t.Fatalf("dispatch_uncertain events = %d, want 1", uncertainEvents)
+	}
+}
+
 func TestProductionFailedDispatchTerminalizesItsPreparedCandidate(
 	t *testing.T,
 ) {
@@ -3411,16 +3479,47 @@ func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChange
 		state,
 		stateErr,
 	)
-	if err != nil || !recovered {
+	if err != nil {
 		t.Fatalf("claimed recovery = %t, %v", recovered, err)
+	}
+	if recovered {
+		t.Fatal("unexpired current-authority claim was classified as recovered")
 	}
 	effect, err := store.Effect(ctx, manifest.value.RunID, effectID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if effect.State != journal.Uncertain ||
+	if effect.State != journal.Claimed ||
+		effect.CurrentClaim == "" ||
+		effect.CurrentClaimExpiresAt.IsZero() ||
 		effect.ErrorCode != "" {
 		t.Fatalf("current-authority recovery = %#v", effect)
+	}
+	// The same ownerless claimed shape on the direct dispatch path must
+	// refuse without writing: the claim is unexpired, so the dispatcher may
+	// still be mid-flight.
+	_, err = service.runDriverEffectWithPreparation(
+		ctx,
+		engine,
+		workspace,
+		driver.RolePlanner,
+		coordinates,
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
+		before,
+		owner,
+		nil,
+		false,
+	)
+	if !IsCode(err, "RECOVERY_UNCERTAIN") {
+		t.Fatalf("unexpired dispatch fallback = %v", err)
+	}
+	effect, err = store.Effect(ctx, manifest.value.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Claimed ||
+		effect.CurrentClaim == "" {
+		t.Fatalf("dispatch fallback mutated unexpired claim = %#v", effect)
 	}
 
 	if err := os.WriteFile(

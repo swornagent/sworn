@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -976,5 +978,66 @@ func TestDriveOwnedReleasesExpiredCurrentOwnerOnError(t *testing.T) {
 	}
 	if nextOwner.Generation != 2 {
 		t.Fatalf("nextOwner.Generation = %d, want 2", nextOwner.Generation)
+	}
+}
+
+// A4: an oversize answer surfaces as ATTENTION_REJECTED whose cause chain
+// names ATTENTION_ANSWER_OVERSIZE with the bound, so the sworn#207
+// unlabelled-refusal tail is closed on the service surface.
+func TestAnswerAttentionOversizeRefusalCarriesItsCause(t *testing.T) {
+	fixtureDriver := &turnRecoveryFixtureDriver{
+		parkS1:    true,
+		yieldKind: driver.YieldQuestion,
+	}
+	fixture := newProductionImplementationRecoveryFixture(t, fixtureDriver)
+	defer fixture.service.Close()
+
+	if err := fixture.store.RecordCommand(
+		fixture.ctx,
+		journal.Command{
+			RunID:     fixture.owner.RunID,
+			ReplayKey: "manifest",
+			Kind:      "start",
+			Payload:   fixture.manifest.raw,
+			CreatedAt: fixture.now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		fixture.workspace,
+		fixture.cycle,
+		fixture.coordinates,
+	); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("human park = %v", err)
+	}
+	attentions, err := fixture.store.Attentions(
+		fixture.ctx,
+		fixture.owner.RunID,
+	)
+	if err != nil || len(attentions) != 1 ||
+		attentions[0].State != journal.AttentionOpen {
+		t.Fatalf("attentions = %#v, %v", attentions, err)
+	}
+	attention := attentions[0]
+	_, err = fixture.service.AnswerAttention(fixture.ctx, AnswerAttentionCommand{
+		RunID:              fixture.owner.RunID,
+		AttentionID:        attention.Attention.ID,
+		ExpectedGeneration: 1,
+		Answer:             strings.Repeat("x", journal.MaxAttentionAnswerBytes+1),
+	})
+	if !IsCode(err, "ATTENTION_REJECTED") {
+		t.Fatalf("oversize answer = %v, want ATTENTION_REJECTED", err)
+	}
+	var journalErr *journal.Error
+	if !errors.As(err, &journalErr) ||
+		!journal.IsCode(journalErr, "ATTENTION_ANSWER_OVERSIZE") {
+		t.Fatalf("oversize cause chain = %v", err)
+	}
+	if !strings.Contains(err.Error(), "16384") {
+		t.Fatalf("oversize detail names the bound: %v", err)
 	}
 }

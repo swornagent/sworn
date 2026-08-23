@@ -1399,7 +1399,11 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 				Try:             try,
 				InvocationScope: invocationScope,
 			},
-			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}, before, owner)
+			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try},
+			before,
+			owner,
+			false,
+		)
 		if err == nil {
 			return submission, nil
 		}
@@ -3422,6 +3426,7 @@ func (s *Service) runProductionImplementationDispatch(
 				)
 			return prepareErr
 		},
+		true,
 	)
 	if err != nil {
 		return sealedRecord{}, journal.Claim{}, err
@@ -3515,6 +3520,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		},
 		cycle.Before,
 		owner,
+		true,
 	)
 	if err != nil {
 		_ = workspace.Close()
