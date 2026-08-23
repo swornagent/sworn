@@ -290,6 +290,45 @@ func runBinaryWithEnvironmentTimeout(
 	return stdout.String(), stderr.String()
 }
 
+// runBinaryWithEnvironmentExitCode runs the binary like
+// runBinaryWithEnvironment but returns the exit code instead of asserting
+// it, for scenario legs whose expected exit depends on runner timing.
+func runBinaryWithEnvironmentExitCode(
+	t *testing.T,
+	binary string,
+	environment map[string]string,
+	args ...string,
+) (int, string, string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, args...)
+	overrides := map[string]string{}
+	for key, value := range environment {
+		overrides[key] = value
+	}
+	command.Env = cleanEnvironment(overrides)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := command.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf(
+			"Sworn binary timed out\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	exit := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run Sworn: %v", err)
+		}
+		exit = exitErr.ExitCode()
+	}
+	return exit, stdout.String(), stderr.String()
+}
+
 func runGit(t *testing.T, repository string, args ...string) string {
 	t.Helper()
 	command := exec.Command(e2eGit, append([]string{"-C", repository}, args...)...)
