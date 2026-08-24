@@ -87,13 +87,14 @@ type Invoker = Dispatcher
 
 // Invocation is the single role-neutral invocation shape used by every provider.
 type Invocation struct {
-	Request          Request
-	HostWorkspace    string
-	Selected         SelectedProfile
-	Permission       SubmissionPermission
-	Inputs           []InputContent
-	FakeProfile      FakeProfile
-	RecoveryStepHook RecoveryStepHook
+	Request            Request
+	HostWorkspace      string
+	Selected           SelectedProfile
+	Permission         SubmissionPermission
+	Inputs             []InputContent
+	FakeProfile        FakeProfile
+	RecoveryStepHook   RecoveryStepHook
+	SealedProposalHook SealedProposalHook
 	// ToolResultHook is the runtime-provided durable callback for the
 	// bounded tool-result projection. It is runtime-only authority: the
 	// driver emits on it through the observer pump and never blocks or
@@ -271,6 +272,8 @@ func validDiagnosticCode(code string) bool {
 		"submission_rejected",
 		"submission_absent",
 		"provider_truncated",
+		"economy_turn_budget",
+		"economy_output_budget",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -304,6 +307,8 @@ func validFatalDiagnosticCode(code string) bool {
 		"invalid_driver_result",
 		"driver_transport_failed",
 		"provider_truncated",
+		"economy_turn_budget",
+		"economy_output_budget",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -339,7 +344,8 @@ func validTerminalEventKind(kind string) bool {
 		"input_projection_removed",
 		"producers_joined",
 		"yield_accepted",
-		"engine_stop_after_yield":
+		"engine_stop_after_yield",
+		"credential_rotated":
 		return true
 	default:
 		const fatalPrefix = "fatal:"
@@ -388,11 +394,13 @@ func sanitizeFailedObservation(
 		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
 		sanitized.Diagnostic = observation.Diagnostic
 	}
-	// A provider-reported truncation is the one adapter failure that carries
-	// measured facts: the accumulated receipt with the provider's own finish
-	// reason and cache/effort accounting. Preserve it when it is canonical so
-	// the operator surfaces can evaluate what the invocation actually cost.
-	if observation.Diagnostic.Code == "provider_truncated" {
+	// Provider-reported truncation and the economy-budget crossings are the
+	// adapter failures that carry measured facts: the accumulated receipt
+	// with the provider's own finish reason, cache/effort accounting, and
+	// the engine-counted turn economics. Preserve it when it is canonical so
+	// the operator surfaces can evaluate what the invocation actually cost
+	// and the runtime park gate can read spent-versus-budget back.
+	if preservesUsageDiagnostic(observation.Diagnostic.Code) {
 		if _, err := EncodeUsageReceipt(observation.Usage); err == nil {
 			sanitized.Usage = observation.Usage
 		}
@@ -410,6 +418,21 @@ func sanitizeFailedObservation(
 		}
 	}
 	return sanitized
+}
+
+// preservesUsageDiagnostic reports whether an adapter failure's diagnostic
+// entitles its accumulated usage receipt to survive the failure-sanitization
+// seam. It is the closed family of measured-failure diagnostics, never
+// inferred from the error: truncation (provider ceiling) and the economy
+// budget crossings (turn and output-token), whose spent-vs-budget evidence
+// the runtime park gate depends on.
+func preservesUsageDiagnostic(code string) bool {
+	switch code {
+	case "provider_truncated", "economy_turn_budget", "economy_output_budget":
+		return true
+	default:
+		return false
+	}
 }
 
 // normalizeAdapterError maps adapter errors to the stable dispatcher
@@ -502,6 +525,7 @@ func validAdapterErrorCode(code string) bool {
 		"SUBMISSION_PROTOCOL_FAILED",
 		"SUBMISSION_CORRECTIONS_EXHAUSTED",
 		"SUBMISSION_SHAPE_MISMATCH",
+		"YIELD_FIRST_REQUIRED",
 		"YIELD_BINDING_MISMATCH",
 		"PROCESS_FAILED",
 		"INVOCATION_CANCELLED",
@@ -522,6 +546,8 @@ func validAdapterErrorCode(code string) bool {
 		"PROVIDER_REQUEST_REJECTED",
 		"PROVIDER_UNAVAILABLE",
 		"PROVIDER_TRANSPORT_FAILED",
+		"ECONOMY_TURN_BUDGET_EXCEEDED",
+		"ECONOMY_OUTPUT_BUDGET_EXCEEDED",
 		"INVALID_PROVIDER_REQUEST",
 		"HTTP_REDIRECT_REFUSED",
 		"CONTINUATION_INVALID",
@@ -534,6 +560,7 @@ func validAdapterErrorCode(code string) bool {
 		"CREDENTIAL_UNAVAILABLE",
 		"CREDENTIAL_NOT_CERTIFIED",
 		"CREDENTIAL_IDENTITY_CHANGED",
+		"CREDENTIAL_STALE",
 		"NATIVE_NOT_CERTIFIED",
 		"NATIVE_SURFACE_INVALID",
 		"INVALID_BROKER",

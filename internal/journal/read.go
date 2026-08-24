@@ -40,14 +40,20 @@ func effectOnConnection(
 ) (Effect, error) {
 	var value Effect
 	var state, updatedAt string
-	var currentClaim, resultDigest, errorCode sql.NullString
+	var currentClaim, resultDigest, errorCode, claimExpires sql.NullString
 	var result []byte
 	err := conn.QueryRowContext(
 		ctx,
-		`SELECT run_id, effect_id, replay_key, kind, state,
-		        before_digest, expected_digest, current_claim,
-		        result_digest, result, error_code, updated_at
-		 FROM effects WHERE run_id = ? AND effect_id = ?`,
+		`SELECT e.run_id, e.effect_id, e.replay_key, e.kind, e.state,
+		        e.before_digest, e.expected_digest, e.current_claim,
+		        e.result_digest, e.result, e.error_code, e.updated_at,
+		        c.expires_at
+		 FROM effects e
+		 LEFT JOIN claims c ON c.run_id = e.run_id
+		  AND c.effect_id = e.effect_id
+		  AND c.token = e.current_claim
+		  AND c.completed_at IS NULL
+		 WHERE e.run_id = ? AND e.effect_id = ?`,
 		runID,
 		effectID,
 	).Scan(
@@ -63,6 +69,7 @@ func effectOnConnection(
 		&result,
 		&errorCode,
 		&updatedAt,
+		&claimExpires,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Effect{}, fail("EFFECT_NOT_FOUND", nil)
@@ -79,10 +86,53 @@ func effectOnConnection(
 	if err != nil {
 		return Effect{}, err
 	}
+	if value.State == Claimed {
+		// A claimed effect must carry exactly one live claim row: the token
+		// in current_claim and the claim's expiry are the one place the
+		// engine can see a claim's lifetime. Anything else is
+		// engine-impossible and fails closed (the currentOwnerOnConnection
+		// precedent for the runtime.owner effect).
+		if value.CurrentClaim == "" || !claimExpires.Valid {
+			return Effect{}, fail("CORRUPT_JOURNAL", nil)
+		}
+		expires, err := parseTime(claimExpires.String)
+		if err != nil {
+			return Effect{}, err
+		}
+		value.CurrentClaimExpiresAt = expires
+	}
 	if value.ResultDigest != "" && digest(value.Result) != value.ResultDigest {
 		return Effect{}, fail("CORRUPT_JOURNAL", nil)
 	}
 	return value, nil
+}
+
+// LoadSealedProposal returns the exact plan bytes stored at seal time as the
+// planner.sealed_plan child of a dispatch attempt. It intentionally reads
+// that child rather than parent receipts, so the bytes remain available
+// after either parent success or operational failure.
+func (s *Store) LoadSealedProposal(
+	ctx context.Context,
+	runID, parentEffectID string,
+) ([]byte, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return nil, err
+	}
+	if err := validateIdentity(parentEffectID, "effect"); err != nil {
+		return nil, err
+	}
+	childID := parentEffectID + "/sealed-proposal"
+	if err := validateIdentity(childID, "effect"); err != nil {
+		return nil, err
+	}
+	effect, err := s.Effect(ctx, runID, childID)
+	if err != nil {
+		return nil, err
+	}
+	if effect.Kind != "planner.sealed_plan" || effect.State != Succeeded {
+		return nil, fail("SEALED_PROPOSAL_NOT_READY", nil)
+	}
+	return append([]byte(nil), effect.Result...), nil
 }
 
 func (s *Store) ClaimedEffects(ctx context.Context, runID string) ([]Effect, error) {
@@ -128,6 +178,107 @@ func (s *Store) ClaimedEffects(ctx context.Context, runID string) ([]Effect, err
 		result = append(result, effect)
 	}
 	return result, nil
+}
+
+// EffectChildren returns the effects whose IDs are direct descendants of
+// effectID (prefix effectID+"/"). Child effects are durable checkpoints or
+// sealed evidence; recovery treats their presence conservatively and never
+// mistakes a child for completion evidence of its claimed parent.
+func (s *Store) EffectChildren(
+	ctx context.Context,
+	runID, effectID string,
+) ([]Effect, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return nil, err
+	}
+	if err := validateIdentity(effectID, "effect"); err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return nil, fail("CLOSED", nil)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil || s.conn == nil {
+		return nil, fail("CLOSED", nil)
+	}
+	rows, err := s.conn.QueryContext(
+		ctx,
+		`SELECT effect_id FROM effects
+		 WHERE run_id = ? AND effect_id LIKE ? AND effect_id != ?
+		 ORDER BY effect_id`,
+		runID,
+		effectID+"/%",
+		effectID,
+	)
+	if err != nil {
+		return nil, dbError(err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, dbError(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, dbError(err)
+	}
+	result := make([]Effect, 0, len(ids))
+	for _, id := range ids {
+		effect, err := effectOnConnection(ctx, s.conn, runID, id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, effect)
+	}
+	return result, nil
+}
+
+// EffectCompletionEvidence reports whether one effect carries journaled
+// attempt rows or receipt rows. completeOnConnection writes both atomically
+// with the terminal state and current_claim=NULL, so either row on a
+// still-claimed effect is engine-impossible and must fail closed upstream.
+func (s *Store) EffectCompletionEvidence(
+	ctx context.Context,
+	runID, effectID string,
+) (attempts bool, receipts bool, err error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return false, false, err
+	}
+	if err := validateIdentity(effectID, "effect"); err != nil {
+		return false, false, err
+	}
+	if s == nil {
+		return false, false, fail("CLOSED", nil)
+	}
+	err = s.readTransaction(ctx, func(conn *sql.Conn) error {
+		for _, table := range []string{"attempts", "receipts"} {
+			var count int64
+			queryErr := conn.QueryRowContext(
+				ctx,
+				`SELECT count(*) FROM `+table+
+					` WHERE run_id = ? AND effect_id = ?`,
+				runID,
+				effectID,
+			).Scan(&count)
+			if queryErr != nil {
+				return dbError(queryErr)
+			}
+			if table == "attempts" {
+				attempts = count != 0
+			} else {
+				receipts = count != 0
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, false, err
+	}
+	return attempts, receipts, nil
 }
 
 const MaxWindowEvents = 1024

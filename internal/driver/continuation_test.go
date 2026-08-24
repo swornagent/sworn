@@ -291,6 +291,73 @@ func TestResponsesReplaysEncryptedReasoningAndExactToolCorrelation(t *testing.T)
 	}
 }
 
+// TestResponsesToolCallDecodeFailureNeverCommitsPartialCorrelation pins the
+// fix for the Captain's attempt-1 REVISE: a turn whose output has a
+// well-formed function_call followed by a malformed one must fail without
+// committing the well-formed call's id, so a corrected retry may reuse both
+// call ids - and once that retry actually succeeds, a later genuine reuse of
+// the same id is still rejected.
+func TestResponsesToolCallDecodeFailureNeverCommitsPartialCorrelation(
+	t *testing.T,
+) {
+	t.Parallel()
+	conversation, err := newResponsesConversation(
+		"https://api.example.invalid/v1/responses",
+		"exact-model",
+		toolDefinitions(ReadOnly),
+		[]byte(`{"prompt":"bounded"}`),
+		"medium",
+		nil,
+		false,
+		providerDialectOpenAIResponses,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversation.close()
+
+	malformed := []byte(`{"id":"response-1","object":"response","status":"completed","output":[` +
+		`{"type":"function_call","call_id":"call-a","name":"Read","arguments":"{\"path\":\"a.txt\"}","status":"completed"},` +
+		`{"type":"function_call","call_id":"call-b","name":"Read","arguments":"{malformed json","status":"completed"}` +
+		`]}`)
+	if _, err := conversation.accept(malformed); !IsCode(err, "CONTINUATION_INVALID") {
+		t.Fatalf("expected the malformed turn to fail, got: %v", err)
+	}
+
+	corrected := []byte(`{"id":"response-2","object":"response","status":"completed","output":[` +
+		`{"type":"function_call","call_id":"call-a","name":"Read","arguments":"{\"path\":\"a.txt\"}","status":"completed"},` +
+		`{"type":"function_call","call_id":"call-b","name":"Read","arguments":"{\"path\":\"b.txt\"}","status":"completed"}` +
+		`]}`)
+	turn, err := conversation.accept(corrected)
+	if err != nil || len(turn.Calls) != 2 ||
+		turn.Calls[0].ID != "call-a" || turn.Calls[1].ID != "call-b" {
+		t.Fatalf(
+			"expected the corrected retry to reuse both call ids, got: %#v, %v",
+			turn, err,
+		)
+	}
+
+	if err := conversation.appendResults([]providerToolResult{
+		{ID: "call-a", Name: "Read", Content: []byte("a")},
+		{ID: "call-b", Name: "Read", Content: []byte("b")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	duplicate := []byte(`{"status":"completed","output":[` +
+		`{"type":"function_call","call_id":"call-a","name":"Read","arguments":"{}","status":"completed"}` +
+		`]}`)
+	_, err = conversation.accept(duplicate)
+	var contractErr *ContractError
+	if !asContractError(err, &contractErr) ||
+		contractErr.Detail != "continuation.toolcall_decode.correlate_reuse" {
+		t.Fatalf(
+			"expected continuation.toolcall_decode.correlate_reuse, got: %v",
+			err,
+		)
+	}
+}
+
 func TestOpenAIAPIConfigurationIsExplicit(t *testing.T) {
 	t.Parallel()
 	base := HTTPProfileConfig{

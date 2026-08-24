@@ -267,6 +267,19 @@ func readStreamedResponse(body io.Reader, maximumBytes int) ([]byte, error) {
 		name := eventName
 		eventName = ""
 		data.Reset()
+		if name == "" && len(payload) > 0 {
+			// Data-only streams (OpenRouter) omit event: lines. Fall back
+			// to a payload string type so the existing completed /
+			// incomplete / failed switch still recognizes the terminal.
+			// A labeled event: name always wins, including when the
+			// payload also carries type.
+			var typed struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(payload, &typed) == nil && typed.Type != "" {
+				name = typed.Type
+			}
+		}
 		if name == "" || len(payload) == 0 {
 			return nil
 		}

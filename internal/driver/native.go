@@ -22,6 +22,27 @@ type PinnedRuntimeFile struct {
 	Digest string `json:"digest"`
 }
 
+// nativeAuthExitCodes is the per-family native auth-exit vocabulary: a
+// spontaneous clean exit with one of these codes at the terminal
+// classification site is positively an auth-class failure and surfaces as
+// PROVIDER_AUTHORIZATION_FAILED instead of masquerading as
+// PROVIDER_TRANSPORT_FAILED. It is a package variable, not a constant, only
+// so non-parallel fixture tests can pin the classification branch for their
+// own duration and restore it afterwards - the same link-time-gate pattern as
+// testUncontainedDispatch. Production ships only entries probed against the
+// pinned CLIs on the operator host; families absent from the map stay
+// fail-open (their clean exits classify as transport). Exit code 1 is barred
+// by the Captain ruling: bubblewrap uses 1 for its own setup failures, and
+// mislabeling a sandbox fault as an auth failure is the exact confusion this
+// vocabulary exists to end.
+var nativeAuthExitCodes = map[ProfileFamily]int{}
+
+// nativeAuthExitCode reports whether family has a pinned auth exit code.
+func nativeAuthExitCode(family ProfileFamily) (int, bool) {
+	code, ok := nativeAuthExitCodes[family]
+	return code, ok
+}
+
 type NativeAdapterConfig struct {
 	Key                    string              `json:"key"`
 	ID                     string              `json:"id"`
@@ -458,6 +479,13 @@ func (adapter *nativeAdapter) nativeRuntime(
 	if err != nil {
 		return nativeSurfaceCertificate{}, "", fail("CREDENTIAL_NOT_CERTIFIED")
 	}
+	if err := nativeCredentialPreflight(
+		adapter.config.Family,
+		pathValue,
+		adapter.config.MaxCredentialBytes,
+	); err != nil {
+		return nativeSurfaceCertificate{}, "", err
+	}
 	return nativeSurfaceCertificate{}, pathValue, nil
 }
 
@@ -479,6 +507,13 @@ func (adapter *nativeAdapter) nativeAutomationRuntime(
 	if err != nil {
 		return nativeAutomationSurfaceCertificate{}, "",
 			fail("CREDENTIAL_NOT_CERTIFIED")
+	}
+	if err := nativeCredentialPreflight(
+		adapter.config.Family,
+		pathValue,
+		adapter.config.MaxCredentialBytes,
+	); err != nil {
+		return nativeAutomationSurfaceCertificate{}, "", err
 	}
 	return nativeAutomationSurfaceCertificate{}, pathValue, nil
 }

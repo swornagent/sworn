@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"encoding/json"
+	"math"
 	"regexp"
 	"sort"
 )
@@ -223,6 +225,51 @@ func validateCostObservation(cost CostObservation) error {
 		return fail("INVALID_COST_OBSERVATION")
 	}
 	return nil
+}
+
+// optionalProviderReportedUSDCost reads an OpenRouter usage.cost decoration.
+// Absent stays honest absence. A present value must be a non-negative finite
+// USD JSON number; anything else fails closed so capture cannot be silent.
+func optionalProviderReportedUSDCost(object map[string]any) (*CostObservation, error) {
+	value, present := object["cost"]
+	if !present {
+		return nil, nil
+	}
+	return costObservationFromUSD(value)
+}
+
+// costObservationFromUSD converts a provider-reported USD dollar amount into
+// integer micro-units with half-away rounding. Sub-micro amounts become a
+// reported zero rather than absence: that is still a typed provider report.
+func costObservationFromUSD(value any) (*CostObservation, error) {
+	if value == nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return nil, fail("INVALID_USAGE")
+	}
+	parsed, err := number.Float64()
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 {
+		return nil, fail("INVALID_USAGE")
+	}
+	const microPerUSD = 1_000_000.0
+	if parsed > float64(MaxSafeInteger)/microPerUSD {
+		return nil, fail("INVALID_USAGE")
+	}
+	micro := math.Round(parsed * microPerUSD)
+	if micro < 0 || micro > float64(MaxSafeInteger) {
+		return nil, fail("INVALID_USAGE")
+	}
+	observation := CostObservation{
+		MicroUnits: int64(micro),
+		Currency:   "USD",
+		Source:     CostSourceProviderReported,
+	}
+	if err := validateCostObservation(observation); err != nil {
+		return nil, fail("INVALID_USAGE")
+	}
+	return &observation, nil
 }
 
 // StampAttemptFacts adds the A4 attempt identity facts (profile, certified

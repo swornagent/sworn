@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -761,6 +763,9 @@ func TestClaimedDirectDispatchIsPreservedOnlyForExactCurrentAuthority(t *testing
 		t.Fatal(err)
 	}
 	engine := &engine{manifest: manifest}
+	// The claim is still inside its lease window: recovery preserves it
+	// untouched and reports not-recovered, so the drive fence bounds the
+	// wait instead of writing dispatch_uncertain on every re-entry.
 	recovered, err := service.recoverStaleClaimedDispatchesFromSnapshot(
 		context.Background(),
 		engine,
@@ -772,22 +777,45 @@ func TestClaimedDirectDispatchIsPreservedOnlyForExactCurrentAuthority(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !recovered {
-		t.Fatal("exact current driver claim was not classified")
+	if recovered {
+		t.Fatal("unexpired current driver claim was classified as recovered")
 	}
 	current, err := store.Effect(context.Background(), owner.RunID, effect.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.State != journal.Uncertain ||
-		current.CurrentClaim != "" {
-		t.Fatalf("current ambiguity = %#v", current)
+	if current.State != journal.Claimed ||
+		current.CurrentClaim == "" ||
+		current.CurrentClaimExpiresAt.IsZero() {
+		t.Fatalf("preserved claim = %#v", current)
+	}
+	for _, event := range snapshot.Events {
+		if event.Kind == "dispatch_uncertain" {
+			t.Fatalf("unexpired claim was written uncertain: %#v", event)
+		}
 	}
 
-	// The identical historical claim becomes obsolete when its Baton plan
-	// authority advances. Recovery must clear it atomically instead of allowing
-	// status to remain poisoned by an expired claim forever.
-	state.Plan.OID = "plan-v2"
+	// Once the claim has expired with no durable completion evidence, the
+	// same re-entry reconciles it all-old for a fresh try.
+	expiredNow := now.Add(effectLease).Add(time.Hour)
+	service.now = func() time.Time { return expiredNow }
+	if err := store.ReleaseOwner(
+		context.Background(),
+		owner,
+		expiredNow,
+	); err != nil {
+		t.Fatal(err)
+	}
+	owner, err = store.AcquireOwner(
+		context.Background(),
+		owner.RunID,
+		expiredNow,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err = store.Snapshot(context.Background(), owner.RunID)
 	if err != nil {
 		t.Fatal(err)
@@ -795,6 +823,72 @@ func TestClaimedDirectDispatchIsPreservedOnlyForExactCurrentAuthority(t *testing
 	recovered, err = service.recoverStaleClaimedDispatchesFromSnapshot(
 		context.Background(),
 		engine,
+		owner,
+		snapshot,
+		state,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered {
+		t.Fatal("expired driver claim was not cleared for a fresh try")
+	}
+	cleared, err := store.Effect(context.Background(), owner.RunID, effect.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.State != journal.Pending ||
+		cleared.CurrentClaim != "" {
+		t.Fatalf("cleared claim = %#v", cleared)
+	}
+	snapshot, err = store.Snapshot(context.Background(), owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clearedEvents := 0
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case "dispatch_claim_cleared":
+			clearedEvents++
+		case "dispatch_uncertain":
+			t.Fatalf("cleared claim also wrote uncertainty: %#v", event)
+		}
+	}
+	if clearedEvents != 1 {
+		t.Fatalf("dispatch_claim_cleared events = %d, want 1", clearedEvents)
+	}
+}
+
+func TestClaimedDirectDispatchStaleAuthorityStillTerminalizes(t *testing.T) {
+	_, manifestBody, plan := fixtureManifest(t)
+	manifest, err := admitManifest(manifestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := claimedDispatchState(t, plan)
+	before := sliceFingerprint(state, "S1")
+	work := driverWorkIdentity(
+		manifest.digest,
+		"S1",
+		driver.ImplementerDesign,
+		1,
+		before,
+	)
+	service, store, owner, now := claimedDispatchJournal(t, manifest)
+	defer store.Close()
+	effect := addClaimedDispatch(t, store, owner, now, work, before)
+	snapshot, err := store.Snapshot(context.Background(), owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The identical historical claim becomes obsolete when its Baton plan
+	// authority advances. Recovery must clear it atomically instead of allowing
+	// status to remain poisoned by an expired claim forever.
+	state.Plan.OID = "plan-v2"
+	recovered, err := service.recoverStaleClaimedDispatchesFromSnapshot(
+		context.Background(),
+		&engine{manifest: manifest},
 		owner,
 		snapshot,
 		state,
@@ -1340,5 +1434,552 @@ func TestClaimedDispatchRecoveryRejectsSubstitutedCommandBinding(t *testing.T) {
 	}
 	if current.State != journal.Claimed {
 		t.Fatalf("corrupt claim was mutated: %#v", current)
+	}
+}
+
+func TestClaimedDirectDispatchWithCheckpointChildPreservesAnswerableUncertainty(
+	t *testing.T,
+) {
+	_, manifestBody, plan := fixtureManifest(t)
+	manifest, err := admitManifest(manifestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := claimedDispatchState(t, plan)
+	before := sliceFingerprint(state, "S1")
+	work := driverWorkIdentity(
+		manifest.digest,
+		"S1",
+		driver.ImplementerDesign,
+		1,
+		before,
+	)
+	service, store, owner, now := claimedDispatchJournal(t, manifest)
+	defer store.Close()
+	ctx := context.Background()
+	effect := addClaimedDispatch(t, store, owner, now, work, before)
+	childID := humanHandoffCheckpointID(effect.ID)
+	childBody := []byte("fixture checkpoint body\n")
+	if err := store.RecordCommandEffect(
+		ctx,
+		journal.Command{
+			RunID: owner.RunID, ReplayKey: childID,
+			Kind: "driver.handoff", Payload: childBody, CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: owner.RunID, ID: childID, ReplayKey: childID,
+			Kind:           "driver.handoff",
+			BeforeDigest:   sha256Digest([]byte("fixture")),
+			ExpectedDigest: sha256Digest(childBody), UpdatedAt: now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	childClaim, err := store.ClaimOwned(
+		ctx,
+		owner,
+		childID,
+		now,
+		effectLease,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteOwned(
+		ctx,
+		owner,
+		journal.Completion{
+			RunID: owner.RunID, EffectID: childID,
+			Token: childClaim.Token, State: journal.Succeeded,
+			Result: childBody, EventKind: "fixture_checkpoint",
+			At: now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	// The parent claim has expired, but durable evidence exists that the
+	// external action left a checkpoint: adopting or clearing is unsafe,
+	// so recovery preserves answerable uncertainty instead.
+	expiredNow := now.Add(effectLease).Add(time.Hour)
+	service.now = func() time.Time { return expiredNow }
+	if err := store.ReleaseOwner(ctx, owner, expiredNow); err != nil {
+		t.Fatal(err)
+	}
+	owner, err = store.AcquireOwner(
+		ctx,
+		owner.RunID,
+		expiredNow,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := service.recoverStaleClaimedDispatchesFromSnapshot(
+		ctx,
+		&engine{manifest: manifest},
+		owner,
+		snapshot,
+		state,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered {
+		t.Fatal("evidence-carrying claim was not classified")
+	}
+	current, err := store.Effect(ctx, owner.RunID, effect.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != journal.Uncertain ||
+		current.CurrentClaim != "" {
+		t.Fatalf("evidence-carrying claim = %#v", current)
+	}
+	snapshot, err = store.Snapshot(ctx, owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uncertainEvents := 0
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case "dispatch_uncertain":
+			uncertainEvents++
+		case "dispatch_claim_cleared":
+			t.Fatalf("evidence-carrying claim was cleared: %#v", event)
+		}
+	}
+	if uncertainEvents != 1 {
+		t.Fatalf("dispatch_uncertain events = %d, want 1", uncertainEvents)
+	}
+}
+
+type claimedWedgeFixture struct {
+	service  *Service
+	store    *journal.Store
+	manifest admittedManifest
+	runID    string
+	work     string
+	effectID string
+	now      time.Time
+}
+
+// buildClaimedWedgeFixture constructs the sworn#207 reproduction shape on a
+// real repository: a run whose plan is installed, whose next dispatch
+// (implementer design for S1) is claimed with a five-minute lease, and whose
+// runtime owner is absent — the clean-release-around-a-claimed-effect shape.
+func buildClaimedWedgeFixture(t *testing.T) *claimedWedgeFixture {
+	t.Helper()
+	ctx := context.Background()
+	repository := productionRepository(t)
+	manifestValue, _, plan := fixtureManifest(t)
+	manifestValue.Repository = repository
+
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nFixture plan.\n",
+	)
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planDigest := plan.Digest()
+	manifestValue.Authority.BootstrapApprovedPlanDigest = &planDigest
+	for index := range manifestValue.Scripts {
+		script := &manifestValue.Scripts[index]
+		if script.Responsibility != driver.PlannerProposal {
+			continue
+		}
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission, err := driver.DecodeSubmission(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submission.Plan, err = driver.NewPlanBytes(planBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script.Submission = encodeSubmission(t, submission)
+	}
+	body, err := canonicalManifest(manifestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	submissions := make(map[string][]byte, len(manifest.value.Scripts))
+	for _, script := range manifest.value.Scripts {
+		encoded, err := base64.StdEncoding.DecodeString(script.Submission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submissions[invocationID(manifest.value.RunID, script)] = encoded
+	}
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		submission := submissions[invocation.Request.InvocationID]
+		if len(submission) == 0 {
+			t.Fatalf("unexpected invocation %s", invocation.Request.InvocationID)
+		}
+		if strings.Contains(
+			invocation.Request.InvocationID,
+			"implementer_implementation",
+		) {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("impl content\n"),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submission,
+				SubmissionDigest: driver.Digest(submission),
+			},
+		}, nil
+	})
+	store, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "wedge.sqlite"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 22, 1, 0, 0, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID:             manifest.value.RunID,
+		ManifestDigest: manifest.digest,
+		Repository:     manifest.value.Repository,
+		Release:        manifest.value.Release,
+		TargetRef:      manifest.value.TargetRef,
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCommand(ctx, journal.Command{
+		RunID: manifest.value.RunID, ReplayKey: "manifest",
+		Kind: "start", Payload: body, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetHead := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	admission := approvalAdmission{
+		planBytes:  planBytes,
+		planDigest: planDigest,
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := engine.installer.install(admission, targetHead); err != nil {
+		t.Fatal(err)
+	}
+	state, err := baton.ReadState(
+		engine.git,
+		manifest.value.Release,
+		engine.inertness,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := sliceFingerprint(state, "S1")
+	work := driverWorkIdentity(
+		manifest.digest,
+		"S1",
+		driver.ImplementerDesign,
+		1,
+		before,
+	)
+	effectID := journal.AttemptEffectID(work, 1, 1)
+	var designScript *ScriptedAttempt
+	for index := range manifest.value.Scripts {
+		script := &manifest.value.Scripts[index]
+		if script.Slice == "S1" &&
+			script.Responsibility == driver.ImplementerDesign &&
+			script.Epoch == 1 && script.Try == 1 {
+			designScript = script
+		}
+	}
+	if designScript == nil {
+		t.Fatal("S1 design script missing")
+	}
+	dispatchPayload := mustJSON(fakeScript{
+		SchemaVersion: "sworn.fake-script/v1",
+		Behavior:      designScript.Behavior,
+		Submission:    designScript.Submission,
+	})
+	expectedSubmission, err := base64.StdEncoding.Strict().
+		DecodeString(designScript.Submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureAttempt(
+		ctx,
+		journal.Command{
+			RunID: manifest.value.RunID, ReplayKey: effectID,
+			Kind: "driver.dispatch", Payload: dispatchPayload,
+			CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: manifest.value.RunID, ID: effectID,
+			ReplayKey: effectID, Kind: "driver.dispatch",
+			BeforeDigest:   sha256Digest([]byte(before)),
+			ExpectedDigest: sha256Digest(expectedSubmission),
+			UpdatedAt:      now,
+		},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(
+		ctx,
+		manifest.value.RunID,
+		effectID,
+		now,
+		effectLease,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return &claimedWedgeFixture{
+		service:  service,
+		store:    store,
+		manifest: manifest,
+		runID:    manifest.value.RunID,
+		work:     work,
+		effectID: effectID,
+		now:      now,
+	}
+}
+
+// A1/A2 end-to-end wedge: a cleanly-released run whose claimed dispatch has
+// an expired claim re-enters, reconciles the claim all-old, dispatches the
+// fresh try in the same drive, and reaches completion without ever writing
+// dispatch_uncertain or looping RECOVERY_UNCERTAIN.
+func TestClaimedRecoveryWedgeRunRecoversToCompletion(t *testing.T) {
+	ctx := context.Background()
+	fixture := buildClaimedWedgeFixture(t)
+
+	// The clean release left the run with no owner, and the claim expired
+	// hours ago. Re-entry must reconcile instead of looping.
+	fixture.service.now = func() time.Time {
+		return fixture.now.Add(effectLease).Add(6 * time.Hour)
+	}
+	if _, err := fixture.service.Control(ctx, ControlCommand{
+		RunID: fixture.runID, ID: "resume-wedge",
+		Kind: journal.Resume,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.service.Wait(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "complete" {
+		t.Fatalf(
+			"wedge run state = %q, want complete; effects=%#v",
+			status.State,
+			status.Effects,
+		)
+	}
+	snapshot, err := fixture.store.Snapshot(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clearedEvents := 0
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case "dispatch_claim_cleared":
+			clearedEvents++
+		case "dispatch_uncertain":
+			t.Fatalf("wedge run wrote uncertainty: %#v", event)
+		}
+	}
+	if clearedEvents != 1 {
+		t.Fatalf("dispatch_claim_cleared events = %d, want 1", clearedEvents)
+	}
+	designAttempts := 0
+	for _, attempt := range snapshotObservationAttempts(
+		t,
+		ctx,
+		fixture.store,
+		fixture.runID,
+	) {
+		if attempt.Responsibility == "implementer_design" {
+			designAttempts++
+		}
+	}
+	if designAttempts != 1 {
+		t.Fatalf("design attempts = %d, want exactly one fresh try", designAttempts)
+	}
+}
+
+func snapshotObservationAttempts(
+	t *testing.T,
+	ctx context.Context,
+	store *journal.Store,
+	runID string,
+) []journal.AttemptFact {
+	t.Helper()
+	observation, err := store.ReadObservation(
+		ctx,
+		runID,
+		journal.MaxObservationAttempts,
+		journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation.Attempts
+}
+
+// A2/A3: the board guidance and the control gate evaluate the same
+// predicate over the same snapshot and clock read. The wedge fixture shows
+// resume while the claim is unexpired (retry refused), retry once the claim
+// has expired, and takeover when an owner is present but expired.
+func TestStatusRecoveryGuidanceMatchesGatePredicate(t *testing.T) {
+	fixture := buildClaimedWedgeFixture(t)
+	ctx := context.Background()
+
+	// Unexpired claim and no owner: the run is uncertain and the admitted
+	// verb is resume with the lease reason; retry is refused by the gate.
+	status, err := fixture.service.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "uncertain" || status.Recovery == nil {
+		t.Fatalf("resume guidance status = %#v", status)
+	}
+	if status.Recovery.Action != string(journal.Resume) ||
+		status.Recovery.EffectID != fixture.effectID ||
+		status.Recovery.WorkID != fixture.work ||
+		status.Recovery.Reason == "" {
+		t.Fatalf("resume guidance = %#v", status.Recovery)
+	}
+	if _, err := fixture.store.ApplyControl(
+		ctx,
+		journal.ControlCommand{
+			RunID: fixture.runID, ID: "retry-too-early",
+			Kind: journal.Retry, WorkID: fixture.work, ExpectedEpoch: 1,
+		},
+		fixture.now,
+	); !journal.IsCode(err, "WORK_NOT_EXHAUSTED") {
+		t.Fatalf("unexpired claim retry = %v, want WORK_NOT_EXHAUSTED", err)
+	}
+
+	// Expired claim and no owner: guidance flips to retry and the gate
+	// admits exactly that verb.
+	expiredNow := fixture.now.Add(effectLease).Add(time.Hour)
+	fixture.service.now = func() time.Time { return expiredNow }
+	status, err = fixture.service.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "uncertain" || status.Recovery == nil ||
+		status.Recovery.Action != string(journal.Retry) ||
+		status.Recovery.WorkID != fixture.work ||
+		status.Recovery.Epoch != 1 {
+		t.Fatalf("retry guidance status = %#v", status)
+	}
+	receipt, err := fixture.store.ApplyControl(
+		ctx,
+		journal.ControlCommand{
+			RunID: fixture.runID, ID: "retry-admitted",
+			Kind: journal.Retry, WorkID: fixture.work, ExpectedEpoch: 1,
+		},
+		expiredNow,
+	)
+	if err != nil || receipt.Epoch != 2 {
+		t.Fatalf("expired claim retry = %#v, %v", receipt, err)
+	}
+
+	// Present-but-expired owner: guidance offers takeover, the verb the
+	// takeover gate admits.
+	owner2, err := fixture.store.AcquireOwner(
+		ctx,
+		fixture.runID,
+		expiredNow,
+		time.Minute,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner2Expired := expiredNow.Add(2 * time.Minute)
+	fixture.service.now = func() time.Time { return owner2Expired }
+	status, err = fixture.service.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "uncertain" || status.Recovery == nil ||
+		status.Recovery.Action != string(journal.Takeover) {
+		t.Fatalf("takeover guidance status = %#v", status)
+	}
+	_ = owner2
+}
+
+// RunStatus stability: the recovery guidance rides the same single clock
+// read as every other owner-liveness fact, so two consecutive projections
+// at a stable clock are byte-identical and never flap SNAPSHOT_UNSTABLE.
+func TestStatusRecoveryGuidanceIsStableAtOneClockRead(t *testing.T) {
+	fixture := buildClaimedWedgeFixture(t)
+	ctx := context.Background()
+	fixture.service.now = func() time.Time {
+		return fixture.now.Add(effectLease).Add(time.Hour)
+	}
+	first, err := fixture.service.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State != "uncertain" || first.Recovery == nil {
+		t.Fatalf("wedge status = %#v", first)
+	}
+	second, err := fixture.service.Status(ctx, fixture.runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("recovery guidance flapped: %#v vs %#v", first, second)
 	}
 }

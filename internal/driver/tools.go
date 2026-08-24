@@ -463,6 +463,15 @@ func (session *toolSession) submit(
 	if err := session.invocation.Permission.validate(submission); err != nil {
 		return nil, session.rejectSubmission(ctx, err)
 	}
+	// Planner plan bytes may leave the driver only from the answer-resume
+	// shape. A fresh or nudge-shaped invocation must first yield its summary;
+	// rejectSubmission keeps this session alive and accounts one bounded
+	// correction without sealing a handoff or consuming a dispatch try.
+	if submission.Responsibility == PlannerProposal && submission.Plan != nil &&
+		(session.invocation.recoverableInput == nil ||
+			session.invocation.recoverableInput.Kind != RecoverableInputAnswer) {
+		return nil, session.rejectSubmission(ctx, fail("YIELD_FIRST_REQUIRED"))
+	}
 	seal, sealBytes, submitErr := session.server.Submit(body)
 	if submitErr != nil || !seal.Accepted {
 		if submitErr == nil {
@@ -470,6 +479,19 @@ func (session *toolSession) submit(
 		}
 		session.finishSubmission(body, sealBytes, submitErr)
 		return nil, submitErr
+	}
+	if submission.Responsibility == PlannerProposal &&
+		submission.Plan != nil && session.invocation.SealedProposalHook != nil {
+		planBody, decodeErr := base64.StdEncoding.Strict().DecodeString(submission.Plan.Bytes)
+		if decodeErr != nil {
+			decodeErr = fail("INVALID_EXACT_BYTES")
+			session.finishSubmission(body, sealBytes, decodeErr)
+			return nil, decodeErr
+		}
+		if hookErr := session.invocation.SealedProposalHook(ctx, planBody); hookErr != nil {
+			session.finishSubmission(body, sealBytes, hookErr)
+			return nil, hookErr
+		}
 	}
 	session.finishSubmission(body, sealBytes, nil)
 	return []byte("accepted"), nil

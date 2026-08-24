@@ -16,6 +16,10 @@ type openAIConversation struct {
 	messages        []openAIMessage
 	pending         []providerToolCall
 	ledger          *continuationLedger
+	// maxOutputTokens is the operator-declared Limits.OutputBytes bound,
+	// emitted as max_completion_tokens on every chat-completions dialect
+	// with recorded vocabulary. Zero omits the field entirely.
+	maxOutputTokens int64
 }
 
 type openAIMessage struct {
@@ -236,7 +240,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
-			_ Limits,
+			limits Limits,
 		) (providerConversation, error) {
 			return newResponsesConversation(
 				config.Endpoint,
@@ -247,6 +251,7 @@ func NewOpenAIAdapter(
 				config.EnableThinking,
 				config.Stream,
 				dialect,
+				limits.OutputBytes,
 			)
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
@@ -264,7 +269,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
-			_ Limits,
+			limits Limits,
 		) (providerConversation, error) {
 			return newOpenAIConversation(
 				config.Endpoint,
@@ -273,6 +278,7 @@ func NewOpenAIAdapter(
 				prompt,
 				dialect,
 				config.ReasoningEffort,
+				limits.OutputBytes,
 			)
 		}
 	default:
@@ -368,6 +374,7 @@ func newOpenAIConversation(
 	prompt []byte,
 	dialect providerDialect,
 	reasoningEffort string,
+	maxOutputTokens ...int64,
 ) (*openAIConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -377,6 +384,10 @@ func newOpenAIConversation(
 			dialect != providerDialectGoogleChat &&
 			dialect != providerDialectXAIChat) {
 		return nil, fail("INVALID_ADAPTER")
+	}
+	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	if err != nil {
+		return nil, err
 	}
 	tools, err := openAITools(definitions)
 	if err != nil {
@@ -391,6 +402,7 @@ func newOpenAIConversation(
 		tools:           tools,
 		messages:        []openAIMessage{{Role: "user", Content: content}},
 		ledger:          newContinuationLedger(),
+		maxOutputTokens: outputLimit,
 	}, nil
 }
 
@@ -418,17 +430,27 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
 		return providerRequest{}, failContinuation("continuation.openai.request_pending_tool_calls")
 	}
+	// Limits.OutputBytes is emitted as max_completion_tokens on every
+	// chat-completions dialect with recorded wire vocabulary. The xAI chat
+	// surface stays deliberately unwired: no recorded fixture carries the
+	// field for it, and inventing vocabulary would be a lie.
+	maxCompletionTokens := int64(0)
+	if conversation.dialect != providerDialectXAIChat {
+		maxCompletionTokens = conversation.maxOutputTokens
+	}
 	body, err := json.Marshal(struct {
-		Model      string          `json:"model"`
-		Messages   []openAIMessage `json:"messages"`
-		Tools      []openAITool    `json:"tools"`
-		ToolChoice string          `json:"tool_choice"`
-		Stream     bool            `json:"stream"`
-		Effort     string          `json:"reasoning_effort,omitempty"`
+		Model               string          `json:"model"`
+		Messages            []openAIMessage `json:"messages"`
+		Tools               []openAITool    `json:"tools"`
+		ToolChoice          string          `json:"tool_choice"`
+		Stream              bool            `json:"stream"`
+		Effort              string          `json:"reasoning_effort,omitempty"`
+		MaxCompletionTokens int64           `json:"max_completion_tokens,omitempty"`
 	}{
 		Model: conversation.model, Messages: conversation.messages,
 		Tools: conversation.tools, ToolChoice: "auto", Stream: false,
-		Effort: conversation.reasoningEffort,
+		Effort:              conversation.reasoningEffort,
+		MaxCompletionTokens: maxCompletionTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -465,10 +487,14 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	if err != nil {
 		return providerTurn{}, err
 	}
-	root, err := closedObject(value, nil, []string{
+	rootOptional := []string{
 		"id", "object", "created", "model", "choices", "usage", "error",
 		"system_fingerprint", "service_tier", "reasoning_effort",
-	})
+	}
+	if conversation.dialect == providerDialectOpenRouterChat {
+		rootOptional = append(rootOptional, "provider")
+	}
+	root, err := closedObject(value, nil, rootOptional)
 	if err != nil {
 		return providerTurn{}, failContinuation("continuation.openai.accept_root_invalid")
 	}
@@ -513,11 +539,12 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			Truncated:       true,
 		}
 		if usageValue, present := root["usage"]; present && usageValue != nil {
-			usage, usageErr := openAIUsage(usageValue, conversation.dialect)
+			usage, cost, usageErr := openAIUsage(usageValue, conversation.dialect)
 			if usageErr != nil {
 				return providerTurn{}, usageErr
 			}
 			turn.Usage = usage
+			turn.Cost = cost
 		}
 		return turn, nil
 	}
@@ -790,11 +817,12 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		turn.ReasoningEffort = effort
 	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := openAIUsage(usageValue, conversation.dialect)
+		usage, cost, usageErr := openAIUsage(usageValue, conversation.dialect)
 		if usageErr != nil {
 			return providerTurn{}, usageErr
 		}
 		turn.Usage = usage
+		turn.Cost = cost
 	}
 	return turn, nil
 }
@@ -806,7 +834,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 // recorded vendor usage decorations are admitted at this position and
 // tolerated-and-ignored, so the normalized accounting still reads only the
 // standard fields.
-func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
+func openAIUsage(value any, dialect providerDialect) (*Usage, *CostObservation, error) {
 	optional := []string{
 		"total_tokens", "prompt_tokens_details", "completion_tokens_details",
 		"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
@@ -819,31 +847,34 @@ func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
 			"context_details",
 		)
 	}
+	if dialect == providerDialectOpenRouterChat {
+		optional = append(optional, "cost", "cost_details", "is_byok")
+	}
 	usage, err := closedObject(
 		value,
 		[]string{"prompt_tokens", "completion_tokens"},
 		optional,
 	)
 	if err != nil {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	input, inputOK := safeJSONInt(usage["prompt_tokens"])
 	output, outputOK := safeJSONInt(usage["completion_tokens"])
 	if !inputOK || !outputOK {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	result := &Usage{InputTokens: input, OutputTokens: output}
 	if _, present := usage["prompt_cache_hit_tokens"]; present {
 		read, readOK := safeJSONInt(usage["prompt_cache_hit_tokens"])
 		if !readOK {
-			return nil, fail("INVALID_USAGE")
+			return nil, nil, fail("INVALID_USAGE")
 		}
 		result.CacheReadTokens = &read
 	}
 	if _, present := usage["prompt_cache_miss_tokens"]; present {
 		write, writeOK := safeJSONInt(usage["prompt_cache_miss_tokens"])
 		if !writeOK {
-			return nil, fail("INVALID_USAGE")
+			return nil, nil, fail("INVALID_USAGE")
 		}
 		result.CacheWriteTokens = &write
 	}
@@ -875,7 +906,15 @@ func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
 			}
 		}
 	}
-	return result, nil
+	var cost *CostObservation
+	if dialect == providerDialectOpenRouterChat {
+		parsed, costErr := optionalProviderReportedUSDCost(usage)
+		if costErr != nil {
+			return nil, nil, costErr
+		}
+		cost = parsed
+	}
+	return result, cost, nil
 }
 
 func (conversation *openAIConversation) appendInstruction(body []byte) error {

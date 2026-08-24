@@ -199,7 +199,7 @@ func TestResponsesFunctionCallDiscreteLabels(t *testing.T) {
 			item := validItem()
 			tt.modify(item, ledger)
 
-			call, err := responsesFunctionCall(ledger, item)
+			call, err := responsesFunctionCall(ledger, make(map[string]struct{}), item)
 			if err == nil {
 				t.Fatalf("expected error, got tool call: %#v", call)
 			}
@@ -217,7 +217,7 @@ func TestResponsesFunctionCallDiscreteLabels(t *testing.T) {
 		t.Parallel()
 		ledger := newContinuationLedger()
 		item := validItem()
-		call, err := responsesFunctionCall(ledger, item)
+		call, err := responsesFunctionCall(ledger, make(map[string]struct{}), item)
 		if err != nil {
 			t.Fatalf("expected success, got error: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestContinuationMechanismLabels_ToolCallDecodeRefusal(t *testing.T) {
 		"status":    "completed",
 	}
 
-	_, err := responsesFunctionCall(ledger, item)
+	_, err := responsesFunctionCall(ledger, make(map[string]struct{}), item)
 	if !IsCode(err, "CONTINUATION_INVALID") {
 		t.Fatalf("expected CONTINUATION_INVALID, got: %v", err)
 	}

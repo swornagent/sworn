@@ -952,27 +952,24 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 					responsibility =
 						dispatch.production.Context.Responsibility
 				}
-				if err := s.journal.ReconcileOwned(
-					context.WithoutCancel(ctx),
-					owner,
-					journal.Completion{
-						RunID:     owner.RunID,
-						EffectID:  effect.ID,
-						Token:     effect.CurrentClaim,
-						EventKind: "dispatch_uncertain",
-						EventBody: MarshalAssociation(EventAssociation{
-							EffectID:       effect.ID,
-							WorkID:         work,
-							Track:          track,
-							Slice:          slice,
-							Responsibility: responsibility,
-						}),
-						At: s.now().UTC(),
-					},
-					journal.RecoveryAmbiguous,
-				); err != nil {
-					return true,
-						runtimeFail("JOURNAL_WRITE_FAILED", err)
+				resolution, err :=
+					s.reconcileOwnerlessClaimedDispatch(
+						ctx,
+						owner,
+						effect,
+						work,
+						track,
+						slice,
+						responsibility,
+					)
+				if err != nil {
+					return true, err
+				}
+				if resolution == ownerlessClaimPreserved {
+					// The claim is still inside its lease window. Preserve
+					// it and let the drive fence bound the wait; the
+					// operator always holds an admissible verb.
+					continue
 				}
 				return true, nil
 			}
@@ -1042,6 +1039,135 @@ func validateCurrentProductionDispatchContext(
 		return runtimeFail("STALE_DISPATCH", nil)
 	}
 	return nil
+}
+
+type ownerlessClaimResolution int
+
+const (
+	// ownerlessClaimPreserved keeps the claimed effect and its live claim
+	// untouched: the claim is still inside its lease window, so its
+	// dispatcher may still be mid-flight. The drive fence bounds the wait.
+	ownerlessClaimPreserved ownerlessClaimResolution = iota
+	// ownerlessClaimCleared means the expired claim was reconciled all-old:
+	// the effect is pending again and a fresh try may claim it.
+	ownerlessClaimCleared
+	// ownerlessClaimAmbiguous means durable completion evidence exists on a
+	// still-claimed effect — engine-impossible — so the effect was
+	// preserved as answerable uncertainty instead of adopted or cleared.
+	ownerlessClaimAmbiguous
+)
+
+// reconcileOwnerlessClaimedDispatch is the single gate for the ownerless
+// claimed current-authority driver.dispatch shape, shared by the recovery
+// sweep and the dispatch fallback. It never writes dispatch_uncertain for a
+// claim it can clear: an expired claim with no durable completion evidence is
+// reconciled all-old for a fresh try; an unexpired claim is preserved; a
+// claimed effect carrying journaled attempts, receipts, or child checkpoint
+// effects is preserved as answerable uncertainty (the A2 retry verb then
+// covers it) because adopting or clearing it would violate exactly-once
+// discipline.
+func (s *Service) reconcileOwnerlessClaimedDispatch(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	effect journal.Effect,
+	work, track, slice string,
+	responsibility driver.Responsibility,
+) (ownerlessClaimResolution, error) {
+	if effect.State != journal.Claimed || effect.CurrentClaim == "" {
+		return ownerlessClaimPreserved,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	now := s.now().UTC()
+	association := MarshalAssociation(EventAssociation{
+		EffectID:       effect.ID,
+		WorkID:         work,
+		Track:          track,
+		Slice:          slice,
+		Responsibility: responsibility,
+	})
+	attempts, receipts, err := s.journal.EffectCompletionEvidence(
+		ctx,
+		owner.RunID,
+		effect.ID,
+	)
+	if err != nil {
+		return ownerlessClaimPreserved,
+			runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	children, err := s.journal.EffectChildren(
+		ctx,
+		owner.RunID,
+		effect.ID,
+	)
+	if err != nil {
+		return ownerlessClaimPreserved,
+			runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if attempts || receipts || len(children) != 0 {
+		// completeOnConnection writes attempts and receipts atomically with
+		// the terminal state and current_claim=NULL, and a claimed dispatch
+		// may only carry the human-handoff or human-park checkpoint while
+		// its attention is parked. A claimed effect with evidence and no
+		// parked lane is engine-impossible: do not adopt it and do not
+		// clear it. Preserve answerable uncertainty; A2's retry verb and
+		// the board's needs-you row remain available.
+		if err := s.journal.ReconcileOwned(
+			context.WithoutCancel(ctx),
+			owner,
+			journal.Completion{
+				RunID:     owner.RunID,
+				EffectID:  effect.ID,
+				Token:     effect.CurrentClaim,
+				EventKind: "dispatch_uncertain",
+				EventBody: association,
+				At:        now,
+			},
+			journal.RecoveryAmbiguous,
+		); err != nil {
+			return ownerlessClaimPreserved,
+				runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return ownerlessClaimAmbiguous, nil
+	}
+	if effect.CurrentClaimExpiresAt.IsZero() {
+		return ownerlessClaimPreserved,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if effect.CurrentClaimExpiresAt.After(now) {
+		// The claim is live: the external action may still be running.
+		// Preserve it untouched and rely on the drive fence; the wait is
+		// bounded by the effect lease.
+		return ownerlessClaimPreserved, nil
+	}
+	// The claim expired with no durable completion evidence: the external
+	// action cannot have completed durably, so exactly-once discipline
+	// permits a fresh try. Discard the dead try's recoverable continuation
+	// first (the retireStaleDriverAttention precedent) and clear the claim
+	// all-old.
+	if err := s.discardRecoverableContinuation(
+		owner.RunID,
+		effect.ID,
+	); err != nil {
+		return ownerlessClaimPreserved,
+			runtimeFail("CONTINUATION_CLEANUP_FAILED", err)
+	}
+	if err := s.journal.ReconcileOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID:     owner.RunID,
+			EffectID:  effect.ID,
+			Token:     effect.CurrentClaim,
+			EventKind: "dispatch_claim_cleared",
+			EventBody: association,
+			At:        now,
+		},
+		journal.RecoveryAllOld,
+	); err != nil {
+		return ownerlessClaimPreserved,
+			runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return ownerlessClaimCleared, nil
 }
 
 func (s *Service) resolveStaleDriverEffect(

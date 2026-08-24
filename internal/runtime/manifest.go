@@ -36,7 +36,11 @@ var (
 
 type Error struct {
 	Code string
-	Err  error
+	// Detail is an additive site label for runtime-side refusals that
+	// already carry a stable code. It is never part of Error() so today's
+	// "runtime: CODE" strings stay unchanged.
+	Detail string
+	Err    error
 }
 
 func (e *Error) Error() string {
@@ -49,6 +53,10 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Err }
 
 func runtimeFail(code string, err error) error { return &Error{Code: code, Err: err} }
+
+func runtimeFailSite(code, detail string, err error) error {
+	return &Error{Code: code, Detail: detail, Err: err}
+}
 
 func IsCode(err error, code string) bool {
 	var runtimeErr *Error
@@ -142,6 +150,22 @@ func (m Manifest) production() bool {
 
 func (m Manifest) EffectiveDegradationBudget() int64 {
 	return m.Limits.EffectiveDegradationBudget()
+}
+
+func (m Manifest) EffectiveMaxTurnsPerWork() int64 {
+	return m.Limits.EffectiveMaxTurnsPerWork()
+}
+
+func (m Manifest) EffectiveMaxOutputTokensPerWork() int64 {
+	return m.Limits.EffectiveMaxOutputTokensPerWork()
+}
+
+func (m Manifest) EffectiveIdenticalFailureParkAfter() int64 {
+	return m.Limits.EffectiveIdenticalFailureParkAfter()
+}
+
+func (m Manifest) EffectiveContinuationLifetime() time.Duration {
+	return m.Limits.EffectiveContinuationLifetime()
 }
 
 func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
@@ -326,7 +350,15 @@ func validateManifest(manifest Manifest) error {
 		manifest.Limits.OutputBytes < 1 ||
 		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes ||
 		manifest.Limits.DegradationBudget < 0 ||
-		manifest.Limits.DegradationBudget > driver.MaxDegradationBudget {
+		manifest.Limits.DegradationBudget > driver.MaxDegradationBudget ||
+		manifest.Limits.MaxTurnsPerWork < 0 ||
+		manifest.Limits.MaxTurnsPerWork > driver.MaxTurnsPerWorkLimit ||
+		manifest.Limits.MaxOutputTokensPerWork < 0 ||
+		manifest.Limits.MaxOutputTokensPerWork > driver.MaxOutputTokensPerWorkLimit ||
+		manifest.Limits.IdenticalFailureParkAfter < 0 ||
+		manifest.Limits.IdenticalFailureParkAfter > driver.MaxIdenticalFailureParkAfter ||
+		manifest.Limits.MaxContinuationLifetimeMillis < 0 ||
+		manifest.Limits.MaxContinuationLifetimeMillis > driver.MaxContinuationLifetimeMillisLimit {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
 	switch {

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -299,6 +300,244 @@ func TestDelegatedCaptainEscalateParksWithoutMutationThenUsesHumanS2Recovery(t *
 	runDelegatedCaptainOutcome(t, driver.DecisionEscalate, "")
 }
 
+// TestDelegatedCaptainEscalateRecoversHeadlessThroughPlannerYield pins A2:
+// one journal walks escalate, planner yield, answer, resume, and an accepted
+// proposal. The planner's first terminal is the human-only summary; the
+// operator answers it headless; the resumed planner's plan bytes are accepted.
+func TestDelegatedCaptainEscalateRecoversHeadlessThroughPlannerYield(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	manifest.Authority.BootstrapApprovedPlanDigest = nil
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nFixture plan.\n",
+	)
+	plan, err = baton.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := productionConfig(t)
+	manifest.Driver = nil
+	manifest.DriverConfigDigest = config.ConfigurationDigest()
+	manifest.Scripts = nil
+	manifest.MaxParallelTracks = 1
+	manifest.Roles = driver.RoleSelections{
+		Planner:     driver.RoleSelection{Profile: "planner", Model: "planner-model"},
+		Implementer: driver.RoleSelection{Profile: "planner", Model: "implementer-model"},
+		Captain:     driver.RoleSelection{Profile: "planner", Model: "captain-model"},
+		Verifier:    driver.RoleSelection{Profile: "planner", Model: "verifier-model"},
+	}
+	manifest.Automation = &AutomationSelections{
+		Recovery: driver.ModelSelection{Profile: "planner", Model: "planner-model"},
+	}
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := admitManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testGitExecutable, gitErr := resolveGitExecutable()
+	if gitErr != nil {
+		t.Fatal(gitErr)
+	}
+	repositoryView, err := gitx.Open(repository, testGitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs, err := repositoryView.CaptureHeadRefs([]string{manifest.TargetRef})
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("refs = %#v, %v", refs, err)
+	}
+	_, shape, err := CaptainPlanStructuralProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves, _ := captainPlanLeaves(plan)
+	pointers := make([]string, 0, len(leaves))
+	for pointer := range leaves {
+		pointers = append(pointers, pointer)
+	}
+	sort.Strings(pointers)
+	fieldRules := make([]CaptainFieldRule, 0, len(pointers))
+	for _, pointer := range pointers {
+		fieldRules = append(fieldRules, CaptainFieldRule{
+			JSONPointer:         pointer,
+			AllowedValueDigests: []string{leaves[pointer]},
+		})
+	}
+	envelope := CaptainDelegation{
+		SchemaVersion: CaptainDelegationVersion, RunID: manifest.RunID,
+		ManifestDigest: admitted.digest, Project: manifest.Authority.Project,
+		Release: manifest.Release, ReleaseRef: "refs/heads/release-wt/" + manifest.Release,
+		ReleaseLineageAnchor: CaptainLineageAnchor{State: "absent"},
+		TargetRef:            manifest.TargetRef, TargetHead: refs[0].Head.String(),
+		DelegationEpoch: 1, DelegateRole: "captain",
+		Responsibility: CaptainPlanReviewResponsibility,
+		DecisionRules: []CaptainDecisionRule{
+			{DecisionClass: PlannerProposalClass, AllowedOutcomes: []string{"escalate", "proceed", "revise"}},
+			{DecisionClass: PlannerReplanClass, AllowedOutcomes: []string{"escalate", "proceed", "revise"}},
+		},
+		Limits: CaptainDelegationLimits{
+			MinimumPlanRevision: 1, MaximumPlanRevision: 4,
+			MaximumPlannerAttemptsPerRevision: 3, MaximumCaptainAttemptsPerProposal: 2,
+			MaximumTotalCaptainDecisions: 8, ReplanBudget: 3,
+		},
+		PlanRules: CaptainPlanPolicy{
+			SchemaVersion: CaptainPlanPolicyVersion, AuthorityClass: "ordinary_delivery",
+			InitialShapeDigest: shape, FieldRules: fieldRules,
+			DeltaRules: CaptainDeltaRules{AllowedOperations: []CaptainDeltaOperation{}},
+		},
+	}
+	envelopeBytes, err := CanonicalCaptainDelegation(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plannerDispatches, captainDispatches := 0, 0
+	terminal := func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		var dynamic driver.Submission
+		switch invocation.Request.Role {
+		case driver.RolePlanner:
+			plannerDispatches++
+			planValue, planErr := driver.NewPlanBytes(plan.Bytes())
+			if planErr != nil {
+				return driver.Observation{}, planErr
+			}
+			dynamic = driver.Submission{
+				SchemaVersion:  driver.SubmissionSchemaVersion,
+				InvocationID:   invocation.Request.InvocationID,
+				Responsibility: driver.PlannerProposal,
+				Summary:        "Exact bounded Planner proposal.",
+				Plan:           planValue,
+			}
+		case driver.RoleCaptain:
+			captainDispatches++
+			decision, decisionErr := driver.NewDecision(driver.DecisionEscalate)
+			if decisionErr != nil {
+				return driver.Observation{}, decisionErr
+			}
+			dynamic = driver.Submission{
+				SchemaVersion:  driver.SubmissionSchemaVersion,
+				InvocationID:   invocation.Request.InvocationID,
+				Responsibility: driver.CaptainPlanReview,
+				Summary:        "Escalate to external authority.",
+				Detail:         "Headless escalate after the answered planner turn.",
+				Decision:       decision,
+			}
+		default:
+			return driver.Observation{}, errors.New("unexpected delegated escalate responsibility")
+		}
+		encoded, encodeErr := driver.EncodeSubmission(dynamic)
+		if encodeErr != nil {
+			return driver.Observation{}, encodeErr
+		}
+		seal, sealErr := json.Marshal(driver.Seal{
+			SchemaVersion:    driver.SealSchemaVersion,
+			InvocationID:     dynamic.InvocationID,
+			SubmissionDigest: driver.Digest(encoded),
+			Accepted:         true, Code: "accepted",
+		})
+		if sealErr != nil {
+			return driver.Observation{}, sealErr
+		}
+		seal = append(seal, '\n')
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  encoded,
+				SubmissionDigest: driver.Digest(encoded),
+				SealBytes:        seal,
+				SealDigest:       driver.Digest(seal),
+			},
+		}, nil
+	}
+	productionRuntime, err := newProductionDriverRuntime(
+		config, driver.DriverFactoryOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "escalate-yield.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := &Service{
+		journal: store, dispatcher: &plannerSummaryDispatcher{terminal: terminal},
+		production: productionRuntime, gitExecutable: testGitExecutable,
+		now: func() time.Time { return time.Date(2026, 8, 4, 3, 0, 0, 0, time.UTC) },
+	}
+	status, err := service.StartWithCaptainDelegation(ctx, body, envelopeBytes)
+	status, err = drivePlannerSummaryTurns(t, ctx, service, manifest.RunID, status, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "parked" || status.ApprovalOffer == nil ||
+		plannerDispatches != 1 || captainDispatches != 1 {
+		t.Fatalf(
+			"escalate after answered planner: status=%#v planner=%d captain=%d",
+			status, plannerDispatches, captainDispatches,
+		)
+	}
+	if _, err := service.Approve(ctx, status.ApprovalOffer.Command); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposals, approvals, escalations, parks := 0, 0, 0, 0
+	for _, command := range snapshot.Commands {
+		switch command.Kind {
+		case "planner_proposal":
+			proposals++
+		case "approval":
+			approvals++
+		case "captain_decision":
+			var decision CaptainDecisionCommand
+			if json.Unmarshal(command.Payload, &decision) != nil ||
+				decision.Outcome != "escalate" {
+				t.Fatalf("captain decision = %s", command.Payload)
+			}
+			escalations++
+		}
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind == "runtime.human_park" {
+			parks++
+		}
+	}
+	if proposals != 1 || approvals != 1 || escalations != 1 || parks != 1 {
+		t.Fatalf(
+			"escalate journal walk proposal=%d approval=%d escalate=%d park=%d",
+			proposals, approvals, escalations, parks,
+		)
+	}
+	attention, found, readErr := openPlannerSummaryTurn(ctx, service, manifest.RunID)
+	if readErr != nil || found {
+		t.Fatalf("planner summary still open: found=%t err=%v attention=%#v", found, readErr, attention)
+	}
+}
+
 func TestDelegatedCaptainPolicyRefusalHasZeroAuthorityEffects(t *testing.T) {
 	runDelegatedCaptainOutcome(t, driver.DecisionOutcome("policy_refusal"), "")
 }
@@ -519,7 +758,17 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 	plannerDispatches, captainDispatches := 0, 0
 	terminal := func(_ context.Context, invocation driver.Invocation) (driver.Observation, error) {
 		if attemptExhaustion && invocation.Request.Role == driver.RoleCaptain {
-			return driver.Observation{}, errors.New("bounded Captain transport failure")
+			// Each attempt fails with a distinct named code so the
+			// delegation's own attempt limit is what stops the run: the
+			// S4 identical-failure guard parks runs of *identical* codes,
+			// not the delegation limit machinery this test pins.
+			captainDispatches++
+			return driver.Observation{}, &driver.ContractError{
+				Code: fmt.Sprintf(
+					"CAPTAIN_TRANSPORT_FAILURE_%d",
+					captainDispatches,
+				),
+			}
 		}
 		if reviseRecovery {
 			var dynamic driver.Submission

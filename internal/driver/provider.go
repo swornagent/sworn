@@ -3,7 +3,10 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -19,6 +22,14 @@ const (
 	// only bounds pathological growth. Context compaction is the real fix.
 	MaxProviderRequestBytes  = 8_388_608
 	MaxProviderResponseBytes = 1_048_576
+	// MaxToolCallCorrections bounds per-dispatch grace for a malformed
+	// provider tool call, in the MaxSubmissionCorrections house pattern:
+	// bounded by turn budget/timeout, not a hard allowance. It is kept
+	// strictly below MaxProviderTurns so persistent malformation always
+	// falls through to the original continuation.toolcall_decode
+	// classification from inside the runaway-loop guard's own iteration
+	// bound, never past it into a generic RESOURCE_LIMIT.
+	MaxToolCallCorrections = MaxProviderTurns - 1
 )
 
 type providerRequest struct {
@@ -54,6 +65,10 @@ type providerTurn struct {
 	// successful result.
 	FinishReason *string
 	Truncated    bool
+	// Cost is a typed provider-reported observation for this turn when an
+	// adapter captured one (OpenRouter usage.cost). Nil is honest absence
+	// and preserves today's receipts.
+	Cost *CostObservation
 }
 
 type providerConversation interface {
@@ -75,6 +90,24 @@ type providerConversationFactory func(
 	tools []providerToolDefinition,
 	limits Limits,
 ) (providerConversation, error)
+
+// optionalOutputLimit reads the optional trailing output-limit argument the
+// conversation constructors accept: absent means zero (the field is omitted
+// from every request surface), and a present value must stay inside the same
+// bound ValidateRequest already enforces on Limits.OutputBytes.
+func optionalOutputLimit(values []int64) (int64, error) {
+	switch len(values) {
+	case 0:
+		return 0, nil
+	case 1:
+		if values[0] < 0 || values[0] > MaxProviderOutputBytes {
+			return 0, fail("INVALID_ADAPTER")
+		}
+		return values[0], nil
+	default:
+		return 0, fail("INVALID_ADAPTER")
+	}
+}
 
 type providerTransport interface {
 	roundTrip(context.Context, *string, providerRequest) ([]byte, error)
@@ -460,6 +493,18 @@ func (adapter *loopAdapter) runConversation(
 	initialRequest *providerRequest,
 	retain bool,
 ) (observation Observation, state continuationState, resultErr error) {
+	// The operator-declared TimeoutMillis now bounds the API conversation
+	// path's wall clock (A3). ValidateRequest guarantees TimeoutMillis >= 1,
+	// so the wrapped deadline can never be zero. The shared HTTP client
+	// keeps Timeout:0 deliberately: a client-level timeout would cut
+	// individual streamed requests per-request, while this dispatch-level
+	// deadline bounds the whole conversation. The caller's context is no
+	// longer passed straight through.
+	loopCtx, cancel := providerTimeout(ctx, invocation.Request.Limits.TimeoutMillis)
+	ctx = loopCtx
+	defer cancel()
+	turnBudget := invocation.Request.Limits.EffectiveMaxTurnsPerWork()
+	tokenBudget := invocation.Request.Limits.EffectiveMaxOutputTokensPerWork()
 	session, err := newToolSession(invocation)
 	if err != nil {
 		return Observation{}, nil, err
@@ -476,11 +521,13 @@ func (adapter *loopAdapter) runConversation(
 		}
 	}()
 	var total Usage
+	var totalCost *CostObservation
 	usageAvailable := false
 	effortRequested := conversation.declaredReasoningEffort()
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	toolCallCorrections := 0
 	// Turn economics are engine-counted facts: every accepted provider turn
 	// counts (prose nudges are turns with zero calls), and every executed
 	// tool call counts by canonical name.
@@ -489,6 +536,41 @@ func (adapter *loopAdapter) runConversation(
 	pacer := newInputTokenPacer(adapter.pacingCap)
 	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
+		// Per-work economy budgets (A1) are evaluated at the loop-top safe
+		// boundary: the previous turn's tool results are already appended
+		// and observed, and the next request is not yet built or sent. A
+		// terminal submit/yield that lands on this turn's crossing already
+		// returned above, so crossing never kills finished work.
+		if turnCount >= turnBudget {
+			return economyBudgetFailure(
+				started,
+				adapter.identity.ID,
+				&total,
+				usageAvailable,
+				effortRequested,
+				effortReported,
+				turnCount,
+				toolCallCount,
+				toolCallsByName,
+				totalCost,
+				"economy_turn_budget",
+			), nil, fail("ECONOMY_TURN_BUDGET_EXCEEDED")
+		}
+		if usageAvailable && total.OutputTokens >= tokenBudget {
+			return economyBudgetFailure(
+				started,
+				adapter.identity.ID,
+				&total,
+				usageAvailable,
+				effortRequested,
+				effortReported,
+				turnCount,
+				toolCallCount,
+				toolCallsByName,
+				totalCost,
+				"economy_output_budget",
+			), nil, fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
+		}
 		if err := ctx.Err(); err != nil {
 			return Observation{}, nil, err
 		}
@@ -533,6 +615,24 @@ func (adapter *loopAdapter) runConversation(
 		providerTurn, err := conversation.accept(response)
 		clearBytes(response)
 		if err != nil {
+			if detail, correctable := toolCallDecodeDetail(err); correctable &&
+				toolCallCorrections < MaxToolCallCorrections {
+				toolCallCorrections++
+				turnCount++
+				if recoveryErr := reserveRecoveryStep(
+					ctx,
+					invocation.RecoveryStepHook,
+					RecoveryStepMalformedToolCall,
+				); recoveryErr != nil {
+					return Observation{}, nil, recoveryErr
+				}
+				if instructionErr := conversation.appendInstruction(
+					malformedToolCallInstruction(detail),
+				); instructionErr != nil {
+					return Observation{}, nil, instructionErr
+				}
+				continue
+			}
 			liveStream.driverError("accept", err)
 			return Observation{}, nil, err
 		}
@@ -548,14 +648,17 @@ func (adapter *loopAdapter) runConversation(
 			usageAvailable = true
 			pacer.record(providerTurn.Usage.InputTokens, time.Now())
 		}
+		if err := addTurnCost(&totalCost, providerTurn.Cost); err != nil {
+			return Observation{}, nil, err
+		}
 		if providerTurn.ReasoningEffort != nil {
 			value := *providerTurn.ReasoningEffort
 			effortReported = &value
 		}
 		if providerTurn.Truncated {
-			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
+			usage, err := NormalizeUsage(nil, totalCost, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
+				usage, err = NormalizeUsage(&total, totalCost, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
@@ -636,9 +739,9 @@ func (adapter *loopAdapter) runConversation(
 			if closeErr := session.Close(); closeErr != nil {
 				return Observation{}, nil, closeErr
 			}
-			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
+			usage, err := NormalizeUsage(nil, totalCost, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
+				usage, err = NormalizeUsage(&total, totalCost, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
@@ -686,7 +789,67 @@ func (adapter *loopAdapter) runConversation(
 	return Observation{}, nil, fail("RESOURCE_LIMIT")
 }
 
+// economyBudgetFailure builds the named economy-budget failure observation
+// (A1). It mirrors the provider-truncated receipt exactly: the accumulated
+// usage with the engine-counted turn economics and invocation facts, so the
+// spent-versus-budget evidence survives the failure-sanitization seam and
+// lands durably in the attempt BLOB the runtime park gate reads back.
+func economyBudgetFailure(
+	started time.Time,
+	adapterID string,
+	total *Usage,
+	usageAvailable bool,
+	effortRequested string,
+	effortReported *string,
+	turns, toolCalls int64,
+	toolCallsByName map[string]int64,
+	cost *CostObservation,
+	diagnostic string,
+) Observation {
+	usage, err := NormalizeUsage(nil, cost, adapterID)
+	if usageAvailable && total != nil {
+		usage, err = NormalizeUsage(total, cost, adapterID)
+	}
+	if err != nil {
+		// Accumulated facts outside their bounds cannot yield a canonical
+		// receipt; the unavailable receipt still names the crossing loudly
+		// rather than defaulting silent.
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	applyInvocationFacts(&usage, effortRequested, effortReported, nil, false)
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: diagnostic},
+	}
+}
+
 const providerProseNudge = "Finish this turn now by calling exactly one advertised Sworn terminal tool. Do not answer in prose."
+
+// toolCallDecodeDetail reports whether err is a decode failure this loop may
+// correct: a CONTINUATION_INVALID whose detail carries the
+// continuation.toolcall_decode. prefix - the sole label family
+// responsesFunctionCall emits (every other decoder, and every other
+// continuation failure, fails under its own distinct label and is never
+// intercepted here).
+func toolCallDecodeDetail(err error) (string, bool) {
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) &&
+		contractErr.Code == "CONTINUATION_INVALID" &&
+		strings.HasPrefix(contractErr.Detail, "continuation.toolcall_decode.") {
+		return contractErr.Detail, true
+	}
+	return "", false
+}
+
+func malformedToolCallInstruction(detail string) []byte {
+	return []byte(fmt.Sprintf(
+		"Your last turn's tool call was malformed (defect: %s). Re-emit this entire turn now with every intended tool call well-formed: a valid tool name, valid JSON arguments, and a valid call id. Do not describe the defect in prose.",
+		detail,
+	))
+}
 
 func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) error {
 	if validateText(call.ID, MaxCorrelationIDBytes, false) != nil ||
@@ -830,6 +993,36 @@ func addTurnUsage(total *Usage, turn *Usage) error {
 			*total.ReasoningTokens += *turn.ReasoningTokens
 		}
 	}
+	return nil
+}
+
+// addTurnCost accumulates one provider-reported cost observation into the
+// invocation total. Only same-currency provider_reported observations sum;
+// mixed currency, mixed source, or overflow fail closed. Nil is honest
+// absence and leaves the running total untouched.
+func addTurnCost(total **CostObservation, turn *CostObservation) error {
+	if turn == nil {
+		return nil
+	}
+	if total == nil ||
+		turn.Source != CostSourceProviderReported ||
+		turn.MicroUnits < 0 || turn.MicroUnits > MaxSafeInteger ||
+		!currencyPattern.MatchString(turn.Currency) {
+		return fail("INVALID_USAGE")
+	}
+	if *total == nil {
+		cloned := *turn
+		*total = &cloned
+		return nil
+	}
+	current := *total
+	if current.Currency != turn.Currency || current.Source != turn.Source {
+		return fail("INVALID_USAGE")
+	}
+	if current.MicroUnits > MaxSafeInteger-turn.MicroUnits {
+		return fail("INVALID_USAGE")
+	}
+	current.MicroUnits += turn.MicroUnits
 	return nil
 }
 

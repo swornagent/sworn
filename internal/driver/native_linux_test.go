@@ -148,7 +148,7 @@ func TestNativeSessionMemoryRootCreatesConfiguredFreshRoots(t *testing.T) {
 	}
 	// The fresh configured root is immediately usable by the session reaper,
 	// which previously rejected a fresh (absent) configured root.
-	if err := reapNativeSessionRoots(); err != nil {
+	if err := reapNativeSessionRoots(0); err != nil {
 		t.Fatalf("reap on fresh configured native root: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestNativeSessionMemoryRootDefaultCreatesAndValidatesSession(t *testing.T) 
 		Family:           ProfileCodex,
 		CredentialTarget: CodexCredentialTarget,
 	}
-	state, err := newNativeContinuationState(config)
+	state, err := newNativeContinuationState(config, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +766,7 @@ func TestExactNativeCLIsKeepModelPromptOffOrdinaryDisk(t *testing.T) {
 			invocation.Request.Model = invocation.Selected.Model
 			invocation.Request.Limits.TimeoutMillis = 20_000
 			smoke := nativeSmokeInvocationsFixture(t, invocation)
-			state, err := newNativeContinuationState(config)
+			state, err := newNativeContinuationState(config, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2031,7 +2031,7 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 		Family:           ProfileCodex,
 		CredentialTarget: CodexCredentialTarget,
 	}
-	state, err := newNativeContinuationState(config)
+	state, err := newNativeContinuationState(config, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2050,7 +2050,7 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := reapNativeSessionRoots(); err != nil {
+	if err := reapNativeSessionRoots(0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(root); err != nil {
@@ -2063,7 +2063,7 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 		t.Fatal("closed root was not removed")
 	}
 
-	stale, err := newNativeContinuationState(config)
+	stale, err := newNativeContinuationState(config, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2074,7 +2074,7 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 	_ = home.Close()
 	_ = syscall.Flock(int(lease.Fd()), syscall.LOCK_UN)
 	_ = lease.Close()
-	if err := reapNativeSessionRoots(); err != nil {
+	if err := reapNativeSessionRoots(0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(staleRoot); !os.IsNotExist(err) {
@@ -2096,15 +2096,53 @@ func TestNativeContinuationCleanupBoundsAndStaleRecovery(t *testing.T) {
 	if err := os.Chmod(incomplete, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	expired := time.Now().Add(-maxContinuationLifetime - time.Minute)
+	defaultLifetime := time.Duration(DefaultContinuationLifetimeMillis) * time.Millisecond
+	expired := time.Now().Add(-defaultLifetime - time.Minute)
 	if err := os.Chtimes(incomplete, expired, expired); err != nil {
 		t.Fatal(err)
 	}
-	if err := reapNativeSessionRoots(); err != nil {
+	if err := reapNativeSessionRoots(0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(incomplete); !os.IsNotExist(err) {
 		t.Fatal("expired incomplete root was not recovered")
+	}
+
+	// A governed 1h lifetime reaps a root older than 1h and keeps one
+	// newer than that bound (A1).
+	customLifetime := time.Hour
+	oldCustom, err := os.MkdirTemp(memoryRoot, nativeSessionRootPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(oldCustom) })
+	if err := os.Chmod(oldCustom, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldStamp := time.Now().Add(-customLifetime - time.Minute)
+	if err := os.Chtimes(oldCustom, oldStamp, oldStamp); err != nil {
+		t.Fatal(err)
+	}
+	freshCustom, err := os.MkdirTemp(memoryRoot, nativeSessionRootPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(freshCustom) })
+	if err := os.Chmod(freshCustom, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	freshStamp := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(freshCustom, freshStamp, freshStamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := reapNativeSessionRoots(customLifetime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(oldCustom); !os.IsNotExist(err) {
+		t.Fatal("custom-lifetime stale root was not recovered")
+	}
+	if _, err := os.Lstat(freshCustom); err != nil {
+		t.Fatal("custom-lifetime fresh root was reaped")
 	}
 }
 

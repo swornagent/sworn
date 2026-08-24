@@ -826,3 +826,59 @@ func TestSafeActionsGatesTakeoverStrictlyOnTakeoverRequired(t *testing.T) {
 		t.Fatalf("takeover_required state missing takeover action: %#v", takeoverActions)
 	}
 }
+
+// A3/C10: for each reconciled-uncertain recovery verb the board's action
+// list offers exactly that verb, derived from the runtime's gate-admitted
+// RecoveryAction.
+func TestSafeActionsOffersRecoveryVerbForUncertainState(t *testing.T) {
+	t.Parallel()
+
+	control := journal.ControlProjection{Generation: 1, Desired: "running"}
+	work := "sha256:" + strings.Repeat("a", 64)
+
+	retryStatus := runtimepkg.RunStatus{
+		State:             "uncertain",
+		ControlGeneration: 1,
+		Recovery: &runtimepkg.RecoveryAction{
+			Action: string(journal.Retry), WorkID: work, Epoch: 1,
+		},
+	}
+	retryActions := safeActions(retryStatus, control)
+	var retry *Action
+	for index := range retryActions {
+		if retryActions[index].Kind == string(journal.Retry) {
+			retry = &retryActions[index]
+		}
+	}
+	if retry == nil || retry.WorkID != work || retry.ExpectedEpoch != 1 {
+		t.Fatalf("uncertain retry action = %#v", retryActions)
+	}
+
+	takeoverStatus := runtimepkg.RunStatus{
+		State:             "uncertain",
+		ControlGeneration: 1,
+		Recovery: &runtimepkg.RecoveryAction{
+			Action: string(journal.Takeover),
+		},
+	}
+	if !hasAction(
+		safeActions(takeoverStatus, control),
+		string(journal.Takeover),
+	) {
+		t.Fatal("uncertain takeover recovery emitted no takeover action")
+	}
+
+	resumeStatus := runtimepkg.RunStatus{
+		State:             "uncertain",
+		ControlGeneration: 1,
+		Recovery: &runtimepkg.RecoveryAction{
+			Action: string(journal.Resume), WorkID: work, Epoch: 1,
+		},
+	}
+	if !hasAction(
+		safeActions(resumeStatus, control),
+		string(journal.Resume),
+	) {
+		t.Fatal("uncertain resume recovery emitted no resume action")
+	}
+}

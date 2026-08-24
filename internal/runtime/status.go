@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -28,7 +27,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if err != nil {
 		return RunStatus{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	ownerActive := ownerPresent && owner.ExpiresAt.After(s.now().UTC())
+	// One clock read feeds every owner-liveness and recovery-guidance fact
+	// in this Status, so RunStatus stays stable across a lease boundary
+	// straddle instead of flapping SNAPSHOT_UNSTABLE.
+	now := s.now().UTC()
+	ownerActive := ownerPresent && owner.ExpiresAt.After(now)
 	ownerExpired := ownerPresent && !ownerActive
 	result := RunStatus{SchemaVersion: "sworn.run-status/v4", RunID: runID,
 		State: "new", DesiredState: control.Desired, ControlGeneration: control.Generation,
@@ -85,29 +88,24 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
 	attentionParked := false
+	// Recovery guidance derives from the same snapshot, clock read, and
+	// journal.RetryAdmissibleEffect predicate the control verbs evaluate.
+	// The first current-epoch dispatch that admits retry wins; otherwise
+	// an expired-but-present owner offers takeover; otherwise a claimed
+	// dispatch inside its lease window offers resume with the lease reason.
+	var recovery, recoveryResume *RecoveryAction
+	retryReason := "The last dispatch of this work cannot be confirmed. " +
+		"Retry it to start a fresh try."
+	resumeReason := "A dispatch claim is still inside its lease window. " +
+		"Resume the run after the lease expires and Sworn will recheck it."
+	takeoverReason := "Take over the expired owner so Sworn can recheck " +
+		"the run and continue."
 	for _, attention := range attentionWork {
 		if attention.State == journal.AttentionOpen {
 			attentionParked = true
 		}
 	}
-	derivedWorks := make(map[string]struct{})
-	for _, command := range snapshot.Commands {
-		if command.Kind != "git.seal" {
-			continue
-		}
-		var probe struct {
-			DispatchWork string `json:"dispatch_work"`
-			PreparedWork string `json:"prepared_work"`
-		}
-		if json.Unmarshal(command.Payload, &probe) == nil {
-			if probe.DispatchWork != "" {
-				derivedWorks[probe.DispatchWork] = struct{}{}
-			}
-			if probe.PreparedWork != "" {
-				derivedWorks[probe.PreparedWork] = struct{}{}
-			}
-		}
-	}
+	derived := derivedWorks(snapshot)
 	for _, effect := range snapshot.Effects {
 		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
 			continue
@@ -117,7 +115,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if len(parts) == 4 {
 			work = "sha256:" + parts[1]
 		}
-		_, isDerived := derivedWorks[work]
+		_, isDerived := derived[work]
 		result.Effects = append(result.Effects, EffectStatus{ID: effect.ID, Kind: effect.Kind,
 			State: string(effect.State), ErrorCode: effect.ErrorCode, Derived: isDerived})
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
@@ -128,6 +126,42 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		active = active || (effect.State == journal.Claimed && ownerActive)
 		uncertain = uncertain || effect.State == journal.Uncertain ||
 			(effect.State == journal.Claimed && !ownerActive)
+		if effect.Kind == "driver.dispatch" {
+			if recoveryWork, recoveryEpoch, _, coordErr :=
+				attemptCoordinates(effect.ID); coordErr == nil {
+				currentEpoch := control.RetryEpochs[recoveryWork]
+				if currentEpoch == 0 {
+					currentEpoch = 1
+				}
+				if recoveryEpoch == currentEpoch {
+					if journal.RetryAdmissibleEffect(
+						effect.State,
+						effect.CurrentClaimExpiresAt,
+						now,
+						ownerActive,
+					) {
+						if recovery == nil {
+							recovery = &RecoveryAction{
+								Action:   string(journal.Retry),
+								WorkID:   recoveryWork,
+								Epoch:    recoveryEpoch,
+								EffectID: effect.ID,
+								Reason:   retryReason,
+							}
+						}
+					} else if effect.State == journal.Claimed &&
+						recoveryResume == nil {
+						recoveryResume = &RecoveryAction{
+							Action:   string(journal.Resume),
+							WorkID:   recoveryWork,
+							Epoch:    recoveryEpoch,
+							EffectID: effect.ID,
+							Reason:   resumeReason,
+						}
+					}
+				}
+			}
+		}
 		if effect.State == journal.OperationalFailed && strings.HasSuffix(effect.ID, "/t3") && !isDerived {
 			if len(parts) == 4 {
 				epoch, _ := strconv.ParseInt(strings.TrimPrefix(parts[2], "e"), 10, 64)
@@ -143,10 +177,37 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	degradationCount := int64(len(degradationFallbacks(snapshot)))
 	degradationBudgetExceeded := degradationCount > manifest.value.EffectiveDegradationBudget()
+	// Economy and identical-failure guards (A1/A2) are evaluated over the
+	// same journal history as every park condition, so a re-drive of a
+	// journal that crossed re-parks with the same figures.
+	var economyPark *economyParkFacts
+	if crossing := economyParkCrossing(snapshot, control); crossing != nil {
+		spentTurns, spentTokens, spentErr := s.economySpent(
+			ctx,
+			runID,
+			*crossing,
+		)
+		if spentErr != nil {
+			return RunStatus{}, spentErr
+		}
+		facts := economyParkFactsFor(
+			*crossing,
+			manifest.value.Limits,
+			spentTurns,
+			spentTokens,
+		)
+		economyPark = &facts
+	}
+	identicalPark := identicalFailureParkCrossing(
+		snapshot,
+		control,
+		manifest.value.EffectiveIdenticalFailureParkAfter(),
+	)
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
 	exhaustionApplies := len(exhausted) != 0
-	parked := attentionParked || degradationBudgetExceeded || exhaustionApplies
+	parked := attentionParked || degradationBudgetExceeded ||
+		economyPark != nil || identicalPark != nil || exhaustionApplies
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -248,7 +309,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			exhaustionApplies = intersectsWork(exhausted, map[string]struct{}{
 				proposalInstallWork(proposal): {},
 			})
-			parked = attentionParked || degradationBudgetExceeded || exhaustionApplies
+			parked = attentionParked || degradationBudgetExceeded ||
+				economyPark != nil || identicalPark != nil || exhaustionApplies
 			parked = parked || humanAuthorityRequired
 		}
 	}
@@ -281,10 +343,37 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	if result.State == "parked" {
-		result.Park = parkStatusFor(
-			manifest, humanAuthorityRequired, attentionParked,
-			degradationBudgetExceeded, degradationCount, exhaustionApplies,
-		)
+		result.Park = parkStatusFor(manifest, parkFacts{
+			humanAuthorityRequired:    humanAuthorityRequired,
+			attentionParked:           attentionParked,
+			degradationBudgetExceeded: degradationBudgetExceeded,
+			degradationCount:          degradationCount,
+			economy:                   economyPark,
+			identicalFailure:          identicalPark,
+			exhaustionApplies:         exhaustionApplies,
+		})
+	}
+	if recovery == nil && ownerExpired {
+		recovery = &RecoveryAction{
+			Action: string(journal.Takeover),
+			Reason: takeoverReason,
+		}
+	}
+	if recovery == nil {
+		recovery = recoveryResume
+	}
+	if recovery == nil {
+		// Every uncertain run names an admissible verb: resume is admitted
+		// by the control gate whenever the desired state is running, so
+		// the board never names a verb ApplyControl will refuse.
+		recovery = &RecoveryAction{
+			Action: string(journal.Resume),
+			Reason: "Resume the run so Sworn can recheck the " +
+				"unresolved work.",
+		}
+	}
+	if result.State == "uncertain" {
+		result.Recovery = recovery
 	}
 	if stateErr != nil {
 		return result, nil
@@ -297,7 +386,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	exhaustionApplies = exhaustedWorkApplies(
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
-	parked = humanAuthorityRequired || attentionParked || degradationBudgetExceeded || exhaustionApplies
+	parked = humanAuthorityRequired || attentionParked ||
+		degradationBudgetExceeded || economyPark != nil ||
+		identicalPark != nil || exhaustionApplies
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case proposalFound && !proposalActivated:
@@ -313,10 +404,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	if result.State == "parked" {
-		result.Park = parkStatusFor(
-			manifest, humanAuthorityRequired, attentionParked,
-			degradationBudgetExceeded, degradationCount, exhaustionApplies,
-		)
+		result.Park = parkStatusFor(manifest, parkFacts{
+			humanAuthorityRequired:    humanAuthorityRequired,
+			attentionParked:           attentionParked,
+			degradationBudgetExceeded: degradationBudgetExceeded,
+			degradationCount:          degradationCount,
+			economy:                   economyPark,
+			identicalFailure:          identicalPark,
+			exhaustionApplies:         exhaustionApplies,
+		})
 	}
 	return result, nil
 }
@@ -710,28 +806,53 @@ func intersectsWork(left, right map[string]struct{}) bool {
 	return false
 }
 
+// parkFacts carries every reducer-computed park condition into the park
+// status naming, in precedence order.
+type parkFacts struct {
+	humanAuthorityRequired    bool
+	attentionParked           bool
+	degradationBudgetExceeded bool
+	degradationCount          int64
+	economy                   *economyParkFacts
+	identicalFailure          *identicalFailureFacts
+	exhaustionApplies         bool
+}
+
 // parkStatusFor names the park cause with the same precedence the final park
-// computation uses: human authority, attention, degradation, exhaustion. A
-// degradation park carries the gated fallback count, the effective budget,
-// and the manifest knob that unblocks it.
+// computation uses: human authority, attention, degradation, economy,
+// identical failure, exhaustion. A degradation park carries the gated
+// fallback count, the effective budget, and the manifest knob that unblocks
+// it; an economy park carries spent-versus-budget and its knob; an
+// identical-failure park carries the run length, threshold, shared failure
+// code, and its durable detail.
 func parkStatusFor(
 	manifest admittedManifest,
-	humanAuthorityRequired, attentionParked, degradationBudgetExceeded bool,
-	degradationCount int64,
-	exhaustionApplies bool,
+	facts parkFacts,
 ) *ParkStatus {
 	status := &ParkStatus{}
 	switch {
-	case humanAuthorityRequired:
+	case facts.humanAuthorityRequired:
 		status.Cause = ParkCauseHumanAuthority
-	case attentionParked:
+	case facts.attentionParked:
 		status.Cause = ParkCauseAttention
-	case degradationBudgetExceeded:
+	case facts.degradationBudgetExceeded:
 		status.Cause = ParkCauseDegradation
-		status.FallbackCount = degradationCount
+		status.FallbackCount = facts.degradationCount
 		status.Budget = manifest.value.EffectiveDegradationBudget()
 		status.UnblockKnob = DegradationUnblockKnob
-	case exhaustionApplies:
+	case facts.economy != nil:
+		status.Cause = facts.economy.cause
+		status.Spent = facts.economy.spent
+		status.Budget = facts.economy.budget
+		status.UnblockKnob = facts.economy.knob
+	case facts.identicalFailure != nil:
+		status.Cause = ParkCauseIdenticalFailure
+		status.Consecutive = facts.identicalFailure.consecutive
+		status.Threshold = facts.identicalFailure.threshold
+		status.FailureCode = facts.identicalFailure.code
+		status.FailureDetail = facts.identicalFailure.detail
+		status.UnblockKnob = IdenticalFailureUnblockKnob
+	case facts.exhaustionApplies:
 		status.Cause = ParkCauseExhaustion
 	}
 	return status

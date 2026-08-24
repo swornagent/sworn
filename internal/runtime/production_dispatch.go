@@ -1061,6 +1061,13 @@ func extractRefusal(err error) *productionRefusalBinding {
 			Detail: contractErr.Detail,
 		}
 	}
+	var runtimeErr *Error
+	if errors.As(err, &runtimeErr) && runtimeErr.Detail != "" {
+		return &productionRefusalBinding{
+			Code:   runtimeErr.Code,
+			Detail: runtimeErr.Detail,
+		}
+	}
 	return nil
 }
 

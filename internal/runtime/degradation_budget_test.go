@@ -510,23 +510,41 @@ func TestStatusParkCountsOnlyRealLoss(t *testing.T) {
 }
 
 // A3: the park cause precedence mirrors the final park computation:
-// human authority, attention, degradation, exhaustion.
+// human authority, attention, degradation, economy, identical failure,
+// exhaustion.
 func TestParkStatusForCausePrecedence(t *testing.T) {
 	t.Parallel()
 
 	manifest := admittedManifest{value: Manifest{}}
 
-	human := parkStatusFor(manifest, true, true, true, 7, true)
+	human := parkStatusFor(manifest, parkFacts{
+		humanAuthorityRequired: true, attentionParked: true,
+		degradationBudgetExceeded: true, degradationCount: 7,
+		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
 	if human.Cause != ParkCauseHumanAuthority {
 		t.Fatalf("human authority precedence = %#v", human)
 	}
 
-	attention := parkStatusFor(manifest, false, true, true, 7, true)
+	attention := parkStatusFor(manifest, parkFacts{
+		attentionParked: true, degradationBudgetExceeded: true,
+		degradationCount:  7,
+		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
 	if attention.Cause != ParkCauseAttention {
 		t.Fatalf("attention precedence = %#v", attention)
 	}
 
-	degradation := parkStatusFor(manifest, false, false, true, 7, true)
+	degradation := parkStatusFor(manifest, parkFacts{
+		degradationBudgetExceeded: true, degradationCount: 7,
+		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
 	if degradation.Cause != ParkCauseDegradation ||
 		degradation.FallbackCount != 7 ||
 		degradation.Budget != 3 ||
@@ -534,7 +552,32 @@ func TestParkStatusForCausePrecedence(t *testing.T) {
 		t.Fatalf("degradation park = %#v", degradation)
 	}
 
-	exhaustion := parkStatusFor(manifest, false, false, false, 0, true)
+	economy := parkStatusFor(manifest, parkFacts{
+		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
+	if economy.Cause != ParkCauseEconomyTurns ||
+		economy.Spent != 201 ||
+		economy.Budget != 200 ||
+		economy.UnblockKnob != EconomyTurnsUnblockKnob {
+		t.Fatalf("economy park = %#v", economy)
+	}
+
+	identical := parkStatusFor(manifest, parkFacts{
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", detail: "gateway timeout", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
+	if identical.Cause != ParkCauseIdenticalFailure ||
+		identical.Consecutive != 2 ||
+		identical.Threshold != 2 ||
+		identical.FailureCode != "INVOCATION_TIMEOUT" ||
+		identical.FailureDetail != "gateway timeout" ||
+		identical.UnblockKnob != IdenticalFailureUnblockKnob {
+		t.Fatalf("identical-failure park = %#v", identical)
+	}
+
+	exhaustion := parkStatusFor(manifest, parkFacts{exhaustionApplies: true})
 	if exhaustion.Cause != ParkCauseExhaustion {
 		t.Fatalf("exhaustion park = %#v", exhaustion)
 	}

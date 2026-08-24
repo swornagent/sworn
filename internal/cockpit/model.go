@@ -63,18 +63,19 @@ type Snapshot struct {
 }
 
 type RunView struct {
-	ID                string                 `json:"id"`
-	Release           string                 `json:"release"`
-	State             string                 `json:"state"`
-	DesiredState      string                 `json:"desired_state"`
-	ControlGeneration int64                  `json:"control_generation"`
-	ManifestDigest    string                 `json:"manifest_digest"`
-	PlanDigest        string                 `json:"plan_digest,omitempty"`
-	TargetRef         string                 `json:"target_ref"`
-	TargetHead        string                 `json:"target_head,omitempty"`
-	ReleaseHead       string                 `json:"release_head,omitempty"`
-	Outcome           string                 `json:"outcome,omitempty"`
-	Park              *runtimepkg.ParkStatus `json:"park,omitempty"`
+	ID                string                     `json:"id"`
+	Release           string                     `json:"release"`
+	State             string                     `json:"state"`
+	DesiredState      string                     `json:"desired_state"`
+	ControlGeneration int64                      `json:"control_generation"`
+	ManifestDigest    string                     `json:"manifest_digest"`
+	PlanDigest        string                     `json:"plan_digest,omitempty"`
+	TargetRef         string                     `json:"target_ref"`
+	TargetHead        string                     `json:"target_head,omitempty"`
+	ReleaseHead       string                     `json:"release_head,omitempty"`
+	Outcome           string                     `json:"outcome,omitempty"`
+	Park              *runtimepkg.ParkStatus     `json:"park,omitempty"`
+	Recovery          *runtimepkg.RecoveryAction `json:"recovery,omitempty"`
 }
 
 type Graph struct {

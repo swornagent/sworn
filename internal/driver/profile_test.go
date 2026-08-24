@@ -211,7 +211,7 @@ func TestSubmissionAdapterErrorsRemainClassifiable(t *testing.T) {
 		"INVALID_SUBMISSION", "INVALID_IDENTITY", "INVALID_RESPONSIBILITY",
 		"INVALID_SUMMARY", "INVALID_DETAIL", "INVALID_EXACT_BYTES",
 		"INVALID_PLAN_BYTES", "INVALID_DECISION", "SUBMISSION_REJECTED",
-		"SUBMISSION_SHAPE_MISMATCH",
+		"SUBMISSION_SHAPE_MISMATCH", "YIELD_FIRST_REQUIRED",
 	} {
 		normalized := normalizeAdapterError(fail(code))
 		if !IsCode(normalized, code) ||

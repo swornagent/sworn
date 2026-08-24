@@ -290,6 +290,7 @@ func buildSnapshot(
 			ReleaseHead:       status.ReleaseHead,
 			Outcome:           status.Outcome,
 			Park:              status.Park,
+			Recovery:          status.Recovery,
 		},
 		Runtime: RuntimeView{
 			Owner: OwnerView{
@@ -723,6 +724,31 @@ func safeActions(
 			Kind:               string(journal.Takeover),
 			ExpectedGeneration: generation,
 		})
+	}
+	// The reconciled-uncertain shape carries the one verb the control gate
+	// admits for it, derived by the runtime from the same predicate
+	// ApplyControl evaluates. The board offers exactly that action: a
+	// needs-you row must never name a verb the action list does not carry.
+	if status.State == "uncertain" && status.Recovery != nil {
+		switch status.Recovery.Action {
+		case string(journal.Retry):
+			result = append(result, Action{
+				Kind:               string(journal.Retry),
+				ExpectedGeneration: generation,
+				WorkID:             status.Recovery.WorkID,
+				ExpectedEpoch:      status.Recovery.Epoch,
+			})
+		case string(journal.Takeover):
+			result = append(result, Action{
+				Kind:               string(journal.Takeover),
+				ExpectedGeneration: generation,
+			})
+		case string(journal.Resume):
+			result = append(result, Action{
+				Kind:               string(journal.Resume),
+				ExpectedGeneration: generation,
+			})
+		}
 	}
 	for _, effect := range status.Effects {
 		work, epoch, ok := exhaustedAttempt(effect)

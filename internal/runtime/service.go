@@ -23,12 +23,13 @@ import (
 const effectLease = 5 * time.Minute
 
 var (
-	testCrashBeforeEffect string
-	testCrashAfterEffect  string
-	testHumanTurnCrash    string
-	testCaptainCrashCut   string
-	testOwnerLeaseMillis  string
-	testHooksFromEnv      string
+	testCrashBeforeEffect  string
+	testCrashAfterEffect   string
+	testHumanTurnCrash     string
+	testCaptainCrashCut    string
+	testAnswerParkCrashCut string
+	testOwnerLeaseMillis   string
+	testHooksFromEnv       string
 )
 
 // Test hooks are link-time constants: a production binary carries no runtime
@@ -88,6 +89,9 @@ type retainedContinuation struct {
 	sourceReceipt       string
 	designReceipt       string
 	verifierFailReceipt string
+	// fallbackFact is process-local: a mid-yield expiry label survives an
+	// in-process park-and-resume and is merged into the completion event.
+	fallbackFact *continuationDispatchFact
 }
 
 type RunStatus struct {
@@ -111,17 +115,42 @@ type RunStatus struct {
 	Effects            []EffectStatus         `json:"effects"`
 	EventOffset        int64                  `json:"event_offset"`
 	Park               *ParkStatus            `json:"park,omitempty"`
+	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
+}
+
+// RecoveryAction names the one control verb currently admissible for a run
+// in the reconciled-uncertain shape. It is derived in Status from the same
+// snapshot, clock read, and gate predicates the control verbs evaluate, so
+// the board never names a verb ApplyControl will refuse. Action is one of
+// retry, takeover, or resume; WorkID and Epoch are present when the action
+// targets one work item.
+type RecoveryAction struct {
+	Action   string `json:"action"`
+	WorkID   string `json:"work_id,omitempty"`
+	Epoch    int64  `json:"epoch,omitempty"`
+	EffectID string `json:"effect_id,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // ParkStatus names why a run is parked. Cause is one of degradation,
-// attention, exhaustion, or human_authority; a degradation park additionally
-// carries the gated fallback count, the effective budget, and the manifest
-// knob that unblocks it.
+// attention, exhaustion, human_authority, economy_turns,
+// economy_output_tokens, or identical_failure; a degradation park carries
+// the gated fallback count, the effective budget, and the manifest knob
+// that unblocks it. An economy park carries spent-versus-budget; an
+// identical-failure park carries the consecutive run, the threshold, the
+// shared failure code, and its durable refusal detail. Every new field is
+// additive and omitted when absent, so the sworn.run-status/v4 encoding
+// stays backward-compatible.
 type ParkStatus struct {
 	Cause         string `json:"cause"`
 	FallbackCount int64  `json:"fallback_count,omitempty"`
 	Budget        int64  `json:"budget,omitempty"`
 	UnblockKnob   string `json:"unblock_knob,omitempty"`
+	Spent         int64  `json:"spent,omitempty"`
+	Consecutive   int64  `json:"consecutive,omitempty"`
+	Threshold     int64  `json:"threshold,omitempty"`
+	FailureCode   string `json:"failure_code,omitempty"`
+	FailureDetail string `json:"failure_detail,omitempty"`
 }
 
 type CaptainDelegationView struct {
@@ -1238,6 +1267,16 @@ func (s *Service) AnswerAttention(
 		command.Answer,
 	); err != nil {
 		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	if attention.Attention.HumanTurn == nil {
+		if err := validateAnswerParkAnswerAdmission(
+			snapshot,
+			manifest,
+			attention,
+			command.Answer,
+		); err != nil {
+			return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+		}
 	}
 	if _, err := s.journal.AnswerAttention(
 		ctx,

@@ -47,6 +47,10 @@ type bedrockConversation struct {
 	messages          []json.RawMessage
 	pending           []providerToolCall
 	ledger            *continuationLedger
+	// maxOutputTokens is the operator-declared Limits.OutputBytes bound,
+	// emitted as inferenceConfig.maxTokens on the Converse surface. Zero
+	// omits the inferenceConfig block entirely.
+	maxOutputTokens int64
 }
 
 type bedrockTool struct {
@@ -80,9 +84,15 @@ func NewBedrockAdapter(
 		prompt []byte,
 		model string,
 		tools []providerToolDefinition,
-		_ Limits,
+		limits Limits,
 	) (providerConversation, error) {
-		return newBedrockConversation(config, model, tools, prompt)
+		return newBedrockConversation(
+			config,
+			model,
+			tools,
+			prompt,
+			limits.OutputBytes,
+		)
 	}
 	return newLoopAdapter(
 		config.Key, config.ID, config.Version, ProfileBedrock,
@@ -148,9 +158,14 @@ func newBedrockConversation(
 	model string,
 	definitions []providerToolDefinition,
 	prompt []byte,
+	maxOutputTokens ...int64,
 ) (*bedrockConversation, error) {
 	if validateText(model, 500, false) != nil || validateEndpoint(config.Endpoint) != nil {
 		return nil, fail("INVALID_ADAPTER")
+	}
+	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	if err != nil {
+		return nil, err
 	}
 	tools, err := bedrockTools(definitions)
 	if err != nil {
@@ -177,6 +192,7 @@ func newBedrockConversation(
 		allowCachePoint:   config.AllowCachePoint,
 		allowGuardContent: config.AllowGuardContent,
 		ledger:            newContinuationLedger(),
+		maxOutputTokens:   outputLimit,
 	}, nil
 }
 
@@ -230,6 +246,16 @@ func (conversation *bedrockConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
 		return providerRequest{}, failContinuation("continuation.bedrock.request_pending_tool_calls")
 	}
+	// Limits.OutputBytes is emitted as inferenceConfig.maxTokens on the
+	// Converse surface. The block rides as a pointer so an unset limit
+	// leaves the request byte-identical to today's shape.
+	type inferenceConfig struct {
+		MaxTokens int64 `json:"maxTokens,omitempty"`
+	}
+	var inference *inferenceConfig
+	if conversation.maxOutputTokens > 0 {
+		inference = &inferenceConfig{MaxTokens: conversation.maxOutputTokens}
+	}
 	body, err := json.Marshal(struct {
 		System []struct {
 			Text string `json:"text"`
@@ -238,6 +264,7 @@ func (conversation *bedrockConversation) request() (providerRequest, error) {
 		ToolConfig struct {
 			Tools []bedrockTool `json:"tools"`
 		} `json:"toolConfig"`
+		InferenceConfig *inferenceConfig `json:"inferenceConfig,omitempty"`
 	}{
 		System: []struct {
 			Text string `json:"text"`
@@ -246,6 +273,7 @@ func (conversation *bedrockConversation) request() (providerRequest, error) {
 		ToolConfig: struct {
 			Tools []bedrockTool `json:"tools"`
 		}{Tools: conversation.tools},
+		InferenceConfig: inference,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)

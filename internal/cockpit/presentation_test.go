@@ -179,3 +179,45 @@ func TestBoardRenderingForExpiredOwnerRendersTakeoverRequiredWithHint(t *testing
 		t.Fatalf("presentation.Next = %q, want %q", presentation.Next, "Take over the run so Sworn can recheck it and continue.")
 	}
 }
+
+// A3: the uncertain presentation names the verb the control gate admits,
+// never the retired "Recover the run" text.
+func TestPresentRunStateWithRecoveryNamesAdmissibleVerb(t *testing.T) {
+	t.Parallel()
+
+	recovery := func(action string) *runtimepkg.RecoveryAction {
+		return &runtimepkg.RecoveryAction{
+			Action: action,
+			Reason: "fixture reason",
+		}
+	}
+	for _, test := range []struct {
+		action string
+		want   string
+	}{
+		{"retry", "Retry the unresolved work item so Sworn can recheck it."},
+		{"takeover", "Take over the run so Sworn can recheck it and continue."},
+		{"resume", "Wait for the dispatch lease to expire, then resume the run so Sworn can recheck it."},
+	} {
+		presentation := PresentRunStateWithRecovery(
+			"uncertain",
+			recovery(test.action),
+		)
+		if presentation.Next != test.want {
+			t.Fatalf(
+				"recovery %q next = %q, want %q",
+				test.action,
+				presentation.Next,
+				test.want,
+			)
+		}
+		if strings.Contains(presentation.Next, "Recover the run") {
+			t.Fatalf("retired recovery text returned: %q", presentation.Next)
+		}
+	}
+
+	flat := PresentRunState("uncertain")
+	if strings.Contains(flat.Next, "Recover the run") {
+		t.Fatalf("flat uncertain text names the retired verb: %q", flat.Next)
+	}
+}

@@ -305,3 +305,97 @@ func TestBuildProjectCatalogIncludesReleasesRunsAndNeedsYou(t *testing.T) {
 		t.Fatalf("catalog needs you = %#v, want 0", catalog.NeedsYou)
 	}
 }
+
+// A3: a reconciled-uncertain run yields a needs-you row whose action is the
+// one verb the runtime derived from the control gate, never a verb the gate
+// refuses and never the retired "Recover the run" text.
+func TestProjectNeedsYouSurfacesUncertainRecoveryVerb(t *testing.T) {
+	t.Parallel()
+
+	work := "sha256:" + strings.Repeat("a", 64)
+	runs := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-uncertain",
+				Release: "release-uncertain",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-uncertain",
+				State: "uncertain",
+				Recovery: &runtimepkg.RecoveryAction{
+					Action:   string(journal.Retry),
+					WorkID:   work,
+					Epoch:    1,
+					EffectID: "attempt/" + strings.Repeat("a", 64) + "/e1/t1",
+					Reason:   "The last dispatch of this work cannot be confirmed. Retry it to start a fresh try.",
+				},
+			},
+		},
+	}
+
+	needsYou := ProjectNeedsYou(runs)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v, want one uncertain row", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != string(journal.Retry) ||
+		item.WorkID != work ||
+		item.State != "uncertain" ||
+		item.Reason != runs[0].Status.Recovery.Reason {
+		t.Fatalf("uncertain item = %#v", item)
+	}
+
+	catalog := BuildProjectCatalog(
+		nil,
+		runs,
+		nil,
+	)
+	if len(catalog.Runs) != 1 {
+		t.Fatalf("catalog runs = %#v", catalog.Runs)
+	}
+	if !strings.Contains(catalog.Runs[0].Next, "Retry") {
+		t.Fatalf("catalog next = %q, want the retry verb", catalog.Runs[0].Next)
+	}
+
+	// The presentation never names the unimplemented recovery text.
+	if strings.Contains(catalog.Runs[0].Next, "Recover the run") ||
+		strings.Contains(needsYou[0].Reason, "Recover the run") {
+		t.Fatalf("uncertain presentation still names the retired verb: %#v", catalog.Runs[0])
+	}
+}
+
+// C10: a resume-shaped recovery must also be offered as an action by the
+// board, so the needs-you row never names a verb the action list lacks.
+func TestProjectNeedsYouResumeVerbMatchesSafeActions(t *testing.T) {
+	t.Parallel()
+
+	work := "sha256:" + strings.Repeat("b", 64)
+	status := runtimepkg.RunStatus{
+		RunID: "run-resume",
+		State: "uncertain",
+		Recovery: &runtimepkg.RecoveryAction{
+			Action:   string(journal.Resume),
+			WorkID:   work,
+			Epoch:    1,
+			EffectID: "attempt/" + strings.Repeat("b", 64) + "/e1/t1",
+			Reason:   "A dispatch claim is still inside its lease window. Resume the run after the lease expires and Sworn will recheck it.",
+		},
+	}
+	actions := safeActions(
+		status,
+		journal.ControlProjection{Generation: 1, Desired: "running"},
+	)
+	if !hasAction(actions, string(journal.Resume)) {
+		t.Fatalf("resume recovery emitted no resume action: %#v", actions)
+	}
+	runs := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{ID: "run-resume", Release: "release-resume"},
+			Status:  status,
+		},
+	}
+	needsYou := ProjectNeedsYou(runs)
+	if len(needsYou) != 1 || needsYou[0].Action != string(journal.Resume) {
+		t.Fatalf("resume needs-you = %#v", needsYou)
+	}
+}
