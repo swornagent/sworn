@@ -2,11 +2,11 @@
 {
   "schema_version": "sworn.release-manifest/v1",
   "release": "2026-08-23-unattended-operability",
-  "revision": 2,
-  "previous_plan": "db5a0372a49e7c8b225627f23a3af124b2a08da9",
+  "revision": 3,
+  "previous_plan": "4a6bc4fe41b30d327a33b87d7a24b48b898be23e",
   "repository": "sworn",
   "target_ref": "refs/heads/release/v1.0.0",
-  "approval_ref": "operator://2026-08-23-unattended-operability/2",
+  "approval_ref": "operator://2026-08-23-unattended-operability/3",
   "tracks": [
     {
       "id": "T1-unattended",
@@ -76,12 +76,13 @@
         {
           "id": "S3-honest-yield-parking",
           "outcome": "A worker asking an honest question is heard the first time: a question or blocked yield opens an answerable attention immediately - the worker's own words on the board, no try consumed, the conversation retained so the answer resumes it in place - instead of two thirds of the try budget burning while automation forwards 'no sealed submission' at a worker that asked for help.",
-          "contract_path": "contracts/2026-08-23-unattended-operability/S3-honest-yield-parking.json",
-          "digest": "sha256:510680e020366051d5e0edb5e701a7991380c1619324db3bca6acdfaeec27e8e",
+          "contract_path": "contracts/2026-08-23-unattended-operability/rev3/S3-honest-yield-parking.json",
+          "digest": "sha256:fc335dfb30a2e234fb24fe6483788ebb33c7cfe0b73c9f6849a08386bc6456d1",
           "depends_on": [],
           "consumes": [],
           "touchpoints": [
-            "internal/runtime"
+            "internal/runtime",
+            "test/e2e"
           ],
           "waivers": [
             {
@@ -364,3 +365,24 @@ semantics. S2's edit surface gains test/e2e bounded to exactly those
 scenarios; S1 and S3-S8 are byte-identical with unchanged digests and
 S1's receipts adopt by ancestry. Operator-carried under
 operator://2026-08-23-unattended-operability/2.
+
+# Revision 3
+
+S2 is delivered (candidate 574cee5c, verifier PASS in r2; S1 was
+delivered in r2 as candidate 20a83ef2). The r3 S3 build proved the
+contract one surface short the honest way: the Captain escalated
+(S3-honest-yield-parking, receipt ea900b94) that no in-scope
+implementation of A1 can keep test/e2e/turn_recovery_linux_test.go
+green - the same class revision 2 settled for S2, this time surfaced
+by a captain escalation instead of the scope gate. The file's
+TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce pins the
+pre-S3 question/blocked flow's aggregate implementation usage fold
+28/20 (lines 1537-1538 and 1649-1651), which includes the automation
+invocation the slice removes from the first-occurrence yield; under
+first-occurrence answerable parking the fold becomes 21/15, and the S3
+design flagged exactly this (design ffb2c242, risk 1). An operator
+sweep confirms that file is the only e2e surface pinning that
+accounting. S3's edit surface gains test/e2e bounded to exactly those
+scenarios; S1, S2, and S4-S8 are byte-identical with unchanged digests
+and S1/S2's receipts adopt by ancestry. Operator-carried under
+operator://2026-08-23-unattended-operability/3.
