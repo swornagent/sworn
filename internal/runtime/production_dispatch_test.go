@@ -2103,8 +2103,10 @@ func runCandidateHeadRefreshDispatch(
 				t.Fatalf("out-of-scope refresh wrote prepared receipt: %#v", effect)
 			}
 		}
-		if failures != 3 {
-			t.Fatalf("scope failures = %d, want 3", failures)
+		// The S4 identical-failure guard parks after two consecutive
+		// identical scope failures, before the third try burns.
+		if failures != 2 {
+			t.Fatalf("scope failures = %d, want 2", failures)
 		}
 		return
 	}

@@ -343,13 +343,14 @@ func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 			wantCode: "RECOVERY_STEP_REFUSED",
 		},
 		// A model that answers in prose forever is nudged every turn, each
-		// nudge durably reserved as eval data, until the turn budget - the
-		// only bound - ends the invocation.
+		// nudge durably reserved as eval data, until the per-work turn
+		// budget - the first bound - ends the invocation with the named
+		// economy code.
 		{
 			name: "prose_forever_is_nudged_to_the_turn_budget", secondProse: true,
-			wantRequests:     int64(MaxProviderTurns),
-			wantReservations: int64(MaxProviderTurns),
-			wantCode:         "RESOURCE_LIMIT",
+			wantRequests:     int64(DefaultMaxTurnsPerWork),
+			wantReservations: int64(DefaultMaxTurnsPerWork),
+			wantCode:         "ECONOMY_TURN_BUDGET_EXCEEDED",
 		},
 	}
 	for _, test := range tests {

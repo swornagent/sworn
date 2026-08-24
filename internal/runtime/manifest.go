@@ -144,6 +144,18 @@ func (m Manifest) EffectiveDegradationBudget() int64 {
 	return m.Limits.EffectiveDegradationBudget()
 }
 
+func (m Manifest) EffectiveMaxTurnsPerWork() int64 {
+	return m.Limits.EffectiveMaxTurnsPerWork()
+}
+
+func (m Manifest) EffectiveMaxOutputTokensPerWork() int64 {
+	return m.Limits.EffectiveMaxOutputTokensPerWork()
+}
+
+func (m Manifest) EffectiveIdenticalFailureParkAfter() int64 {
+	return m.Limits.EffectiveIdenticalFailureParkAfter()
+}
+
 func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
 	if m.SchemaVersion != ManifestVersion || m.Automation == nil {
 		return driver.ModelSelection{}, false
@@ -326,7 +338,13 @@ func validateManifest(manifest Manifest) error {
 		manifest.Limits.OutputBytes < 1 ||
 		manifest.Limits.OutputBytes > driver.MaxProviderOutputBytes ||
 		manifest.Limits.DegradationBudget < 0 ||
-		manifest.Limits.DegradationBudget > driver.MaxDegradationBudget {
+		manifest.Limits.DegradationBudget > driver.MaxDegradationBudget ||
+		manifest.Limits.MaxTurnsPerWork < 0 ||
+		manifest.Limits.MaxTurnsPerWork > driver.MaxTurnsPerWorkLimit ||
+		manifest.Limits.MaxOutputTokensPerWork < 0 ||
+		manifest.Limits.MaxOutputTokensPerWork > driver.MaxOutputTokensPerWorkLimit ||
+		manifest.Limits.IdenticalFailureParkAfter < 0 ||
+		manifest.Limits.IdenticalFailureParkAfter > driver.MaxIdenticalFailureParkAfter {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
 	switch {

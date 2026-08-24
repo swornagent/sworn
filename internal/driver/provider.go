@@ -76,6 +76,24 @@ type providerConversationFactory func(
 	limits Limits,
 ) (providerConversation, error)
 
+// optionalOutputLimit reads the optional trailing output-limit argument the
+// conversation constructors accept: absent means zero (the field is omitted
+// from every request surface), and a present value must stay inside the same
+// bound ValidateRequest already enforces on Limits.OutputBytes.
+func optionalOutputLimit(values []int64) (int64, error) {
+	switch len(values) {
+	case 0:
+		return 0, nil
+	case 1:
+		if values[0] < 0 || values[0] > MaxProviderOutputBytes {
+			return 0, fail("INVALID_ADAPTER")
+		}
+		return values[0], nil
+	default:
+		return 0, fail("INVALID_ADAPTER")
+	}
+}
+
 type providerTransport interface {
 	roundTrip(context.Context, *string, providerRequest) ([]byte, error)
 	check(context.Context, profileCheckKind, *string, string) (ReadinessState, string)
@@ -460,6 +478,18 @@ func (adapter *loopAdapter) runConversation(
 	initialRequest *providerRequest,
 	retain bool,
 ) (observation Observation, state continuationState, resultErr error) {
+	// The operator-declared TimeoutMillis now bounds the API conversation
+	// path's wall clock (A3). ValidateRequest guarantees TimeoutMillis >= 1,
+	// so the wrapped deadline can never be zero. The shared HTTP client
+	// keeps Timeout:0 deliberately: a client-level timeout would cut
+	// individual streamed requests per-request, while this dispatch-level
+	// deadline bounds the whole conversation. The caller's context is no
+	// longer passed straight through.
+	loopCtx, cancel := providerTimeout(ctx, invocation.Request.Limits.TimeoutMillis)
+	ctx = loopCtx
+	defer cancel()
+	turnBudget := invocation.Request.Limits.EffectiveMaxTurnsPerWork()
+	tokenBudget := invocation.Request.Limits.EffectiveMaxOutputTokensPerWork()
 	session, err := newToolSession(invocation)
 	if err != nil {
 		return Observation{}, nil, err
@@ -489,6 +519,39 @@ func (adapter *loopAdapter) runConversation(
 	pacer := newInputTokenPacer(adapter.pacingCap)
 	pacedBudget := MaxProviderPacedWait
 	for turn := 0; turn < MaxProviderTurns; turn++ {
+		// Per-work economy budgets (A1) are evaluated at the loop-top safe
+		// boundary: the previous turn's tool results are already appended
+		// and observed, and the next request is not yet built or sent. A
+		// terminal submit/yield that lands on this turn's crossing already
+		// returned above, so crossing never kills finished work.
+		if turnCount >= turnBudget {
+			return economyBudgetFailure(
+				started,
+				adapter.identity.ID,
+				&total,
+				usageAvailable,
+				effortRequested,
+				effortReported,
+				turnCount,
+				toolCallCount,
+				toolCallsByName,
+				"economy_turn_budget",
+			), nil, fail("ECONOMY_TURN_BUDGET_EXCEEDED")
+		}
+		if usageAvailable && total.OutputTokens >= tokenBudget {
+			return economyBudgetFailure(
+				started,
+				adapter.identity.ID,
+				&total,
+				usageAvailable,
+				effortRequested,
+				effortReported,
+				turnCount,
+				toolCallCount,
+				toolCallsByName,
+				"economy_output_budget",
+			), nil, fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
+		}
 		if err := ctx.Err(); err != nil {
 			return Observation{}, nil, err
 		}
@@ -684,6 +747,42 @@ func (adapter *loopAdapter) runConversation(
 		}
 	}
 	return Observation{}, nil, fail("RESOURCE_LIMIT")
+}
+
+// economyBudgetFailure builds the named economy-budget failure observation
+// (A1). It mirrors the provider-truncated receipt exactly: the accumulated
+// usage with the engine-counted turn economics and invocation facts, so the
+// spent-versus-budget evidence survives the failure-sanitization seam and
+// lands durably in the attempt BLOB the runtime park gate reads back.
+func economyBudgetFailure(
+	started time.Time,
+	adapterID string,
+	total *Usage,
+	usageAvailable bool,
+	effortRequested string,
+	effortReported *string,
+	turns, toolCalls int64,
+	toolCallsByName map[string]int64,
+	diagnostic string,
+) Observation {
+	usage, err := NormalizeUsage(nil, nil, adapterID)
+	if usageAvailable && total != nil {
+		usage, err = NormalizeUsage(total, nil, adapterID)
+	}
+	if err != nil {
+		// Accumulated facts outside their bounds cannot yield a canonical
+		// receipt; the unavailable receipt still names the crossing loudly
+		// rather than defaulting silent.
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	applyInvocationFacts(&usage, effortRequested, effortReported, nil, false)
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: diagnostic},
+	}
 }
 
 const providerProseNudge = "Finish this turn now by calling exactly one advertised Sworn terminal tool. Do not answer in prose."

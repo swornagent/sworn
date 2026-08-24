@@ -130,14 +130,24 @@ type RecoveryAction struct {
 }
 
 // ParkStatus names why a run is parked. Cause is one of degradation,
-// attention, exhaustion, or human_authority; a degradation park additionally
-// carries the gated fallback count, the effective budget, and the manifest
-// knob that unblocks it.
+// attention, exhaustion, human_authority, economy_turns,
+// economy_output_tokens, or identical_failure; a degradation park carries
+// the gated fallback count, the effective budget, and the manifest knob
+// that unblocks it. An economy park carries spent-versus-budget; an
+// identical-failure park carries the consecutive run, the threshold, the
+// shared failure code, and its durable refusal detail. Every new field is
+// additive and omitted when absent, so the sworn.run-status/v4 encoding
+// stays backward-compatible.
 type ParkStatus struct {
 	Cause         string `json:"cause"`
 	FallbackCount int64  `json:"fallback_count,omitempty"`
 	Budget        int64  `json:"budget,omitempty"`
 	UnblockKnob   string `json:"unblock_knob,omitempty"`
+	Spent         int64  `json:"spent,omitempty"`
+	Consecutive   int64  `json:"consecutive,omitempty"`
+	Threshold     int64  `json:"threshold,omitempty"`
+	FailureCode   string `json:"failure_code,omitempty"`
+	FailureDetail string `json:"failure_detail,omitempty"`
 }
 
 type CaptainDelegationView struct {

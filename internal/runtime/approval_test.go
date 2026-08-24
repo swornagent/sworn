@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -519,7 +520,17 @@ func runDelegatedCaptainOutcome(t *testing.T, outcome driver.DecisionOutcome, cr
 	plannerDispatches, captainDispatches := 0, 0
 	terminal := func(_ context.Context, invocation driver.Invocation) (driver.Observation, error) {
 		if attemptExhaustion && invocation.Request.Role == driver.RoleCaptain {
-			return driver.Observation{}, errors.New("bounded Captain transport failure")
+			// Each attempt fails with a distinct named code so the
+			// delegation's own attempt limit is what stops the run: the
+			// S4 identical-failure guard parks runs of *identical* codes,
+			// not the delegation limit machinery this test pins.
+			captainDispatches++
+			return driver.Observation{}, &driver.ContractError{
+				Code: fmt.Sprintf(
+					"CAPTAIN_TRANSPORT_FAILURE_%d",
+					captainDispatches,
+				),
+			}
 		}
 		if reviseRecovery {
 			var dynamic driver.Submission

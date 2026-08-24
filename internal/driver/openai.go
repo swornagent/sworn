@@ -16,6 +16,10 @@ type openAIConversation struct {
 	messages        []openAIMessage
 	pending         []providerToolCall
 	ledger          *continuationLedger
+	// maxOutputTokens is the operator-declared Limits.OutputBytes bound,
+	// emitted as max_completion_tokens on every chat-completions dialect
+	// with recorded vocabulary. Zero omits the field entirely.
+	maxOutputTokens int64
 }
 
 type openAIMessage struct {
@@ -236,7 +240,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
-			_ Limits,
+			limits Limits,
 		) (providerConversation, error) {
 			return newResponsesConversation(
 				config.Endpoint,
@@ -247,6 +251,7 @@ func NewOpenAIAdapter(
 				config.EnableThinking,
 				config.Stream,
 				dialect,
+				limits.OutputBytes,
 			)
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
@@ -264,7 +269,7 @@ func NewOpenAIAdapter(
 			prompt []byte,
 			model string,
 			tools []providerToolDefinition,
-			_ Limits,
+			limits Limits,
 		) (providerConversation, error) {
 			return newOpenAIConversation(
 				config.Endpoint,
@@ -273,6 +278,7 @@ func NewOpenAIAdapter(
 				prompt,
 				dialect,
 				config.ReasoningEffort,
+				limits.OutputBytes,
 			)
 		}
 	default:
@@ -368,6 +374,7 @@ func newOpenAIConversation(
 	prompt []byte,
 	dialect providerDialect,
 	reasoningEffort string,
+	maxOutputTokens ...int64,
 ) (*openAIConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -377,6 +384,10 @@ func newOpenAIConversation(
 			dialect != providerDialectGoogleChat &&
 			dialect != providerDialectXAIChat) {
 		return nil, fail("INVALID_ADAPTER")
+	}
+	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	if err != nil {
+		return nil, err
 	}
 	tools, err := openAITools(definitions)
 	if err != nil {
@@ -391,6 +402,7 @@ func newOpenAIConversation(
 		tools:           tools,
 		messages:        []openAIMessage{{Role: "user", Content: content}},
 		ledger:          newContinuationLedger(),
+		maxOutputTokens: outputLimit,
 	}, nil
 }
 
@@ -418,17 +430,27 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
 		return providerRequest{}, failContinuation("continuation.openai.request_pending_tool_calls")
 	}
+	// Limits.OutputBytes is emitted as max_completion_tokens on every
+	// chat-completions dialect with recorded wire vocabulary. The xAI chat
+	// surface stays deliberately unwired: no recorded fixture carries the
+	// field for it, and inventing vocabulary would be a lie.
+	maxCompletionTokens := int64(0)
+	if conversation.dialect != providerDialectXAIChat {
+		maxCompletionTokens = conversation.maxOutputTokens
+	}
 	body, err := json.Marshal(struct {
-		Model      string          `json:"model"`
-		Messages   []openAIMessage `json:"messages"`
-		Tools      []openAITool    `json:"tools"`
-		ToolChoice string          `json:"tool_choice"`
-		Stream     bool            `json:"stream"`
-		Effort     string          `json:"reasoning_effort,omitempty"`
+		Model               string          `json:"model"`
+		Messages            []openAIMessage `json:"messages"`
+		Tools               []openAITool    `json:"tools"`
+		ToolChoice          string          `json:"tool_choice"`
+		Stream              bool            `json:"stream"`
+		Effort              string          `json:"reasoning_effort,omitempty"`
+		MaxCompletionTokens int64           `json:"max_completion_tokens,omitempty"`
 	}{
 		Model: conversation.model, Messages: conversation.messages,
 		Tools: conversation.tools, ToolChoice: "auto", Stream: false,
-		Effort: conversation.reasoningEffort,
+		Effort:              conversation.reasoningEffort,
+		MaxCompletionTokens: maxCompletionTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)

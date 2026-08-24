@@ -13,6 +13,10 @@ type responsesConversation struct {
 	input           []json.RawMessage
 	pending         []providerToolCall
 	ledger          *continuationLedger
+	// maxOutputTokens is the operator-declared Limits.OutputBytes bound,
+	// emitted as max_output_tokens on the responses surface. Zero omits the
+	// field entirely.
+	maxOutputTokens int64
 }
 
 type responsesTool struct {
@@ -41,6 +45,7 @@ func newResponsesConversation(
 	enableThinking *bool,
 	stream bool,
 	dialect providerDialect,
+	maxOutputTokens ...int64,
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -48,6 +53,10 @@ func newResponsesConversation(
 		(dialect != providerDialectOpenAIResponses &&
 			dialect != providerDialectXAIResponses) {
 		return nil, fail("INVALID_ADAPTER")
+	}
+	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	if err != nil {
+		return nil, err
 	}
 	tools, err := responsesTools(definitions)
 	if err != nil {
@@ -70,6 +79,7 @@ func newResponsesConversation(
 		tools:           tools,
 		input:           []json.RawMessage{initial},
 		ledger:          newContinuationLedger(),
+		maxOutputTokens: outputLimit,
 	}, nil
 }
 
@@ -111,6 +121,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		EnableThinking    *bool              `json:"enable_thinking,omitempty"`
 		Store             bool               `json:"store"`
 		Stream            bool               `json:"stream"`
+		MaxOutputTokens   int64              `json:"max_output_tokens,omitempty"`
 	}{
 		Model:             conversation.model,
 		Input:             conversation.input,
@@ -121,6 +132,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		EnableThinking:    conversation.enableThinking,
 		Store:             false,
 		Stream:            conversation.stream,
+		MaxOutputTokens:   conversation.maxOutputTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
