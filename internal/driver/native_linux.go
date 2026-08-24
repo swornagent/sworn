@@ -429,12 +429,13 @@ func (state *nativeContinuationState) closeContinuation() error {
 
 func newNativeContinuationState(
 	config NativeAdapterConfig,
+	lifetime time.Duration,
 ) (*nativeContinuationState, error) {
 	memoryRoot, err := nativeSessionMemoryRoot()
 	if err != nil {
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
-	if reapNativeSessionRoots() != nil {
+	if reapNativeSessionRoots(lifetime) != nil {
 		return nil, fail("CONTINUATION_CLEANUP_FAILED")
 	}
 	root, err := os.MkdirTemp(
@@ -816,7 +817,7 @@ func boundedNativeSessionSize(root string) (int64, error) {
 	return total, nil
 }
 
-func reapNativeSessionRoots() error {
+func reapNativeSessionRoots(lifetime time.Duration) error {
 	memoryRoot, err := nativeSessionMemoryRoot()
 	if err != nil || !nativeMemoryBackedPath(memoryRoot) {
 		return failContinuation("continuation.native.reap_invalid_memory_root")
@@ -852,7 +853,7 @@ func reapNativeSessionRoots() error {
 			if lease != nil {
 				_ = lease.Close()
 			}
-			if staleNativeSessionRoot(root) {
+			if staleNativeSessionRoot(root, lifetime) {
 				if removeErr := removeNativeSessionRoot(root); removeErr != nil {
 					parkNativeSessionRoot(root)
 					return removeErr
@@ -879,10 +880,13 @@ func reapNativeSessionRoots() error {
 	return nil
 }
 
-func staleNativeSessionRoot(root string) bool {
+func staleNativeSessionRoot(root string, lifetime time.Duration) bool {
+	if lifetime <= 0 {
+		lifetime = time.Duration(DefaultContinuationLifetimeMillis) * time.Millisecond
+	}
 	info, err := os.Lstat(root)
 	return err == nil &&
-		time.Since(info.ModTime()) >= maxContinuationLifetime
+		time.Since(info.ModTime()) >= lifetime
 }
 
 func validNativeSessionRoot(root string) bool {
@@ -1267,7 +1271,10 @@ func platformStartNativeContinuationMode(
 	certificate nativeSurfaceCertificate,
 	recoverable bool,
 ) (observation Observation, state continuationState, resultErr error) {
-	nativeState, err := newNativeContinuationState(config)
+	nativeState, err := newNativeContinuationState(
+		config,
+		invocation.Request.Limits.EffectiveContinuationLifetime(),
+	)
 	if err != nil {
 		observation, runErr := platformRunNative(
 			parent,
@@ -1585,7 +1592,10 @@ func platformCaptureNativeContinuationPair(
 	resumeCertificate nativeSurfaceStageCertificate,
 	resultErr error,
 ) {
-	state, err := newNativeContinuationState(config)
+	state, err := newNativeContinuationState(
+		config,
+		start.Request.Limits.EffectiveContinuationLifetime(),
+	)
 	if err != nil {
 		return startCertificate, resumeCertificate, err
 	}

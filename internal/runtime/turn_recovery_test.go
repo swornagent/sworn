@@ -128,7 +128,7 @@ func TestRecoveryContinuationOwnershipIsTotalOnSetupAndParkFailure(
 		pending := &retainedContinuation{
 			handle: &driver.Continuation{},
 		}
-		_, retained, err := fixture.service.invokeRecoverableWorker(
+		_, retained, _, err := fixture.service.invokeRecoverableWorker(
 			fixture.ctx,
 			fixture.engine,
 			fixture.workspace,

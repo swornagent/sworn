@@ -54,6 +54,15 @@ const (
 	// MaxIdenticalFailureParkAfter caps limits.identical_failure_park_after
 	// at the try budget itself; an absent or zero knob means the default.
 	MaxIdenticalFailureParkAfter int64 = 3
+	// DefaultContinuationLifetimeMillis is the continuation retention a
+	// manifest gets when limits.max_continuation_lifetime_ms is absent:
+	// today's compile-time 24h, so an unset knob preserves current ageing.
+	DefaultContinuationLifetimeMillis int64 = 86_400_000
+	// MaxContinuationLifetimeMillisLimit caps
+	// limits.max_continuation_lifetime_ms at 30 days: far beyond the
+	// multi-day releases the knob serves and far from any int64
+	// nanoseconds overflow of the stamped expiry.
+	MaxContinuationLifetimeMillisLimit int64 = 2_592_000_000
 )
 
 var (
@@ -170,6 +179,10 @@ type Limits struct {
 	MaxTurnsPerWork           int64 `json:"max_turns_per_work,omitempty"`
 	MaxOutputTokensPerWork    int64 `json:"max_output_tokens_per_work,omitempty"`
 	IdenticalFailureParkAfter int64 `json:"identical_failure_park_after,omitempty"`
+	// MaxContinuationLifetimeMillis is the continuation retention window
+	// (A1): a suspend stamps expiresNano from this governed value. Absent
+	// or zero means DefaultContinuationLifetimeMillis (24h).
+	MaxContinuationLifetimeMillis int64 `json:"max_continuation_lifetime_ms,omitempty"`
 }
 
 func (l Limits) EffectiveDegradationBudget() int64 {
@@ -198,6 +211,14 @@ func (l Limits) EffectiveIdenticalFailureParkAfter() int64 {
 		return l.IdenticalFailureParkAfter
 	}
 	return DefaultIdenticalFailureParkAfter
+}
+
+func (l Limits) EffectiveContinuationLifetime() time.Duration {
+	millis := l.MaxContinuationLifetimeMillis
+	if millis <= 0 {
+		millis = DefaultContinuationLifetimeMillis
+	}
+	return time.Duration(millis) * time.Millisecond
 }
 
 type Request struct {
@@ -480,6 +501,10 @@ func validateRequest(request Request, reserved []string) error {
 	}
 	if request.Limits.IdenticalFailureParkAfter < 0 ||
 		request.Limits.IdenticalFailureParkAfter > MaxIdenticalFailureParkAfter {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.MaxContinuationLifetimeMillis < 0 ||
+		request.Limits.MaxContinuationLifetimeMillis > MaxContinuationLifetimeMillisLimit {
 		return fail("INVALID_LIMIT")
 	}
 	body, err := json.Marshal(request)

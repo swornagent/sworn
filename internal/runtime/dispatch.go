@@ -363,6 +363,27 @@ func validContinuationOutcome(outcome string) bool {
 	}
 }
 
+// mergeContinuationFacts is the non-lossy fact-merge rule: a nil incoming
+// fact never clears an existing one, and fallback_expired wins so a labeled
+// mid-yield expiry is never masked by a later reuse or plain fallback.
+func mergeContinuationFacts(
+	existing, incoming *continuationDispatchFact,
+) *continuationDispatchFact {
+	if incoming == nil {
+		return existing
+	}
+	if existing == nil {
+		return incoming
+	}
+	if existing.outcome == continuationOutcomeFallbackExpired {
+		return existing
+	}
+	if incoming.outcome == continuationOutcomeFallbackExpired {
+		return incoming
+	}
+	return incoming
+}
+
 func zeroDriverObservation(observation driver.Observation) bool {
 	return observation.TransportStatus == "" &&
 		observation.DurationMillis == 0 &&
@@ -2071,7 +2092,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		// The exact sealed handoff was already validated and checkpointed
 		// before a prior process died. Continue from those immutable bytes.
 	} else if answered != nil {
-		observation, pendingContinuation, recovered, invokeErr =
+		var resumeFact *continuationDispatchFact
+		observation, pendingContinuation, recovered, resumeFact, invokeErr =
 			s.resumeAnsweredWorker(
 				ctx,
 				engine,
@@ -2083,6 +2105,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				replayKey,
 				*answered,
 			)
+		continuationFact = mergeContinuationFacts(continuationFact, resumeFact)
 	} else {
 		observation, pendingContinuation, continuationFact, invokeErr =
 			s.invokePreparedDriver(
@@ -2109,7 +2132,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, errors.Join(parkErr, invokeErr)
 		}
 		if recovery != nil && observation.Yield != nil {
-			observation, pendingContinuation, recovered, invokeErr =
+			var yieldFact *continuationDispatchFact
+			observation, pendingContinuation, recovered, yieldFact, invokeErr =
 				s.continueYieldedWorker(
 					ctx,
 					engine,
@@ -2122,6 +2146,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					observation,
 					pendingContinuation,
 				)
+			continuationFact = mergeContinuationFacts(continuationFact, yieldFact)
 		}
 	}
 	if IsCode(invokeErr, "EFFECT_PARKED") ||

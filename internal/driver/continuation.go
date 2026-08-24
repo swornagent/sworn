@@ -42,7 +42,6 @@ const (
 	MaxOpaqueStepBytes          = 8_388_608
 	MaxDecodedOpaqueBinaryBytes = 196_608
 	maxContinuationStateBytes   = 67_108_864
-	maxContinuationLifetime     = 24 * time.Hour
 )
 
 type ContinuationMode string
@@ -632,14 +631,16 @@ func retainedContinuation(
 	cell := &continuationCell{
 		binding:          fingerprint,
 		sourceInvocation: sha256.Sum256([]byte(invocation.Request.InvocationID)),
-		expiresNano:      time.Now().Add(maxContinuationLifetime).UnixNano(),
-		mode:             mode,
-		state:            state,
-		flow:             flow,
-		sourceRole:       descriptor.Role,
-		sourceDuty:       descriptor.Responsibility,
-		sourceAccess:     descriptor.WorkspaceAccess,
-		sourceFresh:      descriptor.FreshContext,
+		expiresNano: time.Now().Add(
+			invocation.Request.Limits.EffectiveContinuationLifetime(),
+		).UnixNano(),
+		mode:         mode,
+		state:        state,
+		flow:         flow,
+		sourceRole:   descriptor.Role,
+		sourceDuty:   descriptor.Responsibility,
+		sourceAccess: descriptor.WorkspaceAccess,
+		sourceFresh:  descriptor.FreshContext,
 	}
 	handle := &Continuation{cell: func() *continuationCell { return cell }}
 	return handle, ContinuationResult{

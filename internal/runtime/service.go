@@ -89,6 +89,9 @@ type retainedContinuation struct {
 	sourceReceipt       string
 	designReceipt       string
 	verifierFailReceipt string
+	// fallbackFact is process-local: a mid-yield expiry label survives an
+	// in-process park-and-resume and is merged into the completion event.
+	fallbackFact *continuationDispatchFact
 }
 
 type RunStatus struct {

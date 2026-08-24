@@ -1061,6 +1061,7 @@ func (s *Service) invokeRecoverableWorker(
 ) (
 	observation driver.Observation,
 	retained *retainedContinuation,
+	fact *continuationDispatchFact,
 	resultErr error,
 ) {
 	defer func() {
@@ -1070,7 +1071,7 @@ func (s *Service) invokeRecoverableWorker(
 		)
 	}()
 	if cycle == nil || workspace == nil {
-		return driver.Observation{}, nil,
+		return driver.Observation{}, nil, nil,
 			runtimeFail("INVALID_TURN_RECOVERY", nil)
 	}
 	if prepared.productionContext != nil {
@@ -1093,13 +1094,17 @@ func (s *Service) invokeRecoverableWorker(
 			before,
 			prepared,
 		); err != nil {
-			return driver.Observation{}, nil, err
+			return driver.Observation{}, nil, nil, err
 		}
+	}
+	carriedFact := (*continuationDispatchFact)(nil)
+	if entry != nil {
+		carriedFact = entry.fallbackFact
 	}
 	freshBinding, selectionDigest, err :=
 		recoverableContinuationBinding(prepared, *cycle)
 	if err != nil {
-		return driver.Observation{}, nil, err
+		return driver.Observation{}, nil, nil, err
 	}
 	promotableDesign := entry != nil &&
 		prepared.productionContext != nil &&
@@ -1131,7 +1136,7 @@ func (s *Service) invokeRecoverableWorker(
 				},
 			)
 		if err != nil {
-			return driver.Observation{}, nil, err
+			return driver.Observation{}, nil, nil, err
 		}
 	}
 	if !recoverableAuthorityMatches(
@@ -1141,9 +1146,10 @@ func (s *Service) invokeRecoverableWorker(
 		before,
 	) {
 		if cleanupErr := closeRetainedContinuation(entry); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
 		entry = nil
+		carriedFact = nil
 	}
 	binding := freshBinding
 	var source *driver.Continuation
@@ -1183,7 +1189,7 @@ func (s *Service) invokeRecoverableWorker(
 		_ = closeRecoveryContinuation(
 			&retainedContinuation{handle: source},
 		)
-		return driver.Observation{}, nil,
+		return driver.Observation{}, nil, nil,
 			runtimeFail("TURN_RECOVERY_UNSUPPORTED", nil)
 	}
 	observation, next, result, invokeErr :=
@@ -1202,42 +1208,73 @@ func (s *Service) invokeRecoverableWorker(
 		if next != nil {
 			sourceCloseErr = errors.Join(sourceCloseErr, next.Close())
 		}
-		return driver.Observation{}, nil, sourceCloseErr
+		return driver.Observation{}, nil, nil, sourceCloseErr
 	}
 	if source != nil &&
 		requestsFreshRehydrate(observation, result, invokeErr) &&
 		allowFallback {
 		if next != nil {
 			if cleanupErr := next.Close(); cleanupErr != nil {
-				return driver.Observation{}, nil,
-					runtimeFail(
-						"CONTINUATION_CLEANUP_FAILED",
+				return driver.Observation{}, nil, nil,
+					runtimeFailSite(
+						"INVALID_CONTINUATION",
+						"turn_recovery.recoverable_resume.fresh_rehydrate_request_with_handle",
 						cleanupErr,
 					)
 			}
-			return driver.Observation{}, nil,
-				runtimeFail("INVALID_CONTINUATION", nil)
+			return driver.Observation{}, nil, nil,
+				runtimeFailSite(
+					"INVALID_CONTINUATION",
+					"turn_recovery.recoverable_resume.fresh_rehydrate_request_with_handle",
+					nil,
+				)
 		}
-		return s.invokeRecoverableWorker(
-			ctx,
-			engine,
-			workspace,
-			prepared,
-			before,
-			owner,
-			cycle,
-			nil,
-			input,
-			false,
-		)
+		expiredFact := carriedFact
+		if result.Status == driver.ContinuationStatusExpired {
+			reason := result.Reason
+			if reason == "" {
+				reason = "expiry"
+			}
+			expiredFact = mergeContinuationFacts(
+				carriedFact,
+				&continuationDispatchFact{
+					mode:     driver.ContinuationModeFreshRehydrate,
+					outcome:  continuationOutcomeFallbackExpired,
+					reason:   reason,
+					retained: true,
+					posture:  s.continuationPostureFor(invocation),
+				},
+			)
+		}
+		observation, retained, recurseFact, recurseErr :=
+			s.invokeRecoverableWorker(
+				ctx,
+				engine,
+				workspace,
+				prepared,
+				before,
+				owner,
+				cycle,
+				nil,
+				input,
+				false,
+			)
+		merged := mergeContinuationFacts(expiredFact, recurseFact)
+		if retained != nil {
+			retained.fallbackFact = mergeContinuationFacts(
+				retained.fallbackFact,
+				merged,
+			)
+		}
+		return observation, retained, merged, recurseErr
 	}
 	if invokeErr != nil {
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return observation, nil, invokeErr
+		return observation, nil, carriedFact, invokeErr
 	}
 	if observation.Yield != nil {
 		switch {
@@ -1255,17 +1292,42 @@ func (s *Service) invokeRecoverableWorker(
 				retained.verifierFailReceipt =
 					entry.verifierFailReceipt
 			}
-			return observation, retained, nil
+			retained.fallbackFact = carriedFact
+			return observation, retained, carriedFact, nil
+		case next != nil &&
+			result.Status == driver.ContinuationStatusSuspended &&
+			result.Mode == driver.ContinuationModeFreshRehydrate:
+			// Rehydrated fresh start that yields again: the adapter's
+			// stored mode is still a real retained mode; only the
+			// returned result was overridden. Admit the handle and
+			// carry any expiry fact so the completion event labels it.
+			retained := retainedRecoverableContinuation(
+				next,
+				binding,
+				selectionDigest,
+				before,
+			)
+			if entry != nil {
+				retained.sourceReceipt = entry.sourceReceipt
+				retained.verifierFailReceipt =
+					entry.verifierFailReceipt
+			}
+			retained.fallbackFact = carriedFact
+			return observation, retained, carriedFact, nil
 		case next == nil && validFreshContinuationStart(next, result):
-			return observation, nil, nil
+			return observation, nil, carriedFact, nil
 		default:
 			if cleanupErr := closeRetainedContinuation(
 				&retainedContinuation{handle: next},
 			); cleanupErr != nil {
-				return driver.Observation{}, nil, cleanupErr
+				return driver.Observation{}, nil, nil, cleanupErr
 			}
-			return driver.Observation{}, nil,
-				runtimeFail("INVALID_CONTINUATION", nil)
+			return driver.Observation{}, nil, nil,
+				runtimeFailSite(
+					"INVALID_CONTINUATION",
+					"turn_recovery.recoverable_yield.invalid_result_shape",
+					nil,
+				)
 		}
 	}
 	if targetBinding != nil {
@@ -1280,15 +1342,20 @@ func (s *Service) invokeRecoverableWorker(
 				before:              before,
 				sourceReceipt:       entry.sourceReceipt,
 				verifierFailReceipt: entry.verifierFailReceipt,
-			}, nil
+				fallbackFact:        carriedFact,
+			}, carriedFact, nil
 		}
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return driver.Observation{}, nil,
-			runtimeFail("INVALID_CONTINUATION", nil)
+		return driver.Observation{}, nil, nil,
+			runtimeFailSite(
+				"INVALID_CONTINUATION",
+				"turn_recovery.recoverable_promotion.invalid_result_shape",
+				nil,
+			)
 	}
 	validTerminal := observation.Handoff != nil && next == nil
 	if source == nil {
@@ -1302,12 +1369,16 @@ func (s *Service) invokeRecoverableWorker(
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return driver.Observation{}, nil,
-			runtimeFail("INVALID_CONTINUATION", nil)
+		return driver.Observation{}, nil, nil,
+			runtimeFailSite(
+				"INVALID_CONTINUATION",
+				"turn_recovery.recoverable_terminal.invalid_result_shape",
+				nil,
+			)
 	}
-	return observation, nil, nil
+	return observation, nil, carriedFact, nil
 }
 
 func (s *Service) continueYieldedWorker(
@@ -1325,6 +1396,7 @@ func (s *Service) continueYieldedWorker(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	return s.continueYieldedWorkerReplacing(
@@ -1360,9 +1432,14 @@ func (s *Service) continueYieldedWorkerReplacing(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	recovered := false
+	var fact *continuationDispatchFact
+	if pending != nil {
+		fact = pending.fallbackFact
+	}
 	var totals turnRecoveryTotals
 	if carried != nil {
 		totals = *carried
@@ -1371,7 +1448,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 		observation.DurationMillis,
 		observation.Usage,
 	); err != nil {
-		return driver.Observation{}, pending, false, err
+		return driver.Observation{}, pending, false, fact, err
 	}
 	for observation.Yield != nil {
 		if observation.Yield.Kind == driver.YieldHumanChoice ||
@@ -1388,7 +1465,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
 		}
 		if observation.Yield.Kind == driver.YieldQuestion ||
 			observation.Yield.Kind == driver.YieldBlocked {
@@ -1405,7 +1482,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				cycle.binding.ProgressID,
 			)
 			if attentionErr != nil {
-				return driver.Observation{}, pending, recovered,
+				return driver.Observation{}, pending, recovered, fact,
 					attentionErr
 			}
 			if !found {
@@ -1418,7 +1495,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					pending,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					parkErr
 			}
 		}
@@ -1428,7 +1505,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 			cycle.binding,
 		)
 		if err != nil {
-			return driver.Observation{}, pending, recovered,
+			return driver.Observation{}, pending, recovered, fact,
 				runtimeFail("JOURNAL_READ_FAILED", err)
 		}
 		if budget.AutomaticActions >=
@@ -1445,7 +1522,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
 		}
 		automation, err := s.invokeRecoveryAutomation(
 			ctx,
@@ -1470,7 +1547,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered,
+			return driver.Observation{}, nil, recovered, fact,
 				errors.Join(parkErr, err)
 		}
 		decision := automation.Recovery
@@ -1478,7 +1555,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 		switch decision.Action {
 		case driver.RecoveryResumeWorker:
 			if decision.Answer == nil {
-				return driver.Observation{}, pending, recovered,
+				return driver.Observation{}, pending, recovered, fact,
 					runtimeFail("INVALID_TURN_RECOVERY", nil)
 			}
 			answer = *decision.Answer
@@ -1499,7 +1576,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 		case driver.RecoveryAskCaptain:
@@ -1520,7 +1597,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 			advisory, advisoryErr := s.invokeCaptainAdvisory(
@@ -1548,7 +1625,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, advisoryErr)
 			}
 			answer = *advisory.Advisory.Answer
@@ -1569,7 +1646,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 		case driver.RecoveryRetryOperationally:
@@ -1592,10 +1669,10 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, reserveErr, cleanupErr)
 			}
-			return observation, nil, recovered,
+			return observation, nil, recovered, fact,
 				recoveryFailure(
 					runtimeFail(
 						"RECOVERY_RETRY_OPERATIONALLY",
@@ -1614,13 +1691,13 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
 		default:
-			return driver.Observation{}, pending, recovered,
+			return driver.Observation{}, pending, recovered, fact,
 				runtimeFail("INVALID_TURN_RECOVERY", nil)
 		}
 
-		next, retained, err := s.invokeRecoverableWorker(
+		next, retained, nextFact, err := s.invokeRecoverableWorker(
 			ctx,
 			engine,
 			workspace,
@@ -1637,23 +1714,24 @@ func (s *Service) continueYieldedWorkerReplacing(
 			true,
 		)
 		pending = retained
+		fact = mergeContinuationFacts(fact, nextFact)
 		if err != nil {
-			return next, pending, recovered, err
+			return next, pending, recovered, fact, err
 		}
 		if err := totals.add(
 			next.DurationMillis,
 			next.Usage,
 		); err != nil {
-			return driver.Observation{}, pending, recovered, err
+			return driver.Observation{}, pending, recovered, fact, err
 		}
 		recovered = true
 		observation = next
 		if observation.Handoff != nil {
 			totals.apply(&observation)
-			return observation, pending, recovered, nil
+			return observation, pending, recovered, fact, nil
 		}
 	}
-	return observation, pending, recovered,
+	return observation, pending, recovered, fact,
 		runtimeFail("INVALID_TURN_RECOVERY", nil)
 }
 
@@ -1671,6 +1749,7 @@ func (s *Service) resumeAnsweredWorker(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	if err := s.validateHumanTurnResume(
@@ -1681,7 +1760,7 @@ func (s *Service) resumeAnsweredWorker(
 		effectID,
 		attention,
 	); err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
 	}
 	if attention.Attention.HumanTurn == nil {
 		if err := s.validateAnswerParkResume(
@@ -1690,7 +1769,7 @@ func (s *Service) resumeAnsweredWorker(
 			effectID,
 			attention,
 		); err != nil {
-			return driver.Observation{}, nil, false, err
+			return driver.Observation{}, nil, false, nil, err
 		}
 	}
 	budget, err := s.journal.RecoveryBudget(
@@ -1699,14 +1778,14 @@ func (s *Service) resumeAnsweredWorker(
 		attention.Attention.Recovery,
 	)
 	if err != nil {
-		return driver.Observation{}, nil, false,
+		return driver.Observation{}, nil, false, nil,
 			runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	totals, err := turnRecoveryTotalsFromAccounting(
 		budget.Accounting,
 	)
 	if err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
 	}
 	if _, err := s.reserveAnsweredResume(
 		ctx,
@@ -1714,13 +1793,13 @@ func (s *Service) resumeAnsweredWorker(
 		cycle,
 		attention,
 	); err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
 	}
 	pending := s.takeRecoverableContinuation(owner.RunID, effectID)
 	if attention.Attention.HumanTurn != nil {
 		crashHumanTurnBarrier("after_continuation_rehydration")
 	}
-	observation, retained, invokeErr := s.invokeRecoverableWorker(
+	observation, retained, resumeFact, invokeErr := s.invokeRecoverableWorker(
 		ctx,
 		engine,
 		workspace,
@@ -1737,21 +1816,21 @@ func (s *Service) resumeAnsweredWorker(
 		true,
 	)
 	if invokeErr != nil {
-		return observation, retained, false, invokeErr
+		return observation, retained, false, resumeFact, invokeErr
 	}
 	if observation.Handoff != nil {
 		if err := totals.add(
 			observation.DurationMillis,
 			observation.Usage,
 		); err != nil {
-			return driver.Observation{}, retained, false, err
+			return driver.Observation{}, retained, false, resumeFact, err
 		}
 		totals.apply(&observation)
-		return observation, retained, true, nil
+		return observation, retained, true, resumeFact, nil
 	}
 	if observation.Yield == nil {
 		cleanupErr := closeRecoveryContinuation(retained)
-		return driver.Observation{}, nil, false,
+		return driver.Observation{}, nil, false, nil,
 			recoveryFailure(
 				runtimeFail("INVALID_TURN_RECOVERY", nil),
 				cleanupErr,
