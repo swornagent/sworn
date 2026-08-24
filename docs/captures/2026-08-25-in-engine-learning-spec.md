@@ -67,12 +67,21 @@ unifies four already-filed issues into one preflight registry.
   Named code UNMET_CHECK_CAPABILITY at MANIFEST admission. (Also mount
   the toolchain into the native closure, or route native shell through
   the MCP executor — but the admission refusal is the safety net.)
-- **S3 context-window preflight** (#236): estimate the dispatch's
-  opening context (inputs + workspace + projected read budget for the
-  work-shape) against the adapter's declared window; refuse or reroute
-  before the provider rejects mid-endgame. Tonight this cliff was hit on
-  gemini (1M, 47 min sunk) AND grok (~490K, twice) — same mechanism,
-  two providers. Pairs with the read-economics guard below.
+- **S3 context-window admission — CORRECTLY SPLIT** (#236): only the
+  OPENING context (inputs + injected workspace context) vs the
+  adapter's declared window is deterministic, and only that part is a
+  hard admission gate. Conversation GROWTH is model-behavior-dependent
+  (gemini read 2.5MB greedily where deepseek did the same work in a
+  128K window via range reads) — so growth belongs to (a) a RUNTIME
+  input-growth guard that steers/parks with a named reason as the
+  conversation approaches the window (mid-dispatch, not admission),
+  and (b) the Phase-3 graph learning per-model read behavior as a soft
+  routing prior. The overnight cliff was hit on gemini (1M, 47 min
+  sunk) and grok (~490K observed, twice) — same mechanism, two
+  providers; admission alone would NOT have prevented these, the
+  runtime guard would have bounded them. Declared window sizes come
+  from adapter config; observed rejection sizes are fallback evidence,
+  not primary truth.
 - **S4 CLI-pin liveness** (#220): a dispatch-time probe that the pinned
   native binary still transacts with its provider, distinct from
   cert-time certification. Tonight the claude 2.1.234 pin was certified
@@ -135,6 +144,22 @@ journal (R2's data, finally consumed):
 - **Population**: a projector over the journal (same pattern as the
   cockpit projector), run-side, incremental. No new capture — R2
   already records everything; this reads it.
+- **Per-fact-class lifetimes (staleness)**: learned facts expire on
+  wildly different clocks and the graph must carry that. "codex-native
+  mounts no toolchain" is durable until the closure changes; "deepseek
+  balance negative" expires on a top-up; "claude 2.1.234 deprecated" is
+  scoped to a pin version and dies with the next re-pin. A fact carries
+  its invalidation condition (config digest, pin version, a re-probe
+  interval) — stale facts re-verify by probe rather than being trusted
+  forever. The literature flags exactly this as unsolved (knowledge that
+  expires when the tooling changes underneath it); the invalidation-
+  condition design is sworn's answer.
+- **Provenance on every fact**: each learned fact points at its journal
+  evidence (run id, effect id, observation digest) — auditable and
+  invalidatable, never free-floating. Same discipline as
+  [[feedback_decided_claims_need_provenance]]: an unsourced "decided"
+  survives exactly in unfalsified territory, and an unsourced learned
+  fact would rot the same way.
 
 ## Phase 4 — admission consults the graph (soft-prior routing)
 
@@ -160,14 +185,20 @@ draw instead of the first.
 
 ## Adjacent: slice-dependency extraction (graph-engineering, sequenced later)
 
-Separate from learning, but the same "graph" theme and worth capturing:
-tonight T1-unattended ran S1–S8 as ONE serial track. If S6/S7/S8 have
-no real data dependency (different seams), serializing them is the
-false-sequentiality the graph-engineering discourse warns about, and it
-cost the whole overnight. The plan-authoring surface (#234) could
-**compute the real slice DAG from contract touchpoints and refuse to
-serialize what has no dependency** — turning "one track or N?" from a
-default into a derived, checkable decision.
+Separate from learning, but the same "graph" theme and worth capturing
+— with an honesty correction from review: dependency here is NOT just
+data-flow, it is **edit-surface overlap**. The overnight's slices
+(S3/S4/S5/S7) all edit the same core files (turn_recovery.go,
+dispatch.go, service.go); parallel tracks over overlapping touchpoints
+buy merge conflicts, not throughput. So serializing this release was
+probably RIGHT, and the earlier framing ("serialization cost the
+overnight") overclaimed — the overnight was lost to provider weather,
+which parallelism would have multiplied, not dodged. The durable idea
+survives in corrected form: the plan-authoring surface (#234) should
+**derive the slice DAG from contract touchpoints — overlapping
+touchpoints force serialization, disjoint ones permit parallelism** —
+turning "one track or N?" from a default into a derived, checkable
+decision instead of a vibe.
 
 CAVEAT that sequences this AFTER survivability: parallelism multiplies
 provider exposure (N parallel tracks = N concurrent draws on the same
@@ -175,6 +206,64 @@ rate limits) and the operator can only hand-carry one revision at a
 time. Parallelism is a throughput win you turn on AFTER the substrate
 stops eating runs. Phases 1–4 make the substrate survivable; this comes
 after.
+
+## Adjacent: verify-node topology (multi-verifier fan-out)
+
+The verify step is today a single agentic pass — one model, one
+context, one PASS/FAIL. The ratified roster doctrine already flags the
+verifier as the weak point (Rule 7), and the run history shows the two
+real failure modes: **declared-not-executed** (the #218 repin verifier
+passed by reading; the holes were only findable by executing e2e —
+3rd recorded instance) and **single-point-of-judgment** (r15 had grok
+verifying grok's own implementation; r16 had a verifier that could not
+execute at all). Fan the verify node into a small subgraph when stakes
+warrant:
+
+- **Adversarial verification**: N independent skeptics each prompted to
+  REFUTE the candidate; a finding survives only if a majority cannot
+  refute it. Kills plausible-but-wrong PASSes.
+- **Perspective-diverse lenses**: distinct verifier nodes for
+  correctness / scope / does-it-EXECUTE — the execution lens exists
+  precisely because declared-not-executed is the recurring class.
+- **Cross-model diversity where possible**: verifiers from the same
+  family share blind spots; diversity across models is the point — but
+  it re-imports provider weather, so it is a stakes-gated option, not a
+  default.
+
+Honesty notes: (1) cost — verification already runs ~30–50 min/slice;
+lenses multiply cost unless run in parallel, so this is gated to
+high-stakes slices (assembly, migration, security-adjacent) or
+low-confidence verdicts, not universal. (2) The Goodhart claim in the
+graph-engineering discourse is mis-attributed: loop-vs-graph SHAPE does
+not mitigate Goodhart — **independent, diverse verification does**.
+This section is the actual Goodhart mitigation; topology alone is not.
+(3) Tie to Phase 3: a verdict DISTRIBUTION (agreement, dissent,
+per-lens outcomes) is a far richer training signal for the outcome
+graph than a binary PASS/FAIL — multi-verifier slices feed the
+learning layer disproportionately.
+
+## Adjacent: reduce the failure surface at source (prevention beats learning)
+
+Complement to the whole learning apparatus, raised repeatedly across
+the overnight and worth stating as a principle: **the cheapest failure
+class to learn-to-avoid is the one you eliminate entirely by making the
+worker interface admit what models actually do.** Learning routes
+around walls; this removes walls:
+
+- `Read` gains `offset`/`limit` and a batched `{"paths": [...]}` form —
+  models already reach for all three spellings (#188 documents
+  limit/offset sent unprompted; ox-alpha's dup-key batching was a
+  batching INTENT with no legal syntax; #236 measured the whole-file
+  read tax at 93% of a blown 1M window). R4-S7 amendment.
+- **Tell the worker its environment**: nothing names the toolchain path
+  (/usr/local/go, off-PATH — every model re-derives the export by
+  habit), the .git mask, or the read budget. A short environment-facts
+  block in the worker context deletes a whole class of rediscovery —
+  the same "don't rediscover" goal as the graph, achieved by
+  disclosure instead of memory.
+
+Each such fix shrinks what Phases 1–4 have to learn. Prevention first,
+then learning for what cannot be prevented.
 
 ## Explicit non-goal (the over-automation boundary)
 
@@ -192,17 +281,79 @@ the guardrails.
 ## Sequencing
 
 1. **Phase 1 (preflight probes)** — highest leverage, lowest risk, all
-   structural; unifies #221/#236/#238/#220; would have prevented ~4 of
-   tonight's parks outright. Ship first, standalone.
+   structural; unifies #221/#236/#238/#220. Honest counterfactual for
+   the overnight: prevents two parks outright (balance, toolchain),
+   catches a pin deprecation at the next dispatch instead of six burned
+   tries later, and turns window rejections into named refusals plus a
+   bounded runtime guard — it does not prevent growth-driven window
+   hits, only bounds them. Ship first, standalone.
 2. **Phase 2 (taxonomy + capture)** — the training signal; unifies #237
    observability half + #227 + provider-error-taxonomy. Prerequisite
    for Phase 3.
 3. **Phase 3 (the graph)** — the durable substrate; consumes R2 data.
 4. **Phase 4 (soft-prior routing)** — extends ADR-0013 with live
    outcomes.
-5. **Slice-DAG extraction** — after survivability, with #234.
+5. **Reduce-at-source worker-surface fixes** — ride R4-S7; they shrink
+   what the graph must learn, so they land before or beside Phase 3.
+6. **Verify-node fan-out** — stakes-gated, after the substrate is
+   stable enough to afford it; its verdict distributions then feed
+   Phase 3.
+7. **Slice-DAG extraction** — after survivability, with #234;
+   touchpoint overlap forces serialization, disjoint permits parallel.
 
 Phases 1–2 are pure hardening and could ship as the next release with no
 new conceptual risk. Phases 3–4 are the actual in-engine learning and
-want the literature review (in flight) to inform the memory/retrieval
-structure before contracts are authored.
+want the literature (below) to inform the memory/retrieval structure
+before contracts are authored.
+
+## Literature grounding (primary sources, verified 2026-08-25)
+
+A commissioned review pulled and id-verified the primary sources; the
+full bibliography lives in the session record, key anchors here. The
+strategic headline: **the field has converged on "the durable object is
+an external memory, the agent is disposable" — and the exact variant
+sworn needs (failure-specific, provenance-carrying, staleness-aware,
+retrieved at ADMISSION) is the acknowledged open problem, not solved
+work.** Sworn would be building into the gap, not reimplementing.
+
+Directly load-bearing for Phase 3's design:
+- **CBR for LLM agents** (review, arXiv 2504.06943): the
+  Retrieve–Reuse–Revise–**Retain** loop is the theoretical backbone;
+  Phase 3 is a CBR case bank keyed by work-shape.
+- **Memento** (arXiv 2508.16153): the closest concrete instantiation —
+  a non-parametric case bank of (state, action, outcome), retrieved by
+  a selection policy at decision time, no fine-tuning. Validates the
+  no-weights, journal-derived approach.
+- **Agentic Context Engineering / ACE** (arXiv 2510.04618, ICLR 2026):
+  evolving "playbook" via **structured incremental delta updates** —
+  its "context collapse" result (a summarizer erodes the specific
+  hard-won lesson) is the formal version of why learned facts must be
+  delta-updated with provenance, never re-summarized wholesale.
+- **Generative Agents** (arXiv 2304.03442): recency × relevance ×
+  importance retrieval scoring — the default ranker for Phase 3
+  retrieval, with the caveat (open problem) that it is a heuristic.
+- **Where LLM Agents Fail** (arXiv 2509.25370): AgentErrorTaxonomy —
+  a reusable schema to sanity-check Phase 2's failure-Kind taxonomy
+  against.
+- **ExpeL** (2308.10144), **Voyager** (2305.16291), **AWM**
+  (2409.07429): the persist-and-retrieve lineage for rules, skills, and
+  workflows respectively — capability-side precedents. **Reflexion**
+  (2303.11366) is explicitly the WRONG pattern to copy: within-episode
+  only, discarded on reset — the gap sworn fills.
+- Orchestration side: Anthropic's multi-agent research system +
+  dynamic workflows posts (orchestrator holds plan, workers
+  disposable); scheduler-theoretic DAG framing (2604.11378, position
+  paper, no empirical validation — framing only); Halo batched agent
+  DAGs (2509.02121); RouteLLM (2406.18665) as the outcome-derived
+  routing seed for Phase 4. LangGraph's checkpointer model is the
+  production reference for resumability — which sworn's journal already
+  exceeds in durability semantics.
+
+Open problems the literature names, which are exactly this spec's
+frontier: failure-specific admission-time memory (unbuilt anywhere),
+staleness/expiry of learned facts when tooling changes underneath
+(unsolved — the per-fact invalidation-condition design above is
+sworn's answer), retrieval precision (heuristic rankers), and
+provenance/trust of retained knowledge. One id (2606.31270,
+learning-from-failure for computer-use) was found but not
+independently verified — treat as a search lead, not a citation.

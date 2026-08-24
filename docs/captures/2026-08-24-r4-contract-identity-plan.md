@@ -72,6 +72,18 @@ stays one mechanism.
   (F13/F14). Adjacent to R3-S8's correction machinery: S8 corrects
   malformed calls; this removes two classes before correction is
   needed.
+  AMENDMENT 2026-08-25 (operator-proposed from the R3 overnight, for
+  ratification at contract authoring): S7 should also gain (a) `Read`
+  `offset`/`limit` parameters and a batched `{"paths": [...]}` form —
+  #236 measured whole-file reads at 93% of a blown 1M window, #188
+  documents models sending limit/offset unprompted, and ox-alpha's
+  dup-key batching (0/6 tries) is a batching intent with no legal
+  syntax; and (b) an environment-facts block in the worker context
+  naming the toolchain path (/usr/local/go is off-PATH — #238 rider),
+  the .git mask, and the read budget, so workers stop re-deriving
+  environment facts by habit. Rationale + evidence:
+  docs/captures/2026-08-25-in-engine-learning-spec.md ("reduce the
+  failure surface at source").
 - **S8 temp-root reaper** (#194; `internal/driver` factory +
   `internal/gitx`): reaper at factory construction copying the
   `reapNativeSessionRoots` pattern; `refs.go` cleanup converted to
