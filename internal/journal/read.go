@@ -107,10 +107,10 @@ func effectOnConnection(
 	return value, nil
 }
 
-// LoadSealedProposal returns the exact plan bytes stored by
-// PersistSealedProposal. It intentionally reads a child effect rather than
-// parent receipts, so the bytes remain available after either parent success
-// or operational failure.
+// LoadSealedProposal returns the exact plan bytes stored at seal time as the
+// planner.sealed_plan child of a dispatch attempt. It intentionally reads
+// that child rather than parent receipts, so the bytes remain available
+// after either parent success or operational failure.
 func (s *Store) LoadSealedProposal(
 	ctx context.Context,
 	runID, parentEffectID string,

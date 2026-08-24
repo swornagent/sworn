@@ -262,6 +262,93 @@ func TestSubmissionCorrectionsAreBoundedAndYieldCannotPromoteAuthority(
 	}
 }
 
+// TestPlannerPlanOnFirstTerminalIsYieldFirstAndSessionStaysOpen pins A1:
+// a planner_proposal that already carries plan bytes on a first terminal is
+// refused as YIELD_FIRST_REQUIRED. The session stays open, no handoff is
+// sealed, the violation is one bounded correction (no try consumed), and a
+// later yield in the same session still works.
+func TestPlannerPlanOnFirstTerminalIsYieldFirstAndSessionStaysOpen(
+	t *testing.T,
+) {
+	t.Parallel()
+	invocation, _, _ := memoryInvocationFixture(t)
+	reservations := 0
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepSubmissionCorrection {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations++
+		return nil
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	refused := executeToolJSON(
+		t,
+		session,
+		"first-terminal-plan",
+		"sworn_submit",
+		map[string]any{"submission": submissionFixture(
+			t,
+			invocation.Request.InvocationID,
+			PlannerProposal,
+			"",
+		)},
+	)
+	terminated, terminalErr := session.terminated()
+	submitted, submitErr := session.submitted()
+	if !refused.Failed ||
+		!strings.Contains(string(refused.Content), "YIELD_FIRST_REQUIRED") ||
+		terminated || terminalErr != nil ||
+		submitted || submitErr != nil ||
+		session.handoff() != nil || session.yielded() != nil ||
+		reservations != 1 {
+		t.Fatalf(
+			"first-terminal plan = %#v terminated=%v submitted=%v errors=%v/%v reservations=%d",
+			refused,
+			terminated,
+			submitted,
+			terminalErr,
+			submitErr,
+			reservations,
+		)
+	}
+
+	yielded := executeToolJSON(
+		t,
+		session,
+		"yield-after-refusal",
+		"sworn_yield",
+		map[string]any{"yield": Yield{
+			SchemaVersion: YieldSchemaVersion,
+			InvocationID:  invocation.Request.InvocationID,
+			Kind:          YieldQuestion,
+			Message:       "Here is the summary I must confirm before planning.",
+		}},
+	)
+	submitted, submitErr = session.submitted()
+	terminated, terminalErr = session.terminated()
+	if yielded.Failed || !terminated || terminalErr != nil ||
+		submitted || submitErr != nil ||
+		session.handoff() != nil || session.yielded() == nil ||
+		reservations != 1 {
+		t.Fatalf(
+			"yield after refusal = %#v terminated=%v submitted=%v errors=%v/%v",
+			yielded,
+			terminated,
+			submitted,
+			terminalErr,
+			submitErr,
+		)
+	}
+}
+
 func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	request, err := NewRequest(
