@@ -107,6 +107,34 @@ func effectOnConnection(
 	return value, nil
 }
 
+// LoadSealedProposal returns the exact plan bytes stored by
+// PersistSealedProposal. It intentionally reads a child effect rather than
+// parent receipts, so the bytes remain available after either parent success
+// or operational failure.
+func (s *Store) LoadSealedProposal(
+	ctx context.Context,
+	runID, parentEffectID string,
+) ([]byte, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return nil, err
+	}
+	if err := validateIdentity(parentEffectID, "effect"); err != nil {
+		return nil, err
+	}
+	childID := parentEffectID + "/sealed-proposal"
+	if err := validateIdentity(childID, "effect"); err != nil {
+		return nil, err
+	}
+	effect, err := s.Effect(ctx, runID, childID)
+	if err != nil {
+		return nil, err
+	}
+	if effect.Kind != "planner.sealed_plan" || effect.State != Succeeded {
+		return nil, fail("SEALED_PROPOSAL_NOT_READY", nil)
+	}
+	return append([]byte(nil), effect.Result...), nil
+}
+
 func (s *Store) ClaimedEffects(ctx context.Context, runID string) ([]Effect, error) {
 	if err := validateIdentity(runID, "run"); err != nil {
 		return nil, err
@@ -153,9 +181,9 @@ func (s *Store) ClaimedEffects(ctx context.Context, runID string) ([]Effect, err
 }
 
 // EffectChildren returns the effects whose IDs are direct descendants of
-// effectID (prefix effectID+"/"). Driver dispatches admit exactly two child
-// kinds — the human-handoff and human-park checkpoints — and a claimed
-// dispatch carrying any child is evidence the recovery seam must not clear.
+// effectID (prefix effectID+"/"). Child effects are durable checkpoints or
+// sealed evidence; recovery treats their presence conservatively and never
+// mistakes a child for completion evidence of its claimed parent.
 func (s *Store) EffectChildren(
 	ctx context.Context,
 	runID, effectID string,

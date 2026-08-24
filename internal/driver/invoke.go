@@ -87,13 +87,14 @@ type Invoker = Dispatcher
 
 // Invocation is the single role-neutral invocation shape used by every provider.
 type Invocation struct {
-	Request          Request
-	HostWorkspace    string
-	Selected         SelectedProfile
-	Permission       SubmissionPermission
-	Inputs           []InputContent
-	FakeProfile      FakeProfile
-	RecoveryStepHook RecoveryStepHook
+	Request            Request
+	HostWorkspace      string
+	Selected           SelectedProfile
+	Permission         SubmissionPermission
+	Inputs             []InputContent
+	FakeProfile        FakeProfile
+	RecoveryStepHook   RecoveryStepHook
+	SealedProposalHook SealedProposalHook
 	// ToolResultHook is the runtime-provided durable callback for the
 	// bounded tool-result projection. It is runtime-only authority: the
 	// driver emits on it through the observer pump and never blocks or
@@ -524,6 +525,7 @@ func validAdapterErrorCode(code string) bool {
 		"SUBMISSION_PROTOCOL_FAILED",
 		"SUBMISSION_CORRECTIONS_EXHAUSTED",
 		"SUBMISSION_SHAPE_MISMATCH",
+		"YIELD_FIRST_REQUIRED",
 		"YIELD_BINDING_MISMATCH",
 		"PROCESS_FAILED",
 		"INVOCATION_CANCELLED",

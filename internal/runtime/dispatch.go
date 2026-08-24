@@ -38,6 +38,9 @@ type preparedDriverDispatch struct {
 	// runDriverEffectWithPreparation and copied into every invocation.
 	// It is runtime-only and never serialized into commandPayload.
 	toolResultHook driver.ToolResultHook
+	// sealedProposalHook is the blocking runtime callback that persists plan
+	// bytes at submission seal, before the driver publishes its handoff.
+	sealedProposalHook driver.SealedProposalHook
 }
 
 type uncertainHandoffPreparationError struct {
@@ -479,7 +482,8 @@ func preparedInvocation(
 		// Runtime-only authority: the driver emits the tool-result
 		// projection on this hook off its dispatch loop, never failing
 		// or stalling delivery on it.
-		ToolResultHook: prepared.toolResultHook,
+		ToolResultHook:     prepared.toolResultHook,
+		SealedProposalHook: prepared.sealedProposalHook,
 	}
 }
 
@@ -1880,6 +1884,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		prepared,
 		coordinates,
 		attemptIdentity,
+	)
+	prepared.sealedProposalHook = s.sealedProposalHook(
+		owner,
+		replayKey,
 	)
 	var recovery *turnRecoveryCycle
 	if _, enabled := manifest.value.recoverySelection(); enabled {

@@ -300,6 +300,68 @@ func (s *Store) EnsureEffect(ctx context.Context, effect Effect) error {
 	})
 }
 
+// PersistSealedProposal records the exact planner plan bytes as a succeeded
+// child effect of the dispatch attempt. The deterministic child identity makes
+// a replay of identical bytes a no-op while a differing replay fails closed.
+// The child is deliberately completed independently of the parent outcome: it
+// is durable evidence, not completion evidence for the parent dispatch.
+func (s *Store) PersistSealedProposal(
+	ctx context.Context,
+	runID, parentEffectID string,
+	body []byte,
+	at time.Time,
+) error {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return err
+	}
+	if err := validateIdentity(parentEffectID, "effect"); err != nil {
+		return err
+	}
+	if len(body) == 0 || len(body) > MaxPayloadBytes {
+		return fail("RESOURCE_LIMIT", nil)
+	}
+	childID := parentEffectID + "/sealed-proposal"
+	if err := validateIdentity(childID, "effect"); err != nil {
+		return err
+	}
+	payload := append([]byte(nil), body...)
+	command := Command{
+		RunID: runID, ReplayKey: childID, Kind: "planner.sealed_plan",
+		Payload: payload, CreatedAt: at,
+	}
+	effect := Effect{
+		RunID: runID, ID: childID, ReplayKey: childID,
+		Kind: "planner.sealed_plan", BeforeDigest: digest(payload),
+		ExpectedDigest: digest(payload), UpdatedAt: at,
+	}
+	if err := s.RecordCommandEffect(ctx, command, effect); err != nil {
+		return err
+	}
+	observed, err := s.Effect(ctx, runID, childID)
+	if err != nil {
+		return err
+	}
+	switch observed.State {
+	case Succeeded:
+		if !bytes.Equal(observed.Result, payload) {
+			return fail("REPLAY_CONFLICT", nil)
+		}
+		return nil
+	case Pending:
+		claim, claimErr := s.Claim(ctx, runID, childID, at, MaxLease)
+		if claimErr != nil {
+			return claimErr
+		}
+		return s.Complete(ctx, Completion{
+			RunID: runID, EffectID: childID, Token: claim.Token,
+			State: Succeeded, Result: payload,
+			EventKind: "planner_sealed_plan_persisted", At: at,
+		})
+	default:
+		return fail("EFFECT_NOT_CLAIMABLE", nil)
+	}
+}
+
 func (s *Store) Claim(ctx context.Context, runID, effectID string, now time.Time, lease time.Duration) (Claim, error) {
 	if err := validateIdentity(runID, "run"); err != nil {
 		return Claim{}, err

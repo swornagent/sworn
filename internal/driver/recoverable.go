@@ -27,6 +27,12 @@ const (
 // runtime closure owns those bindings and the journal transaction.
 type RecoveryStepHook func(context.Context, RecoveryStepKind) error
 
+// SealedProposalHook durably records the exact plan bytes at the submission
+// seal. It is blocking: a submission is not published as a handoff until the
+// runtime has persisted these bytes. A nil hook is a no-op for driver-only
+// invocations.
+type SealedProposalHook func(context.Context, []byte) error
+
 type RecoverableInputKind string
 
 const (

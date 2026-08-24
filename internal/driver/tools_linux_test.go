@@ -179,6 +179,11 @@ func TestSubmissionCorrectionsAreBoundedAndYieldCannotPromoteAuthority(
 			t.Fatalf("correction %d accepted", correction)
 		}
 	}
+	session.invocation.recoverableInput = &RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputAnswer,
+		Answer:        "Continue with the approved planner turn.",
+	}
 	valid := executeToolJSON(
 		t,
 		session,
@@ -479,6 +484,11 @@ mkdir -p "$HOME/.cache" && printf home > "$HOME/.cache/home-canary"`,
 
 func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.recoverableInput = &RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputAnswer,
+		Answer:        "Continue with the approved planner turn.",
+	}
 	session, err := newToolSession(invocation)
 	if err != nil {
 		t.Fatal(err)

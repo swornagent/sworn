@@ -129,6 +129,13 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 				test.responsibility,
 				test.access,
 			)
+			if test.responsibility == PlannerProposal {
+				invocation.recoverableInput = &RecoverableTurnInput{
+					SchemaVersion: RecoverableTurnInputSchemaVersion,
+					Kind:          RecoverableInputAnswer,
+					Answer:        "Continue with the approved planner turn.",
+				}
+			}
 			observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 			if err != nil || observation.Handoff == nil ||
 				observation.TransportStatus != Completed ||
