@@ -1175,7 +1175,7 @@ func TestProductionHumanTurnCrashBarriersReconcileExactlyOnce(
 						t.Fatalf("answer replay stdout=%q stderr=%q", stdout, stderr)
 					}
 				} else {
-					time.Sleep(450 * time.Millisecond)
+					leaseExpiryWait()
 					boardBody, boardErr := runBinary(
 						t, normalBinary, 0,
 						"board", "--run", runID,
