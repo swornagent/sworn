@@ -202,11 +202,12 @@ func (conversation *responsesConversation) accept(
 			Truncated:       true,
 		}
 		if usageValue, present := root["usage"]; present && usageValue != nil {
-			usage, usageErr := responsesUsage(usageValue, conversation.dialect)
+			usage, cost, usageErr := responsesUsage(usageValue, conversation.dialect)
 			if usageErr != nil {
 				return providerTurn{}, usageErr
 			}
 			turn.Usage = usage
+			turn.Cost = cost
 		}
 		return turn, nil
 	}
@@ -272,11 +273,12 @@ func (conversation *responsesConversation) accept(
 		turn.ReasoningEffort = effort
 	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := responsesUsage(usageValue, conversation.dialect)
+		usage, cost, usageErr := responsesUsage(usageValue, conversation.dialect)
 		if usageErr != nil {
 			return providerTurn{}, usageErr
 		}
 		turn.Usage = usage
+		turn.Cost = cost
 	}
 	return turn, nil
 }
@@ -306,11 +308,19 @@ func responsesTruncated(root map[string]any) bool {
 // malformed detail never fails the run. On the xAI responses dialect the
 // recorded vendor usage decorations are admitted at this position and
 // tolerated-and-ignored, so the normalized accounting still reads only the
-// standard fields.
-func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
+// standard fields. OpenRouter's cost / cost_details / is_byok decorations
+// are admitted on the base list so the shipped decoder is honest about
+// aggregator shapes; only cost is captured, as provider-reported USD.
+func responsesUsage(value any, dialect providerDialect) (*Usage, *CostObservation, error) {
 	// x_details is Qwen's provider-specific usage annex on the responses
 	// flavour; it is tolerated and ignored rather than failing the turn.
-	optional := []string{"input_tokens_details", "output_tokens_details", "x_details"}
+	// cost / cost_details / is_byok are OpenRouter aggregator decorations
+	// on the same shipped responses decoder (openrouter-responses is
+	// configuration, not a new dialect).
+	optional := []string{
+		"input_tokens_details", "output_tokens_details", "x_details",
+		"cost", "cost_details", "is_byok",
+	}
 	if dialect == providerDialectXAIResponses {
 		optional = append(optional,
 			"num_sources_used",
@@ -325,12 +335,12 @@ func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 		optional,
 	)
 	if err != nil {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	input, inputOK := safeJSONInt(usage["input_tokens"])
 	outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
 	if !inputOK || !outputOK {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
 	if detailsValue, present := usage["input_tokens_details"]; present &&
@@ -362,7 +372,11 @@ func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 			}
 		}
 	}
-	return result, nil
+	cost, costErr := optionalProviderReportedUSDCost(usage)
+	if costErr != nil {
+		return nil, nil, costErr
+	}
+	return result, cost, nil
 }
 
 func (conversation *responsesConversation) appendInstruction(body []byte) error {

@@ -54,6 +54,10 @@ type providerTurn struct {
 	// successful result.
 	FinishReason *string
 	Truncated    bool
+	// Cost is a typed provider-reported observation for this turn when an
+	// adapter captured one (OpenRouter usage.cost). Nil is honest absence
+	// and preserves today's receipts.
+	Cost *CostObservation
 }
 
 type providerConversation interface {
@@ -506,6 +510,7 @@ func (adapter *loopAdapter) runConversation(
 		}
 	}()
 	var total Usage
+	var totalCost *CostObservation
 	usageAvailable := false
 	effortRequested := conversation.declaredReasoningEffort()
 	var effortReported *string
@@ -535,6 +540,7 @@ func (adapter *loopAdapter) runConversation(
 				turnCount,
 				toolCallCount,
 				toolCallsByName,
+				totalCost,
 				"economy_turn_budget",
 			), nil, fail("ECONOMY_TURN_BUDGET_EXCEEDED")
 		}
@@ -549,6 +555,7 @@ func (adapter *loopAdapter) runConversation(
 				turnCount,
 				toolCallCount,
 				toolCallsByName,
+				totalCost,
 				"economy_output_budget",
 			), nil, fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
 		}
@@ -611,14 +618,17 @@ func (adapter *loopAdapter) runConversation(
 			usageAvailable = true
 			pacer.record(providerTurn.Usage.InputTokens, time.Now())
 		}
+		if err := addTurnCost(&totalCost, providerTurn.Cost); err != nil {
+			return Observation{}, nil, err
+		}
 		if providerTurn.ReasoningEffort != nil {
 			value := *providerTurn.ReasoningEffort
 			effortReported = &value
 		}
 		if providerTurn.Truncated {
-			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
+			usage, err := NormalizeUsage(nil, totalCost, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
+				usage, err = NormalizeUsage(&total, totalCost, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
@@ -699,9 +709,9 @@ func (adapter *loopAdapter) runConversation(
 			if closeErr := session.Close(); closeErr != nil {
 				return Observation{}, nil, closeErr
 			}
-			usage, err := NormalizeUsage(nil, nil, adapter.identity.ID)
+			usage, err := NormalizeUsage(nil, totalCost, adapter.identity.ID)
 			if usageAvailable {
-				usage, err = NormalizeUsage(&total, nil, adapter.identity.ID)
+				usage, err = NormalizeUsage(&total, totalCost, adapter.identity.ID)
 			}
 			if err != nil {
 				return Observation{}, nil, err
@@ -763,11 +773,12 @@ func economyBudgetFailure(
 	effortReported *string,
 	turns, toolCalls int64,
 	toolCallsByName map[string]int64,
+	cost *CostObservation,
 	diagnostic string,
 ) Observation {
-	usage, err := NormalizeUsage(nil, nil, adapterID)
+	usage, err := NormalizeUsage(nil, cost, adapterID)
 	if usageAvailable && total != nil {
-		usage, err = NormalizeUsage(total, nil, adapterID)
+		usage, err = NormalizeUsage(total, cost, adapterID)
 	}
 	if err != nil {
 		// Accumulated facts outside their bounds cannot yield a canonical
@@ -929,6 +940,36 @@ func addTurnUsage(total *Usage, turn *Usage) error {
 			*total.ReasoningTokens += *turn.ReasoningTokens
 		}
 	}
+	return nil
+}
+
+// addTurnCost accumulates one provider-reported cost observation into the
+// invocation total. Only same-currency provider_reported observations sum;
+// mixed currency, mixed source, or overflow fail closed. Nil is honest
+// absence and leaves the running total untouched.
+func addTurnCost(total **CostObservation, turn *CostObservation) error {
+	if turn == nil {
+		return nil
+	}
+	if total == nil ||
+		turn.Source != CostSourceProviderReported ||
+		turn.MicroUnits < 0 || turn.MicroUnits > MaxSafeInteger ||
+		!currencyPattern.MatchString(turn.Currency) {
+		return fail("INVALID_USAGE")
+	}
+	if *total == nil {
+		cloned := *turn
+		*total = &cloned
+		return nil
+	}
+	current := *total
+	if current.Currency != turn.Currency || current.Source != turn.Source {
+		return fail("INVALID_USAGE")
+	}
+	if current.MicroUnits > MaxSafeInteger-turn.MicroUnits {
+		return fail("INVALID_USAGE")
+	}
+	current.MicroUnits += turn.MicroUnits
 	return nil
 }
 

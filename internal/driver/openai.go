@@ -487,10 +487,14 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 	if err != nil {
 		return providerTurn{}, err
 	}
-	root, err := closedObject(value, nil, []string{
+	rootOptional := []string{
 		"id", "object", "created", "model", "choices", "usage", "error",
 		"system_fingerprint", "service_tier", "reasoning_effort",
-	})
+	}
+	if conversation.dialect == providerDialectOpenRouterChat {
+		rootOptional = append(rootOptional, "provider")
+	}
+	root, err := closedObject(value, nil, rootOptional)
 	if err != nil {
 		return providerTurn{}, failContinuation("continuation.openai.accept_root_invalid")
 	}
@@ -535,11 +539,12 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			Truncated:       true,
 		}
 		if usageValue, present := root["usage"]; present && usageValue != nil {
-			usage, usageErr := openAIUsage(usageValue, conversation.dialect)
+			usage, cost, usageErr := openAIUsage(usageValue, conversation.dialect)
 			if usageErr != nil {
 				return providerTurn{}, usageErr
 			}
 			turn.Usage = usage
+			turn.Cost = cost
 		}
 		return turn, nil
 	}
@@ -812,11 +817,12 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		turn.ReasoningEffort = effort
 	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := openAIUsage(usageValue, conversation.dialect)
+		usage, cost, usageErr := openAIUsage(usageValue, conversation.dialect)
 		if usageErr != nil {
 			return providerTurn{}, usageErr
 		}
 		turn.Usage = usage
+		turn.Cost = cost
 	}
 	return turn, nil
 }
@@ -828,7 +834,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 // recorded vendor usage decorations are admitted at this position and
 // tolerated-and-ignored, so the normalized accounting still reads only the
 // standard fields.
-func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
+func openAIUsage(value any, dialect providerDialect) (*Usage, *CostObservation, error) {
 	optional := []string{
 		"total_tokens", "prompt_tokens_details", "completion_tokens_details",
 		"prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
@@ -841,31 +847,34 @@ func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
 			"context_details",
 		)
 	}
+	if dialect == providerDialectOpenRouterChat {
+		optional = append(optional, "cost", "cost_details", "is_byok")
+	}
 	usage, err := closedObject(
 		value,
 		[]string{"prompt_tokens", "completion_tokens"},
 		optional,
 	)
 	if err != nil {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	input, inputOK := safeJSONInt(usage["prompt_tokens"])
 	output, outputOK := safeJSONInt(usage["completion_tokens"])
 	if !inputOK || !outputOK {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	result := &Usage{InputTokens: input, OutputTokens: output}
 	if _, present := usage["prompt_cache_hit_tokens"]; present {
 		read, readOK := safeJSONInt(usage["prompt_cache_hit_tokens"])
 		if !readOK {
-			return nil, fail("INVALID_USAGE")
+			return nil, nil, fail("INVALID_USAGE")
 		}
 		result.CacheReadTokens = &read
 	}
 	if _, present := usage["prompt_cache_miss_tokens"]; present {
 		write, writeOK := safeJSONInt(usage["prompt_cache_miss_tokens"])
 		if !writeOK {
-			return nil, fail("INVALID_USAGE")
+			return nil, nil, fail("INVALID_USAGE")
 		}
 		result.CacheWriteTokens = &write
 	}
@@ -897,7 +906,15 @@ func openAIUsage(value any, dialect providerDialect) (*Usage, error) {
 			}
 		}
 	}
-	return result, nil
+	var cost *CostObservation
+	if dialect == providerDialectOpenRouterChat {
+		parsed, costErr := optionalProviderReportedUSDCost(usage)
+		if costErr != nil {
+			return nil, nil, costErr
+		}
+		cost = parsed
+	}
+	return result, cost, nil
 }
 
 func (conversation *openAIConversation) appendInstruction(body []byte) error {
