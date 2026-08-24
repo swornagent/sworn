@@ -1534,8 +1534,8 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		var usage driver.UsageReceipt
 		if err := json.Unmarshal(attempt.Usage, &usage); err != nil ||
 			usage.TokenStatus != driver.UsageReported ||
-			usage.InputTokens == nil || *usage.InputTokens != 28 ||
-			usage.OutputTokens == nil || *usage.OutputTokens != 20 {
+			usage.InputTokens == nil || *usage.InputTokens != 21 ||
+			usage.OutputTokens == nil || *usage.OutputTokens != 15 {
 			_ = store.Close()
 			t.Fatalf("implementation usage=%s error=%v", attempt.Usage, err)
 		}
@@ -1646,9 +1646,9 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		len(implementationGroups) != 1 ||
 		implementationGroups[0].Attempts != 1 ||
 		implementationGroups[0].Usage.InputTokens == nil ||
-		*implementationGroups[0].Usage.InputTokens != 28 ||
+		*implementationGroups[0].Usage.InputTokens != 21 ||
 		implementationGroups[0].Usage.OutputTokens == nil ||
-		*implementationGroups[0].Usage.OutputTokens != 20 ||
+		*implementationGroups[0].Usage.OutputTokens != 15 ||
 		implementationGroups[0].DurationNS.Numerator == nil ||
 		*implementationGroups[0].DurationNS.Numerator != wantDuration ||
 		implementationGroups[0].DurationNS.Denominator == nil ||
@@ -1691,7 +1691,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		direct.record.Outcome != record.Outcome ||
 		direct.productTree != recoveryProductTree ||
 		direct.productContent != strings.TrimSuffix(recoveryE2EContent, "\n") ||
-		inputDelta != 14 || outputDelta != 10 {
+		inputDelta != 7 || outputDelta != 5 {
 		t.Fatalf(
 			"paired eval direct=%#v recovery=%#v input_delta=%+d output_delta=%+d direct_tree=%s recovery_tree=%s",
 			direct.record,

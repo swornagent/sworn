@@ -23,12 +23,13 @@ import (
 const effectLease = 5 * time.Minute
 
 var (
-	testCrashBeforeEffect string
-	testCrashAfterEffect  string
-	testHumanTurnCrash    string
-	testCaptainCrashCut   string
-	testOwnerLeaseMillis  string
-	testHooksFromEnv      string
+	testCrashBeforeEffect  string
+	testCrashAfterEffect   string
+	testHumanTurnCrash     string
+	testCaptainCrashCut    string
+	testAnswerParkCrashCut string
+	testOwnerLeaseMillis   string
+	testHooksFromEnv       string
 )
 
 // Test hooks are link-time constants: a production binary carries no runtime
@@ -1253,6 +1254,16 @@ func (s *Service) AnswerAttention(
 		command.Answer,
 	); err != nil {
 		return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+	}
+	if attention.Attention.HumanTurn == nil {
+		if err := validateAnswerParkAnswerAdmission(
+			snapshot,
+			manifest,
+			attention,
+			command.Answer,
+		); err != nil {
+			return RunStatus{}, runtimeFail("ATTENTION_REJECTED", err)
+		}
 	}
 	if _, err := s.journal.AnswerAttention(
 		ctx,

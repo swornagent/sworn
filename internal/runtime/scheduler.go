@@ -4793,6 +4793,11 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	); recovered || err != nil {
 		return recovered, err
 	}
+	if recovered, err := s.recoverAnswerParkCheckpoint(
+		ctx, engine, owner, snapshot,
+	); recovered || err != nil {
+		return recovered, err
+	}
 	attentions, err := s.journal.Attentions(ctx, owner.RunID)
 	if err != nil {
 		return true, runtimeFail("JOURNAL_READ_FAILED", err)

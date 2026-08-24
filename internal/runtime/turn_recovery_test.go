@@ -278,6 +278,12 @@ func (fixture *turnRecoveryFixtureDriver) InvokeRecoverableTurn(
 	fixture.answerCalls++
 	failAnswer := fixture.failAnswer
 	successor := fixture.successor
+	if successor != "" {
+		// A successor question is produced exactly once: the recovery
+		// decision it provokes may answer and re-enter the worker, and a
+		// repeating successor would loop.
+		fixture.successor = ""
+	}
 	measured := fixture.measured
 	onAnswer := fixture.onAnswer
 	fixture.mu.Unlock()
@@ -991,6 +997,15 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 		attentions[0].State != journal.AttentionOpen {
 		t.Fatalf("open attention = %#v, %v", attentions, err)
 	}
+	driverBeforeRestart.mu.Lock()
+	firstAskAutomations := driverBeforeRestart.automationCalls
+	driverBeforeRestart.mu.Unlock()
+	if firstAskAutomations != 0 {
+		t.Fatalf(
+			"first ask reached automation: %d calls",
+			firstAskAutomations,
+		)
+	}
 	for _, effectID := range []string{
 		fixture.outer.ID,
 		fixture.cycle.DispatchEffect,
@@ -1281,8 +1296,8 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 		}
 	}
 	if dispatchAttempts != 1 ||
-		usage.InputTokens == nil || *usage.InputTokens != 47 ||
-		usage.OutputTokens == nil || *usage.OutputTokens != 59 {
+		usage.InputTokens == nil || *usage.InputTokens != 24 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 30 {
 		t.Fatalf(
 			"restart-folded recovery attempts=%d usage=%#v",
 			dispatchAttempts,
@@ -1483,6 +1498,43 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 					fixture.cycle,
 					fixture.coordinates,
 				); !IsCode(err, "EFFECT_PARKED") {
+				t.Fatalf("first ask park = %v", err)
+			}
+			attentions, err := fixture.store.Attentions(
+				fixture.ctx,
+				fixture.owner.RunID,
+			)
+			if err != nil || len(attentions) != 1 ||
+				attentions[0].State != journal.AttentionOpen ||
+				attentions[0].Attention.HumanTurn != nil {
+				t.Fatalf("answerable attention = %#v, %v", attentions, err)
+			}
+			first := attentions[0]
+			if _, err := fixture.store.AnswerAttention(
+				fixture.ctx,
+				journal.AnswerAttentionCommand{
+					RunID:              fixture.owner.RunID,
+					Attention:          first.Attention,
+					ExpectedGeneration: first.Generation,
+					Answer:             "Use the exact approved fixture value.",
+				},
+				fixture.now,
+			); err != nil {
+				t.Fatal(err)
+			}
+			fixtureDriver.mu.Lock()
+			fixtureDriver.successor =
+				"Which approved follow-up value should I use?"
+			fixtureDriver.mu.Unlock()
+			if _, _, err := fixture.service.
+				runProductionImplementationDispatch(
+					fixture.ctx,
+					fixture.engine,
+					fixture.owner,
+					fixture.workspace,
+					fixture.cycle,
+					fixture.coordinates,
+				); !IsCode(err, "EFFECT_PARKED") {
 				t.Fatalf("parked recovery = %v", err)
 			}
 
@@ -1515,20 +1567,36 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 			answerCalls := fixtureDriver.answerCalls
 			fixtureDriver.mu.Unlock()
 			if automationCalls != test.wantAutomations ||
-				answerCalls != 0 {
+				answerCalls != 1 {
 				t.Fatalf(
 					"parked automation=%d worker resumes=%d",
 					automationCalls,
 					answerCalls,
 				)
 			}
-			attentions, err := fixture.store.Attentions(
+			attentions, err = fixture.store.Attentions(
 				fixture.ctx,
 				fixture.owner.RunID,
 			)
-			if err != nil || len(attentions) != 1 ||
-				attentions[0].State != journal.AttentionOpen {
-				t.Fatalf("parked attention = %#v, %v", attentions, err)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var resolvedFirst, openSuccessor bool
+			for _, attention := range attentions {
+				switch {
+				case attention.Attention.ID ==
+					first.Attention.ID:
+					resolvedFirst = attention.State ==
+						journal.AttentionResolved
+				case attention.State == journal.AttentionOpen &&
+					attention.Question ==
+						"Which approved follow-up value should I use?":
+					openSuccessor = true
+				}
+			}
+			if len(attentions) != 2 ||
+				!resolvedFirst || !openSuccessor {
+				t.Fatalf("parked attention = %#v", attentions)
 			}
 		})
 	}
@@ -1547,6 +1615,41 @@ func TestCaptainAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
 		fixtureDriver,
 	)
 	defer fixture.workspace.Close()
+	if _, _, err := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		fixture.workspace,
+		fixture.cycle,
+		fixture.coordinates,
+	); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("first ask park = %v", err)
+	}
+	attentions, err := fixture.store.Attentions(
+		fixture.ctx,
+		fixture.owner.RunID,
+	)
+	if err != nil || len(attentions) != 1 ||
+		attentions[0].State != journal.AttentionOpen ||
+		attentions[0].Attention.HumanTurn != nil {
+		t.Fatalf("answerable attention = %#v, %v", attentions, err)
+	}
+	if _, err := fixture.store.AnswerAttention(
+		fixture.ctx,
+		journal.AnswerAttentionCommand{
+			RunID:              fixture.owner.RunID,
+			Attention:          attentions[0].Attention,
+			ExpectedGeneration: attentions[0].Generation,
+			Answer:             "Use the exact approved fixture value.",
+		},
+		fixture.now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDriver.mu.Lock()
+	fixtureDriver.successor =
+		"Which approved follow-up value should I use?"
+	fixtureDriver.mu.Unlock()
 	if _, _, err := fixture.service.runProductionImplementationDispatch(
 		fixture.ctx,
 		fixture.engine,
@@ -1575,8 +1678,8 @@ func TestCaptainAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
 			t.Fatal(err)
 		}
 	}
-	if usage.InputTokens == nil || *usage.InputTokens != 70 ||
-		usage.OutputTokens == nil || *usage.OutputTokens != 88 {
+	if usage.InputTokens == nil || *usage.InputTokens != 87 ||
+		usage.OutputTokens == nil || *usage.OutputTokens != 107 {
 		t.Fatalf("persisted aggregate usage = %#v", usage)
 	}
 	snapshot, err := fixture.store.Snapshot(
@@ -1602,7 +1705,7 @@ func TestCaptainAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
 	automationCalls := fixtureDriver.automationCalls
 	answerCalls := fixtureDriver.answerCalls
 	fixtureDriver.mu.Unlock()
-	if automationCalls != 2 || answerCalls != 1 {
+	if automationCalls != 2 || answerCalls != 2 {
 		t.Fatalf(
 			"advisory recovery automation=%d worker resumes=%d",
 			automationCalls,

@@ -572,6 +572,44 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	); err != nil {
 		t.Fatal(err)
 	}
+	// The fresh design turn asks an honest question: under first-ask
+	// parking it opens an answerable attention immediately, no automation,
+	// and the answer resumes the retained continuation in place.
+	if err := service.advanceSlice(
+		ctx, engine, owner, "S1",
+	); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("design question park = %v", err)
+	}
+	attentions, err := store.Attentions(ctx, manifest.value.RunID)
+	if err != nil || len(attentions) != 1 ||
+		attentions[0].State != journal.AttentionOpen ||
+		attentions[0].Question !=
+			"Which exact design constraint controls?" {
+		t.Fatalf("design question attention = %#v, %v", attentions, err)
+	}
+	if err := store.RecordCommand(
+		ctx,
+		journal.Command{
+			RunID:     manifest.value.RunID,
+			ReplayKey: "manifest",
+			Kind:      "start",
+			Payload:   manifest.raw,
+			CreatedAt: now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AnswerAttention(
+		ctx,
+		AnswerAttentionCommand{
+			RunID:              manifest.value.RunID,
+			AttentionID:        attentions[0].Attention.ID,
+			ExpectedGeneration: attentions[0].Generation,
+			Answer:             "Use the exact approved design constraint.",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
 	advance()
 	entry := service.takeContinuation(
 		manifest.value.RunID,
@@ -580,7 +618,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	if entry == nil || entry.handle == nil ||
 		entry.designReceipt == "" || turnCalls != 1 ||
 		freshCalls != 0 || recoveryCalls != 1 ||
-		automationCalls != 2 {
+		automationCalls != 0 {
 		t.Fatalf(
 			"promoted design continuation = %#v, turns=%d recovery=%d automation=%d fresh=%d",
 			entry,
@@ -610,7 +648,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 		slice.CurrentReceipt.Receipt.Result != "proceed" ||
 		slice.CurrentReceipt.Receipt.Binds != entry.designReceipt ||
 		turnCalls != 1 || recoveryCalls != 1 ||
-		automationCalls != 2 || freshCalls != 1 {
+		automationCalls != 0 || freshCalls != 1 {
 		t.Fatalf(
 			"post-Captain state=%#v entry=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
@@ -639,7 +677,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	if slice.Candidate == nil ||
 		slice.NextRole != "verifier" ||
 		turnCalls != 2 || recoveryCalls != 1 ||
-		automationCalls != 2 || freshCalls != 1 {
+		automationCalls != 0 || freshCalls != 1 {
 		t.Fatalf(
 			"post-implementation state=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
