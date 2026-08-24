@@ -20,6 +20,7 @@ type RecoveryStepKind string
 const (
 	RecoveryStepSubmissionCorrection RecoveryStepKind = "submission_correction"
 	RecoveryStepProseNudge           RecoveryStepKind = "prose_nudge"
+	RecoveryStepMalformedToolCall    RecoveryStepKind = "malformed_tool_call"
 )
 
 // RecoveryStepHook lets the runtime durably reserve one bounded automatic
@@ -84,7 +85,8 @@ func reserveRecoveryStep(
 ) error {
 	if ctx == nil || hook == nil ||
 		(kind != RecoveryStepSubmissionCorrection &&
-			kind != RecoveryStepProseNudge) {
+			kind != RecoveryStepProseNudge &&
+			kind != RecoveryStepMalformedToolCall) {
 		return fail("RECOVERY_STEP_REFUSED")
 	}
 	if err := hook(ctx, kind); err != nil {

@@ -3,7 +3,10 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -19,6 +22,14 @@ const (
 	// only bounds pathological growth. Context compaction is the real fix.
 	MaxProviderRequestBytes  = 8_388_608
 	MaxProviderResponseBytes = 1_048_576
+	// MaxToolCallCorrections bounds per-dispatch grace for a malformed
+	// provider tool call, in the MaxSubmissionCorrections house pattern:
+	// bounded by turn budget/timeout, not a hard allowance. It is kept
+	// strictly below MaxProviderTurns so persistent malformation always
+	// falls through to the original continuation.toolcall_decode
+	// classification from inside the runaway-loop guard's own iteration
+	// bound, never past it into a generic RESOURCE_LIMIT.
+	MaxToolCallCorrections = MaxProviderTurns - 1
 )
 
 type providerRequest struct {
@@ -516,6 +527,7 @@ func (adapter *loopAdapter) runConversation(
 	var effortReported *string
 	seenIDs := make(map[string]struct{})
 	proseNudges := 0
+	toolCallCorrections := 0
 	// Turn economics are engine-counted facts: every accepted provider turn
 	// counts (prose nudges are turns with zero calls), and every executed
 	// tool call counts by canonical name.
@@ -603,6 +615,24 @@ func (adapter *loopAdapter) runConversation(
 		providerTurn, err := conversation.accept(response)
 		clearBytes(response)
 		if err != nil {
+			if detail, correctable := toolCallDecodeDetail(err); correctable &&
+				toolCallCorrections < MaxToolCallCorrections {
+				toolCallCorrections++
+				turnCount++
+				if recoveryErr := reserveRecoveryStep(
+					ctx,
+					invocation.RecoveryStepHook,
+					RecoveryStepMalformedToolCall,
+				); recoveryErr != nil {
+					return Observation{}, nil, recoveryErr
+				}
+				if instructionErr := conversation.appendInstruction(
+					malformedToolCallInstruction(detail),
+				); instructionErr != nil {
+					return Observation{}, nil, instructionErr
+				}
+				continue
+			}
 			liveStream.driverError("accept", err)
 			return Observation{}, nil, err
 		}
@@ -797,6 +827,29 @@ func economyBudgetFailure(
 }
 
 const providerProseNudge = "Finish this turn now by calling exactly one advertised Sworn terminal tool. Do not answer in prose."
+
+// toolCallDecodeDetail reports whether err is a decode failure this loop may
+// correct: a CONTINUATION_INVALID whose detail carries the
+// continuation.toolcall_decode. prefix - the sole label family
+// responsesFunctionCall emits (every other decoder, and every other
+// continuation failure, fails under its own distinct label and is never
+// intercepted here).
+func toolCallDecodeDetail(err error) (string, bool) {
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) &&
+		contractErr.Code == "CONTINUATION_INVALID" &&
+		strings.HasPrefix(contractErr.Detail, "continuation.toolcall_decode.") {
+		return contractErr.Detail, true
+	}
+	return "", false
+}
+
+func malformedToolCallInstruction(detail string) []byte {
+	return []byte(fmt.Sprintf(
+		"Your last turn's tool call was malformed (defect: %s). Re-emit this entire turn now with every intended tool call well-formed: a valid tool name, valid JSON arguments, and a valid call id. Do not describe the defect in prose.",
+		detail,
+	))
+}
 
 func validateProviderToolCall(call providerToolCall, seen map[string]struct{}) error {
 	if validateText(call.ID, MaxCorrelationIDBytes, false) != nil ||

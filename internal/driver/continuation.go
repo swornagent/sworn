@@ -763,6 +763,41 @@ func (ledger *continuationLedger) correlate(id string) error {
 	return nil
 }
 
+// checkCorrelate is correlate's read-only counterpart: it validates id
+// exactly as correlate does but never mutates the ledger, checking id against
+// both the already-committed ids and the caller's batch-local reserved set.
+// It exists so a decode pass spanning several items (the Responses function
+// call loop) can validate every item before committing any of them, mirroring
+// retain's own commit-only-on-full-success shape.
+func (ledger *continuationLedger) checkCorrelate(
+	id string,
+	reserved map[string]struct{},
+) error {
+	if ledger == nil || ledger.closed ||
+		validateText(id, MaxCorrelationIDBytes, false) != nil {
+		return failContinuation("continuation.ledger.correlate_invalid_id")
+	}
+	if _, duplicate := ledger.ids[id]; duplicate {
+		return failContinuation("continuation.ledger.correlate_duplicate_id")
+	}
+	if _, duplicate := reserved[id]; duplicate {
+		return failContinuation("continuation.ledger.correlate_duplicate_id")
+	}
+	return nil
+}
+
+// commitCorrelate atomically admits every id in reserved into the ledger. It
+// is the single mutation point for a decode pass validated via checkCorrelate,
+// called only after that pass has fully succeeded.
+func (ledger *continuationLedger) commitCorrelate(reserved map[string]struct{}) {
+	if ledger == nil || ledger.closed {
+		return
+	}
+	for id := range reserved {
+		ledger.ids[id] = struct{}{}
+	}
+}
+
 func (ledger *continuationLedger) Close() {
 	if ledger == nil || ledger.closed {
 		return

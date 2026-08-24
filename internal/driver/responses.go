@@ -227,6 +227,7 @@ func (conversation *responsesConversation) accept(
 	}
 	calls := make([]providerToolCall, 0, len(output))
 	retainedFields := make([]opaqueField, 0, len(output))
+	reservedCallIDs := make(map[string]struct{})
 	for index := range output {
 		item, itemOK := output[index].(map[string]any)
 		itemType, typeOK := item["type"].(string)
@@ -246,7 +247,9 @@ func (conversation *responsesConversation) accept(
 				return providerTurn{}, failContinuation("continuation.responses.accept_message_invalid")
 			}
 		case "function_call":
-			call, callErr := responsesFunctionCall(conversation.ledger, item)
+			call, callErr := responsesFunctionCall(
+				conversation.ledger, reservedCallIDs, item,
+			)
 			if callErr != nil {
 				return providerTurn{}, callErr
 			}
@@ -264,6 +267,7 @@ func (conversation *responsesConversation) accept(
 	if err != nil {
 		return providerTurn{}, err
 	}
+	conversation.ledger.commitCorrelate(reservedCallIDs)
 	for _, item := range retained {
 		conversation.input = append(conversation.input, item)
 	}
@@ -450,8 +454,19 @@ func validResponsesMessageItem(item map[string]any) bool {
 		(!hasStatus || status == "completed")
 }
 
+// responsesFunctionCall decodes one function_call item. Every field
+// validation happens before the call_id is checked against reserved (and
+// only checked, never committed): a single item's own malformation - a bad
+// name, empty or oversized arguments, invalid JSON - is rejected without ever
+// touching correlation state, and even a well-formed item only reserves its
+// call_id in the caller's batch-local set. The caller commits the whole
+// batch to the ledger in one place, after every item in the same decode pass
+// has succeeded (see accept's commitCorrelate call), so a turn that fails
+// partway through - at any item, for any defect - never leaves an earlier
+// sibling's call_id permanently claimed.
 func responsesFunctionCall(
 	ledger *continuationLedger,
+	reserved map[string]struct{},
 	item map[string]any,
 ) (providerToolCall, error) {
 	if item["type"] != "function_call" {
@@ -473,9 +488,6 @@ func responsesFunctionCall(
 	if hasStatus && status != "completed" {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.status_incomplete")
 	}
-	if err := ledger.correlate(callID); err != nil {
-		return providerToolCall{}, failContinuation("continuation.toolcall_decode.correlate_reuse")
-	}
 	if !providerKeyPattern.MatchString(name) {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.invalid_name_pattern")
 	}
@@ -486,6 +498,10 @@ func responsesFunctionCall(
 	if _, err := decodeStrict(arguments, MaxToolArgumentBytes); err != nil {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.arguments_json_invalid")
 	}
+	if err := ledger.checkCorrelate(callID, reserved); err != nil {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.correlate_reuse")
+	}
+	reserved[callID] = struct{}{}
 	return providerToolCall{
 		ID:        callID,
 		Name:      name,

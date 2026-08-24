@@ -833,6 +833,8 @@ func (s *Service) turnRecoveryStepHook(
 			durable = journal.RecoveryMalformedCorrection
 		case driver.RecoveryStepProseNudge:
 			durable = journal.RecoveryProseNudge
+		case driver.RecoveryStepMalformedToolCall:
+			durable = journal.RecoveryMalformedCorrection
 		default:
 			return runtimeFail("INVALID_TURN_RECOVERY", nil)
 		}
