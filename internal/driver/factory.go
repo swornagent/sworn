@@ -9,12 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
+	"syscall"
+	"time"
 )
 
 const (
 	driverCertificationSchemaVersion = "sworn.driver-certification/v1"
 	maxSystemCredentialBytes         = 65_536
+	certificationRootPrefix          = "sworn-driver-certification-v1-"
+	certificationRootLifetime        = time.Duration(DefaultContinuationLifetimeMillis) * time.Millisecond
 )
 
 // ProductionDriverFactory owns the process-local resources and callbacks used
@@ -48,7 +53,8 @@ func NewProductionDriverFactory(
 	if err != nil {
 		return nil, err
 	}
-	root, err := os.MkdirTemp(temp, "sworn-driver-certification-v1-")
+	reapCertificationRoots(temp)
+	root, err := os.MkdirTemp(temp, certificationRootPrefix)
 	if err != nil {
 		return nil, fail("FACTORY_UNAVAILABLE")
 	}
@@ -130,6 +136,46 @@ func (factory *ProductionDriverFactory) Close() error {
 		factory.root = ""
 	})
 	return factory.closeErr
+}
+
+// reapCertificationRoots sweeps stale prior certification roots under temp
+// before minting this run's own, copying the reapNativeSessionRoots shape
+// (native_linux.go): prefix match, same-uid ownership, non-symlink
+// directory, age floor. Certification roots have no lease file, so the age
+// floor plus ownership is the whole liveness guard. A reap failure degrades:
+// an unreadable temp root or an unremovable stale root never fails
+// construction.
+func reapCertificationRoots(temp string) {
+	entries, err := os.ReadDir(temp)
+	if err != nil {
+		return
+	}
+	selfUID := uint32(os.Getuid())
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), certificationRootPrefix) {
+			continue
+		}
+		root := filepath.Join(temp, entry.Name())
+		if staleCertificationRoot(root, selfUID) {
+			_ = os.RemoveAll(root)
+		}
+	}
+}
+
+// staleCertificationRoot reports whether root is a certification root this
+// process owns that has aged past certificationRootLifetime. selfUID is
+// threaded as a parameter rather than read internally so the ownership
+// guard is directly unit-testable against a mismatched uid.
+func staleCertificationRoot(root string, selfUID uint32) bool {
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != selfUID {
+		return false
+	}
+	return time.Since(info.ModTime()) >= certificationRootLifetime
 }
 
 func (factory *ProductionDriverFactory) liveProbe(
