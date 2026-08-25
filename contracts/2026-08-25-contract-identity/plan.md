@@ -432,7 +432,7 @@ Roles (operator-directed 2026-08-25, cost-managed - grok benched, no
 xAI spend this release): glm-5.2 implements via ollama-cloud (certify
 before launch - it is live-probed only; claude-sonnet-5 is the named
 fallback implementer); claude-opus-5 captains; claude-sonnet-5
-verifies; gemini-3.7-flash plans and recovers. The ops binary carries
+verifies; qwen-3.8 plans and recovers. The ops binary carries
 the sworn#220 claude pin bump as a precedented operator patch until
 that issue lands. The ox-alpha re-audition does not ride this release.
 This release does not alter trust rules, approval semantics,
