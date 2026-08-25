@@ -57,9 +57,12 @@ func TestGuestPathsAreCompileTimeConstantsUnreachableFromConfiguration(t *testin
 	// Build a fully adversarial invocation: hostile host workspace, hostile
 	// host paths, hostile mask names, read-write access (the widest surface).
 	invocation := invocationForMaskTest(t, hostileWorkspace, projectConfig, hostPaths)
-	arguments, err := bubblewrapArguments(invocation)
+	arguments, maskFiles, err := bubblewrapArguments(invocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 	joined := strings.Join(arguments, "\x00")
 	for _, expected := range []string{
@@ -126,9 +129,12 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 		ContractsRoot: "contracts", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
 	}
 	invocation := invocationForMaskTest(t, workspace, configured, gitx.HostPaths{})
-	arguments, err := bubblewrapArguments(invocation)
+	arguments, maskFiles, err := bubblewrapArguments(invocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 	joined := strings.Join(arguments, " ")
 	for _, name := range []string{".records", ".journals"} {
@@ -148,9 +154,12 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 
 	// Default config -> .baton and .sworn are masked (today's behaviour).
 	defaultInvocation := invocationForMaskTest(t, workspace, gitx.DefaultProjectConfig(), gitx.HostPaths{})
-	defaultArguments, err := bubblewrapArguments(defaultInvocation)
+	defaultArguments, defaultMaskFiles, err := bubblewrapArguments(defaultInvocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range defaultMaskFiles {
+		file.Close()
 	}
 	defaultJoined := strings.Join(defaultArguments, " ")
 	for _, name := range []string{".baton", ".sworn", ".git"} {

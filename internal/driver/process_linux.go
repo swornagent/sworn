@@ -136,20 +136,25 @@ func platformInvoke(
 		if err != nil {
 			return Observation{}, fail("ISOLATION_UNAVAILABLE")
 		}
-		args, err := bubblewrapArguments(invocation)
+		args, maskFiles, err := bubblewrapArguments(invocation)
 		if err != nil {
 			return Observation{}, err
 		}
+		defer func() {
+			for _, file := range maskFiles {
+				_ = file.Close()
+			}
+		}()
 		command = exec.Command(bwrap, args...)
 		command.Stdin = bytes.NewReader(requestBody)
 		command.Env = []string{}
-		command.ExtraFiles = []*os.File{
+		command.ExtraFiles = append([]*os.File{
 			childEndpoint,
 			executableFile,
 			workspaceFile,
 			projectionFile,
 			statusWriter,
-		}
+		}, maskFiles...)
 		command.SysProcAttr = linuxSandboxProcessAttributes()
 	}
 	var done = make(chan struct{})
@@ -378,12 +383,20 @@ func linuxSandboxProcessAttributes() *syscall.SysProcAttr {
 	}
 }
 
-func bubblewrapArguments(invocation Invocation) ([]string, error) {
+// bubblewrapArguments returns the sandbox argument list plus the mask files
+// that must ride the command's ExtraFiles (see the call site in
+// platformInvoke) and be closed once the command has exited. A masked
+// regular file binds a genuine empty regular file rather than /dev/null
+// itself: bubblewrap copies each --ro-bind-data fd's content (immediate EOF
+// from /dev/null) into a fresh regular file at the target, and each masked
+// path gets its own fd since bubblewrap consumes and closes the fd behind
+// an --ro-bind-data op.
+func bubblewrapArguments(invocation Invocation) ([]string, []*os.File, error) {
 	if err := validateNetworkPolicy(
 		invocation.Selected.Adapter.ID,
 		invocation.Selected.Profile.Network,
 	); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	workspace := GuestWorkspacePath
 	arguments := []string{
@@ -416,6 +429,18 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 	} else {
 		arguments = append(arguments, "--bind-fd", "5", workspace)
 	}
+	// The fixed ExtraFiles positions (childEndpoint, executableFile,
+	// workspaceFile, projectionFile, statusWriter) occupy fd 3-7; mask fds
+	// start at fd 8, one per masked regular path.
+	var maskFiles []*os.File
+	ok := false
+	defer func() {
+		if !ok {
+			for _, file := range maskFiles {
+				_ = file.Close()
+			}
+		}
+	}()
 	for _, reserved := range reservedMaskNames(invocation) {
 		info, err := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
 		if os.IsNotExist(err) {
@@ -428,15 +453,21 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 			continue
 		}
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+			return nil, nil, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
 		target := filepath.Join(workspace, reserved)
 		if info.IsDir() {
 			arguments = append(arguments, "--tmpfs", target, "--remount-ro", target)
 		} else if info.Mode().IsRegular() {
-			arguments = append(arguments, "--ro-bind", "/dev/null", target)
+			maskFile, openErr := os.Open(os.DevNull)
+			if openErr != nil {
+				return nil, nil, fail("PROCESS_START_FAILED")
+			}
+			fd := 8 + len(maskFiles)
+			maskFiles = append(maskFiles, maskFile)
+			arguments = append(arguments, "--ro-bind-data", itoa(fd), target)
 		} else {
-			return nil, fail("UNSAFE_WORKSPACE_SURFACE")
+			return nil, nil, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
 	}
 	arguments = append(arguments,
@@ -448,7 +479,7 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 		"--setenv", "LANG", "C.UTF-8",
 		"--setenv", "LC_ALL", "C.UTF-8",
 		"--setenv", "TZ", "UTC",
-		"--setenv", "PATH", "/usr/bin:/bin",
+		"--setenv", "PATH", ToolSandboxPath,
 		"--setenv", "PWD", workspace,
 		"--setenv", SubmissionProtocolEnvironment, SubmissionControlVersion,
 		"--setenv", SubmissionFDEnvironment, "3",
@@ -461,7 +492,8 @@ func bubblewrapArguments(invocation Invocation) ([]string, error) {
 	arguments = append(arguments,
 		"/sworn/driver", "run",
 	)
-	return arguments, nil
+	ok = true
+	return arguments, maskFiles, nil
 }
 
 // uncontainedCommand builds the direct-exec command for the test-only

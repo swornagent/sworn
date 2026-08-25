@@ -167,24 +167,30 @@ func TestFakeBubblewrapArgumentsCannotSelectSharedNetwork(t *testing.T) {
 		},
 		FakeProfile: FakeCompleted,
 	}
-	arguments, err := bubblewrapArguments(invocation)
+	arguments, maskFiles, err := bubblewrapArguments(invocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 	if slicesContain(arguments, "--share-net") {
 		t.Fatal("networkless fake selected --share-net")
 	}
 
 	invocation.Selected.Profile.Network = NetworkRequired
-	arguments, err = bubblewrapArguments(invocation)
-	if !IsCode(err, "INVALID_NETWORK_POLICY") || arguments != nil {
+	arguments, maskFiles, err = bubblewrapArguments(invocation)
+	if !IsCode(err, "INVALID_NETWORK_POLICY") || arguments != nil || maskFiles != nil {
 		t.Fatalf("networked fake arguments = %q, error = %v", arguments, err)
 	}
 
 	invocation.Selected.Adapter.ID = "vendor.driver"
-	arguments, err = bubblewrapArguments(invocation)
+	arguments, maskFiles, err = bubblewrapArguments(invocation)
 	if err != nil || !slicesContain(arguments, "--share-net") {
 		t.Fatalf("networked vendor arguments = %q, error = %v", arguments, err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 }
 
@@ -1073,9 +1079,12 @@ func TestLinuxBoundaryExposesOnlyFixedEnvironmentWorkspaceAndInputOverlay(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments, err := bubblewrapArguments(invocation)
+	arguments, maskFiles, err := bubblewrapArguments(invocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 	if strings.Contains(strings.Join(arguments, "\x00"), workspace) {
 		t.Fatal("canonical host workspace leaked into child argv")

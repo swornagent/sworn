@@ -27,6 +27,7 @@ const (
 	MaxToolResultBytes    = 262_144
 	MaxToolPathBytes      = 4_096
 	MaxToolMatches        = 256
+	MaxToolReadBatchPaths = 64
 	MaxBashScriptBytes    = 131_072
 	MaxBashCombinedOutput = 262_144
 	MaxToolWalkEntries    = 4_096
@@ -35,6 +36,11 @@ const (
 	// not by a per-type allowance; each one is durably accounted.
 	MaxSubmissionCorrections = 1_000
 )
+
+// ToolSandboxPath is the PATH the Bash tool sandbox sets on every
+// containment site (runToolBash, bubblewrapArguments); the environment-facts
+// block reads this same constant so the two can never drift apart.
+const ToolSandboxPath = "/usr/bin:/bin"
 
 const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
@@ -145,12 +151,46 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	return session, nil
 }
 
+// EnvironmentFacts states, for one invocation's actual Bash/Read tool
+// sandbox, the facts a worker today re-derives by habit: every value is
+// read from the constants and mask policy that enforce it, never a
+// hand-maintained copy.
+type EnvironmentFacts struct {
+	ToolResultByteBudget int64    `json:"tool_result_byte_budget"`
+	ToolSandboxPath      string   `json:"tool_sandbox_path"`
+	MaskedPaths          []string `json:"masked_paths"`
+	GitReadOnly          bool     `json:"git_read_only"`
+	Note                 string   `json:"note"`
+}
+
+// buildEnvironmentFacts derives one invocation's EnvironmentFacts from the
+// same values that enforce them: MaxToolResultBytes and ToolSandboxPath are
+// the constants the Bash tool sandbox itself sets, and MaskedPaths/
+// GitReadOnly mirror runToolBash's own reserved-name and withoutGit
+// handling for the invocation's workspace access, so the block can never
+// tell a worker something its own sandbox does not do.
+func buildEnvironmentFacts(invocation Invocation) EnvironmentFacts {
+	masked := reservedMaskNames(invocation)
+	gitReadOnly := invocation.Request.Workspace.Access == ReadOnly
+	if gitReadOnly {
+		masked = withoutGit(masked)
+	}
+	return EnvironmentFacts{
+		ToolResultByteBudget: MaxToolResultBytes,
+		ToolSandboxPath:      ToolSandboxPath,
+		MaskedPaths:          masked,
+		GitReadOnly:          gitReadOnly,
+		Note: "PATH is " + ToolSandboxPath +
+			"; /usr is bound read-only from the host, so anything else under /usr must be invoked by absolute path.",
+	}
+}
+
 func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 	definitions := []providerToolDefinition{
-		{Name: "Bash", Description: "Run one bounded networkless command in the workspace.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"script":{"type":"string"}},"required":["script"],"additionalProperties":false}`)},
-		{Name: "Read", Description: "Read one bounded workspace or projected-input file.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
+		{Name: "Bash", Description: "Run one bounded networkless command in the workspace. Pass exactly one of script or command with the shell command text.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"script":{"type":"string"},"command":{"type":"string"}},"additionalProperties":false}`)},
+		{Name: "Read", Description: "Read one bounded workspace or projected-input file. Pass path with optional offset (1-based starting line) and limit (max lines) to window a large file within the byte budget; or pass paths (an array) to batch several files in one call - the same containment and byte budget apply to every path.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"},"paths":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}`)},
 		{Name: "Glob", Description: "List bounded workspace or projected-input paths matching a pattern.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern","path"],"additionalProperties":false}`)},
 		{Name: "Grep", Description: "Search bounded workspace or projected-input text files.",
@@ -261,17 +301,139 @@ func bashFailureResult(
 }
 
 func (session *toolSession) read(arguments []byte) ([]byte, error) {
-	var request struct {
-		Path string `json:"path"`
+	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
+	if err != nil {
+		return nil, fail("INVALID_TOOL_ARGUMENT")
 	}
-	if err := decodeToolArguments(arguments, []string{"path"}, &request); err != nil {
-		return nil, err
+	root, err := closedObject(value, nil, []string{"path", "offset", "limit", "paths"})
+	if err != nil {
+		return nil, fail("INVALID_TOOL_ARGUMENT")
 	}
-	target, root, _, err := session.resolve(request.Path, false, false)
+	pathValue, hasPath := root["path"]
+	pathsValue, hasPaths := root["paths"]
+	_, hasOffset := root["offset"]
+	_, hasLimit := root["limit"]
+	if hasPath == hasPaths || (hasPaths && (hasOffset || hasLimit)) {
+		return nil, fail("INVALID_TOOL_ARGUMENT")
+	}
+	if hasPaths {
+		paths, ok := pathsValue.([]any)
+		if !ok {
+			return nil, fail("INVALID_TOOL_ARGUMENT")
+		}
+		return session.readBatch(paths)
+	}
+	guest, ok := pathValue.(string)
+	if !ok {
+		return nil, fail("INVALID_TOOL_ARGUMENT")
+	}
+	target, base, _, err := session.resolve(guest, false, false)
 	if err != nil {
 		return nil, err
 	}
-	return readToolPath(root, target)
+	body, err := readToolPath(base, target)
+	if err != nil {
+		return nil, err
+	}
+	if !hasOffset && !hasLimit {
+		return body, nil
+	}
+	offset, err := toolIntArgument(root, "offset", 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := toolIntArgument(root, "limit", -1, 1)
+	if err != nil {
+		return nil, err
+	}
+	window, remaining := windowLines(body, offset, limit)
+	if remaining > 0 {
+		window = append(window, []byte("\n[truncated: "+itoa(remaining)+" more lines]")...)
+	}
+	return window, nil
+}
+
+// toolIntArgument reads an optional non-negative integer tool argument,
+// returning fallback when absent. minimum bounds a present value.
+func toolIntArgument(
+	root map[string]any,
+	key string,
+	fallback, minimum int64,
+) (int64, error) {
+	raw, present := root[key]
+	if !present {
+		return fallback, nil
+	}
+	number, ok := raw.(json.Number)
+	if !ok {
+		return 0, fail("INVALID_TOOL_ARGUMENT")
+	}
+	value, err := number.Int64()
+	if err != nil || value < minimum {
+		return 0, fail("INVALID_TOOL_ARGUMENT")
+	}
+	return value, nil
+}
+
+// windowLines returns the 1-based offset/limit line window of an
+// already-read, already budget-checked body, plus the count of further
+// lines the window left unread. A negative limit means unbounded.
+func windowLines(body []byte, offset, limit int64) ([]byte, int) {
+	lines := bytes.Split(body, []byte("\n"))
+	start := offset - 1
+	if start < 0 {
+		start = 0
+	}
+	if start > int64(len(lines)) {
+		start = int64(len(lines))
+	}
+	selected := lines[start:]
+	remaining := 0
+	if limit >= 0 && int64(len(selected)) > limit {
+		remaining = len(selected) - int(limit)
+		selected = selected[:limit]
+	}
+	return bytes.Join(selected, []byte("\n")), remaining
+}
+
+// readBatch resolves and reads each path exactly as a single Read, applying
+// per-file containment and the same aggregate byte budget, and states a
+// truncation marker instead of failing outright when the budget is crossed
+// partway through the batch.
+func (session *toolSession) readBatch(paths []any) ([]byte, error) {
+	if len(paths) == 0 || len(paths) > MaxToolReadBatchPaths {
+		return nil, fail("INVALID_TOOL_ARGUMENT")
+	}
+	var result []byte
+	for index, raw := range paths {
+		guest, ok := raw.(string)
+		if !ok {
+			return nil, fail("INVALID_TOOL_ARGUMENT")
+		}
+		target, base, display, err := session.resolve(guest, false, false)
+		if err != nil {
+			return nil, err
+		}
+		body, err := readToolPath(base, target)
+		if err != nil {
+			return nil, err
+		}
+		var entry []byte
+		if index > 0 {
+			entry = append(entry, '\n')
+		}
+		entry = append(entry, []byte("==> "+display+" <==\n")...)
+		entry = append(entry, body...)
+		if len(result)+len(entry) > MaxToolResultBytes {
+			marker := []byte("\n[truncated: " + itoa(len(paths)-index) + " more path(s) not read]")
+			if len(result)+len(marker) <= MaxToolResultBytes {
+				result = append(result, marker...)
+			}
+			return result, nil
+		}
+		result = append(result, entry...)
+	}
+	return result, nil
 }
 
 func (session *toolSession) write(arguments []byte) ([]byte, error) {
@@ -408,12 +570,26 @@ func (session *toolSession) grep(arguments []byte) ([]byte, error) {
 }
 
 func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte, int, error) {
-	var request struct {
-		Script string `json:"script"`
+	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
+	if err != nil {
+		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
 	}
-	if err := decodeToolArguments(arguments, []string{"script"}, &request); err != nil ||
-		request.Script == "" || len(request.Script) > MaxBashScriptBytes ||
-		!utf8.ValidString(request.Script) {
+	root, err := closedObject(value, nil, []string{"script", "command"})
+	if err != nil {
+		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
+	}
+	scriptValue, hasScript := root["script"]
+	commandValue, hasCommand := root["command"]
+	if hasScript == hasCommand {
+		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
+	}
+	raw := scriptValue
+	if hasCommand {
+		raw = commandValue
+	}
+	script, ok := raw.(string)
+	if !ok || script == "" || len(script) > MaxBashScriptBytes ||
+		!utf8.ValidString(script) {
 		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
 	}
 	return runToolBash(
@@ -421,7 +597,7 @@ func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte,
 		session.invocation,
 		session.projection.Root(),
 		session.scratch,
-		request.Script,
+		script,
 	)
 }
 
