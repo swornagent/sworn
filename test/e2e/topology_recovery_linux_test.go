@@ -831,9 +831,20 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
-		state := readBatonState(t, repository, release)
-		s1, _ := state.Slice("S1")
-		s2, _ := state.Slice("S2")
+		// The park can surface while the independent track still holds
+		// admissible scripted work on a loaded runner; parking isolation
+		// means T2 stays drivable, so re-drive until its pass lands.
+		var state baton.State
+		var s1, s2 *baton.SliceState
+		for attempt := 0; ; attempt++ {
+			state = readBatonState(t, repository, release)
+			s1, _ = state.Slice("S1")
+			s2, _ = state.Slice("S2")
+			if s2.Pass != nil || attempt == 5 {
+				break
+			}
+			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+		}
 		if s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
 			t.Fatalf("parking isolation: S1=%#v S2=%#v assembly=%#v", s1, s2, state.Assembly)
 		}
