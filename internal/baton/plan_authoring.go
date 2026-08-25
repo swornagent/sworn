@@ -148,26 +148,35 @@ func buildPinnedManifestJSON(metadata Metadata, facts map[string]sliceContractFa
 	for _, track := range metadata.Tracks {
 		slices := make([]any, 0, len(track.Slices))
 		for _, slice := range track.Slices {
-			f := facts[slice.ID]
-			outcome := f.outcome
-			if outcome == "" {
-				outcome = slice.Outcome
+			f, derived := facts[slice.ID]
+			// When contract facts are derived (the slice has a
+			// contract_path), all six mirrored facts come strictly
+			// from the contract bytes — including a nil/empty
+			// waivers, which means the contract declares none and any
+			// stale manifest waiver must be dropped. Per-field nil
+			// fallbacks are wrong here: parseWaivers returns nil (not
+			// a non-nil empty slice) for an empty waivers list, unlike
+			// uniqueStringList, so a nil check cannot distinguish
+			// "contract has no waivers" from "no contract was read".
+			// Only slices without a contract_path (unreachable for
+			// admitted manifests, since contract_path is required)
+			// fall back to the manifest's own values.
+			outcome := slice.Outcome
+			digest, hasDigest := metadata.Contracts[slice.ID]
+			if !hasDigest {
+				digest = ""
 			}
-			digest := f.digest
-			if digest == "" {
-				digest = metadata.Contracts[slice.ID]
-			}
-			dependsOn := f.dependsOn
-			if dependsOn == nil {
-				dependsOn = slice.DependsOn
-			}
-			consumes := f.consumes
-			if consumes == nil {
-				consumes = slice.Consumes
-			}
-			touchpoints := f.touchpoints
-			if touchpoints == nil {
-				touchpoints = slice.Scope.Include
+			dependsOn := slice.DependsOn
+			consumes := slice.Consumes
+			touchpoints := slice.Scope.Include
+			waivers := slice.Scope.Waivers
+			if derived {
+				outcome = f.outcome
+				digest = f.digest
+				dependsOn = f.dependsOn
+				consumes = f.consumes
+				touchpoints = f.touchpoints
+				waivers = f.waivers
 			}
 			entry := map[string]any{
 				"id":            slice.ID,
@@ -177,10 +186,6 @@ func buildPinnedManifestJSON(metadata Metadata, facts map[string]sliceContractFa
 				"depends_on":    dependsOn,
 				"consumes":      consumes,
 				"touchpoints":   touchpoints,
-			}
-			waivers := f.waivers
-			if waivers == nil {
-				waivers = slice.Scope.Waivers
 			}
 			if len(waivers) > 0 {
 				waiverList := make([]any, 0, len(waivers))

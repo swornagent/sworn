@@ -361,3 +361,174 @@ func TestRunPlanScopeLintRejectsNonManifestSchema(t *testing.T) {
 		t.Fatalf("code = %q, want INVALID_PLAN_FENCE", ErrorCode(err))
 	}
 }
+
+// TestPinManifestDropsRemovedWaiver verifies that pin derives waivers strictly
+// from the contract: when the live contract declares zero waivers but the
+// manifest entry still carries a stale (previously-derived) waiver, pin must
+// remove it rather than silently retaining it. This is the regression test
+// for the parseWaivers-nil-vs-uniqueStringList asymmetry that caused the
+// attempt-1 FAIL: parseWaivers returns nil for an empty waivers list, so a
+// per-field nil fallback cannot distinguish "contract has no waivers" from
+// "no contract was read", and the stale manifest value leaks through.
+func TestPinManifestDropsRemovedWaiver(t *testing.T) {
+	t.Parallel()
+	repoPath := planAuthoringRepo(t)
+	contractPath := "contracts/S1.json"
+	// manifestContractBody produces a contract with no waivers key in the
+	// scope, so ParseSliceContract yields nil waivers for this slice.
+	contractRaw := planAuthoringContractFile(t, repoPath, contractPath, "S1", "one/file.go")
+	_, realDigest, err := ParseSliceContract(contractRaw, "S1", "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a manifest entry that carries a stale waiver for a package
+	// the contract no longer waives. Pin must drop it.
+	entry := manifestSliceEntry("S1", contractPath, "one/file.go", realDigest)
+	entry["waivers"] = []any{
+		map[string]any{
+			"package": "stale/pkg",
+			"reason":  "this waiver was removed from the contract",
+		},
+	}
+	value := map[string]any{
+		"schema_version": ManifestVersion, "release": "waiver-drop", "revision": int64(1),
+		"previous_plan": nil, "repository": "golden/sworn", "target_ref": "refs/heads/main",
+		"approval_ref": "golden://approval/waiver-drop/1",
+		"tracks": []any{
+			map[string]any{
+				"id": "T1", "depends_on": []any{},
+				"slices": []any{entry},
+			},
+		},
+	}
+	drifted := manifestRaw(t, value)
+
+	repository, err := gitx.Open(repoPath, actionTestGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitRepo := UseGitRepository(repository)
+
+	pinned, err := PinManifest(PinManifestInput{
+		ManifestBytes: drifted,
+		Repository:    gitRepo,
+	})
+	if err != nil {
+		t.Fatalf("PinManifest: %v", err)
+	}
+
+	reparsed, err := ParsePlan(pinned)
+	if err != nil {
+		t.Fatalf("pinned manifest failed to re-admit: %v", err)
+	}
+
+	_, slice, ok := reparsed.FindSlice("S1")
+	if !ok {
+		t.Fatal("pinned manifest has no slice S1")
+	}
+	if len(slice.Scope.Waivers) != 0 {
+		t.Fatalf("pin retained stale waivers: %#v", slice.Scope.Waivers)
+	}
+
+	// The pinned manifest must not contain a "waivers" key for S1 at all,
+	// since the contract declares none. Verify the raw JSON does not
+	// contain the stale package name.
+	if strings.Contains(string(pinned), "stale/pkg") {
+		t.Fatalf("pinned manifest still contains stale waiver package")
+	}
+
+	// Verify the pinned manifest passes ResolveSliceContract cleanly —
+	// the exact gate that the stale waiver would have failed.
+	if _, err := reparsed.ResolveSliceContract("S1", contractRaw); err != nil {
+		t.Fatalf("pinned manifest fails ResolveSliceContract: %v", err)
+	}
+}
+
+// TestPinManifestPreservesWaiverFromContract verifies that pin writes waivers
+// that the contract does declare, proving the fix does not over-correct by
+// always dropping waivers.
+func TestPinManifestPreservesWaiverFromContract(t *testing.T) {
+	t.Parallel()
+	repoPath := planAuthoringRepo(t)
+	contractPath := "contracts/S1.json"
+
+	// Build a contract that explicitly declares one waiver.
+	contractBody := map[string]any{
+		"outcome": "Deliver S1.",
+		"scope": map[string]any{
+			"include": []any{"one/file.go"},
+			"exclude": []any{},
+			"waivers": []any{
+				map[string]any{
+					"package": "tools/batongolden",
+					"reason":  "Golden tools waived for this slice",
+				},
+			},
+		},
+		"acceptance":  []any{map[string]any{"id": "A-S1", "text": "S1 is exact."}},
+		"checks":      []any{"check S1"},
+		"constraints": []any{"deterministic"},
+		"depends_on":  []any{}, "consumes": []any{},
+	}
+	contractRaw := manifestContractRaw(t, contractBody)
+	if err := os.MkdirAll(filepath.Join(repoPath, filepath.Dir(contractPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, filepath.FromSlash(contractPath)), contractRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, realDigest, err := ParseSliceContract(contractRaw, "S1", "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a manifest entry with no waivers (under-declared) — pin must
+	// add the contract's waiver.
+	entry := manifestSliceEntry("S1", contractPath, "one/file.go", realDigest)
+	value := map[string]any{
+		"schema_version": ManifestVersion, "release": "waiver-add", "revision": int64(1),
+		"previous_plan": nil, "repository": "golden/sworn", "target_ref": "refs/heads/main",
+		"approval_ref": "golden://approval/waiver-add/1",
+		"tracks": []any{
+			map[string]any{
+				"id": "T1", "depends_on": []any{},
+				"slices": []any{entry},
+			},
+		},
+	}
+	underDeclared := manifestRaw(t, value)
+
+	repository, err := gitx.Open(repoPath, actionTestGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitRepo := UseGitRepository(repository)
+
+	pinned, err := PinManifest(PinManifestInput{
+		ManifestBytes: underDeclared,
+		Repository:    gitRepo,
+	})
+	if err != nil {
+		t.Fatalf("PinManifest: %v", err)
+	}
+
+	reparsed, err := ParsePlan(pinned)
+	if err != nil {
+		t.Fatalf("pinned manifest failed to re-admit: %v", err)
+	}
+
+	_, slice, ok := reparsed.FindSlice("S1")
+	if !ok {
+		t.Fatal("pinned manifest has no slice S1")
+	}
+	if len(slice.Scope.Waivers) != 1 || slice.Scope.Waivers[0].Package != "tools/batongolden" ||
+		slice.Scope.Waivers[0].Reason != "Golden tools waived for this slice" {
+		t.Fatalf("pin did not derive waiver from contract: %#v", slice.Scope.Waivers)
+	}
+
+	// The pinned manifest must pass ResolveSliceContract cleanly.
+	if _, err := reparsed.ResolveSliceContract("S1", contractRaw); err != nil {
+		t.Fatalf("pinned manifest fails ResolveSliceContract: %v", err)
+	}
+}
