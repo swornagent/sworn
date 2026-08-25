@@ -124,7 +124,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string) *hostCheckFixture {
 		ctx: ctx, manifest: manifest, store: store, owner: owner,
 		service: service, engine: engine, state: state, plan: plan,
 		targetHead: state.Refs.Target.Head, releaseHead: state.Refs.Release.Head,
-		candidate: track.Head,
+		candidate:  track.Head,
 		hostChecks: resolved.HostChecks, contractDgst: contractDigest,
 	}
 }

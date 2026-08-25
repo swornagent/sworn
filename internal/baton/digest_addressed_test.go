@@ -102,8 +102,8 @@ func TestDigestAddressedInPlaceRevision(t *testing.T) {
 	planV2Value := map[string]any{
 		"schema_version": ManifestVersion, "release": release, "revision": int64(2),
 		"previous_plan": resultV1.Plan, "repository": "golden/sworn",
-		"target_ref":    "refs/heads/main",
-		"approval_ref":  "golden://approval/" + release + "/2",
+		"target_ref":   "refs/heads/main",
+		"approval_ref": "golden://approval/" + release + "/2",
 		"tracks": []any{
 			map[string]any{
 				"id": "T1", "depends_on": []any{},
