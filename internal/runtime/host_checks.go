@@ -82,21 +82,23 @@ func hostCheckEffectID(work string) string {
 }
 
 // resolveSliceHostChecks resolves the human-approved contract for sliceID at
-// the exact captured target head and returns its declared host_checks and
-// contract digest. Any divergence from the admitted plan fails closed, so the
-// host runner can only ever execute commands that the approved contract
-// declared.
+// the exact captured release head (for digest-addressed resolution from the
+// record root) and target head (for the path-keyed fallback), and returns its
+// declared host_checks and contract digest. Any divergence from the admitted
+// plan fails closed, so the host runner can only ever execute commands that
+// the approved contract declared.
 func resolveSliceHostChecks(
 	engine *engine,
 	plan baton.Plan,
-	sliceID, targetHead string,
+	sliceID, targetHead, releaseHead string,
 ) ([]string, string, error) {
 	if engine == nil {
 		return nil, "", runtimeFail("INVALID_ENGINE", nil)
 	}
-	contract, err := plan.ResolveSliceContractAt(
+	contract, err := plan.ResolveSliceContractAtHead(
 		engine.git,
 		sliceID,
+		releaseHead,
 		targetHead,
 	)
 	if err != nil {
@@ -230,9 +232,9 @@ func (s *Service) runOneHostCheck(
 	engine *engine,
 	owner journal.OwnerLease,
 	plan baton.Plan,
-	sliceID, candidate, targetHead, check string,
+	sliceID, candidate, targetHead, releaseHead, check string,
 ) (hostCheckResult, error) {
-	hostChecks, contractDigest, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead)
+	hostChecks, contractDigest, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead, releaseHead)
 	if err != nil {
 		return hostCheckResult{}, err
 	}
@@ -429,15 +431,15 @@ func (s *Service) runHostChecks(
 	engine *engine,
 	owner journal.OwnerLease,
 	plan baton.Plan,
-	sliceID, candidate, targetHead string,
+	sliceID, candidate, targetHead, releaseHead string,
 ) ([]hostCheckResult, error) {
-	hostChecks, _, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead)
+	hostChecks, _, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead, releaseHead)
 	if err != nil {
 		return nil, err
 	}
 	results := make([]hostCheckResult, 0, len(hostChecks))
 	for _, check := range hostChecks {
-		result, err := s.runOneHostCheck(ctx, engine, owner, plan, sliceID, candidate, targetHead, check)
+		result, err := s.runOneHostCheck(ctx, engine, owner, plan, sliceID, candidate, targetHead, releaseHead, check)
 		if err != nil {
 			return nil, err
 		}

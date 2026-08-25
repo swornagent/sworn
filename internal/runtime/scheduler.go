@@ -2261,14 +2261,14 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			return discardVerifier(planErr)
 		}
 		hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-			engine, plan, sliceID, state.Refs.Target.Head)
+			engine, plan, sliceID, state.Refs.Target.Head, state.Refs.Release.Head)
 		if resolveErr != nil {
 			return discardVerifier(resolveErr)
 		}
 		if len(hostChecks) > 0 {
 			hostResults, runErr := s.runHostChecks(
 				ctx, engine, owner, plan, sliceID,
-				candidate, state.Refs.Target.Head)
+				candidate, state.Refs.Target.Head, state.Refs.Release.Head)
 			if runErr != nil {
 				return discardVerifier(runErr)
 			}
@@ -3164,14 +3164,14 @@ func (s *Service) claimPreparedImplementation(
 	// failed, timed-out, or overflowed declared host check blocks the seal, so
 	// it can never flow to the verifier as a pass or be absent.
 	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-		engine, plan, cycle.Slice, state.Refs.Target.Head)
+		engine, plan, cycle.Slice, state.Refs.Target.Head, state.Refs.Release.Head)
 	if resolveErr != nil {
 		return sealedRecord{}, journal.Claim{}, resolveErr
 	}
 	if len(hostChecks) > 0 {
 		hostResults, runErr := s.runHostChecks(
 			ctx, engine, owner, plan, cycle.Slice,
-			record.Candidate, state.Refs.Target.Head)
+			record.Candidate, state.Refs.Target.Head, state.Refs.Release.Head)
 		if runErr != nil {
 			return sealedRecord{}, journal.Claim{}, runErr
 		}

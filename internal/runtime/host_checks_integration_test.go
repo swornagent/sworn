@@ -27,6 +27,7 @@ type hostCheckFixture struct {
 	state        baton.State
 	plan         baton.Plan
 	targetHead   string
+	releaseHead  string
 	candidate    string
 	hostChecks   []string
 	contractDgst string
@@ -111,7 +112,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string) *hostCheckFixture {
 		slice.Stage != "implement" || slice.NextRole != "implementer" {
 		t.Fatalf("implementation authority = %#v", state)
 	}
-	resolved, err := plan.ResolveSliceContractAt(engine.git, "S1", state.Refs.Target.Head)
+	resolved, err := plan.ResolveSliceContractAtHead(engine.git, "S1", state.Refs.Release.Head, state.Refs.Target.Head)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,8 @@ func newHostCheckFixture(t *testing.T, hostChecks []string) *hostCheckFixture {
 	return &hostCheckFixture{
 		ctx: ctx, manifest: manifest, store: store, owner: owner,
 		service: service, engine: engine, state: state, plan: plan,
-		targetHead: state.Refs.Target.Head, candidate: track.Head,
+		targetHead: state.Refs.Target.Head, releaseHead: state.Refs.Release.Head,
+		candidate: track.Head,
 		hostChecks: resolved.HostChecks, contractDgst: contractDigest,
 	}
 }
@@ -168,7 +170,7 @@ func TestHostCheckExecutionJournalsAndBindsExactlyOnce(t *testing.T) {
 	fixture := newHostCheckFixture(t, []string{"printf 'host ok\\n'"})
 	results, err := fixture.service.runHostChecks(
 		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
-		"S1", fixture.candidate, fixture.targetHead)
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +201,7 @@ func TestHostCheckExecutionJournalsAndBindsExactlyOnce(t *testing.T) {
 	// succeeded effect and returns identical evidence without a new run.
 	again, err := fixture.service.runHostChecks(
 		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
-		"S1", fixture.candidate, fixture.targetHead)
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +225,7 @@ func TestHostCheckManifestProvenanceCannotBeSubstituted(t *testing.T) {
 	fixture := newHostCheckFixture(t, []string{"printf 'host ok\\n'"})
 	results, err := fixture.service.runHostChecks(
 		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
-		"S1", fixture.candidate, fixture.targetHead)
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +261,7 @@ func TestHostCheckRunnerRefusesUndeclaredIdentityAndJournalsRefusal(t *testing.T
 	fixture := newHostCheckFixture(t, []string{"printf 'host ok\\n'"})
 	_, err := fixture.service.runOneHostCheck(
 		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
-		"S1", fixture.candidate, fixture.targetHead, "rm -rf /")
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead, "rm -rf /")
 	if !IsCode(err, "HOST_CHECK_NOT_DECLARED") {
 		t.Fatalf("undeclared check error = %v", err)
 	}
@@ -287,7 +289,7 @@ func TestHostCheckRunnerRecordsOverflowAsFailure(t *testing.T) {
 	fixture := newHostCheckFixture(t, []string{"yes x | head -c 1000000"})
 	_, err := fixture.service.runHostChecks(
 		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
-		"S1", fixture.candidate, fixture.targetHead)
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
 	if !IsCode(err, "HOST_CHECK_FAILED") {
 		t.Fatalf("overflow error = %v", err)
 	}

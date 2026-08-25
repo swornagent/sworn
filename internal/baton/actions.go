@@ -333,10 +333,18 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	if err != nil {
 		return ActionResult{}, err
 	}
+	contractChanges, err := a.contractStoreChanges(parsed, input.ContractTree)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	recordChanges := map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()}
+	for path, bytes := range contractChanges {
+		recordChanges[path] = bytes
+	}
 	preparedPlan, err := a.repository.prepareRecord(
 		parent,
 		fmt.Sprintf("%s(%s): plan revision %d", a.repository.commitPrefix(), release, metadata.Revision),
-		map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()},
+		recordChanges,
 		documents,
 	)
 	if err != nil {
@@ -459,10 +467,13 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 // verifyManifestContracts proves, before this action creates or moves any
 // Git object, that every sworn.release-manifest/v1 slice's declared
 // contract_path is already present in the caller-prepared source tree and
-// agrees with the manifest's own declaration. See resolveManifestContracts
+// agrees with the manifest's own declaration. At write time the release head
+// does not yet exist (or is the prior revision's head), so digest-addressed
+// resolution is not yet available; resolution falls back to path-keyed
+// reading from the caller-prepared source tree. See resolveManifestContracts
 // for the shared validator this and read-time discovery both use.
 func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
-	return resolveManifestContracts(a.repository, parsed, source)
+	return resolveManifestContracts(a.repository, parsed, source, "")
 }
 
 func (a *Actions) verifyPlanScopeLint(parsed Plan, commit string) error {
@@ -517,6 +528,65 @@ func (a *Actions) documentsForInstall(parsed Plan, contractTree string) (map[str
 		)] = file.Bytes
 	}
 	return documents, nil
+}
+
+// contractStoreChanges returns the digest-addressed contract bytes to write
+// under the record root in the same record commit that writes the plan. For
+// every sworn.release-manifest/v1 slice that declares a contract_path, the
+// exact contract bytes (read from the caller-prepared contract tree, the same
+// source verifyManifestContracts just validated) are written to the
+// digest-addressed store path under the record root. These bytes are the
+// engine-read authority for digest-addressed resolution; the authored copy
+// under the documents root is what a person reads. Legacy baton.plan/v2 plans
+// carry their slices inline and contribute no contract store changes.
+func (a *Actions) contractStoreChanges(parsed Plan, contractTree string) (map[string][]byte, error) {
+	metadata := parsed.Metadata()
+	if metadata.SchemaVersion != ManifestVersion {
+		return nil, nil
+	}
+	var paths []string
+	sliceByID := make(map[string]string)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByID[slice.ID] = slice.ContractPath
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 || contractTree == "" {
+		return nil, nil
+	}
+	files, err := a.repository.files(contractTree, paths)
+	if err != nil {
+		return nil, err
+	}
+	changes := make(map[string][]byte)
+	recordRoot := a.repository.recordRoot()
+	for _, file := range files {
+		if !file.Present {
+			return nil, recordFail(
+				"CONTRACT_NOT_FOUND",
+				"contract source is missing "+file.Path,
+			)
+		}
+		// Find the slice ID for this contract path.
+		var sliceID string
+		for id, path := range sliceByID {
+			if path == file.Path {
+				sliceID = id
+				break
+			}
+		}
+		digest, ok := parsed.Contract(sliceID)
+		if !ok {
+			continue
+		}
+		storePath := contractStorePath(recordRoot, metadata.Release, digest)
+		changes[storePath] = file.Bytes
+	}
+	return changes, nil
 }
 
 // documentPlanPath is the authored plan path under the documents root.

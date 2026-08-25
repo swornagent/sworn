@@ -332,19 +332,41 @@ func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
 	return contract, nil
 }
 
-// ResolveSliceContractAt resolves the approved slice contract for sliceID at
-// an exact commit, reading the contract bytes from that commit through the
-// admitted read-only repository handle and proving them against this plan's
-// declared digest via ResolveSliceContract. Legacy inline slices carry their
-// full contract body in the plan itself, so no file read is needed and the
-// already-admitted slice is returned unchanged. Any missing contract source,
-// digest mismatch, or mutation of the declared shape fails closed, so the
-// host-check runner can never execute commands from anything but the
-// human-approved, digest-bound contract at the exact captured head.
+// ResolveSliceContractAt resolves the approved slice contract for sliceID,
+// reading the contract bytes through the admitted read-only repository handle
+// and proving them against this plan's declared digest via
+// ResolveSliceContract. Legacy inline slices carry their full contract body in
+// the plan itself, so no file read is needed and the already-admitted slice is
+// returned unchanged.
+//
+// For sworn.release-manifest/v1 slices, resolution is digest-addressed: the
+// contract bytes are read from the digest-addressed store in the record root
+// at the release head (the record commit lineage, which always contains the
+// record root). The manifest's declared contract_path remains as provenance
+// (still validated for contracts-root membership) but is no longer the byte
+// source. If the digest-addressed store is absent at the release head — the
+// case for releases recorded before this slice — resolution falls back to
+// path-keyed reading from the target head (the commit parameter), preserving
+// backward compatibility. Any missing contract source, digest mismatch, or
+// mutation of the declared shape fails closed, so the host-check runner can
+// never execute commands from anything but the human-approved, digest-bound
+// contract at the exact captured head.
 func (p Plan) ResolveSliceContractAt(
 	repository GitRepository,
 	sliceID string,
 	commit string,
+) (Slice, error) {
+	return p.ResolveSliceContractAtHead(repository, sliceID, commit, commit)
+}
+
+// ResolveSliceContractAtHead resolves the approved slice contract for sliceID
+// with an explicit release head for digest-addressed resolution and a target
+// head (commit) for the path-keyed fallback. See ResolveSliceContractAt for
+// the full resolution order and fail-closed semantics.
+func (p Plan) ResolveSliceContractAtHead(
+	repository GitRepository,
+	sliceID string,
+	releaseHead, targetHead string,
 ) (Slice, error) {
 	_, declared, ok := p.FindSlice(sliceID)
 	if !ok {
@@ -364,10 +386,31 @@ func (p Plan) ResolveSliceContractAt(
 			"contract source "+declared.ContractPath+" is outside the configured contracts root "+contractsRoot,
 		)
 	}
-	if commit == "" {
+	// Digest-addressed resolution: read contract bytes from the digest store
+	// at the release head. The release head is the record commit lineage and
+	// always contains the record root, so the digest store is present for any
+	// release recorded after this slice. The manifest's declared digest
+	// determines the path; the manifest's contract_path is provenance.
+	digest, digestKnown := p.Contract(sliceID)
+	if digestKnown && releaseHead != "" {
+		recordRoot := RecordRoot
+		if repository.repository() != nil {
+			recordRoot = repository.repository().RecordRoot()
+		}
+		storePath := contractStorePath(recordRoot, p.Metadata().Release, digest)
+		if raw, present, err := readGitFileAt(repository, releaseHead, storePath); err != nil {
+			return Slice{}, err
+		} else if present {
+			return p.ResolveSliceContract(sliceID, raw)
+		}
+	}
+	// Fallback: path-keyed resolution from the target head. This preserves
+	// backward compatibility for releases recorded before digest addressing
+	// (the digest store is absent at the release head).
+	if targetHead == "" {
 		return Slice{}, recordFail("CONTRACT_SOURCE_REQUIRED", "manifest declares contract paths but no commit was provided")
 	}
-	raw, present, err := readGitFileAt(repository, commit, declared.ContractPath)
+	raw, present, err := readGitFileAt(repository, targetHead, declared.ContractPath)
 	if err != nil {
 		return Slice{}, err
 	}
@@ -378,18 +421,20 @@ func (p Plan) ResolveSliceContractAt(
 }
 
 // resolveManifestContracts reads every sworn.release-manifest/v1 slice's
-// declared contract_path from source by exact safe path and cross-validates
-// each one against parsed's manifest declaration through ResolveSliceContract.
-// Contract paths are ordinary product-tree content (never under RecordRoot),
-// so this only proves the manifest and the real committed contracts agree; it
-// never reads or writes anything under RecordRoot. Legacy baton.plan/v2 plans
-// carry their slice bodies inline and have no contract paths, so they never
-// consult source. A manifest that declares contract paths with no source, or
-// whose source is missing, substitutes, or mismatches any declared path,
-// fails closed. Both write-time admission (RecordPlanRevision, against a
-// caller-prepared tree) and read-time discovery (readState, against the
-// exact captured target head) share this one validator.
-func resolveManifestContracts(repository *repository, parsed Plan, source string) error {
+// contract and cross-validates it against parsed's manifest declaration
+// through ResolveSliceContract. For releases recorded with digest addressing,
+// contract bytes are read from the digest-addressed store in the record root
+// at the release head (releaseHead). For releases recorded before digest
+// addressing (or when the digest store is absent at the release head),
+// resolution falls back to path-keyed reading from the source (target head).
+// Legacy baton.plan/v2 plans carry their slice bodies inline and have no
+// contract paths, so they never consult source. A manifest that declares
+// contract paths with no source, or whose source is missing, substitutes, or
+// mismatches any declared path, fails closed. Both write-time admission
+// (RecordPlanRevision, against a caller-prepared tree) and read-time
+// discovery (readState, against the exact captured release and target heads)
+// share this one validator.
+func resolveManifestContracts(repository *repository, parsed Plan, source, releaseHead string) error {
 	metadata := parsed.Metadata()
 	if metadata.SchemaVersion != ManifestVersion {
 		return nil
@@ -417,13 +462,69 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 			)
 		}
 	}
+	// Digest-addressed resolution: try the digest store at the release head
+	// first. The release head is the record commit lineage and always
+	// contains the record root, so the digest store is present for any
+	// release recorded after this slice.
+	resolved := make(map[string]bool)
+	if releaseHead != "" {
+		recordRoot := repository.recordRoot()
+		storePaths := make([]string, 0, len(metadata.Tracks))
+		digestByStorePath := make(map[string]string)
+		for _, track := range metadata.Tracks {
+			for _, slice := range track.Slices {
+				if slice.ContractPath == "" {
+					continue
+				}
+				digest, ok := parsed.Contract(slice.ID)
+				if !ok {
+					continue
+				}
+				storePath := contractStorePath(recordRoot, metadata.Release, digest)
+				storePaths = append(storePaths, storePath)
+				digestByStorePath[storePath] = slice.ID
+			}
+		}
+		if len(storePaths) > 0 {
+			files, err := repository.files(releaseHead, storePaths)
+			if err != nil {
+				return err
+			}
+			for _, file := range files {
+				if !file.Present {
+					continue
+				}
+				sliceID := digestByStorePath[file.Path]
+				if _, err := parsed.ResolveSliceContract(sliceID, file.Bytes); err != nil {
+					return err
+				}
+				resolved[sliceID] = true
+			}
+		}
+	}
+	// Fallback: path-keyed resolution from the source (target head) for any
+	// slice whose contract was not found in the digest store. This preserves
+	// backward compatibility for releases recorded before digest addressing.
+	var remainingPaths []string
+	remainingSliceByPath := make(map[string]string)
+	for _, path := range paths {
+		sliceID := sliceByPath[path]
+		if resolved[sliceID] {
+			continue
+		}
+		remainingPaths = append(remainingPaths, path)
+		remainingSliceByPath[path] = sliceID
+	}
+	if len(remainingPaths) == 0 {
+		return nil
+	}
 	if source == "" {
 		return recordFail(
 			"CONTRACT_SOURCE_REQUIRED",
 			"manifest declares contract paths but no contract source was provided",
 		)
 	}
-	files, err := repository.files(source, paths)
+	files, err := repository.files(source, remainingPaths)
 	if err != nil {
 		return err
 	}
@@ -431,7 +532,7 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 		if !file.Present {
 			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
 		}
-		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
+		if _, err := parsed.ResolveSliceContract(remainingSliceByPath[file.Path], file.Bytes); err != nil {
 			return err
 		}
 	}

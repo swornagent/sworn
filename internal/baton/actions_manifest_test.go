@@ -135,12 +135,16 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 		t.Fatalf("reread resolution = %#v, err = %v", resolved, err)
 	}
 
-	// Recording touches only the manifest record plus the authored documents
-	// (A1): the pre-existing contract is proven in place, never duplicated
-	// into a new blob under RecordRoot, and its authored copy plus the
-	// authored plan are published under the documents root in the same commit.
+	// Recording touches the manifest record, the digest-addressed contract
+	// store, and the authored documents (A1): the contract bytes are written
+	// to the digest-addressed store under the record root (the engine-read
+	// authority for digest-addressed resolution), and the authored copy plus
+	// the authored plan are published under the documents root in the same
+	// commit. The pre-existing contract at its target path is proven in place
+	// and never duplicated into a new product-tree blob.
 	changed := strings.Fields(actionGit(t, repoPath, nil, nil, "diff", "--name-only", result.Target, result.Head))
 	expected := []string{
+		contractStorePath(RecordRoot, release, digest),
 		planPath(RecordRoot, release),
 		documentContractPath(gitx.DefaultDocumentsRoot, release, "S1"),
 		documentPlanPath(gitx.DefaultDocumentsRoot, release),
@@ -161,6 +165,12 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 	)
 	if err != nil || !authoredContract.Present || !bytes.Equal(authoredContract.Bytes, contractRaw) {
 		t.Fatalf("authored contract = %#v, err = %v", authoredContract, err)
+	}
+	// The digest-addressed contract store under the record root carries the
+	// engine-read authority: its bytes match the original contract bytes.
+	storeFile, err := actions.repository.file(result.Head, contractStorePath(RecordRoot, release, digest))
+	if err != nil || !storeFile.Present || !bytes.Equal(storeFile.Bytes, contractRaw) {
+		t.Fatalf("digest store = %#v, err = %v", storeFile, err)
 	}
 }
 

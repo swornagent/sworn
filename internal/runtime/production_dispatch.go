@@ -846,7 +846,7 @@ func captureHostEvidence(
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-		engine, plan, workContext.Slice, state.Refs.Target.Head)
+		engine, plan, workContext.Slice, state.Refs.Target.Head, state.Refs.Release.Head)
 	if resolveErr != nil {
 		return resolveErr
 	}

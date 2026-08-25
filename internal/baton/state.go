@@ -304,14 +304,16 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		}
 		return State{}, recordFail("INVALID_HEAD_OBJECT", "target ref is not one direct commit")
 	}
-	// The current admitted manifest's declared contracts are ordinary
-	// product-tree content living at the exact captured target head, the same
-	// tree readState already treats as authoritative for everything else this
-	// release reads. Rereading and cross-validating them here, on every read,
-	// keeps repository discovery fail-closed against a contract that moved,
-	// was substituted, or disappeared after the manifest was recorded; legacy
-	// baton.plan/v2 plans have no contract paths and are unaffected.
-	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head); err != nil {
+	// The current admitted manifest's declared contracts are resolved by
+	// canonical digest from the digest-addressed store in the record root at
+	// the release head (the record commit lineage, which always contains the
+	// record root), falling back to path-keyed resolution from the target head
+	// for releases recorded before digest addressing. Rereading and
+	// cross-validating them here, on every read, keeps repository discovery
+	// fail-closed against a contract that was substituted or disappeared after
+	// the manifest was recorded; legacy baton.plan/v2 plans have no contract
+	// paths and are unaffected.
+	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head, releaseCapture.Head); err != nil {
 		return State{}, err
 	}
 	for _, trackID := range historicalTrackOrder {
