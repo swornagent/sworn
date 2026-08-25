@@ -1,0 +1,72 @@
+{
+ "outcome": "The worker-facing surface stops lying and stops starving: Bash accepts the command alias every model reaches for, Read gains offset/limit and a batched paths form so whole-file rereads stop burning provider windows and batching intent has a legal syntax, the .git mask becomes an honest empty file instead of a character device that breeds theories, and an environment-facts block states the toolchain path, the mask, and the read budget that every worker today re-derives by habit.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "sandbox authority (the mount set, network closure, clearenv, and containment semantics are unchanged; the mask swap changes what the masked path looks like, never what it protects)",
+   "the codex-native toolchain gap itself (sworn#238's missing /usr bind in the codex closure is its own issue; only the tell-the-worker rider rides here)",
+   "the R3 malformed-call correction machinery (it keeps correcting; this slice removes classes before correction is needed)",
+   "role operation assets (S5's seam; this slice's prose lives in the tool descriptions and the prompt envelope)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins the worker tool schemas or the prompt envelope"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins the worker tool schemas or the prompt envelope"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver by import only; no observe test pins the worker tool schemas or the prompt envelope"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins the worker tool schemas or the prompt envelope"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins the worker tool schemas or the prompt envelope"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Bash accepts command: the tool declares a single required script key under additionalProperties:false (toolDefinitions, internal/driver/tools.go:150-151) while its own description already says 'command' in prose ('Run one bounded networkless command'), and a model sending {\"command\": ...} - which sworn#188 observed every model tested reach for first, including twice in one run - dies in decodeToolArguments (tools.go:854-860) with every distinct decode code flattened to the single opaque error:INVALID_TOOL_ARGUMENT the model receives (tools.go:232-236); Gemini never even sees the closed schema (stripUnsupportedSchemaKeywords, gemini.go:206-234). After this slice Bash accepts command as an exact alias for script - exactly one of the two, both-present rejected - and the description names both. Pinned by driver tests over script-only, command-only, and both."
+  },
+  {
+   "id": "A2",
+   "text": "Read grows offset/limit and a batched paths form: today's schema is a single required path (tools.go:152-153), the read is whole-file within MaxToolResultBytes=262144 (readToolPath, tools_linux.go:20-35; the constant at tools.go:27; the execute cap at tools.go:237-240) with no offset anywhere in the path - which sworn#236 measured at 52 Read calls carrying 2.55MB, 93% of all tool-result mass in a blown 1M-token window, one call returning a whole 213KB scheduler.go - and a batching attempt spelled as duplicate keys dies in transport decode as continuation.toolcall_decode.arguments_json_invalid (responsesFunctionCall, responses.go:497-500, via DUPLICATE_NAME at contract.go:826-828), which the R3 correction loop corrects (provider.go:618-634) without ever offering a legal syntax - ox-alpha burned 0/6 tries on exactly this. After this slice Read accepts optional offset/limit on a single path and a paths batch form, results stay bounded by the same budget with truncation stated rather than silent, and the descriptions teach the forms the way the sworn_submit description already teaches its exact-bytes path form (the description text at tools.go:173-177 backed by materializeExactBytesPaths at tools.go:561-596 - the house precedent that form-teaching lives in the description string). Pinned by driver tests over offset windows, a multi-path batch, the budget edge, and sworn#188's observed unprompted limit/offset spelling decoding cleanly."
+  },
+  {
+   "id": "A3",
+   "text": "The .git mask is an honest file: in a git worktree .git is a pointer file, so both containment sites' regular-file branch binds /dev/null over it (runToolBash, tools_linux.go:477-493 at :489; linuxSandboxArguments, process_linux.go:419-441 at :437) and the worker sees a character device - sworn#189's implementer spent turns theorising a 'git daemon style device' before concluding git cannot work. After this slice the regular-file mask materializes as an empty regular file, the read-only verifier exception (withoutGit, invoke.go:128-138; readOnlyGitBinds, tools_linux.go:373-406) is untouched, and the environment-facts block of A4 states the mask outright. Pinned by a containment test that constructs a worktree pointer file - the regular-file branch has no direct coverage today (existing tests exercise only the directory/tmpfs branch, tools_linux_test.go:485-518)."
+  },
+  {
+   "id": "A4",
+   "text": "An environment-facts block tells workers what they re-derive by habit: the entire worker context is the promptEnvelope built at modelPrompt (provider.go:1061-1114, shared by HTTP and native dispatch via native_linux.go:1940-1951), whose single Instruction string (:1090) names no environment fact - while the executor sandbox ro-binds all of /usr (tools_linux.go:437) yet sets PATH=/usr/bin:/bin (:514, same at process_linux.go:451), leaving the Go toolchain at /usr/local/go/bin present but off-PATH, re-exported by every model per session (sworn#238's rider). After this slice the envelope carries an environment block stating, for the invocation's actual surface: where the toolchain lives, that .git is masked by policy, and the tool-result byte budget - derived from the same values that enforce them, and honest per adapter (the codex-native closure mounts no /usr at all, native_linux.go:2841-2907; the block must not claim a toolchain that surface does not have). Pinned by tests reading the block back for an HTTP invocation and a native invocation."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Vocabulary grows additively: script-only and path-only calls keep working byte-identically; no existing well-formed call changes meaning.",
+  "Environment facts are derived, never duplicated: the block reads the constants and closure decisions that actually govern the invocation (MaxToolResultBytes, the mask set, the PATH the sandbox sets) - a hardcoded parallel copy is the N-places-drift defect this repo has met five times and is refused at review.",
+  "The tool-surface digest will move: any schema or description edit shifts nativeToolSurfaceDigest (native.go:667-677), so native re-certification is an expected release consequence, and schema-shape pins (tools_linux_test.go:36-54, gemini_schema_test.go) are re-pinned deliberately, never loosened.",
+  "Read batching is a convenience, not a bypass: per-file resolution, containment checks, and the aggregate result budget apply to every path in a batch exactly as to a single read.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository.",
+  "The prompt envelope stays within MaxProviderRequestBytes (provider.go:1109-1112); the environment block is a few lines of facts, not documentation."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
