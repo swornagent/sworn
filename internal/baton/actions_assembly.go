@@ -263,12 +263,23 @@ func classifyStateAssembly(
 			"release has no approved plan history",
 		)
 	}
+	currentOID := state.Plan.History[len(state.Plan.History)-1].OID
 	current := state.Plan.History[len(state.Plan.History)-1].Plan
 	topology := topologyFromPlanHistory(state.Plan.History)
 	evidence := assemblyEvidenceFromTracks(state.Tracks)
+	planByOID := planByOIDFromHistory(state.Plan.History)
+	acceptanceIdentities, err := resolveAcceptanceIdentities(
+		repository, state.Release, state.Refs.Release.Head, planByOID,
+	)
+	if err != nil {
+		return assemblyClassification{}, err
+	}
 	classification, err := classifyAssembly(
 		repository,
 		current,
+		currentOID,
+		planByOID,
+		acceptanceIdentities,
 		topology,
 		evidence,
 	)

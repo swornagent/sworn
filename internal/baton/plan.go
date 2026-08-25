@@ -1061,17 +1061,10 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		Acceptance: acceptance, Checks: checks, HostChecks: hostChecks,
 		Constraints: constraints, DependsOn: depends, Consumes: consumes,
 	}
-	scopeMap := map[string]any{
-		"include": slice.Scope.Include,
-		"exclude": slice.Scope.Exclude,
-	}
-	if len(slice.Scope.Waivers) > 0 {
-		scopeMap["waivers"] = waiversAny(slice.Scope.Waivers)
-	}
 	contractValue := map[string]any{
 		"track": trackID,
 		"id":    slice.ID, "outcome": slice.Outcome,
-		"scope":      scopeMap,
+		"scope":      scopeCanonical(slice.Scope),
 		"acceptance": criteriaAny(slice.Acceptance),
 		"checks":     slice.Checks, "constraints": slice.Constraints,
 		"depends_on": slice.DependsOn, "consumes": slice.Consumes,
@@ -1095,6 +1088,44 @@ func criteriaAny(criteria []Criterion) []any {
 		result[index] = map[string]any{"id": criterion.ID, "text": criterion.Text}
 	}
 	return result
+}
+
+// scopeCanonical builds the canonical map shape for one Scope, shared by the
+// fused contract digest and acceptanceIdentity below, so both hash the exact
+// same bytes for the fields they share.
+func scopeCanonical(scope Scope) map[string]any {
+	scopeMap := map[string]any{
+		"include": scope.Include,
+		"exclude": scope.Exclude,
+	}
+	if len(scope.Waivers) > 0 {
+		scopeMap["waivers"] = waiversAny(scope.Waivers)
+	}
+	return scopeMap
+}
+
+// acceptanceIdentity is the split half of the fused contract digest that
+// covers acceptance/scope identity only: the same canonical payload
+// validateSliceBody hashes, minus checks and host_checks. A slice's
+// acceptanceIdentity is unchanged by any edit to its checks list, so a
+// receipt matched on this value alone stays applicable across a
+// checks-only contract revision. slice must be the fully resolved contract
+// body (e.g. from ResolveSliceContract), not a sworn.release-manifest/v1
+// manifest stub, which carries no acceptance, constraints, or scope.exclude.
+func acceptanceIdentity(trackID string, slice Slice) (string, error) {
+	payload := map[string]any{
+		"track": trackID,
+		"id":    slice.ID, "outcome": slice.Outcome,
+		"scope":       scopeCanonical(slice.Scope),
+		"acceptance":  criteriaAny(slice.Acceptance),
+		"constraints": slice.Constraints,
+		"depends_on":  slice.DependsOn, "consumes": slice.Consumes,
+	}
+	canonical, err := canonicalJSON(payload)
+	if err != nil {
+		return "", err
+	}
+	return DigestBytes(canonical), nil
 }
 
 func parseWaivers(value any, label string) ([]ScopeWaiver, error) {
