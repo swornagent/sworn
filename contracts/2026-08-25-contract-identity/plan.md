@@ -428,14 +428,14 @@ R3-S7's proposal persistence, now on main; the rest are disjoint. The
 verifier judges each slice by its worker-runnable checks and evidence
 anchors; e2e conformance remains declared CI evidence (ADR-0010).
 
-Roles: stealth/ox-alpha implements via the openrouter-ox profile - the
-re-audition Brad's standing plan calls for now that R3-S8's correction
-machinery is on main, its dup-key habit the first live test - with
-xai-grok/grok-4.6 the named fallback implementer; grok-4.6 captains
-(the most reliable judging engine of the R3 runs); claude-sonnet-5
-verifies (ops binary carries the sworn#220 pin bump as a precedented
-operator patch until that issue lands); gemini-3.7-flash plans and
-recovers. This release does not alter trust rules, approval semantics,
+Roles (operator-directed 2026-08-25, cost-managed - grok benched, no
+xAI spend this release): glm-5.2 implements via ollama-cloud (certify
+before launch - it is live-probed only; claude-sonnet-5 is the named
+fallback implementer); claude-opus-5 captains; claude-sonnet-5
+verifies; gemini-3.7-flash plans and recovers. The ops binary carries
+the sworn#220 claude pin bump as a precedented operator patch until
+that issue lands. The ox-alpha re-audition does not ride this release.
+This release does not alter trust rules, approval semantics,
 containment authority, or what any control verb is permitted to do;
 identity changes are additive-with-migration inside the record tree,
 new tool vocabulary is additive, and all defaults preserve today's
