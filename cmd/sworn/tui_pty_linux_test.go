@@ -730,22 +730,31 @@ func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
 		t.Fatal("background drive did not reach complete after action return")
 	}
 
-	// 5. Verify journal contains succeeded baton.merge effect
+	// 5. Verify journal contains succeeded baton.merge effect. Status
+	// "complete" derives from git truth (the merge refs), which lands
+	// before the journal Succeeded row is written on the same claimed
+	// action, so the journal is polled rather than sampled once.
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	snapshot, err := store.Snapshot(context.Background(), runID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	hasMerge := false
-	for _, effect := range snapshot.Effects {
-		if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
-			hasMerge = true
+	for time.Now().Before(deadline) {
+		snapshot, err := store.Snapshot(context.Background(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+				hasMerge = true
+				break
+			}
+		}
+		if hasMerge {
 			break
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if !hasMerge {
 		t.Fatal("merge effect not recorded in journal")
@@ -842,21 +851,30 @@ func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
 	// 5. Clean exit
 	session.quit()
 
-	// 6. Verify journal facts
+	// 6. Verify journal facts. The rendered "Status: Complete" derives
+	// from git truth, which lands before the journal Succeeded row on the
+	// same claimed action, so the journal is polled rather than sampled
+	// once.
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	snapshot, err := store.Snapshot(context.Background(), runID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	journalDeadline := time.Now().Add(30 * time.Second)
 	hasMerge := false
-	for _, effect := range snapshot.Effects {
-		if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
-			hasMerge = true
-			break
+	for !hasMerge && time.Now().Before(journalDeadline) {
+		snapshot, err := store.Snapshot(context.Background(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+				hasMerge = true
+				break
+			}
+		}
+		if !hasMerge {
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	if !hasMerge {

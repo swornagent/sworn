@@ -347,9 +347,12 @@ func credentialFixtureInvoke(
 	)
 	base, _, _ := memoryInvocationFixture(t)
 	base.Selected = selected
+	// The timeout must land before the permission is minted: the
+	// permission digests the request, and a post-mint mutation fails
+	// PERMISSION_BINDING_MISMATCH before any process launches.
+	base.Request.Limits.TimeoutMillis = timeoutMillis
 	pair := nativeSmokeInvocationsFixture(t, base)
 	invocation := pair.FreshReadWrite
-	invocation.Request.Limits.TimeoutMillis = timeoutMillis
 	_, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 	return err
 }
@@ -471,9 +474,9 @@ func TestNativeBenignRotationKeepsCompletedDispatch(t *testing.T) {
 				)
 			base, _, _ := memoryInvocationFixture(t)
 			base.Selected = selected
+			base.Request.Limits.TimeoutMillis = 30_000
 			pair := nativeSmokeInvocationsFixture(t, base)
 			invocation := pair.FreshReadWrite
-			invocation.Request.Limits.TimeoutMillis = 30_000
 
 			done := make(chan Observation, 1)
 			errs := make(chan error, 1)
