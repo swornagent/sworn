@@ -1,0 +1,75 @@
+{
+ "outcome": "Temp roots stop accumulating forever: the driver factory sweeps stale certification roots at construction in the proven native-session reaper pattern, so a run that dies without unwinding no longer leaves its sworn-driver-certification root behind permanently, and the one gitx temp site cleaned by per-return removes becomes a defer so a panic cannot leak it.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/gitx"
+  ],
+  "exclude": [
+   "the native-session reaper itself (reapNativeSessionRoots and its guards are the pattern to copy, not a surface to change)",
+   "in-process defer cleanup at the other temp sites (invocation-scratch, inputs, capture, git-index/context/home dirs already clean up in-process; cross-process sweeps for them are out of scope)",
+   "Close() semantics (the factory's existing cleanup contract is unchanged)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/baton",
+    "reason": "its tests reach internal/gitx by import only; no baton test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach the touched packages by import only; no runtime test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/gitx by import only; no skill test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no tui test pins factory temp-root lifecycle or ref-transaction cleanup"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its tests reach internal/gitx via internal/baton by import only; no batongolden fixture pins temp-root lifecycle"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The driver factory reaps its own stale roots: NewProductionDriverFactory (internal/driver/factory.go:35) mints sworn-driver-certification-v1-* under the temp root at :51 with nested workspace-* dirs (:204), and the only cleanup is Close() (:116, sync.Once + RemoveAll at :120-127) - nothing runs under SIGKILL/OOM/reboot, hence the hundreds of empty leaked roots in sworn#194. After this slice, construction sweeps stale prior roots before minting its own, copying the reapNativeSessionRoots shape (internal/driver/native_linux.go:820, invoked at construction :438): prefix match, uid ownership, non-symlink directory, age guard against a lifetime (staleNativeSessionRoot :883, validNativeSessionRoot :892 are the guard patterns), with unremovable roots handled without failing construction. Pinned by tests over a stale root, a fresh root, a foreign-owned root, and a symlink."
+  },
+  {
+   "id": "A2",
+   "text": "ApplyRefTransaction cannot leak by panic: internal/gitx/refs.go:594 mints sworn-ref-transaction-* and cleans it by explicit removes on three exits (:599, :603, :610) - any other return or a panic between :594 and :610 leaks the directory, in contrast to the adjacent defer cancel() at :583. After this slice the cleanup is a single defer with the existing subordinate-error semantics (:629's inert-cleanup stance) preserved. Pinned by the existing suite staying green plus a test or review evidence that every exit path is covered by the defer."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The reaper must never touch a root it cannot prove is sworn's and stale: prefix, same-uid ownership, non-symlink shape, and an age floor are all required, in the spirit of validNativeSessionRoot; when in doubt, leave it.",
+  "Certification roots have no lease file; the liveness guard is the age floor plus ownership - the reaper must be conservative enough that a concurrently constructing factory's fresh root is never swept.",
+  "A reap failure degrades, never detonates: construction proceeds when a stale root resists removal (parking or skipping is acceptable); the factory's own root lifecycle and Close() behavior are unchanged.",
+  "This is the release's smallest slice by design; no scope growth into the defer-cleaned temp sites listed in the exclusions.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

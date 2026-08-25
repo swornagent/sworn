@@ -1,0 +1,79 @@
+{
+ "outcome": "The most safety-critical operator work in the product stops living in scratch tooling: sworn plan pin recomputes every manifest-mirrored fact from contract bytes, sworn plan lint runs the recording-time scope lint pre-commit, and sworn plan record performs the recording - so the manifest is derived, never hand-mirrored, and R4 is the last release authored with tmp/plantool and a per-session sync script.",
+ "scope": {
+  "include": [
+   "cmd/sworn",
+   "internal/baton"
+  ],
+  "exclude": [
+   "the mirrored-fact validation itself (ResolveSliceContract's six STALE_BINDING checks remain the gate; pin exists to satisfy them, not to relax them)",
+   "approval semantics (sworn approve and the approval_ref discipline are untouched; record still records an operator-approved revision, it does not approve)",
+   "the interactive TUI (these are scripting verbs in the answer/approve style)"
+  ],
+  "waivers": [
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/baton by import only; no cockpit test pins plan authoring or manifest derivation"
+   },
+   {
+    "package": "internal/driver",
+    "reason": "its tests reach internal/baton by import only; no driver test pins plan authoring or manifest derivation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/baton via internal/driver by import only; no observe test pins plan authoring or manifest derivation"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/baton by import only; the recording guards the new verbs invoke are consumed unchanged"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; skill content is keyed on role-asset identity, not plan authoring"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/baton via internal/cockpit by import only; no tui test pins plan authoring or manifest derivation"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its golden corpus pins canonical digest computation, which the authoring verbs consume unchanged; no batongolden fixture pins the authoring surface"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "sworn plan pin derives the manifest from contract bytes: today six facts are hand-mirrored per slice and cross-checked to STALE_BINDING on every record and every readState - digest, outcome, depends_on, consumes, touchpoints, waivers (ResolveSliceContract, internal/baton/plan.go:313-330; note consumes, the sixth, which sworn#234's five-item list undercounts) - and the mirroring is done today by an untracked scratch tool whose own header says this slice retires it (tmp/plantool computing ParseSliceContract digests, plus a per-session sync script). After this slice, sworn plan pin reads the manifest's contract paths, parses each contract, recomputes all six facts, and rewrites the manifest entries in place, leaving prose untouched - so a contract byte edit is followed by one verb, not a hand-edit of mirrored JSON. Pinned by cmd tests over a drifted manifest before and after pin."
+  },
+  {
+   "id": "A2",
+   "text": "sworn plan lint runs the gate the operator cannot reach today: the recording-time scope lint (LintSlice/LintPlan, internal/baton/scopelint.go:300-383, raising structured UNDER_DERIVED_SCOPE with the missing paths at :364-369) is reachable from RecordPlanRevision (actions.go:174), the captain's replan path (scheduler.go:6373), and worker submissions (internal/driver/tools.go:447-458) - but from no CLI verb, so operators lint via the scratch tool's ValidatePlanScopeLintFS call. After this slice sworn plan lint parses the plan, resolves every slice contract, and runs the scope lint against the working tree or a named commit, printing the structured missing-path evidence on failure and a per-slice PASS otherwise. Pinned by cmd tests over a passing and an under-derived plan."
+  },
+  {
+   "id": "A3",
+   "text": "sworn plan record performs the recording: cmd/sworn has seventeen verbs and no plan verb at all (main.go:87-127; the closest, approve at approve_command.go:13, takes only --plan-digest) - recording currently means the scratch tool calling Actions.RecordPlanRevision with ContractTree=HEAD (its record mode). After this slice sworn plan record invokes RecordPlanRevision with the working repository's head as ContractTree, prints the recorded revision, plan digest, ref, and target, and surfaces the resulting state (approval result, diagnostics) the way the scratch tool does today - honoring every existing recording guard (INVALID_PLAN_REVISION, STALE_APPROVAL, TARGET_DIVERGED, REPLACED_RELEASE_AUTHORITY) unchanged. Pinned by cmd tests recording a revision end-to-end in a fixture repository."
+  },
+  {
+   "id": "A4",
+   "text": "The verbs speak digest identity natively: pin and record work against S1's digest-addressed resolution - pin writes the canonical digests S1 documents, record proves them against the same resolution path the engine reads back - so the authoring loop and the reading engine share one identity model rather than a scratch tool approximating it by filename. Pinned by a test authoring against a digest-addressed revision."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Derive, never relax: pin computes what the gates check; no gate weakens, no mirrored fact becomes optional, and a manifest pin never edits contract bytes.",
+  "pin rewrites only the manifest fence's slice entries; release/revision/previous_plan/approval_ref and all trailing Markdown prose are the operator's bytes and stay untouched.",
+  "record is recording, not approval: the approval_ref discipline and the operator's bytes-approval remain exactly as they are; the verb refuses cleanly on every guard the library already raises.",
+  "New verbs follow the existing cmd/sworn command conventions (registration in main.go, usage text, exact-syntax help) and are scriptable without a TTY.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
