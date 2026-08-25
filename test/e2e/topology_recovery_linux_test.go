@@ -335,6 +335,10 @@ func topologyManifest(
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		t.Fatal(err)
 	}
+	// The topology scenarios script identical failures to reach genuine
+	// try-exhaustion; the identical-failure guard would park at two, so
+	// the fixture raises it to the cap.
+	manifest.Limits.IdenticalFailureParkAfter = driver.MaxIdenticalFailureParkAfter
 	for index := range manifest.Scripts {
 		script := &manifest.Scripts[index]
 		if script.Slice == "S1" && script.Responsibility == driver.ImplementerDesign &&
@@ -415,19 +419,14 @@ func parkedWork(t *testing.T, journalPath, runID string) string {
 			}
 		}
 	}
-	// The identical-failure economy guard can park a lane before try 3
-	// burns, so the parked work is the one whose highest try failed,
-	// not necessarily /t3.
-	for _, suffix := range []string{"/t3", "/t2", "/t1"} {
-		for _, effect := range snapshot.Effects {
-			if effect.State == journal.OperationalFailed &&
-				strings.HasSuffix(effect.ID, suffix) {
-				parts := strings.Split(effect.ID, "/")
-				if len(parts) == 4 {
-					work := "sha256:" + parts[1]
-					if _, isDerived := derived[work]; !isDerived {
-						return work
-					}
+	for _, effect := range snapshot.Effects {
+		if effect.State == journal.OperationalFailed &&
+			strings.HasSuffix(effect.ID, "/t3") {
+			parts := strings.Split(effect.ID, "/")
+			if len(parts) == 4 {
+				work := "sha256:" + parts[1]
+				if _, isDerived := derived[work]; !isDerived {
+					return work
 				}
 			}
 		}
