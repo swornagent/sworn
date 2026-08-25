@@ -493,10 +493,12 @@ func TestProviderPersistentMalformedToolCallsPreserveOriginalClassification(
 		Limits{
 			// MaxProviderTurns in-process round trips run comfortably
 			// inside the default 5s TimeoutMillis, but -race's
-			// instrumentation overhead can push that past the edge; a
-			// generous budget keeps this a correctness test, not a
-			// race-detector timing test.
-			TimeoutMillis:   30_000,
+			// instrumentation overhead and loaded CI runners can push
+			// that far past the edge (a 30s budget expired on CI as
+			// INVOCATION_TIMEOUT before the correction rounds finished);
+			// a generous budget keeps this a correctness test, not a
+			// scheduler timing test.
+			TimeoutMillis:   180_000,
 			OutputBytes:     65_536,
 			MaxTurnsPerWork: MaxTurnsPerWorkLimit,
 		},
