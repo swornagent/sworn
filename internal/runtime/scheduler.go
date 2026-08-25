@@ -2306,6 +2306,52 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 	return runtimeFail("WORK_NOT_READY", nil)
 }
 
+// scopeRefusalEscaped reports whether some try before the given one in this
+// epoch left a succeeded inner dispatch behind a seal that then refused the
+// candidate's scope (CANDIDATE_SCOPE_FAILED). It reads purely durable
+// journal state, never local loop state, so a crash mid-epoch replays the
+// same derivation on restart. A prior try's inner dispatch may have used
+// either the epoch-shared or the per-try identity formula, so both
+// candidates - shared with dispatchEffectCandidates, not re-derived - are
+// probed; only one exists for any given try. Once true for one prior try,
+// the caller's own escape decision is sticky by construction: every later
+// try re-derives the same history and finds the same escaped try.
+func (s *Service) scopeRefusalEscaped(
+	ctx context.Context,
+	runID, workID string,
+	epoch, try int64,
+) (bool, error) {
+	for priorTry := int64(1); priorTry < try; priorTry++ {
+		outerEffectID := journal.AttemptEffectID(workID, epoch, priorTry)
+		outer, err := s.journal.Effect(ctx, runID, outerEffectID)
+		if err != nil {
+			if journal.IsCode(err, "EFFECT_NOT_FOUND") {
+				continue
+			}
+			return false, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		if outer.State != journal.OperationalFailed ||
+			outer.ErrorCode != "CANDIDATE_SCOPE_FAILED" {
+			continue
+		}
+		sharedDispatchEffect, freshDispatchEffect :=
+			dispatchEffectCandidates(workID, epoch, priorTry)
+		for _, dispatchEffectID := range []string{sharedDispatchEffect, freshDispatchEffect} {
+			dispatch, dispatchErr := s.journal.Effect(ctx, runID, dispatchEffectID)
+			if dispatchErr != nil {
+				if journal.IsCode(dispatchErr, "EFFECT_NOT_FOUND") {
+					continue
+				}
+				return false, runtimeFail("JOURNAL_READ_FAILED", dispatchErr)
+			}
+			if dispatch.State == journal.Succeeded {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Service) implementSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	state baton.State, slice *baton.SliceState) error {
 	sliceID := slice.Location.Slice.ID
@@ -2347,7 +2393,17 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		dispatchWork := workIdentity(effectID, "driver.dispatch")
 		preparedWork := workIdentity(effectID, "git.seal.prepared")
 		childEpoch, childTry := int64(1), int64(1)
-		if _, enabled := engine.manifest.value.recoverySelection(); enabled {
+		escaped, escapedErr := s.scopeRefusalEscaped(ctx, owner.RunID, workID, epoch, try)
+		if escapedErr != nil {
+			return escapedErr
+		}
+		// A try that escapes a scope refusal following a succeeded prior
+		// dispatch takes the whole recovery-disabled child-identity block,
+		// never dispatchWork alone: a fresh dispatchWork with the shared
+		// preparedWork/childEpoch/childTry would neither match
+		// validateCycleBinding's stableChildren nor its legacyChildren shape
+		// and would collide preparedWork with the prior try's.
+		if _, enabled := engine.manifest.value.recoverySelection(); enabled && !escaped {
 			dispatchWork = workIdentity(workID, "driver.dispatch")
 			preparedWork = workIdentity(workID, "git.seal.prepared")
 			childEpoch, childTry = epoch, try

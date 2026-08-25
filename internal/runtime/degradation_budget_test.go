@@ -586,6 +586,20 @@ func TestParkStatusForCausePrecedence(t *testing.T) {
 		exhaustion.UnblockKnob != "" {
 		t.Fatalf("non-degradation park carries degradation facts: %#v", exhaustion)
 	}
+	if exhaustion.FailureCode != "" || exhaustion.FailureDetail != "" {
+		t.Fatalf("plain exhaustion carries diagnostic fields: %#v", exhaustion)
+	}
+
+	scopeExhaustion := parkStatusFor(manifest, parkFacts{
+		exhaustionApplies: true,
+		exhaustionCode:    "CANDIDATE_SCOPE_FAILED",
+		exhaustionDetail:  "SLICE_OUTSIDE_SCOPE: outside.txt",
+	})
+	if scopeExhaustion.Cause != ParkCauseExhaustion ||
+		scopeExhaustion.FailureCode != "CANDIDATE_SCOPE_FAILED" ||
+		scopeExhaustion.FailureDetail != "SLICE_OUTSIDE_SCOPE: outside.txt" {
+		t.Fatalf("scope-refused exhaustion park = %#v", scopeExhaustion)
+	}
 }
 
 // A3: Test degradation budget exceeded parks the run at a safe boundary

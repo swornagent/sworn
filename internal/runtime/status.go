@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -87,6 +88,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	active, uncertain := false, false
 	exhausted := make(map[string]struct{})
+	exhaustionRefusals := make(map[string]exhaustionRefusalFacts)
 	attentionParked := false
 	// Recovery guidance derives from the same snapshot, clock read, and
 	// journal.RetryAdmissibleEffect predicate the control verbs evaluate.
@@ -171,6 +173,19 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 				}
 				if epoch == current {
 					exhausted[work] = struct{}{}
+					// The persisted effect's ErrorCode is the stable
+					// runtime-wrapper code (e.g. CANDIDATE_SCOPE_FAILED);
+					// the more specific refusal code (SLICE_OUTSIDE_SCOPE,
+					// RESERVED_RECORD_ROOT_CHANGED) rides the effect's
+					// journaled productionRefusalBinding result alongside
+					// the named paths.
+					if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+						if detail := scopeExhaustionDetail(effect.Result); detail != "" {
+							exhaustionRefusals[work] = exhaustionRefusalFacts{
+								code: effect.ErrorCode, detail: detail,
+							}
+						}
+					}
 				}
 			}
 		}
@@ -205,7 +220,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	)
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
+	// The diagnostic code/detail stay empty here: they name a specific
+	// scope-refused work, which is only known once exhaustion is matched
+	// against an applicable work below.
 	exhaustionApplies := len(exhausted) != 0
+	var exhaustionCode, exhaustionDetail string
 	parked := attentionParked || degradationBudgetExceeded ||
 		economyPark != nil || identicalPark != nil || exhaustionApplies
 	if len(snapshot.Events) != 0 {
@@ -306,9 +325,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		result.PlanDigest = proposal.plan.Digest()
 		if !proposalActivated {
 			result.TargetHead = proposal.authority.TargetHead
-			exhaustionApplies = intersectsWork(exhausted, map[string]struct{}{
-				proposalInstallWork(proposal): {},
-			})
+			var exhaustionWork string
+			exhaustionWork, exhaustionApplies = intersectingWork(
+				exhausted, map[string]struct{}{
+					proposalInstallWork(proposal): {},
+				})
+			exhaustionCode, exhaustionDetail = "", ""
+			if facts, ok := exhaustionRefusals[exhaustionWork]; exhaustionApplies && ok {
+				exhaustionCode, exhaustionDetail = facts.code, facts.detail
+			}
 			parked = attentionParked || degradationBudgetExceeded ||
 				economyPark != nil || identicalPark != nil || exhaustionApplies
 			parked = parked || humanAuthorityRequired
@@ -351,6 +376,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			economy:                   economyPark,
 			identicalFailure:          identicalPark,
 			exhaustionApplies:         exhaustionApplies,
+			exhaustionCode:            exhaustionCode,
+			exhaustionDetail:          exhaustionDetail,
 		})
 	}
 	if recovery == nil && ownerExpired {
@@ -384,8 +411,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	exhaustionApplies = exhaustedWorkApplies(
+	var exhaustionWork string
+	exhaustionWork, exhaustionApplies = exhaustedWorkApplies(
 		manifest, selected, proposalActivated, state, snapshot, exhausted)
+	exhaustionCode, exhaustionDetail = "", ""
+	if facts, ok := exhaustionRefusals[exhaustionWork]; exhaustionApplies && ok {
+		exhaustionCode, exhaustionDetail = facts.code, facts.detail
+	}
 	parked = humanAuthorityRequired || attentionParked ||
 		degradationBudgetExceeded || economyPark != nil ||
 		identicalPark != nil || exhaustionApplies
@@ -412,6 +444,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			economy:                   economyPark,
 			identicalFailure:          identicalPark,
 			exhaustionApplies:         exhaustionApplies,
+			exhaustionCode:            exhaustionCode,
+			exhaustionDetail:          exhaustionDetail,
 		})
 	}
 	return result, nil
@@ -687,9 +721,9 @@ func exhaustedWorkApplies(
 	state baton.State,
 	snapshot journal.Snapshot,
 	exhausted map[string]struct{},
-) bool {
+) (string, bool) {
 	if len(exhausted) == 0 {
-		return false
+		return "", false
 	}
 	applicable := make(map[string]struct{})
 	add := func(work string) {
@@ -699,7 +733,7 @@ func exhaustedWorkApplies(
 	}
 	if proposal != nil && !proposalInstalled {
 		add(proposalInstallWork(*proposal))
-		return intersectsWork(exhausted, applicable)
+		return intersectingWork(exhausted, applicable)
 	}
 	ready := false
 	for _, track := range state.Tracks {
@@ -754,7 +788,7 @@ func exhaustedWorkApplies(
 					before, "append", input.Role, input.Result, input.Candidate))
 			}
 		}
-		return intersectsWork(exhausted, applicable)
+		return intersectingWork(exhausted, applicable)
 	}
 	plannerNeeded := false
 	for _, slice := range state.Slices {
@@ -773,7 +807,7 @@ func exhaustedWorkApplies(
 		before := plannerAuthorityBefore(authority)
 		add(driverWorkIdentity(manifest.digest, "", driver.PlannerProposal,
 			state.Plan.Metadata.Revision+1, before))
-		return intersectsWork(exhausted, applicable)
+		return intersectingWork(exhausted, applicable)
 	}
 	switch {
 	case state.Assembly.NextRole == "merge" && state.Assembly.Outcome != "pass":
@@ -794,16 +828,54 @@ func exhaustedWorkApplies(
 			state.Refs.Target.Head, state.Assembly.Pass.OID)
 		add(workIdentity(before, "merge"))
 	}
-	return intersectsWork(exhausted, applicable)
+	return intersectingWork(exhausted, applicable)
 }
 
-func intersectsWork(left, right map[string]struct{}) bool {
+// intersectingWork returns one work present in both sets and whether any
+// intersection exists. Map iteration order is unspecified, so when more than
+// one work intersects, which one is named is unspecified too; every call
+// site in this package targets a single-work exhaustion.
+func intersectingWork(left, right map[string]struct{}) (string, bool) {
 	for work := range left {
 		if _, ok := right[work]; ok {
-			return true
+			return work, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// exhaustionRefusalFacts carries the diagnostic facts a scope-refused
+// exhaustion park names: the stable runtime error code the exhausting
+// effect failed with, and a bounded, validated detail rendering the
+// refusal's specific code and named paths.
+type exhaustionRefusalFacts struct {
+	code   string
+	detail string
+}
+
+// scopeExhaustionDetail renders a scope refusal's specific code
+// (SLICE_OUTSIDE_SCOPE, RESERVED_RECORD_ROOT_CHANGED) and its named paths as
+// one park detail string, truncating trailing paths rather than emitting a
+// detail validParkDetail would reject. Empty is honest absence.
+func scopeExhaustionDetail(result []byte) string {
+	if len(result) == 0 {
+		return ""
+	}
+	var refusal productionRefusalBinding
+	if err := json.Unmarshal(result, &refusal); err != nil ||
+		refusal.Code == "" || len(refusal.Paths) == 0 {
+		return ""
+	}
+	paths := refusal.Paths
+	detail := refusal.Code + ": " + strings.Join(paths, ", ")
+	for len(paths) > 0 && !validParkDetail(detail) {
+		paths = paths[:len(paths)-1]
+		detail = refusal.Code + ": " + strings.Join(paths, ", ")
+	}
+	if !validParkDetail(detail) {
+		return ""
+	}
+	return detail
 }
 
 // parkFacts carries every reducer-computed park condition into the park
@@ -816,6 +888,8 @@ type parkFacts struct {
 	economy                   *economyParkFacts
 	identicalFailure          *identicalFailureFacts
 	exhaustionApplies         bool
+	exhaustionCode            string
+	exhaustionDetail          string
 }
 
 // parkStatusFor names the park cause with the same precedence the final park
@@ -824,7 +898,10 @@ type parkFacts struct {
 // fallback count, the effective budget, and the manifest knob that unblocks
 // it; an economy park carries spent-versus-budget and its knob; an
 // identical-failure park carries the run length, threshold, shared failure
-// code, and its durable detail.
+// code, and its durable detail. An exhaustion park whose tries died on a
+// scope refusal carries the refusal's stable error code and a bounded
+// detail naming its specific code and paths, in the identical-failure
+// pattern; a plain exhaustion carries neither.
 func parkStatusFor(
 	manifest admittedManifest,
 	facts parkFacts,
@@ -854,6 +931,8 @@ func parkStatusFor(
 		status.UnblockKnob = IdenticalFailureUnblockKnob
 	case facts.exhaustionApplies:
 		status.Cause = ParkCauseExhaustion
+		status.FailureCode = facts.exhaustionCode
+		status.FailureDetail = facts.exhaustionDetail
 	}
 	return status
 }
