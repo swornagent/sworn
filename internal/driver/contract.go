@@ -361,6 +361,47 @@ func CanonicalOperation(role Role) (Operation, error) {
 	}, nil
 }
 
+// RoleAssetAddendumVersion is sworn's own version for the role-asset
+// addendum, distinct from OperationVersion: the addendum is sworn-authored
+// guidance riding beside the vendored Baton operation, not a Baton asset,
+// so a version string that reads like Baton's would blur that provenance
+// line.
+const RoleAssetAddendumVersion = "sworn.role-addendum/v1"
+
+// roleAssetAddendumText states, for the roles that dispatch work against a
+// candidate, the three facts that recur as review turns when a role
+// re-derives or mis-adjudicates them instead: canonical-content digest
+// semantics, before/product_tree as invocation-state digests, and
+// seal-epoch lockstep with the try ledger. LF-only, no CR, trailing
+// newline, matching CanonicalOperation's own byte discipline.
+const roleAssetAddendumText = "Contract and receipt digests are digests of canonical content: equivalent content hashes identically regardless of key order or formatting.\nbefore and product_tree are digests of invocation state, the tree identities a verifier checks bindings against rather than reconstructing.\nThe seal epoch moves in lockstep with the try ledger: a retry never crosses epochs, and an epoch never re-admits succeeded work.\n"
+
+// Addendum carries sworn-owned role guidance delivered beside the vendored
+// Baton Operation. Its Digest is independent of Operation.Digest, computed
+// by the same Digest helper over the addendum's own bytes, so the addendum
+// gets its own accounting rather than mutating a pinned vendored digest.
+type Addendum struct {
+	Version string `json:"version"`
+	Digest  string `json:"digest"`
+	Text    string `json:"text"`
+}
+
+// RoleAssetAddendum returns the sworn-owned addendum for roles that
+// dispatch work against a candidate: implementer, captain, and verifier.
+// The plan template already states canonical-content digest semantics to
+// the planner (internal/baton/snapshot/assets/templates/plan.md), so
+// RolePlanner and any other role return nil.
+func RoleAssetAddendum(role Role) *Addendum {
+	if !role.valid() || role == RolePlanner {
+		return nil
+	}
+	return &Addendum{
+		Version: RoleAssetAddendumVersion,
+		Digest:  Digest([]byte(roleAssetAddendumText)),
+		Text:    roleAssetAddendumText,
+	}
+}
+
 // admittedPackage loads Sworn's own embedded role-asset bundle. Admission is
 // self-consistency only: the compiled bundle must match its own recorded
 // digests. It never requires a separately installed, tagged, checked-out, or

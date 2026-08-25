@@ -1064,30 +1064,32 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		return nil, err
 	}
 	type promptEnvelope struct {
-		SchemaVersion  string         `json:"schema_version"`
-		InvocationID   string         `json:"invocation_id"`
-		Role           Role           `json:"role"`
-		Operation      Operation      `json:"operation"`
-		Workspace      Workspace      `json:"workspace"`
-		Inputs         []Input        `json:"inputs"`
-		Responsibility Responsibility `json:"responsibility"`
-		ResultFields   []string       `json:"result_fields"`
-		Instruction    string         `json:"instruction"`
-		Recovery       *struct {
+		SchemaVersion     string         `json:"schema_version"`
+		InvocationID      string         `json:"invocation_id"`
+		Role              Role           `json:"role"`
+		Operation         Operation      `json:"operation"`
+		Workspace         Workspace      `json:"workspace"`
+		Inputs            []Input        `json:"inputs"`
+		Responsibility    Responsibility `json:"responsibility"`
+		ResultFields      []string       `json:"result_fields"`
+		Instruction       string         `json:"instruction"`
+		RoleAssetAddendum *Addendum      `json:"role_asset_addendum,omitempty"`
+		Recovery          *struct {
 			Kind    RecoverableInputKind `json:"kind"`
 			Content string               `json:"content"`
 		} `json:"recovery,omitempty"`
 	}
 	envelope := promptEnvelope{
-		SchemaVersion:  "sworn.model-prompt/v1",
-		InvocationID:   invocation.Request.InvocationID,
-		Role:           invocation.Request.Role,
-		Operation:      invocation.Request.Operation,
-		Workspace:      invocation.Request.Workspace,
-		Inputs:         invocation.Request.Inputs,
-		Responsibility: descriptor.Responsibility,
-		ResultFields:   submissionResultFields(descriptor.Responsibility),
-		Instruction:    "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Scratch output such as check logs belongs under the workspace tmp/ directory, which never enters the submitted candidate; every other workspace change must stay inside the slice scope, because the candidate is judged on its full diff. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
+		SchemaVersion:     "sworn.model-prompt/v1",
+		InvocationID:      invocation.Request.InvocationID,
+		Role:              invocation.Request.Role,
+		Operation:         invocation.Request.Operation,
+		Workspace:         invocation.Request.Workspace,
+		Inputs:            invocation.Request.Inputs,
+		Responsibility:    descriptor.Responsibility,
+		ResultFields:      submissionResultFields(descriptor.Responsibility),
+		Instruction:       "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Scratch output such as check logs belongs under the workspace tmp/ directory, which never enters the submitted candidate; every other workspace change must stay inside the slice scope, because the candidate is judged on its full diff. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
+		RoleAssetAddendum: RoleAssetAddendum(invocation.Request.Role),
 	}
 	if invocation.recoverableInput != nil {
 		if err := ValidateRecoverableTurnInput(

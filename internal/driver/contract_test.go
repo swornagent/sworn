@@ -98,6 +98,41 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 	}
 }
 
+func TestRoleAssetAddendumStatesCanonicalDigestInvocationStateAndSealEpochFactsAndIsAbsentForPlanner(t *testing.T) {
+	t.Parallel()
+	const pinnedDigest = "sha256:d3388b7cb08e5e4790581204a7df07719746e9e34902f97435d9fd18a41cffa2"
+	for _, role := range []Role{RoleImplementer, RoleCaptain, RoleVerifier} {
+		role := role
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			addendum := RoleAssetAddendum(role)
+			if addendum == nil {
+				t.Fatal("addendum is nil")
+			}
+			if addendum.Version != "sworn.role-addendum/v1" {
+				t.Fatalf("version = %q", addendum.Version)
+			}
+			if addendum.Digest != pinnedDigest {
+				t.Fatalf("digest = %q, want %q", addendum.Digest, pinnedDigest)
+			}
+			if !strings.Contains(addendum.Text, "digests of canonical content: equivalent content hashes identically regardless of key order or formatting") ||
+				!strings.Contains(addendum.Text, "before and product_tree are digests of invocation state, the tree identities a verifier checks bindings against rather than reconstructing") ||
+				!strings.Contains(addendum.Text, "seal epoch moves in lockstep with the try ledger: a retry never crosses epochs, and an epoch never re-admits succeeded work") {
+				t.Fatalf("addendum text = %q", addendum.Text)
+			}
+			if !strings.HasSuffix(addendum.Text, "\n") || strings.Contains(addendum.Text, "\r") {
+				t.Fatal("addendum text is not exact LF-only bytes")
+			}
+		})
+	}
+	if addendum := RoleAssetAddendum(RolePlanner); addendum != nil {
+		t.Fatalf("planner addendum = %#v, want nil", addendum)
+	}
+	if addendum := RoleAssetAddendum(Role("merge")); addendum != nil {
+		t.Fatalf("unknown role addendum = %#v, want nil", addendum)
+	}
+}
+
 func TestDriverInfoCodecIsSwornOwnedExactStrictAndBound(t *testing.T) {
 	t.Parallel()
 	info := FakeInfo()

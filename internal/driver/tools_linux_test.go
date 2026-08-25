@@ -402,6 +402,79 @@ func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.
 	}
 }
 
+func TestModelPromptCarriesRoleAssetAddendumForNonPlannerRolesAndOmitsItForPlanner(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	for _, tc := range []struct {
+		role           Role
+		responsibility Responsibility
+		access         WorkspaceAccess
+		freshContext   bool
+	}{
+		{RolePlanner, PlannerProposal, ReadWrite, true},
+		{RoleImplementer, ImplementerImplementation, ReadWrite, true},
+		{RoleCaptain, CaptainReview, ReadOnly, true},
+		{RoleVerifier, WorkVerification, ReadOnly, false},
+	} {
+		tc := tc
+		t.Run(string(tc.role), func(t *testing.T) {
+			request, err := NewRequest(
+				invocation.Request.InvocationID,
+				tc.role,
+				invocation.Selected.Profile.Key,
+				invocation.Selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: tc.access},
+				[]Input{},
+				tc.freshContext,
+				invocation.Request.Limits,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			containment := ContainmentReadWrite
+			if tc.access == ReadOnly {
+				containment = ContainmentReadOnly
+			}
+			permission, err := NewSubmissionPermission(
+				request, invocation.Selected, containment, tc.responsibility,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scoped := invocation
+			scoped.Request, scoped.Permission = request, permission
+			body, err := modelPrompt(scoped)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var prompt struct {
+				RoleAssetAddendum *struct {
+					Version string `json:"version"`
+					Digest  string `json:"digest"`
+					Text    string `json:"text"`
+				} `json:"role_asset_addendum"`
+			}
+			if json.Unmarshal(body, &prompt) != nil {
+				t.Fatalf("model prompt = %s", body)
+			}
+			if tc.role == RolePlanner {
+				if prompt.RoleAssetAddendum != nil {
+					t.Fatalf("planner prompt carries addendum: %s", body)
+				}
+				return
+			}
+			if prompt.RoleAssetAddendum == nil {
+				t.Fatalf("%s prompt is missing addendum: %s", tc.role, body)
+			}
+			addendum := RoleAssetAddendum(tc.role)
+			if prompt.RoleAssetAddendum.Version != addendum.Version ||
+				prompt.RoleAssetAddendum.Digest != addendum.Digest ||
+				prompt.RoleAssetAddendum.Text != addendum.Text {
+				t.Fatalf("%s prompt addendum = %#v", tc.role, prompt.RoleAssetAddendum)
+			}
+		})
+	}
+}
+
 func TestSubmissionResultFieldsMatchResponsibility(t *testing.T) {
 	for responsibility, want := range map[Responsibility]string{
 		PlannerProposal:           "summary,detail,plan",
