@@ -66,6 +66,11 @@ type installActionInput struct {
 	PlanBytes  []byte `json:"plan_bytes"`
 	PlanDigest string `json:"plan_digest"`
 	Reference  string `json:"reference"`
+	// ContractBytes carries proposal-sourced contract files for paths absent
+	// from the bound target tree, keyed by contract_path. Nil means every
+	// declared contract resolves from the tree; every journal recorded
+	// before this field existed decodes with that same nil meaning.
+	ContractBytes map[string][]byte `json:"contract_bytes,omitempty"`
 }
 
 type actionTruth string
@@ -550,6 +555,9 @@ func validateInstallActionInput(
 	if err != nil ||
 		plan.Digest() != input.PlanDigest ||
 		plan.Metadata().ApprovalRef != input.Reference {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if err := validateProposalContracts(plan, input.ContractBytes); err != nil {
 		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return plan, nil
@@ -1512,7 +1520,7 @@ func persistedBatonAction(engine *engine, kind string,
 		}
 		admission := approvalAdmission{
 			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
-			reference: input.Reference,
+			reference: input.Reference, contractBytes: input.ContractBytes,
 		}
 		return func() (baton.ActionResult, error) {
 			return installer.install(admission, command.Authority.TargetHead)
@@ -6373,7 +6381,14 @@ func (s *Service) proposePlanAttempt(
 	if err := baton.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
 		return runtimeFail(baton.ErrorCode(err), err)
 	}
-	return s.recordProposal(ctx, owner.RunID, plan, authority)
+	contractBytes, err := exactBytesMap(submission.Contracts)
+	if err != nil {
+		return err
+	}
+	if err := validateProposalContracts(plan, contractBytes); err != nil {
+		return err
+	}
+	return s.recordProposal(ctx, owner.RunID, plan, authority, contractBytes)
 }
 
 func (s *Service) proposeRevision(
@@ -6976,13 +6991,14 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		}
 		state, stateErr = freshState, freshStateErr
 		admission := approvalAdmission{
-			planBytes:  proposal.plan.Bytes(),
-			planDigest: proposal.plan.Digest(),
-			reference:  proposal.plan.Metadata().ApprovalRef,
+			planBytes:     proposal.plan.Bytes(),
+			planDigest:    proposal.plan.Digest(),
+			reference:     proposal.plan.Metadata().ApprovalRef,
+			contractBytes: proposal.contractBytes,
 		}
 		installInput := installActionInput{
 			PlanBytes: admission.planBytes, PlanDigest: admission.planDigest,
-			Reference: admission.reference,
+			Reference: admission.reference, ContractBytes: admission.contractBytes,
 		}
 		authority := batonActionAuthority{
 			Release:     manifest.value.Release,

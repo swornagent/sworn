@@ -44,7 +44,7 @@ func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
 	properties := object(submission["properties"])
 	if root["additionalProperties"] != false ||
 		submission["additionalProperties"] != false ||
-		len(properties) != 8 {
+		len(properties) != 9 {
 		t.Fatalf("submission schema is incomplete or open: %s", submit.InputSchema)
 	}
 	for _, name := range []string{"plan", "checks", "decision"} {

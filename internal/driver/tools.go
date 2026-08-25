@@ -36,7 +36,7 @@ const (
 	MaxSubmissionCorrections = 1_000
 )
 
-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
 type toolPathEntry struct {
 	Relative  string
@@ -172,7 +172,7 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 		},
 		providerToolDefinition{
 			Name:        "sworn_submit",
-			Description: "Include only the prompt's result_fields. For plan/checks declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty.",
+			Description: "Include only the prompt's result_fields. For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty.",
 			InputSchema: json.RawMessage(swornSubmitInputSchema),
 		},
 	)
@@ -488,7 +488,19 @@ func (session *toolSession) submit(
 			session.finishSubmission(body, sealBytes, decodeErr)
 			return nil, decodeErr
 		}
-		if hookErr := session.invocation.SealedProposalHook(ctx, planBody); hookErr != nil {
+		contractBodies := make(map[string][]byte, len(submission.Contracts))
+		for contractPath, contract := range submission.Contracts {
+			contractBody, decodeErr := base64.StdEncoding.Strict().DecodeString(contract.Bytes)
+			if decodeErr != nil {
+				decodeErr = fail("INVALID_EXACT_BYTES")
+				session.finishSubmission(body, sealBytes, decodeErr)
+				return nil, decodeErr
+			}
+			contractBodies[contractPath] = contractBody
+		}
+		if hookErr := session.invocation.SealedProposalHook(
+			ctx, planBody, contractBodies,
+		); hookErr != nil {
 			session.finishSubmission(body, sealBytes, hookErr)
 			return nil, hookErr
 		}
@@ -576,22 +588,43 @@ func (session *toolSession) materializeExactBytesPaths(value any) error {
 		if !ok {
 			continue
 		}
-		pathValue, present := member["path"]
-		if !present {
-			continue
-		}
-		guest, ok := pathValue.(string)
-		if _, inline := member["bytes"]; !ok || inline {
-			return fail("INVALID_EXACT_BYTES")
-		}
-		body, err := session.readExactBytesFile(guest)
-		if err != nil {
+		if err := session.materializeExactBytesMember(member); err != nil {
 			return err
 		}
-		member["bytes"] = base64.StdEncoding.EncodeToString(body)
-		clearBytes(body)
-		delete(member, "path")
 	}
+	if contracts, ok := submission["contracts"].(map[string]any); ok {
+		for _, entry := range contracts {
+			member, ok := entry.(map[string]any)
+			if !ok {
+				return fail("INVALID_EXACT_BYTES")
+			}
+			if err := session.materializeExactBytesMember(member); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// materializeExactBytesMember resolves one {byte_count, digest, path} member
+// in place to {byte_count, digest, bytes}, shared by the submission's plan,
+// checks, and every contracts entry.
+func (session *toolSession) materializeExactBytesMember(member map[string]any) error {
+	pathValue, present := member["path"]
+	if !present {
+		return nil
+	}
+	guest, ok := pathValue.(string)
+	if _, inline := member["bytes"]; !ok || inline {
+		return fail("INVALID_EXACT_BYTES")
+	}
+	body, err := session.readExactBytesFile(guest)
+	if err != nil {
+		return err
+	}
+	member["bytes"] = base64.StdEncoding.EncodeToString(body)
+	clearBytes(body)
+	delete(member, "path")
 	return nil
 }
 
@@ -648,7 +681,7 @@ func decodeToolSubmission(value any) (Submission, error) {
 			"schema_version", "invocation_id", "responsibility", "summary",
 			"detail",
 		},
-		[]string{"plan", "checks", "decision"},
+		[]string{"plan", "checks", "decision", "contracts"},
 	)
 	if err != nil {
 		return Submission{}, err
@@ -663,6 +696,21 @@ func decodeToolSubmission(value any) (Submission, error) {
 			nil,
 		); err != nil {
 			return Submission{}, err
+		}
+	}
+	if root["contracts"] != nil {
+		contracts, ok := root["contracts"].(map[string]any)
+		if !ok {
+			return Submission{}, fail("INVALID_FIELD")
+		}
+		for _, member := range contracts {
+			if _, err := closedObject(
+				member,
+				[]string{"byte_count", "digest", "bytes"},
+				nil,
+			); err != nil {
+				return Submission{}, err
+			}
 		}
 	}
 	if root["decision"] != nil {
@@ -690,12 +738,16 @@ func decodeToolSubmission(value any) (Submission, error) {
 		submission.Checks, submission.Decision = nil, nil
 	case ImplementerDesign:
 		submission.Plan, submission.Checks, submission.Decision = nil, nil, nil
+		submission.Contracts = nil
 	case ImplementerImplementation:
 		submission.Plan, submission.Decision = nil, nil
+		submission.Contracts = nil
 	case CaptainReview, CaptainPlanReview:
 		submission.Plan, submission.Checks = nil, nil
+		submission.Contracts = nil
 	case WorkVerification, AssemblyVerification:
 		submission.Plan = nil
+		submission.Contracts = nil
 	}
 	if err := ValidateSubmission(submission); err != nil {
 		return Submission{}, err

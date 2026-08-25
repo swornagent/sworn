@@ -102,6 +102,10 @@ type Submission struct {
 	Plan           *ExactBytes    `json:"plan"`
 	Checks         *ExactBytes    `json:"checks"`
 	Decision       *Decision      `json:"decision"`
+	// Contracts carries new slice-contract files a planner_proposal mints,
+	// keyed by their manifest contract_path, so they ride the proposal as
+	// durably as plan bytes. Every other responsibility must leave it nil.
+	Contracts map[string]*ExactBytes `json:"contracts,omitempty"`
 }
 
 func EncodeSubmission(submission Submission) ([]byte, error) {
@@ -133,7 +137,7 @@ func DecodeSubmission(body []byte) (Submission, error) {
 			"checks",
 			"decision",
 		},
-		nil,
+		[]string{"contracts"},
 		&submission,
 	)
 	if err != nil {
@@ -149,6 +153,21 @@ func DecodeSubmission(body []byte) (Submission, error) {
 			nil,
 		); err != nil {
 			return Submission{}, err
+		}
+	}
+	if root["contracts"] != nil {
+		contracts, ok := root["contracts"].(map[string]any)
+		if !ok {
+			return Submission{}, fail("INVALID_FIELD")
+		}
+		for _, member := range contracts {
+			if _, err := closedObject(
+				member,
+				[]string{"byte_count", "digest", "bytes"},
+				nil,
+			); err != nil {
+				return Submission{}, err
+			}
 		}
 	}
 	if root["decision"] != nil {
@@ -204,6 +223,14 @@ func ValidateSubmission(submission Submission) error {
 	if submission.Decision != nil && !submission.Decision.Outcome.valid() {
 		return fail("INVALID_DECISION")
 	}
+	for path, contract := range submission.Contracts {
+		if validateText(path, MaxToolPathBytes, false) != nil || contract == nil {
+			return fail("INVALID_EXACT_BYTES")
+		}
+		if err := validateExactBytes(*contract, MaxPlanBytes, true); err != nil {
+			return err
+		}
+	}
 
 	switch submission.Responsibility {
 	case PlannerProposal:
@@ -211,21 +238,25 @@ func ValidateSubmission(submission Submission) error {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
 	case ImplementerDesign:
-		if submission.Plan != nil || submission.Checks != nil || submission.Decision != nil {
+		if submission.Plan != nil || submission.Checks != nil || submission.Decision != nil ||
+			submission.Contracts != nil {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
 	case ImplementerImplementation:
-		if submission.Plan != nil || submission.Checks == nil || submission.Decision != nil {
+		if submission.Plan != nil || submission.Checks == nil || submission.Decision != nil ||
+			submission.Contracts != nil {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
 	case CaptainReview, CaptainPlanReview:
 		if submission.Plan != nil || submission.Checks != nil ||
-			submission.Decision == nil || !submission.Decision.Outcome.captain() {
+			submission.Decision == nil || !submission.Decision.Outcome.captain() ||
+			submission.Contracts != nil {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
 	case WorkVerification, AssemblyVerification:
 		if submission.Plan != nil || submission.Checks == nil ||
-			submission.Decision == nil || !submission.Decision.Outcome.verifier() {
+			submission.Decision == nil || !submission.Decision.Outcome.verifier() ||
+			submission.Contracts != nil {
 			return fail("SUBMISSION_SHAPE_MISMATCH")
 		}
 	default:

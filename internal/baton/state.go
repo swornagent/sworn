@@ -313,7 +313,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 	// fail-closed against a contract that was substituted or disappeared after
 	// the manifest was recorded; legacy baton.plan/v2 plans have no contract
 	// paths and are unaffected.
-	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head, releaseCapture.Head); err != nil {
+	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head, releaseCapture.Head, nil); err != nil {
 		return State{}, err
 	}
 	for _, trackID := range historicalTrackOrder {

@@ -100,8 +100,11 @@ func TestPlannerProposalSubmissionAcceptsManifestFormat(t *testing.T) {
 
 // TestSubmissionWireEnvelopeIsClosedAndSingleFile guards the Captain
 // correction that phase 2 must not add a second Plan-shaped field or any
-// archive/envelope to Submission: it stays exactly six fields with exactly
-// one ExactBytes-typed plan field and one ExactBytes-typed checks field.
+// archive/envelope to Submission beyond the one sanctioned exception: the
+// planner_proposal-only Contracts map that lets a proposal carry new
+// contract files beside its plan bytes (sworn#210). It stays exactly seven
+// fields plus that one map, with exactly one ExactBytes-typed plan field and
+// one ExactBytes-typed checks field.
 func TestSubmissionWireEnvelopeIsClosedAndSingleFile(t *testing.T) {
 	t.Parallel()
 	fields := reflect.VisibleFields(reflect.TypeFor[Submission]())
@@ -114,12 +117,16 @@ func TestSubmissionWireEnvelopeIsClosedAndSingleFile(t *testing.T) {
 		}
 	}
 	wantNames := []string{
-		"SchemaVersion", "InvocationID", "Responsibility", "Summary", "Detail", "Plan", "Checks", "Decision",
+		"SchemaVersion", "InvocationID", "Responsibility", "Summary", "Detail", "Plan", "Checks", "Decision", "Contracts",
 	}
 	if strings.Join(names, ",") != strings.Join(wantNames, ",") {
 		t.Fatalf("Submission fields = %v, want exactly %v", names, wantNames)
 	}
 	if exactBytesFields != 2 {
 		t.Fatalf("Submission has %d *ExactBytes fields, want exactly 2 (Plan, Checks)", exactBytesFields)
+	}
+	contractsField, ok := reflect.TypeFor[Submission]().FieldByName("Contracts")
+	if !ok || contractsField.Type != reflect.TypeFor[map[string]*ExactBytes]() {
+		t.Fatalf("Contracts field = %#v, want map[string]*ExactBytes", contractsField)
 	}
 }

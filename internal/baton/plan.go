@@ -431,10 +431,11 @@ func (p Plan) ResolveSliceContractAtHead(
 // contract paths, so they never consult source. A manifest that declares
 // contract paths with no source, or whose source is missing, substitutes, or
 // mismatches any declared path, fails closed. Both write-time admission
-// (RecordPlanRevision, against a caller-prepared tree) and read-time
-// discovery (readState, against the exact captured release and target heads)
-// share this one validator.
-func resolveManifestContracts(repository *repository, parsed Plan, source, releaseHead string) error {
+// (RecordPlanRevision, against a caller-prepared tree and an optional
+// proposal-carried overlay for paths absent from that tree) and read-time
+// discovery (readState, against the exact captured release and target heads,
+// with no overlay) share this one validator.
+func resolveManifestContracts(repository *repository, parsed Plan, source, releaseHead string, overlay map[string][]byte) error {
 	metadata := parsed.Metadata()
 	if metadata.SchemaVersion != ManifestVersion {
 		return nil
@@ -518,25 +519,60 @@ func resolveManifestContracts(repository *repository, parsed Plan, source, relea
 	if len(remainingPaths) == 0 {
 		return nil
 	}
-	if source == "" {
+	if source == "" && len(overlay) == 0 {
 		return recordFail(
 			"CONTRACT_SOURCE_REQUIRED",
 			"manifest declares contract paths but no contract source was provided",
 		)
 	}
-	files, err := repository.files(source, remainingPaths)
+	resolvedBytes, err := resolveContractSource(repository, source, overlay, remainingPaths)
 	if err != nil {
 		return err
 	}
-	for _, file := range files {
-		if !file.Present {
-			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
-		}
-		if _, err := parsed.ResolveSliceContract(remainingSliceByPath[file.Path], file.Bytes); err != nil {
+	for _, path := range remainingPaths {
+		if _, err := parsed.ResolveSliceContract(remainingSliceByPath[path], resolvedBytes[path]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// resolveContractSource reads each named path's bytes from the source tree
+// first (when source is non-empty), falling back to the caller-carried
+// overlay for any path the source tree does not contain. It fails closed if
+// a path resolves from neither. The overlay lets a proposal-carried
+// new-contract file install for a path absent from the bound target tree
+// without ever mutating that tree.
+func resolveContractSource(
+	repository *repository,
+	source string,
+	overlay map[string][]byte,
+	paths []string,
+) (map[string][]byte, error) {
+	result := make(map[string][]byte, len(paths))
+	remaining := paths
+	if source != "" {
+		files, err := repository.files(source, paths)
+		if err != nil {
+			return nil, err
+		}
+		remaining = nil
+		for _, file := range files {
+			if file.Present {
+				result[file.Path] = file.Bytes
+			} else {
+				remaining = append(remaining, file.Path)
+			}
+		}
+	}
+	for _, path := range remaining {
+		body, ok := overlay[path]
+		if !ok {
+			return nil, recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+path)
+		}
+		result[path] = body
+	}
+	return result, nil
 }
 
 // TouchpointRelation records one repository path shared by two slices whose

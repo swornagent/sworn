@@ -174,6 +174,72 @@ func TestRecordPlanRevisionManifestAtomicRecordAndReread(t *testing.T) {
 	}
 }
 
+// TestRecordPlanRevisionResolvesContractFromOverlayWhenAbsentFromTree pins S3
+// A2: a proposal minting a brand-new contract file installs even though the
+// bound target tree never contained it, because RecordPlanRevision resolves
+// a declared contract_path absent from ContractTree against ContractOverlay
+// instead of failing CONTRACT_NOT_FOUND, still proving it against the
+// manifest's own declared digest exactly as a tree-sourced contract is.
+func TestRecordPlanRevisionResolvesContractFromOverlayWhenAbsentFromTree(t *testing.T) {
+	t.Parallel()
+	repoPath, _, actions := createActionHarness(t)
+	release := "manifest-overlay"
+	contractPath := "contracts/S1.json"
+	contractRaw := manifestContractRaw(t, manifestContractBody("S1", "one.txt"))
+	_, digest, err := ParseSliceContract(contractRaw, "S1", "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The target tree never contains the new contract file: only the plan's
+	// own manifest declares it, and the overlay carries the proposal's own
+	// bytes for it. This is exactly the shape of a proposal minting a new
+	// contract: the bound target tree still lacks it at install time.
+	base := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+
+	planBytes := manifestActionPlanBytes(t, release, contractPath, "one.txt", digest, []any{})
+	result, err := actions.RecordPlanRevision(RecordPlanRevisionInput{
+		PlanBytes: planBytes, ContractTree: base,
+		ContractOverlay: map[string][]byte{contractPath: contractRaw},
+		Summary:         "Approve manifest revision.", Detail: []byte("approval"),
+	})
+	if err != nil || !result.Changed {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+
+	// The overlay-sourced contract never touches the target tree: only the
+	// record commit's digest store and the documents root carry it.
+	targetFile, err := actions.repository.file(base, contractPath)
+	if err != nil || targetFile.Present {
+		t.Fatalf("target tree unexpectedly carries the overlay contract: %#v, err = %v", targetFile, err)
+	}
+	storeFile, err := actions.repository.file(result.Head, contractStorePath(RecordRoot, release, digest))
+	if err != nil || !storeFile.Present || !bytes.Equal(storeFile.Bytes, contractRaw) {
+		t.Fatalf("digest store = %#v, err = %v", storeFile, err)
+	}
+	authoredContract, err := actions.repository.file(
+		result.Head,
+		documentContractPath(gitx.DefaultDocumentsRoot, release, "S1"),
+	)
+	if err != nil || !authoredContract.Present || !bytes.Equal(authoredContract.Bytes, contractRaw) {
+		t.Fatalf("authored contract = %#v, err = %v", authoredContract, err)
+	}
+
+	// The record is durably resolvable at the release head afterwards, with
+	// no overlay: contractStoreChanges already wrote it into the
+	// digest-addressed store, so ordinary digest-addressed read-time
+	// discovery finds it without ever consulting an overlay again.
+	state, err := ReadState(UseGitRepository(actions.repository.git), release, inertActionResolver)
+	if err != nil {
+		t.Fatalf("ReadState after overlay install: %v", err)
+	}
+	currentPlan := state.Plan.History[len(state.Plan.History)-1].Plan
+	resolved, ok := currentPlan.Contract("S1")
+	if !ok || resolved != digest {
+		t.Fatalf("state contract digest = %q, ok=%v, want %q", resolved, ok, digest)
+	}
+}
+
 func TestRecordPlanRevisionManifestContractFailuresLeaveNoTrace(t *testing.T) {
 	t.Parallel()
 	contractPath := "contracts/S1.json"
