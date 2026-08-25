@@ -13,6 +13,10 @@ type responsesConversation struct {
 	input           []json.RawMessage
 	pending         []providerToolCall
 	ledger          *continuationLedger
+	// maxOutputTokens is the operator-declared Limits.OutputBytes bound,
+	// emitted as max_output_tokens on the responses surface. Zero omits the
+	// field entirely.
+	maxOutputTokens int64
 }
 
 type responsesTool struct {
@@ -41,6 +45,7 @@ func newResponsesConversation(
 	enableThinking *bool,
 	stream bool,
 	dialect providerDialect,
+	maxOutputTokens ...int64,
 ) (*responsesConversation, error) {
 	if validateEndpoint(endpoint) != nil ||
 		validateText(model, 500, false) != nil ||
@@ -48,6 +53,10 @@ func newResponsesConversation(
 		(dialect != providerDialectOpenAIResponses &&
 			dialect != providerDialectXAIResponses) {
 		return nil, fail("INVALID_ADAPTER")
+	}
+	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	if err != nil {
+		return nil, err
 	}
 	tools, err := responsesTools(definitions)
 	if err != nil {
@@ -70,6 +79,7 @@ func newResponsesConversation(
 		tools:           tools,
 		input:           []json.RawMessage{initial},
 		ledger:          newContinuationLedger(),
+		maxOutputTokens: outputLimit,
 	}, nil
 }
 
@@ -111,6 +121,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		EnableThinking    *bool              `json:"enable_thinking,omitempty"`
 		Store             bool               `json:"store"`
 		Stream            bool               `json:"stream"`
+		MaxOutputTokens   int64              `json:"max_output_tokens,omitempty"`
 	}{
 		Model:             conversation.model,
 		Input:             conversation.input,
@@ -121,6 +132,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		EnableThinking:    conversation.enableThinking,
 		Store:             false,
 		Stream:            conversation.stream,
+		MaxOutputTokens:   conversation.maxOutputTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -190,11 +202,12 @@ func (conversation *responsesConversation) accept(
 			Truncated:       true,
 		}
 		if usageValue, present := root["usage"]; present && usageValue != nil {
-			usage, usageErr := responsesUsage(usageValue, conversation.dialect)
+			usage, cost, usageErr := responsesUsage(usageValue, conversation.dialect)
 			if usageErr != nil {
 				return providerTurn{}, usageErr
 			}
 			turn.Usage = usage
+			turn.Cost = cost
 		}
 		return turn, nil
 	}
@@ -214,6 +227,7 @@ func (conversation *responsesConversation) accept(
 	}
 	calls := make([]providerToolCall, 0, len(output))
 	retainedFields := make([]opaqueField, 0, len(output))
+	reservedCallIDs := make(map[string]struct{})
 	for index := range output {
 		item, itemOK := output[index].(map[string]any)
 		itemType, typeOK := item["type"].(string)
@@ -233,7 +247,9 @@ func (conversation *responsesConversation) accept(
 				return providerTurn{}, failContinuation("continuation.responses.accept_message_invalid")
 			}
 		case "function_call":
-			call, callErr := responsesFunctionCall(conversation.ledger, item)
+			call, callErr := responsesFunctionCall(
+				conversation.ledger, reservedCallIDs, item,
+			)
 			if callErr != nil {
 				return providerTurn{}, callErr
 			}
@@ -251,6 +267,7 @@ func (conversation *responsesConversation) accept(
 	if err != nil {
 		return providerTurn{}, err
 	}
+	conversation.ledger.commitCorrelate(reservedCallIDs)
 	for _, item := range retained {
 		conversation.input = append(conversation.input, item)
 	}
@@ -260,11 +277,12 @@ func (conversation *responsesConversation) accept(
 		turn.ReasoningEffort = effort
 	}
 	if usageValue, present := root["usage"]; present && usageValue != nil {
-		usage, usageErr := responsesUsage(usageValue, conversation.dialect)
+		usage, cost, usageErr := responsesUsage(usageValue, conversation.dialect)
 		if usageErr != nil {
 			return providerTurn{}, usageErr
 		}
 		turn.Usage = usage
+		turn.Cost = cost
 	}
 	return turn, nil
 }
@@ -294,11 +312,19 @@ func responsesTruncated(root map[string]any) bool {
 // malformed detail never fails the run. On the xAI responses dialect the
 // recorded vendor usage decorations are admitted at this position and
 // tolerated-and-ignored, so the normalized accounting still reads only the
-// standard fields.
-func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
+// standard fields. OpenRouter's cost / cost_details / is_byok decorations
+// are admitted on the base list so the shipped decoder is honest about
+// aggregator shapes; only cost is captured, as provider-reported USD.
+func responsesUsage(value any, dialect providerDialect) (*Usage, *CostObservation, error) {
 	// x_details is Qwen's provider-specific usage annex on the responses
 	// flavour; it is tolerated and ignored rather than failing the turn.
-	optional := []string{"input_tokens_details", "output_tokens_details", "x_details"}
+	// cost / cost_details / is_byok are OpenRouter aggregator decorations
+	// on the same shipped responses decoder (openrouter-responses is
+	// configuration, not a new dialect).
+	optional := []string{
+		"input_tokens_details", "output_tokens_details", "x_details",
+		"cost", "cost_details", "is_byok",
+	}
 	if dialect == providerDialectXAIResponses {
 		optional = append(optional,
 			"num_sources_used",
@@ -313,12 +339,12 @@ func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 		optional,
 	)
 	if err != nil {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	input, inputOK := safeJSONInt(usage["input_tokens"])
 	outputTokens, outputOK := safeJSONInt(usage["output_tokens"])
 	if !inputOK || !outputOK {
-		return nil, fail("INVALID_USAGE")
+		return nil, nil, fail("INVALID_USAGE")
 	}
 	result := &Usage{InputTokens: input, OutputTokens: outputTokens}
 	if detailsValue, present := usage["input_tokens_details"]; present &&
@@ -350,7 +376,11 @@ func responsesUsage(value any, dialect providerDialect) (*Usage, error) {
 			}
 		}
 	}
-	return result, nil
+	cost, costErr := optionalProviderReportedUSDCost(usage)
+	if costErr != nil {
+		return nil, nil, costErr
+	}
+	return result, cost, nil
 }
 
 func (conversation *responsesConversation) appendInstruction(body []byte) error {
@@ -424,8 +454,19 @@ func validResponsesMessageItem(item map[string]any) bool {
 		(!hasStatus || status == "completed")
 }
 
+// responsesFunctionCall decodes one function_call item. Every field
+// validation happens before the call_id is checked against reserved (and
+// only checked, never committed): a single item's own malformation - a bad
+// name, empty or oversized arguments, invalid JSON - is rejected without ever
+// touching correlation state, and even a well-formed item only reserves its
+// call_id in the caller's batch-local set. The caller commits the whole
+// batch to the ledger in one place, after every item in the same decode pass
+// has succeeded (see accept's commitCorrelate call), so a turn that fails
+// partway through - at any item, for any defect - never leaves an earlier
+// sibling's call_id permanently claimed.
 func responsesFunctionCall(
 	ledger *continuationLedger,
+	reserved map[string]struct{},
 	item map[string]any,
 ) (providerToolCall, error) {
 	if item["type"] != "function_call" {
@@ -447,9 +488,6 @@ func responsesFunctionCall(
 	if hasStatus && status != "completed" {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.status_incomplete")
 	}
-	if err := ledger.correlate(callID); err != nil {
-		return providerToolCall{}, failContinuation("continuation.toolcall_decode.correlate_reuse")
-	}
 	if !providerKeyPattern.MatchString(name) {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.invalid_name_pattern")
 	}
@@ -460,6 +498,10 @@ func responsesFunctionCall(
 	if _, err := decodeStrict(arguments, MaxToolArgumentBytes); err != nil {
 		return providerToolCall{}, failContinuation("continuation.toolcall_decode.arguments_json_invalid")
 	}
+	if err := ledger.checkCorrelate(callID, reserved); err != nil {
+		return providerToolCall{}, failContinuation("continuation.toolcall_decode.correlate_reuse")
+	}
+	reserved[callID] = struct{}{}
 	return providerToolCall{
 		ID:        callID,
 		Name:      name,

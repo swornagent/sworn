@@ -69,7 +69,11 @@ func BuildProjectCatalog(
 	}
 	catalogRuns := make([]CatalogRun, 0, len(runs))
 	for _, run := range runs {
-		presentation := PresentRunState(run.Status.State, run.Status.Park)
+		presentation := PresentRunStateWithRecovery(
+			run.Status.State,
+			run.Status.Recovery,
+			run.Status.Park,
+		)
 		catalogRuns = append(catalogRuns, CatalogRun{
 			ID:        run.Binding.ID,
 			Release:   run.Binding.Release,
@@ -93,9 +97,10 @@ func BuildProjectCatalog(
 
 // ProjectNeedsYou extracts human-action-required items across runs with precedence:
 // 1. Open attentions ("answer_attention")
-// 2. Parked runs (retry for real failed work, review_park otherwise)
-// 3. Takeover required ("takeover")
-// 4. Awaiting approval ("approve")
+// 2. Reconciled uncertainty (the one verb the control gate admits)
+// 3. Parked runs (retry for real failed work, review_park otherwise)
+// 4. Takeover required ("takeover")
+// 5. Awaiting approval ("approve")
 func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 	items := make([]NeedsYouItem, 0)
 	for _, run := range runs {
@@ -119,7 +124,23 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			continue
 		}
 
-		// Precedence 2: Parked run. A park with real failed work keeps the
+		// Precedence 2: Reconciled uncertainty. The runtime derived the one
+		// verb the control gate admits for this shape; the needs-you row
+		// carries exactly that verb and its work identity, never a verb
+		// ApplyControl would refuse.
+		if run.Status.Recovery != nil {
+			items = append(items, NeedsYouItem{
+				RunID:   run.Binding.ID,
+				Release: run.Binding.Release,
+				State:   run.Status.State,
+				Action:  run.Status.Recovery.Action,
+				Reason:  run.Status.Recovery.Reason,
+				WorkID:  run.Status.Recovery.WorkID,
+			})
+			continue
+		}
+
+		// Precedence 3: Parked run. A park with real failed work keeps the
 		// retry row with its work id; a park with no failed work is never
 		// presented as a retry. A degradation park names its cause, count,
 		// budget, and the manifest knob that unblocks it.
@@ -162,7 +183,7 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			continue
 		}
 
-		// Precedence 3: Takeover required
+		// Precedence 4: Takeover required
 		if run.Status.State == "takeover_required" {
 			items = append(items, NeedsYouItem{
 				RunID:   run.Binding.ID,
@@ -174,7 +195,7 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			continue
 		}
 
-		// Precedence 4: Awaiting approval
+		// Precedence 5: Awaiting approval
 		if run.Status.State == "awaiting_approval" {
 			items = append(items, NeedsYouItem{
 				RunID:   run.Binding.ID,

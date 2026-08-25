@@ -129,6 +129,13 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 				test.responsibility,
 				test.access,
 			)
+			if test.responsibility == PlannerProposal {
+				invocation.recoverableInput = &RecoverableTurnInput{
+					SchemaVersion: RecoverableTurnInputSchemaVersion,
+					Kind:          RecoverableInputAnswer,
+					Answer:        "Continue with the approved planner turn.",
+				}
+			}
 			observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
 			if err != nil || observation.Handoff == nil ||
 				observation.TransportStatus != Completed ||
@@ -327,6 +334,220 @@ func TestProviderMalformedSubmissionsAreCorrectedUntilValid(
 	}
 }
 
+// toolCallCorrectionTransport serves a malformed Responses function_call for
+// a fixed number of turns, then a well-formed sworn_submit reusing the exact
+// same call_id: it exercises A1's transactional ledger commit (a failed
+// decode never leaves an earlier turn's call_id permanently claimed) end to
+// end, through the real adapter loop, without any real network connection.
+type toolCallCorrectionTransport struct {
+	turn             atomic.Int64
+	correctionRounds int64
+	validArguments   string
+}
+
+func (transport *toolCallCorrectionTransport) roundTrip(
+	_ context.Context,
+	_ *string,
+	_ providerRequest,
+) ([]byte, error) {
+	turn := transport.turn.Add(1)
+	arguments := "{malformed json"
+	if turn > transport.correctionRounds {
+		arguments = transport.validArguments
+	}
+	return mustJSONMap(responsesToolCallResponse(
+		"toolcall-response",
+		"toolcall-function",
+		"toolcall-call",
+		"sworn_submit",
+		arguments,
+		1,
+		1,
+	)), nil
+}
+
+func (*toolCallCorrectionTransport) check(
+	context.Context,
+	profileCheckKind,
+	*string,
+	string,
+) (ReadinessState, string) {
+	return ReadinessPass, "test"
+}
+
+// toolCallCorrectionTestAdapter builds a real Responses-dialect loop adapter
+// whose transport is replaced by the test script, mirroring
+// economyTestAdapter's shape for the chat-completions dialect.
+func toolCallCorrectionTestAdapter(
+	t *testing.T,
+	transport providerTransport,
+) Adapter {
+	t.Helper()
+	adapter, err := NewOpenAIAdapter(
+		OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "openai-toolcall", ID: "sworn.openai.toolcall",
+				Version:          "1.0.0",
+				Endpoint:         "https://provider.example.invalid/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"credential-ref"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIResponsesAPI,
+			ReasoningEffort: "none",
+		},
+		func(context.Context, string) ([]byte, error) {
+			return []byte("secret"), nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop, ok := adapter.(*loopAdapter)
+	if !ok {
+		t.Fatalf("adapter type = %T", adapter)
+	}
+	loop.transport = transport
+	return adapter
+}
+
+func TestProviderMalformedToolCallsAreCorrectedUntilValid(t *testing.T) {
+	t.Parallel()
+	const invocationID = "provider-toolcall-corrections"
+	const correctionRounds = 3
+	valid := submissionToolArguments(t, submissionFixture(
+		t,
+		invocationID,
+		ImplementerImplementation,
+		"",
+	))
+	// The same call_id, item id, and response id are reused on every turn,
+	// including the corrected one: the transactional ledger commit (A1)
+	// never leaves an earlier, still-uncorrected turn's call_id claimed, so
+	// the model reusing it is not a defect.
+	transport := &toolCallCorrectionTransport{
+		correctionRounds: correctionRounds,
+		validArguments:   valid,
+	}
+	adapter := toolCallCorrectionTestAdapter(t, transport)
+	invocation := economyInvocationFixture(
+		t,
+		adapter,
+		invocationID,
+		Limits{TimeoutMillis: 5_000, OutputBytes: 65_536},
+		t.TempDir(),
+	)
+	var reservations atomic.Int64
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepMalformedToolCall {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations.Add(1)
+		return nil
+	}
+	observation, err := (Dispatcher{}).Invoke(context.Background(), invocation)
+	if err != nil || observation.Handoff == nil ||
+		observation.Yield != nil ||
+		transport.turn.Load() != int64(correctionRounds+1) ||
+		reservations.Load() != int64(correctionRounds) {
+		t.Fatalf(
+			"observation = %#v, turns=%d, error=%v",
+			observation,
+			transport.turn.Load(),
+			err,
+		)
+	}
+}
+
+// TestProviderPersistentMalformedToolCallsPreserveOriginalClassification
+// pins the Captain's required correction: with the operator's turn budget
+// set to the maximum admitted value (equal to MaxProviderTurns), a provider
+// that never emits a well-formed tool call must still fail with the
+// original continuation.toolcall_decode.* classification once
+// MaxToolCallCorrections is spent - never a generic RESOURCE_LIMIT from the
+// runaway-loop guard's own iteration bound, and never a different economy
+// code either.
+func TestProviderPersistentMalformedToolCallsPreserveOriginalClassification(
+	t *testing.T,
+) {
+	t.Parallel()
+	const invocationID = "provider-toolcall-persistent"
+	transport := &toolCallCorrectionTransport{
+		// Never crosses into "valid": correctionRounds names the last turn
+		// index MaxProviderTurns can ever reach, so every one of them stays
+		// malformed.
+		correctionRounds: MaxProviderTurns,
+		validArguments:   "unused",
+	}
+	adapter := toolCallCorrectionTestAdapter(t, transport)
+	invocation := economyInvocationFixture(
+		t,
+		adapter,
+		invocationID,
+		Limits{
+			// MaxProviderTurns in-process round trips run comfortably
+			// inside the default 5s TimeoutMillis, but -race's
+			// instrumentation overhead and loaded CI runners can push
+			// that far past the edge (a 30s budget expired on CI as
+			// INVOCATION_TIMEOUT before the correction rounds finished);
+			// a generous budget keeps this a correctness test, not a
+			// scheduler timing test.
+			TimeoutMillis:   180_000,
+			OutputBytes:     65_536,
+			MaxTurnsPerWork: MaxTurnsPerWorkLimit,
+		},
+		t.TempDir(),
+	)
+	var reservations atomic.Int64
+	invocation.RecoveryStepHook = func(
+		_ context.Context,
+		kind RecoveryStepKind,
+	) error {
+		if kind != RecoveryStepMalformedToolCall {
+			t.Fatalf("reservation kind = %s", kind)
+		}
+		reservations.Add(1)
+		return nil
+	}
+	_, invokeErr := (Dispatcher{}).Invoke(context.Background(), invocation)
+	// finishAdapterInvocation's normalizeAdapterError strips Detail from
+	// every non-provider-status code before it reaches this boundary (by
+	// design: "adapter-provided wrapping text cannot escape"), so the
+	// classification is checked at the Code alone here; the exact
+	// continuation.toolcall_decode.* label surviving up to the point of
+	// normalization is pinned directly against responsesFunctionCall and
+	// accept() in continuation_labels_test.go and continuation_test.go.
+	// What this asserts is the Captain's required correction: persistent
+	// malformation must still fail CONTINUATION_INVALID, never the
+	// runaway-loop guard's own RESOURCE_LIMIT and never an economy code.
+	if !IsCode(invokeErr, "CONTINUATION_INVALID") {
+		t.Fatalf(
+			"expected CONTINUATION_INVALID (not RESOURCE_LIMIT or an economy code), got: %v",
+			invokeErr,
+		)
+	}
+	if transport.turn.Load() != int64(MaxProviderTurns) {
+		t.Fatalf(
+			"requests = %d, want %d",
+			transport.turn.Load(),
+			MaxProviderTurns,
+		)
+	}
+	if reservations.Load() != int64(MaxToolCallCorrections) {
+		t.Fatalf(
+			"reservations = %d, want %d",
+			reservations.Load(),
+			MaxToolCallCorrections,
+		)
+	}
+}
+
 func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -343,13 +564,14 @@ func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 			wantCode: "RECOVERY_STEP_REFUSED",
 		},
 		// A model that answers in prose forever is nudged every turn, each
-		// nudge durably reserved as eval data, until the turn budget - the
-		// only bound - ends the invocation.
+		// nudge durably reserved as eval data, until the per-work turn
+		// budget - the first bound - ends the invocation with the named
+		// economy code.
 		{
 			name: "prose_forever_is_nudged_to_the_turn_budget", secondProse: true,
-			wantRequests:     int64(MaxProviderTurns),
-			wantReservations: int64(MaxProviderTurns),
-			wantCode:         "RESOURCE_LIMIT",
+			wantRequests:     int64(DefaultMaxTurnsPerWork),
+			wantReservations: int64(DefaultMaxTurnsPerWork),
+			wantCode:         "ECONOMY_TURN_BUDGET_EXCEEDED",
 		},
 	}
 	for _, test := range tests {

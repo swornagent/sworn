@@ -33,6 +33,36 @@ const (
 	MaxSafeInteger           int64 = 9_007_199_254_740_991
 	DefaultDegradationBudget int64 = 3
 	MaxDegradationBudget     int64 = 100
+	// DefaultMaxTurnsPerWork is the per-work turn budget a manifest gets
+	// when limits.max_turns_per_work is absent. A careful implementer pass
+	// over this repo needs ~30 tool turns, so the default sits far above
+	// honest work and far below the MaxProviderTurns runaway guard.
+	DefaultMaxTurnsPerWork int64 = 200
+	// MaxTurnsPerWorkLimit caps limits.max_turns_per_work at the runaway
+	// guard itself: a budget at or above MaxProviderTurns could never bind
+	// anything the loop already admits.
+	MaxTurnsPerWorkLimit int64 = MaxProviderTurns
+	// DefaultMaxOutputTokensPerWork is the per-work output-token budget a
+	// manifest gets when limits.max_output_tokens_per_work is absent.
+	DefaultMaxOutputTokensPerWork int64 = 262_144
+	// MaxOutputTokensPerWorkLimit caps limits.max_output_tokens_per_work.
+	MaxOutputTokensPerWorkLimit int64 = 4_194_304
+	// DefaultIdenticalFailureParkAfter is the consecutive-identical-failure
+	// threshold a manifest gets when limits.identical_failure_park_after is
+	// absent: two identical failures park before the third try burns.
+	DefaultIdenticalFailureParkAfter int64 = 2
+	// MaxIdenticalFailureParkAfter caps limits.identical_failure_park_after
+	// at the try budget itself; an absent or zero knob means the default.
+	MaxIdenticalFailureParkAfter int64 = 3
+	// DefaultContinuationLifetimeMillis is the continuation retention a
+	// manifest gets when limits.max_continuation_lifetime_ms is absent:
+	// today's compile-time 24h, so an unset knob preserves current ageing.
+	DefaultContinuationLifetimeMillis int64 = 86_400_000
+	// MaxContinuationLifetimeMillisLimit caps
+	// limits.max_continuation_lifetime_ms at 30 days: far beyond the
+	// multi-day releases the knob serves and far from any int64
+	// nanoseconds overflow of the stamped expiry.
+	MaxContinuationLifetimeMillisLimit int64 = 2_592_000_000
 )
 
 var (
@@ -139,6 +169,20 @@ type Limits struct {
 	TimeoutMillis     int64 `json:"timeout_ms"`
 	OutputBytes       int64 `json:"output_bytes"`
 	DegradationBudget int64 `json:"degradation_budget,omitempty"`
+	// MaxTurnsPerWork and MaxOutputTokensPerWork are the per-work economy
+	// budgets (A1): a dispatch crossing either parks the work at the next
+	// safe conversation-loop boundary. Absent/zero means the documented
+	// default. IdenticalFailureParkAfter is the consecutive identical
+	// operational-failure threshold that parks a work early (A2); the
+	// degradation_budget pattern applies exactly — omitempty, absent/zero
+	// means the default of DefaultIdenticalFailureParkAfter.
+	MaxTurnsPerWork           int64 `json:"max_turns_per_work,omitempty"`
+	MaxOutputTokensPerWork    int64 `json:"max_output_tokens_per_work,omitempty"`
+	IdenticalFailureParkAfter int64 `json:"identical_failure_park_after,omitempty"`
+	// MaxContinuationLifetimeMillis is the continuation retention window
+	// (A1): a suspend stamps expiresNano from this governed value. Absent
+	// or zero means DefaultContinuationLifetimeMillis (24h).
+	MaxContinuationLifetimeMillis int64 `json:"max_continuation_lifetime_ms,omitempty"`
 }
 
 func (l Limits) EffectiveDegradationBudget() int64 {
@@ -146,6 +190,35 @@ func (l Limits) EffectiveDegradationBudget() int64 {
 		return l.DegradationBudget
 	}
 	return DefaultDegradationBudget
+}
+
+func (l Limits) EffectiveMaxTurnsPerWork() int64 {
+	if l.MaxTurnsPerWork > 0 {
+		return l.MaxTurnsPerWork
+	}
+	return DefaultMaxTurnsPerWork
+}
+
+func (l Limits) EffectiveMaxOutputTokensPerWork() int64 {
+	if l.MaxOutputTokensPerWork > 0 {
+		return l.MaxOutputTokensPerWork
+	}
+	return DefaultMaxOutputTokensPerWork
+}
+
+func (l Limits) EffectiveIdenticalFailureParkAfter() int64 {
+	if l.IdenticalFailureParkAfter > 0 {
+		return l.IdenticalFailureParkAfter
+	}
+	return DefaultIdenticalFailureParkAfter
+}
+
+func (l Limits) EffectiveContinuationLifetime() time.Duration {
+	millis := l.MaxContinuationLifetimeMillis
+	if millis <= 0 {
+		millis = DefaultContinuationLifetimeMillis
+	}
+	return time.Duration(millis) * time.Millisecond
 }
 
 type Request struct {
@@ -416,6 +489,22 @@ func validateRequest(request Request, reserved []string) error {
 		return fail("INVALID_LIMIT")
 	}
 	if request.Limits.DegradationBudget < 0 || request.Limits.DegradationBudget > MaxDegradationBudget {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.MaxTurnsPerWork < 0 ||
+		request.Limits.MaxTurnsPerWork > MaxTurnsPerWorkLimit {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.MaxOutputTokensPerWork < 0 ||
+		request.Limits.MaxOutputTokensPerWork > MaxOutputTokensPerWorkLimit {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.IdenticalFailureParkAfter < 0 ||
+		request.Limits.IdenticalFailureParkAfter > MaxIdenticalFailureParkAfter {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.MaxContinuationLifetimeMillis < 0 ||
+		request.Limits.MaxContinuationLifetimeMillis > MaxContinuationLifetimeMillisLimit {
 		return fail("INVALID_LIMIT")
 	}
 	body, err := json.Marshal(request)

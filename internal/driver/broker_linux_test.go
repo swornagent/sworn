@@ -67,6 +67,13 @@ func TestNativeBrokerRefusedCorrectionClosesWithoutResultBytes(t *testing.T) {
 func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.T) {
 	requireTrustedContainment(t)
 	invocation, _, _ := memoryInvocationFixture(t)
+	// Planner plan bytes may leave the driver only from the answer-resume
+	// shape, so the broker session models the answered turn.
+	invocation.recoverableInput = &RecoverableTurnInput{
+		SchemaVersion: RecoverableTurnInputSchemaVersion,
+		Kind:          RecoverableInputAnswer,
+		Answer:        "resume answer",
+	}
 	if err := osWriteProviderFixture(
 		invocation.HostWorkspace,
 		"broker.txt",

@@ -38,6 +38,9 @@ type preparedDriverDispatch struct {
 	// runDriverEffectWithPreparation and copied into every invocation.
 	// It is runtime-only and never serialized into commandPayload.
 	toolResultHook driver.ToolResultHook
+	// sealedProposalHook is the blocking runtime callback that persists plan
+	// bytes at submission seal, before the driver publishes its handoff.
+	sealedProposalHook driver.SealedProposalHook
 }
 
 type uncertainHandoffPreparationError struct {
@@ -363,6 +366,27 @@ func validContinuationOutcome(outcome string) bool {
 	}
 }
 
+// mergeContinuationFacts is the non-lossy fact-merge rule: a nil incoming
+// fact never clears an existing one, and fallback_expired wins so a labeled
+// mid-yield expiry is never masked by a later reuse or plain fallback.
+func mergeContinuationFacts(
+	existing, incoming *continuationDispatchFact,
+) *continuationDispatchFact {
+	if incoming == nil {
+		return existing
+	}
+	if existing == nil {
+		return incoming
+	}
+	if existing.outcome == continuationOutcomeFallbackExpired {
+		return existing
+	}
+	if incoming.outcome == continuationOutcomeFallbackExpired {
+		return incoming
+	}
+	return incoming
+}
+
 func zeroDriverObservation(observation driver.Observation) bool {
 	return observation.TransportStatus == "" &&
 		observation.DurationMillis == 0 &&
@@ -458,7 +482,8 @@ func preparedInvocation(
 		// Runtime-only authority: the driver emits the tool-result
 		// projection on this hook off its dispatch loop, never failing
 		// or stalling delivery on it.
-		ToolResultHook: prepared.toolResultHook,
+		ToolResultHook:     prepared.toolResultHook,
+		SealedProposalHook: prepared.sealedProposalHook,
 	}
 }
 
@@ -1761,7 +1786,7 @@ func (s *Service) persistHumanHandoffCheckpoint(
 func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
-	owner journal.OwnerLease) (driver.Submission, error) {
+	owner journal.OwnerLease, implementationGoverned bool) (driver.Submission, error) {
 	return s.runDriverEffectWithPreparation(
 		ctx,
 		engine,
@@ -1772,6 +1797,7 @@ func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 		before,
 		owner,
 		nil,
+		implementationGoverned,
 	)
 }
 
@@ -1779,7 +1805,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
 	owner journal.OwnerLease,
-	prepareHandoff func(driver.Submission) error) (
+	prepareHandoff func(driver.Submission) error,
+	implementationGoverned bool) (
 	submissionResult driver.Submission,
 	resultErr error,
 ) {
@@ -1857,6 +1884,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		prepared,
 		coordinates,
 		attemptIdentity,
+	)
+	prepared.sealedProposalHook = s.sealedProposalHook(
+		owner,
+		replayKey,
 	)
 	var recovery *turnRecoveryCycle
 	if _, enabled := manifest.value.recoverySelection(); enabled {
@@ -1969,17 +2000,67 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				break
 			}
 		}
-		_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
-			RunID: manifest.value.RunID, EffectID: replayKey,
-			Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
-			EventBody: MarshalAssociation(EventAssociation{
-				EffectID:       replayKey,
-				WorkID:         attemptIdentity.WorkID,
-				Slice:          coordinates.Slice,
-				Responsibility: coordinates.Responsibility,
-			}), At: s.now().UTC(),
-		}, journal.RecoveryAmbiguous)
-		return driver.Submission{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
+		if implementationGoverned {
+			// A seal-cycle child keeps its coupled recovery: ambiguity is
+			// written here and the cycle machinery resolves parent and
+			// child atomically. The ownerless-claimed reconciliation gate
+			// is for the direct-dispatch shape only.
+			_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
+				RunID: manifest.value.RunID, EffectID: replayKey,
+				Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
+				EventBody: MarshalAssociation(EventAssociation{
+					EffectID:       replayKey,
+					WorkID:         attemptIdentity.WorkID,
+					Slice:          coordinates.Slice,
+					Responsibility: coordinates.Responsibility,
+				}), At: s.now().UTC(),
+			}, journal.RecoveryAmbiguous)
+			return driver.Submission{},
+				runtimeFail("RECOVERY_UNCERTAIN", nil)
+		}
+		resolution, err := s.reconcileOwnerlessClaimedDispatch(
+			ctx,
+			owner,
+			effect,
+			attemptIdentity.WorkID,
+			"",
+			coordinates.Slice,
+			coordinates.Responsibility,
+		)
+		if err != nil {
+			return driver.Submission{}, err
+		}
+		switch resolution {
+		case ownerlessClaimCleared:
+			effect, err = s.journal.Effect(
+				ctx,
+				manifest.value.RunID,
+				replayKey,
+			)
+			if err != nil {
+				return driver.Submission{},
+					runtimeFail("JOURNAL_READ_FAILED", err)
+			}
+			if effect.State != journal.Pending ||
+				effect.CurrentClaim != "" {
+				return driver.Submission{},
+					runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			claim, err = s.journal.ClaimOwned(
+				ctx,
+				owner,
+				replayKey,
+				s.now().UTC(),
+				effectLease,
+			)
+			if err != nil {
+				return driver.Submission{},
+					runtimeFail("EFFECT_CLAIM_FAILED", err)
+			}
+		default:
+			return driver.Submission{},
+				runtimeFail("RECOVERY_UNCERTAIN", nil)
+		}
 	case journal.Pending:
 		claim, err = s.journal.ClaimOwned(
 			ctx,
@@ -2019,7 +2100,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		// The exact sealed handoff was already validated and checkpointed
 		// before a prior process died. Continue from those immutable bytes.
 	} else if answered != nil {
-		observation, pendingContinuation, recovered, invokeErr =
+		var resumeFact *continuationDispatchFact
+		observation, pendingContinuation, recovered, resumeFact, invokeErr =
 			s.resumeAnsweredWorker(
 				ctx,
 				engine,
@@ -2031,6 +2113,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				replayKey,
 				*answered,
 			)
+		continuationFact = mergeContinuationFacts(continuationFact, resumeFact)
 	} else {
 		observation, pendingContinuation, continuationFact, invokeErr =
 			s.invokePreparedDriver(
@@ -2057,7 +2140,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			return driver.Submission{}, errors.Join(parkErr, invokeErr)
 		}
 		if recovery != nil && observation.Yield != nil {
-			observation, pendingContinuation, recovered, invokeErr =
+			var yieldFact *continuationDispatchFact
+			observation, pendingContinuation, recovered, yieldFact, invokeErr =
 				s.continueYieldedWorker(
 					ctx,
 					engine,
@@ -2070,6 +2154,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					observation,
 					pendingContinuation,
 				)
+			continuationFact = mergeContinuationFacts(continuationFact, yieldFact)
 		}
 	}
 	if IsCode(invokeErr, "EFFECT_PARKED") ||

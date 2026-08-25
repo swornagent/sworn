@@ -177,6 +177,7 @@ func TestDispatchCompletedBodyCarriesResponsibility(t *testing.T) {
 		fixture.cycle.Before,
 		fixture.owner,
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("runDriverEffectWithPreparation failed: %v", err)
@@ -237,6 +238,7 @@ func TestOperationalFailureBodyCarriesResponsibility(t *testing.T) {
 		fixture.cycle.Before,
 		fixture.owner,
 		nil,
+		true,
 	)
 	if err == nil || !IsCode(err, "DRIVER_OPERATIONAL_FAILURE") {
 		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", err)

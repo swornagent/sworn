@@ -62,6 +62,77 @@ func AttemptEffectID(workID string, epoch, try int64) string {
 	return fmt.Sprintf("attempt/%s/e%d/t%d", strings.TrimPrefix(workID, "sha256:"), epoch, try)
 }
 
+// RetryAdmissibleEffect is the single predicate shared by the control gate
+// and the board guidance. An effect admits retry when its outcome is
+// uncertain, or when it is claimed by a token whose claim has expired while
+// no runtime owner is active. A claimed effect with a live claim is never
+// retryable — its dispatcher may still be mid-flight — and a claimed effect
+// whose expiry cannot be seen admits nothing.
+func RetryAdmissibleEffect(
+	state EffectState,
+	claimExpiresAt time.Time,
+	at time.Time,
+	ownerActive bool,
+) bool {
+	if state == Uncertain {
+		return true
+	}
+	if state != Claimed || ownerActive || claimExpiresAt.IsZero() {
+		return false
+	}
+	return !claimExpiresAt.After(at)
+}
+
+func retryAdmissibleOnConnection(
+	ctx context.Context,
+	conn *sql.Conn,
+	runID string,
+	workID string,
+	epoch int64,
+	at time.Time,
+	ownerActive bool,
+) (bool, error) {
+	for try := int64(1); try <= 3; try++ {
+		var state string
+		var expires sql.NullString
+		err := conn.QueryRowContext(
+			ctx,
+			`SELECT e.state, c.expires_at
+			 FROM effects e
+			 LEFT JOIN claims c ON c.run_id = e.run_id
+			  AND c.effect_id = e.effect_id
+			  AND c.token = e.current_claim
+			  AND c.completed_at IS NULL
+			 WHERE e.run_id = ? AND e.effect_id = ?
+			   AND e.kind = 'driver.dispatch'`,
+			runID,
+			AttemptEffectID(workID, epoch, try),
+		).Scan(&state, &expires)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return false, dbError(err)
+		}
+		var expiry time.Time
+		if expires.Valid {
+			expiry, err = parseTime(expires.String)
+			if err != nil {
+				return false, err
+			}
+		}
+		if RetryAdmissibleEffect(
+			EffectState(state),
+			expiry,
+			at,
+			ownerActive,
+		) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func validControl(command ControlCommand) error {
 	if err := validateIdentity(command.RunID, "run"); err != nil {
 		return err
@@ -274,7 +345,32 @@ func (s *Store) ApplyControl(ctx context.Context, command ControlCommand, at tim
 			if err := conn.QueryRowContext(ctx,
 				`SELECT state FROM effects WHERE run_id = ? AND effect_id = ?`,
 				command.RunID, AttemptEffectID(command.WorkID, epoch, 3)).Scan(&state); err != nil || state != string(OperationalFailed) {
-				return fail("WORK_NOT_EXHAUSTED", nil)
+				// The try budget was not exhausted on a failed third try.
+				// Retry stays admissible when the same predicate the board
+				// guidance evaluates sees a current-epoch dispatch whose
+				// outcome is uncertain, or whose claim has expired while no
+				// runtime owner is active. Nothing else admits a payment.
+				owner, ownerPresent, ownerErr :=
+					currentOwnerOnConnection(ctx, conn, command.RunID)
+				if ownerErr != nil {
+					return ownerErr
+				}
+				ownerActive := ownerPresent && owner.ExpiresAt.After(at)
+				admissible, admissibleErr := retryAdmissibleOnConnection(
+					ctx,
+					conn,
+					command.RunID,
+					command.WorkID,
+					epoch,
+					at,
+					ownerActive,
+				)
+				if admissibleErr != nil {
+					return admissibleErr
+				}
+				if !admissible {
+					return fail("WORK_NOT_EXHAUSTED", nil)
+				}
 			}
 			receipt.Epoch = epoch + 1
 		}

@@ -1399,7 +1399,11 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 				Try:             try,
 				InvocationScope: invocationScope,
 			},
-			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}, before, owner)
+			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try},
+			before,
+			owner,
+			false,
+		)
 		if err == nil {
 			return submission, nil
 		}
@@ -1410,6 +1414,20 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 			journal.AttemptEffectID(workID, epoch, try))
 		if readErr != nil || effect.State != journal.OperationalFailed {
 			return driver.Submission{}, err
+		}
+		// Economy/identical-failure guards (A1/A2) admit the next try: a
+		// durably failed try that crossed a guard parks before the next
+		// try burns. EFFECT_PARKED is the drive loop's benign park signal.
+		parked, parkErr := s.economyGuardsParked(
+			ctx,
+			engine.manifest,
+			engine.manifest.value.RunID,
+		)
+		if parkErr != nil {
+			return driver.Submission{}, parkErr
+		}
+		if parked {
+			return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 		}
 	}
 	return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
@@ -2495,6 +2513,20 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		if IsCode(err, "STALE_DISPATCH") {
 			return err
 		}
+		// Economy/identical-failure guards (A1/A2) admit the next try: a
+		// durably failed try that crossed a guard parks before the next
+		// try burns. EFFECT_PARKED is the drive loop's benign park signal.
+		parked, parkErr := s.economyGuardsParked(
+			ctx,
+			engine.manifest,
+			owner.RunID,
+		)
+		if parkErr != nil {
+			return parkErr
+		}
+		if parked {
+			return runtimeFail("EFFECT_PARKED", nil)
+		}
 	}
 	return runtimeFail("EFFECT_PARKED", nil)
 }
@@ -3422,6 +3454,7 @@ func (s *Service) runProductionImplementationDispatch(
 				)
 			return prepareErr
 		},
+		true,
 	)
 	if err != nil {
 		return sealedRecord{}, journal.Claim{}, err
@@ -3515,6 +3548,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		},
 		cycle.Before,
 		owner,
+		true,
 	)
 	if err != nil {
 		_ = workspace.Close()
@@ -4787,6 +4821,11 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	); recovered || err != nil {
 		return recovered, err
 	}
+	if recovered, err := s.recoverAnswerParkCheckpoint(
+		ctx, engine, owner, snapshot,
+	); recovered || err != nil {
+		return recovered, err
+	}
 	attentions, err := s.journal.Attentions(ctx, owner.RunID)
 	if err != nil {
 		return true, runtimeFail("JOURNAL_READ_FAILED", err)
@@ -5436,14 +5475,11 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		}
 		fallbacks := degradationFallbacks(snapshot)
 		if int64(len(fallbacks)) > engine.manifest.value.EffectiveDegradationBudget() {
-			hasParkEvent := false
-			for _, event := range snapshot.Events {
-				if event.Kind == "degradation_budget_parked" {
-					hasParkEvent = true
-					break
-				}
-			}
-			if !hasParkEvent {
+			// Cause-aware idempotence: a park event of any other cause
+			// sharing the journal kind must neither suppress this
+			// degradation park nor be suppressed by it, and the replay key
+			// makes exactly-one-per-cause race-free.
+			if !hasParkEventForCause(snapshot, ParkCauseDegradation) {
 				body, err := degradationParkEvent(
 					owner.RunID,
 					engine.manifest.value.EffectiveDegradationBudget(),
@@ -5452,13 +5488,74 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 				if err != nil {
 					return err
 				}
-				_ = s.journal.AppendEvent(
+				if err := s.appendParkEventOnce(
 					ctx,
 					owner.RunID,
-					"degradation_budget_parked",
+					ParkCauseDegradation,
 					body,
-					s.now().UTC(),
-				)
+				); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// Economy guards (A1): a current-epoch dispatch that crossed its
+		// per-work turn or output-token budget parks the run before any new
+		// work starts, with spent-versus-budget read from the exact attempt
+		// that crossed.
+		if crossing := economyParkCrossing(
+			snapshot,
+			projection,
+		); crossing != nil {
+			spentTurns, spentTokens, spentErr := s.economySpent(
+				ctx,
+				owner.RunID,
+				*crossing,
+			)
+			if spentErr != nil {
+				return spentErr
+			}
+			facts := economyParkFactsFor(
+				*crossing,
+				engine.manifest.value.Limits,
+				spentTurns,
+				spentTokens,
+			)
+			body, err := economyParkEventBody(owner.RunID, facts)
+			if err != nil {
+				return err
+			}
+			if err := s.appendParkEventOnce(
+				ctx,
+				owner.RunID,
+				facts.cause,
+				body,
+			); err != nil {
+				return err
+			}
+			return nil
+		}
+		// Identical-failure guard (A2): N consecutive identical operational
+		// failures on one work park before the try budget burns.
+		if identical := identicalFailureParkCrossing(
+			snapshot,
+			projection,
+			engine.manifest.value.EffectiveIdenticalFailureParkAfter(),
+		); identical != nil {
+			body, err := identicalFailureParkEventBody(
+				owner.RunID,
+				*identical,
+			)
+			if err != nil {
+				return err
+			}
+			if err := s.appendParkEventOnce(
+				ctx,
+				owner.RunID,
+				ParkCauseIdenticalFailure,
+				body,
+			); err != nil {
+				return err
 			}
 			return nil
 		}

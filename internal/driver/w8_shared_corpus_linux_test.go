@@ -893,7 +893,7 @@ func (target *w8CorpusTarget) newInvocation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Invocation{
+	invocation := Invocation{
 		Request:       request,
 		HostWorkspace: t.TempDir(),
 		Selected:      selected,
@@ -902,6 +902,16 @@ func (target *w8CorpusTarget) newInvocation(
 			Input: input, Bytes: submissionBody,
 		}},
 	}
+	// Planner plan bytes may leave the driver only from the answer-resume
+	// shape, so planner corpus rows model the answered turn.
+	if responsibility == PlannerProposal {
+		invocation.recoverableInput = &RecoverableTurnInput{
+			SchemaVersion: RecoverableTurnInputSchemaVersion,
+			Kind:          RecoverableInputAnswer,
+			Answer:        "Continue with the approved planner turn.",
+		}
+	}
+	return invocation
 }
 
 func w8RequireCompleted(

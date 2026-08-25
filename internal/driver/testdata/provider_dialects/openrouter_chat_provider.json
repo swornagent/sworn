@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl-openrouter-provider-fixture-01",
+  "object": "chat.completion",
+  "created": 1723850000,
+  "model": "qwen/qwen3.8-max",
+  "provider": "Together",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "done"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 6,
+    "total_tokens": 18,
+    "cost": 0.000484,
+    "cost_details": {},
+    "is_byok": false
+  }
+}

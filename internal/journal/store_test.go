@@ -152,6 +152,62 @@ func TestPrivateOneWriterReplayClaimAndCASCompletion(t *testing.T) {
 	}
 }
 
+// TestSealedProposalBytesSurviveParentOperationalFailure pins A3: exact
+// planner plan bytes persisted as the planner.sealed_plan child remain
+// readable after the parent dispatch completes operational_failed.
+func TestSealedProposalBytesSurviveParentOperationalFailure(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, parent := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	plan := []byte("```baton-plan-v2\n{\"release\":\"sealed\"}\n```\n# Plan\n")
+	childID := parent.ID + "/sealed-proposal"
+	if err := store.RecordCommandEffect(ctx, Command{
+		RunID: run.ID, ReplayKey: childID, Kind: "planner.sealed_plan",
+		Payload: plan, CreatedAt: now,
+	}, Effect{
+		RunID: run.ID, ID: childID, ReplayKey: childID,
+		Kind: "planner.sealed_plan", BeforeDigest: digest([]byte(parent.ID)),
+		ExpectedDigest: digest(plan), UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	childClaim, err := store.Claim(ctx, run.ID, childID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{
+		RunID: run.ID, EffectID: childID, Token: childClaim.Token,
+		State: Succeeded, Result: plan,
+		EventKind: "planner.sealed_plan_persisted", At: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	parentClaim, err := store.Claim(
+		ctx, run.ID, parent.ID, now.Add(time.Second), time.Minute,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, Completion{
+		RunID: run.ID, EffectID: parent.ID, Token: parentClaim.Token,
+		State: OperationalFailed, ErrorCode: "transport_error",
+		EventKind: "dispatch_operational_failure",
+		At:        now.Add(2 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSealedProposal(ctx, run.ID, parent.ID)
+	if err != nil || !bytes.Equal(got, plan) {
+		t.Fatalf("sealed proposal after parent fail = %q, %v", got, err)
+	}
+	failed, err := store.Effect(ctx, run.ID, parent.ID)
+	if err != nil || failed.State != OperationalFailed {
+		t.Fatalf("parent after fail = %#v, %v", failed, err)
+	}
+}
+
 func TestRecordCommandEffectIsAtomicAndConflictSafe(t *testing.T) {
 	store, run, _, _ := journalFixture(t)
 	ctx := context.Background()

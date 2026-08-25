@@ -22,8 +22,9 @@ func crashHumanTurnBarrier(name string) {
 }
 
 const (
-	turnRecoveryRecoveredEvent = "turn_recovery.outcome.recovered"
-	humanParkCheckpointVersion = "sworn.human-park-checkpoint/v1"
+	turnRecoveryRecoveredEvent  = "turn_recovery.outcome.recovered"
+	humanParkCheckpointVersion  = "sworn.human-park-checkpoint/v1"
+	answerParkCheckpointVersion = "sworn.answer-park-checkpoint/v1"
 )
 
 type humanParkCheckpoint struct {
@@ -47,6 +48,39 @@ func expectedHumanParkCheckpoint(
 	}
 	return humanParkCheckpoint{
 		SchemaVersion: humanParkCheckpointVersion,
+		ParentEffect:  parentEffect,
+		Command:       command,
+	}, nil
+}
+
+// answerParkCheckpoint makes an answerable question/blocked park durable
+// across host death. It deliberately contains no answer-bearing authority:
+// the payload is the exact park command, and recovery can only re-open the
+// same attention, never fabricate an answer.
+type answerParkCheckpoint struct {
+	SchemaVersion string                               `json:"schema_version"`
+	ParentEffect  string                               `json:"parent_effect"`
+	Command       journal.ParkRecoveryAttentionCommand `json:"command"`
+}
+
+func answerParkCheckpointID(parentEffect string) string {
+	return parentEffect + "/answer-park"
+}
+
+func expectedAnswerParkCheckpoint(
+	parentEffect string,
+	command journal.ParkRecoveryAttentionCommand,
+) (answerParkCheckpoint, error) {
+	if parentEffect == "" ||
+		command.Attention.Attention.HumanTurn != nil ||
+		command.Attention.RunID == "" ||
+		command.Attention.ExpectedGeneration != 0 ||
+		command.Resolve != nil {
+		return answerParkCheckpoint{},
+			runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	return answerParkCheckpoint{
+		SchemaVersion: answerParkCheckpointVersion,
 		ParentEffect:  parentEffect,
 		Command:       command,
 	}, nil
@@ -799,6 +833,8 @@ func (s *Service) turnRecoveryStepHook(
 			durable = journal.RecoveryMalformedCorrection
 		case driver.RecoveryStepProseNudge:
 			durable = journal.RecoveryProseNudge
+		case driver.RecoveryStepMalformedToolCall:
+			durable = journal.RecoveryMalformedCorrection
 		default:
 			return runtimeFail("INVALID_TURN_RECOVERY", nil)
 		}
@@ -1027,6 +1063,7 @@ func (s *Service) invokeRecoverableWorker(
 ) (
 	observation driver.Observation,
 	retained *retainedContinuation,
+	fact *continuationDispatchFact,
 	resultErr error,
 ) {
 	defer func() {
@@ -1036,7 +1073,7 @@ func (s *Service) invokeRecoverableWorker(
 		)
 	}()
 	if cycle == nil || workspace == nil {
-		return driver.Observation{}, nil,
+		return driver.Observation{}, nil, nil,
 			runtimeFail("INVALID_TURN_RECOVERY", nil)
 	}
 	if prepared.productionContext != nil {
@@ -1059,13 +1096,17 @@ func (s *Service) invokeRecoverableWorker(
 			before,
 			prepared,
 		); err != nil {
-			return driver.Observation{}, nil, err
+			return driver.Observation{}, nil, nil, err
 		}
+	}
+	carriedFact := (*continuationDispatchFact)(nil)
+	if entry != nil {
+		carriedFact = entry.fallbackFact
 	}
 	freshBinding, selectionDigest, err :=
 		recoverableContinuationBinding(prepared, *cycle)
 	if err != nil {
-		return driver.Observation{}, nil, err
+		return driver.Observation{}, nil, nil, err
 	}
 	promotableDesign := entry != nil &&
 		prepared.productionContext != nil &&
@@ -1097,7 +1138,7 @@ func (s *Service) invokeRecoverableWorker(
 				},
 			)
 		if err != nil {
-			return driver.Observation{}, nil, err
+			return driver.Observation{}, nil, nil, err
 		}
 	}
 	if !recoverableAuthorityMatches(
@@ -1107,9 +1148,10 @@ func (s *Service) invokeRecoverableWorker(
 		before,
 	) {
 		if cleanupErr := closeRetainedContinuation(entry); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
 		entry = nil
+		carriedFact = nil
 	}
 	binding := freshBinding
 	var source *driver.Continuation
@@ -1149,7 +1191,7 @@ func (s *Service) invokeRecoverableWorker(
 		_ = closeRecoveryContinuation(
 			&retainedContinuation{handle: source},
 		)
-		return driver.Observation{}, nil,
+		return driver.Observation{}, nil, nil,
 			runtimeFail("TURN_RECOVERY_UNSUPPORTED", nil)
 	}
 	observation, next, result, invokeErr :=
@@ -1168,42 +1210,73 @@ func (s *Service) invokeRecoverableWorker(
 		if next != nil {
 			sourceCloseErr = errors.Join(sourceCloseErr, next.Close())
 		}
-		return driver.Observation{}, nil, sourceCloseErr
+		return driver.Observation{}, nil, nil, sourceCloseErr
 	}
 	if source != nil &&
 		requestsFreshRehydrate(observation, result, invokeErr) &&
 		allowFallback {
 		if next != nil {
 			if cleanupErr := next.Close(); cleanupErr != nil {
-				return driver.Observation{}, nil,
-					runtimeFail(
-						"CONTINUATION_CLEANUP_FAILED",
+				return driver.Observation{}, nil, nil,
+					runtimeFailSite(
+						"INVALID_CONTINUATION",
+						"turn_recovery.recoverable_resume.fresh_rehydrate_request_with_handle",
 						cleanupErr,
 					)
 			}
-			return driver.Observation{}, nil,
-				runtimeFail("INVALID_CONTINUATION", nil)
+			return driver.Observation{}, nil, nil,
+				runtimeFailSite(
+					"INVALID_CONTINUATION",
+					"turn_recovery.recoverable_resume.fresh_rehydrate_request_with_handle",
+					nil,
+				)
 		}
-		return s.invokeRecoverableWorker(
-			ctx,
-			engine,
-			workspace,
-			prepared,
-			before,
-			owner,
-			cycle,
-			nil,
-			input,
-			false,
-		)
+		expiredFact := carriedFact
+		if result.Status == driver.ContinuationStatusExpired {
+			reason := result.Reason
+			if reason == "" {
+				reason = "expiry"
+			}
+			expiredFact = mergeContinuationFacts(
+				carriedFact,
+				&continuationDispatchFact{
+					mode:     driver.ContinuationModeFreshRehydrate,
+					outcome:  continuationOutcomeFallbackExpired,
+					reason:   reason,
+					retained: true,
+					posture:  s.continuationPostureFor(invocation),
+				},
+			)
+		}
+		observation, retained, recurseFact, recurseErr :=
+			s.invokeRecoverableWorker(
+				ctx,
+				engine,
+				workspace,
+				prepared,
+				before,
+				owner,
+				cycle,
+				nil,
+				input,
+				false,
+			)
+		merged := mergeContinuationFacts(expiredFact, recurseFact)
+		if retained != nil {
+			retained.fallbackFact = mergeContinuationFacts(
+				retained.fallbackFact,
+				merged,
+			)
+		}
+		return observation, retained, merged, recurseErr
 	}
 	if invokeErr != nil {
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return observation, nil, invokeErr
+		return observation, nil, carriedFact, invokeErr
 	}
 	if observation.Yield != nil {
 		switch {
@@ -1221,17 +1294,42 @@ func (s *Service) invokeRecoverableWorker(
 				retained.verifierFailReceipt =
 					entry.verifierFailReceipt
 			}
-			return observation, retained, nil
+			retained.fallbackFact = carriedFact
+			return observation, retained, carriedFact, nil
+		case next != nil &&
+			result.Status == driver.ContinuationStatusSuspended &&
+			result.Mode == driver.ContinuationModeFreshRehydrate:
+			// Rehydrated fresh start that yields again: the adapter's
+			// stored mode is still a real retained mode; only the
+			// returned result was overridden. Admit the handle and
+			// carry any expiry fact so the completion event labels it.
+			retained := retainedRecoverableContinuation(
+				next,
+				binding,
+				selectionDigest,
+				before,
+			)
+			if entry != nil {
+				retained.sourceReceipt = entry.sourceReceipt
+				retained.verifierFailReceipt =
+					entry.verifierFailReceipt
+			}
+			retained.fallbackFact = carriedFact
+			return observation, retained, carriedFact, nil
 		case next == nil && validFreshContinuationStart(next, result):
-			return observation, nil, nil
+			return observation, nil, carriedFact, nil
 		default:
 			if cleanupErr := closeRetainedContinuation(
 				&retainedContinuation{handle: next},
 			); cleanupErr != nil {
-				return driver.Observation{}, nil, cleanupErr
+				return driver.Observation{}, nil, nil, cleanupErr
 			}
-			return driver.Observation{}, nil,
-				runtimeFail("INVALID_CONTINUATION", nil)
+			return driver.Observation{}, nil, nil,
+				runtimeFailSite(
+					"INVALID_CONTINUATION",
+					"turn_recovery.recoverable_yield.invalid_result_shape",
+					nil,
+				)
 		}
 	}
 	if targetBinding != nil {
@@ -1246,15 +1344,20 @@ func (s *Service) invokeRecoverableWorker(
 				before:              before,
 				sourceReceipt:       entry.sourceReceipt,
 				verifierFailReceipt: entry.verifierFailReceipt,
-			}, nil
+				fallbackFact:        carriedFact,
+			}, carriedFact, nil
 		}
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return driver.Observation{}, nil,
-			runtimeFail("INVALID_CONTINUATION", nil)
+		return driver.Observation{}, nil, nil,
+			runtimeFailSite(
+				"INVALID_CONTINUATION",
+				"turn_recovery.recoverable_promotion.invalid_result_shape",
+				nil,
+			)
 	}
 	validTerminal := observation.Handoff != nil && next == nil
 	if source == nil {
@@ -1268,12 +1371,16 @@ func (s *Service) invokeRecoverableWorker(
 		if cleanupErr := closeRetainedContinuation(
 			&retainedContinuation{handle: next},
 		); cleanupErr != nil {
-			return driver.Observation{}, nil, cleanupErr
+			return driver.Observation{}, nil, nil, cleanupErr
 		}
-		return driver.Observation{}, nil,
-			runtimeFail("INVALID_CONTINUATION", nil)
+		return driver.Observation{}, nil, nil,
+			runtimeFailSite(
+				"INVALID_CONTINUATION",
+				"turn_recovery.recoverable_terminal.invalid_result_shape",
+				nil,
+			)
 	}
-	return observation, nil, nil
+	return observation, nil, carriedFact, nil
 }
 
 func (s *Service) continueYieldedWorker(
@@ -1291,6 +1398,7 @@ func (s *Service) continueYieldedWorker(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	return s.continueYieldedWorkerReplacing(
@@ -1326,9 +1434,14 @@ func (s *Service) continueYieldedWorkerReplacing(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	recovered := false
+	var fact *continuationDispatchFact
+	if pending != nil {
+		fact = pending.fallbackFact
+	}
 	var totals turnRecoveryTotals
 	if carried != nil {
 		totals = *carried
@@ -1337,7 +1450,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 		observation.DurationMillis,
 		observation.Usage,
 	); err != nil {
-		return driver.Observation{}, pending, false, err
+		return driver.Observation{}, pending, false, fact, err
 	}
 	for observation.Yield != nil {
 		if observation.Yield.Kind == driver.YieldHumanChoice ||
@@ -1354,7 +1467,39 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
+		}
+		if observation.Yield.Kind == driver.YieldQuestion ||
+			observation.Yield.Kind == driver.YieldBlocked {
+			// First-occurrence question/blocked parks answerable before any
+			// automation runs: no try consumed and the worker's words reach
+			// the board verbatim. While an open or answered attention for
+			// this work already exists (an answered first ask, or a
+			// successor park), the yield falls through to the existing
+			// automation/advisory/exhaustion loop, so the ask bound is one
+			// answerable park per work per recovery cycle.
+			_, found, attentionErr := s.attentionForWork(
+				ctx,
+				owner.RunID,
+				cycle.binding.ProgressID,
+			)
+			if attentionErr != nil {
+				return driver.Observation{}, pending, recovered, fact,
+					attentionErr
+			}
+			if !found {
+				parkErr := s.parkAnswerYieldRecoveryReplacing(
+					ctx,
+					owner,
+					cycle,
+					effectID,
+					*observation.Yield,
+					pending,
+					&totals,
+				)
+				return driver.Observation{}, nil, recovered, fact,
+					parkErr
+			}
 		}
 		budget, err := s.journal.RecoveryBudget(
 			ctx,
@@ -1362,7 +1507,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 			cycle.binding,
 		)
 		if err != nil {
-			return driver.Observation{}, pending, recovered,
+			return driver.Observation{}, pending, recovered, fact,
 				runtimeFail("JOURNAL_READ_FAILED", err)
 		}
 		if budget.AutomaticActions >=
@@ -1379,7 +1524,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
 		}
 		automation, err := s.invokeRecoveryAutomation(
 			ctx,
@@ -1404,7 +1549,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered,
+			return driver.Observation{}, nil, recovered, fact,
 				errors.Join(parkErr, err)
 		}
 		decision := automation.Recovery
@@ -1412,7 +1557,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 		switch decision.Action {
 		case driver.RecoveryResumeWorker:
 			if decision.Answer == nil {
-				return driver.Observation{}, pending, recovered,
+				return driver.Observation{}, pending, recovered, fact,
 					runtimeFail("INVALID_TURN_RECOVERY", nil)
 			}
 			answer = *decision.Answer
@@ -1433,7 +1578,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 		case driver.RecoveryAskCaptain:
@@ -1454,7 +1599,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 			advisory, advisoryErr := s.invokeCaptainAdvisory(
@@ -1482,7 +1627,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, advisoryErr)
 			}
 			answer = *advisory.Advisory.Answer
@@ -1503,7 +1648,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
 		case driver.RecoveryRetryOperationally:
@@ -1526,10 +1671,10 @@ func (s *Service) continueYieldedWorkerReplacing(
 					replaced,
 					&totals,
 				)
-				return driver.Observation{}, nil, recovered,
+				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, reserveErr, cleanupErr)
 			}
-			return observation, nil, recovered,
+			return observation, nil, recovered, fact,
 				recoveryFailure(
 					runtimeFail(
 						"RECOVERY_RETRY_OPERATIONALLY",
@@ -1548,13 +1693,13 @@ func (s *Service) continueYieldedWorkerReplacing(
 				replaced,
 				&totals,
 			)
-			return driver.Observation{}, nil, recovered, parkErr
+			return driver.Observation{}, nil, recovered, fact, parkErr
 		default:
-			return driver.Observation{}, pending, recovered,
+			return driver.Observation{}, pending, recovered, fact,
 				runtimeFail("INVALID_TURN_RECOVERY", nil)
 		}
 
-		next, retained, err := s.invokeRecoverableWorker(
+		next, retained, nextFact, err := s.invokeRecoverableWorker(
 			ctx,
 			engine,
 			workspace,
@@ -1571,23 +1716,24 @@ func (s *Service) continueYieldedWorkerReplacing(
 			true,
 		)
 		pending = retained
+		fact = mergeContinuationFacts(fact, nextFact)
 		if err != nil {
-			return next, pending, recovered, err
+			return next, pending, recovered, fact, err
 		}
 		if err := totals.add(
 			next.DurationMillis,
 			next.Usage,
 		); err != nil {
-			return driver.Observation{}, pending, recovered, err
+			return driver.Observation{}, pending, recovered, fact, err
 		}
 		recovered = true
 		observation = next
 		if observation.Handoff != nil {
 			totals.apply(&observation)
-			return observation, pending, recovered, nil
+			return observation, pending, recovered, fact, nil
 		}
 	}
-	return observation, pending, recovered,
+	return observation, pending, recovered, fact,
 		runtimeFail("INVALID_TURN_RECOVERY", nil)
 }
 
@@ -1605,6 +1751,7 @@ func (s *Service) resumeAnsweredWorker(
 	driver.Observation,
 	*retainedContinuation,
 	bool,
+	*continuationDispatchFact,
 	error,
 ) {
 	if err := s.validateHumanTurnResume(
@@ -1615,7 +1762,17 @@ func (s *Service) resumeAnsweredWorker(
 		effectID,
 		attention,
 	); err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
+	}
+	if attention.Attention.HumanTurn == nil {
+		if err := s.validateAnswerParkResume(
+			ctx,
+			engine.manifest,
+			effectID,
+			attention,
+		); err != nil {
+			return driver.Observation{}, nil, false, nil, err
+		}
 	}
 	budget, err := s.journal.RecoveryBudget(
 		ctx,
@@ -1623,14 +1780,14 @@ func (s *Service) resumeAnsweredWorker(
 		attention.Attention.Recovery,
 	)
 	if err != nil {
-		return driver.Observation{}, nil, false,
+		return driver.Observation{}, nil, false, nil,
 			runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	totals, err := turnRecoveryTotalsFromAccounting(
 		budget.Accounting,
 	)
 	if err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
 	}
 	if _, err := s.reserveAnsweredResume(
 		ctx,
@@ -1638,13 +1795,13 @@ func (s *Service) resumeAnsweredWorker(
 		cycle,
 		attention,
 	); err != nil {
-		return driver.Observation{}, nil, false, err
+		return driver.Observation{}, nil, false, nil, err
 	}
 	pending := s.takeRecoverableContinuation(owner.RunID, effectID)
 	if attention.Attention.HumanTurn != nil {
 		crashHumanTurnBarrier("after_continuation_rehydration")
 	}
-	observation, retained, invokeErr := s.invokeRecoverableWorker(
+	observation, retained, resumeFact, invokeErr := s.invokeRecoverableWorker(
 		ctx,
 		engine,
 		workspace,
@@ -1661,21 +1818,21 @@ func (s *Service) resumeAnsweredWorker(
 		true,
 	)
 	if invokeErr != nil {
-		return observation, retained, false, invokeErr
+		return observation, retained, false, resumeFact, invokeErr
 	}
 	if observation.Handoff != nil {
 		if err := totals.add(
 			observation.DurationMillis,
 			observation.Usage,
 		); err != nil {
-			return driver.Observation{}, retained, false, err
+			return driver.Observation{}, retained, false, resumeFact, err
 		}
 		totals.apply(&observation)
-		return observation, retained, true, nil
+		return observation, retained, true, resumeFact, nil
 	}
 	if observation.Yield == nil {
 		cleanupErr := closeRecoveryContinuation(retained)
-		return driver.Observation{}, nil, false,
+		return driver.Observation{}, nil, false, nil,
 			recoveryFailure(
 				runtimeFail("INVALID_TURN_RECOVERY", nil),
 				cleanupErr,
@@ -2136,6 +2293,468 @@ func (s *Service) recoverHumanParkCheckpoint(
 	return false, nil
 }
 
+func (s *Service) persistAnswerParkCheckpoint(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	parentEffect string,
+	command journal.ParkRecoveryAttentionCommand,
+) error {
+	checkpoint, err := expectedAnswerParkCheckpoint(parentEffect, command)
+	if err != nil {
+		return err
+	}
+	body := mustJSON(checkpoint)
+	id := answerParkCheckpointID(parentEffect)
+	now := s.now().UTC()
+	existing, readErr := s.journal.Effect(ctx, owner.RunID, id)
+	if readErr != nil && !journal.IsCode(readErr, "EFFECT_NOT_FOUND") {
+		return runtimeFail("JOURNAL_READ_FAILED", readErr)
+	}
+	if readErr == nil && existing.State == journal.Succeeded {
+		// The fixed ID admits exactly one checkpoint body per dispatch
+		// effect. An exact replay is idempotent; a second differing park
+		// under the same ID is corruption and fails closed before any
+		// command record.
+		if existing.ResultDigest != sha256Digest(existing.Result) ||
+			!bytes.Equal(existing.Result, body) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		return nil
+	}
+	if err := s.journal.RecordCommandEffect(
+		ctx,
+		journal.Command{
+			RunID: owner.RunID, ReplayKey: id,
+			Kind: "runtime.answer_park", Payload: body,
+			CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: owner.RunID, ID: id, ReplayKey: id,
+			Kind:           "runtime.answer_park",
+			BeforeDigest:   sha256Digest([]byte(parentEffect)),
+			ExpectedDigest: sha256Digest(body), UpdatedAt: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	effect, err := s.journal.Effect(ctx, owner.RunID, id)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if effect.State == journal.Succeeded {
+		if effect.ResultDigest != sha256Digest(effect.Result) ||
+			!bytes.Equal(effect.Result, body) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		return nil
+	}
+	if effect.State != journal.Pending {
+		return runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	claim, err := s.journal.ClaimOwned(
+		ctx, owner, id, now, effectLease,
+	)
+	if err != nil {
+		return runtimeFail("EFFECT_CLAIM_FAILED", err)
+	}
+	if err := s.journal.CompleteOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID: owner.RunID, EffectID: id, Token: claim.Token,
+			State: journal.Succeeded, Result: body,
+			EventKind: "answer_park.checkpointed",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: id,
+				WorkID:   command.Step.Binding.ProgressID,
+				Track:    command.Step.Binding.LaneID,
+			}), At: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
+}
+
+func validateAnswerParkCheckpoint(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	command journal.Command,
+	effect journal.Effect,
+) (answerParkCheckpoint, error) {
+	if command.RunID != snapshot.Run.ID ||
+		command.Kind != "runtime.answer_park" ||
+		effect.RunID != snapshot.Run.ID || effect.ID != command.ReplayKey ||
+		effect.ReplayKey != command.ReplayKey ||
+		effect.Kind != command.Kind ||
+		effect.State != journal.Succeeded ||
+		effect.BeforeDigest == "" ||
+		effect.ExpectedDigest != sha256Digest(command.Payload) ||
+		effect.ResultDigest != sha256Digest(effect.Result) ||
+		!bytes.Equal(command.Payload, effect.Result) {
+		return answerParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var checkpoint answerParkCheckpoint
+	if json.Unmarshal(effect.Result, &checkpoint) != nil ||
+		!bytes.Equal(effect.Result, mustJSON(checkpoint)) ||
+		checkpoint.SchemaVersion != answerParkCheckpointVersion ||
+		command.ReplayKey !=
+			answerParkCheckpointID(checkpoint.ParentEffect) ||
+		effect.BeforeDigest !=
+			sha256Digest([]byte(checkpoint.ParentEffect)) {
+		return answerParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	expected, err := expectedAnswerParkCheckpoint(
+		checkpoint.ParentEffect,
+		checkpoint.Command,
+	)
+	if err != nil ||
+		!bytes.Equal(mustJSON(checkpoint), mustJSON(expected)) ||
+		checkpoint.Command.Attention.RunID != manifest.value.RunID ||
+		checkpoint.Command.Step.RunID != manifest.value.RunID {
+		return answerParkCheckpoint{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return checkpoint, nil
+}
+
+func answerParkCheckpointForEffect(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	parentEffect string,
+) (answerParkCheckpoint, bool, error) {
+	id := answerParkCheckpointID(parentEffect)
+	var command *journal.Command
+	for index := range snapshot.Commands {
+		candidate := &snapshot.Commands[index]
+		if candidate.ReplayKey != id {
+			continue
+		}
+		if command != nil {
+			return answerParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		command = candidate
+	}
+	var effect *journal.Effect
+	for index := range snapshot.Effects {
+		candidate := &snapshot.Effects[index]
+		if candidate.ID != id {
+			continue
+		}
+		if effect != nil {
+			return answerParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effect = candidate
+	}
+	if command == nil && effect == nil {
+		return answerParkCheckpoint{}, false, nil
+	}
+	if command == nil || effect == nil {
+		return answerParkCheckpoint{}, false,
+			runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	checkpoint, err := validateAnswerParkCheckpoint(
+		manifest,
+		snapshot,
+		*command,
+		*effect,
+	)
+	if err != nil || checkpoint.ParentEffect != parentEffect {
+		return answerParkCheckpoint{}, false,
+			runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	return checkpoint, true, nil
+}
+
+// answerParkCheckpointForAttention finds the single answer-park checkpoint
+// whose persisted park command claims this exact attention binding. Multiple
+// checkpoints claiming one binding fail closed; a binding no checkpoint
+// claims is a legacy plain park, which keeps today's semantics untouched.
+func answerParkCheckpointForAttention(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	attention journal.AttentionBinding,
+) (answerParkCheckpoint, bool, error) {
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		if _, duplicate := effects[effect.ID]; duplicate {
+			return answerParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effects[effect.ID] = effect
+	}
+	var found *answerParkCheckpoint
+	for index := range snapshot.Commands {
+		command := &snapshot.Commands[index]
+		if command.Kind != "runtime.answer_park" {
+			continue
+		}
+		effect, ok := effects[command.ReplayKey]
+		if !ok {
+			return answerParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		checkpoint, err := validateAnswerParkCheckpoint(
+			manifest,
+			snapshot,
+			*command,
+			effect,
+		)
+		if err != nil {
+			return answerParkCheckpoint{}, false, err
+		}
+		if checkpoint.Command.Attention.Attention.ID != attention.ID {
+			continue
+		}
+		if !bytes.Equal(
+			mustJSON(checkpoint.Command.Attention.Attention),
+			mustJSON(attention),
+		) {
+			// The checkpoint claims this exact attention ID; any binding
+			// drift on a claimed ID is engine-impossible and fails closed.
+			return answerParkCheckpoint{}, false,
+				runtimeFail("INVALID_ANSWER_PARK", nil)
+		}
+		if found != nil {
+			return answerParkCheckpoint{}, false,
+				runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		value := checkpoint
+		found = &value
+	}
+	if found == nil {
+		return answerParkCheckpoint{}, false, nil
+	}
+	return *found, true, nil
+}
+
+func validateAnswerParkAttention(
+	checkpoint answerParkCheckpoint,
+	attention journal.AttentionProjection,
+) error {
+	if checkpoint.Command.Attention.RunID == "" ||
+		!bytes.Equal(
+			mustJSON(checkpoint.Command.Attention.Attention),
+			mustJSON(attention.Attention),
+		) ||
+		attention.Question != checkpoint.Command.Attention.Question {
+		return runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	return nil
+}
+
+// validateAnswerParkAnswerAdmission fails closed when an answer-park
+// checkpoint claims this attention but the attention does not carry the
+// exact persisted binding and question. A plain attention with no
+// checkpoint keeps the legacy plain-park semantics untouched.
+func validateAnswerParkAnswerAdmission(
+	snapshot journal.Snapshot,
+	manifest admittedManifest,
+	attention journal.AttentionProjection,
+	answer string,
+) error {
+	if attention.Attention.HumanTurn != nil {
+		return nil
+	}
+	checkpoint, found, err := answerParkCheckpointForAttention(
+		manifest,
+		snapshot,
+		attention.Attention,
+	)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	if checkpoint.Command.Attention.RunID != snapshot.Run.ID ||
+		checkpoint.Command.Attention.RunID != manifest.value.RunID {
+		return runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	exactReplay := attention.State == journal.AttentionAnswered &&
+		attention.Generation == 2 &&
+		attention.Answer == answer
+	if (attention.State != journal.AttentionOpen ||
+		attention.Generation != 1) && !exactReplay {
+		return runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	return validateAnswerParkAttention(checkpoint, attention)
+}
+
+// validateAnswerParkResume fails closed when an answer-park checkpoint
+// claims this answered attention but the resume does not bind to the exact
+// parent dispatch effect. A plain attention with no checkpoint keeps the
+// legacy plain-park resume semantics untouched.
+func (s *Service) validateAnswerParkResume(
+	ctx context.Context,
+	manifest admittedManifest,
+	effectID string,
+	attention journal.AttentionProjection,
+) error {
+	if attention.Attention.HumanTurn != nil {
+		return nil
+	}
+	snapshot, err := s.journal.Snapshot(ctx, manifest.value.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	checkpoint, found, err := answerParkCheckpointForAttention(
+		manifest,
+		snapshot,
+		attention.Attention,
+	)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	if checkpoint.ParentEffect != effectID ||
+		attention.State != journal.AttentionAnswered ||
+		attention.Generation != 2 {
+		return runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	return validateAnswerParkAttention(checkpoint, attention)
+}
+
+// recoverAnswerParkCheckpoint re-opens an answerable park whose checkpoint
+// committed but whose attention commit was lost (host death between the two
+// commits). A checkpoint whose own attention is still active must match it
+// exactly. A checkpoint whose own attention was resolved while a different
+// active attention exists for the same work is a legitimate supersession by
+// a successor park and is skipped; a checkpoint whose own attention is
+// absent entirely while another attention is active fails closed, exactly
+// like the human-park mirror.
+func (s *Service) recoverAnswerParkCheckpoint(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	snapshot journal.Snapshot,
+) (bool, error) {
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		if _, duplicate := effects[effect.ID]; duplicate {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		effects[effect.ID] = effect
+	}
+	attentions, err := s.journal.Attentions(ctx, owner.RunID)
+	if err != nil {
+		return false, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	active, err := activeAttentionWork(attentions)
+	if err != nil {
+		return false, err
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commands[command.ReplayKey]; duplicate {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		commands[command.ReplayKey] = command
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind != "runtime.answer_park" {
+			continue
+		}
+		effect, found := effects[command.ReplayKey]
+		if !found {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		checkpoint, err := validateAnswerParkCheckpoint(
+			engine.manifest, snapshot, command, effect,
+		)
+		if err != nil {
+			return false, err
+		}
+		parentCommand, commandFound := commands[checkpoint.ParentEffect]
+		parent, parentFound := effects[checkpoint.ParentEffect]
+		if !commandFound || !parentFound ||
+			parentCommand.Kind != "driver.dispatch" ||
+			parent.Kind != parentCommand.Kind ||
+			parent.ID != parentCommand.ReplayKey ||
+			parent.ReplayKey != parentCommand.ReplayKey {
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if parent.State != journal.Claimed {
+			if parent.State == journal.Succeeded ||
+				parent.State == journal.OperationalFailed {
+				continue
+			}
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		checkpointAttention :=
+			checkpoint.Command.Attention.Attention
+		workIdentity := checkpointAttention.Recovery.ProgressID
+		ownActive := false
+		ownResolved := false
+		for _, attention := range attentions {
+			if attention.Attention.ID != checkpointAttention.ID {
+				continue
+			}
+			switch attention.State {
+			case journal.AttentionOpen, journal.AttentionAnswered:
+				ownActive = true
+			case journal.AttentionResolved:
+				ownResolved = true
+			}
+		}
+		parked, parkedFound := active[workIdentity]
+		switch {
+		case ownActive:
+			if !parkedFound ||
+				parked.Attention.ID != checkpointAttention.ID {
+				return false, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			if err := validateAnswerParkAttention(
+				checkpoint,
+				parked,
+			); err != nil {
+				return false, err
+			}
+			continue
+		case parkedFound:
+			if ownResolved {
+				continue
+			}
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		projection := journal.AttentionProjection{
+			Attention:  checkpoint.Command.Attention.Attention,
+			Generation: 1,
+			State:      journal.AttentionOpen,
+			Question:   checkpoint.Command.Attention.Question,
+		}
+		if err := validateAnswerParkAnswerAdmission(
+			snapshot, engine.manifest, projection, "",
+		); err != nil {
+			return false, err
+		}
+		dispatch, err := validateDriverRecoveryCommand(
+			engine.manifest, parentCommand, parent,
+		)
+		if err != nil || dispatch.production == nil {
+			return false, runtimeFail("CORRUPT_JOURNAL", err)
+		}
+		if err := validateCurrentProductionDispatchContext(
+			ctx, engine, dispatch,
+		); err != nil {
+			return false, err
+		}
+		if _, err := s.journal.ParkRecoveryAttention(
+			context.WithoutCancel(ctx),
+			owner,
+			checkpoint.Command,
+			s.now().UTC(),
+		); err != nil {
+			return false, runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (s *Service) parkTurnRecovery(
 	ctx context.Context,
 	owner journal.OwnerLease,
@@ -2176,6 +2795,7 @@ func (s *Service) parkTurnRecoveryReplacing(
 		replaced,
 		accounting,
 		nil,
+		false,
 	)
 }
 
@@ -2211,6 +2831,39 @@ func (s *Service) parkHumanTurnRecoveryReplacing(
 			prepared: prepared,
 			kind:     yield.Kind,
 		},
+		false,
+	)
+}
+
+// parkAnswerYieldRecoveryReplacing parks a first-occurrence question or
+// blocked yield as an answerable attention. It persists the answer-park
+// crash-barrier checkpoint before the attention commit and carries the
+// folded usage into the park step's accounting so the yield turn's spend is
+// never silently dropped.
+func (s *Service) parkAnswerYieldRecoveryReplacing(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	cycle *turnRecoveryCycle,
+	effectID string,
+	yield driver.Yield,
+	pending *retainedContinuation,
+	accounting *turnRecoveryTotals,
+) error {
+	if yield.Kind != driver.YieldQuestion &&
+		yield.Kind != driver.YieldBlocked {
+		return runtimeFail("INVALID_ANSWER_PARK", nil)
+	}
+	return s.parkTurnRecoveryReplacingBound(
+		ctx,
+		owner,
+		cycle,
+		effectID,
+		yield.Message,
+		pending,
+		nil,
+		accounting,
+		nil,
+		true,
 	)
 }
 
@@ -2224,6 +2877,7 @@ func (s *Service) parkTurnRecoveryReplacingBound(
 	replaced *journal.AttentionProjection,
 	accounting *turnRecoveryTotals,
 	human *humanTurnParkBinding,
+	answer bool,
 ) (resultErr error) {
 	defer func() {
 		resultErr = errors.Join(
@@ -2294,6 +2948,26 @@ func (s *Service) parkTurnRecoveryReplacingBound(
 		}
 		crashHumanTurnBarrier("before_park_commit")
 	}
+	if answer {
+		if err := s.persistAnswerParkCheckpoint(
+			context.WithoutCancel(ctx),
+			owner,
+			effectID,
+			command,
+		); err != nil {
+			return err
+		}
+		if testAnswerParkCrashCut ==
+			"before_answer_park_commit" {
+			// In-process crash cut: the checkpoint committed but the
+			// attention commit never ran. Returning EFFECT_PARKED keeps
+			// the dispatch effect claimed, which is the exact journal
+			// state an os.Exit here (the hook-gated barrier below) leaves
+			// for the next process to recover.
+			return runtimeFail("EFFECT_PARKED", nil)
+		}
+		crashHumanTurnBarrier("before_answer_park_commit")
+	}
 	if _, parkErr := s.journal.ParkRecoveryAttention(
 		context.WithoutCancel(ctx),
 		owner,
@@ -2304,6 +2978,16 @@ func (s *Service) parkTurnRecoveryReplacingBound(
 	}
 	if human != nil {
 		crashHumanTurnBarrier("after_park_commit")
+	}
+	if answer {
+		if testAnswerParkCrashCut ==
+			"after_answer_park_commit" {
+			// The attention commit is durable; the continuation store and
+			// process state are not. EFFECT_PARKED keeps the exact crash
+			// window state for the recovery sweep to observe.
+			return runtimeFail("EFFECT_PARKED", nil)
+		}
+		crashHumanTurnBarrier("after_answer_park_commit")
 	}
 	if pending != nil && pending.handle != nil {
 		if storeErr := s.storeRecoverableContinuation(

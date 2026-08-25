@@ -335,6 +335,10 @@ func topologyManifest(
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		t.Fatal(err)
 	}
+	// The topology scenarios script identical failures to reach genuine
+	// try-exhaustion; the identical-failure guard would park at two, so
+	// the fixture raises it to the cap.
+	manifest.Limits.IdenticalFailureParkAfter = driver.MaxIdenticalFailureParkAfter
 	for index := range manifest.Scripts {
 		script := &manifest.Scripts[index]
 		if script.Slice == "S1" && script.Responsibility == driver.ImplementerDesign &&
@@ -827,9 +831,20 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
-		state := readBatonState(t, repository, release)
-		s1, _ := state.Slice("S1")
-		s2, _ := state.Slice("S2")
+		// The park can surface while the independent track still holds
+		// admissible scripted work on a loaded runner; parking isolation
+		// means T2 stays drivable, so re-drive until its pass lands.
+		var state baton.State
+		var s1, s2 *baton.SliceState
+		for attempt := 0; ; attempt++ {
+			state = readBatonState(t, repository, release)
+			s1, _ = state.Slice("S1")
+			s2, _ = state.Slice("S2")
+			if s2.Pass != nil || attempt == 5 {
+				break
+			}
+			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
+		}
 		if s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
 			t.Fatalf("parking isolation: S1=%#v S2=%#v assembly=%#v", s1, s2, state.Assembly)
 		}
@@ -2396,6 +2411,10 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			"--journal", journalPath, "--command", "takeover-1", "--generation", "1")
 		status, _ := runBinary(t, swornBinary, 0, "status", "--run", runID,
 			"--journal", journalPath, "--json")
+		// The crashed dispatch's effect claim (production effectLease, five
+		// minutes) is still unexpired at takeover, so the reconciled sweep
+		// preserves the claim instead of writing dispatch_uncertain: the
+		// run stays quiescent-uncertain and the target never moves.
 		if !strings.Contains(status, `"state": "uncertain"`) ||
 			runGit(t, repository, "rev-parse", "main") != targetBefore {
 			t.Fatalf("driver crash was retried or moved target: %s", status)
@@ -2409,12 +2428,21 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		for _, event := range snapshot.Events {
+			if event.Kind == "dispatch_uncertain" {
+				t.Fatalf(
+					"unexpired crashed claim was written uncertain: %#v",
+					event,
+				)
+			}
+		}
 		byID := effectsByID(snapshot.Effects)
 		t1 := byID[journal.AttemptEffectID(workID, 1, 1)]
 		_, hasT2 := byID[journal.AttemptEffectID(workID, 1, 2)]
 		_, hasT3 := byID[journal.AttemptEffectID(workID, 1, 3)]
 		_, hasT4 := byID[journal.AttemptEffectID(workID, 1, 4)]
-		if t1.State != journal.Uncertain || hasT2 || hasT3 || hasT4 {
+		if t1.State != journal.Claimed || t1.CurrentClaim == "" ||
+			hasT2 || hasT3 || hasT4 {
 			t.Fatalf(
 				"driver crash retry sequence: t1=%#v t2=%t t3=%t t4=%t",
 				t1, hasT2, hasT3, hasT4)

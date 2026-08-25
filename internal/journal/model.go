@@ -38,10 +38,15 @@ type Effect struct {
 	BeforeDigest   string
 	ExpectedDigest string
 	CurrentClaim   string
-	ResultDigest   string
-	Result         []byte
-	ErrorCode      string
-	UpdatedAt      time.Time
+	// CurrentClaimExpiresAt is the expiry of the live claim row bound to
+	// CurrentClaim (token = current_claim AND completed_at IS NULL). It is
+	// zero unless the effect is claimed; a claimed effect whose live claim
+	// row cannot be found fails closed as CORRUPT_JOURNAL at the read seam.
+	CurrentClaimExpiresAt time.Time
+	ResultDigest          string
+	Result                []byte
+	ErrorCode             string
+	UpdatedAt             time.Time
 }
 
 type Claim struct {

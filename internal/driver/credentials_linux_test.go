@@ -35,7 +35,11 @@ func TestFileCredentialLeaseAllowsOnlyBoundedInPlaceRefresh(t *testing.T) {
 }
 
 func TestFileCredentialLeaseRejectsIdentityModeLinkAndWorkspaceDrift(t *testing.T) {
-	t.Run("replacement", func(t *testing.T) {
+	t.Run("benign rotation", func(t *testing.T) {
+		// A3: an atomic rename to a new 0600, owner-matched, single-link
+		// replacement at the same path is ordinary host credential refresh
+		// racing the dispatch, not tampering: the lease closes cleanly and
+		// reports the rotation so the caller records it loudly.
 		root := t.TempDir()
 		pathValue := filepath.Join(root, "credential")
 		if err := os.WriteFile(pathValue, []byte("first-value"), 0o600); err != nil {
@@ -45,15 +49,114 @@ func TestFileCredentialLeaseRejectsIdentityModeLinkAndWorkspaceDrift(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		old := filepath.Join(root, "old")
-		if err := os.Rename(pathValue, old); err != nil {
+		replacement := filepath.Join(root, "replacement")
+		if err := os.WriteFile(
+			replacement,
+			[]byte("rotated-value"),
+			0o600,
+		); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(pathValue, []byte("replacement"), 0o600); err != nil {
+		if err := os.Rename(replacement, pathValue); err != nil {
+			t.Fatal(err)
+		}
+		if err := lease.Close(); err != nil {
+			t.Fatalf("benign rotation error = %v", err)
+		}
+		if !lease.benignRotation() {
+			t.Fatal("benign rotation was not reported")
+		}
+		body, err := os.ReadFile(pathValue)
+		if err != nil || string(body) != "rotated-value" {
+			t.Fatalf("rotated credential = %q, %v", body, err)
+		}
+	})
+
+	t.Run("unsafe rotation replacement", func(t *testing.T) {
+		// A rotation whose replacement lacks the safe shape (0600, owner,
+		// single link) is tampering, not benign rotation: the close keeps
+		// failing exactly as before the A3 relaxation.
+		root := t.TempDir()
+		pathValue := filepath.Join(root, "credential")
+		if err := os.WriteFile(pathValue, []byte("first-value"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		lease, err := acquireFileCredential(pathValue, t.TempDir(), 4_096)
+		if err != nil {
+			t.Fatal(err)
+		}
+		replacement := filepath.Join(root, "replacement")
+		if err := os.WriteFile(
+			replacement,
+			[]byte("loose-replacement"),
+			0o640,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(replacement, pathValue); err != nil {
 			t.Fatal(err)
 		}
 		if err := lease.Close(); !IsCode(err, "CREDENTIAL_IDENTITY_CHANGED") {
-			t.Fatalf("replacement error = %v", err)
+			t.Fatalf("unsafe rotation error = %v", err)
+		}
+	})
+
+	t.Run("owner drift", func(t *testing.T) {
+		pathValue := filepath.Join(t.TempDir(), "credential")
+		if err := os.WriteFile(pathValue, []byte("credential"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		lease, err := acquireFileCredential(pathValue, t.TempDir(), 4_096)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Owner drift on the live path entry is tampering: the safe shape
+		// check fails and the close refuses exactly as before the A3
+		// relaxation. Chowning to another uid requires privilege; hosts
+		// without it cannot synthesize this drift and skip the pin.
+		if err := os.Chown(pathValue, 65534, 65534); err != nil {
+			_ = lease.Close()
+			t.Skipf("owner drift requires chown privilege: %v", err)
+		}
+		if err := lease.Close(); !IsCode(err, "CREDENTIAL_IDENTITY_CHANGED") {
+			t.Fatalf("owner drift error = %v", err)
+		}
+	})
+
+	t.Run("link drift", func(t *testing.T) {
+		root := t.TempDir()
+		pathValue := filepath.Join(root, "credential")
+		if err := os.WriteFile(pathValue, []byte("credential"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		lease, err := acquireFileCredential(pathValue, t.TempDir(), 4_096)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(pathValue, filepath.Join(root, "alias")); err != nil {
+			_ = lease.Close()
+			t.Fatalf("link drift setup failed: %v", err)
+		}
+		if err := lease.Close(); !IsCode(err, "CREDENTIAL_IDENTITY_CHANGED") {
+			t.Fatalf("link drift error = %v", err)
+		}
+	})
+
+	t.Run("missing path after rename", func(t *testing.T) {
+		root := t.TempDir()
+		pathValue := filepath.Join(root, "credential")
+		if err := os.WriteFile(pathValue, []byte("credential"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		lease, err := acquireFileCredential(pathValue, t.TempDir(), 4_096)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(pathValue, filepath.Join(root, "old")); err != nil {
+			t.Fatal(err)
+		}
+		if err := lease.Close(); !IsCode(err, "CREDENTIAL_IDENTITY_CHANGED") {
+			t.Fatalf("missing path error = %v", err)
 		}
 	})
 

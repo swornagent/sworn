@@ -80,6 +80,11 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 		HostWorkspace: workspaceDir,
 		Permission:    permission,
 		Selected:      selected,
+		recoverableInput: &RecoverableTurnInput{
+			SchemaVersion: RecoverableTurnInputSchemaVersion,
+			Kind:          RecoverableInputAnswer,
+			Answer:        "Continue with the approved planner turn.",
+		},
 		RecoveryStepHook: func(context.Context, RecoveryStepKind) error {
 			return nil
 		},

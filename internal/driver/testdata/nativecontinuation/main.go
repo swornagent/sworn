@@ -98,9 +98,33 @@ func main() {
 	); status != http.StatusOK {
 		os.Exit(27)
 	}
-	if providerUnavailableFixture() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(29)
+	if mode := credentialFixtureMode(family); mode != "" {
+		switch mode {
+		case "unreachable":
+			time.Sleep(500 * time.Millisecond)
+			os.Exit(29)
+		case "unauthorized":
+			os.Exit(2)
+		case "exitone":
+			os.Exit(1)
+		case "expire":
+			if os.WriteFile(
+				credentialFixturePath(family),
+				expiredClaudeCredentialFixture(),
+				0o600,
+			) != nil {
+				os.Exit(24)
+			}
+			os.Exit(29)
+		case "rotation":
+			if os.WriteFile(
+				credentialFixturePath(family),
+				[]byte(`{"rotation_marker":"running"}`),
+				0o600,
+			) != nil {
+				os.Exit(24)
+			}
+		}
 	}
 	time.Sleep(100 * time.Millisecond)
 	if strings.Contains(prompt.InvocationID, "prose-nudge-twice") ||
@@ -188,18 +212,51 @@ func emitProse(family string) {
 	fmt.Println(`{"type":"result","subtype":"success","result":"I completed the work but forgot the terminal."}`)
 }
 
-func providerUnavailableFixture() bool {
-	for _, pathValue := range []string{
-		"/home/sworn/.codex/auth.json",
-		"/home/sworn/.claude.json",
-	} {
-		body, err := os.ReadFile(pathValue)
-		if err == nil &&
-			bytes.Contains(body, []byte(`"offline_provider":"unreachable"`)) {
-			return true
-		}
+// credentialFixtureMode reads the family credential bound into the guest and
+// reports a fixture mode the host test requested through it. Every mode runs
+// only after the native identity event and the full broker handshake, so the
+// terminal classification site (which requires nativeSeen and broker.Ready)
+// is always reached exactly like the offline_provider pattern that predates
+// this slice.
+func credentialFixtureMode(family string) string {
+	body, err := os.ReadFile(credentialFixturePath(family))
+	if err != nil {
+		return ""
 	}
-	return false
+	var envelope map[string]any
+	if json.Unmarshal(body, &envelope) != nil {
+		return ""
+	}
+	mode, _ := envelope["offline_provider"].(string)
+	switch mode {
+	case "unreachable", "unauthorized", "exitone", "expire", "rotation":
+		return mode
+	default:
+		return ""
+	}
+}
+
+// credentialFixturePath is the credential target the pinned family's config
+// binds into the guest (CodexCredentialTarget / ClaudeCredentialTarget).
+func credentialFixturePath(family string) string {
+	if family == "codex" {
+		return "/home/sworn/.codex/auth.json"
+	}
+	return "/home/sworn/.claude/.credentials.json"
+}
+
+// expiredClaudeCredentialFixture is the positively-expired Claude OAuth
+// shape: a strict-positive millis expiry one minute in the past.
+func expiredClaudeCredentialFixture() []byte {
+	expired := time.Now().UnixMilli() - 60_000
+	body, _ := json.Marshal(map[string]any{
+		"claudeAiOauth": map[string]any{
+			"accessToken":  "expired-fixture",
+			"refreshToken": "expired-fixture",
+			"expiresAt":    expired,
+		},
+	})
+	return body
 }
 
 func explicitResume(family string, arguments []string) (string, bool) {

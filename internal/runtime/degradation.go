@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
@@ -15,9 +16,31 @@ const (
 	// DegradationParkEventVersion is the schema version of the typed
 	// degradation park event body.
 	DegradationParkEventVersion = "sworn.degradation-park/v1"
+	// ParkEventVersion is the schema version of the new-cause typed park
+	// event bodies (economy budgets and identical failures). Legacy
+	// degradation bodies keep DegradationParkEventVersion forever and
+	// re-encode byte-identically.
+	ParkEventVersion = "sworn.park-event/v1"
 	// DegradationUnblockKnob is the manifest knob that unblocks a
 	// degradation park.
 	DegradationUnblockKnob = "limits.degradation_budget"
+	// EconomyTurnsUnblockKnob is the manifest knob that unblocks an
+	// economy turn-budget park.
+	EconomyTurnsUnblockKnob = "limits.max_turns_per_work"
+	// EconomyOutputTokensUnblockKnob is the manifest knob that unblocks an
+	// economy output-token-budget park.
+	EconomyOutputTokensUnblockKnob = "limits.max_output_tokens_per_work"
+	// IdenticalFailureUnblockKnob is the manifest knob that unblocks an
+	// identical-failure park.
+	IdenticalFailureUnblockKnob = "limits.identical_failure_park_after"
+	// ParkEventKind is the journal event kind every typed park event is
+	// written under. The label is historical: it entered the journal
+	// vocabulary for the degradation park, and the waived cockpit webhook
+	// kind map keys exactly this string (park_updated), so the new park
+	// causes ride the same kind rather than demoting to run_updated. The
+	// cause field inside the typed body is the authority on every surface;
+	// readers must never infer the park class from this label.
+	ParkEventKind = "degradation_budget_parked"
 
 	// ParkCauseDegradation is the park cause for a run that crossed its
 	// degradation budget on real, counted context loss.
@@ -30,6 +53,15 @@ const (
 	// ParkCauseHumanAuthority is the park cause for a run held on required
 	// human authority.
 	ParkCauseHumanAuthority = "human_authority"
+	// ParkCauseEconomyTurns is the park cause for a work whose dispatch
+	// crossed its per-work turn budget.
+	ParkCauseEconomyTurns = "economy_turns"
+	// ParkCauseEconomyOutputTokens is the park cause for a work whose
+	// dispatch crossed its per-work output-token budget.
+	ParkCauseEconomyOutputTokens = "economy_output_tokens"
+	// ParkCauseIdenticalFailure is the park cause for a work with N
+	// consecutive identical operational failures.
+	ParkCauseIdenticalFailure = "identical_failure"
 )
 
 // DegradationFallback is one counted fallback fact inside a degradation park
@@ -40,16 +72,31 @@ type DegradationFallback struct {
 }
 
 // DegradationParkEvent is the versioned, typed park event body. It carries
-// only engine-owned facts: the counted fallbacks, the effective budget, and
-// the manifest knob that unblocks the park.
+// only engine-owned facts. For the degradation cause it carries the counted
+// fallbacks, the effective budget, and the manifest knob that unblocks the
+// park; for the new park causes it carries the economy spent-versus-budget
+// figures or the identical-failure run, threshold, code, and durable refusal
+// detail. Every new field is additive and omitted when absent, so legacy
+// degradation bodies re-encode byte-identically.
 type DegradationParkEvent struct {
 	SchemaVersion string                `json:"schema_version"`
 	RunID         string                `json:"run_id"`
 	Cause         string                `json:"cause"`
-	Count         int64                 `json:"count"`
-	Budget        int64                 `json:"budget"`
+	Count         int64                 `json:"count,omitempty"`
+	Budget        int64                 `json:"budget,omitempty"`
 	UnblockKnob   string                `json:"unblock_knob"`
-	Fallbacks     []DegradationFallback `json:"fallbacks"`
+	Fallbacks     []DegradationFallback `json:"fallbacks,omitempty"`
+	// Spent is the engine-counted spend at an economy crossing: turns for
+	// cause economy_turns, output tokens for cause economy_output_tokens.
+	// Budget names the effective knob value that dispatch crossed.
+	Spent int64 `json:"spent,omitempty"`
+	// Consecutive is the number of consecutive operational failures sharing
+	// FailureCode; Threshold is the effective
+	// limits.identical_failure_park_after knob value.
+	Consecutive   int64  `json:"consecutive,omitempty"`
+	Threshold     int64  `json:"threshold,omitempty"`
+	FailureCode   string `json:"failure_code,omitempty"`
+	FailureDetail string `json:"failure_detail,omitempty"`
 }
 
 // degradationFallbacks returns the degradation-gated fallback list. Counting
@@ -100,30 +147,89 @@ func degradationFallbacks(snapshot journal.Snapshot) []DegradationFallback {
 	return fallbacks
 }
 
-// canonicalDegradationParkEvent validates the engine-owned facts of a
-// degradation park event and returns its canonical encoding. A park event is
-// only written when the gated count crossed the effective budget, so both
-// facts must hold.
+// canonicalDegradationParkEvent validates the engine-owned facts of a typed
+// park event and returns its canonical encoding. The rules are cause-driven:
+// degradation keeps the legacy schema version and the exact rules it has
+// always had (a legacy degradation body re-encodes byte-identically), while
+// the new causes ride the new schema version with their own honest-facts
+// rules. The cause is the authority on every surface.
 func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
-	if event.SchemaVersion != DegradationParkEventVersion ||
-		!runtimeIdentityPattern.MatchString(event.RunID) ||
-		event.Cause != ParkCauseDegradation ||
-		event.Count < 1 || event.Budget < 1 ||
-		event.Count <= event.Budget ||
-		event.UnblockKnob != DegradationUnblockKnob ||
-		int64(len(event.Fallbacks)) != event.Count {
+	if !runtimeIdentityPattern.MatchString(event.RunID) {
 		return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 	}
-	for _, fallback := range event.Fallbacks {
-		if fallback.Offset < 1 || fallback.Reason == "" {
+	switch {
+	case event.SchemaVersion == DegradationParkEventVersion &&
+		event.Cause == ParkCauseDegradation:
+		if event.Count < 1 || event.Budget < 1 ||
+			event.Count <= event.Budget ||
+			event.UnblockKnob != DegradationUnblockKnob ||
+			int64(len(event.Fallbacks)) != event.Count ||
+			event.Spent != 0 || event.Consecutive != 0 ||
+			event.Threshold != 0 || event.FailureCode != "" ||
+			event.FailureDetail != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
+		for _, fallback := range event.Fallbacks {
+			if fallback.Offset < 1 || fallback.Reason == "" {
+				return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+			}
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		(event.Cause == ParkCauseEconomyTurns ||
+			event.Cause == ParkCauseEconomyOutputTokens):
+		knob := EconomyTurnsUnblockKnob
+		if event.Cause == ParkCauseEconomyOutputTokens {
+			knob = EconomyOutputTokensUnblockKnob
+		}
+		// A crossing means the engine-counted spend reached the effective
+		// budget at the loop-top boundary; an event must name both facts.
+		if event.Spent < 1 || event.Budget < 1 ||
+			event.Spent < event.Budget ||
+			event.UnblockKnob != knob ||
+			event.Count != 0 || len(event.Fallbacks) != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.FailureCode != "" || event.FailureDetail != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseIdenticalFailure:
+		if event.Consecutive < 1 || event.Threshold < 1 ||
+			event.Consecutive < event.Threshold ||
+			event.UnblockKnob != IdenticalFailureUnblockKnob ||
+			event.FailureCode == "" ||
+			!runtimeIdentityPattern.MatchString(event.FailureCode) ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	default:
+		return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
 		return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 	}
 	return body, nil
+}
+
+// validParkDetail bounds the durable refusal detail a park event may carry.
+// Empty is honest absence; everything else must be bounded, valid UTF-8, and
+// free of control characters, exactly like the refusal detail itself was
+// bounded at extraction.
+func validParkDetail(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 2_048 || !utf8.ValidString(value) {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func degradationParkEvent(
@@ -142,10 +248,12 @@ func degradationParkEvent(
 	})
 }
 
-// ParseDegradationParkEvent validates a degradation park event body strictly:
-// canonical encoding, closed fields, and honest facts. It is the egress-side
-// gate the cockpit uses before any park fact crosses the webhook boundary;
-// unparsable bodies are rejected so only validated typed fields are emitted.
+// ParseDegradationParkEvent validates a typed park event body strictly:
+// canonical encoding, closed fields, and honest facts, under either the
+// legacy degradation schema version or the new-cause park-event version. It
+// is the egress-side gate the cockpit uses before any park fact crosses the
+// webhook boundary; unparsable bodies are rejected so only validated typed
+// fields are emitted.
 func ParseDegradationParkEvent(body []byte) (*DegradationParkEvent, error) {
 	var event DegradationParkEvent
 	decoder := json.NewDecoder(bytes.NewReader(body))

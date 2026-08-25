@@ -107,7 +107,7 @@ func PresentRunState(
 	case "uncertain":
 		presentation.Status = "Needs confirmation"
 		presentation.What = "Sworn cannot confirm whether the last external action finished."
-		presentation.Next = "Recover the run before repeating that action."
+		presentation.Next = "Use the action the board offers for this run to move past the unresolved effect."
 		presentation.NeedsYou = "Yes — confirm or recover the last action."
 	case "complete":
 		presentation.Status = "Complete"
@@ -123,10 +123,41 @@ func PresentRunState(
 	return presentation
 }
 
+// PresentRunStateWithRecovery explains an uncertain run in terms of the one
+// verb the control gate currently admits for it. The runtime derived the
+// recovery action from the same predicate ApplyControl evaluates, so the
+// next-step text names exactly what the board's action list offers.
+func PresentRunStateWithRecovery(
+	state string,
+	recovery *runtimepkg.RecoveryAction,
+	park ...*runtimepkg.ParkStatus,
+) RunPresentation {
+	if state != "uncertain" || recovery == nil {
+		return PresentRunState(state, park...)
+	}
+	presentation := PresentRunState(state, park...)
+	switch recovery.Action {
+	case "retry":
+		presentation.Next = "Retry the unresolved work item so Sworn can recheck it."
+		presentation.NeedsYou = "Yes — retry the unresolved work."
+	case "takeover":
+		presentation.Next = "Take over the run so Sworn can recheck it and continue."
+		presentation.NeedsYou = "Yes — take over the run."
+	case "resume":
+		presentation.Next = "Wait for the dispatch lease to expire, then resume the run so Sworn can recheck it."
+		presentation.NeedsYou = "Yes — resume the run once the lease has expired."
+	}
+	return presentation
+}
+
 // PresentSnapshot adds the human-attention and diagnostic facts available to
 // the board without changing the underlying snapshot.
 func PresentSnapshot(snapshot Snapshot) RunPresentation {
-	presentation := PresentRunState(snapshot.Run.State, snapshot.Run.Park)
+	presentation := PresentRunStateWithRecovery(
+		snapshot.Run.State,
+		snapshot.Run.Recovery,
+		snapshot.Run.Park,
+	)
 	for _, diagnostic := range snapshot.Diagnostics {
 		if diagnostic.Code != "BATON_UNAVAILABLE" {
 			continue
