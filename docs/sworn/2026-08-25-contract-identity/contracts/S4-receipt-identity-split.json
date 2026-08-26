@@ -1,0 +1,75 @@
+{
+ "outcome": "A receipt names what it vouches for: acceptance/scope identity and checks identity split at the contract boundary, so editing a contract's checks list stops silently voiding design, captain-PROCEED, candidate, and PASS receipts whose acceptance criteria never changed - and with mechanisms 1, 4, and 5 already delivered and mechanism 3 delivered by S3, the sworn#218 umbrella closes with evidence.",
+ "scope": {
+  "include": [
+   "internal/baton",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the receipt schema's checks field (receipts already carry a separate checks-results digest, receipts.go:46; this is a contract-side identity split, not a receipt-schema addition)",
+   "genuine acceptance-identity changes (an edit to outcome, scope, or acceptance criteria still voids exactly as today - the split narrows the void, never removes it)",
+   "receipt trust rules and approval semantics"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins receipt identity matching"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins receipt identity matching"
+   },
+   {
+    "package": "internal/driver",
+    "reason": "its tests reach internal/baton by import only; no driver test pins receipt identity matching"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/driver and internal/cockpit by import only; no observe test pins receipt identity matching"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; skill content is keyed on role-asset identity, not receipt identity"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins receipt identity matching"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its golden corpus pins canonical digest computation, whose recorded values this slice keeps byte-for-byte stable; no batongolden fixture pins receipt matching"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The fused digest splits: every slice-scoped receipt is stamped with one contract digest from Metadata.Contracts at append time (actions.go:677-682; mandatory for design and captain receipts, receipts.go:184-191), and that digest hashes acceptance identity and checks identity as one value - sha256 over canonical {track, id, outcome, scope, acceptance, checks, constraints, depends_on, consumes} (plan.go:934-952) - so a checks-list edit is indistinguishable from an acceptance rewrite at every receipt boundary. After this slice the identity a receipt binds covers the acceptance/scope facts, checks identity is accounted separately, and a revision changing only the checks list leaves prior receipts matching. Pinned by tests editing checks alone and acceptance alone across a revision."
+  },
+  {
+   "id": "A2",
+   "text": "The voiding sites honor the split coherently: the primary void is silent - deriveSlice's matching filter drops receipts whose contract digest disagrees with the current revision (state.go:2683-2698) and slicePlanLineage truncates the lineage at any contract-digest change (state.go:1217-1253, break at :1236-1238) - with the same keying repeated at applicablePriorPass (state.go:1466-1490), consumed-dependency matching (state.go:1849-1856, :1906-1915), assembly admission (state.go:2988-2999), the loud intra-revision check (state.go:1558-1562), and the runtime's candidate replay matching (scheduler.go:4101-4164, which already pairs the contract digest with an independent check-results digest). After this slice every one of those sites adjudicates on the split identity - a checks-only revision preserves lineage, matching, prior-PASS applicability, dependency consumption, and assembly admission, while an acceptance change voids at all of them. Pinned by a revision-chain test asserting both directions across the derivation surfaces."
+  },
+  {
+   "id": "A3",
+   "text": "Recorded history stays readable: receipts recorded before this slice carry the fused digest and must keep adjudicating correctly - the delivered ancestry-adoption precedent (validateSavedPlanAdoption, scheduler.go:5951-6016, which replaced an exact-equality identity test with an ancestry test while keeping every other exactness check) is the house pattern for loosening one axis of an identity check without weakening the rest. Pinned by a fixture over receipts recorded under the fused semantics resolving against a post-split revision."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Existing whole-contract digests stay byte-for-byte stable as recorded: the split is expressed in what receipts bind and how matching adjudicates, never by rewriting recorded digests or receipts.",
+  "How the acceptance-identity digest is derived and where checks identity is accounted (a second entry in Metadata.Contracts, a derived sub-digest, or receipt-side selection) is the implementer's design decision inside these bounds; the captain judges it against the full voiding-site inventory in A2.",
+  "Fail closed on ambiguity: where a historical receipt cannot be adjudicated under the split with certainty, the behavior is today's (void), never a false match.",
+  "The verifier's evidence discipline is untouched: check-results digests (evidence.go:264-266) and role provenance (production_dispatch.go:863-864) keep their existing meaning.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

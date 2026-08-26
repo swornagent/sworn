@@ -44,7 +44,7 @@ func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
 	properties := object(submission["properties"])
 	if root["additionalProperties"] != false ||
 		submission["additionalProperties"] != false ||
-		len(properties) != 8 {
+		len(properties) != 9 {
 		t.Fatalf("submission schema is incomplete or open: %s", submit.InputSchema)
 	}
 	for _, name := range []string{"plan", "checks", "decision"} {
@@ -402,6 +402,79 @@ func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.
 	}
 }
 
+func TestModelPromptCarriesRoleAssetAddendumForNonPlannerRolesAndOmitsItForPlanner(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	for _, tc := range []struct {
+		role           Role
+		responsibility Responsibility
+		access         WorkspaceAccess
+		freshContext   bool
+	}{
+		{RolePlanner, PlannerProposal, ReadWrite, true},
+		{RoleImplementer, ImplementerImplementation, ReadWrite, true},
+		{RoleCaptain, CaptainReview, ReadOnly, true},
+		{RoleVerifier, WorkVerification, ReadOnly, false},
+	} {
+		tc := tc
+		t.Run(string(tc.role), func(t *testing.T) {
+			request, err := NewRequest(
+				invocation.Request.InvocationID,
+				tc.role,
+				invocation.Selected.Profile.Key,
+				invocation.Selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: tc.access},
+				[]Input{},
+				tc.freshContext,
+				invocation.Request.Limits,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			containment := ContainmentReadWrite
+			if tc.access == ReadOnly {
+				containment = ContainmentReadOnly
+			}
+			permission, err := NewSubmissionPermission(
+				request, invocation.Selected, containment, tc.responsibility,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scoped := invocation
+			scoped.Request, scoped.Permission = request, permission
+			body, err := modelPrompt(scoped)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var prompt struct {
+				RoleAssetAddendum *struct {
+					Version string `json:"version"`
+					Digest  string `json:"digest"`
+					Text    string `json:"text"`
+				} `json:"role_asset_addendum"`
+			}
+			if json.Unmarshal(body, &prompt) != nil {
+				t.Fatalf("model prompt = %s", body)
+			}
+			if tc.role == RolePlanner {
+				if prompt.RoleAssetAddendum != nil {
+					t.Fatalf("planner prompt carries addendum: %s", body)
+				}
+				return
+			}
+			if prompt.RoleAssetAddendum == nil {
+				t.Fatalf("%s prompt is missing addendum: %s", tc.role, body)
+			}
+			addendum := RoleAssetAddendum(tc.role)
+			if prompt.RoleAssetAddendum.Version != addendum.Version ||
+				prompt.RoleAssetAddendum.Digest != addendum.Digest ||
+				prompt.RoleAssetAddendum.Text != addendum.Text {
+				t.Fatalf("%s prompt addendum = %#v", tc.role, prompt.RoleAssetAddendum)
+			}
+		})
+	}
+}
+
 func TestSubmissionResultFieldsMatchResponsibility(t *testing.T) {
 	for responsibility, want := range map[Responsibility]string{
 		PlannerProposal:           "summary,detail,plan",
@@ -728,6 +801,300 @@ func TestReadOnlyToolSurfaceOmitsAndRejectsMutation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(invocation.HostWorkspace, "forbidden")); !os.IsNotExist(err) {
 		t.Fatalf("read-only mutation exists: %v", err)
+	}
+}
+
+// TestBashAcceptsCommandAliasExactlyOnce is the A1 proof: command is an
+// exact alias for script, exactly one of the two is required, and both or
+// neither is refused with the same INVALID_TOOL_ARGUMENT a model sees today.
+func TestBashAcceptsCommandAliasExactlyOnce(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	scriptOnly := executeToolJSON(t, session, "bash-script", "Bash", map[string]any{
+		"script": "printf script-ok",
+	})
+	if scriptOnly.Failed || string(scriptOnly.Content) != "script-ok" {
+		t.Fatalf("script-only Bash = %#v", scriptOnly)
+	}
+	commandOnly := executeToolJSON(t, session, "bash-command", "Bash", map[string]any{
+		"command": "printf command-ok",
+	})
+	if commandOnly.Failed || string(commandOnly.Content) != "command-ok" {
+		t.Fatalf("command-only Bash = %#v", commandOnly)
+	}
+	both := executeToolJSON(t, session, "bash-both", "Bash", map[string]any{
+		"script": "printf a", "command": "printf b",
+	})
+	if !both.Failed || !strings.Contains(string(both.Content), "INVALID_TOOL_ARGUMENT") {
+		t.Fatalf("both-present Bash = %#v", both)
+	}
+	neither := executeToolJSON(t, session, "bash-neither", "Bash", map[string]any{})
+	if !neither.Failed || !strings.Contains(string(neither.Content), "INVALID_TOOL_ARGUMENT") {
+		t.Fatalf("neither-present Bash = %#v", neither)
+	}
+}
+
+// TestReadWindowsOffsetAndLimit is the A2 windowing proof: a plain path-only
+// call stays byte-identical, offset/limit windows a large file within the
+// existing budget with a stated truncation marker when content is left
+// unread, and offset/limit alongside paths (or path and paths together, or
+// neither) is refused before any file is touched.
+func TestReadWindowsOffsetAndLimit(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	content := "line1\nline2\nline3\nline4\nline5"
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, "multi.txt"),
+		[]byte(content), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	plain := executeToolJSON(t, session, "read-plain", "Read", map[string]any{
+		"path": GuestWorkspacePath + "/multi.txt",
+	})
+	if plain.Failed || string(plain.Content) != content {
+		t.Fatalf("plain Read = %#v, want byte-identical %q", plain, content)
+	}
+
+	windowed := executeToolJSON(t, session, "read-window", "Read", map[string]any{
+		"path": GuestWorkspacePath + "/multi.txt", "offset": 4, "limit": 10,
+	})
+	if windowed.Failed || string(windowed.Content) != "line4\nline5" {
+		t.Fatalf("windowed Read = %#v", windowed)
+	}
+
+	truncated := executeToolJSON(t, session, "read-truncated", "Read", map[string]any{
+		"path": GuestWorkspacePath + "/multi.txt", "offset": 1, "limit": 2,
+	})
+	if truncated.Failed ||
+		string(truncated.Content) != "line1\nline2\n[truncated: 3 more lines]" {
+		t.Fatalf("truncated Read = %#v", truncated)
+	}
+
+	for name, arguments := range map[string]map[string]any{
+		"path-and-paths": {
+			"path":  GuestWorkspacePath + "/multi.txt",
+			"paths": []string{GuestWorkspacePath + "/multi.txt"},
+		},
+		"offset-with-paths": {
+			"paths": []string{GuestWorkspacePath + "/multi.txt"}, "offset": 1,
+		},
+		"neither-path-nor-paths": {"offset": 1},
+	} {
+		result := executeToolJSON(t, session, "read-invalid-"+name, "Read", arguments)
+		if !result.Failed || !strings.Contains(string(result.Content), "INVALID_TOOL_ARGUMENT") {
+			t.Fatalf("%s = %#v", name, result)
+		}
+	}
+}
+
+// TestReadBatchesMultiplePathsAndTruncatesAtAggregateBudget is the A2
+// batching proof: several paths batch into one call with per-path headers,
+// each path still subject to today's per-file resolution and containment,
+// and the aggregate result stays under MaxToolResultBytes with a stated
+// truncation marker rather than the outer RESOURCE_LIMIT hard-fail.
+func TestReadBatchesMultiplePathsAndTruncatesAtAggregateBudget(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, "alpha.txt"),
+		[]byte("alpha-body\n"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, "beta.txt"),
+		[]byte("beta-body\n"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	batch := executeToolJSON(t, session, "read-batch", "Read", map[string]any{
+		"paths": []string{
+			GuestWorkspacePath + "/alpha.txt",
+			GuestWorkspacePath + "/beta.txt",
+		},
+	})
+	if batch.Failed ||
+		!strings.Contains(string(batch.Content), "==> "+GuestWorkspacePath+"/alpha.txt <==\nalpha-body") ||
+		!strings.Contains(string(batch.Content), "==> "+GuestWorkspacePath+"/beta.txt <==\nbeta-body") {
+		t.Fatalf("batch Read = %#v", batch)
+	}
+
+	empty := executeToolJSON(t, session, "read-batch-empty", "Read", map[string]any{
+		"paths": []string{},
+	})
+	if !empty.Failed {
+		t.Fatalf("empty paths batch accepted: %#v", empty)
+	}
+	tooMany := make([]string, MaxToolReadBatchPaths+1)
+	for index := range tooMany {
+		tooMany[index] = GuestWorkspacePath + "/alpha.txt"
+	}
+	over := executeToolJSON(t, session, "read-batch-over", "Read", map[string]any{
+		"paths": tooMany,
+	})
+	if !over.Failed {
+		t.Fatalf("over-cap paths batch accepted: %#v", over)
+	}
+
+	names := []string{"budget-a.txt", "budget-b.txt", "budget-c.txt"}
+	markers := []string{"FILE-A", "FILE-B", "FILE-C"}
+	budgetPaths := make([]string, len(names))
+	for index, name := range names {
+		body := markers[index] + "\n" + strings.Repeat("x", 89_990)
+		if err := os.WriteFile(
+			filepath.Join(invocation.HostWorkspace, name), []byte(body), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		budgetPaths[index] = GuestWorkspacePath + "/" + name
+	}
+	budgetBatch := executeToolJSON(t, session, "read-batch-budget", "Read", map[string]any{
+		"paths": budgetPaths,
+	})
+	if budgetBatch.Failed || len(budgetBatch.Content) > MaxToolResultBytes {
+		t.Fatalf("budget-edge batch = %#v", budgetBatch)
+	}
+	body := string(budgetBatch.Content)
+	if !strings.Contains(body, "FILE-A") || !strings.Contains(body, "FILE-B") ||
+		strings.Contains(body, "FILE-C") ||
+		!strings.Contains(body, "[truncated: 1 more path(s) not read]") {
+		t.Fatalf("budget-edge batch did not truncate at the aggregate budget: len=%d", len(body))
+	}
+}
+
+// TestBashGitMaskMaterializesAsHonestEmptyRegularFile is the A3 proof: a
+// worktree-style .git pointer file (a regular file, not a directory) masks
+// as a genuine empty regular file inside the Bash tool sandbox instead of
+// the character device /dev/null used to produce today, while a masked
+// directory (.sworn) stays the unaffected tmpfs+remount-ro branch.
+func TestBashGitMaskMaterializesAsHonestEmptyRegularFile(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, ".git"),
+		[]byte("gitdir: /somewhere/does/not/matter\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(
+		filepath.Join(invocation.HostWorkspace, ".sworn"), 0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, ".sworn", "authority-canary"),
+		[]byte("forbidden\n"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	result := executeToolJSON(t, session, "bash-git-mask", "Bash", map[string]any{
+		"script": `test -f .git || exit 1
+test ! -s .git || exit 2
+test -d .sworn || exit 3
+test ! -e .sworn/authority-canary || exit 4
+printf ok`,
+	})
+	if result.Failed || string(result.Content) != "ok" {
+		t.Fatalf("git mask honesty = %#v", result)
+	}
+}
+
+// TestModelPromptEnvironmentFactsAreDerivedAndMatchWorkspaceAccess is the A4
+// proof: the environment-facts block reads MaxToolResultBytes,
+// ToolSandboxPath and the reserved mask set directly, so it can never claim
+// a fact its own Bash/Read sandbox does not enforce; a read-only workspace's
+// block states .git as not masked (GitReadOnly) exactly as runToolBash's own
+// withoutGit branch exposes it read-only instead.
+func TestModelPromptEnvironmentFactsAreDerivedAndMatchWorkspaceAccess(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	body, err := modelPrompt(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt struct {
+		Environment EnvironmentFacts `json:"environment"`
+	}
+	if json.Unmarshal(body, &prompt) != nil {
+		t.Fatalf("model prompt = %s", body)
+	}
+	want := buildEnvironmentFacts(invocation)
+	if prompt.Environment.ToolResultByteBudget != MaxToolResultBytes ||
+		prompt.Environment.ToolSandboxPath != ToolSandboxPath ||
+		prompt.Environment.GitReadOnly != want.GitReadOnly ||
+		prompt.Environment.Note == "" ||
+		strings.Join(prompt.Environment.MaskedPaths, ",") != strings.Join(want.MaskedPaths, ",") {
+		t.Fatalf("environment facts = %#v, want %#v", prompt.Environment, want)
+	}
+	for _, name := range prompt.Environment.MaskedPaths {
+		if name != ".git" {
+			continue
+		}
+		if prompt.Environment.GitReadOnly {
+			t.Fatalf("git masked but GitReadOnly=true: %#v", prompt.Environment)
+		}
+	}
+
+	request, err := NewRequest(
+		invocation.Request.InvocationID,
+		RoleVerifier,
+		invocation.Selected.Profile.Key,
+		invocation.Selected.Model,
+		Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+		nil,
+		true,
+		invocation.Request.Limits,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := NewSubmissionPermission(
+		request, invocation.Selected, ContainmentReadOnly, WorkVerification,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly := invocation
+	readOnly.Request, readOnly.Permission = request, permission
+	roBody, err := modelPrompt(readOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roPrompt struct {
+		Environment EnvironmentFacts `json:"environment"`
+	}
+	if json.Unmarshal(roBody, &roPrompt) != nil {
+		t.Fatalf("read-only model prompt = %s", roBody)
+	}
+	if !roPrompt.Environment.GitReadOnly {
+		t.Fatalf("read-only environment facts = %#v", roPrompt.Environment)
+	}
+	for _, name := range roPrompt.Environment.MaskedPaths {
+		if name == ".git" {
+			t.Fatalf("read-only environment facts still mask .git: %#v", roPrompt.Environment)
+		}
 	}
 }
 

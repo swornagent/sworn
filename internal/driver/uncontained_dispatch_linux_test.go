@@ -251,9 +251,12 @@ func TestContainedBubblewrapArgumentsNeverCarryUncontainedVariables(t *testing.T
 		"none",
 		nil,
 	)
-	arguments, err := bubblewrapArguments(invocation)
+	arguments, maskFiles, err := bubblewrapArguments(invocation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range maskFiles {
+		file.Close()
 	}
 	joined := strings.Join(arguments, "\x00")
 	for _, name := range []string{

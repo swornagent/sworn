@@ -846,7 +846,7 @@ func captureHostEvidence(
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-		engine, plan, workContext.Slice, state.Refs.Target.Head)
+		engine, plan, workContext.Slice, state.Refs.Target.Head, state.Refs.Release.Head)
 	if resolveErr != nil {
 		return resolveErr
 	}
@@ -978,6 +978,22 @@ func currentImplementationDesignReceipt(
 	return design, nil
 }
 
+// dispatchEffectCandidates returns the two inner-dispatch effect identities
+// a given try of the outer git.seal work may have minted: the epoch-shared
+// ("recovery") formula and the per-try ("fresh") formula the
+// recovery-disabled branch and the scope-refusal escape carve-out
+// (scopeRefusalEscaped) both use. Only one exists for any given try; callers
+// that need to know which one a prior try actually wrote probe both.
+func dispatchEffectCandidates(workID string, epoch, priorTry int64) (shared, fresh string) {
+	dispatchWorkShared := workIdentity(workID, "driver.dispatch")
+	shared = journal.AttemptEffectID(dispatchWorkShared, epoch, priorTry)
+
+	priorOuterID := journal.AttemptEffectID(workID, epoch, priorTry)
+	dispatchWorkFresh := workIdentity(priorOuterID, "driver.dispatch")
+	fresh = journal.AttemptEffectID(dispatchWorkFresh, 1, 1)
+	return shared, fresh
+}
+
 func capturePriorRefusal(
 	ctx context.Context,
 	engine *engine,
@@ -989,15 +1005,9 @@ func capturePriorRefusal(
 	}
 	priorTry := coordinates.Try - 1
 	workID := workIdentity(before, "git.seal")
-
-	// 1. Recovery mode dispatch effect
-	dispatchWorkRec := workIdentity(workID, "driver.dispatch")
-	dispatchEffectRec := journal.AttemptEffectID(dispatchWorkRec, coordinates.Epoch, priorTry)
-
-	// 2. Non-recovery mode dispatch effect
 	priorOuterID := journal.AttemptEffectID(workID, coordinates.Epoch, priorTry)
-	dispatchWorkOuter := workIdentity(priorOuterID, "driver.dispatch")
-	dispatchEffectOuter := journal.AttemptEffectID(dispatchWorkOuter, 1, 1)
+	dispatchEffectRec, dispatchEffectOuter :=
+		dispatchEffectCandidates(workID, coordinates.Epoch, priorTry)
 
 	// 3. General driver dispatch work identity
 	generalWork := driverWorkIdentity(

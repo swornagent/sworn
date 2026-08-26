@@ -332,19 +332,41 @@ func (p Plan) ResolveSliceContract(sliceID string, raw []byte) (Slice, error) {
 	return contract, nil
 }
 
-// ResolveSliceContractAt resolves the approved slice contract for sliceID at
-// an exact commit, reading the contract bytes from that commit through the
-// admitted read-only repository handle and proving them against this plan's
-// declared digest via ResolveSliceContract. Legacy inline slices carry their
-// full contract body in the plan itself, so no file read is needed and the
-// already-admitted slice is returned unchanged. Any missing contract source,
-// digest mismatch, or mutation of the declared shape fails closed, so the
-// host-check runner can never execute commands from anything but the
-// human-approved, digest-bound contract at the exact captured head.
+// ResolveSliceContractAt resolves the approved slice contract for sliceID,
+// reading the contract bytes through the admitted read-only repository handle
+// and proving them against this plan's declared digest via
+// ResolveSliceContract. Legacy inline slices carry their full contract body in
+// the plan itself, so no file read is needed and the already-admitted slice is
+// returned unchanged.
+//
+// For sworn.release-manifest/v1 slices, resolution is digest-addressed: the
+// contract bytes are read from the digest-addressed store in the record root
+// at the release head (the record commit lineage, which always contains the
+// record root). The manifest's declared contract_path remains as provenance
+// (still validated for contracts-root membership) but is no longer the byte
+// source. If the digest-addressed store is absent at the release head — the
+// case for releases recorded before this slice — resolution falls back to
+// path-keyed reading from the target head (the commit parameter), preserving
+// backward compatibility. Any missing contract source, digest mismatch, or
+// mutation of the declared shape fails closed, so the host-check runner can
+// never execute commands from anything but the human-approved, digest-bound
+// contract at the exact captured head.
 func (p Plan) ResolveSliceContractAt(
 	repository GitRepository,
 	sliceID string,
 	commit string,
+) (Slice, error) {
+	return p.ResolveSliceContractAtHead(repository, sliceID, commit, commit)
+}
+
+// ResolveSliceContractAtHead resolves the approved slice contract for sliceID
+// with an explicit release head for digest-addressed resolution and a target
+// head (commit) for the path-keyed fallback. See ResolveSliceContractAt for
+// the full resolution order and fail-closed semantics.
+func (p Plan) ResolveSliceContractAtHead(
+	repository GitRepository,
+	sliceID string,
+	releaseHead, targetHead string,
 ) (Slice, error) {
 	_, declared, ok := p.FindSlice(sliceID)
 	if !ok {
@@ -364,10 +386,31 @@ func (p Plan) ResolveSliceContractAt(
 			"contract source "+declared.ContractPath+" is outside the configured contracts root "+contractsRoot,
 		)
 	}
-	if commit == "" {
+	// Digest-addressed resolution: read contract bytes from the digest store
+	// at the release head. The release head is the record commit lineage and
+	// always contains the record root, so the digest store is present for any
+	// release recorded after this slice. The manifest's declared digest
+	// determines the path; the manifest's contract_path is provenance.
+	digest, digestKnown := p.Contract(sliceID)
+	if digestKnown && releaseHead != "" {
+		recordRoot := RecordRoot
+		if repository.repository() != nil {
+			recordRoot = repository.repository().RecordRoot()
+		}
+		storePath := contractStorePath(recordRoot, p.Metadata().Release, digest)
+		if raw, present, err := readGitFileAt(repository, releaseHead, storePath); err != nil {
+			return Slice{}, err
+		} else if present {
+			return p.ResolveSliceContract(sliceID, raw)
+		}
+	}
+	// Fallback: path-keyed resolution from the target head. This preserves
+	// backward compatibility for releases recorded before digest addressing
+	// (the digest store is absent at the release head).
+	if targetHead == "" {
 		return Slice{}, recordFail("CONTRACT_SOURCE_REQUIRED", "manifest declares contract paths but no commit was provided")
 	}
-	raw, present, err := readGitFileAt(repository, commit, declared.ContractPath)
+	raw, present, err := readGitFileAt(repository, targetHead, declared.ContractPath)
 	if err != nil {
 		return Slice{}, err
 	}
@@ -378,18 +421,21 @@ func (p Plan) ResolveSliceContractAt(
 }
 
 // resolveManifestContracts reads every sworn.release-manifest/v1 slice's
-// declared contract_path from source by exact safe path and cross-validates
-// each one against parsed's manifest declaration through ResolveSliceContract.
-// Contract paths are ordinary product-tree content (never under RecordRoot),
-// so this only proves the manifest and the real committed contracts agree; it
-// never reads or writes anything under RecordRoot. Legacy baton.plan/v2 plans
-// carry their slice bodies inline and have no contract paths, so they never
-// consult source. A manifest that declares contract paths with no source, or
-// whose source is missing, substitutes, or mismatches any declared path,
-// fails closed. Both write-time admission (RecordPlanRevision, against a
-// caller-prepared tree) and read-time discovery (readState, against the
-// exact captured target head) share this one validator.
-func resolveManifestContracts(repository *repository, parsed Plan, source string) error {
+// contract and cross-validates it against parsed's manifest declaration
+// through ResolveSliceContract. For releases recorded with digest addressing,
+// contract bytes are read from the digest-addressed store in the record root
+// at the release head (releaseHead). For releases recorded before digest
+// addressing (or when the digest store is absent at the release head),
+// resolution falls back to path-keyed reading from the source (target head).
+// Legacy baton.plan/v2 plans carry their slice bodies inline and have no
+// contract paths, so they never consult source. A manifest that declares
+// contract paths with no source, or whose source is missing, substitutes, or
+// mismatches any declared path, fails closed. Both write-time admission
+// (RecordPlanRevision, against a caller-prepared tree and an optional
+// proposal-carried overlay for paths absent from that tree) and read-time
+// discovery (readState, against the exact captured release and target heads,
+// with no overlay) share this one validator.
+func resolveManifestContracts(repository *repository, parsed Plan, source, releaseHead string, overlay map[string][]byte) error {
 	metadata := parsed.Metadata()
 	if metadata.SchemaVersion != ManifestVersion {
 		return nil
@@ -417,25 +463,116 @@ func resolveManifestContracts(repository *repository, parsed Plan, source string
 			)
 		}
 	}
-	if source == "" {
+	// Digest-addressed resolution: try the digest store at the release head
+	// first. The release head is the record commit lineage and always
+	// contains the record root, so the digest store is present for any
+	// release recorded after this slice.
+	resolved := make(map[string]bool)
+	if releaseHead != "" {
+		recordRoot := repository.recordRoot()
+		storePaths := make([]string, 0, len(metadata.Tracks))
+		digestByStorePath := make(map[string]string)
+		for _, track := range metadata.Tracks {
+			for _, slice := range track.Slices {
+				if slice.ContractPath == "" {
+					continue
+				}
+				digest, ok := parsed.Contract(slice.ID)
+				if !ok {
+					continue
+				}
+				storePath := contractStorePath(recordRoot, metadata.Release, digest)
+				storePaths = append(storePaths, storePath)
+				digestByStorePath[storePath] = slice.ID
+			}
+		}
+		if len(storePaths) > 0 {
+			files, err := repository.files(releaseHead, storePaths)
+			if err != nil {
+				return err
+			}
+			for _, file := range files {
+				if !file.Present {
+					continue
+				}
+				sliceID := digestByStorePath[file.Path]
+				if _, err := parsed.ResolveSliceContract(sliceID, file.Bytes); err != nil {
+					return err
+				}
+				resolved[sliceID] = true
+			}
+		}
+	}
+	// Fallback: path-keyed resolution from the source (target head) for any
+	// slice whose contract was not found in the digest store. This preserves
+	// backward compatibility for releases recorded before digest addressing.
+	var remainingPaths []string
+	remainingSliceByPath := make(map[string]string)
+	for _, path := range paths {
+		sliceID := sliceByPath[path]
+		if resolved[sliceID] {
+			continue
+		}
+		remainingPaths = append(remainingPaths, path)
+		remainingSliceByPath[path] = sliceID
+	}
+	if len(remainingPaths) == 0 {
+		return nil
+	}
+	if source == "" && len(overlay) == 0 {
 		return recordFail(
 			"CONTRACT_SOURCE_REQUIRED",
 			"manifest declares contract paths but no contract source was provided",
 		)
 	}
-	files, err := repository.files(source, paths)
+	resolvedBytes, err := resolveContractSource(repository, source, overlay, remainingPaths)
 	if err != nil {
 		return err
 	}
-	for _, file := range files {
-		if !file.Present {
-			return recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+file.Path)
-		}
-		if _, err := parsed.ResolveSliceContract(sliceByPath[file.Path], file.Bytes); err != nil {
+	for _, path := range remainingPaths {
+		if _, err := parsed.ResolveSliceContract(remainingSliceByPath[path], resolvedBytes[path]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// resolveContractSource reads each named path's bytes from the source tree
+// first (when source is non-empty), falling back to the caller-carried
+// overlay for any path the source tree does not contain. It fails closed if
+// a path resolves from neither. The overlay lets a proposal-carried
+// new-contract file install for a path absent from the bound target tree
+// without ever mutating that tree.
+func resolveContractSource(
+	repository *repository,
+	source string,
+	overlay map[string][]byte,
+	paths []string,
+) (map[string][]byte, error) {
+	result := make(map[string][]byte, len(paths))
+	remaining := paths
+	if source != "" {
+		files, err := repository.files(source, paths)
+		if err != nil {
+			return nil, err
+		}
+		remaining = nil
+		for _, file := range files {
+			if file.Present {
+				result[file.Path] = file.Bytes
+			} else {
+				remaining = append(remaining, file.Path)
+			}
+		}
+	}
+	for _, path := range remaining {
+		body, ok := overlay[path]
+		if !ok {
+			return nil, recordFail("CONTRACT_NOT_FOUND", "contract source is missing "+path)
+		}
+		result[path] = body
+	}
+	return result, nil
 }
 
 // TouchpointRelation records one repository path shared by two slices whose
@@ -924,17 +1061,10 @@ func validateSliceBody(object map[string]any, id, trackID, label string) (Slice,
 		Acceptance: acceptance, Checks: checks, HostChecks: hostChecks,
 		Constraints: constraints, DependsOn: depends, Consumes: consumes,
 	}
-	scopeMap := map[string]any{
-		"include": slice.Scope.Include,
-		"exclude": slice.Scope.Exclude,
-	}
-	if len(slice.Scope.Waivers) > 0 {
-		scopeMap["waivers"] = waiversAny(slice.Scope.Waivers)
-	}
 	contractValue := map[string]any{
 		"track": trackID,
 		"id":    slice.ID, "outcome": slice.Outcome,
-		"scope":      scopeMap,
+		"scope":      scopeCanonical(slice.Scope),
 		"acceptance": criteriaAny(slice.Acceptance),
 		"checks":     slice.Checks, "constraints": slice.Constraints,
 		"depends_on": slice.DependsOn, "consumes": slice.Consumes,
@@ -958,6 +1088,44 @@ func criteriaAny(criteria []Criterion) []any {
 		result[index] = map[string]any{"id": criterion.ID, "text": criterion.Text}
 	}
 	return result
+}
+
+// scopeCanonical builds the canonical map shape for one Scope, shared by the
+// fused contract digest and acceptanceIdentity below, so both hash the exact
+// same bytes for the fields they share.
+func scopeCanonical(scope Scope) map[string]any {
+	scopeMap := map[string]any{
+		"include": scope.Include,
+		"exclude": scope.Exclude,
+	}
+	if len(scope.Waivers) > 0 {
+		scopeMap["waivers"] = waiversAny(scope.Waivers)
+	}
+	return scopeMap
+}
+
+// acceptanceIdentity is the split half of the fused contract digest that
+// covers acceptance/scope identity only: the same canonical payload
+// validateSliceBody hashes, minus checks and host_checks. A slice's
+// acceptanceIdentity is unchanged by any edit to its checks list, so a
+// receipt matched on this value alone stays applicable across a
+// checks-only contract revision. slice must be the fully resolved contract
+// body (e.g. from ResolveSliceContract), not a sworn.release-manifest/v1
+// manifest stub, which carries no acceptance, constraints, or scope.exclude.
+func acceptanceIdentity(trackID string, slice Slice) (string, error) {
+	payload := map[string]any{
+		"track": trackID,
+		"id":    slice.ID, "outcome": slice.Outcome,
+		"scope":       scopeCanonical(slice.Scope),
+		"acceptance":  criteriaAny(slice.Acceptance),
+		"constraints": slice.Constraints,
+		"depends_on":  slice.DependsOn, "consumes": slice.Consumes,
+	}
+	canonical, err := canonicalJSON(payload)
+	if err != nil {
+		return "", err
+	}
+	return DigestBytes(canonical), nil
 }
 
 func parseWaivers(value any, label string) ([]ScopeWaiver, error) {

@@ -238,12 +238,18 @@ type planProposalCommand struct {
 	Authority  planProposalAuthority `json:"authority"`
 	PlanBytes  []byte                `json:"plan_bytes"`
 	PlanDigest string                `json:"plan_digest"`
+	// ContractBytes carries any new slice-contract files this proposal
+	// mints, keyed by their manifest contract_path. Nil means the proposal
+	// mints no new contracts; every journal recorded before this field
+	// existed decodes with that same nil meaning.
+	ContractBytes map[string][]byte `json:"contract_bytes,omitempty"`
 }
 
 type admittedPlanProposal struct {
-	plan      baton.Plan
-	authority planProposalAuthority
-	replayKey string
+	plan          baton.Plan
+	authority     planProposalAuthority
+	replayKey     string
+	contractBytes map[string][]byte
 }
 
 func OpenService(ctx context.Context, path string) (*Service, error) {
@@ -953,6 +959,7 @@ func proposalSourceEffect(
 	snapshot journal.Snapshot,
 	sourceWork string,
 	planBytes []byte,
+	contractBytes map[string][]byte,
 ) (string, error) {
 	prefix := "attempt/" + strings.TrimPrefix(sourceWork, "sha256:") + "/"
 	found := ""
@@ -970,6 +977,10 @@ func proposalSourceEffect(
 		if err != nil || !bytes.Equal(body, planBytes) || found != "" {
 			return "", runtimeFail("CORRUPT_JOURNAL", err)
 		}
+		submissionContracts, err := exactBytesMap(submission.Contracts)
+		if err != nil || !bytesMapEqual(submissionContracts, contractBytes) {
+			return "", runtimeFail("CORRUPT_JOURNAL", err)
+		}
 		found = effect.ID
 	}
 	if found == "" {
@@ -983,19 +994,21 @@ func (s *Service) recordProposal(
 	runID string,
 	plan baton.Plan,
 	authority planProposalAuthority,
+	contractBytes map[string][]byte,
 ) error {
 	snapshot, err := s.journal.Snapshot(ctx, runID)
 	if err != nil {
 		return runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	authority.SourceEffect, err = proposalSourceEffect(
-		snapshot, authority.SourceWork, plan.Bytes())
+		snapshot, authority.SourceWork, plan.Bytes(), contractBytes)
 	if err != nil {
 		return err
 	}
 	command := planProposalCommand{
 		Version: planProposalVersion, Authority: authority,
 		PlanBytes: plan.Bytes(), PlanDigest: plan.Digest(),
+		ContractBytes: contractBytes,
 	}
 	payload := mustJSON(command)
 	key := proposalReplayKey(plan.Metadata().Revision, authority.SourceWork)
@@ -1133,9 +1146,16 @@ func admitPlanProposal(
 	if err != nil || !bytes.Equal(sourcePlan, wire.PlanBytes) {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
+	sourceContracts, err := exactBytesMap(submission.Contracts)
+	if err != nil || !bytesMapEqual(sourceContracts, wire.ContractBytes) {
+		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if validateProposalContracts(plan, wire.ContractBytes) != nil {
+		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
 	return admittedPlanProposal{
 		plan: plan, authority: wire.Authority,
-		replayKey: command.ReplayKey,
+		replayKey: command.ReplayKey, contractBytes: wire.ContractBytes,
 	}, nil
 }
 
@@ -1455,6 +1475,63 @@ func exactBytes(value *driver.ExactBytes) ([]byte, error) {
 		return nil, runtimeFail("INVALID_EXACT_BYTES", nil)
 	}
 	return body, nil
+}
+
+func exactBytesMap(values map[string]*driver.ExactBytes) (map[string][]byte, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	result := make(map[string][]byte, len(values))
+	for key, value := range values {
+		body, err := exactBytes(value)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = body
+	}
+	return result, nil
+}
+
+func bytesMapEqual(a, b map[string][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		other, ok := b[key]
+		if !ok || !bytes.Equal(value, other) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateProposalContracts proves every carried contract against the
+// parsed plan's own manifest declaration: its key must be a declared
+// contract_path for that plan, and its bytes must resolve against that
+// slice's declared digest. A proposal's carried bytes can therefore never
+// install under any authority other than the plan that declared them.
+func validateProposalContracts(plan baton.Plan, contractBytes map[string][]byte) error {
+	if len(contractBytes) == 0 {
+		return nil
+	}
+	declared := make(map[string]string, len(contractBytes))
+	for _, track := range plan.Metadata().Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath != "" {
+				declared[slice.ContractPath] = slice.ID
+			}
+		}
+	}
+	for path, body := range contractBytes {
+		sliceID, ok := declared[path]
+		if !ok {
+			return runtimeFail("CONTRACT_NOT_DECLARED", nil)
+		}
+		if _, err := plan.ResolveSliceContract(sliceID, body); err != nil {
+			return runtimeFail(baton.ErrorCode(err), err)
+		}
+	}
+	return nil
 }
 
 func mustJSON(value any) []byte {

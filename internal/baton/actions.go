@@ -35,11 +35,19 @@ func NewActions(gitRepository GitRepository, resolver InertnessResolver, identit
 // record transition below still commits only the plan itself. Legacy
 // baton.plan/v2 plans carry their full slice bodies inline and ignore
 // ContractTree.
+//
+// ContractOverlay is an optional, read-only fallback source keyed by
+// contract_path: any declared path absent from ContractTree is resolved
+// from it instead of failing closed, still cross-validated against the
+// manifest exactly as a tree-sourced contract is. It lets a proposal's own
+// carried contract bytes install for a path the bound target tree does not
+// yet contain, without this action ever writing to that tree.
 type RecordPlanRevisionInput struct {
-	PlanBytes    []byte
-	Summary      string
-	Detail       []byte
-	ContractTree string
+	PlanBytes       []byte
+	Summary         string
+	Detail          []byte
+	ContractTree    string
+	ContractOverlay map[string][]byte
 }
 
 type AppendReceiptInput struct {
@@ -150,7 +158,7 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 	if err != nil {
 		return ActionResult{}, err
 	}
-	if err := a.verifyManifestContracts(parsed, input.ContractTree); err != nil {
+	if err := a.verifyManifestContracts(parsed, input.ContractTree, input.ContractOverlay); err != nil {
 		return ActionResult{}, err
 	}
 	metadata := parsed.Metadata()
@@ -329,14 +337,22 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 		}
 	}
 
-	documents, err := a.documentsForInstall(parsed, input.ContractTree)
+	documents, err := a.documentsForInstall(parsed, input.ContractTree, input.ContractOverlay)
 	if err != nil {
 		return ActionResult{}, err
+	}
+	contractChanges, err := a.contractStoreChanges(parsed, input.ContractTree, input.ContractOverlay)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	recordChanges := map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()}
+	for path, bytes := range contractChanges {
+		recordChanges[path] = bytes
 	}
 	preparedPlan, err := a.repository.prepareRecord(
 		parent,
 		fmt.Sprintf("%s(%s): plan revision %d", a.repository.commitPrefix(), release, metadata.Revision),
-		map[string][]byte{planPath(a.repository.recordRoot(), release): parsed.Bytes()},
+		recordChanges,
 		documents,
 	)
 	if err != nil {
@@ -459,10 +475,13 @@ func (a *Actions) RecordPlanRevision(input RecordPlanRevisionInput) (ActionResul
 // verifyManifestContracts proves, before this action creates or moves any
 // Git object, that every sworn.release-manifest/v1 slice's declared
 // contract_path is already present in the caller-prepared source tree and
-// agrees with the manifest's own declaration. See resolveManifestContracts
+// agrees with the manifest's own declaration. At write time the release head
+// does not yet exist (or is the prior revision's head), so digest-addressed
+// resolution is not yet available; resolution falls back to path-keyed
+// reading from the caller-prepared source tree. See resolveManifestContracts
 // for the shared validator this and read-time discovery both use.
-func (a *Actions) verifyManifestContracts(parsed Plan, source string) error {
-	return resolveManifestContracts(a.repository, parsed, source)
+func (a *Actions) verifyManifestContracts(parsed Plan, source string, overlay map[string][]byte) error {
+	return resolveManifestContracts(a.repository, parsed, source, "", overlay)
 }
 
 func (a *Actions) verifyPlanScopeLint(parsed Plan, commit string) error {
@@ -473,11 +492,12 @@ func (a *Actions) verifyPlanScopeLint(parsed Plan, commit string) error {
 // publishes under the documents root in the same record commit: the authored
 // plan plus, for every sworn.release-manifest/v1 slice that declares a
 // contract_path, the exact bytes of that declared contract (read from the
-// caller-prepared contract tree, the same source verifyManifestContracts just
-// validated). These documents are what a person reads; the engine never reads
-// them, and the records root remains the only engine-read authority. Legacy
+// caller-prepared contract tree, falling back to overlay for any path absent
+// from that tree, the same sources verifyManifestContracts just validated).
+// These documents are what a person reads; the engine never reads them, and
+// the records root remains the only engine-read authority. Legacy
 // baton.plan/v2 plans carry their slices inline and publish only the plan.
-func (a *Actions) documentsForInstall(parsed Plan, contractTree string) (map[string][]byte, error) {
+func (a *Actions) documentsForInstall(parsed Plan, contractTree string, overlay map[string][]byte) (map[string][]byte, error) {
 	metadata := parsed.Metadata()
 	documents := map[string][]byte{
 		documentPlanPath(a.repository.documentsRoot(), metadata.Release): parsed.Bytes(),
@@ -496,27 +516,67 @@ func (a *Actions) documentsForInstall(parsed Plan, contractTree string) (map[str
 			paths = append(paths, slice.ContractPath)
 		}
 	}
-	if len(paths) == 0 || contractTree == "" {
+	if len(paths) == 0 {
 		return documents, nil
 	}
-	files, err := a.repository.files(contractTree, paths)
+	resolved, err := resolveContractSource(a.repository, contractTree, overlay, paths)
 	if err != nil {
 		return nil, err
 	}
-	for _, file := range files {
-		if !file.Present {
-			return nil, recordFail(
-				"CONTRACT_NOT_FOUND",
-				"contract source is missing "+file.Path,
-			)
-		}
+	for _, path := range paths {
 		documents[documentContractPath(
 			a.repository.documentsRoot(),
 			metadata.Release,
-			sliceByPath[file.Path],
-		)] = file.Bytes
+			sliceByPath[path],
+		)] = resolved[path]
 	}
 	return documents, nil
+}
+
+// contractStoreChanges returns the digest-addressed contract bytes to write
+// under the record root in the same record commit that writes the plan. For
+// every sworn.release-manifest/v1 slice that declares a contract_path, the
+// exact contract bytes (read from the caller-prepared contract tree, falling
+// back to overlay for any path absent from that tree, the same sources
+// verifyManifestContracts just validated) are written to the digest-addressed
+// store path under the record root. These bytes are the engine-read
+// authority for digest-addressed resolution; the authored copy under the
+// documents root is what a person reads. Legacy baton.plan/v2 plans carry
+// their slices inline and contribute no contract store changes.
+func (a *Actions) contractStoreChanges(parsed Plan, contractTree string, overlay map[string][]byte) (map[string][]byte, error) {
+	metadata := parsed.Metadata()
+	if metadata.SchemaVersion != ManifestVersion {
+		return nil, nil
+	}
+	var paths []string
+	sliceByID := make(map[string]string)
+	for _, track := range metadata.Tracks {
+		for _, slice := range track.Slices {
+			if slice.ContractPath == "" {
+				continue
+			}
+			sliceByID[slice.ID] = slice.ContractPath
+			paths = append(paths, slice.ContractPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	resolved, err := resolveContractSource(a.repository, contractTree, overlay, paths)
+	if err != nil {
+		return nil, err
+	}
+	changes := make(map[string][]byte)
+	recordRoot := a.repository.recordRoot()
+	for sliceID, path := range sliceByID {
+		digest, ok := parsed.Contract(sliceID)
+		if !ok {
+			continue
+		}
+		storePath := contractStorePath(recordRoot, metadata.Release, digest)
+		changes[storePath] = resolved[path]
+	}
+	return changes, nil
 }
 
 // documentPlanPath is the authored plan path under the documents root.

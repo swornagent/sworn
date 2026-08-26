@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -2169,6 +2170,49 @@ func nativeTreeContains(root string, needle []byte) (bool, error) {
 	return found, err
 }
 
+// hostBinaryDriftReason reports whether the file at pathValue no longer
+// matches pinnedDigest, and if so, a reason string naming both digests for
+// t.Skip. It takes no *testing.T so the exact-fixture skip path and its own
+// coverage test exercise identical logic: a digest mismatch is host drift,
+// never a silent pass-through, and identical bytes cannot produce a
+// mismatch here regardless of what a version subprocess might report.
+func hostBinaryDriftReason(pathValue, pinnedDigest string) (string, bool) {
+	hostDigest, err := executableDigest(pathValue)
+	if err == nil && hostDigest == pinnedDigest {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"host binary at %s has drifted from its pinned certification identity %s (host digest %s, err=%v)",
+		pathValue, pinnedDigest, hostDigest, err,
+	), true
+}
+
+// TestExactNativeConfigFixtureSkipsOnHostBinaryDrift proves the skip path
+// exactNativeConfigFixture relies on is reachable without depending on the
+// operator's specific host paths: a throwaway local script can never match a
+// pinned CLI digest, so the drift oracle must report a mismatch.
+func TestExactNativeConfigFixtureSkipsOnHostBinaryDrift(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "drifted-binary")
+	if err := os.WriteFile(
+		script, []byte("#!/bin/sh\necho drifted\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, drifted := hostBinaryDriftReason(script, CodexCLIDigest); !drifted {
+		t.Fatal("drift not detected for a throwaway script pinned against CodexCLIDigest")
+	}
+	if _, drifted := hostBinaryDriftReason(script, ClaudeCLIDigest); !drifted {
+		t.Fatal("drift not detected for a throwaway script pinned against ClaudeCLIDigest")
+	}
+	matching, err := executableDigest(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, drifted := hostBinaryDriftReason(script, matching); drifted {
+		t.Fatal("drift falsely reported when the host digest matches the pin")
+	}
+}
+
 func exactNativeConfigFixture(
 	t *testing.T,
 	family ProfileFamily,
@@ -2189,6 +2233,9 @@ func exactNativeConfigFixture(
 	}
 	if _, err := os.Stat(pathValue); err != nil {
 		t.Skipf("exact %s fixture unavailable: %v", family, err)
+	}
+	if reason, drifted := hostBinaryDriftReason(pathValue, digest); drifted {
+		t.Skip(reason)
 	}
 	runtimeFiles := systemRuntimeFiles(t)
 	if family == ProfileClaude {

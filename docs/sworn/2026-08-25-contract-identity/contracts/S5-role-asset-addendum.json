@@ -1,0 +1,67 @@
+{
+ "outcome": "The three sentences that cost review turns in both instrumented releases reach the roles that needed them: the implementer, verifier, and captain surfaces state that contract digests are canonical-content digests, that before and product_tree are invocation-state digests, and that the seal epoch moves in lockstep with the try ledger - as a sworn-owned, digest-accounted addendum, with the vendored Baton asset chain and its commit provenance untouched.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the vendored Baton snapshot and its digest chain (internal/baton/snapshot/*, release.json, manifest.json, and the assets.go pins stay byte-identical - the manifest asserts upstream commit provenance at assets.go:301 and a sworn-authored edit there would falsify it)",
+   "the interactive skill surface (internal/skill emits operator-facing guidance; the dispatch-time worker surface is this slice's audience)",
+   "upstream Baton (routing the sentences into the protocol's own operation files is a Baton PR, on its own governance clock - this slice does not wait for it)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins the role-facing addendum surface"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins the role-facing addendum surface"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins the role-facing addendum surface"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins the role-facing addendum surface"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Canonical digests are stated where the workers work: today the only role-facing statement that a slice digest is a canonical-content digest lives in the plan template (internal/baton/snapshot/assets/templates/plan.md:71-73) - the implementer and captain operation assets contain zero mentions of digests at all, and the verifier asset (operations/baton-verify.md:45-46) names a checks digest without canonicalisation semantics. After this slice, the dispatch-time surface the implementer, verifier, and captain actually receive states plainly that contract and receipt digests are digests of canonical content - equivalent content hashes identically regardless of key order or formatting - so no role re-derives or mis-adjudicates it again. Pinned by a test reading the sentence back from the assembled role surface. Evidence basis: the telemetry-foundations captain receipt independently re-deriving a contract's canonical digest binding to settle an implementer adjudication, and the same class of review turns recurring in unattended-operability."
+  },
+  {
+   "id": "A2",
+   "text": "before and product_tree are named as invocation-state digests: the engine emits them into every work context (productionCandidateBinding/productionEvidenceBinding, internal/runtime/production_dispatch.go:163 before, :76/:90 product_tree) but the only prose explaining them is a Go comment never shipped to a worker (production_dispatch.go:77-80, the base -> candidate -> receipt chain rationale); no role asset mentions product_tree outside a schema line. After this slice the same surface as A1 states that before and product_tree are digests of invocation state - the tree identities the verifier checks bindings against rather than reconstructing. Pinned by a test reading it back."
+  },
+  {
+   "id": "A3",
+   "text": "Seal-epoch lockstep is stated: the epoch reaches the worker as an opaque integer (production_dispatch.go:161-162, minted at internal/runtime/scheduler.go:2326-2329) and no role-facing text mentions the seal epoch at all (the only epoch prose in the assets is the release epoch in reference/records/state.mjs). After this slice the surface states that the seal epoch moves in lockstep with the try ledger - a retry never crosses epochs and an epoch never re-admits succeeded work. Pinned by a test reading it back."
+  },
+  {
+   "id": "A4",
+   "text": "Provenance stays true: the vendored asset chain - releaseDocumentSHA256/ManifestSHA256/AssetCount/AssetBytes (internal/baton/assets.go:41-45), the per-asset digest loop (:223-262), the release bindings (:314-363), and the upstream-commit assertion (:301) - is byte-identical after this slice, and the addendum itself is digest-accounted on its own sworn-owned identity so a tampered addendum is as detectable as a tampered asset. Pinned by the existing asset-chain tests passing unchanged plus a digest test over the addendum."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The addendum is three sentences of role guidance, not a documentation project: state the three facts, attach them to the surfaces the roles receive, stop.",
+  "Where exactly the addendum rides - beside CanonicalOperation's delivered instructions (internal/driver/contract.go:339-362), in the assembled work context, or as a distinct sworn-owned asset - is the implementer's design decision inside these bounds; the captain judges the seam.",
+  "Delivered instructions must never diverge silently from pinned identity: if the addendum travels with operation text, its bytes get their own digest accounting rather than mutating the vendored operation's pinned digest.",
+  "No vendored byte changes: internal/baton/snapshot/*, release.json, manifest.json, and the assets.go pin constants are out of bounds; the existing asset-chain tests are the tripwire.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

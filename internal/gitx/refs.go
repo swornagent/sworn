@@ -595,21 +595,22 @@ func (r *Repository) ApplyRefTransaction(snapshot []RefHead, operations []RefOpe
 	if err != nil {
 		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "create private transaction directory", err)
 	}
+	defer func() {
+		cleanupErr := os.RemoveAll(home)
+		if r.refFault != nil && r.refFault.cleanup {
+			cleanupErr = errors.New("injected inert cleanup failure")
+		}
+		_ = cleanupErr // Inert private-directory cleanup is subordinate.
+	}()
 	if err := os.Mkdir(filepath.Join(home, "hooks"), 0o700); err != nil {
-		_ = os.RemoveAll(home)
 		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "create private hooks directory", err)
 	}
 	if err := r.requireTransactionCommits(ctx, home, prepared); err != nil {
-		_ = os.RemoveAll(home)
 		return err
 	}
 	primary, quiet, trace := r.applyRefTransaction(ctx, home, prepared)
 	if r.refFault != nil && r.refFault.observe != nil {
 		r.refFault.observe(trace)
-	}
-	cleanupErr := os.RemoveAll(home)
-	if r.refFault != nil && r.refFault.cleanup {
-		cleanupErr = errors.New("injected inert cleanup failure")
 	}
 	if !quiet {
 		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "exact ref transaction quiescence is uncertain", primary)
@@ -626,7 +627,6 @@ func (r *Repository) ApplyRefTransaction(snapshot []RefHead, operations []RefOpe
 		return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "exact ref reconciliation failed", errors.Join(primary, captureErr))
 	}
 	if vectorMatches(observed, prepared.desired) {
-		_ = cleanupErr // Inert private-directory cleanup is subordinate.
 		return nil
 	}
 	if prepared.meaningful && vectorMatches(observed, prepared.pre) {

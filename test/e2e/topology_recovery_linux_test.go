@@ -972,7 +972,6 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		outerByWork := make(map[string]map[string]journal.Effect)
 		dispatchIDs := make(map[string]struct{})
 		scopeFailures := 0
-		admissionRefusals := 0
 		prepared := false
 		for _, effect := range snapshot.Effects {
 			switch effect.Kind {
@@ -998,16 +997,14 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				if effect.State != journal.OperationalFailed {
 					t.Fatalf("outer implementation failure = %#v", effect)
 				}
+				// A scope refusal following a succeeded dispatch now
+				// re-dispatches in-cycle with a fresh per-try inner
+				// identity instead of dying at admission, so every try
+				// scope-fails in turn: WORK_ALREADY_SUCCEEDED no longer
+				// occurs here.
 				switch effect.ErrorCode {
 				case "CANDIDATE_SCOPE_FAILED":
 					scopeFailures++
-				case "WORK_ALREADY_SUCCEEDED":
-					// The first try's inner dispatch succeeded before the
-					// seal refused its scope; later tries refuse at
-					// admission because a succeeded work is never re-paid
-					// within its epoch. No dispatch exists for these tries.
-					admissionRefusals++
-					continue
 				default:
 					t.Fatalf("outer implementation failure = %#v", effect)
 				}
@@ -1069,12 +1066,23 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("scope failure attempts for %s = %#v", workID, attempts)
 			}
 		}
-		if err != nil || len(dispatchIDs) != 1 || scopeFailures != 1 ||
-			admissionRefusals != 2 || prepared {
+		if err != nil || len(dispatchIDs) != 3 || scopeFailures != 3 || prepared {
 			t.Fatalf(
-				"scope failure evidence: works=%d dispatches=%d scope=%d refused=%d prepared=%t err=%v",
-				len(outerByWork), len(dispatchIDs), scopeFailures,
-				admissionRefusals, prepared, err)
+				"scope failure evidence: works=%d dispatches=%d scope=%d prepared=%t err=%v",
+				len(outerByWork), len(dispatchIDs), scopeFailures, prepared, err)
+		}
+		statusBody, statusErr := runBinary(t, swornBinary, 0, "status", "--run", runID,
+			"--journal", journalPath, "--json")
+		var runStatus swornruntime.RunStatus
+		if statusErr != "" || json.Unmarshal([]byte(statusBody), &runStatus) != nil {
+			t.Fatalf("scope exhaustion status json = %q / %q", statusBody, statusErr)
+		}
+		if runStatus.Park == nil ||
+			runStatus.Park.Cause != swornruntime.ParkCauseExhaustion ||
+			runStatus.Park.FailureCode != "CANDIDATE_SCOPE_FAILED" ||
+			runStatus.Park.FailureDetail == "" ||
+			!strings.Contains(runStatus.Park.FailureDetail, "SLICE_OUTSIDE_SCOPE") {
+			t.Fatalf("scope exhaustion park = %#v", runStatus.Park)
 		}
 	})
 

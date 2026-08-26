@@ -1,0 +1,64 @@
+{
+ "outcome": "A scope refusal with succeeded work becomes a correction loop instead of a dead cycle: after a seal or scope refusal following a succeeded dispatch, the cycle re-dispatches the worker in-cycle carrying the refusal context - the named offending paths - instead of burning the remaining tries as WORK_ALREADY_SUCCEEDED admission refusals, and on exhaustion the park names the scope code so the operator sees why instead of a generic exhaustion. Brad's (b)-with-floor ruling on sworn#224, delivered.",
+ "scope": {
+  "include": [
+   "internal/journal",
+   "internal/runtime",
+   "test/e2e"
+  ],
+  "exclude": [
+   "the any-succeeded-try guard for every other path (the carve-out is exactly the seal/scope-refusal-after-succeeded-dispatch case; the guard's exactly-once protection is otherwise untouched)",
+   "the try budget (three tries per epoch stands; the floor changes what a try buys, never how many there are)",
+   "scope-gate semantics (what CANDIDATE_SCOPE_FAILED means and when it fires is unchanged; this slice changes what happens after)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins cycle admission or exhaustion-park diagnostics"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins cycle admission or exhaustion-park diagnostics"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins cycle admission or exhaustion-park diagnostics"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no tui test pins cycle admission or exhaustion-park diagnostics"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The remaining tries buy real work: today implementSlice (internal/runtime/scheduler.go:2301, try loop :2337) mints the inner dispatch work once per cycle when recovery selection is enabled (:2339-2346), so after t1's dispatch succeeds and the seal refuses its scope (CANDIDATE_SCOPE_FAILED, scheduler.go:3128-3138 and :3145-3152), t2/t3 die at admission (EnsureAttempt, internal/runtime/dispatch.go:1913) under the any-succeeded guard (internal/journal/control.go:752-754, counting query :737-751) before any model turn - two paid-for tries burned as WORK_ALREADY_SUCCEEDED bookkeeping. After this slice, a try following a seal/scope refusal with a succeeded dispatch re-dispatches the worker in-cycle, and the refusal context reaches it through the machinery S1-context-carry already built: capturePriorRefusal (internal/runtime/production_dispatch.go:981-1027) already probes the prior outer effect for a productionRefusalBinding{code, paths, total_paths} (:184-189, floor-validated :1389-1400) and injects it at :793-797 - it is unreachable today only because the try never passes admission. Pinned by tests over the re-dispatch, the injected paths, and the guard still refusing every non-scope-refusal case."
+  },
+  {
+   "id": "A2",
+   "text": "Exhaustion parks name the scope code: today the post-loop fallthrough returns a bare EFFECT_PARKED (scheduler.go:2531), the exhaustion scan keys only on a failed /t3 effect and discards the ErrorCode it already read (internal/runtime/status.go:165-176 vs :119-120), and ParkCauseExhaustion is the only park branch in parkStatusFor that sets no diagnostic fields (status.go:855-856) - unlike identical-failure parks, which carry FailureCode and FailureDetail (:848-854, fed by identicalFailureFacts, internal/runtime/economy_guards.go:211-220). After this slice an exhaustion park whose tries died on a scope refusal carries the refusal's code and named paths on the same fields, in the identical-failure pattern. Pinned by a test reading the park status back. Note the identical-failure guard itself cannot see this case - it filters to driver.dispatch kinds (economy_guards.go:242) and the failing effects here are git.seal outers."
+  },
+  {
+   "id": "A3",
+   "text": "The e2e pin of the old semantics moves with the product: test/e2e/topology_recovery_linux_test.go's scope_failure_is_bounded_without_candidate scenario (:933) pins today's behavior exactly - WORK_ALREADY_SUCCEEDED outers for t2/t3 with the rationale 'a succeeded work is never re-paid within its epoch' (:1001-1013), one dispatch attempt per dispatch work (:1039-1049), child epoch/try both 1 (:1022-1025). This slice's edit surface includes re-pinning exactly that scenario to the new re-dispatch semantics - declared in scope now because both prior releases paid a plan revision for this same class of stale e2e pin discovered mid-run. Pinned by the scenario passing against the new behavior."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Exactly-once integrity does not loosen: the carve-out admits a re-dispatch only for the seal/scope-refused-with-succeeded-dispatch case, whether by minting per-try dispatch identity at the scheduler seam (scheduler.go:2339-2346) or by an explicit journal-side carve-out - the implementer's design decision inside these bounds; every other WORK_ALREADY_SUCCEEDED refusal stands, pinned by tests.",
+  "The floor is the existing budget: re-dispatches consume ordinary tries from the same three-try epoch; no new retry loop, no unbounded correction.",
+  "The refusal context rides the existing productionRefusalBinding shape and its validation floor (1..20 strictly-ascending paths); no new context vocabulary.",
+  "Park vocabulary grows additively: the exhaustion cause keeps its name; it gains the diagnostic fields the identical-failure precedent already defined.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

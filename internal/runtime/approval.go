@@ -687,9 +687,10 @@ func (s *Service) ReconcileApprovals(ctx context.Context, runID string) error {
 // approvalAdmission is local, exact authority for one plan. It deliberately
 // contains no hosted identity, credential, URL, issue or external evidence.
 type approvalAdmission struct {
-	planBytes  []byte
-	planDigest string
-	reference  string
+	planBytes     []byte
+	planDigest    string
+	reference     string
+	contractBytes map[string][]byte
 }
 
 func validateApprovalRef(manifest admittedManifest, plan baton.Plan) error {
@@ -738,9 +739,10 @@ func (i *authorityInstaller) install(
 		return baton.ActionResult{}, runtimeFail("APPROVAL_ADMISSION_REQUIRED", nil)
 	}
 	return i.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
-		PlanBytes:    admission.planBytes,
-		Summary:      "Install the exact locally authorized plan.",
-		Detail:       installDetail(admission),
-		ContractTree: contractTree,
+		PlanBytes:       admission.planBytes,
+		Summary:         "Install the exact locally authorized plan.",
+		Detail:          installDetail(admission),
+		ContractTree:    contractTree,
+		ContractOverlay: admission.contractBytes,
 	})
 }

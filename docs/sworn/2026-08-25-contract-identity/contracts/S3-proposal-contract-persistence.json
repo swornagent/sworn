@@ -1,0 +1,72 @@
+{
+ "outcome": "A proposal that introduces new contract files can actually install: the contract bytes ride the proposal as durably as its plan bytes now do, install sources them for paths absent from the bound target tree on both the live and the replay path, and replay re-proves them digest-bound - so a plan revision minting a new contract stops requiring an operator to hand-commit the contract and race the proposal's own staleness check.",
+ "scope": {
+  "include": [
+   "internal/baton",
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "plan-byte durability itself (R3-S7's machinery - recordProposal, admitPlanProposal, the sealed-submission byte proof - is the foundation being extended, not changed)",
+   "approval semantics and the install authorization boundary (install remains the only runtime path calling RecordPlanRevision, per approval.go:721)",
+   "proposals that only revise existing contracts already present in the target tree (they resolve today and keep resolving)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins proposal persistence or install sourcing"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins proposal persistence or install sourcing"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/driver and internal/cockpit by import only; no observe test pins proposal persistence or install sourcing"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; skill content is keyed on role-asset identity, not proposal persistence"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins proposal persistence or install sourcing"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its golden corpus pins canonical digest computation, which proposal-carried contracts are proven against unchanged; no batongolden fixture pins proposal persistence"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "New-contract bytes are durable: today the persisted proposal carries plan bytes only - planProposalCommand{version, authority, plan_bytes, plan_digest} (internal/runtime/service.go:236-241, sealed by recordProposal :981-1012 as a planner_proposal journal command) - and the worker-to-engine channel has no contract field at all (driver.Submission{..., Plan *ExactBytes, Checks *ExactBytes, ...}, internal/driver/submission.go:96-105), so a proposal introducing a contract file carries nothing but its digest. After this slice the sealed proposal durably carries the new contract files' bytes beside plan_bytes - the submission channel and the journal payload both extended additively - and the sealed-submission byte proof extends to them (the proposalSourceEffect pattern, service.go:940-979: persisted bytes must equal the sealed driver submission's bytes, else CORRUPT_JOURNAL). Pinned by tests sealing and re-reading a proposal with new contracts."
+  },
+  {
+   "id": "A2",
+   "text": "Install sources proposal contracts instead of failing: today both install paths hand the proposal's bound target head to install(admission, contractTree) (live: scheduler.go:6997-7001; journal replay: scheduler.go:1517-1519; the installer at approval.go:730-746) and RecordPlanRevision then raises CONTRACT_NOT_FOUND for any manifest path absent from that tree - first from verifyManifestContracts at actions.go:153 via resolveManifestContracts (plan.go:430-433), then from documentsForInstall (actions.go:506-512) - while committing the contract to the target first just moves the head and stales the proposal instead (targetExact, scheduler.go:974-976; proposalMatchesPendingAuthority, scheduler.go:6053-6055). After this slice install resolves contract paths absent from the bound tree against the proposal's carried bytes, proves each against its manifest-declared digest, and completes on both the live and the replay path with identical results. Pinned by an install test whose manifest names a contract that exists only in the proposal."
+  },
+  {
+   "id": "A3",
+   "text": "Replay stays exactly as paranoid: admitPlanProposal (service.go:1038) re-proves plan bytes against the sealed submission on every replay (:1132-1135) and fails CORRUPT_JOURNAL on any disagreement; the carried contract bytes get the same treatment - digest-proven and submission-proven on replay, never trusted from the journal alone. Pinned by a corrupted-journal test over tampered contract bytes."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "All growth is additive: the planProposalCommand schema, the Submission shape, and the proposal replay key gain fields without breaking the admission of any journal recorded before this slice.",
+  "Carried contract bytes are bounded by the same exact-bytes discipline as plan bytes (size limits, digest binding, UTF-8) - a proposal is not a general file-transport channel.",
+  "Whether install materializes proposal contracts into the record tree via S1's digest-addressed store or hands them to RecordPlanRevision as an overlay source is the implementer's design decision inside these bounds; the captain judges it against record-root immutability.",
+  "The install authorization boundary does not move: only the installer calls RecordPlanRevision, and a proposal's carried bytes can never install under any authority other than the proposal's own.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

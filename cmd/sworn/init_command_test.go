@@ -90,11 +90,23 @@ func setupMockAgentAndEnvironment(t *testing.T) (string, string) {
 		initRuntimeTargets = oldTargets
 	})
 
-	// Mock claude CLI binary
 	binDir := filepath.Join(temp, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
+	// The hermetic PATH set below has no host directories, so git must be
+	// symlinked in explicitly - the same pattern TestInitNoAgentEmptyProject
+	// already proves.
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	if err := os.Symlink(gitPath, filepath.Join(binDir, "git")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock claude CLI binary
 	claudePath := filepath.Join(binDir, "claude")
 	claudeScript := "#!/usr/bin/sh\necho '2.1.220 (Claude Code)'\n"
 	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
@@ -112,7 +124,10 @@ func setupMockAgentAndEnvironment(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// PATH carries only the mocked agent binaries and git, with no host
+	// directories appended, so a real agent on the operator's own PATH
+	// (sworn#228) cannot flip these fixtures.
+	t.Setenv("PATH", binDir)
 	t.Setenv("HOME", homeDir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 	t.Setenv(gitx.EnvCredentialsDir, "")
@@ -465,6 +480,125 @@ func TestInitNoAgentEmptyProject(t *testing.T) {
 	}
 	if !strings.Contains(out, "Sworn cannot start a run until an AI connection file exists at") {
 		t.Fatalf("closing advice missing: %s", out)
+	}
+}
+
+// S6-A1: on a non-Linux host, init states plainly that native dispatch
+// requires Linux instead of tripping the Linux-only runtime-file preflight -
+// even with no agent on PATH at all, since the statement must reach every
+// non-Linux run regardless of agent presence (Captain Correction 1).
+func TestInitDarwinStatesNativeDispatchRequiresLinux(t *testing.T) {
+	oldHostOS := initHostOS
+	initHostOS = "darwin"
+	t.Cleanup(func() { initHostOS = oldHostOS })
+
+	root := initTestProject(t)
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\n")
+	code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("runInitWithIO exit code = %d, want 1 for a missing AI connection file on darwin", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Native dispatch requires Linux") {
+		t.Fatalf("stdout did not state the Linux requirement: %s", out)
+	}
+	// The old Linux-only runtime-file preflight message must never fire:
+	// the gate gives every non-Linux host the plain statement instead
+	// (Captain Correction 2 - a substring the mocked runtime targets in
+	// setupMockAgentAndEnvironment cannot make vacuous, unlike "/etc/").
+	if strings.Contains(out, "which the sandboxed agent needs") {
+		t.Fatalf("darwin run tripped the Linux-only runtime-file preflight: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".sworn", "drivers.json")); !os.IsNotExist(err) {
+		t.Fatalf("drivers.json was written on darwin: %v", err)
+	}
+}
+
+// S6-A1: an existing connection file on a non-Linux host is kept and reported
+// present, exactly as on Linux today.
+func TestInitDarwinKeepsExistingConnectionFile(t *testing.T) {
+	oldHostOS := initHostOS
+	initHostOS = "darwin"
+	t.Cleanup(func() { initHostOS = oldHostOS })
+
+	root := initTestProject(t)
+	home := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "drivers.json")
+	original := []byte(`{"schema_version":"kept"}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("y\ny\n")
+	code := runInitWithIO([]string{"--project", root}, stdin, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runInitWithIO exit code = %d, want 0 with an existing connection file; stderr:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "AI connection file present: "+path) {
+		t.Fatalf("stdout did not report the existing connection file: %s", stdout.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(current, original) {
+		t.Fatalf("existing connection file was modified: %q", current)
+	}
+}
+
+// S6-A2, Captain Correction 3: with a mock codex minted alongside the
+// existing mock claude, the codex-first detection order is exercised
+// directly by codex actually winning, not merely by codex's absence from
+// PATH.
+func TestInitDetectsCodexFirstOverAPresentClaude(t *testing.T) {
+	binDir, homeDir := setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	codexPath := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexCredDir := filepath.Join(homeDir, ".config", "sworn", ".codex")
+	if err := os.MkdirAll(codexCredDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexCredDir, "auth.json"), []byte(`{"token":"mock"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init failed: %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "wrote "+filepath.Join(root, ".sworn", "drivers.json")+" (Codex ") {
+		t.Fatalf("codex was not selected ahead of the present claude: %s", stdout.String())
+	}
+}
+
+// S6-A2, Captain Correction 3: codex is detected first and its missing
+// sign-in is reported without falling back to a present, signed-in claude.
+func TestInitReportsCodexInstalledButNotSignedInAheadOfClaude(t *testing.T) {
+	binDir, _ := setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	codexPath := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No codex credential file is minted.
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("init exit code = %d, want 1 for a missing driver config; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "AI driver configuration: unavailable (Codex is installed but not signed in") {
+		t.Fatalf("codex's signed-out branch was not reported: %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "wrote "+filepath.Join(root, ".sworn", "drivers.json")) {
+		t.Fatalf("driver config was written despite codex being signed out: %s", stdout.String())
 	}
 }
 

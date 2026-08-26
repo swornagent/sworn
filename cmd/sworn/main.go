@@ -39,6 +39,7 @@ Commands:
   status    Return the stable machine-readable run record.
   driver    Check configured AI connections.
   skill     Install or upgrade the one supported Sworn agent skill.
+  plan      Author a release manifest: pin, lint, or record a plan revision.
   version   Show the Sworn version and embedded role-asset identity.
   help      Show this help.
 
@@ -58,6 +59,9 @@ Exact syntax:
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
   sworn skill install [--home ABS]
+  sworn plan pin --manifest ABS --project ABS [--commit OID]
+  sworn plan lint --manifest ABS --project ABS [--commit OID]
+  sworn plan record --manifest ABS --project ABS --summary TEXT [--detail-file ABS] [--commit OID] [--contract-tree OID]
 `
 
 const (
@@ -97,6 +101,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDriver(args[1:], stdout, stderr)
 	case "skill":
 		return runSkill(args[1:], stdout, stderr)
+	case "plan":
+		return runPlan(args[1:], stdout, stderr)
 	case "resume":
 		return runControl(journal.Resume, args[1:], stdout, stderr)
 	case "pause":

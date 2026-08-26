@@ -1,0 +1,76 @@
+{
+ "outcome": "The contract digest becomes the identity and the path becomes provenance: a recorded revision resolves slice-contract bytes by canonical digest, revising a contract in place records and reads cleanly with no rev-directory ceremony, and the canonicalised-digest semantics that make raw sha256sum disagree with the declared digest are documented where an operator authoring contracts will actually find them.",
+ "scope": {
+  "include": [
+   "internal/baton",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the canonical digest computation itself (the payload shape at plan.go:934-952 - injected track/id, sorted keys, empty host_checks omitted - is frozen; every existing contract digest stays byte-for-byte stable, the same stability promise plan.go:942-947 already documents)",
+   "the mirrored-fact STALE_BINDING checks (ResolveSliceContract's six cross-checks stand; S2 derives the facts, this slice does not relax them)",
+   "receipt identity (S4's seam)",
+   "plan-chain history semantics (planChain's blob-walk at state.go:1318-1397 is untouched)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins contract resolution addressing"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins contract resolution addressing"
+   },
+   {
+    "package": "internal/driver",
+    "reason": "its tests reach internal/baton by import only; no driver test pins contract resolution addressing"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no observe test pins contract resolution addressing"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; skill content is keyed on role-asset identity, not contract resolution"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit and directly by import only; no tui test pins contract resolution addressing"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its golden corpus pins canonical digest computation, which this slice freezes byte-for-byte; no batongolden fixture pins resolution addressing"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Resolution is digest-addressed: today a manifest entry binds (contract_path, declared digest) (validateManifestSlice, internal/baton/plan.go:1055-1063) and every byte-fetch is path-keyed - readGitFileAt(repository, commit, declared.ContractPath) at plan.go:370 behind ResolveSliceContractAt (:344), repository.files(source, paths) at plan.go:426 behind resolveManifestContracts (:392), with absence raising CONTRACT_NOT_FOUND at plan.go:375, plan.go:432, and actions.go:509 - while nothing anywhere indexes contract bytes by digest, and the published docs/sworn copies are slice-id-keyed and explicitly non-authoritative (actions.go:477-479, :529). After this slice the record tree holds contract bytes addressable by their canonical digest, resolution at record, read (state.go:314), and dispatch time (resolveSliceHostChecks, internal/runtime/host_checks.go:89-110, the sole runtime caller) resolves by digest with path retained as provenance, and CONTRACT_NOT_FOUND means the digest is genuinely unknown rather than a path having moved. Pinned by tests resolving the same contract from a moved path and from no path."
+  },
+  {
+   "id": "A2",
+   "text": "In-place revision works and the ceremony dies: five releases of rev2/-rev5/ directories exist in-tree (2026-08-23-telemetry-foundations, 2026-08-12-configurable-paths, 2026-08-09-provider-capability, 2026-08-17-google-native-driver, 2026-08-11-conformance-gate-boundary, 2026-08-23-unattended-operability) because revising one contract meant new paths, hand-restored originals, and a filename-matching scratch tool - yet the engine resolves contracts for the current revision only (resolveManifestContracts invoked once per readState on current.Parsed, state.go:314; planChain re-reads plan blobs, never contract paths). After this slice a plan revision that revises one contract's bytes in place - same path, new digest in the manifest - records via RecordPlanRevision, reads via readState, and dispatches cleanly, with the untouched slices' receipts still adopting by ancestry; pinned by a revision-chain test doing exactly that. The revision-immutability guards themselves (assertPlanRevision, actions.go:533-565; record-root immutability, internal/gitx/prepare.go:197-284) are unchanged."
+  },
+  {
+   "id": "A3",
+   "text": "Canonical-digest semantics get documented: the digest is sha256 over canonical JSON of {track, id, outcome, scope, acceptance, checks, constraints, depends_on, consumes} with track and id injected from the manifest entry (plan.go:934-941, canonicalJSON :1370, DigestBytes :103) - which is why sha256sum over the contract file never matches and why sworn#200 was filed. After this slice an operator-facing surface (the plan template or equivalent authoring documentation this repo ships) states the payload shape, the injection, and the stability promise, so the next release author computes the digest right the first time. Pinned by a test or check reading the documentation surface."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Every existing contract digest is byte-for-byte stable: no change to the canonical payload, the injection, or DigestBytes; recorded history must read back exactly as it does today.",
+  "Digest addressing is additive: path-keyed resolution of already-recorded revisions keeps working; the declared digest's structural trust at parse time (plan.go:1047-1054) and its proof-on-resolution split are preserved.",
+  "How the record tree stores digest-addressed bytes - a content-addressed layout under the record root, an index beside the published documents, or derivation from the recorded revision itself - is the implementer's design decision inside these bounds; the captain judges the layout against record-root immutability (NON_RECORD_CHANGE, PRODUCT_CHANGED_DURING_RECORD_TRANSITION).",
+  "No trust-rule changes: approval semantics, plan-chain validation, and every assertPlanRevision guard are out of bounds.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

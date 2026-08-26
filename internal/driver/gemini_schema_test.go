@@ -62,6 +62,34 @@ func TestGeminiParameterSchemaSubset(t *testing.T) {
 		}
 	})
 
+	t.Run("Bash command alias survives rendering same as script", func(t *testing.T) {
+		declarations, err := geminiDeclarations(toolDefinitions(ReadWrite))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range declarations {
+			if declaration.Name != "Bash" {
+				continue
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(declaration.Parameters, &schema); err != nil {
+				t.Fatal(err)
+			}
+			properties, ok := schema["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("Bash schema has no properties: %s", declaration.Parameters)
+			}
+			if _, ok := properties["script"]; !ok {
+				t.Fatal("Bash schema lost script")
+			}
+			if _, ok := properties["command"]; !ok {
+				t.Fatal("Bash schema lost command")
+			}
+			return
+		}
+		t.Fatal("Bash declaration not found")
+	})
+
 	t.Run("declarations render every sworn tool in the subset", func(t *testing.T) {
 		declarations, err := geminiDeclarations(toolDefinitions(ReadWrite))
 		if err != nil {

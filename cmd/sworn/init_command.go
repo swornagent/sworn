@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -29,6 +30,12 @@ var initRuntimeTargets = []string{
 	"/etc/resolv.conf",
 	"/etc/ssl/certs/ca-certificates.crt",
 }
+
+// initHostOS is the platform sworn init runs on. It is a package variable,
+// not a direct runtime.GOOS reference, so a test can pin it to a non-Linux
+// value for its duration and exercise the darwin statement on Linux CI —
+// the same injectable-var pattern initRuntimeTargets already uses.
+var initHostOS = runtime.GOOS
 
 const canonicalGitignore = "*\n!records/\n!records/**\n"
 
@@ -276,6 +283,19 @@ func setupProjectSurface(s *initSession, paths projectPaths) error {
 }
 
 func setupDriverConfig(s *initSession, paths projectPaths) error {
+	if initHostOS != "linux" {
+		if _, statErr := os.Stat(paths.config); statErr == nil {
+			fmt.Fprintf(s.out, "  AI connection file present: %s\n", paths.config)
+			return nil
+		}
+		fmt.Fprintf(
+			s.out,
+			"  AI driver configuration: unavailable (Native dispatch requires Linux; this host runs %s.)\n",
+			initHostOS,
+		)
+		return nil
+	}
+
 	agent, agentErr := detectInitAgent()
 	if agentErr != nil {
 		if _, statErr := os.Stat(paths.config); statErr == nil {

@@ -1,0 +1,63 @@
+{
+ "outcome": "Init stops reading host state it should not: on darwin, sworn init states plainly that native dispatch requires Linux instead of tripping a four-path Linux runtime-file preflight that cannot succeed there, and the init test fixture pins the complete agent environment instead of inheriting host PATH - so a real codex on the operator's machine no longer flips nine init tests, and the exact-native certification fixtures skip honestly on host drift instead of failing.",
+ "scope": {
+  "include": [
+   "cmd/sworn",
+   "internal/driver"
+  ],
+  "exclude": [
+   "linux init behavior (the runtime-file preflight stays exactly as it is where the sandbox can actually run)",
+   "the agent detection order and credential checks (unchanged; only the environment they run in is pinned in tests)",
+   "the native adapter's own required-target closure list (internal/driver/native.go:278-283 is product, not init's copy to change)"
+  ],
+  "waivers": [
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins init preflight or certification-fixture environments"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver by import only; no observe test pins init preflight or certification-fixture environments"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins init preflight or certification-fixture environments"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins init preflight or certification-fixture environments"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Darwin init tells the truth about the host: today buildDriverConfig (cmd/sworn/init_command.go:708, sole caller at :289) unconditionally resolves the four Linux runtime targets (initRuntimeTargets, init_command.go:26-31) via filepath.EvalSymlinks (:712) and on darwin reports 'This machine is missing /etc/nsswitch.conf, which the sandboxed agent needs.' (:714-716) - advice about a capability the host can never have, since non-Linux dispatch is a hard UNSUPPORTED_HOST stub (internal/driver/process_other.go:10) and nothing in cmd/sworn consults the platform. After this slice, init on a non-Linux host skips the runtime-file preflight and states that native dispatch requires Linux, while Linux behavior is byte-for-byte today's. Pinned by an init test exercising the non-Linux path (platform seam injectable so the test runs on Linux CI). Evidence basis: sworn#226, hit on first day-job macOS use."
+  },
+  {
+   "id": "A2",
+   "text": "Init tests pin the full agent environment: setupMockAgentAndEnvironment (cmd/sworn/init_command_test.go:71) pins HOME, XDG_CONFIG_HOME, the credentials dir, and the runtime-target list, but its PATH line (:115) appends the real host PATH after the mock bin and mints only a mock claude (:98-102) - and since detectInitAgent tries Codex first (init_command.go:47-58, LookPath at :675), a real signed-out codex on the host flips all nine dependent tests (init_command_test.go:127,190,301,342,500,650,703,727,755) from the flow they assert into 'installed but not signed in' (init_command.go:728-733). After this slice the fixture's PATH is an exactly constructed value - the pattern TestInitNoAgentEmptyProject already uses (:445, 'PATH has only git') - with mock agents minted per scenario, and the nine tests pass regardless of what the host has installed. Evidence basis: sworn#228, the standing 9-test local red class."
+  },
+  {
+   "id": "A3",
+   "text": "The exact-native certification fixtures fail only on real defects: exactNativeConfigFixture (internal/driver/native_linux_test.go:2172) already skips when the hardcoded operator-host codex path (:27, consumed at :2180) or host runtime files (:2291,:2295) are absent, but drift between a present host binary and the pinned identity (CodexCLIVersion/CodexCLIDigest, internal/driver/native.go:11-12, enforced at :205-208) fails the four tests (native_linux_test.go:330,454,701,754) instead of skipping. After this slice host-drift outcomes are honest skips with a named reason, while a genuinely matching environment still runs the full certification. Pinned by a fixture-level test over the drift case. Evidence basis: sworn#228's 4-test codex-certification remainder of the known local env class."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Linux init behavior does not change: the four-path preflight, its digests, and its messages stay byte-identical where the sandbox can run; the platform seam only gates whether it runs.",
+  "The non-Linux message states a fact (native dispatch requires Linux), never a promise; no new capability claims and no darwin dispatch path.",
+  "Test-environment pinning replaces host inheritance with constructed values; it must not weaken what the tests assert - the codex-first detection order and the signed-in checks remain exercised via mocks.",
+  "A3 is the bounded stretch of this slice: if the drift-to-skip change resists a small implementation, the captain may judge dropping A3 alone as the admissible trade; A1 and A2 are not droppable.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

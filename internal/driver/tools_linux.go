@@ -474,6 +474,20 @@ func runToolBash(
 			arguments = append(arguments, gitArguments...)
 		}
 	}
+	// A masked regular file binds a genuine empty regular file, not
+	// /dev/null itself (a character device): bubblewrap copies each
+	// --ro-bind-data fd's content (immediate EOF from /dev/null) into a
+	// fresh regular file at the target. Each masked path gets its own fd -
+	// bubblewrap consumes and closes the fd behind an --ro-bind-data op, so
+	// sharing one across two masks would break the second. The extra fds
+	// are appended after the fixed workspace/inputs/status positions
+	// (fd 3, 4, 5), so they start at fd 6.
+	var maskFiles []*os.File
+	defer func() {
+		for _, file := range maskFiles {
+			_ = file.Close()
+		}
+	}()
 	for _, reserved := range masked {
 		info, statErr := os.Lstat(filepath.Join(invocation.HostWorkspace, reserved))
 		if os.IsNotExist(statErr) {
@@ -486,7 +500,13 @@ func runToolBash(
 		if info.IsDir() {
 			arguments = append(arguments, "--tmpfs", target, "--remount-ro", target)
 		} else if info.Mode().IsRegular() {
-			arguments = append(arguments, "--ro-bind", "/dev/null", target)
+			maskFile, openErr := os.Open(os.DevNull)
+			if openErr != nil {
+				return nil, 0, fail("PROCESS_START_FAILED")
+			}
+			fd := 6 + len(maskFiles)
+			maskFiles = append(maskFiles, maskFile)
+			arguments = append(arguments, "--ro-bind-data", itoa(fd), target)
 		} else {
 			return nil, 0, fail("UNSAFE_WORKSPACE_SURFACE")
 		}
@@ -511,7 +531,7 @@ func runToolBash(
 		"--chdir", GuestWorkspacePath,
 		"--setenv", "HOME", "/home/sworn",
 		"--setenv", "TMPDIR", "/tmp",
-		"--setenv", "PATH", "/usr/bin:/bin",
+		"--setenv", "PATH", ToolSandboxPath,
 		"--setenv", "LANG", "C.UTF-8",
 		"--setenv", "LC_ALL", "C.UTF-8",
 		"--setenv", "TZ", "UTC",
@@ -525,7 +545,9 @@ func runToolBash(
 	}
 	defer statusReader.Close()
 	defer statusWriter.Close()
-	command.ExtraFiles = []*os.File{workspace, inputs, statusWriter}
+	command.ExtraFiles = append(
+		[]*os.File{workspace, inputs, statusWriter}, maskFiles...,
+	)
 	command.SysProcAttr = linuxSandboxProcessAttributes()
 	command.WaitDelay = processTerminationGrace
 	var output boundedBuffer

@@ -304,14 +304,16 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		}
 		return State{}, recordFail("INVALID_HEAD_OBJECT", "target ref is not one direct commit")
 	}
-	// The current admitted manifest's declared contracts are ordinary
-	// product-tree content living at the exact captured target head, the same
-	// tree readState already treats as authoritative for everything else this
-	// release reads. Rereading and cross-validating them here, on every read,
-	// keeps repository discovery fail-closed against a contract that moved,
-	// was substituted, or disappeared after the manifest was recorded; legacy
-	// baton.plan/v2 plans have no contract paths and are unaffected.
-	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head); err != nil {
+	// The current admitted manifest's declared contracts are resolved by
+	// canonical digest from the digest-addressed store in the record root at
+	// the release head (the record commit lineage, which always contains the
+	// record root), falling back to path-keyed resolution from the target head
+	// for releases recorded before digest addressing. Rereading and
+	// cross-validating them here, on every read, keeps repository discovery
+	// fail-closed against a contract that was substituted or disappeared after
+	// the manifest was recorded; legacy baton.plan/v2 plans have no contract
+	// paths and are unaffected.
+	if err := resolveManifestContracts(repository, current.Parsed, targetCapture.Head, releaseCapture.Head, nil); err != nil {
 		return State{}, err
 	}
 	for _, trackID := range historicalTrackOrder {
@@ -323,6 +325,10 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 	planByOID := make(map[string]planEntry, len(chain))
 	for _, entry := range chain {
 		planByOID[entry.OID] = entry
+	}
+	acceptanceIdentities, err := resolveAcceptanceIdentities(repository, release, releaseCapture.Head, planByOID)
+	if err != nil {
+		return State{}, err
 	}
 	topologies := assemblyTopologies(chain)
 
@@ -371,7 +377,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			claimed[entry.OID] = track.ID
 			owned = append(owned, entry)
 		}
-		if err := validateSerialSliceOrder(track, owned, planByOID); err != nil {
+		if err := validateSerialSliceOrder(track, owned, planByOID, acceptanceIdentities); err != nil {
 			return State{}, err
 		}
 		trackHistories[track.ID] = trackHistory{ref: ref, owned: owned}
@@ -389,7 +395,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 			}
 		}
 		history, err := validateSliceHistory(
-			repository, location, entries, planByOID, approvals, productCache,
+			repository, location, entries, planByOID, acceptanceIdentities, approvals, productCache,
 		)
 		if err != nil {
 			return State{}, err
@@ -407,6 +413,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		release,
 		histories,
 		planByOID,
+		acceptanceIdentities,
 		approvals,
 		productCache,
 	)
@@ -416,6 +423,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		histories,
 		trackHistories,
 		planByOID,
+		acceptanceIdentities,
 		approvals,
 		releaseHistory.Receipts,
 		productBaseResolver.baselineFor,
@@ -429,6 +437,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		histories,
 		approvals,
 		planByOID,
+		acceptanceIdentities,
 		productCache,
 	)
 	if err != nil {
@@ -625,7 +634,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 		allSliceEntries = append(allSliceEntries, history.Entries...)
 	}
 	assemblyHistory, err := validateAssemblyHistory(
-		repository, assemblyEntries, planByOID, approvals,
+		repository, assemblyEntries, planByOID, acceptanceIdentities, approvals,
 		topologies, allSliceEntries, productCache,
 		current, tracks, releaseHistory.Receipts,
 		trackProductBaseFor,
@@ -635,7 +644,7 @@ func readState(repository *repository, release, expectedReleaseHead string) (Sta
 	}
 	approval := approvals[current.OID]
 	assembly, err := deriveAssembly(
-		repository, current, assemblyHistory, approval, tracks,
+		repository, current, planByOID, acceptanceIdentities, assemblyHistory, approval, tracks,
 		topologies[current.OID], targetCapture.Head, releaseCapture.Head,
 		trackProductBaseFor,
 	)
@@ -1215,10 +1224,12 @@ func sameIDs(left, right []string) bool {
 }
 
 // slicePlanLineage returns the contiguous plan suffix in which a slice has the
-// same authority-bearing identity: ID, track, contract, and ordered serial
-// predecessors. A later return to an older shape cannot bridge a changed plan.
+// same authority-bearing identity: ID, track, acceptance/scope identity, and
+// ordered serial predecessors. A later return to an older shape cannot bridge
+// a changed plan.
 func slicePlanLineage(
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	current planEntry,
 	sliceID string,
 ) map[string]bool {
@@ -1226,7 +1237,6 @@ func slicePlanLineage(
 	if !ok {
 		return map[string]bool{}
 	}
-	contract := current.Parsed.Metadata().Contracts[sliceID]
 	trackID := currentLocation.Track.ID
 	predecessors := predecessorIDs(currentLocation)
 	lineage := make(map[string]bool)
@@ -1234,7 +1244,7 @@ func slicePlanLineage(
 	for {
 		location, present := locations(cursor.Parsed)[sliceID]
 		if !present || location.Track.ID != trackID ||
-			cursor.Parsed.Metadata().Contracts[sliceID] != contract ||
+			!slicesShareAcceptanceIdentity(planByOID, acceptanceIdentities, cursor.OID, current.OID, sliceID) ||
 			!sameIDs(predecessorIDs(location), predecessors) {
 			break
 		}
@@ -1250,6 +1260,170 @@ func slicePlanLineage(
 		cursor = prior
 	}
 	return lineage
+}
+
+// slicesShareAcceptanceIdentity reports whether sliceID names the same
+// acceptance/scope identity in leftOID's and rightOID's plans. When the
+// acceptance identity could not be resolved from contract bytes for either
+// plan, it falls back to exact fused-digest equality -- the stricter,
+// already-proven-safe comparison -- so an unresolved contract can only widen
+// what counts as a change, never narrow it into a false match.
+func slicesShareAcceptanceIdentity(
+	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
+	leftOID, rightOID, sliceID string,
+) bool {
+	left, leftOK := planByOID[leftOID]
+	right, rightOK := planByOID[rightOID]
+	if !leftOK || !rightOK {
+		return false
+	}
+	leftFused, leftFusedOK := left.Parsed.Contract(sliceID)
+	rightFused, rightFusedOK := right.Parsed.Contract(sliceID)
+	if !leftFusedOK || !rightFusedOK {
+		return false
+	}
+	leftAcceptance, leftResolved := acceptanceIdentities[leftOID][sliceID]
+	rightAcceptance, rightResolved := acceptanceIdentities[rightOID][sliceID]
+	if leftResolved && rightResolved {
+		return leftAcceptance == rightAcceptance
+	}
+	return leftFused == rightFused
+}
+
+// receiptMatchesSliceAcceptance reports whether receipt (whose Contract
+// field is always the fused digest of its own claimed origin plan,
+// receipt.Plan, by construction at append time) shares sliceID's
+// acceptance/scope identity with targetOID's plan, whose own fused digest
+// for sliceID is targetFused (already computed by every caller). It first
+// confirms receipt.Contract matches its own origin plan's fused digest,
+// failing closed if the origin plan is unknown or the invariant does not
+// hold; when both sides' acceptance identity resolved from contract bytes,
+// it compares those; otherwise it falls back to exact fused-digest equality
+// against targetFused, today's stricter and already-proven-safe comparison.
+func receiptMatchesSliceAcceptance(
+	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
+	receipt Receipt,
+	sliceID string,
+	targetOID, targetFused string,
+) bool {
+	if receipt.Contract == nil {
+		return false
+	}
+	origin, ok := planByOID[receipt.Plan]
+	if !ok {
+		return false
+	}
+	originFused, ok := origin.Parsed.Contract(sliceID)
+	if !ok || originFused != *receipt.Contract {
+		return false
+	}
+	targetAcceptance, targetResolved := acceptanceIdentities[targetOID][sliceID]
+	originAcceptance, originResolved := acceptanceIdentities[receipt.Plan][sliceID]
+	if targetResolved && originResolved {
+		return targetAcceptance == originAcceptance
+	}
+	return originFused == targetFused
+}
+
+// resolveAcceptanceIdentities computes, for every (planOID, sliceID) pair
+// reachable in planByOID, the acceptanceIdentity digest derived from the
+// slice's fully resolved contract body. A legacy baton.plan/v2 slice already
+// carries its full contract body inline (ContractPath is empty), so no read
+// is needed. A sworn.release-manifest/v1 slice's manifest declaration is a
+// stub with no acceptance, constraints, or scope.exclude; its full contract
+// body is read from the digest-addressed store (S1) at releaseHead and
+// cross-validated by Plan.ResolveSliceContract, exactly as resolveManifestContracts
+// already does for the current revision. A pair whose contract bytes cannot
+// be resolved this way (absent store entry, or a resolution error) is simply
+// left out of the result map; it is not a readState failure. Callers detect
+// this with a comma-ok lookup and fall back to fused-digest equality via
+// slicesShareAcceptanceIdentity / receiptMatchesSliceAcceptance, per the
+// fail-closed-on-ambiguity constraint.
+func resolveAcceptanceIdentities(
+	repository *repository,
+	release, releaseHead string,
+	planByOID map[string]planEntry,
+) (map[string]map[string]string, error) {
+	result := make(map[string]map[string]string, len(planByOID))
+	type pendingRead struct {
+		oid, trackID, sliceID, digest string
+	}
+	var pendings []pendingRead
+	storePaths := make([]string, 0)
+	seenPaths := make(map[string]bool)
+	recordRoot := repository.recordRoot()
+	for oid, entry := range planByOID {
+		result[oid] = make(map[string]string)
+		for _, location := range locations(entry.Parsed) {
+			slice := location.Slice
+			if slice.ContractPath == "" {
+				id, err := acceptanceIdentity(location.Track.ID, slice)
+				if err != nil {
+					return nil, err
+				}
+				result[oid][slice.ID] = id
+				continue
+			}
+			digest, ok := entry.Parsed.Contract(slice.ID)
+			if !ok {
+				continue
+			}
+			path := contractStorePath(recordRoot, release, digest)
+			if !seenPaths[path] {
+				seenPaths[path] = true
+				storePaths = append(storePaths, path)
+			}
+			pendings = append(pendings, pendingRead{
+				oid: oid, trackID: location.Track.ID, sliceID: slice.ID, digest: digest,
+			})
+		}
+	}
+	if len(storePaths) == 0 || releaseHead == "" {
+		return result, nil
+	}
+	files, err := repository.files(releaseHead, storePaths)
+	if err != nil {
+		return nil, err
+	}
+	bytesByPath := make(map[string][]byte, len(files))
+	for _, file := range files {
+		if file.Present {
+			bytesByPath[file.Path] = file.Bytes
+		}
+	}
+	for _, pending := range pendings {
+		path := contractStorePath(recordRoot, release, pending.digest)
+		raw, present := bytesByPath[path]
+		if !present {
+			continue
+		}
+		entry := planByOID[pending.oid]
+		resolved, err := entry.Parsed.ResolveSliceContract(pending.sliceID, raw)
+		if err != nil {
+			continue
+		}
+		id, err := acceptanceIdentity(pending.trackID, resolved)
+		if err != nil {
+			return nil, err
+		}
+		result[pending.oid][pending.sliceID] = id
+	}
+	return result, nil
+}
+
+// planByOIDFromHistory rebuilds the OID-to-planEntry index from an already
+// derived State's Plan.History, mirroring readState's own construction from
+// chain (state.go, near planByOID's first build). It lets a caller that only
+// has a State value, not the underlying chain, reuse the same
+// resolveAcceptanceIdentities / receipt-matching machinery.
+func planByOIDFromHistory(history []PlanHistory) map[string]planEntry {
+	result := make(map[string]planEntry, len(history))
+	for _, entry := range history {
+		result[entry.OID] = planEntry{OID: entry.OID, Parsed: entry.Plan}
+	}
+	return result
 }
 
 type assemblyTopology struct {
@@ -1468,13 +1642,14 @@ func applicablePriorPass(
 	plan planEntry,
 	sliceID string,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 ) *ReceiptEntry {
 	contract := plan.Parsed.Metadata().Contracts[sliceID]
-	lineage := slicePlanLineage(planByOID, plan, sliceID)
+	lineage := slicePlanLineage(planByOID, acceptanceIdentities, plan, sliceID)
 	var matching []ReceiptEntry
 	for _, entry := range entries {
 		if entry.Receipt.Slice != nil && *entry.Receipt.Slice == sliceID &&
-			entry.Receipt.Contract != nil && *entry.Receipt.Contract == contract &&
+			receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, entry.Receipt, sliceID, plan.OID, contract) &&
 			lineage[entry.Receipt.Plan] {
 			matching = append(matching, entry)
 		}
@@ -1497,6 +1672,7 @@ func validateSerialSliceOrder(
 	track Track,
 	entries []ReceiptEntry,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 ) error {
 	var priorEntries []ReceiptEntry
 	for _, entry := range entries {
@@ -1525,7 +1701,7 @@ func validateSerialSliceOrder(
 			return recordFail("AMBIGUOUS_AUTHORITY", "receipt "+entry.OID+" uses the wrong track")
 		}
 		for _, prior := range plannedTrack.Slices[:position] {
-			if applicablePriorPass(priorEntries, plan, prior.ID, planByOID) == nil {
+			if applicablePriorPass(priorEntries, plan, prior.ID, planByOID, acceptanceIdentities) == nil {
 				return recordFail("DEPENDENCIES_NOT_READY", *entry.Receipt.Slice+" advanced before "+prior.ID+" PASS")
 			}
 		}
@@ -1539,6 +1715,7 @@ func validateSliceHistory(
 	location SliceLocation,
 	entries []ReceiptEntry,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	approvals map[string]ReceiptEntry,
 	productCache map[string]string,
 ) (SliceHistory, error) {
@@ -1581,7 +1758,7 @@ func validateSliceHistory(
 			*bound.Receipt.Slice == receipt.SliceID()
 		samePlan := boundOK && bound.Receipt.Plan == receipt.Plan
 		sameLineage := sameSlice &&
-			slicePlanLineage(planByOID, plan, receipt.SliceID())[bound.Receipt.Plan]
+			slicePlanLineage(planByOID, acceptanceIdentities, plan, receipt.SliceID())[bound.Receipt.Plan]
 		switch {
 		case receipt.Role == "implementer" && receipt.Result == "designed":
 			approved := boundOK && bound.Receipt.Role == "planner" &&
@@ -1841,17 +2018,18 @@ func consumedInputsAtBase(
 	consumes []string,
 	histories map[string]SliceHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	productCache map[string]string,
 ) ([]ConsumedInput, bool, error) {
 	result := make([]ConsumedInput, 0, len(consumes))
 	for _, dependency := range consumes {
-		lineage := slicePlanLineage(planByOID, plan, dependency)
+		lineage := slicePlanLineage(planByOID, acceptanceIdentities, plan, dependency)
 		contract := plan.Parsed.Metadata().Contracts[dependency]
 		var selected *ReceiptEntry
 		for _, entry := range histories[dependency].Entries {
 			receipt := entry.Receipt
 			if receipt.Role != "verifier" || receipt.Result != "pass" ||
-				receipt.Contract == nil || *receipt.Contract != contract ||
+				!receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, receipt, dependency, plan.OID, contract) ||
 				!lineage[receipt.Plan] {
 				continue
 			}
@@ -1898,11 +2076,12 @@ func legacyConsumedInputs(
 	consumes []string,
 	histories map[string]SliceHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	productCache map[string]string,
 ) ([]ConsumedInput, error) {
 	result := make([]ConsumedInput, 0, len(consumes))
 	for _, dependency := range consumes {
-		lineage := slicePlanLineage(planByOID, plan, dependency)
+		lineage := slicePlanLineage(planByOID, acceptanceIdentities, plan, dependency)
 		contract := plan.Parsed.Metadata().Contracts[dependency]
 		product := candidate.Receipt.Inputs[dependency]
 		var matches []ReceiptEntry
@@ -1910,8 +2089,7 @@ func legacyConsumedInputs(
 			receipt := entry.Receipt
 			if receipt.Role == "verifier" &&
 				receipt.Result == "pass" &&
-				receipt.Contract != nil &&
-				*receipt.Contract == contract &&
+				receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, receipt, dependency, plan.OID, contract) &&
 				lineage[receipt.Plan] &&
 				receipt.ProductTree != nil &&
 				*receipt.ProductTree == product {
@@ -1993,14 +2171,15 @@ func legacyConsumedInputs(
 }
 
 type passProductBaseResolver struct {
-	repository   *repository
-	release      string
-	histories    map[string]SliceHistory
-	planByOID    map[string]planEntry
-	approvals    map[string]ReceiptEntry
-	productCache map[string]string
-	memo         map[string]string
-	pending      map[string]bool
+	repository           *repository
+	release              string
+	histories            map[string]SliceHistory
+	planByOID            map[string]planEntry
+	acceptanceIdentities map[string]map[string]string
+	approvals            map[string]ReceiptEntry
+	productCache         map[string]string
+	memo                 map[string]string
+	pending              map[string]bool
 }
 
 func newPassProductBaseResolver(
@@ -2008,13 +2187,15 @@ func newPassProductBaseResolver(
 	release string,
 	histories map[string]SliceHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	approvals map[string]ReceiptEntry,
 	productCache map[string]string,
 ) *passProductBaseResolver {
 	return &passProductBaseResolver{
 		repository: repository, release: release,
 		histories: histories, planByOID: planByOID,
-		approvals: approvals, productCache: productCache,
+		acceptanceIdentities: acceptanceIdentities,
+		approvals:            approvals, productCache: productCache,
 		memo: make(map[string]string), pending: make(map[string]bool),
 	}
 }
@@ -2085,6 +2266,7 @@ func (r *passProductBaseResolver) baselineFor(
 		predecessorIDs(location),
 		r.histories,
 		r.planByOID,
+		r.acceptanceIdentities,
 		r.productCache,
 	)
 	if err != nil {
@@ -2107,6 +2289,7 @@ func (r *passProductBaseResolver) baselineFor(
 				location.Slice.Consumes,
 				r.histories,
 				r.planByOID,
+				r.acceptanceIdentities,
 				r.productCache,
 			)
 			if err != nil {
@@ -2123,6 +2306,7 @@ func (r *passProductBaseResolver) baselineFor(
 				location.Slice.Consumes,
 				r.histories,
 				r.planByOID,
+				r.acceptanceIdentities,
 				r.productCache,
 			)
 			if err != nil {
@@ -2190,6 +2374,7 @@ func reviewedConsumedInputs(
 	consumes []string,
 	histories map[string]SliceHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	productCache map[string]string,
 ) ([]ConsumedInput, bool, error) {
 	plan, present := planByOID[design.Receipt.Plan]
@@ -2206,6 +2391,7 @@ func reviewedConsumedInputs(
 		consumes,
 		histories,
 		planByOID,
+		acceptanceIdentities,
 		productCache,
 	)
 }
@@ -2262,6 +2448,7 @@ func exactPreparedDesignInputs(
 	histories map[string]SliceHistory,
 	trackHistories map[string]trackHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	approvals map[string]ReceiptEntry,
 	releaseReceipts []ReceiptEntry,
 	resolveProductBase func(sliceID, passOID string) (string, error),
@@ -2377,6 +2564,7 @@ func exactPreparedDesignInputs(
 		location.Slice.Consumes,
 		histories,
 		planByOID,
+		acceptanceIdentities,
 		productCache,
 	)
 	if err != nil {
@@ -2421,6 +2609,7 @@ func validateConsumedHistories(
 	histories map[string]SliceHistory,
 	trackHistories map[string]trackHistory,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	approvals map[string]ReceiptEntry,
 	releaseReceipts []ReceiptEntry,
 	resolveProductBase func(sliceID, passOID string) (string, error),
@@ -2457,6 +2646,7 @@ func validateConsumedHistories(
 					histories,
 					trackHistories,
 					planByOID,
+					acceptanceIdentities,
 					approvals,
 					releaseReceipts,
 					resolveProductBase,
@@ -2491,6 +2681,7 @@ func validateConsumedHistories(
 						location.Slice.Consumes,
 						histories,
 						planByOID,
+						acceptanceIdentities,
 						productCache,
 					)
 					if err != nil {
@@ -2527,6 +2718,7 @@ func validateConsumedHistories(
 					histories,
 					trackHistories,
 					planByOID,
+					acceptanceIdentities,
 					approvals,
 					releaseReceipts,
 					resolveProductBase,
@@ -2545,6 +2737,7 @@ func validateConsumedHistories(
 					location.Slice.Consumes,
 					histories,
 					planByOID,
+					acceptanceIdentities,
 					productCache,
 				)
 				if err != nil {
@@ -2602,6 +2795,7 @@ func validateConsumedHistories(
 				location.Slice.Consumes,
 				histories,
 				planByOID,
+				acceptanceIdentities,
 				productCache,
 			)
 			if err != nil {
@@ -2686,12 +2880,13 @@ func deriveSlice(
 	current planEntry,
 	approval ReceiptEntry,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 ) *SliceState {
 	contract := current.Parsed.Metadata().Contracts[location.Slice.ID]
-	lineage := slicePlanLineage(planByOID, current, location.Slice.ID)
+	lineage := slicePlanLineage(planByOID, acceptanceIdentities, current, location.Slice.ID)
 	var matching []ReceiptEntry
 	for _, entry := range history.Entries {
-		if entry.Receipt.Contract != nil && *entry.Receipt.Contract == contract &&
+		if receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, entry.Receipt, location.Slice.ID, current.OID, contract) &&
 			lineage[entry.Receipt.Plan] {
 			matching = append(matching, entry)
 		}
@@ -2778,12 +2973,13 @@ func deriveSlices(
 	histories map[string]SliceHistory,
 	approvals map[string]ReceiptEntry,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	productCache map[string]string,
 ) (map[string]*SliceState, error) {
 	states := make(map[string]*SliceState)
 	for id, location := range locations(current.Parsed) {
 		states[id] = deriveSlice(
-			location, histories[id], current, approvals[current.OID], planByOID,
+			location, histories[id], current, approvals[current.OID], planByOID, acceptanceIdentities,
 		)
 	}
 	pending, done := make(map[string]bool), make(map[string]bool)
@@ -2841,6 +3037,7 @@ func deriveSlices(
 				slice.Consumes,
 				histories,
 				planByOID,
+				acceptanceIdentities,
 				productCache,
 			)
 			if err != nil {
@@ -2970,6 +3167,9 @@ type assemblyClassification struct {
 func classifyAssembly(
 	repository *repository,
 	plan Plan,
+	currentOID string,
+	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	topology assemblyTopology,
 	evidence map[string]sliceAssemblyEvidence,
 ) (assemblyClassification, error) {
@@ -2990,13 +3190,11 @@ func classifyAssembly(
 				item.Pass.Receipt.Role != "verifier" ||
 				item.Pass.Receipt.Result != "pass" ||
 				item.Pass.Receipt.SliceID() != plannedSlice.ID ||
-				item.Pass.Receipt.Contract == nil ||
-				*item.Pass.Receipt.Contract != contract ||
+				!receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, item.Pass.Receipt, plannedSlice.ID, currentOID, contract) ||
 				item.Candidate.Receipt.Role != "implementer" ||
 				item.Candidate.Receipt.Result != "candidate" ||
 				item.Candidate.Receipt.SliceID() != plannedSlice.ID ||
-				item.Candidate.Receipt.Contract == nil ||
-				*item.Candidate.Receipt.Contract != contract ||
+				!receiptMatchesSliceAcceptance(planByOID, acceptanceIdentities, item.Candidate.Receipt, plannedSlice.ID, currentOID, contract) ||
 				item.Pass.Receipt.Binds != item.Candidate.OID ||
 				!sameCandidate(item.Pass.Receipt, item.Candidate.Receipt) ||
 				item.Candidate.Receipt.Candidate == nil ||
@@ -3393,6 +3591,7 @@ func validateAssemblyHistory(
 	repository *repository,
 	entries []ReceiptEntry,
 	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	approvals map[string]ReceiptEntry,
 	topologies map[string]assemblyTopology,
 	sliceEntries []ReceiptEntry,
@@ -3422,8 +3621,8 @@ func validateAssemblyHistory(
 	}
 	if allCurrentPassed {
 		classification, err := classifyAssembly(
-			repository, current.Parsed, topologies[current.OID],
-			currentEvidence,
+			repository, current.Parsed, current.OID, planByOID, acceptanceIdentities,
+			topologies[current.OID], currentEvidence,
 		)
 		if err != nil {
 			return receiptHistory{}, err
@@ -3528,7 +3727,7 @@ func validateAssemblyHistory(
 				bound.Receipt.Role == "verifier" &&
 				bound.Receipt.Result == "pass" &&
 				slicePlanLineage(
-					planByOID, plan, topology.DirectSlice,
+					planByOID, acceptanceIdentities, plan, topology.DirectSlice,
 				)[bound.Receipt.Plan] &&
 				bound.Receipt.SliceID() == topology.DirectSlice
 			if directPass && receipt.Target != nil {
@@ -3631,6 +3830,8 @@ func validateAssemblyHistory(
 func deriveAssembly(
 	repository *repository,
 	current planEntry,
+	planByOID map[string]planEntry,
+	acceptanceIdentities map[string]map[string]string,
 	history receiptHistory,
 	approval ReceiptEntry,
 	tracks []TrackState,
@@ -3669,8 +3870,8 @@ func deriveAssembly(
 		return common, nil
 	}
 	classification, err := classifyAssembly(
-		repository, current.Parsed, topology,
-		assemblyEvidenceFromTracks(tracks),
+		repository, current.Parsed, current.OID, planByOID, acceptanceIdentities,
+		topology, assemblyEvidenceFromTracks(tracks),
 	)
 	if err != nil {
 		return AssemblyState{}, err

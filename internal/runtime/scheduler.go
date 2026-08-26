@@ -66,6 +66,11 @@ type installActionInput struct {
 	PlanBytes  []byte `json:"plan_bytes"`
 	PlanDigest string `json:"plan_digest"`
 	Reference  string `json:"reference"`
+	// ContractBytes carries proposal-sourced contract files for paths absent
+	// from the bound target tree, keyed by contract_path. Nil means every
+	// declared contract resolves from the tree; every journal recorded
+	// before this field existed decodes with that same nil meaning.
+	ContractBytes map[string][]byte `json:"contract_bytes,omitempty"`
 }
 
 type actionTruth string
@@ -550,6 +555,9 @@ func validateInstallActionInput(
 	if err != nil ||
 		plan.Digest() != input.PlanDigest ||
 		plan.Metadata().ApprovalRef != input.Reference {
+		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	if err := validateProposalContracts(plan, input.ContractBytes); err != nil {
 		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return plan, nil
@@ -1512,7 +1520,7 @@ func persistedBatonAction(engine *engine, kind string,
 		}
 		admission := approvalAdmission{
 			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
-			reference: input.Reference,
+			reference: input.Reference, contractBytes: input.ContractBytes,
 		}
 		return func() (baton.ActionResult, error) {
 			return installer.install(admission, command.Authority.TargetHead)
@@ -2261,14 +2269,14 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			return discardVerifier(planErr)
 		}
 		hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-			engine, plan, sliceID, state.Refs.Target.Head)
+			engine, plan, sliceID, state.Refs.Target.Head, state.Refs.Release.Head)
 		if resolveErr != nil {
 			return discardVerifier(resolveErr)
 		}
 		if len(hostChecks) > 0 {
 			hostResults, runErr := s.runHostChecks(
 				ctx, engine, owner, plan, sliceID,
-				candidate, state.Refs.Target.Head)
+				candidate, state.Refs.Target.Head, state.Refs.Release.Head)
 			if runErr != nil {
 				return discardVerifier(runErr)
 			}
@@ -2296,6 +2304,52 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		return discardVerifier(nil)
 	}
 	return runtimeFail("WORK_NOT_READY", nil)
+}
+
+// scopeRefusalEscaped reports whether some try before the given one in this
+// epoch left a succeeded inner dispatch behind a seal that then refused the
+// candidate's scope (CANDIDATE_SCOPE_FAILED). It reads purely durable
+// journal state, never local loop state, so a crash mid-epoch replays the
+// same derivation on restart. A prior try's inner dispatch may have used
+// either the epoch-shared or the per-try identity formula, so both
+// candidates - shared with dispatchEffectCandidates, not re-derived - are
+// probed; only one exists for any given try. Once true for one prior try,
+// the caller's own escape decision is sticky by construction: every later
+// try re-derives the same history and finds the same escaped try.
+func (s *Service) scopeRefusalEscaped(
+	ctx context.Context,
+	runID, workID string,
+	epoch, try int64,
+) (bool, error) {
+	for priorTry := int64(1); priorTry < try; priorTry++ {
+		outerEffectID := journal.AttemptEffectID(workID, epoch, priorTry)
+		outer, err := s.journal.Effect(ctx, runID, outerEffectID)
+		if err != nil {
+			if journal.IsCode(err, "EFFECT_NOT_FOUND") {
+				continue
+			}
+			return false, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		if outer.State != journal.OperationalFailed ||
+			outer.ErrorCode != "CANDIDATE_SCOPE_FAILED" {
+			continue
+		}
+		sharedDispatchEffect, freshDispatchEffect :=
+			dispatchEffectCandidates(workID, epoch, priorTry)
+		for _, dispatchEffectID := range []string{sharedDispatchEffect, freshDispatchEffect} {
+			dispatch, dispatchErr := s.journal.Effect(ctx, runID, dispatchEffectID)
+			if dispatchErr != nil {
+				if journal.IsCode(dispatchErr, "EFFECT_NOT_FOUND") {
+					continue
+				}
+				return false, runtimeFail("JOURNAL_READ_FAILED", dispatchErr)
+			}
+			if dispatch.State == journal.Succeeded {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) implementSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
@@ -2339,7 +2393,17 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		dispatchWork := workIdentity(effectID, "driver.dispatch")
 		preparedWork := workIdentity(effectID, "git.seal.prepared")
 		childEpoch, childTry := int64(1), int64(1)
-		if _, enabled := engine.manifest.value.recoverySelection(); enabled {
+		escaped, escapedErr := s.scopeRefusalEscaped(ctx, owner.RunID, workID, epoch, try)
+		if escapedErr != nil {
+			return escapedErr
+		}
+		// A try that escapes a scope refusal following a succeeded prior
+		// dispatch takes the whole recovery-disabled child-identity block,
+		// never dispatchWork alone: a fresh dispatchWork with the shared
+		// preparedWork/childEpoch/childTry would neither match
+		// validateCycleBinding's stableChildren nor its legacyChildren shape
+		// and would collide preparedWork with the prior try's.
+		if _, enabled := engine.manifest.value.recoverySelection(); enabled && !escaped {
 			dispatchWork = workIdentity(workID, "driver.dispatch")
 			preparedWork = workIdentity(workID, "git.seal.prepared")
 			childEpoch, childTry = epoch, try
@@ -3164,14 +3228,14 @@ func (s *Service) claimPreparedImplementation(
 	// failed, timed-out, or overflowed declared host check blocks the seal, so
 	// it can never flow to the verifier as a pass or be absent.
 	hostChecks, contractDigest, resolveErr := resolveSliceHostChecks(
-		engine, plan, cycle.Slice, state.Refs.Target.Head)
+		engine, plan, cycle.Slice, state.Refs.Target.Head, state.Refs.Release.Head)
 	if resolveErr != nil {
 		return sealedRecord{}, journal.Claim{}, resolveErr
 	}
 	if len(hostChecks) > 0 {
 		hostResults, runErr := s.runHostChecks(
 			ctx, engine, owner, plan, cycle.Slice,
-			record.Candidate, state.Refs.Target.Head)
+			record.Candidate, state.Refs.Target.Head, state.Refs.Release.Head)
 		if runErr != nil {
 			return sealedRecord{}, journal.Claim{}, runErr
 		}
@@ -6373,7 +6437,14 @@ func (s *Service) proposePlanAttempt(
 	if err := baton.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
 		return runtimeFail(baton.ErrorCode(err), err)
 	}
-	return s.recordProposal(ctx, owner.RunID, plan, authority)
+	contractBytes, err := exactBytesMap(submission.Contracts)
+	if err != nil {
+		return err
+	}
+	if err := validateProposalContracts(plan, contractBytes); err != nil {
+		return err
+	}
+	return s.recordProposal(ctx, owner.RunID, plan, authority, contractBytes)
 }
 
 func (s *Service) proposeRevision(
@@ -6976,13 +7047,14 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		}
 		state, stateErr = freshState, freshStateErr
 		admission := approvalAdmission{
-			planBytes:  proposal.plan.Bytes(),
-			planDigest: proposal.plan.Digest(),
-			reference:  proposal.plan.Metadata().ApprovalRef,
+			planBytes:     proposal.plan.Bytes(),
+			planDigest:    proposal.plan.Digest(),
+			reference:     proposal.plan.Metadata().ApprovalRef,
+			contractBytes: proposal.contractBytes,
 		}
 		installInput := installActionInput{
 			PlanBytes: admission.planBytes, PlanDigest: admission.planDigest,
-			Reference: admission.reference,
+			Reference: admission.reference, ContractBytes: admission.contractBytes,
 		}
 		authority := batonActionAuthority{
 			Release:     manifest.value.Release,

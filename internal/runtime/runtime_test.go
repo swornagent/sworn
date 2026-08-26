@@ -1085,35 +1085,35 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 	oldBefore := sliceFingerprint(old, sliceDefinition.ID)
 	oldWork := driverWorkIdentity(manifest.digest, sliceDefinition.ID,
 		driver.ImplementerDesign, 1, oldBefore)
-	if exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{oldWork: {}}) {
+	if _, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
+		map[string]struct{}{oldWork: {}}); applies {
 		t.Fatal("changed-plan exhaustion still parks current work")
 	}
 	currentBefore := sliceFingerprint(state, sliceDefinition.ID)
 	currentWork := driverWorkIdentity(manifest.digest, sliceDefinition.ID,
 		driver.ImplementerDesign, 1, currentBefore)
-	if !exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{currentWork: {}}) {
+	if work, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
+		map[string]struct{}{currentWork: {}}); !applies || work != currentWork {
 		t.Fatal("exact current exhaustion did not park")
 	}
 	currentTrackBaseWork := workIdentity(
 		trackBaseBefore(state, currentSlice),
 		"git.prepare_track_base",
 	)
-	if !exhaustedWorkApplies(
+	if work, applies := exhaustedWorkApplies(
 		manifest,
 		nil,
 		true,
 		state,
 		journal.Snapshot{},
 		map[string]struct{}{currentTrackBaseWork: {}},
-	) {
+	); !applies || work != currentTrackBaseWork {
 		t.Fatal("exact current track-base exhaustion did not park")
 	}
 	state.Slices = nil
 	state.Tracks[0].Slices = nil
-	if exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{oldWork: {}}) {
+	if _, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
+		map[string]struct{}{oldWork: {}}); applies {
 		t.Fatal("retired-slice exhaustion still parks current work")
 	}
 }
