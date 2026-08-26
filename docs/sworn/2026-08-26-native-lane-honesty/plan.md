@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-08-26-native-lane-honesty/1",
-  "previous_plan": null,
+  "approval_ref": "operator://2026-08-26-native-lane-honesty/2",
+  "previous_plan": "6ffbf48639f22012f1c1b0b728b9c2fd5039e8e7",
   "release": "2026-08-26-native-lane-honesty",
   "repository": "sworn",
-  "revision": 1,
+  "revision": 2,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/v1.0.0",
   "tracks": [
@@ -16,11 +16,12 @@
           "consumes": [],
           "contract_path": "contracts/2026-08-26-native-lane-honesty/S1-cli-pin-admission-policy.json",
           "depends_on": [],
-          "digest": "sha256:2666d231926590bccad378df6869a11d172ce371ce61f551e2e23ff337942b65",
+          "digest": "sha256:deb16f6efd24570dcfaf88683b2465d22170bfeba81c3784282e7cc3dab610b4",
           "id": "S1-cli-pin-admission-policy",
-          "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures.",
+          "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch on success and failure alike, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures - honestly scoped to what a side-effect-free probe can establish: a pinned binary that cannot execute and report its version refuses before any try burns, while server-side death, which no local probe can establish without transacting, is retired by the live pin and minor policy here and made instantly legible by S5's death classification.",
           "touchpoints": [
-            "internal/driver"
+            "internal/driver",
+            "internal/runtime"
           ],
           "waivers": [
             {
@@ -34,10 +35,6 @@
             {
               "package": "internal/observe",
               "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins native admission policy"
-            },
-            {
-              "package": "internal/runtime",
-              "reason": "its tests reach internal/driver by import only; no runtime test pins native admission policy or pin constants"
             },
             {
               "package": "internal/tui",
@@ -242,6 +239,7 @@
 
 ```
 
+
 # Why
 
 The native lane works only when a human operator carries uncommitted
@@ -265,9 +263,13 @@ delivers the sworn#239 ruling.
 
 1. Pin admission becomes policy - exact by default, minor-range by
    declaration - while receipts stay exact always: the digest of the
-   binary that actually ran lands durably, the shipped claude pin
-   moves to the live 2.1.241, and a dead pin refuses at admission
-   with a named code (S1, sworn#220).
+   binary that actually ran rides attempt.Usage on every completed
+   dispatch, success or failure, with a usage-preservation gate
+   keeping it on failed native dispatches; the shipped claude pin
+   moves to the live 2.1.241; and a dead pin refuses at admission
+   with a named code at the pre-attempt prepareDriverDispatch seam,
+   burning zero tries, with the probe result journaled (S1,
+   sworn#220).
 2. The certification capture proxy admits the claude CLI's tool-less
    housekeeping requests without consuming the capture slot or
    minting vacuous tool-digest evidence; tool-bearing requests stay
@@ -294,16 +296,89 @@ delivers the sworn#239 ruling.
    nothing admissible remains; failure streaks break on lineage
    success - the sworn#239 ruling (S7).
 
+# Revision 2
+
+Revision 2 answers the S1 captain escalate (track head 2aff93a2,
+design attempt 3): A3's pinned outcome - a named admission refusal
+with zero burned tries - is only representable pre-attempt, because
+the attempt-write seam (internal/runtime/dispatch.go:2255-2296)
+journals an OperationalFailed attempt for any invoke error and the
+scheduler (scheduler.go:1418-1425) then advances to tries 2 and 3,
+and the only pre-attempt seam is prepareDriverDispatch
+(internal/runtime/dispatch.go:1178-1201), which revision 1's scope
+did not include. The decision the escalate carried to the plan,
+ratified by the operator: S1 gains internal/runtime for the
+admission call site and the journaled probe result. The two findings
+the escalate carried forward land with it: a side-effect-free probe
+cannot transact with the provider, so server-side pin death (the
+2.1.234 class) is not locally provable - a local --version run
+(nativeVersion, native_linux.go:2418-2444) is passed by a
+server-side-dead CLI - and A3 therefore pins the only class a
+bounded local liveness run can prove, a pinned binary that cannot
+execute and report its version, leaving server-side death to the
+live pin bump, minor policy, and S5's first-occurrence
+classification; and the executed digest must survive failed
+dispatches, which today it does not (post-closure failures return an empty Observation, and
+sanitizeFailedObservation at internal/driver/invoke.go:383-406
+preserves Usage for only three diagnostic codes).
+
+The S1 contract changes; S2-S7 stay byte-identical. What changed in
+S1:
+
+1. scope.include gains internal/runtime, and the internal/runtime
+   waiver is retired in the same move: waivers suppress test-closure
+   findings only (scopelint.go:271-345) while scope.include is the
+   edit permit, so a package that becomes editable cannot stay
+   waived.
+2. A2 names its carrier: attempt.Usage, stamped at the single
+   attempt-write seam on every completed attempt, success or failure,
+   as one additive omitempty UsageReceipt field in the established
+   pattern, plus the usage-preservation gate that keeps the executed
+   digest on failed native dispatches instead of zeroing it.
+3. A3 names its seam and its honest reach: the refusal lands at
+   prepareDriverDispatch before any attempt is written, so zero
+   tries burn and the probe result is journaled at admission; the
+   probe pins the locally-provable class only, bound expiry admits
+   as honestly-unevaluable, and server-side pin-death detection is
+   excluded by name in scope.
+
+The invalidated dependency closure is S1 alone: no slice depends on
+or consumes S1's product (S5 and S6 depend on S4's Kind vocabulary,
+which is unchanged), and no slice's consumed inputs changed. The
+revised contract file must be committed as ordinary product-tree
+content at target_ref before this revision is recorded; its exact
+bytes land in the same commit as this plan.
+
+Provenance, honestly: revision 2 was first proposed by the planner
+and approved by the operator in-session against plan bytes
+sha256:3969d2dce35b5f08a9ccbaf2fd50cbc421dee8c821645ab543e8456f80f5a2aa
+whose file did not survive the proposing sandbox; the planner's
+re-proposal could not recover them and re-authored an S1 contract
+that drifted from the approved acceptance (its A3 demanded a
+side-effect-free probe prove server-side death - the exact demand
+the escalate and the approved bytes had retired). The operator
+therefore carried this revision in the precedented pattern: the S1
+contract bytes beside this plan are the approved first-proposal
+bytes, recovered byte-exact from the sealed submission record (raw
+sha256:66eda41952a0dabe90bc9e8f949520e3f7b62f84b71d7e4c747d975336fe1f85,
+canonical digest
+sha256:deb16f6efd24570dcfaf88683b2465d22170bfeba81c3784282e7cc3dab610b4),
+and this plan restates the re-proposal's manifest and narrative
+around them with the drift corrected. The approval under
+operator://2026-08-26-native-lane-honesty/2 binds these exact
+bytes.
+
 # Authority
 
 To be approved by the human operator against these exact bytes under
-`operator://2026-08-26-native-lane-honesty/1`, per the operator's
+`operator://2026-08-26-native-lane-honesty/2`, per the operator's
 slate ratified in-session 2026-08-26 (native-lane honesty + learning
 foundations: the three operator patches as product, preflight probes,
 refusal taxonomy, sanitization honesty, and the sworn#239 ruling; the
 sworn#227 remainder was verified moot against post-R4 main during
-authoring and closed with evidence, and sworn#219 slots behind).
-Planning did not approve itself.
+authoring and closed with evidence, and sworn#219 slots behind) and
+the operator's in-session revision-2 ratification of the S1
+escalate's decision (2026-08-27). Planning did not approve itself.
 
 One track, seven slices, one mechanism each: pin policy, capture
 tolerance, stream economy, refusal taxonomy, preflight admission,
