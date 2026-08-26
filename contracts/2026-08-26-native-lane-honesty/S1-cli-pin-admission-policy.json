@@ -1,0 +1,67 @@
+{
+ "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the certification-evidence soft-prior store across a version range (nativeCertificationKey at native.go:659-665 is an uncalled vestige; a range-scoped evidence cache is future work, not this slice)",
+   "spontaneous-exit reclassification and the refusal Kind vocabulary (S4's seam; this slice adds one named admission refusal, not a taxonomy)",
+   "init-time pin detection and drivers.json authoring (cmd/sworn init writes pins from the host today and is unchanged)",
+   "codex pin policy semantics beyond compiling cleanly (the claude pin is the live-fire case; minor mode for codex may land inert behind the same knob)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins native admission policy or pin constants"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins native admission policy"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins native admission policy"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins native admission policy or pin constants"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins native admission policy"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Admission is policy, default unchanged: NativeAdapterConfig (internal/driver/native.go:46-59) gains an optional pin-mode field (omitempty, so every existing drivers.json document stays byte-identical under the canonical round-trip at config.go:194-196 and no ConfigurationDigest moves for configs that do not declare it), and validateNativeConfig (native.go:197-240) consults it: absent or \"exact\" preserves today's four exact comparisons per family (codex :204-210, claude :211-217, NATIVE_NOT_CERTIFIED on mismatch); \"minor\" admits a CLI whose self-reported version satisfies the pinned major.minor range while the credential-target check stays exact. The pinned constants move to the live claude CLI (ClaudeCLIVersion 2.1.234 -> 2.1.241, ClaudeCLIDigest sha256:3473601e... -> sha256:0771bd86..., native.go:13-14 - the operator patch archived in the R4 ops home is the seed). Pinned by unit tests over absent/exact/minor modes including an in-range and an out-of-range version."
+  },
+  {
+   "id": "A2",
+   "text": "Receipts stay exact, always: today nothing durable records the digest of the binary that actually executed - openPinnedExecutable (internal/driver/process_linux.go:555-586) hashes the running fd only to compare against identity.Digest (EXECUTABLE_IDENTITY_MISMATCH :579) and discards the value, and the sealed handoff carries no adapter or binary digest (submission.go:503-509; PermissionDescriptor's adapter_config_digest at :356 never leaves internal/driver). After this slice the executed CLI's digest reaches a durable per-dispatch surface the journal already persists (the attempt observation is the candidate carrier) in BOTH modes, so minor-mode admission never weakens attestation: an auditor can read exactly which bytes ran even when the range admitted them. Pinned by a test that dispatches through the native lane and finds the executed digest on the durable record."
+  },
+  {
+   "id": "A3",
+   "text": "A dead pin refuses at admission instead of burning tries: the 2.1.234 deprecation was certified-and-dead simultaneously - checkCertify returns native_preflight_not_required after a version-output compare only (native.go:327-341), and a server-side-dead CLI then burns dispatch tries as PROVIDER_TRANSPORT_FAILED because the auth-exit branch is production-dead (nativeAuthExitCodes is an empty map, native.go:38, so nativeSpontaneousExitFailure at native_linux.go:2333-2349 falls through). After this slice a bounded, side-effect-free dispatch-time liveness check distinguishes 'the pinned binary cannot transact' and refuses with a named admission code before the try budget burns; the probe result is journaled. Mechanism is design freedom (a bounded CLI liveness run is acceptable); the pinned outcome is the named refusal plus zero burned tries. Pinned by a test with a scripted dead CLI."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Exact receipts are non-negotiable: no mode, knob, or failure path may ship a dispatch whose executed-binary digest is absent from the durable record while minor mode is declared.",
+  "Default behavior is byte-for-byte today's: a config without the new field admits and refuses exactly as before this slice, and the new field is omitempty so existing canonical documents and their digests are untouched.",
+  "Certification evidence stays a soft prior in minor mode - it biases nothing at admission and never becomes a gate across the range (the capability-based-selection ruling's hard-gate/soft-prior split, applied to pins).",
+  "Test fixtures ride along honestly: exactClaudeBinary (native_linux_test.go:27-30) points at a 2.1.208 host path so every claude exact-CLI test skips today - refresh it with the pin bump; the w8 corpus's deliberate admission bypass (w8_shared_corpus_linux_test.go:1173-1183 constructs the adapter directly) must keep working; the config round-trip fixture (config_test.go:305-357) builds from the constants and must stay pin-consistent.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

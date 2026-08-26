@@ -1,0 +1,65 @@
+{
+ "outcome": "The certification capture proxy stops killing the claude CLI's tool-less housekeeping requests: a captured provider request that carries no tool surface cannot reach the workspace and is admitted without the exact-match model and tool checks, without consuming the capture slot, and without minting tool-digest evidence for a surface it never observed - while every tool-bearing request still pins the session model and the exact tool definitions, so the certificate's evidence stays truthful and the sworn#237 tolerance defect closes as product instead of living in an operator patch.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "production-dispatch behavior claims: validateNativeProviderRequest runs only under certification capture (platformCaptureNativeSurface and platformCaptureNativeStage have no non-test callers; production nativeRuntime returns an empty certificate at native.go:489 so downstream certificate validation is gated off) - the r10-corrected history on sworn#241 is why this slice claims a latent-defect fix on the capture path and nothing about live-run survival",
+   "NATIVE_SURFACE_INVALID observability (naming the failed check, capturing a bounded request head) - that is S4's taxonomy seam",
+   "the codex branch's semantics (tool_choice/parallel_tool_calls checks at native_capture_linux.go:263-268 are untouched; codex has shown no tool-less housekeeping class)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins capture-proxy request validation"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins capture-proxy request validation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins capture-proxy request validation"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins capture-proxy request validation"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins capture-proxy request validation"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "One tolerance mechanism, stated widening: validateNativeProviderRequest (internal/driver/native_capture_linux.go:244-277) admits a ProfileClaude request that carries no tools key without the exact-tools check AND without the model check - the widening is deliberate and stated, because the CLI's compaction/summarization requests run on a different model id than the session's - while a tool-bearing request still pins both exactly (the fused root-assertion-plus-model if at :254-257 splits so the model check can be family-and-shape-aware; the claude exact-match at :269-272 still refuses any tool-bearing mutation). The operator seed patch's second hasTools guard is unreachable dead code - exactly one mechanism lands. Non-claude families are unchanged: a tool-less codex request still refuses at the tools assertion."
+  },
+  {
+   "id": "A2",
+   "text": "Tolerance never fabricates evidence: the seed patch returns nativeToolDefinitionsDigest(definitions) for a request that observed no tools - asserting the pinned surface was seen when it was not - and the once-gate at native_capture_linux.go:158-163 means a tool-less first request would otherwise permanently consume the capture slot (every later request 409s at :161) and starve the real tool-bearing turn. After this slice a tool-less request is admitted without consuming the capture slot and without pushing nativeProviderEvidence (the TestNativeProviderCaptureIgnoresUnadmittedRequests shape at native_capture_linux_test.go:184-248 - admitted traffic that leaves the slot live - is the precedent), so ToolDigest evidence (re-checked at native_linux.go:2177-2182 and validNativeStageCertificate native_capture_linux.go:698) is only ever minted from a request whose tools were proven equal to the pinned definitions. The response shape a tool-less request receives is design freedom; the pinned facts are slot survival and evidence truth."
+  },
+  {
+   "id": "A3",
+   "text": "The claude branch gets its first coverage: exactClaudeProviderTools (native_capture_linux.go:279-314) has zero test references today. Net-new tests pin: a tool-less claude request is admitted and leaves the capture slot live for a subsequent valid tool-bearing request whose evidence lands; a tool-bearing claude request with a mutated tool set still refuses NATIVE_SURFACE_INVALID; a tool-less claude request on a different model id is admitted; and TestNativeProviderCaptureConsumesMalformedFirstRequest's contract (native_capture_linux_test.go:14-131) is re-scoped so genuinely malformed requests still consume nothing they should not."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "A request that can reach the workspace is never admitted loosely: the tolerance keys strictly on the absence of a tool surface, and any request carrying tools - whatever its model id - faces today's exact-match checks unchanged.",
+  "The capture proxy's other guards (method/host/path/query :147-153, auth :154-157, content-type :164-170, bounded body read :171-179, capability-leak scan :181-185) are untouched.",
+  "Honesty about reach: this slice's claims are scoped to the certification-capture path it edits; no acceptance text or submission may claim production live-run behavior changed.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

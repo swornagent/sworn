@@ -57,21 +57,7 @@ for the phase 3-4 graph.
   Operator patch #7 (16x) is the interim seed; the r10 instrumentation
   (trip at total=1048664 on a 963-byte assistant event) is the
   evidence. Retroactive suspect for R3's opus ~20min deaths.
-- **S4 preflight probes** (#243; learning-spec phase 1): a preflight
-  registry seam at dispatch admission - cheap, side-effect-free,
-  bounded-timeout, journaled probes that refuse with named codes
-  before a dispatch burns. In scope from phase 1: (a) CLI-native
-  liveness/identity probe (the r4-r6 class: cert said
-  native_preflight_not_required while six tries burned;
-  CREDENTIAL_STALE), (b) provider balance/quota probe
-  (PROVIDER_EXHAUSTED_HARD; the deepseek -$0.02 class), (c) honest
-  classification of instant native exits - duration 0 must be
-  auth-vs-transport-vs-surface distinguishable on a durable surface
-  (depends on S5's taxonomy). Phase 1's pin-liveness probe rides S1
-  (same seam); the toolchain probe (#238) and window-admission split
-  (#236) stay on the ladder - not in the ratified slate, and #238
-  wants the closure fix decided first.
-- **S5 refusal taxonomy + captured evidence** (learning-spec phase 2;
+- **S4 refusal taxonomy + captured evidence** (learning-spec phase 2;
   `internal/driver`, the backlogged provider-error-taxonomy item):
   every driver-boundary refusal carries a typed Kind distinguishing
   cause, and retry/park policy consumes the Kind (hard exhaustion
@@ -81,7 +67,22 @@ for the phase 3-4 graph.
   provider's own message ("Insufficient Balance", "input token count
   exceeds ...") reaches the journal at least once per dispatch instead
   of being cleared. This is the training signal for phases 3-4;
-  without it the graph learns from mush.
+  without it the graph learns from mush. Sequenced before S5/S6 -
+  both consume the Kind vocabulary.
+- **S5 preflight probes** (#243; learning-spec phase 1): a preflight
+  registry seam at dispatch admission - cheap, side-effect-free,
+  bounded-timeout, journaled probes that refuse with named codes
+  before a dispatch burns. In scope from phase 1: (a) CLI-native
+  liveness/identity probe (the r4-r6 class: cert said
+  native_preflight_not_required while six tries burned;
+  CREDENTIAL_STALE), (b) provider balance/quota probe
+  (PROVIDER_EXHAUSTED_HARD; the deepseek -$0.02 class), (c) honest
+  classification of instant native exits - duration 0 must be
+  auth-vs-transport-vs-surface distinguishable on a durable surface
+  (depends on S4's taxonomy). Phase 1's pin-liveness probe rides S1
+  (same seam); the toolchain probe (#238) and window-admission split
+  (#236) stay on the ladder - not in the ratified slate, and #238
+  wants the closure fix decided first.
 - **S6 sanitization keeps bounded diagnostics** (#242;
   `internal/driver` invoke.go sanitizeFailedObservation :383-421):
   sanitizing a non-admitted diagnostic code stops discarding the
@@ -89,7 +90,7 @@ for the phase 3-4 graph.
   or stable code, the r10 instrumentation shape) instead of flattening
   to adapter_failed/duration 0/stderr 0. The r4-r10 spiral (two wrong
   theories pursued on the scrubbed record) is the evidence. Pulled
-  forward from the R6 worker-observability line. Depends on S5's Kind
+  forward from the R6 worker-observability line. Depends on S4's Kind
   vocabulary so preserved diagnostics and typed refusals are one
   story.
 - **S7 park lane-scoping + lineage freshness** (#239 as RULED, comment
@@ -110,13 +111,13 @@ for the phase 3-4 graph.
 ## Riders pending verification
 
 - **#227** degradation-budget calibration for continuation-less
-  adapters: verify the remainder against post-R4 main first - asks
-  1+2 were delivered by R2-S5, and R3-S4/S6 may have mooted more. If
-  the miscount stands (fresh_rehydrate.fallback counted as degradation
-  on adapters that never carry continuation state), a small
-  calibration slice: count against declared continuation capability,
-  or scope the budget per-dispatch. S5's "surface the provider
-  message" already covers its observability ask.
+  adapters: VERIFIED MOOT 2026-08-26 against post-R4 main - the
+  rider does not ride. degradationFallbacks
+  (internal/runtime/degradation.go:109-147) already gates counting on
+  declared continuation posture (gemini declares fresh_by_design,
+  provider.go:160-170, landed R2) and requires retained=true; the
+  park surface names cause/count/budget/knob. Closed with evidence
+  on the issue.
 
 ## Deliberately out (stays on the ladder)
 
@@ -133,7 +134,7 @@ S1/S2/S3 all edit `internal/driver` native files and S4/S5/S6 share
 the driver invoke/preflight seam - overlapping touchpoints force
 serialization (the learning-spec DAG principle); S7 is disjoint
 (`internal/runtime` projection) and can ride a parallel track if the
-authoring surface derives that. S5 before S4's classification half and
+authoring surface derives that. S4 before S5's classification half and
 S6 (both consume the Kind vocabulary). S1-S3 are the "stop
 hand-patching the binary" set: until they land, any main-built ops
 binary needs patches #220+#6+#7 (archive:
