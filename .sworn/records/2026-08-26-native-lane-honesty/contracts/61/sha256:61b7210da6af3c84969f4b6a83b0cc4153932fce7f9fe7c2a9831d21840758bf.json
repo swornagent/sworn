@@ -1,0 +1,68 @@
+{
+ "outcome": "The 1MB cumulative cap on the native CLI's event stream stops wearing a surface-integrity code: the cumulative budget becomes manifest-governed economy failing ECONOMY_OUTPUT_BUDGET_EXCEEDED with a receipt-bearing failure observation and a park whose facts are byte-true, the per-line and per-event bounds stay surface integrity, and a long implementer session that legitimately streams more than a megabyte of assistant turns stops dying as NATIVE_SURFACE_INVALID - the r10-instrumented killer of contract-identity r4-r10 and the retroactive suspect for R3's opus deaths, landed as product instead of operator patch #7's 16x hack.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the per-line scanner cap (native_linux.go:3247), the per-event decode bound (:3274), and every single-body MaxProviderResponseBytes use in the HTTP adapters (openai.go, responses.go, gemini.go, bedrock.go) - those are genuine surface integrity and keep their codes",
+   "the secret-leak scan sharing the trip branch (:3253-3255) - secrets keep failing NATIVE_SURFACE_INVALID with clearBytes exactly as today",
+   "token-denominated output economy (limits.max_output_tokens_per_work, provider.go:559-573) - the existing API-lane guard is untouched; this slice adds the byte-denominated native-stream sibling",
+   "the identical-failure park guard - it stops being the accidental door this failure parks through, but its own semantics are S7's concern"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; no cmd test pins native stream budgets or economy park facts"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins native stream budgets or economy park facts"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins native stream budgets"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no tui test pins native stream budgets"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The budget is a manifest knob in the proven five-touchpoint pattern: Limits (internal/driver/contract.go:169-185) gains an optional cumulative native output-stream byte budget (omitempty, absent-means-default per the :172-178 convention) with default and maximum constants beside :34-56, an Effective accessor beside :188-213, driver-side range validation in :529-551, and manifest-admission validation in internal/runtime/manifest.go:348-362 - MaxContinuationLifetimeMillis (contract.go:184) is the most recent instance of exactly this shape, and TestManifestEconomyKnobAdmissionAndRoundTrip (internal/runtime/economy_guards_test.go:770) is the template its admission tests copy. The default preserves a finite bound; 16MB - the operator patch's precedented 16x - is an acceptable default, and the per-line 1MB cap is the floor of admissible values."
+  },
+  {
+   "id": "A2",
+   "text": "The trip is honest: scanNativeEvents (internal/driver/native_linux.go:3240-3268) fails the cumulative crossing (today total > MaxProviderResponseBytes at :3256) with ECONOMY_OUTPUT_BUDGET_EXCEEDED (already admitted, invoke.go:550) against the manifest-governed budget threaded from the invocation's Limits, while the per-line scanner cap (:3247), the per-event decodeStrict bound (:3274), and the secret-scan half of the shared branch keep failing NATIVE_SURFACE_INVALID with clearBytes on both paths. Pinned by net-new driver tests over a synthetic oversize event stream - nothing in the suite pins the cumulative behavior today, so this is the class's first regression net - covering a crossing at the budget, a stream under it, and a secret trip that still classifies as surface."
+  },
+  {
+   "id": "A3",
+   "text": "The crossing carries a receipt, not a zero value: the native fail path returns Observation{} today (native_linux.go:2161), and economySpent (internal/runtime/economy_guards.go:165-209) hard-fails CORRUPT_JOURNAL on a missing or partial attempt observation - so a native economy crossing that kept the zero-Observation shape would kill the drive loop at the park gate (scheduler.go:5570-5601) instead of parking. After this slice the cumulative crossing returns a receipt-bearing failure observation in the economyBudgetFailure shape (provider.go:797-827: RunnerError transport, normalized usage, named diagnostic) carrying the spent-bytes fact, and the park machinery consumes it without CORRUPT_JOURNAL. Pinned by a runtime test driving a native-shaped crossing through to a written park event."
+  },
+  {
+   "id": "A4",
+   "text": "Park facts are byte-true: economyParkCrossing (economy_guards.go:88-125) recognizes the crossing, and the surfaced facts - park cause, spent, budget, unblock knob - are denominated in bytes and name the new knob: reusing economyParkFactsFor's token mapping (economy_guards.go:149-153, spent = receipt output tokens, budget = EffectiveMaxOutputTokensPerWork) would surface tokens-vs-bytes nonsense and fail the Spent >= Budget >= 1 validation at degradation.go:177-191, so the byte crossing gets its own park cause and unblock-knob constants beside ParkCauseEconomyOutputTokens (degradation.go:27-61) with the park-event validation extended. The status surface (status.go:197-229) and the cause-scoped replay key (economy_guards.go:362-365) carry the new cause. Pinned by tests asserting the park event body's cause, knob, spent, and budget."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "NATIVE_SURFACE_INVALID never again classifies a byte-budget condition, and no economy path ever classifies a secret leak - the split is total.",
+  "The budget is always finite: no knob value, including absence, yields an unbounded stream; validation refuses a budget below the per-line cap.",
+  "Existing token-economy semantics are byte-for-byte untouched: every existing economy guard test passes unmodified except where a test pins the exact set of park causes.",
+  "The park-event vocabulary grows additively: parse validation accepts the new cause alongside the legacy causes (TestParseParkEventNewCausesAndLegacyByteStability at internal/runtime/economy_guards_test.go:1021 is the byte-stability pin to extend, not break).",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

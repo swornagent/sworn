@@ -1,0 +1,67 @@
+{
+ "outcome": "Failure sanitization stops scrubbing the evidence: a failed observation whose diagnostic code is outside the admitted set keeps a bounded, re-validated, secret-free record of what actually refused instead of flattening to adapter_failed with zeroed facts - so the class that cost contract-identity three diagnostic run generations and two wrong theories (duration_ms 0, adapter_failed, stderr 0, pattern-matching stale OAuth while the stream cap was the killer) becomes a query against the durable record, and hostile-adapter discipline survives intact because preservation is bounded re-validation, never trust.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the refusal Kind vocabulary and where codes are raised (S4's seam - this slice changes what the sanitizer preserves, not what adapters produce)",
+   "the runtime persistence machinery (marshalObservationBody, the attempts row, AttemptObservation - the R2-S6 bound-and-mark path is the unchanged carrier)",
+   "TransportStatus semantics (the forced RunnerError at failureObservation is today's honest 'the runner errored' floor; revisiting it is the R6 worker-observability line, not this slice)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins failed-observation sanitization"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins failed-observation sanitization"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins failed-observation sanitization"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; the persisted observation-body shape it consumes grows additively and its fixtures are unchanged"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins failed-observation sanitization"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A non-admitted diagnostic survives as bounded evidence: sanitizeFailedObservation (internal/driver/invoke.go:383-421) today starts from a wholly synthetic failureObservation('adapter_failed', ...) at :387 and copies the original Diagnostic only when validFatalDiagnosticCode admits it (:392-396) - everything else vanishes. After this slice the sanitized observation preserves a bounded, secret-free diagnostic fact naming what actually refused (the original code, and the raise site where one is carried) under the proven bounded-evidence discipline: re-validated at the boundary (the validateText pattern normalizeAdapterError already applies to provider details at invoke.go:455-462), bounded like validParkDetail (internal/runtime/degradation.go:216-233 - size-capped, valid UTF-8, no control characters, absence is honest), and redacted against known secrets. The r10 operator instrumentation (site + branch + non-secret facts) is the existence proof this preserves diagnosis without leaking anything."
+  },
+  {
+   "id": "A2",
+   "text": "The second wipe dies and sanitization is marked: the event-validation branch at invoke.go:408-419 re-forces Diagnostic{Code: 'adapter_failed'} at :414, silently discarding a diagnostic the :395 branch had already preserved - after this slice a bad event list still wipes the events but never erases preserved diagnostic evidence. And the sanitized observation states that sanitization happened: a reader of the durable record can distinguish 'the adapter reported adapter_failed' from 'the sanitizer replaced something', so the honest-absence ambiguity that sent the r4-r6 diagnosis down two wrong theories (a zero duration that reads identically as measured-zero and not-measured, invoke.go:388-391) at least becomes labeled at the code level. Pinned by unit tests over the second-wipe branch and the marker."
+  },
+  {
+   "id": "A3",
+   "text": "Hostility discipline holds: TestDispatcherScrubsHostileAdapterObservationsAndErrors (internal/driver/selection_usage_test.go:333-434) keeps its teeth - hostile content never round-trips verbatim into the durable record: a sentinel diagnostic code is preserved only in bounded re-validated form, oversize or control-character-bearing content is dropped with the drop recorded, secrets never appear (the :422 error-text assertion and :436-445 assertObservationOmits discipline extend rather than invert), and the usage-preservation whitelist (preservesUsageDiagnostic, invoke.go:429-436) is unchanged. Net-new tests pin preservation of a benign non-admitted code with its facts, and the existing sanitize-path tests (selection_usage_test.go:637-661, failed_observation_persistence_test.go) are updated to the preserving shape without weakening any scrub assertion."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Preservation is re-validation, never trust: no adapter-supplied byte reaches the durable record without passing the bounded validation at the sanitization boundary; on validation failure the evidence is dropped and the drop is itself recorded.",
+  "The admitted-code sets (validDiagnosticCode, validFatalDiagnosticCode, invoke.go:269-330) are the authority on what passes untouched; this slice does not widen them - it adds a bounded side-channel for what they refuse.",
+  "The persisted observation shape grows additively: existing consumers (attempt-observation round-trip fixtures, journal golden bodies at attempt_observation_test.go:13) decode unchanged bytes for unchanged inputs.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S4-refusal-taxonomy"
+ ],
+ "consumes": []
+}
