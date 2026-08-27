@@ -2400,11 +2400,26 @@ func platformRunNative(
 
 // nativeSpontaneousExitFailure classifies the terminal-site case the
 // contract names: the CLI exited on its own before the session terminated.
+// waitErr is the wait status of bubblewrap, the sandbox parent
+// platformRunNative actually waits on - not the wrapped CLI directly - so a
+// signalled sandboxed child never surfaces here as exec.ExitError.ExitCode()
+// equal to -1 (Go's Signaled sentinel); bwrap translates it to a normal
+// Exited status carrying exit code 128+signal (process_linux.go's own
+// engine-exit calculation already relies on this fact).
+//
 // A positively-expired credential outranks everything - it is the engine's
 // own verified fact, not weather. Otherwise a clean exit whose code is the
 // family's pinned auth exit vocabulary is positively an auth-class failure.
-// Everything else stays PROVIDER_TRANSPORT_FAILED, now carrying the CLI's
-// own bounded, redacted stderr tail as Detail when the caller supplies one
+// Next, an exit code above 128 that is not one of the two values an
+// engine-initiated group kill can itself produce (128+SIGTERM, 128+SIGKILL -
+// every group kill this file issues before this site is reached targets the
+// sandboxed child's process group with one of those two signals) is a
+// genuine, engine-uninvolved signalled crash of the native surface: no other
+// signal-translated exit code carries any engine-stop meaning anywhere in
+// this codebase, so classifying it as NATIVE_SURFACE_INVALID is a
+// deterministic structural fact, not a probabilistic inference. Everything
+// else stays PROVIDER_TRANSPORT_FAILED, now carrying the CLI's own bounded,
+// redacted stderr tail as Detail when the caller supplies one
 // (S4-refusal-taxonomy A4): the caller already gated it on no leak ever
 // firing and redacted it against every known secret, so this site only
 // bounds and normalizes it through the shared provider-detail discipline.
@@ -2425,6 +2440,12 @@ func nativeSpontaneousExitFailure(
 		if code, ok := nativeAuthExitCode(family); ok &&
 			code != 1 && exitErr.ExitCode() == code {
 			return fail("PROVIDER_AUTHORIZATION_FAILED")
+		}
+		engineKillExit := 128 + int(syscall.SIGTERM)
+		engineKillExitHard := 128 + int(syscall.SIGKILL)
+		if code := exitErr.ExitCode(); code > 128 &&
+			code != engineKillExit && code != engineKillExitHard {
+			return failNativeSurface("dispatch.process_signaled")
 		}
 	}
 	detail := normalizeProviderErrorDetail(string(stderrTail))

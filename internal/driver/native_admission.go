@@ -67,6 +67,70 @@ func ProbeNativeAdmission(
 	return body, nil
 }
 
+const NativeCredentialLivenessProbeEventVersion = "sworn.native-credential-liveness-probe/v1"
+
+// NativeCredentialLivenessProbeEvent is the canonical journal body for one
+// dispatch admission's credential-liveness probe (A3(a)).
+type NativeCredentialLivenessProbeEvent struct {
+	SchemaVersion string `json:"schema_version"`
+	RunID         string `json:"run_id"`
+	Outcome       string `json:"outcome"`
+}
+
+// ProbeNativeCredentialLiveness runs a bounded, side-effect-free credential
+// liveness check for CLI-native adapters at dispatch admission (A3(a)): the
+// class where a statically-valid credential is dead in practice (the
+// stale-OAuth precedent). It is a complete no-op for every non-native
+// adapter and for a native profile whose CredentialRef is unbound or
+// unrecognized - both defer to the existing CREDENTIAL_NOT_CERTIFIED path,
+// so no other dispatch path gains a new journal event or refusal.
+//
+// When applicable, it resolves the credential and reuses
+// nativeCredentialLivenessCheck under this probe's own bound. The honesty
+// floor is load-bearing: a bound expiry, a resolve failure, or a read that
+// cannot positively evaluate the credential is honestly-unevaluable, never a
+// refusal - only a positive read of expiry refuses, with zero dispatch burn.
+func ProbeNativeCredentialLiveness(
+	ctx context.Context,
+	selected SelectedProfile,
+	runID string,
+) ([]byte, error) {
+	native, ok := selected.adapter.(*nativeAdapter)
+	if !ok || native == nil || selected.Profile.CredentialRef == nil {
+		return nil, nil
+	}
+	ref := *selected.Profile.CredentialRef
+	if _, admitted := native.refs[ref]; !admitted {
+		return nil, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, nativeAdmissionProbeBound)
+	defer cancel()
+	pathValue, resolveErr := native.resolve(probeCtx, ref)
+	outcome := nativeAdmissionProbeUnevaluable
+	var refusal error
+	if probeCtx.Err() == nil && resolveErr == nil {
+		stale, evaluated := nativeCredentialLivenessCheck(
+			native.config.Family, pathValue, native.config.MaxCredentialBytes,
+		)
+		switch {
+		case evaluated && stale:
+			outcome = nativeAdmissionProbeRefused
+			refusal = fail("CREDENTIAL_STALE")
+		case evaluated:
+			outcome = nativeAdmissionProbePassed
+		}
+	}
+	body, err := canonicalJSON(NativeCredentialLivenessProbeEvent{
+		SchemaVersion: NativeCredentialLivenessProbeEventVersion,
+		RunID:         runID,
+		Outcome:       outcome,
+	})
+	if err != nil {
+		return nil, fail("CREDENTIAL_STALE")
+	}
+	return body, refusal
+}
+
 // nativeAdmissionLiveness reuses nativeVersion's bounded, sandboxed
 // liveness-check shape (open the pinned closure, run --version under a
 // bounded stdout/stderr capture) rather than duplicating it. A probe-bound

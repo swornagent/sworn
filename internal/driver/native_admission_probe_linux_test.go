@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -164,5 +165,173 @@ func TestProbeNativeAdmissionIsANoOpForNonNativeAdapters(t *testing.T) {
 	body, err := ProbeNativeAdmission(context.Background(), selected, "run-fake")
 	if body != nil || err != nil {
 		t.Fatalf("non-native probe = (%v, %v), want (nil, nil)", body, err)
+	}
+}
+
+// nativeCredentialLivenessProbeTestSelection builds a native SelectedProfile
+// whose credential resolver is the caller's own, for exercising
+// ProbeNativeCredentialLiveness (A3(a)) without needing an openable CLI or
+// runtime files - the probe never touches them.
+func nativeCredentialLivenessProbeTestSelection(
+	resolve FileCredentialResolver,
+) SelectedProfile {
+	config := NativeAdapterConfig{
+		Key: "a-claude-credential-liveness", ID: "sworn.claude", Version: "1.0.0",
+		Family:             ProfileClaude,
+		CLI:                ExecutableIdentity{Path: "/unused-by-this-probe"},
+		CredentialTarget:   ClaudeCredentialTarget,
+		CredentialRefs:     []string{"claude-file"},
+		MaxCredentialBytes: 1_048_576,
+	}
+	identity := AdapterIdentity{
+		Key: config.Key, ID: config.ID, Version: config.Version,
+		ConfigurationDigest: "sha256:" + string(bytes.Repeat([]byte("d"), 64)),
+	}
+	ref := "claude-file"
+	adapter := &nativeAdapter{
+		identity: identity,
+		config:   config,
+		resolve:  resolve,
+		refs:     map[string]struct{}{ref: {}},
+	}
+	return SelectedProfile{
+		Profile: ProfileConfig{
+			Key: "credential-liveness-probe-profile", Adapter: identity.Key,
+			Network: NetworkRequired, CredentialRef: &ref,
+		},
+		Adapter: identity,
+		Model:   "probe-model",
+		adapter: adapter,
+	}
+}
+
+func decodeNativeCredentialLivenessProbeEvent(
+	t *testing.T,
+	body []byte,
+) NativeCredentialLivenessProbeEvent {
+	t.Helper()
+	var event NativeCredentialLivenessProbeEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		t.Fatalf("decode probe event: %v", err)
+	}
+	return event
+}
+
+// TestProbeNativeCredentialLivenessRefusesPositivelyStaleCredential pins
+// A3(a)'s named-refusal half: a positively-expired credential refuses at
+// admission with CREDENTIAL_STALE, journaled as a refusal, zero burn.
+func TestProbeNativeCredentialLivenessRefusesPositivelyStaleCredential(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := time.Now().UnixMilli() - 60_000
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(expired, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	eventBody, err := ProbeNativeCredentialLiveness(
+		context.Background(), selected, "run-stale-credential",
+	)
+	if !IsCode(err, "CREDENTIAL_STALE") {
+		t.Fatalf("stale-credential probe error = %v, want CREDENTIAL_STALE", err)
+	}
+	event := decodeNativeCredentialLivenessProbeEvent(t, eventBody)
+	if event.Outcome != nativeAdmissionProbeRefused ||
+		event.RunID != "run-stale-credential" {
+		t.Fatalf("probe event = %#v, want a refused outcome", event)
+	}
+}
+
+// TestProbeNativeCredentialLivenessPassesFreshCredential pins the healthy
+// path: a credential that positively reads as not expired admits.
+func TestProbeNativeCredentialLivenessPassesFreshCredential(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	future := int64(8_000_000_000_000_000)
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(future, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	eventBody, err := ProbeNativeCredentialLiveness(
+		context.Background(), selected, "run-fresh-credential",
+	)
+	if err != nil {
+		t.Fatalf("fresh-credential probe refused: %v", err)
+	}
+	event := decodeNativeCredentialLivenessProbeEvent(t, eventBody)
+	if event.Outcome != nativeAdmissionProbePassed {
+		t.Fatalf("probe event = %#v, want passed", event)
+	}
+}
+
+// TestProbeNativeCredentialLivenessUnevaluableOnUnreadableCredential pins
+// the honesty floor: a resolve/read failure never refuses - it admits, and
+// the journal says so.
+func TestProbeNativeCredentialLivenessUnevaluableOnUnreadableCredential(t *testing.T) {
+	selected := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) {
+			return filepath.Join(t.TempDir(), "does-not-exist"), nil
+		},
+	)
+	eventBody, err := ProbeNativeCredentialLiveness(
+		context.Background(), selected, "run-unreadable-credential",
+	)
+	if err != nil {
+		t.Fatalf("unreadable-credential probe refused: %v", err)
+	}
+	event := decodeNativeCredentialLivenessProbeEvent(t, eventBody)
+	if event.Outcome != nativeAdmissionProbeUnevaluable {
+		t.Fatalf("probe event = %#v, want unevaluable", event)
+	}
+}
+
+// TestProbeNativeCredentialLivenessIsANoOpForNonNativeAdapters pins the
+// applicability gate shared with ProbeNativeAdmission.
+func TestProbeNativeCredentialLivenessIsANoOpForNonNativeAdapters(t *testing.T) {
+	adapter := processAdapterFixture(t, "a-fake", "sworn.fake-credential-probe")
+	selected := SelectedProfile{
+		Profile: ProfileConfig{Key: "fake-profile", Adapter: adapter.Identity().Key, Network: NetworkNone},
+		Adapter: adapter.Identity(),
+		Model:   "fake-model",
+		adapter: adapter,
+	}
+	body, err := ProbeNativeCredentialLiveness(context.Background(), selected, "run-fake")
+	if body != nil || err != nil {
+		t.Fatalf("non-native credential-liveness probe = (%v, %v), want (nil, nil)", body, err)
+	}
+}
+
+// TestProbeNativeCredentialLivenessIsANoOpForUnboundOrUnknownRef pins the
+// same deferral-to-CREDENTIAL_NOT_CERTIFIED applicability gate for a native
+// profile whose CredentialRef is absent or unrecognized.
+func TestProbeNativeCredentialLivenessIsANoOpForUnboundOrUnknownRef(t *testing.T) {
+	unbound := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) { return "", nil },
+	)
+	unbound.Profile.CredentialRef = nil
+	if body, err := ProbeNativeCredentialLiveness(
+		context.Background(), unbound, "run-unbound",
+	); body != nil || err != nil {
+		t.Fatalf("unbound-ref probe = (%v, %v), want (nil, nil)", body, err)
+	}
+
+	unknown := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) { return "", nil },
+	)
+	unknownRef := "not-a-registered-ref"
+	unknown.Profile.CredentialRef = &unknownRef
+	if body, err := ProbeNativeCredentialLiveness(
+		context.Background(), unknown, "run-unknown-ref",
+	); body != nil || err != nil {
+		t.Fatalf("unknown-ref probe = (%v, %v), want (nil, nil)", body, err)
 	}
 }

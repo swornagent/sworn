@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -115,6 +116,15 @@ func main() {
 			) != nil {
 				os.Exit(24)
 			}
+			os.Exit(29)
+		case "crash":
+			// SIGUSR1 is fatal by default disposition and is not one of
+			// Go's runtime-intercepted synchronous fault signals (SIGSEGV,
+			// SIGBUS, SIGFPE, SIGILL), so self-delivering it deterministically
+			// terminates this process via that signal - bwrap then surfaces
+			// the wait status as a normal exit with code 128+SIGUSR1 (138).
+			_ = syscall.Kill(os.Getpid(), syscall.SIGUSR1)
+			time.Sleep(2 * time.Second)
 			os.Exit(29)
 		case "rotation":
 			if os.WriteFile(
@@ -229,7 +239,7 @@ func credentialFixtureMode(family string) string {
 	}
 	mode, _ := envelope["offline_provider"].(string)
 	switch mode {
-	case "unreachable", "unauthorized", "exitone", "expire", "rotation":
+	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash":
 		return mode
 	default:
 		return ""

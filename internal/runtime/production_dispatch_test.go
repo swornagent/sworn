@@ -3346,6 +3346,181 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	}
 }
 
+// TestPrepareDriverDispatchPreflightRegistryRefusesStaleCredentialWithZeroBurn
+// pins A1's registry seam beyond S1's single hardcoded probe: a native
+// profile whose CLI is live (the registry's first probe admits) but whose
+// bound credential positively reads as expired (the registry's second
+// probe, A3(a)) refuses CREDENTIAL_STALE at prepareDriverDispatch, before
+// any attempt effect is ever written - the retry loop's absent-attempt
+// journal read, not a burned try.
+func TestPrepareDriverDispatchPreflightRegistryRefusesStaleCredentialWithZeroBurn(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(
+		config,
+		driver.DriverFactoryOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 29, 3, 4, 5, 0, time.UTC)
+	store, err := journal.Open(
+		ctx,
+		filepath.Join(t.TempDir(), "journal.sqlite"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireOwner(
+		ctx, manifest.value.RunID, now, time.Minute, false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		journal: store, dispatcher: driver.Dispatcher{},
+		production: production, gitExecutable: gitExecutable,
+		now: func() time.Time { return now },
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	target, before := plannerProductionAuthority(t, engine)
+	workspace, err := engine.workspaces.OpenSnapshot(target.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspace.Close()
+
+	// Swap the engine's resolved registry for one whose "planner" profile
+	// (the same key productionManifest already binds Roles.Planner to, so
+	// configured.validateSelected's pure map-membership check still admits
+	// it) is a native adapter with a live, scripted CLI and a resolver
+	// bound to a positively-expired credential fixture. The version-check
+	// exec at nativeVersion needs no bwrap sandbox and no real host runtime
+	// files - it opens the pinned closure and execs it directly - so
+	// fabricated temp files stand in for the real system runtime file
+	// targets, matching the driver package's own admission-probe fixtures.
+	executable := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(
+		executable,
+		[]byte("#!/usr/bin/sh\necho '2.1.999 (Claude Code)'\nexit 0\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	executableBytes, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []string{
+		"/etc/ssl/certs/ca-certificates.crt", "/etc/resolv.conf",
+		"/etc/hosts", "/etc/nsswitch.conf",
+	}
+	files := make([]driver.PinnedRuntimeFile, len(targets))
+	required := make([]string, len(targets))
+	for index, target := range targets {
+		sourcePath := filepath.Join(t.TempDir(), filepath.Base(target))
+		if err := os.WriteFile(
+			sourcePath, []byte(target+"\n"), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		sourceBytes, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index] = driver.PinnedRuntimeFile{
+			Path: sourcePath, Target: target,
+			Digest: driver.Digest(sourceBytes),
+		}
+		required[index] = target
+	}
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := now.UnixMilli() - 60_000
+	credentialBody := []byte(fmt.Sprintf(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":%d}}`, expired,
+	))
+	if err := os.WriteFile(credential, credentialBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nativeConfig := driver.NativeAdapterConfig{
+		Key: "planner-native", ID: "sworn.claude", Version: "1.0.0",
+		Family: driver.ProfileClaude,
+		CLI: driver.ExecutableIdentity{
+			Path: executable, Digest: driver.Digest(executableBytes),
+		},
+		CLIVersion: "2.1.999", VersionOutput: "2.1.999 (Claude Code)",
+		RuntimeFiles: files, RequiredRuntimeTargets: required,
+		CredentialTarget:   driver.ClaudeCredentialTarget,
+		CredentialRefs:     []string{"planner-credential"},
+		MaxCredentialBytes: 1_048_576,
+		PinMode:            driver.NativePinModeMinor,
+	}
+	nativeAdapter, err := driver.NewNativeAdapter(
+		nativeConfig,
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "planner-credential"
+	nativeProfile := driver.ProfileConfig{
+		Key: "planner", Adapter: nativeConfig.Key,
+		Network: driver.NetworkRequired, CredentialRef: &ref,
+	}
+	registry, err := driver.NewSelectionRegistry(
+		[]driver.ProfileConfig{nativeProfile}, []driver.Adapter{nativeAdapter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.registry = registry
+
+	coordinates := dispatchCoordinates{
+		Responsibility: driver.PlannerProposal,
+		BatonAttempt:   1, Epoch: 1, Try: 1,
+	}
+	if _, err := service.prepareDriverDispatch(
+		ctx, engine, workspace, driver.RolePlanner, coordinates, before,
+	); !IsCode(err, "CREDENTIAL_STALE") {
+		t.Fatalf("prepareDriverDispatch error = %v, want CREDENTIAL_STALE", err)
+	}
+
+	work := driverWorkIdentity(
+		manifest.digest, "", driver.PlannerProposal, 1, before,
+	)
+	effectID := journal.AttemptEffectID(work, 1, 1)
+	if _, effectErr := store.Effect(
+		ctx, manifest.value.RunID, effectID,
+	); !journal.IsCode(effectErr, "EFFECT_NOT_FOUND") {
+		t.Fatalf(
+			"effect after admission refusal = %v, want EFFECT_NOT_FOUND",
+			effectErr,
+		)
+	}
+}
+
 func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChanges(
 	t *testing.T,
 ) {

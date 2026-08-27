@@ -328,7 +328,13 @@ func randomSuffix() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
-func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
+// TestExactNativeProfilesCertifyReportsCredentialPreflightHonestly pins A2:
+// certify no longer claims native_preflight_not_required for a credential it
+// never evaluated. The fixture resolver points at a nonexistent path (as it
+// always has - the resolver return value was never used by readiness before
+// this slice), so the bounded read cannot open it and certify reports
+// unevaluated, honestly, rather than a silent pass.
+func TestExactNativeProfilesCertifyReportsCredentialPreflightHonestly(t *testing.T) {
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
@@ -369,7 +375,8 @@ func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 				checkCertify,
 				profile,
 				"exact-native-model",
-			); state != ReadinessPass || code != "native_preflight_not_required" {
+			); state != ReadinessNotCertified ||
+				code != "native_credential_preflight_unevaluated" {
 				t.Fatalf("certify = %s %s", state, code)
 			}
 			registry, err := NewSelectionRegistry(
@@ -393,6 +400,105 @@ func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// certifyLivenessAdapterFixture builds a nativeAdapter with a scripted, live
+// CLI (so checkProfile's version gate passes without a real host CLI) and a
+// resolver bound to credentialPath, for exercising checkCertify's
+// credential-liveness reporting (A2) directly.
+func certifyLivenessAdapterFixture(
+	t *testing.T,
+	credentialPath string,
+) (*nativeAdapter, ProfileConfig) {
+	t.Helper()
+	executable := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(
+		executable,
+		[]byte("#!/usr/bin/sh\necho certify-fixture-version\nexit 0\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := executableDigest(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []string{
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/resolv.conf",
+		"/etc/hosts",
+		"/etc/nsswitch.conf",
+	}
+	files := make([]PinnedRuntimeFile, len(targets))
+	required := make([]string, len(targets))
+	for index, target := range targets {
+		sourcePath := filepath.Join(t.TempDir(), filepath.Base(target))
+		if err := os.WriteFile(sourcePath, []byte(target+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sourceDigest, err := executableDigest(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index] = PinnedRuntimeFile{Path: sourcePath, Target: target, Digest: sourceDigest}
+		required[index] = target
+	}
+	config := NativeAdapterConfig{
+		Key: "claude-certify-fixture", ID: "sworn.claude", Version: "1.0.0",
+		Family:                 ProfileClaude,
+		CLI:                    ExecutableIdentity{Path: executable, Digest: digest},
+		CLIVersion:             "2.1.999",
+		VersionOutput:          "certify-fixture-version",
+		RuntimeFiles:           files,
+		RequiredRuntimeTargets: required,
+		CredentialTarget:       ClaudeCredentialTarget,
+		CredentialRefs:         []string{"claude-certify-credential"},
+		MaxCredentialBytes:     1_048_576,
+	}
+	body, err := canonicalJSON(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := AdapterIdentity{
+		Key: config.Key, ID: config.ID, Version: config.Version,
+		ConfigurationDigest: Digest(body),
+	}
+	adapter := &nativeAdapter{
+		identity: identity,
+		config:   config,
+		resolve: func(context.Context, string) (string, error) {
+			return credentialPath, nil
+		},
+		refs: map[string]struct{}{"claude-certify-credential": {}},
+	}
+	ref := "claude-certify-credential"
+	profile := ProfileConfig{
+		Key: "claude-certify-profile", Adapter: identity.Key,
+		Network: NetworkRequired, CredentialRef: &ref,
+	}
+	return adapter, profile
+}
+
+// TestNativeCertifyRefusesPositivelyStaleCredential pins A2's other half:
+// certify fails a positively-expired credential with CREDENTIAL_STALE,
+// rather than the pre-slice silent pass.
+func TestNativeCertifyRefusesPositivelyStaleCredential(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := time.Now().UnixMilli() - 60_000
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(expired, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adapter, profile := certifyLivenessAdapterFixture(t, credential)
+	state, code := adapter.checkProfile(
+		context.Background(), checkCertify, profile, "certify-model",
+	)
+	if state != ReadinessFail || code != "CREDENTIAL_STALE" {
+		t.Fatalf("certify = %s %s, want FAIL CREDENTIAL_STALE", state, code)
 	}
 }
 

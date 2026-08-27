@@ -42,6 +42,7 @@ func validNativeSurfaceCheck(check string) bool {
 		"dispatch.event_stream_scan_failed",
 		"dispatch.session_identity_not_established",
 		"dispatch.tool_session_missing",
+		"dispatch.process_signaled",
 		// certification capture evidence checks.
 		"capture.provider_evidence_invalid",
 		"capture.handshake_evidence_unavailable",
