@@ -109,7 +109,42 @@ type ContractError struct {
 	// windowed 429 keeps today's paced path. The flag rides Detail through
 	// the dispatcher boundary for exactly the provider status codes.
 	HardLimit bool
+	// Kind classifies why the refusal happened, distinct from Code (what
+	// refused). It is computed once, centrally, by classifyKind at the
+	// normalizeAdapterError funnel (invoke.go) and never set at an
+	// individual raise site, so every admitted code carries it without
+	// per-site churn. A code this slice does not place classifies to the
+	// empty RefusalKind ("").
+	Kind RefusalKind
 }
+
+// RefusalKind distinguishes the cause of a driver-boundary refusal from its
+// stable Code. It is evidence for pacing and future routing decisions, not
+// itself a routing decision: this slice only classifies and records.
+type RefusalKind string
+
+const (
+	// KindAuthorization covers credential-identity refusals: stale, missing,
+	// uncertified, or rotated-away-from credentials, and provider-reported
+	// authorization failures.
+	KindAuthorization RefusalKind = "authorization"
+	// KindHardExhaustion marks a provider refusal that must never be paced:
+	// a 429 naming no retry window, or one whose body matches the closed
+	// hard-cap exhaustion vocabulary even under a named window.
+	KindHardExhaustion RefusalKind = "hard_exhaustion"
+	// KindSoftRateLimit marks a provider 429 that names a retry window and
+	// carries no hard-cap phrase: today's paced-retry path, unchanged.
+	KindSoftRateLimit RefusalKind = "soft_rate_limit"
+	// KindTransport covers process, network, and endpoint failures below the
+	// provider's own status envelope.
+	KindTransport RefusalKind = "transport"
+	// KindSurfaceIntegrity covers a containment or protocol invariant the
+	// native surface itself enforces (NATIVE_SURFACE_INVALID).
+	KindSurfaceIntegrity RefusalKind = "surface_integrity"
+	// KindEconomy covers a manifest-governed budget crossing: turn or
+	// output-token economy, and the native output-stream byte economy.
+	KindEconomy RefusalKind = "economy"
+)
 
 func (e *ContractError) Error() string {
 	if e.Detail != "" {

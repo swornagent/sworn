@@ -186,6 +186,8 @@ func (capture *nativeProviderCapture) ServeHTTP(
 			capture.family,
 			capture.model,
 			capture.definitions,
+			capture.token,
+			capture.brokerCapability,
 		)
 		if err != nil {
 			malformed = true
@@ -256,45 +258,53 @@ func writeNativeCaptureError(
 // validateNativeProviderRequest reports toolLess when a ProfileClaude
 // request carries no "tools" key at all: the CLI's compaction/summarization
 // requests run on a different model id than the session's, so a tool-less
-// claude request is admitted without the model or tool-surface checks.
+// claude request is admitted without the model or tool-surface checks. Every
+// refusal names its specific check and carries a bounded, secret-redacted
+// head of the captured request body: secrets redacts against the capture
+// bearer (and any sibling capability) the caller holds, defense in depth
+// alongside ServeHTTP's own pre-scan of the same body.
 func validateNativeProviderRequest(
 	body []byte,
 	family ProfileFamily,
 	model string,
 	definitions []providerToolDefinition,
+	secrets ...[]byte,
 ) (string, bool, error) {
+	refuse := func(check string) error {
+		return failNativeSurfaceHead(check, body, secrets...)
+	}
 	value, err := decodeStrict(body, MaxProviderRequestBytes)
 	if err != nil {
-		return "", false, fail("NATIVE_SURFACE_INVALID")
+		return "", false, refuse("capture_request.malformed_json")
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return "", false, fail("NATIVE_SURFACE_INVALID")
+		return "", false, refuse("capture_request.not_object")
 	}
 	_, hasTools := root["tools"]
 	if family == ProfileClaude && !hasTools {
 		return "", true, nil
 	}
 	if root["model"] != model {
-		return "", false, fail("NATIVE_SURFACE_INVALID")
+		return "", false, refuse("capture_request.model_mismatch")
 	}
 	rawTools, ok := root["tools"].([]any)
 	if !ok {
-		return "", false, fail("NATIVE_SURFACE_INVALID")
+		return "", false, refuse("capture_request.tools_not_array")
 	}
 	switch family {
 	case ProfileCodex:
 		if root["tool_choice"] != "auto" ||
 			root["parallel_tool_calls"] != false ||
 			!exactCodexProviderTools(rawTools, definitions) {
-			return "", false, fail("NATIVE_SURFACE_INVALID")
+			return "", false, refuse("capture_request.codex_tools_mismatch")
 		}
 	case ProfileClaude:
 		if !exactClaudeProviderTools(rawTools, definitions) {
-			return "", false, fail("NATIVE_SURFACE_INVALID")
+			return "", false, refuse("capture_request.claude_tools_mismatch")
 		}
 	default:
-		return "", false, fail("NATIVE_SURFACE_INVALID")
+		return "", false, refuse("capture_request.unsupported_family")
 	}
 	return nativeToolDefinitionsDigest(definitions), false, nil
 }

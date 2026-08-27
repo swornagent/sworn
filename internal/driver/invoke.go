@@ -447,14 +447,52 @@ func preservesUsageDiagnostic(code string) bool {
 	}
 }
 
+// classifyKind maps an admitted code (plus the HardLimit flag, which
+// distinguishes PROVIDER_LIMITED's two Kinds) to its RefusalKind. It is the
+// single source of truth pacing's hardLimited also reads, so the two can
+// never diverge. A code outside every named bucket classifies to "" —
+// unclassified — which satisfies the contract's "at minimum" floor without
+// requiring all ~150 admitted codes to be individually placed.
+func classifyKind(code string, hardLimit bool) RefusalKind {
+	switch code {
+	case "PROVIDER_AUTHORIZATION_FAILED",
+		"CREDENTIAL_STALE",
+		"CREDENTIAL_UNAVAILABLE",
+		"CREDENTIAL_NOT_CERTIFIED",
+		"CREDENTIAL_IDENTITY_CHANGED":
+		return KindAuthorization
+	case "PROVIDER_LIMITED":
+		if hardLimit {
+			return KindHardExhaustion
+		}
+		return KindSoftRateLimit
+	case "PROVIDER_TRANSPORT_FAILED",
+		"PROVIDER_UNAVAILABLE",
+		"ENDPOINT_UNAVAILABLE",
+		"PROCESS_START_FAILED",
+		"ISOLATION_UNAVAILABLE",
+		"TRANSPORT_FAILURE":
+		return KindTransport
+	case "NATIVE_SURFACE_INVALID":
+		return KindSurfaceIntegrity
+	case "ECONOMY_TURN_BUDGET_EXCEEDED", "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
+		return KindEconomy
+	default:
+		return ""
+	}
+}
+
 // normalizeAdapterError maps adapter errors to the stable dispatcher
-// vocabulary. Adapter-provided wrapping text cannot escape, with one bounded
-// exception recorded by the S5-provider-limit-evidence ruling: the five
-// provider status codes carry the status envelope's error.message as Detail
-// after it passes validateText at maxProviderErrorDetailBytes, so a provider
-// limit is diagnosable from the durable failure record and the live stream.
-// Every other code, and any non-conforming detail, is dropped exactly as
-// before.
+// vocabulary, setting Kind on every branch it returns. Adapter-provided
+// wrapping text cannot escape, with two bounded exceptions: the plain
+// exception recorded by the S5-provider-limit-evidence ruling and widened by
+// S4-refusal-taxonomy A4 (the five provider status codes plus
+// PROVIDER_TRANSPORT_FAILED carry bounded, single-line, control-free text as
+// Detail after it passes validateText at maxProviderErrorDetailBytes), and
+// the structured exception A3 adds (NATIVE_SURFACE_INVALID carries a
+// {"check":...,"head":...} envelope, structurally re-validated by
+// revalidateNativeSurfaceDetail rather than validateText). Every other code,
+// and any non-conforming detail, is dropped exactly as before.
 func normalizeAdapterError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -464,19 +502,28 @@ func normalizeAdapterError(err error) error {
 	}
 	var contractErr *ContractError
 	if errors.As(err, &contractErr) && validAdapterErrorCode(contractErr.Code) {
-		if providerStatusCode(contractErr.Code) &&
-			validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
-			// Bounded, re-validated provider words ride the stable code.
-			return &ContractError{
-				Code:      contractErr.Code,
-				Detail:    contractErr.Detail,
-				HardLimit: contractErr.HardLimit,
+		kind := classifyKind(contractErr.Code, contractErr.HardLimit)
+		if detailPreservingCode(contractErr.Code) {
+			if contractErr.Code == "NATIVE_SURFACE_INVALID" {
+				if detail, ok := revalidateNativeSurfaceDetail(contractErr.Detail); ok {
+					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
+				}
+			} else if plainDetailCode(contractErr.Code) &&
+				validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
+				// Bounded, re-validated provider or native-stderr words ride
+				// the stable code.
+				return &ContractError{
+					Code:      contractErr.Code,
+					Detail:    contractErr.Detail,
+					HardLimit: contractErr.HardLimit,
+					Kind:      kind,
+				}
 			}
 		}
 		// Recreate the error so adapter-provided wrapping text cannot escape.
-		return fail(contractErr.Code)
+		return &ContractError{Code: contractErr.Code, Kind: kind}
 	}
-	return fail("ADAPTER_FAILURE")
+	return &ContractError{Code: "ADAPTER_FAILURE", Kind: classifyKind("ADAPTER_FAILURE", false)}
 }
 
 func validAdapterErrorCode(code string) bool {
@@ -721,6 +768,15 @@ func (buffer *boundedBuffer) snapshot() ([]byte, int64, bool) {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return append([]byte(nil), buffer.body...), buffer.total, buffer.overflow
+}
+
+// clear zeroes the retained body in place, so a caller done with a snapshot
+// can drop the buffer's own retained copy on every return path.
+func (buffer *boundedBuffer) clear() {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	clearBytes(buffer.body)
+	buffer.body = nil
 }
 func invocationContext(parent context.Context, timeoutMillis int64) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(parent, time.Duration(timeoutMillis)*time.Millisecond)

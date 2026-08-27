@@ -237,14 +237,14 @@ func TestProviderLimitHardClassifies(t *testing.T) {
 		body   string
 		want   bool
 	}{
-		{"windowed quota body stays paced", "", geminiQuota429Body, false},
+		{"windowed phrase-free quota body stays paced", "", geminiQuota429Body, false},
 		{"windowless spend-cap shape is hard", "", googleSpendCap429Body, true},
 		{"windowless bodyless 429 is hard", "", `{}`, true},
 		{"windowless unparseable body is hard", "", `not json`, true},
-		{"HTTP-date Retry-After overrides a cap phrase", "Wed, 21 Oct 2026 07:28:00 GMT", googleSpendCap429Body, false},
-		{"fractional Retry-After overrides a cap phrase", "1.5", googleSpendCap429Body, false},
-		{"zero Retry-After still overrides a cap phrase", "0", googleSpendCap429Body, false},
-		{"RetryInfo overrides a cap phrase", "", retryInfoCapBody, false},
+		{"a cap phrase overrides an HTTP-date Retry-After window", "Wed, 21 Oct 2026 07:28:00 GMT", googleSpendCap429Body, true},
+		{"a cap phrase overrides a fractional Retry-After window", "1.5", googleSpendCap429Body, true},
+		{"a cap phrase overrides a zero Retry-After window", "0", googleSpendCap429Body, true},
+		{"a cap phrase overrides a RetryInfo window", "", retryInfoCapBody, true},
 	}
 	for _, test := range cases {
 		test := test
@@ -547,9 +547,9 @@ func TestHTTPTransportCarriesProviderLimitEvidence(t *testing.T) {
 		{"spend-cap shape hard-fails with detail",
 			429, nil, googleSpendCap429Body,
 			"PROVIDER_LIMITED", googleSpendCapDetail, 0, true},
-		{"HTTP-date Retry-After keeps a cap-phrase 429 paced",
+		{"HTTP-date Retry-After yields to a cap phrase",
 			429, http.Header{"Retry-After": []string{"Wed, 21 Oct 2026 07:28:00 GMT"}}, googleSpendCap429Body,
-			"PROVIDER_LIMITED", googleSpendCapDetail, 0, false},
+			"PROVIDER_LIMITED", googleSpendCapDetail, 0, true},
 		{"Retry-After seconds parses the advisory",
 			429, http.Header{"Retry-After": []string{"30"}}, `{"error":{"code":429,"message":"quota exhausted"}}`,
 			"PROVIDER_LIMITED", "quota exhausted", 30 * time.Second, false},
@@ -587,12 +587,15 @@ func TestHTTPTransportCarriesProviderLimitEvidence(t *testing.T) {
 
 	t.Run("HTTP-date Retry-After paces at the default delay", func(t *testing.T) {
 		t.Parallel()
+		// A phrase-free, RetryInfo-free body: the header still names a
+		// window (so this stays soft, not hard), and it parses to no usable
+		// seconds delay (so pacedRetryDelay falls back to the default).
 		transport := newProviderLimitTransport(t, roundTripperFunc(func(
 			request *http.Request,
 		) (*http.Response, error) {
 			return statusResponse(429, http.Header{
 				"Retry-After": []string{"Wed, 21 Oct 2026 07:28:00 GMT"},
-			}, googleSpendCap429Body), nil
+			}, `{"error":{"code":429,"message":"quota exceeded"}}`), nil
 		}))
 		ref := "cred"
 		_, err := transport.roundTrip(context.Background(), &ref, providerLimitRequest())
