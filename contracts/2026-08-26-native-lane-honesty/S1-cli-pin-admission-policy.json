@@ -1,14 +1,17 @@
 {
- "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures.",
+ "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch on success and failure alike, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures - honestly scoped to what a side-effect-free probe can establish: a pinned binary that cannot execute and report its version refuses before any try burns, while server-side death, which no local probe can establish without transacting, is retired by the live pin and minor policy here and made instantly legible by S5's death classification.",
  "scope": {
   "include": [
-   "internal/driver"
+   "internal/driver",
+   "internal/runtime"
   ],
   "exclude": [
    "the certification-evidence soft-prior store across a version range (nativeCertificationKey at native.go:659-665 is an uncalled vestige; a range-scoped evidence cache is future work, not this slice)",
    "spontaneous-exit reclassification and the refusal Kind vocabulary (S4's seam; this slice adds one named admission refusal, not a taxonomy)",
    "init-time pin detection and drivers.json authoring (cmd/sworn init writes pins from the host today and is unchanged)",
-   "codex pin policy semantics beyond compiling cleanly (the claude pin is the live-fire case; minor mode for codex may land inert behind the same knob)"
+   "codex pin policy semantics beyond compiling cleanly (the claude pin is the live-fire case; minor mode for codex may land inert behind the same knob)",
+   "internal/runtime edits beyond the two sites A3 names - the prepareDriverDispatch admission call site (internal/runtime/dispatch.go:1178-1201) and the one durable event write that journals the probe result; everything else in this slice - probe mechanism, bound, named code, pin policy, receipt stamping - stays in internal/driver",
+   "server-side pin-death detection at admission (no side-effect-free local probe can establish that a provider refuses a version; the live pin bump and minor policy of A1 retire the known-dead case, and S5's instant-death classification makes any residual server-side death legible on its first occurrence)"
   ],
   "waivers": [
    {
@@ -24,10 +27,6 @@
     "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins native admission policy"
    },
    {
-    "package": "internal/runtime",
-    "reason": "its tests reach internal/driver by import only; no runtime test pins native admission policy or pin constants"
-   },
-   {
     "package": "internal/tui",
     "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins native admission policy"
    }
@@ -40,11 +39,11 @@
   },
   {
    "id": "A2",
-   "text": "Receipts stay exact, always: today nothing durable records the digest of the binary that actually executed - openPinnedExecutable (internal/driver/process_linux.go:555-586) hashes the running fd only to compare against identity.Digest (EXECUTABLE_IDENTITY_MISMATCH :579) and discards the value, and the sealed handoff carries no adapter or binary digest (submission.go:503-509; PermissionDescriptor's adapter_config_digest at :356 never leaves internal/driver). After this slice the executed CLI's digest reaches a durable per-dispatch surface the journal already persists (the attempt observation is the candidate carrier) in BOTH modes, so minor-mode admission never weakens attestation: an auditor can read exactly which bytes ran even when the range admitted them. Pinned by a test that dispatches through the native lane and finds the executed digest on the durable record."
+   "text": "Receipts stay exact, always: today nothing durable records the digest of the binary that actually executed - openPinnedExecutable (internal/driver/process_linux.go:555-586) hashes the running fd only to compare against identity.Digest (EXECUTABLE_IDENTITY_MISMATCH :579) and discards the value, and the sealed handoff carries no adapter or binary digest (submission.go:503-509; PermissionDescriptor's adapter_config_digest at :356 never leaves internal/driver). After this slice the executed CLI's digest reaches a durable per-dispatch surface the journal already persists (the attempt observation is the candidate carrier) in BOTH modes and on BOTH completion classes: a post-closure failure - the path where invoke returns a zeroed Observation and sanitizeFailedObservation (internal/driver/invoke.go:383-436) today preserves Usage only for provider_truncated, economy_turn_budget, and economy_output_budget (preservesUsageDiagnostic :429-436) - carries the executed digest exactly as a successful dispatch does, so minor-mode admission never weakens attestation: an auditor reads exactly which bytes ran even when the range admitted them and even when the dispatch then failed. Absence stays honest where no binary ever ran (admission refusal, identity mismatch, or open failure). Pinned by tests that dispatch through the native lane and find the executed digest on the durable record for a successful dispatch and for a post-closure failed dispatch."
   },
   {
    "id": "A3",
-   "text": "A dead pin refuses at admission instead of burning tries: the 2.1.234 deprecation was certified-and-dead simultaneously - checkCertify returns native_preflight_not_required after a version-output compare only (native.go:327-341), and a server-side-dead CLI then burns dispatch tries as PROVIDER_TRANSPORT_FAILED because the auth-exit branch is production-dead (nativeAuthExitCodes is an empty map, native.go:38, so nativeSpontaneousExitFailure at native_linux.go:2333-2349 falls through). After this slice a bounded, side-effect-free dispatch-time liveness check distinguishes 'the pinned binary cannot transact' and refuses with a named admission code before the try budget burns; the probe result is journaled. Mechanism is design freedom (a bounded CLI liveness run is acceptable); the pinned outcome is the named refusal plus zero burned tries. Pinned by a test with a scripted dead CLI."
+   "text": "A dead pin refuses at admission instead of burning tries: the 2.1.234 deprecation was certified-and-dead simultaneously - checkCertify returns native_preflight_not_required after a version-output compare only (native.go:327-341), and a server-side-dead CLI then burns dispatch tries as PROVIDER_TRANSPORT_FAILED because the auth-exit branch is production-dead (nativeAuthExitCodes is an empty map, native.go:38, so nativeSpontaneousExitFailure at native_linux.go:2333-2349 falls through). After this slice a bounded, side-effect-free dispatch-time liveness check establishes the only pin-death class a local probe can prove - the pinned binary cannot execute and report its version (absent, not executable, exits nonzero, overflows its bounded output, or exceeds its bound) - and refuses with a named admission code from prepareDriverDispatch (internal/runtime/dispatch.go:1178-1201), before any attempt is journaled, so the try loop (internal/runtime/scheduler.go:1418-1425) returns on the absent-attempt read instead of advancing: zero burned tries. A bound expiry is honestly-unevaluable, never a refusal, and admits. The probe result - refuse, pass, or honestly-unevaluable - is journaled once per dispatch admission on the existing typed-event surface (journal.AppendEventOnce, internal/journal/write.go:900-916; appendParkEventOnce at internal/runtime/economy_guards.go:367-381 is the cause-scoped idempotence precedent). Server-side pin death stays outside this probe by construction: no side-effect-free run can establish it, so the live pin bump and minor policy of A1 retire the known-dead case and S5's classification makes any residual death legible at first occurrence rather than after a full budget. Mechanism is design freedom (a bounded CLI liveness run in nativeVersion's sandboxed shape, native_linux.go:2418-2444, is acceptable); the pinned outcomes are the named refusal with zero burned tries for locally-provable death, honest admission on unevaluable, and a journaled result on every probe run. Pinned by a test with a scripted dead CLI asserting the named refusal and no attempt row, and a test asserting an expired bound admits with an unevaluable journal entry."
   }
  ],
  "checks": [
@@ -60,6 +59,7 @@
   "Default behavior is byte-for-byte today's: a config without the new field admits and refuses exactly as before this slice, and the new field is omitempty so existing canonical documents and their digests are untouched.",
   "Certification evidence stays a soft prior in minor mode - it biases nothing at admission and never becomes a gate across the range (the capability-based-selection ruling's hard-gate/soft-prior split, applied to pins).",
   "Test fixtures ride along honestly: exactClaudeBinary (native_linux_test.go:27-30) points at a 2.1.208 host path so every claude exact-CLI test skips today - refresh it with the pin bump; the w8 corpus's deliberate admission bypass (w8_shared_corpus_linux_test.go:1173-1183 constructs the adapter directly) must keep working; the config round-trip fixture (config_test.go:305-357) builds from the constants and must stay pin-consistent.",
+  "The internal/runtime edit surface is bounded to the two sites this contract names: the dispatch-admission call site in prepareDriverDispatch and the one durable event write that journals the probe result; no pin policy, mode logic, probe mechanism, bound, named code, or refusal vocabulary lives outside internal/driver.",
   "Check evidence belongs in the submission's checks field, never in files added to the repository."
  ],
  "depends_on": [],
