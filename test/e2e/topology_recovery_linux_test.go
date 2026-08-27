@@ -827,28 +827,37 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		authorizePlan(t, journalPath, runID, plan)
 		runBinary(t, swornBinary, 0, "resume", "--run", runID,
 			"--journal", journalPath, "--command", "resume-1", "--generation", "0")
+		// Lane-scoped parking (A1/A4): T1's exhaustion pins T1 alone, T2's
+		// independent lane keeps dispatching in the same drive, and the run
+		// reports parked only once T2's admissible work is also exhausted -
+		// a single drive, no re-drive workaround loop.
 		stdout, _ := runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
-		// The park can surface while the independent track still holds
-		// admissible scripted work on a loaded runner; parking isolation
-		// means T2 stays drivable, so re-drive until its pass lands.
-		var state baton.State
-		var s1, s2 *baton.SliceState
-		for attempt := 0; ; attempt++ {
-			state = readBatonState(t, repository, release)
-			s1, _ = state.Slice("S1")
-			s2, _ = state.Slice("S2")
-			if s2.Pass != nil || attempt == 5 {
-				break
-			}
-			runBinary(t, swornBinary, 0, "run", "--manifest", manifestPath, "--journal", journalPath)
-		}
+		state := readBatonState(t, repository, release)
+		s1, _ := state.Slice("S1")
+		s2, _ := state.Slice("S2")
 		if s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
 			t.Fatalf("parking isolation: S1=%#v S2=%#v assembly=%#v", s1, s2, state.Assembly)
 		}
 		work := parkedWork(t, journalPath, runID)
+		statusBody, statusErr := runBinary(t, swornBinary, 0, "status", "--run", runID,
+			"--journal", journalPath, "--json")
+		var runStatus swornruntime.RunStatus
+		if statusErr != "" || json.Unmarshal([]byte(statusBody), &runStatus) != nil {
+			t.Fatalf("parked status json = %q / %q", statusBody, statusErr)
+		}
+		var pinned *swornruntime.PinnedWork
+		for index := range runStatus.PinnedWork {
+			if runStatus.PinnedWork[index].WorkID == work {
+				pinned = &runStatus.PinnedWork[index]
+			}
+		}
+		if pinned == nil || pinned.Lane != "T1" ||
+			pinned.Cause != swornruntime.ParkCauseExhaustion {
+			t.Fatalf("pinned work row = %#v, status = %#v", pinned, runStatus.PinnedWork)
+		}
 		runBinary(t, swornBinary, 0, "retry", "--run", runID, "--journal", journalPath,
 			"--command", "retry-1", "--generation", "1", "--work", work, "--epoch", "1")
 		runBinary(t, swornBinary, 0, "resume", "--run", runID,

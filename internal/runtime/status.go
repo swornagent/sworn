@@ -195,18 +195,19 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// Economy and identical-failure guards (A1/A2) are evaluated over the
 	// same journal history as every park condition, so a re-drive of a
 	// journal that crossed re-parks with the same figures.
+	economyCrossings := economyParkCrossings(snapshot, control)
 	var economyPark *economyParkFacts
-	if crossing := economyParkCrossing(snapshot, control); crossing != nil {
+	if len(economyCrossings) != 0 {
 		spentTurns, spentTokens, spentBytes, diagnosticCode, spentErr := s.economySpent(
 			ctx,
 			runID,
-			*crossing,
+			economyCrossings[0],
 		)
 		if spentErr != nil {
 			return RunStatus{}, spentErr
 		}
 		facts := economyParkFactsFor(
-			*crossing,
+			economyCrossings[0],
 			manifest.value.Limits,
 			spentTurns,
 			spentTokens,
@@ -215,11 +216,16 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		)
 		economyPark = &facts
 	}
-	identicalPark := identicalFailureParkCrossing(
+	identicalCrossings := identicalFailureParkCrossings(
+		manifest,
 		snapshot,
 		control,
 		manifest.value.EffectiveIdenticalFailureParkAfter(),
 	)
+	var identicalPark *identicalFailureFacts
+	if len(identicalCrossings) != 0 {
+		identicalPark = &identicalCrossings[0]
+	}
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
 	// The diagnostic code/detail stay empty here: they name a specific
@@ -370,6 +376,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	if result.State == "parked" {
+		// This early site runs before a later baton.ReadState is confirmed
+		// to have succeeded, so it can never compute lane-scoped
+		// PinnedWork; it only ever produces the legacy run-scoped shape
+		// (B3). The final site below recomputes both Park and PinnedWork
+		// from confirmed Baton state and is authoritative whenever it is
+		// reached.
 		result.Park = parkStatusFor(manifest, parkFacts{
 			humanAuthorityRequired:    humanAuthorityRequired,
 			attentionParked:           attentionParked,
@@ -381,6 +393,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			exhaustionCode:            exhaustionCode,
 			exhaustionDetail:          exhaustionDetail,
 		})
+	} else {
+		result.Park = nil
 	}
 	if recovery == nil && ownerExpired {
 		recovery = &RecoveryAction{
@@ -413,16 +427,41 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if proposalFound {
 		selected = &proposal
 	}
-	var exhaustionWork string
-	exhaustionWork, exhaustionApplies = exhaustedWorkApplies(
-		manifest, selected, proposalActivated, state, snapshot, exhausted)
-	exhaustionCode, exhaustionDetail = "", ""
-	if facts, ok := exhaustionRefusals[exhaustionWork]; exhaustionApplies && ok {
-		exhaustionCode, exhaustionDetail = facts.code, facts.detail
+	// Lane-scoped drain (A1): the confirmed candidate lanes replace the flat
+	// exhaustedWorkApplies applicability set. A lane pins when any of its
+	// candidate works currently crosses an economy, identical-failure, or
+	// exhaustion guard; the run parks on that basis only when at least one
+	// candidate lane exists and every one of them is pinned, so a healthy
+	// lane's live candidate work is never masked by another lane's park.
+	lanes := readyLaneCandidates(manifest, selected, proposalActivated, state, snapshot)
+	economyByOwner := make(map[string]economyParkFacts, len(economyCrossings))
+	for _, crossing := range economyCrossings {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		if _, exists := economyByOwner[owner]; exists {
+			continue
+		}
+		spentTurns, spentTokens, spentBytes, diagnosticCode, spentErr := s.economySpent(
+			ctx, runID, crossing,
+		)
+		if spentErr != nil {
+			return RunStatus{}, spentErr
+		}
+		economyByOwner[owner] = economyParkFactsFor(
+			crossing, manifest.value.Limits, spentTurns, spentTokens, spentBytes, diagnosticCode,
+		)
 	}
+	identicalByOwner := make(map[string]identicalFailureFacts, len(identicalCrossings))
+	for _, crossing := range identicalCrossings {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		if _, exists := identicalByOwner[owner]; !exists {
+			identicalByOwner[owner] = crossing
+		}
+	}
+	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
+		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
+	)
 	parked = humanAuthorityRequired || attentionParked ||
-		degradationBudgetExceeded || economyPark != nil ||
-		identicalPark != nil || exhaustionApplies
+		degradationBudgetExceeded || (len(lanes) != 0 && allLanesPinned)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case proposalFound && !proposalActivated:
@@ -437,18 +476,28 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			result.State = "running"
 		}
 	}
+	// PinnedWork is evidence about the affected work, visible beside the
+	// still-running lanes (A2) regardless of whether the run as a whole
+	// reads parked: a work can be pinned while every other lane keeps
+	// dispatching. Park stays governed by the State == "parked" invariant
+	// (B2): it is the run-level summary, nil whenever the run is not
+	// parked, never a partial one.
+	result.PinnedWork = pinnedWork
 	if result.State == "parked" {
-		result.Park = parkStatusFor(manifest, parkFacts{
-			humanAuthorityRequired:    humanAuthorityRequired,
-			attentionParked:           attentionParked,
-			degradationBudgetExceeded: degradationBudgetExceeded,
-			degradationCount:          degradationCount,
-			economy:                   economyPark,
-			identicalFailure:          identicalPark,
-			exhaustionApplies:         exhaustionApplies,
-			exhaustionCode:            exhaustionCode,
-			exhaustionDetail:          exhaustionDetail,
-		})
+		switch {
+		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded:
+			result.Park = parkStatusFor(manifest, parkFacts{
+				humanAuthorityRequired:    humanAuthorityRequired,
+				attentionParked:           attentionParked,
+				degradationBudgetExceeded: degradationBudgetExceeded,
+				degradationCount:          degradationCount,
+			})
+		case len(laneParks) != 0:
+			result.Park = parkStatusFor(manifest, laneParks[0].facts)
+			result.Park.Work = laneParks[0].work
+		}
+	} else {
+		result.Park = nil
 	}
 	return result, nil
 }
@@ -716,29 +765,55 @@ func validateAttentionDispatchBinding(
 	return nil
 }
 
-func exhaustedWorkApplies(
+// laneCandidates is the currently-applicable work-identity set for one
+// candidate lane: a track (keyed by track ID) or the release pseudo-lane
+// (keyed by "release", carrying the planner-proposal and assembly works).
+// Only a lane with at least one candidate work is returned by
+// readyLaneCandidates; a track with no ready actionable slice contributes no
+// lane, exactly as it contributes nothing to exhaustedWorkApplies's flat set
+// today.
+type laneCandidates struct {
+	lane  string
+	works map[string]struct{}
+}
+
+// readyLaneCandidates derives the currently-applicable work-identity set for
+// every candidate lane (A1), generalizing the single flat set
+// exhaustedWorkApplies used to derive: the pre-install branch stays a single
+// release-lane candidate exactly as before (a pending plan proposal
+// supersedes every track's current work, so nothing else is a candidate
+// lane while it awaits install), and the ready-track branch now keeps each
+// track's candidate works, including its folded baton.append_receipt scan
+// (F4), in that track's own lane instead of one shared set. The release
+// pseudo-lane carries the planner-proposal work whenever plannerNeeded,
+// independent of whether any track lane is ready (driveLoop dispatches the
+// planner proposal after its fan-out even when track lanes were ready), and
+// carries the assembly work only when no track lane is ready and no planner
+// is needed (driveLoop's own admission order for those branches).
+func readyLaneCandidates(
 	manifest admittedManifest,
 	proposal *admittedPlanProposal,
 	proposalInstalled bool,
 	state baton.State,
 	snapshot journal.Snapshot,
-	exhausted map[string]struct{},
-) (string, bool) {
-	if len(exhausted) == 0 {
-		return "", false
-	}
-	applicable := make(map[string]struct{})
-	add := func(work string) {
-		if work != "" {
-			applicable[work] = struct{}{}
-		}
-	}
+) []laneCandidates {
 	if proposal != nil && !proposalInstalled {
-		add(proposalInstallWork(*proposal))
-		return intersectingWork(exhausted, applicable)
+		work := proposalInstallWork(*proposal)
+		if work == "" {
+			return nil
+		}
+		return []laneCandidates{{lane: "release", works: map[string]struct{}{work: {}}}}
 	}
-	ready := false
+	var lanes []laneCandidates
+	anyTrackReady := false
 	for _, track := range state.Tracks {
+		works := make(map[string]struct{})
+		add := func(work string) {
+			if work != "" {
+				works[work] = struct{}{}
+			}
+		}
+		ready := false
 		for _, slice := range track.Slices {
 			if slice.Status != "ready" || slice.NextRole == "none" ||
 				slice.NextRole == "merge" || slice.NextRole == "planner" {
@@ -769,8 +844,10 @@ func exhaustedWorkApplies(
 			}
 			break
 		}
-	}
-	if ready {
+		if !ready {
+			continue
+		}
+		anyTrackReady = true
 		for _, command := range snapshot.Commands {
 			if command.Kind != "baton.append_receipt" {
 				continue
@@ -784,13 +861,17 @@ func exhaustedWorkApplies(
 				persisted.Input, &input) != nil || input.Slice == "" {
 				continue
 			}
+			owning, ok := state.Slice(input.Slice)
+			if !ok || owning.Location.Track.ID != track.ID {
+				continue
+			}
 			before := sliceFingerprint(state, input.Slice)
 			if before != "" {
 				add(workIdentity(
 					before, "append", input.Role, input.Result, input.Candidate))
 			}
 		}
-		return intersectingWork(exhausted, applicable)
+		lanes = append(lanes, laneCandidates{lane: track.ID, works: works})
 	}
 	plannerNeeded := false
 	for _, slice := range state.Slices {
@@ -807,9 +888,23 @@ func exhaustedWorkApplies(
 			TargetHead:  state.Refs.Target.Head,
 		}
 		before := plannerAuthorityBefore(authority)
-		add(driverWorkIdentity(manifest.digest, "", driver.PlannerProposal,
-			state.Plan.Metadata.Revision+1, before))
-		return intersectingWork(exhausted, applicable)
+		work := driverWorkIdentity(manifest.digest, "", driver.PlannerProposal,
+			state.Plan.Metadata.Revision+1, before)
+		if work != "" {
+			lanes = append(lanes, laneCandidates{
+				lane: "release", works: map[string]struct{}{work: {}},
+			})
+		}
+		return lanes
+	}
+	if anyTrackReady {
+		return lanes
+	}
+	works := make(map[string]struct{})
+	add := func(work string) {
+		if work != "" {
+			works[work] = struct{}{}
+		}
 	}
 	switch {
 	case state.Assembly.NextRole == "merge" && state.Assembly.Outcome != "pass":
@@ -830,7 +925,116 @@ func exhaustedWorkApplies(
 			state.Refs.Target.Head, state.Assembly.Pass.OID)
 		add(workIdentity(before, "merge"))
 	}
-	return intersectingWork(exhausted, applicable)
+	if len(works) != 0 {
+		lanes = append(lanes, laneCandidates{lane: "release", works: works})
+	}
+	return lanes
+}
+
+// lanePinFacts carries the fully-featured park facts for one pinned lane, in
+// the shape parkStatusFor already knows how to render, plus the exact work
+// identity those facts describe.
+type lanePinFacts struct {
+	work  string
+	facts parkFacts
+}
+
+// resolveLanePins decides, per candidate lane, whether any of its works
+// currently crosses an economy, identical-failure, or exhaustion guard
+// (B1's precedence: economy first, then identical-failure, then
+// exhaustion, matching parkStatusFor's own cause precedence), and returns
+// the stamped PinnedWork facts for every pinned lane (A2), the same facts
+// in parkStatusFor's richer shape for the single-cause Park fallback (B3),
+// and whether every candidate lane is pinned.
+func resolveLanePins(
+	lanes []laneCandidates,
+	exhausted map[string]struct{},
+	exhaustionRefusals map[string]exhaustionRefusalFacts,
+	economyByOwner map[string]economyParkFacts,
+	identicalByOwner map[string]identicalFailureFacts,
+) ([]PinnedWork, []lanePinFacts, bool) {
+	var pinnedWork []PinnedWork
+	var laneParks []lanePinFacts
+	allPinned := true
+	for _, lane := range lanes {
+		pinned := false
+		for work := range lane.works {
+			facts, ok := economyByOwner[work]
+			if !ok {
+				continue
+			}
+			pinnedWork = append(pinnedWork, PinnedWork{
+				WorkID: work, Lane: lane.lane, Cause: facts.cause,
+				Code:   economyCrossingCode(facts.cause),
+				Detail: economySpentDetail(facts),
+			})
+			laneParks = append(laneParks, lanePinFacts{
+				work: work, facts: parkFacts{economy: &facts},
+			})
+			pinned = true
+			break
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := identicalByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseIdenticalFailure,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{identicalFailure: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			if work, ok := intersectingWork(exhausted, lane.works); ok {
+				refusal := exhaustionRefusals[work]
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseExhaustion,
+					Code: refusal.code, Detail: refusal.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{
+						exhaustionApplies: true,
+						exhaustionCode:    refusal.code,
+						exhaustionDetail:  refusal.detail,
+					},
+				})
+				pinned = true
+			}
+		}
+		if !pinned {
+			allPinned = false
+		}
+	}
+	return pinnedWork, laneParks, allPinned
+}
+
+// economyCrossingCode names the stable error code an economy PinnedWork
+// entry carries, matching the top-level driver.dispatch failure code the
+// crossing was proved from.
+func economyCrossingCode(cause string) string {
+	switch cause {
+	case ParkCauseEconomyTurns:
+		return "ECONOMY_TURN_BUDGET_EXCEEDED"
+	case ParkCauseEconomyOutputTokens, ParkCauseEconomyOutputBytes:
+		return "ECONOMY_OUTPUT_BUDGET_EXCEEDED"
+	default:
+		return ""
+	}
+}
+
+// economySpentDetail renders the bounded, honest spent-versus-budget fact an
+// economy PinnedWork entry carries. The figures are non-negative integers,
+// always representable within validParkDetail's bound.
+func economySpentDetail(facts economyParkFacts) string {
+	return "spent " + strconv.FormatInt(facts.spent, 10) +
+		" of " + strconv.FormatInt(facts.budget, 10)
 }
 
 // intersectingWork returns one work present in both sets and whether any

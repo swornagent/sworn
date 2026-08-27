@@ -115,7 +115,25 @@ type RunStatus struct {
 	Effects            []EffectStatus         `json:"effects"`
 	EventOffset        int64                  `json:"event_offset"`
 	Park               *ParkStatus            `json:"park,omitempty"`
+	PinnedWork         []PinnedWork           `json:"pinned_work,omitempty"`
 	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
+}
+
+// PinnedWork names one work item a lane-scoped park crossing has pinned: no
+// further tries dispatch for WorkID until the operator retry verb clears it.
+// Lane names the candidate lane the work belongs to (a track ID, or
+// "release" for the planner-proposal/assembly pseudo-lane). Cause is one of
+// the ParkCause* values; Code and Detail carry the same bounded,
+// re-validated refusal facts a single-cause ParkStatus already carries for
+// its cause (exhaustion's FailureCode/FailureDetail, or the analogous stable
+// code and rendered spent-versus-budget or run-versus-threshold fact for the
+// economy and identical-failure causes).
+type PinnedWork struct {
+	WorkID string `json:"work_id"`
+	Lane   string `json:"lane"`
+	Cause  string `json:"cause"`
+	Code   string `json:"code,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -152,6 +170,10 @@ type ParkStatus struct {
 	Threshold     int64  `json:"threshold,omitempty"`
 	FailureCode   string `json:"failure_code,omitempty"`
 	FailureDetail string `json:"failure_detail,omitempty"`
+	// Work names which pinned work (RunStatus.PinnedWork) this single-cause
+	// summary describes, when the cause is work-scoped. Empty for the
+	// run-scoped causes (degradation, attention, human_authority).
+	Work string `json:"work,omitempty"`
 }
 
 type CaptainDelegationView struct {

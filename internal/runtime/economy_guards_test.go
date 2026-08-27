@@ -27,10 +27,32 @@ type economyGuardFixture struct {
 
 // newEconomyGuardFixture builds the same production-shaped service and
 // journal the degradation park tests use, with operator-chosen economy
-// limits.
+// limits, over a single-track (T1/S1) plan: no independent second lane
+// stays admissible while a guard-mechanism test's crossing pins the one
+// lane under test.
 func newEconomyGuardFixture(
 	t *testing.T,
 	limits driver.Limits,
+) *economyGuardFixture {
+	t.Helper()
+	return newEconomyGuardFixtureWithPlanFunc(t, limits, runtimeSingleTrackPlan)
+}
+
+// newEconomyGuardFixtureTwoTrack is newEconomyGuardFixture's two-track
+// (T1/S1, T2/S2) sibling, for A1 lane-isolation tests that need a second,
+// genuinely independent candidate lane alongside the one under test.
+func newEconomyGuardFixtureTwoTrack(
+	t *testing.T,
+	limits driver.Limits,
+) *economyGuardFixture {
+	t.Helper()
+	return newEconomyGuardFixtureWithPlanFunc(t, limits, runtimePlan)
+}
+
+func newEconomyGuardFixtureWithPlanFunc(
+	t *testing.T,
+	limits driver.Limits,
+	planFunc func(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan),
 ) *economyGuardFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -91,7 +113,7 @@ func newEconomyGuardFixture(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-	planBytes, _ := runtimePlan(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
+	planBytes, _ := planFunc(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
 	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install exact plan",
@@ -107,6 +129,135 @@ func newEconomyGuardFixture(
 
 func testWork() string {
 	return "sha256:" + strings.Repeat("b", 64)
+}
+
+// readyWork returns the one currently-applicable candidate work identity for
+// the fixture's single-track plan (T1/S1 fresh at design stage), so a
+// crossing recorded against it falls inside readyLaneCandidates' T1 lane
+// exactly as a real dispatch's work would.
+func (f *economyGuardFixture) readyWork(t *testing.T) string {
+	t.Helper()
+	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := readyLaneCandidates(f.manifest, nil, true, state, journal.Snapshot{})
+	for _, lane := range lanes {
+		for work := range lane.works {
+			return work
+		}
+	}
+	t.Fatal("no ready lane candidate in fixture")
+	return ""
+}
+
+// readyWorkForLane is readyWork's lane-selecting sibling, for a two-track
+// fixture where the candidate work of one specific lane (by track ID) is
+// needed.
+func (f *economyGuardFixture) readyWorkForLane(t *testing.T, laneID string) string {
+	t.Helper()
+	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := readyLaneCandidates(f.manifest, nil, true, state, journal.Snapshot{})
+	for _, lane := range lanes {
+		if lane.lane != laneID {
+			continue
+		}
+		for work := range lane.works {
+			return work
+		}
+	}
+	t.Fatalf("no ready lane candidate for lane %s in fixture", laneID)
+	return ""
+}
+
+// contextualFailedDispatchAttempt journals one completed operational
+// failure on a driver.dispatch effect whose command payload carries a real
+// productionDispatchCommand context (slice, responsibility, attempt), so
+// identicalFailureParkCrossings' lineage-key derivation (A3) can read it
+// back, unlike failedDispatchAttempt's synthetic {"work": ...} payload.
+func (f *economyGuardFixture) contextualFailedDispatchAttempt(
+	t *testing.T,
+	work string,
+	epoch, try int64,
+	code string,
+	slice string,
+	responsibility driver.Responsibility,
+	attempt int64,
+) {
+	t.Helper()
+	effectID := journal.AttemptEffectID(work, epoch, try)
+	payload := mustJSON(productionDispatchCommand{
+		Context: productionWorkContext{
+			Slice: slice, Responsibility: responsibility, Attempt: attempt,
+		},
+	})
+	if err := f.store.RecordCommandEffect(f.ctx, journal.Command{
+		RunID: f.manifest.value.RunID, ReplayKey: effectID, Kind: "driver.dispatch",
+		Payload: payload, CreatedAt: f.now,
+	}, journal.Effect{
+		RunID: f.manifest.value.RunID, ID: effectID, ReplayKey: effectID,
+		Kind: "driver.dispatch", State: journal.Pending,
+		BeforeDigest: sha256Digest(payload), ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.store.Claim(f.ctx, f.manifest.value.RunID, effectID, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Complete(f.ctx, journal.Completion{
+		RunID: f.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
+		State: journal.OperationalFailed, ErrorCode: code,
+		EventKind: "dispatch_operational_failure", EventBody: []byte("{}"), At: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// contextualSucceededDispatchAttempt is contextualFailedDispatchAttempt's
+// sibling for a Succeeded driver.dispatch effect, used to plant the later
+// lineage success A3's freshness rule must detect.
+func (f *economyGuardFixture) contextualSucceededDispatchAttempt(
+	t *testing.T,
+	work string,
+	epoch, try int64,
+	slice string,
+	responsibility driver.Responsibility,
+	attempt int64,
+) {
+	t.Helper()
+	effectID := journal.AttemptEffectID(work, epoch, try)
+	payload := mustJSON(productionDispatchCommand{
+		Context: productionWorkContext{
+			Slice: slice, Responsibility: responsibility, Attempt: attempt,
+		},
+	})
+	if err := f.store.RecordCommandEffect(f.ctx, journal.Command{
+		RunID: f.manifest.value.RunID, ReplayKey: effectID, Kind: "driver.dispatch",
+		Payload: payload, CreatedAt: f.now,
+	}, journal.Effect{
+		RunID: f.manifest.value.RunID, ID: effectID, ReplayKey: effectID,
+		Kind: "driver.dispatch", State: journal.Pending,
+		BeforeDigest: sha256Digest(payload), ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.store.Claim(f.ctx, f.manifest.value.RunID, effectID, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Complete(f.ctx, journal.Completion{
+		RunID: f.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
+		State: journal.Succeeded, EventKind: "dispatch_succeeded",
+		EventBody: []byte("{}"), At: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // failedDispatchAttempt journals one completed operational failure on a
@@ -328,7 +479,7 @@ func TestEconomyTurnBudgetCrossingParksRunWithSpentAndBudget(t *testing.T) {
 	// Default turn budget is 200; the dispatch crossed at 201 turns.
 	fixture.failedDispatchAttempt(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_TURN_BUDGET_EXCEEDED",
@@ -444,7 +595,7 @@ func TestEconomyOutputTokenBudgetCrossingParksRun(t *testing.T) {
 	})
 	fixture.failedDispatchAttempt(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_OUTPUT_BUDGET_EXCEEDED",
@@ -480,7 +631,7 @@ func TestEconomyOutputBytesBudgetCrossingParksRun(t *testing.T) {
 	})
 	fixture.failedDispatchAttemptWithDiagnostic(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_OUTPUT_BUDGET_EXCEEDED",
@@ -597,7 +748,7 @@ func TestEconomyKnobOverrideNamesOperatorBudget(t *testing.T) {
 	})
 	fixture.failedDispatchAttempt(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_TURN_BUDGET_EXCEEDED",
@@ -708,11 +859,12 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 				limits.IdenticalFailureParkAfter = test.threshold
 			}
 			fixture := newEconomyGuardFixture(t, limits)
+			work := fixture.readyWork(t)
 			for index, tryCode := range test.codes {
 				usage := economyUsageReceipt(t, "sworn.openai", 1_000, 2_000, 2, 2)
 				fixture.failedDispatchAttempt(
 					t,
-					testWork(),
+					work,
 					1,
 					int64(index+1),
 					tryCode,
@@ -723,8 +875,8 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 			if test.claimTry3 {
 				// A claimed, still-in-flight third try breaks the
 				// consecutive suffix: the work is making progress.
-				effectID := journal.AttemptEffectID(testWork(), 1, 3)
-				payload, _ := json.Marshal(map[string]string{"work": testWork()})
+				effectID := journal.AttemptEffectID(work, 1, 3)
+				payload, _ := json.Marshal(map[string]string{"work": work})
 				if err := fixture.store.RecordCommandEffect(
 					fixture.ctx,
 					journal.Command{
@@ -795,6 +947,109 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 // failing with the same error code park the run at the admission boundary
 // the try chains evaluate before a third try, and Status names the park with
 // the shared code and run length.
+// TestIdenticalFailureLineageSuccessBreaksStaleStreak pins A3: the
+// identical-failure streak is keyed on the dispatch work id alone, so a
+// later success minting a fresh work id for the same slice+responsibility
+// lineage (a moved target or track head, common once other lanes keep
+// committing under lane-scoped parking) must suppress the stale streak's
+// crossing, while a genuinely unbroken streak with no later lineage success
+// still crosses.
+func TestIdenticalFailureLineageSuccessBreaksStaleStreak(t *testing.T) {
+	t.Parallel()
+	work1 := "sha256:" + strings.Repeat("1", 64)
+	work2 := "sha256:" + strings.Repeat("2", 64)
+	const code = "PROVIDER_LIMITED"
+
+	run := func(t *testing.T, plantSuccess bool, successAttempt int64) []identicalFailureFacts {
+		t.Helper()
+		fixture := newEconomyGuardFixture(t, driver.Limits{
+			TimeoutMillis: 30_000, OutputBytes: 65_536,
+		})
+		fixture.contextualFailedDispatchAttempt(
+			t, work1, 1, 1, code, "S1", driver.ImplementerDesign, 1)
+		fixture.contextualFailedDispatchAttempt(
+			t, work1, 1, 2, code, "S1", driver.ImplementerDesign, 1)
+		if plantSuccess {
+			fixture.contextualSucceededDispatchAttempt(
+				t, work2, 1, 1, "S1", driver.ImplementerDesign, successAttempt)
+		}
+		snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		control, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return identicalFailureParkCrossings(
+			fixture.manifest, snapshot, control, driver.DefaultIdenticalFailureParkAfter)
+	}
+	crossed := func(crossings []identicalFailureFacts, work string) bool {
+		for _, crossing := range crossings {
+			if crossing.work == work {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("unbroken streak with no later lineage success still parks", func(t *testing.T) {
+		t.Parallel()
+		crossings := run(t, false, 0)
+		if !crossed(crossings, work1) {
+			t.Fatalf("unbroken streak did not cross: %#v", crossings)
+		}
+	})
+
+	t.Run("later lineage success at the same attempt suppresses the stale streak", func(t *testing.T) {
+		t.Parallel()
+		// "Not lower than the streak's attempt" (the captain's correction):
+		// an equal attempt still counts, because a moved target/track head
+		// mints a fresh work id for the same slice, responsibility, and
+		// attempt.
+		crossings := run(t, true, 1)
+		if crossed(crossings, work1) {
+			t.Fatalf("stale streak still crossed after lineage success: %#v", crossings)
+		}
+	})
+
+	t.Run("later lineage success at a higher attempt suppresses the stale streak", func(t *testing.T) {
+		t.Parallel()
+		crossings := run(t, true, 2)
+		if crossed(crossings, work1) {
+			t.Fatalf("stale streak still crossed after lineage success: %#v", crossings)
+		}
+	})
+
+	t.Run("a success at a lower attempt in a different lineage never suppresses", func(t *testing.T) {
+		t.Parallel()
+		fixture := newEconomyGuardFixture(t, driver.Limits{
+			TimeoutMillis: 30_000, OutputBytes: 65_536,
+		})
+		fixture.contextualFailedDispatchAttempt(
+			t, work1, 1, 1, code, "S1", driver.ImplementerDesign, 2)
+		fixture.contextualFailedDispatchAttempt(
+			t, work1, 1, 2, code, "S1", driver.ImplementerDesign, 2)
+		// Different responsibility: a different lineage entirely, so its
+		// success must never suppress S1's design streak.
+		fixture.contextualSucceededDispatchAttempt(
+			t, work2, 1, 1, "S1", driver.CaptainReview, 5)
+		snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		control, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		crossings := identicalFailureParkCrossings(
+			fixture.manifest, snapshot, control, driver.DefaultIdenticalFailureParkAfter)
+		if !crossed(crossings, work1) {
+			t.Fatalf("cross-lineage success wrongly suppressed the streak: %#v", crossings)
+		}
+	})
+}
+
 func TestIdenticalFailureLiveDispatchAdmissionParksBeforeThirdTry(t *testing.T) {
 	t.Parallel()
 	dispatcher := fixtureDriver(func(
@@ -865,6 +1120,7 @@ func TestIdenticalFailureLiveDispatchAdmissionParksBeforeThirdTry(t *testing.T) 
 		fixture.ctx,
 		fixture.manifest,
 		runID,
+		workIdentity(fixture.cycle.Before, "git.seal"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -873,19 +1129,25 @@ func TestIdenticalFailureLiveDispatchAdmissionParksBeforeThirdTry(t *testing.T) 
 		t.Fatal("admission check did not park two identical dispatch failures")
 	}
 
-	// Status projects the park over the real production dispatch effects.
+	// Status projects the pin over the real production dispatch effects:
+	// T1's work is pinned while the fixture's independent T2 lane stays
+	// admissible, so the run itself keeps reading "running" (A1) - the
+	// pinned-work fact is still visible beside it (A2).
 	status, err := fixture.service.Status(fixture.ctx, runID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.State != "parked" || status.Park == nil {
-		t.Fatalf("status = %#v", status)
+	outerWork := workIdentity(fixture.cycle.Before, "git.seal")
+	var pinned *PinnedWork
+	for index := range status.PinnedWork {
+		if status.PinnedWork[index].WorkID == outerWork {
+			pinned = &status.PinnedWork[index]
+		}
 	}
-	if status.Park.Cause != ParkCauseIdenticalFailure ||
-		status.Park.FailureCode != "INVOCATION_TIMEOUT" ||
-		status.Park.Consecutive != 2 ||
-		status.Park.Threshold != driver.DefaultIdenticalFailureParkAfter {
-		t.Fatalf("identical park = %#v", status.Park)
+	if pinned == nil ||
+		pinned.Cause != ParkCauseIdenticalFailure ||
+		pinned.Code != "INVOCATION_TIMEOUT" {
+		t.Fatalf("pinned work = %#v, status = %#v", pinned, status)
 	}
 
 	// The drive loop writes the typed park event and starts no new work.
@@ -930,12 +1192,13 @@ func TestIdenticalFailureDriveLoopWritesParkEventAndReParks(t *testing.T) {
 		TimeoutMillis: 30_000,
 		OutputBytes:   65_536,
 	})
+	work := fixture.readyWork(t)
 	fixture.failedDispatchAttempt(
-		t, testWork(), 1, 1, code, "",
+		t, work, 1, 1, code, "",
 		economyUsageReceipt(t, "sworn.openai", 1_000, 2_000, 3, 3),
 	)
 	fixture.failedDispatchAttempt(
-		t, testWork(), 1, 2, code, "",
+		t, work, 1, 2, code, "",
 		economyUsageReceipt(t, "sworn.openai", 1_000, 2_000, 3, 3),
 	)
 	if err := fixture.service.driveLoop(
@@ -995,6 +1258,67 @@ func TestIdenticalFailureDriveLoopWritesParkEventAndReParks(t *testing.T) {
 // pattern the contract names: absent knobs get the documented defaults and
 // keep legacy manifests byte-identical; declared knobs round-trip
 // canonically; out-of-bounds and explicit-zero declarations are rejected.
+// TestLaneScopedParkKeepsIndependentTrackDispatchable pins A1 over a real
+// two-track plan: an economy crossing pins T1's own candidate work while
+// T2's independent, untouched candidate work is neither pinned nor excluded
+// from driveLoop's ready computation, and the run itself keeps reading
+// "running" - parked only when every candidate lane is pinned - with T1's
+// pin still visible in PinnedWork beside the still-admissible T2 lane (A2).
+func TestLaneScopedParkKeepsIndependentTrackDispatchable(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixtureTwoTrack(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	t1Work := fixture.readyWorkForLane(t, "T1")
+	t2Work := fixture.readyWorkForLane(t, "T2")
+	if t1Work == t2Work {
+		t.Fatalf("T1 and T2 candidate works collided: %s", t1Work)
+	}
+	fixture.failedDispatchAttempt(
+		t, t1Work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+
+	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "running" {
+		t.Fatalf("state = %q, want running (T2 stays admissible)", status.State)
+	}
+	if status.Park != nil {
+		t.Fatalf("Park set on a running status = %#v", status.Park)
+	}
+	if len(status.PinnedWork) != 1 ||
+		status.PinnedWork[0].WorkID != t1Work ||
+		status.PinnedWork[0].Lane != "T1" ||
+		status.PinnedWork[0].Cause != ParkCauseEconomyTurns {
+		t.Fatalf("pinned work = %#v", status.PinnedWork)
+	}
+
+	// The between-tries admission gate is scoped the same way: T1's own
+	// crossing parks T1's next try; T2's work is untouched by it.
+	t1Parked, err := fixture.service.economyGuardsParked(
+		fixture.ctx, fixture.manifest, fixture.manifest.value.RunID, t1Work,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !t1Parked {
+		t.Fatal("T1's own crossing did not park T1's next try")
+	}
+	t2Parked, err := fixture.service.economyGuardsParked(
+		fixture.ctx, fixture.manifest, fixture.manifest.value.RunID, t2Work,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if t2Parked {
+		t.Fatal("T1's crossing wrongly parked T2's next try")
+	}
+}
+
 func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -1133,7 +1457,7 @@ func TestParkEventCauseScopedIdempotence(t *testing.T) {
 	// not yet crossed, so the degradation gate lets the loop continue).
 	fixture.failedDispatchAttempt(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_TURN_BUDGET_EXCEEDED",
@@ -1219,7 +1543,7 @@ func TestDegradationParkEventNeverSuppressesEconomyPark(t *testing.T) {
 	// reachable and must admit its event despite the degradation event.
 	fixture.failedDispatchAttempt(
 		t,
-		testWork(),
+		fixture.readyWork(t),
 		1,
 		1,
 		"ECONOMY_TURN_BUDGET_EXCEEDED",
@@ -1290,7 +1614,7 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		t.Fatalf("legacy degradation body re-encodes differently: %s vs %s", legacyBytes, reEncoded)
 	}
 
-	economy, err := economyParkEventBody("run-economy", economyParkFacts{
+	economy, err := economyParkEventBody("run-economy", testWork(), economyParkFacts{
 		cause:  ParkCauseEconomyTurns,
 		spent:  201,
 		budget: 200,
@@ -1309,7 +1633,7 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		t.Fatalf("economy park event = %#v", parsedEconomy)
 	}
 
-	economyBytes, err := economyParkEventBody("run-economy-bytes", economyParkFacts{
+	economyBytes, err := economyParkEventBody("run-economy-bytes", testWork(), economyParkFacts{
 		cause:  ParkCauseEconomyOutputBytes,
 		spent:  17_825_792,
 		budget: 16_777_216,
@@ -1330,7 +1654,7 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		t.Fatalf("economy bytes park event = %#v", parsedEconomyBytes)
 	}
 
-	identical, err := identicalFailureParkEventBody("run-identical", identicalFailureFacts{
+	identical, err := identicalFailureParkEventBody("run-identical", testWork(), identicalFailureFacts{
 		code:        "INVOCATION_TIMEOUT",
 		consecutive: 2,
 		threshold:   2,

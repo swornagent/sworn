@@ -58,6 +58,44 @@ func runtimePlan(t *testing.T, release, repository, target, marker string) ([]by
 	return body, plan
 }
 
+// runtimeSingleTrackPlan is runtimePlan's one-track sibling: T1/S1 only, no
+// independent T2/S2 lane to keep dispatching alongside a fixture that only
+// sets up guard-mechanism plumbing for the one lane under test.
+func runtimeSingleTrackPlan(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan) {
+	t.Helper()
+	metadata := baton.Metadata{
+		SchemaVersion: baton.PlanVersion,
+		Release:       release,
+		Revision:      1,
+		PreviousPlan:  nil,
+		Repository:    repository,
+		TargetRef:     target,
+		ApprovalRef:   "operator://" + release + "/1",
+		Tracks: []baton.Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{{
+				ID: "S1", Outcome: "Deliver S1.",
+				Scope:      baton.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
+				Acceptance: []baton.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
+				Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
+				DependsOn: []string{}, Consumes: []string{},
+			}}},
+		},
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nFixture plan.\n",
+	)
+	plan, err := baton.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
 func encodeSubmission(t *testing.T, submission driver.Submission) string {
 	t.Helper()
 	body, err := driver.EncodeSubmission(submission)
@@ -1085,37 +1123,38 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 	oldBefore := sliceFingerprint(old, sliceDefinition.ID)
 	oldWork := driverWorkIdentity(manifest.digest, sliceDefinition.ID,
 		driver.ImplementerDesign, 1, oldBefore)
-	if _, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{oldWork: {}}); applies {
+	if lanes := readyLaneCandidates(manifest, nil, true, state, journal.Snapshot{}); lanesContainWork(lanes, oldWork) {
 		t.Fatal("changed-plan exhaustion still parks current work")
 	}
 	currentBefore := sliceFingerprint(state, sliceDefinition.ID)
 	currentWork := driverWorkIdentity(manifest.digest, sliceDefinition.ID,
 		driver.ImplementerDesign, 1, currentBefore)
-	if work, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{currentWork: {}}); !applies || work != currentWork {
+	if lanes := readyLaneCandidates(manifest, nil, true, state, journal.Snapshot{}); !lanesContainWork(lanes, currentWork) {
 		t.Fatal("exact current exhaustion did not park")
 	}
 	currentTrackBaseWork := workIdentity(
 		trackBaseBefore(state, currentSlice),
 		"git.prepare_track_base",
 	)
-	if work, applies := exhaustedWorkApplies(
-		manifest,
-		nil,
-		true,
-		state,
-		journal.Snapshot{},
-		map[string]struct{}{currentTrackBaseWork: {}},
-	); !applies || work != currentTrackBaseWork {
+	if lanes := readyLaneCandidates(
+		manifest, nil, true, state, journal.Snapshot{},
+	); !lanesContainWork(lanes, currentTrackBaseWork) {
 		t.Fatal("exact current track-base exhaustion did not park")
 	}
 	state.Slices = nil
 	state.Tracks[0].Slices = nil
-	if _, applies := exhaustedWorkApplies(manifest, nil, true, state, journal.Snapshot{},
-		map[string]struct{}{oldWork: {}}); applies {
+	if lanes := readyLaneCandidates(manifest, nil, true, state, journal.Snapshot{}); lanesContainWork(lanes, oldWork) {
 		t.Fatal("retired-slice exhaustion still parks current work")
 	}
+}
+
+func lanesContainWork(lanes []laneCandidates, work string) bool {
+	for _, lane := range lanes {
+		if _, ok := lane.works[work]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func TestInvocationIdentityIsStableAcrossResume(t *testing.T) {
@@ -1177,10 +1216,26 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 	}
 	installer := newAuthorityInstaller(actions)
 	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
+	// Single-track plan: no independent T2 lane stays admissible while T1
+	// exhausts, so the run-level parked assertion below stays exactly the
+	// "only remaining work" shape lane-scoped parking (A1) leaves unchanged.
+	singleTrackMetadata := plan.Metadata()
+	singleTrackMetadata.Tracks = singleTrackMetadata.Tracks[:1]
+	singleTrackBody, err := json.MarshalIndent(singleTrackMetadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	singleTrackPlanBytes := []byte(
+		"```baton-plan-v2\n" + string(singleTrackBody) + "\n```\n\nFixture plan.\n",
+	)
+	singleTrackPlan, err := baton.ParsePlan(singleTrackPlanBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
 	admission := approvalAdmission{
-		planBytes:  plan.Bytes(),
-		planDigest: plan.Digest(),
-		reference:  plan.Metadata().ApprovalRef,
+		planBytes:  singleTrackPlan.Bytes(),
+		planDigest: singleTrackPlan.Digest(),
+		reference:  singleTrackPlan.Metadata().ApprovalRef,
 	}
 	if _, err := installer.install(admission, targetP); err != nil {
 		t.Fatal(err)
