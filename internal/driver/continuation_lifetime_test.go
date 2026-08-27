@@ -152,3 +152,43 @@ func TestRequestContinuationLifetimeBounds(t *testing.T) {
 		t.Fatalf("declared 1h lifetime did not bind")
 	}
 }
+
+func TestRequestNativeOutputStreamBudgetBounds(t *testing.T) {
+	t.Parallel()
+	request := contractRequest(t, RoleImplementer)
+	request.Limits.MaxNativeOutputStreamBytes = 0
+	if err := ValidateRequest(request); err != nil {
+		t.Fatalf("zero (absent) budget rejected: %v", err)
+	}
+	request.Limits.MaxNativeOutputStreamBytes = MaxProviderResponseBytes
+	if err := ValidateRequest(request); err != nil {
+		t.Fatalf("floor budget rejected: %v", err)
+	}
+	request.Limits.MaxNativeOutputStreamBytes = MaxNativeOutputStreamBytesLimit
+	if err := ValidateRequest(request); err != nil {
+		t.Fatalf("cap budget rejected: %v", err)
+	}
+	request.Limits.MaxNativeOutputStreamBytes = -1
+	if err := ValidateRequest(request); !IsCode(err, "INVALID_LIMIT") {
+		t.Fatalf("negative budget error = %v, want INVALID_LIMIT", err)
+	}
+	request.Limits.MaxNativeOutputStreamBytes = MaxProviderResponseBytes - 1
+	if err := ValidateRequest(request); !IsCode(err, "INVALID_LIMIT") {
+		t.Fatalf("below-floor budget error = %v, want INVALID_LIMIT", err)
+	}
+	request.Limits.MaxNativeOutputStreamBytes = MaxNativeOutputStreamBytesLimit + 1
+	if err := ValidateRequest(request); !IsCode(err, "INVALID_LIMIT") {
+		t.Fatalf("over-cap budget error = %v, want INVALID_LIMIT", err)
+	}
+	if (Limits{}).EffectiveMaxNativeOutputStreamBytes() != DefaultMaxNativeOutputStreamBytes {
+		t.Fatalf(
+			"default native stream budget = %d, want %d",
+			(Limits{}).EffectiveMaxNativeOutputStreamBytes(),
+			DefaultMaxNativeOutputStreamBytes,
+		)
+	}
+	if (Limits{MaxNativeOutputStreamBytes: 2_097_152}).
+		EffectiveMaxNativeOutputStreamBytes() != 2_097_152 {
+		t.Fatalf("declared native stream budget did not bind")
+	}
+}

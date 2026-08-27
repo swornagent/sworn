@@ -274,6 +274,7 @@ func validDiagnosticCode(code string) bool {
 		"provider_truncated",
 		"economy_turn_budget",
 		"economy_output_budget",
+		"economy_output_budget_bytes",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -309,6 +310,7 @@ func validFatalDiagnosticCode(code string) bool {
 		"provider_truncated",
 		"economy_turn_budget",
 		"economy_output_budget",
+		"economy_output_budget_bytes",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -433,11 +435,12 @@ func sanitizeFailedObservation(
 // entitles its accumulated usage receipt to survive the failure-sanitization
 // seam. It is the closed family of measured-failure diagnostics, never
 // inferred from the error: truncation (provider ceiling) and the economy
-// budget crossings (turn and output-token), whose spent-vs-budget evidence
-// the runtime park gate depends on.
+// budget crossings (turn, output-token, and native output-stream byte),
+// whose spent-vs-budget evidence the runtime park gate depends on.
 func preservesUsageDiagnostic(code string) bool {
 	switch code {
-	case "provider_truncated", "economy_turn_budget", "economy_output_budget":
+	case "provider_truncated", "economy_turn_budget", "economy_output_budget",
+		"economy_output_budget_bytes":
 		return true
 	default:
 		return false

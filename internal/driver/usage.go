@@ -90,6 +90,11 @@ type UsageReceipt struct {
 	// of the diagnostic code, so pin-admission policy never weakens
 	// attestation. Absence stays honest where no binary ever ran.
 	ExecutedDigest *string `json:"executed_digest,omitempty"`
+	// NativeStreamBytes is the cumulative native event-stream byte count
+	// counted at an ECONOMY_OUTPUT_BUDGET_EXCEEDED byte crossing
+	// (S3-output-stream-economy A3). Nil is honest absence: every receipt
+	// but the native byte-budget failure omits it.
+	NativeStreamBytes *int64 `json:"native_stream_bytes,omitempty"`
 }
 
 // Zero reports whether the receipt carries no fact at all, field by field.
@@ -108,7 +113,7 @@ func (receipt UsageReceipt) Zero() bool {
 		receipt.Turns == nil && receipt.ToolCalls == nil &&
 		receipt.ToolCallsByName == nil && receipt.DurationMillis == nil &&
 		receipt.Profile == nil && receipt.Model == nil &&
-		receipt.ExecutedDigest == nil
+		receipt.ExecutedDigest == nil && receipt.NativeStreamBytes == nil
 }
 
 // carriesV2Facts reports whether the receipt carries any v2 field. Receipts
@@ -119,7 +124,8 @@ func (receipt UsageReceipt) carriesV2Facts() bool {
 		receipt.UnavailableReason != "" || receipt.Turns != nil ||
 		receipt.ToolCalls != nil || receipt.ToolCallsByName != nil ||
 		receipt.DurationMillis != nil || receipt.Profile != nil ||
-		receipt.Model != nil || receipt.ExecutedDigest != nil
+		receipt.Model != nil || receipt.ExecutedDigest != nil ||
+		receipt.NativeStreamBytes != nil
 }
 
 func validUnavailableReason(value string) bool {
@@ -499,6 +505,11 @@ func validateV2UsageReceipt(receipt UsageReceipt) error {
 	}
 	if receipt.ExecutedDigest != nil &&
 		!digestPattern.MatchString(*receipt.ExecutedDigest) {
+		return fail("INVALID_USAGE")
+	}
+	if receipt.NativeStreamBytes != nil &&
+		(*receipt.NativeStreamBytes < 0 ||
+			*receipt.NativeStreamBytes > MaxSafeInteger) {
 		return fail("INVALID_USAGE")
 	}
 	return nil

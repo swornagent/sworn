@@ -134,7 +134,8 @@ type RecoveryAction struct {
 
 // ParkStatus names why a run is parked. Cause is one of degradation,
 // attention, exhaustion, human_authority, economy_turns,
-// economy_output_tokens, or identical_failure; a degradation park carries
+// economy_output_tokens, economy_output_bytes, or identical_failure; a
+// degradation park carries
 // the gated fallback count, the effective budget, and the manifest knob
 // that unblocks it. An economy park carries spent-versus-budget; an
 // identical-failure park carries the consecutive run, the threshold, the

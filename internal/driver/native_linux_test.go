@@ -2574,3 +2574,62 @@ func TestNativeEventStateCapturesFullWireSplitAndTurns(t *testing.T) {
 		t.Fatalf("codex capture = %#v", codex.usage)
 	}
 }
+
+// A2: scanNativeEvents' cumulative-total branch fails
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED and stamps the crossing byte total onto
+// state, never touching state.accept - nothing in the pre-slice suite pins
+// this cumulative behavior.
+func TestScanNativeEventsCumulativeByteBudgetCrossing(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	line := []byte(`{"type":"result","usage":{"input_tokens":1,"output_tokens":1}}`)
+	reader := bytes.NewReader(append(append([]byte(nil), line...), '\n'))
+	capability := []byte("capability-not-present")
+	err := scanNativeEvents(reader, capability, state, int64(len(line))-1)
+	if !IsCode(err, "ECONOMY_OUTPUT_BUDGET_EXCEEDED") {
+		t.Fatalf("error = %v, want ECONOMY_OUTPUT_BUDGET_EXCEEDED", err)
+	}
+	state.mu.Lock()
+	spent := state.streamBytes
+	state.mu.Unlock()
+	if spent != int64(len(line)) {
+		t.Fatalf("streamBytes = %d, want %d", spent, len(line))
+	}
+	if state.turns != 0 {
+		t.Fatalf("turns = %d, want 0: the crossing must trip before accept runs", state.turns)
+	}
+}
+
+// A2: a stream whose cumulative total stays under the budget keeps running
+// every line through state.accept exactly as before.
+func TestScanNativeEventsUnderBudgetContinues(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	line := []byte(`{"type":"result","usage":{"input_tokens":1,"output_tokens":1}}` + "\n")
+	var buf bytes.Buffer
+	for i := 0; i < 5; i++ {
+		buf.Write(line)
+	}
+	total := int64(buf.Len())
+	capability := []byte("capability-not-present")
+	if err := scanNativeEvents(&buf, capability, state, total+1); err != nil {
+		t.Fatalf("error = %v, want nil", err)
+	}
+	if state.turns != 5 {
+		t.Fatalf("turns = %d, want 5", state.turns)
+	}
+}
+
+// A2: a line that both crosses the cumulative budget and carries the
+// capability secret still classifies as surface, not economy - the secret
+// check runs first.
+func TestScanNativeEventsSecretTripOutranksByteBudget(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	capability := []byte("capability-secret-token")
+	line := []byte(`{"type":"result","note":"` + string(capability) + `"}`)
+	reader := bytes.NewReader(append(append([]byte(nil), line...), '\n'))
+	if err := scanNativeEvents(reader, capability, state, 1); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+		t.Fatalf("error = %v, want NATIVE_SURFACE_INVALID", err)
+	}
+}

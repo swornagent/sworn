@@ -5571,7 +5571,7 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			snapshot,
 			projection,
 		); crossing != nil {
-			spentTurns, spentTokens, spentErr := s.economySpent(
+			spentTurns, spentTokens, spentBytes, diagnosticCode, spentErr := s.economySpent(
 				ctx,
 				owner.RunID,
 				*crossing,
@@ -5584,6 +5584,8 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 				engine.manifest.value.Limits,
 				spentTurns,
 				spentTokens,
+				spentBytes,
+				diagnosticCode,
 			)
 			body, err := economyParkEventBody(owner.RunID, facts)
 			if err != nil {

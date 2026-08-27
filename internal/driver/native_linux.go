@@ -200,7 +200,12 @@ type nativeEventState struct {
 	usage            Usage
 	hasUsage         bool
 	turns            int64
-	err              error
+	// streamBytes is the cumulative decoded event-stream byte total at an
+	// ECONOMY_OUTPUT_BUDGET_EXCEEDED crossing (S3-output-stream-economy
+	// A3): stamped by scanNativeEvents immediately before it returns that
+	// error, so the crossing carries its own spent-bytes fact.
+	streamBytes int64
+	err         error
 }
 
 type nativeCaptureRun struct {
@@ -2052,6 +2057,7 @@ func platformRunNative(
 			stdout,
 			capability,
 			state,
+			invocation.Request.Limits.EffectiveMaxNativeOutputStreamBytes(),
 			captureToken,
 		)
 	}()
@@ -2168,6 +2174,24 @@ func platformRunNative(
 		stderrLeak = captureStderr.leaked() || stderrLeak
 	}
 	stderrFinalized = true
+	if scanErr != nil && !stderrLeak && IsCode(scanErr, "ECONOMY_OUTPUT_BUDGET_EXCEEDED") {
+		state.mu.Lock()
+		crossingUsage := state.usage
+		crossingHasUsage := state.hasUsage
+		crossingTurns := state.turns
+		crossingBytes := state.streamBytes
+		state.mu.Unlock()
+		return nativeStreamBudgetFailure(
+			started,
+			invocation.Selected.Adapter.ID,
+			crossingUsage,
+			crossingHasUsage,
+			crossingTurns,
+			broker.toolCallTotal(),
+			broker.toolCallsByName(),
+			crossingBytes,
+		), fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
+	}
 	if scanErr != nil || stderrLeak {
 		return Observation{}, fail("NATIVE_SURFACE_INVALID")
 	}
@@ -3247,25 +3271,76 @@ func codexModelCatalog(model string) ([]byte, error) {
 	return body, nil
 }
 
+// nativeStreamBudgetFailure builds the receipt-bearing failure Observation
+// for a native cumulative output-stream byte crossing
+// (S3-output-stream-economy A3), mirroring economyBudgetFailure's shape:
+// RunnerError transport, accumulated usage with the engine-counted turn
+// economics, and the crossing's spent-bytes fact riding the additive
+// NativeStreamBytes field so the runtime park gate can read it back.
+func nativeStreamBudgetFailure(
+	started time.Time,
+	adapterID string,
+	usageValue Usage,
+	hasUsage bool,
+	turns, toolCalls int64,
+	toolCallsByName map[string]int64,
+	spentBytes int64,
+) Observation {
+	usage, err := NormalizeUsage(nil, nil, adapterID)
+	if hasUsage {
+		usage, err = NormalizeUsage(&usageValue, nil, adapterID)
+	}
+	if err != nil {
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	if spentBytes >= 0 && spentBytes <= MaxSafeInteger {
+		usage.NativeStreamBytes = &spentBytes
+	}
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: "economy_output_budget_bytes"},
+	}
+}
+
+// scanNativeEvents reads the native event stream line by line. Two bounds
+// stay surface integrity, unchanged: the per-line scanner buffer bound
+// above (MaxProviderResponseBytes) and the secret-leak scan below. The
+// cumulative total, by contrast, is manifest-governed economy
+// (S3-output-stream-economy A2): a crossing of cumulativeBudget fails
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED with the crossing byte total stamped onto
+// state for the caller to carry into a receipt-bearing failure observation.
+// A line that is both oversize and carries a secret still classifies as
+// surface: the secret check runs first.
 func scanNativeEvents(
 	reader io.Reader,
 	capability []byte,
 	state *nativeEventState,
+	cumulativeBudget int64,
 	additionalSecrets ...[]byte,
 ) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), MaxProviderResponseBytes)
-	total := 0
+	var total int64
 	for scanner.Scan() {
 		line := append([]byte(nil), scanner.Bytes()...)
-		total += len(line)
+		total += int64(len(line))
 		secretFound := containsCapability(line, capability)
 		for _, secret := range additionalSecrets {
 			secretFound = secretFound || containsCapability(line, secret)
 		}
-		if total > MaxProviderResponseBytes || secretFound {
+		if secretFound {
 			clearBytes(line)
 			return fail("NATIVE_SURFACE_INVALID")
+		}
+		if total > cumulativeBudget {
+			clearBytes(line)
+			state.mu.Lock()
+			state.streamBytes = total
+			state.mu.Unlock()
+			return fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
 		}
 		err := state.accept(line)
 		clearBytes(line)

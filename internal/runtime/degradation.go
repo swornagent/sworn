@@ -30,6 +30,9 @@ const (
 	// EconomyOutputTokensUnblockKnob is the manifest knob that unblocks an
 	// economy output-token-budget park.
 	EconomyOutputTokensUnblockKnob = "limits.max_output_tokens_per_work"
+	// EconomyOutputBytesUnblockKnob is the manifest knob that unblocks an
+	// economy native output-stream byte-budget park.
+	EconomyOutputBytesUnblockKnob = "limits.max_native_output_stream_bytes"
 	// IdenticalFailureUnblockKnob is the manifest knob that unblocks an
 	// identical-failure park.
 	IdenticalFailureUnblockKnob = "limits.identical_failure_park_after"
@@ -59,6 +62,9 @@ const (
 	// ParkCauseEconomyOutputTokens is the park cause for a work whose
 	// dispatch crossed its per-work output-token budget.
 	ParkCauseEconomyOutputTokens = "economy_output_tokens"
+	// ParkCauseEconomyOutputBytes is the park cause for a work whose
+	// native dispatch crossed its cumulative output-stream byte budget.
+	ParkCauseEconomyOutputBytes = "economy_output_bytes"
 	// ParkCauseIdenticalFailure is the park cause for a work with N
 	// consecutive identical operational failures.
 	ParkCauseIdenticalFailure = "identical_failure"
@@ -176,10 +182,16 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 		}
 	case event.SchemaVersion == ParkEventVersion &&
 		(event.Cause == ParkCauseEconomyTurns ||
-			event.Cause == ParkCauseEconomyOutputTokens):
-		knob := EconomyTurnsUnblockKnob
-		if event.Cause == ParkCauseEconomyOutputTokens {
+			event.Cause == ParkCauseEconomyOutputTokens ||
+			event.Cause == ParkCauseEconomyOutputBytes):
+		var knob string
+		switch event.Cause {
+		case ParkCauseEconomyTurns:
+			knob = EconomyTurnsUnblockKnob
+		case ParkCauseEconomyOutputTokens:
 			knob = EconomyOutputTokensUnblockKnob
+		case ParkCauseEconomyOutputBytes:
+			knob = EconomyOutputBytesUnblockKnob
 		}
 		// A crossing means the engine-counted spend reached the effective
 		// budget at the loop-top boundary; an event must name both facts.

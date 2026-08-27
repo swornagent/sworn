@@ -197,7 +197,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// journal that crossed re-parks with the same figures.
 	var economyPark *economyParkFacts
 	if crossing := economyParkCrossing(snapshot, control); crossing != nil {
-		spentTurns, spentTokens, spentErr := s.economySpent(
+		spentTurns, spentTokens, spentBytes, diagnosticCode, spentErr := s.economySpent(
 			ctx,
 			runID,
 			*crossing,
@@ -210,6 +210,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			manifest.value.Limits,
 			spentTurns,
 			spentTokens,
+			spentBytes,
+			diagnosticCode,
 		)
 		economyPark = &facts
 	}

@@ -189,6 +189,92 @@ func (f *economyGuardFixture) failedDispatchAttempt(
 	}
 }
 
+// failedDispatchAttemptWithDiagnostic is failedDispatchAttempt's sibling: it
+// journals the same shape of completed operational failure, but synthesizes
+// the durable observation body with an explicit diagnostic code instead of
+// failedDispatchAttempt's hardcoded "economy_turn_budget" - needed to
+// exercise a crossing whose park facts are disambiguated by the
+// observation's Diagnostic.Code (S3-output-stream-economy A4), such as the
+// byte-denominated native crossing sharing ECONOMY_OUTPUT_BUDGET_EXCEEDED
+// with the token-denominated one.
+func (f *economyGuardFixture) failedDispatchAttemptWithDiagnostic(
+	t *testing.T,
+	work string,
+	epoch, try int64,
+	code string,
+	diagnosticCode string,
+	detail string,
+	usage driver.UsageReceipt,
+) {
+	t.Helper()
+	effectID := journal.AttemptEffectID(work, epoch, try)
+	payload, err := json.Marshal(map[string]string{"work": work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := sha256Digest(payload)
+	expected := "sha256:" + strings.Repeat("d", 64)
+	if err := f.store.RecordCommandEffect(f.ctx, journal.Command{
+		RunID:     f.manifest.value.RunID,
+		ReplayKey: effectID,
+		Kind:      "driver.dispatch",
+		Payload:   payload,
+		CreatedAt: f.now,
+	}, journal.Effect{
+		RunID:          f.manifest.value.RunID,
+		ID:             effectID,
+		ReplayKey:      effectID,
+		Kind:           "driver.dispatch",
+		State:          journal.Pending,
+		BeforeDigest:   before,
+		ExpectedDigest: expected,
+		UpdatedAt:      f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.store.Claim(f.ctx, f.manifest.value.RunID, effectID, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageBody, err := driver.EncodeUsageReceipt(usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationBody, err := json.Marshal(driver.Observation{
+		TransportStatus: driver.RunnerError,
+		Usage:           usage,
+		Diagnostic:      driver.Diagnostic{Code: diagnosticCode},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result []byte
+	if detail != "" {
+		result = mustJSON(productionRefusalBinding{Code: code, Detail: detail})
+	}
+	if err := f.store.Complete(f.ctx, journal.Completion{
+		RunID:     f.manifest.value.RunID,
+		EffectID:  effectID,
+		Token:     claim.Token,
+		State:     journal.OperationalFailed,
+		ErrorCode: code,
+		Result:    result,
+		Attempt: &journal.Attempt{
+			Number:            try,
+			Responsibility:    string(driver.ImplementerImplementation),
+			TransportStatus:   string(driver.RunnerError),
+			ObservationDigest: sha256Digest(observationBody),
+			Usage:             usageBody,
+			ObservationBody:   observationBody,
+		},
+		EventKind: "dispatch_operational_failure",
+		EventBody: []byte("{}"),
+		At:        f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // economyUsageReceipt builds the exact receipt shape a budget-crossing
 // dispatch persists: a v2 receipt with the accumulated tokens and the
 // engine-counted turn economics.
@@ -210,6 +296,26 @@ func economyUsageReceipt(
 	toolCallsValue := toolCalls
 	usage.Turns = &turnsValue
 	usage.ToolCalls = &toolCallsValue
+	return usage
+}
+
+// nativeStreamUsageReceipt builds the exact receipt shape a native
+// cumulative-byte-budget crossing persists (S3-output-stream-economy A3): a
+// v2 receipt carrying the engine-counted turn economics and the crossing's
+// spent-bytes fact on the additive NativeStreamBytes field.
+func nativeStreamUsageReceipt(
+	t *testing.T,
+	surface string,
+	turns, toolCalls, spentBytes int64,
+) driver.UsageReceipt {
+	t.Helper()
+	usage := economyUsageReceipt(t, surface, 0, 0, turns, toolCalls)
+	usage.TokenStatus = driver.UsageUnavailable
+	usage.InputTokens = nil
+	usage.OutputTokens = nil
+	usage.UnavailableReason = driver.UsageReasonWireLacked
+	bytesValue := spentBytes
+	usage.NativeStreamBytes = &bytesValue
 	return usage
 }
 
@@ -357,6 +463,128 @@ func TestEconomyOutputTokenBudgetCrossingParksRun(t *testing.T) {
 		status.Park.Budget != driver.DefaultMaxOutputTokensPerWork ||
 		status.Park.UnblockKnob != EconomyOutputTokensUnblockKnob {
 		t.Fatalf("economy output park = %#v", status.Park)
+	}
+}
+
+// TestEconomyOutputBytesBudgetCrossingParksRun pins A3/A4: a native-shaped
+// crossing carrying the "economy_output_budget_bytes" diagnostic and the
+// receipt's NativeStreamBytes fact - sharing ECONOMY_OUTPUT_BUDGET_EXCEEDED
+// with the token-denominated crossing above - reads back through
+// economySpent without CORRUPT_JOURNAL and parks under its own byte
+// cause/knob, never the token mapping.
+func TestEconomyOutputBytesBudgetCrossingParksRun(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	fixture.failedDispatchAttemptWithDiagnostic(
+		t,
+		testWork(),
+		1,
+		1,
+		"ECONOMY_OUTPUT_BUDGET_EXCEEDED",
+		"economy_output_budget_bytes",
+		"",
+		nativeStreamUsageReceipt(t, "sworn.claude-code", 12, 12, 17_825_792),
+	)
+	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "parked" || status.Park == nil {
+		t.Fatalf("status = %#v", status)
+	}
+	if status.Park.Cause != ParkCauseEconomyOutputBytes ||
+		status.Park.Spent != 17_825_792 ||
+		status.Park.Budget != driver.DefaultMaxNativeOutputStreamBytes ||
+		status.Park.UnblockKnob != EconomyOutputBytesUnblockKnob {
+		t.Fatalf("economy bytes park = %#v", status.Park)
+	}
+
+	driveErr := fixture.service.driveLoop(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		false,
+	)
+	if driveErr != nil {
+		t.Fatalf("driveLoop error = %v", driveErr)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parkEvents []journal.Event
+	for _, event := range snapshot.Events {
+		if event.Kind == ParkEventKind {
+			parkEvents = append(parkEvents, event)
+		}
+	}
+	if len(parkEvents) != 1 {
+		t.Fatalf("park events = %d, want 1", len(parkEvents))
+	}
+	parsed, err := ParseDegradationParkEvent(parkEvents[0].Body)
+	if err != nil {
+		t.Fatalf("park event unparsable: %v", err)
+	}
+	if parsed.SchemaVersion != ParkEventVersion ||
+		parsed.Cause != ParkCauseEconomyOutputBytes ||
+		parsed.Spent != 17_825_792 ||
+		parsed.Budget != driver.DefaultMaxNativeOutputStreamBytes ||
+		parsed.UnblockKnob != EconomyOutputBytesUnblockKnob {
+		t.Fatalf("typed park event = %#v", parsed)
+	}
+
+	// The cause-scoped replay key (A4) admits this new cause independently
+	// of another cause sharing the journal kind: crossing degradation too
+	// must not suppress, or be suppressed by, the already-admitted byte park.
+	for i := 1; i <= 4; i++ {
+		body, _ := json.Marshal(continuationFallbackEvent{
+			SchemaVersion: continuationFallbackEventVersion,
+			EventAssociation: EventAssociation{
+				EffectID: "attempt/" + strings.Repeat("e", 64) + "/e1/t1",
+				WorkID:   "sha256:" + strings.Repeat("e", 64),
+			},
+			Reason:   "absence",
+			Retained: true,
+			Posture:  string(driver.ContinuationPostureContextRetaining),
+		})
+		if err := fixture.store.AppendEvent(
+			fixture.ctx,
+			fixture.manifest.value.RunID,
+			"dispatch_completed.continuation.fresh_rehydrate.fallback",
+			body,
+			fixture.now.Add(time.Duration(i)*time.Second),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fixture.service.driveLoop(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		false,
+	); err != nil {
+		t.Fatalf("degradation driveLoop error = %v", err)
+	}
+	snapshot, err = fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	causes := make(map[string]int)
+	for _, event := range snapshot.Events {
+		if event.Kind != ParkEventKind {
+			continue
+		}
+		parsed, err := ParseDegradationParkEvent(event.Body)
+		if err != nil {
+			t.Fatalf("park event unparsable: %v", err)
+		}
+		causes[parsed.Cause]++
+	}
+	if causes[ParkCauseEconomyOutputBytes] != 1 || causes[ParkCauseDegradation] != 1 {
+		t.Fatalf("park events by cause = %#v, want one each", causes)
 	}
 }
 
@@ -808,7 +1036,8 @@ func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 	}
 	if bytes.Contains(absent, []byte("max_turns_per_work")) ||
 		bytes.Contains(absent, []byte("max_output_tokens_per_work")) ||
-		bytes.Contains(absent, []byte("identical_failure_park_after")) {
+		bytes.Contains(absent, []byte("identical_failure_park_after")) ||
+		bytes.Contains(absent, []byte("max_native_output_stream_bytes")) {
 		t.Fatalf("absent knobs must stay absent: %s", absent)
 	}
 	parsed, err := ParseManifest(absent)
@@ -817,17 +1046,20 @@ func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 	}
 	if parsed.EffectiveMaxTurnsPerWork() != driver.DefaultMaxTurnsPerWork ||
 		parsed.EffectiveMaxOutputTokensPerWork() != driver.DefaultMaxOutputTokensPerWork ||
-		parsed.EffectiveIdenticalFailureParkAfter() != driver.DefaultIdenticalFailureParkAfter {
-		t.Fatalf("defaults = turns %d tokens %d identical %d",
+		parsed.EffectiveIdenticalFailureParkAfter() != driver.DefaultIdenticalFailureParkAfter ||
+		parsed.EffectiveMaxNativeOutputStreamBytes() != driver.DefaultMaxNativeOutputStreamBytes {
+		t.Fatalf("defaults = turns %d tokens %d identical %d native bytes %d",
 			parsed.EffectiveMaxTurnsPerWork(),
 			parsed.EffectiveMaxOutputTokensPerWork(),
-			parsed.EffectiveIdenticalFailureParkAfter())
+			parsed.EffectiveIdenticalFailureParkAfter(),
+			parsed.EffectiveMaxNativeOutputStreamBytes())
 	}
 
 	declared := baseManifest
 	declared.Limits.MaxTurnsPerWork = 50
 	declared.Limits.MaxOutputTokensPerWork = 300_000
 	declared.Limits.IdenticalFailureParkAfter = 3
+	declared.Limits.MaxNativeOutputStreamBytes = 2_097_152
 	body, err := canonicalManifest(declared)
 	if err != nil {
 		t.Fatal(err)
@@ -838,7 +1070,8 @@ func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 	}
 	if roundTrip.EffectiveMaxTurnsPerWork() != 50 ||
 		roundTrip.EffectiveMaxOutputTokensPerWork() != 300_000 ||
-		roundTrip.EffectiveIdenticalFailureParkAfter() != 3 {
+		roundTrip.EffectiveIdenticalFailureParkAfter() != 3 ||
+		roundTrip.EffectiveMaxNativeOutputStreamBytes() != 2_097_152 {
 		t.Fatalf("declared knobs = %#v", roundTrip.Limits)
 	}
 
@@ -852,6 +1085,12 @@ func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 		{`"max_output_tokens_per_work":300000`, `"max_output_tokens_per_work":4194305`},
 		{`"identical_failure_park_after":3`, `"identical_failure_park_after":0`},
 		{`"identical_failure_park_after":3`, `"identical_failure_park_after":4`},
+		{`"max_native_output_stream_bytes":2097152`, `"max_native_output_stream_bytes":0`},
+		{`"max_native_output_stream_bytes":2097152`, `"max_native_output_stream_bytes":1`},
+		{
+			`"max_native_output_stream_bytes":2097152`,
+			`"max_native_output_stream_bytes":268435457`,
+		},
 	} {
 		mutated := bytes.Replace(body, []byte(mutation.from), []byte(mutation.to), 1)
 		if _, parseErr := ParseManifest(mutated); parseErr == nil {
@@ -1070,6 +1309,27 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		t.Fatalf("economy park event = %#v", parsedEconomy)
 	}
 
+	economyBytes, err := economyParkEventBody("run-economy-bytes", economyParkFacts{
+		cause:  ParkCauseEconomyOutputBytes,
+		spent:  17_825_792,
+		budget: 16_777_216,
+		knob:   EconomyOutputBytesUnblockKnob,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedEconomyBytes, err := ParseDegradationParkEvent(economyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsedEconomyBytes.SchemaVersion != ParkEventVersion ||
+		parsedEconomyBytes.Cause != ParkCauseEconomyOutputBytes ||
+		parsedEconomyBytes.Spent != 17_825_792 ||
+		parsedEconomyBytes.Budget != 16_777_216 ||
+		parsedEconomyBytes.UnblockKnob != EconomyOutputBytesUnblockKnob {
+		t.Fatalf("economy bytes park event = %#v", parsedEconomyBytes)
+	}
+
 	identical, err := identicalFailureParkEventBody("run-identical", identicalFailureFacts{
 		code:        "INVOCATION_TIMEOUT",
 		consecutive: 2,
@@ -1112,6 +1372,12 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		{
 			SchemaVersion: ParkEventVersion, RunID: "run-z",
 			Cause: ParkCauseEconomyOutputTokens, Spent: 10, Budget: 200,
+			UnblockKnob: EconomyOutputTokensUnblockKnob,
+		},
+		// A byte-cause event may not carry a different cause's knob.
+		{
+			SchemaVersion: ParkEventVersion, RunID: "run-v",
+			Cause: ParkCauseEconomyOutputBytes, Spent: 17_825_792, Budget: 16_777_216,
 			UnblockKnob: EconomyOutputTokensUnblockKnob,
 		},
 		// An identical-failure event must reach its threshold.

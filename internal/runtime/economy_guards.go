@@ -134,19 +134,32 @@ type economyParkFacts struct {
 	knob   string
 }
 
+// economyParkFactsFor names the park facts for a crossing. Both the
+// token-denominated conversation-loop crossing and the byte-denominated
+// native output-stream crossing (S3-output-stream-economy A4) share the
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED top-level code, so diagnosticCode - the
+// observation's Diagnostic.Code, read back by economySpent - is the
+// disambiguating signal; the top-level code alone cannot tell them apart.
 func economyParkFactsFor(
 	crossing economyGuardCrossing,
 	limits driver.Limits,
-	spentTurns, spentTokens int64,
+	spentTurns, spentTokens, spentBytes int64,
+	diagnosticCode string,
 ) economyParkFacts {
 	facts := economyParkFacts{}
-	switch crossing.code {
-	case "ECONOMY_TURN_BUDGET_EXCEEDED":
+	switch {
+	case crossing.code == "ECONOMY_TURN_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyTurns
 		facts.spent = spentTurns
 		facts.budget = limits.EffectiveMaxTurnsPerWork()
 		facts.knob = EconomyTurnsUnblockKnob
-	case "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
+	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED" &&
+		diagnosticCode == "economy_output_budget_bytes":
+		facts.cause = ParkCauseEconomyOutputBytes
+		facts.spent = spentBytes
+		facts.budget = limits.EffectiveMaxNativeOutputStreamBytes()
+		facts.knob = EconomyOutputBytesUnblockKnob
+	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyOutputTokens
 		facts.spent = spentTokens
 		facts.budget = limits.EffectiveMaxOutputTokensPerWork()
@@ -166,7 +179,7 @@ func (s *Service) economySpent(
 	ctx context.Context,
 	runID string,
 	crossing economyGuardCrossing,
-) (spentTurns, spentTokens int64, err error) {
+) (spentTurns, spentTokens, spentBytes int64, diagnosticCode string, err error) {
 	observed, err := s.journal.AttemptObservation(
 		ctx,
 		runID,
@@ -174,30 +187,33 @@ func (s *Service) economySpent(
 		crossing.try,
 	)
 	if err != nil {
-		return 0, 0, runtimeFail("JOURNAL_READ_FAILED", err)
+		return 0, 0, 0, "", runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	if !observed.Stored || observed.Partial {
-		return 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	var body struct {
-		Usage json.RawMessage `json:"usage"`
+		Usage      json.RawMessage `json:"usage"`
+		Diagnostic struct {
+			Code string `json:"code"`
+		} `json:"diagnostic"`
 	}
 	if err := json.Unmarshal(observed.Body, &body); err != nil ||
 		len(body.Usage) == 0 {
-		return 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	var receipt driver.UsageReceipt
 	decoder := json.NewDecoder(bytes.NewReader(body.Usage))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&receipt); err != nil {
-		return 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	canonical, err := driver.EncodeUsageReceipt(receipt)
 	if err != nil || !bytes.Equal(canonical, body.Usage) {
-		return 0, 0, runtimeFail("CORRUPT_JOURNAL", nil)
+		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if receipt.Turns != nil {
 		spentTurns = *receipt.Turns
@@ -205,7 +221,10 @@ func (s *Service) economySpent(
 	if receipt.OutputTokens != nil {
 		spentTokens = *receipt.OutputTokens
 	}
-	return spentTurns, spentTokens, nil
+	if receipt.NativeStreamBytes != nil {
+		spentBytes = *receipt.NativeStreamBytes
+	}
+	return spentTurns, spentTokens, spentBytes, body.Diagnostic.Code, nil
 }
 
 // identicalFailureFacts carries everything a park surface names for an
