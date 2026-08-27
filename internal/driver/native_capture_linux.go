@@ -155,41 +155,53 @@ func (capture *nativeProviderCapture) ServeHTTP(
 		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
 		return
 	}
+	malformed := false
+	mediaType, _, err := mime.ParseMediaType(
+		request.Header.Get("Content-Type"),
+	)
+	if err != nil || mediaType != "application/json" {
+		malformed = true
+	}
+	var body []byte
+	if !malformed {
+		body, err = io.ReadAll(io.LimitReader(
+			request.Body,
+			MaxProviderRequestBytes+1,
+		))
+		if err != nil || len(body) == 0 || len(body) > MaxProviderRequestBytes {
+			malformed = true
+		}
+	}
+	defer clearBytes(body)
+	if !malformed &&
+		(containsCapability(body, capture.token) ||
+			containsCapability(body, capture.brokerCapability)) {
+		malformed = true
+	}
+	var toolDigest string
+	var toolLess bool
+	if !malformed {
+		toolDigest, toolLess, err = validateNativeProviderRequest(
+			body,
+			capture.family,
+			capture.model,
+			capture.definitions,
+		)
+		if err != nil {
+			malformed = true
+		}
+	}
+	if toolLess {
+		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
+		return
+	}
 	first := false
 	capture.once.Do(func() { first = true })
 	if !first {
 		writeNativeCaptureError(writer, capture.family, http.StatusConflict)
 		return
 	}
-	mediaType, _, err := mime.ParseMediaType(
-		request.Header.Get("Content-Type"),
-	)
-	if err != nil || mediaType != "application/json" {
-		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
-		return
-	}
-	body, err := io.ReadAll(io.LimitReader(
-		request.Body,
-		MaxProviderRequestBytes+1,
-	))
-	if err != nil || len(body) == 0 || len(body) > MaxProviderRequestBytes {
-		clearBytes(body)
-		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
-		return
-	}
-	defer clearBytes(body)
-	if containsCapability(body, capture.token) ||
-		containsCapability(body, capture.brokerCapability) {
-		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
-		return
-	}
-	toolDigest, err := validateNativeProviderRequest(
-		body,
-		capture.family,
-		capture.model,
-		capture.definitions,
-	)
-	if err != nil {
+	if malformed {
 		writeNativeCaptureError(writer, capture.family, http.StatusBadRequest)
 		return
 	}
@@ -241,39 +253,50 @@ func writeNativeCaptureError(
 	))
 }
 
+// validateNativeProviderRequest reports toolLess when a ProfileClaude
+// request carries no "tools" key at all: the CLI's compaction/summarization
+// requests run on a different model id than the session's, so a tool-less
+// claude request is admitted without the model or tool-surface checks.
 func validateNativeProviderRequest(
 	body []byte,
 	family ProfileFamily,
 	model string,
 	definitions []providerToolDefinition,
-) (string, error) {
+) (string, bool, error) {
 	value, err := decodeStrict(body, MaxProviderRequestBytes)
 	if err != nil {
-		return "", fail("NATIVE_SURFACE_INVALID")
+		return "", false, fail("NATIVE_SURFACE_INVALID")
 	}
 	root, ok := value.(map[string]any)
-	if !ok || root["model"] != model {
-		return "", fail("NATIVE_SURFACE_INVALID")
+	if !ok {
+		return "", false, fail("NATIVE_SURFACE_INVALID")
+	}
+	_, hasTools := root["tools"]
+	if family == ProfileClaude && !hasTools {
+		return "", true, nil
+	}
+	if root["model"] != model {
+		return "", false, fail("NATIVE_SURFACE_INVALID")
 	}
 	rawTools, ok := root["tools"].([]any)
 	if !ok {
-		return "", fail("NATIVE_SURFACE_INVALID")
+		return "", false, fail("NATIVE_SURFACE_INVALID")
 	}
 	switch family {
 	case ProfileCodex:
 		if root["tool_choice"] != "auto" ||
 			root["parallel_tool_calls"] != false ||
 			!exactCodexProviderTools(rawTools, definitions) {
-			return "", fail("NATIVE_SURFACE_INVALID")
+			return "", false, fail("NATIVE_SURFACE_INVALID")
 		}
 	case ProfileClaude:
 		if !exactClaudeProviderTools(rawTools, definitions) {
-			return "", fail("NATIVE_SURFACE_INVALID")
+			return "", false, fail("NATIVE_SURFACE_INVALID")
 		}
 	default:
-		return "", fail("NATIVE_SURFACE_INVALID")
+		return "", false, fail("NATIVE_SURFACE_INVALID")
 	}
-	return nativeToolDefinitionsDigest(definitions), nil
+	return nativeToolDefinitionsDigest(definitions), false, nil
 }
 
 func exactClaudeProviderTools(

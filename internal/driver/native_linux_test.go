@@ -811,7 +811,7 @@ func TestCodexFirstProviderRequestRejectsToolSurfaceMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer clearBytes(body)
-		_, err = validateNativeProviderRequest(
+		_, _, err = validateNativeProviderRequest(
 			body,
 			ProfileCodex,
 			model,
@@ -932,6 +932,98 @@ func codexFirstProviderRequestFixture(
 		"tools":               tools,
 		"tool_choice":         "auto",
 		"parallel_tool_calls": false,
+	}
+}
+
+func TestClaudeFirstProviderRequestRejectsToolSurfaceMutation(t *testing.T) {
+	const model = "sworn-capture-model"
+	validate := func(t *testing.T, request map[string]any) error {
+		t.Helper()
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer clearBytes(body)
+		_, _, err = validateNativeProviderRequest(
+			body,
+			ProfileClaude,
+			model,
+			toolDefinitions(ReadWrite),
+		)
+		return err
+	}
+	if err := validate(
+		t,
+		claudeFirstProviderRequestFixture(t, model, ReadWrite),
+	); err != nil {
+		t.Fatalf("exact surface = %v", err)
+	}
+	t.Run("additional tool", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		request["tools"] = append(request["tools"].([]any), map[string]any{
+			"name":        "mcp__sworn__shell",
+			"description": "ambient shell",
+			"input_schema": map[string]any{
+				"type": "object", "properties": map[string]any{},
+			},
+		})
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("additional tool error = %v", err)
+		}
+	})
+	t.Run("changed description", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		tools[0].(map[string]any)["description"] = "changed"
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("changed description error = %v", err)
+		}
+	})
+	t.Run("missing tool", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		request["tools"] = tools[:len(tools)-1]
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("missing tool error = %v", err)
+		}
+	})
+	t.Run("unexpected field", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		tools[0].(map[string]any)["cache_control"] = map[string]any{
+			"type": "ephemeral",
+		}
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("unexpected field error = %v", err)
+		}
+	})
+}
+
+func claudeFirstProviderRequestFixture(
+	t *testing.T,
+	model string,
+	access WorkspaceAccess,
+) map[string]any {
+	t.Helper()
+	definitions := toolDefinitions(access)
+	tools := make([]any, 0, len(definitions))
+	for _, definition := range definitions {
+		schema, err := decodeStrict(
+			definition.InputSchema,
+			MaxToolArgumentBytes,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tools = append(tools, map[string]any{
+			"name":         "mcp__sworn__" + definition.Name,
+			"description":  definition.Description,
+			"input_schema": schema,
+		})
+	}
+	return map[string]any{
+		"model": model,
+		"tools": tools,
 	}
 }
 
