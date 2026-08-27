@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-08-26-native-lane-honesty/2",
-  "previous_plan": "6ffbf48639f22012f1c1b0b728b9c2fd5039e8e7",
+  "approval_ref": "operator://2026-08-26-native-lane-honesty/3",
+  "previous_plan": "8beca4c8cae77b77f44382fcee152aeedceb16c7",
   "release": "2026-08-26-native-lane-honesty",
   "repository": "sworn",
-  "revision": 2,
+  "revision": 3,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/v1.0.0",
   "tracks": [
@@ -16,7 +16,7 @@
           "consumes": [],
           "contract_path": "contracts/2026-08-26-native-lane-honesty/S1-cli-pin-admission-policy.json",
           "depends_on": [],
-          "digest": "sha256:deb16f6efd24570dcfaf88683b2465d22170bfeba81c3784282e7cc3dab610b4",
+          "digest": "sha256:5e82b1832f83325cec1361dc02ac0ebdff2abfda8d0810c182c328bc5a0a350a",
           "id": "S1-cli-pin-admission-policy",
           "outcome": "The native CLI pin stops being a compiled trap: admission becomes policy - exact mode preserves today's byte-for-byte closure, minor mode admits a binary whose self-reported version satisfies the pinned major.minor range - while receipts stay exact always because the digest of the binary that actually ran lands durably per dispatch on success and failure alike, the shipped claude pin moves to the live 2.1.241 so a main-built binary stops compiling a server-side-dead CLI, and a dead pin refuses at admission with a named code instead of burning tries as opaque transport failures - honestly scoped to what a side-effect-free probe can establish: a pinned binary that cannot execute and report its version refuses before any try burns, while server-side death, which no local probe can establish without transacting, is retired by the live pin and minor policy here and made instantly legible by S5's death classification.",
           "touchpoints": [
@@ -367,6 +367,26 @@ and this plan restates the re-proposal's manifest and narrative
 around them with the drift corrected. The approval under
 operator://2026-08-26-native-lane-honesty/2 binds these exact
 bytes.
+
+# Revision 3
+
+Revision 3 changes one sentence of S1's A1 and nothing else: the two
+ClaudeCLI digest literals are spelled in full (the dead
+sha256:3473601ea695d5bf769c5b202844d4cb4fbf723ae995450fcb6973204775c84a
+and the live
+sha256:0771bd866cff82b76581fc0499f6529e1a36845078f144f8c81dccb3bc7037b8
+for 2.1.241), making the pin values normative contract bytes instead
+of truncated provenance prefixes. Why: the r2 implementer, obeying its
+ratified design (risk 4) and captain correction 7, rightly refused to
+adopt the full digest from an operator answer it could not verify from
+the sandbox - the archived R4 ops-home patch is unreachable there, and
+only a truncated prefix existed in the product tree. The authority
+chain the worker already trusts (contract bytes -> plan manifest
+digest -> approved authority digest) is the correct channel for these
+values, so they now live in it. S2-S7 stay byte-identical; the
+invalidated closure is S1 alone; the values are seeded verbatim from
+the archived operator patch and are the constants today's certified
+live 2.1.241 binary was probed against.
 
 # Authority
 
