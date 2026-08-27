@@ -485,6 +485,23 @@ func TestSanitizeFailedObservationPreservesBoundedNonAdmittedCode(t *testing.T) 
 		sanitized.Events != nil {
 		t.Fatalf("admitted code survives hostile event wipe: diagnostic=%#v events=%#v", sanitized.Diagnostic, sanitized.Events)
 	}
+
+	// Pins C1: the admitted-code branch is a field-by-field copy of only
+	// Code/StderrBytes/Truncated, never the wholesale struct that would let
+	// a hostile adapter smuggle its own sanitizer-owned values through.
+	admittedWithHostileSanitizerFields := failureObservation("process_failed", surface)
+	admittedWithHostileSanitizerFields.Diagnostic.StderrBytes = 12
+	admittedWithHostileSanitizerFields.Diagnostic.Sanitized = false
+	admittedWithHostileSanitizerFields.Diagnostic.OriginalCode = "adapter-forged-code"
+	admittedWithHostileSanitizerFields.Diagnostic.OriginalCodeDropped = true
+	sanitized = sanitizeFailedObservation(admittedWithHostileSanitizerFields, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.Code != "process_failed" ||
+		sanitized.Diagnostic.StderrBytes != 12 ||
+		sanitized.Diagnostic.OriginalCode != "" ||
+		sanitized.Diagnostic.OriginalCodeDropped {
+		t.Fatalf("admitted code let a hostile adapter forge sanitizer-owned fields: diagnostic=%#v", sanitized.Diagnostic)
+	}
 }
 
 func assertObservationOmits(t *testing.T, observation Observation, value string) {
