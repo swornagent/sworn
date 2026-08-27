@@ -418,7 +418,7 @@ func TestDispatcherScrubsHostileAdapterObservationsAndErrors(t *testing.T) {
 		len(observation.Events) != 0 || observation.Handoff != nil {
 		t.Fatalf("hostile adapter failure observation=%#v error=%v", observation, err)
 	}
-	assertObservationOmits(t, observation, sentinel)
+	assertObservationOmitsExceptOriginalCode(t, observation, sentinel)
 	if strings.Contains(err.Error(), sentinel) {
 		t.Fatalf("adapter error leaked sentinel: %v", err)
 	}
@@ -430,7 +430,61 @@ func TestDispatcherScrubsHostileAdapterObservationsAndErrors(t *testing.T) {
 		strings.Contains(err.Error(), sentinel) {
 		t.Fatalf("wrapped adapter failure observation=%#v error=%v", observation, err)
 	}
-	assertObservationOmits(t, observation, sentinel)
+	assertObservationOmitsExceptOriginalCode(t, observation, sentinel)
+}
+
+// TestSanitizeFailedObservationPreservesBoundedNonAdmittedCode pins A1's
+// bounded evidence and A2's sanitization marker directly at the sanitizer,
+// including C4's re-validation-drop distinction from honest absence.
+func TestSanitizeFailedObservationPreservesBoundedNonAdmittedCode(t *testing.T) {
+	t.Parallel()
+	const surface = "sworn.test"
+
+	benign := failureObservation("benign_adapter_code", surface)
+	sanitized := sanitizeFailedObservation(benign, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.Code != "adapter_failed" ||
+		sanitized.Diagnostic.OriginalCode != "benign_adapter_code" ||
+		sanitized.Diagnostic.OriginalCodeDropped {
+		t.Fatalf("benign preservation = %#v", sanitized.Diagnostic)
+	}
+
+	oversize := failureObservation(strings.Repeat("a", 65), surface)
+	sanitized = sanitizeFailedObservation(oversize, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.OriginalCode != "" ||
+		!sanitized.Diagnostic.OriginalCodeDropped {
+		t.Fatalf("oversize code drop = %#v", sanitized.Diagnostic)
+	}
+
+	controlBearing := failureObservation("bad\ncode", surface)
+	sanitized = sanitizeFailedObservation(controlBearing, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.OriginalCode != "" ||
+		!sanitized.Diagnostic.OriginalCodeDropped {
+		t.Fatalf("control-character code drop = %#v", sanitized.Diagnostic)
+	}
+
+	absent := failureObservation("", surface)
+	sanitized = sanitizeFailedObservation(absent, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.OriginalCode != "" ||
+		sanitized.Diagnostic.OriginalCodeDropped {
+		t.Fatalf("honest absence = %#v", sanitized.Diagnostic)
+	}
+
+	admittedWithHostileEvents := failureObservation("process_failed", surface)
+	admittedWithHostileEvents.Diagnostic.StderrBytes = 12
+	admittedWithHostileEvents.Events = []TerminalEvent{{Sequence: 1, Kind: "not-a-real-kind"}}
+	sanitized = sanitizeFailedObservation(admittedWithHostileEvents, surface)
+	if !sanitized.Diagnostic.Sanitized ||
+		sanitized.Diagnostic.Code != "process_failed" ||
+		sanitized.Diagnostic.StderrBytes != 12 ||
+		sanitized.Diagnostic.OriginalCode != "" ||
+		sanitized.Diagnostic.OriginalCodeDropped ||
+		sanitized.Events != nil {
+		t.Fatalf("admitted code survives hostile event wipe: diagnostic=%#v events=%#v", sanitized.Diagnostic, sanitized.Events)
+	}
 }
 
 func assertObservationOmits(t *testing.T, observation Observation, value string) {
@@ -442,6 +496,22 @@ func assertObservationOmits(t *testing.T, observation Observation, value string)
 	if bytes.Contains(body, []byte(value)) {
 		t.Fatalf("observation retained %q: %s", value, body)
 	}
+}
+
+// assertObservationOmitsExceptOriginalCode is assertObservationOmits
+// narrowed, by exact whole-field equality rather than a general substring
+// allowance, for the one sanitizer-owned field A1's preservation mechanism
+// legitimately carries a bounded adapter-chosen code into: it pins that
+// Diagnostic.OriginalCode is exactly value, then asserts value appears
+// nowhere else in the observation.
+func assertObservationOmitsExceptOriginalCode(t *testing.T, observation Observation, value string) {
+	t.Helper()
+	if observation.Diagnostic.OriginalCode != value {
+		t.Fatalf("observation.Diagnostic.OriginalCode = %q, want %q", observation.Diagnostic.OriginalCode, value)
+	}
+	scrubbed := observation
+	scrubbed.Diagnostic.OriginalCode = ""
+	assertObservationOmits(t, scrubbed, value)
 }
 
 func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {

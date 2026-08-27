@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"errors"
+	"regexp"
 	"sync"
 	"time"
 
@@ -141,6 +142,18 @@ type Diagnostic struct {
 	Code        string `json:"code"`
 	StderrBytes int64  `json:"stderr_bytes"`
 	Truncated   bool   `json:"truncated"`
+	// Sanitized, OriginalCode, and OriginalCodeDropped are sanitizer-owned:
+	// only sanitizeFailedObservation sets them, never copied wholesale from
+	// an adapter. Sanitized marks that this Diagnostic passed through
+	// failure sanitization at all, distinguishing it from the unsanitized
+	// non-none codes the success and submission-absent paths persist
+	// directly. OriginalCode is the bounded, re-validated non-admitted code
+	// the adapter actually reported; OriginalCodeDropped marks that a
+	// non-empty code was reported but failed re-validation, distinguishing
+	// a recorded drop from honest absence (no code reported at all).
+	Sanitized           bool   `json:"sanitized,omitempty"`
+	OriginalCode        string `json:"original_code,omitempty"`
+	OriginalCodeDropped bool   `json:"original_code_dropped,omitempty"`
 }
 type SealedHandoff struct {
 	SubmissionBytes  []byte `json:"submission_bytes"`
@@ -387,6 +400,7 @@ func sanitizeFailedObservation(
 	surface string,
 ) Observation {
 	sanitized := failureObservation("adapter_failed", surface)
+	sanitized.Diagnostic.Sanitized = true
 	if observation.DurationMillis >= 0 &&
 		observation.DurationMillis <= MaxSafeInteger {
 		sanitized.DurationMillis = observation.DurationMillis
@@ -394,7 +408,13 @@ func sanitizeFailedObservation(
 	if validFatalDiagnosticCode(observation.Diagnostic.Code) &&
 		observation.Diagnostic.StderrBytes >= 0 &&
 		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
-		sanitized.Diagnostic = observation.Diagnostic
+		sanitized.Diagnostic.Code = observation.Diagnostic.Code
+		sanitized.Diagnostic.StderrBytes = observation.Diagnostic.StderrBytes
+		sanitized.Diagnostic.Truncated = observation.Diagnostic.Truncated
+	} else if code, ok := preservedDiagnosticCode(observation.Diagnostic.Code); ok {
+		sanitized.Diagnostic.OriginalCode = code
+	} else if observation.Diagnostic.Code != "" {
+		sanitized.Diagnostic.OriginalCodeDropped = true
 	}
 	// Provider-reported truncation and the economy-budget crossings are the
 	// adapter failures that carry measured facts: the accumulated receipt
@@ -422,13 +442,33 @@ func sanitizeFailedObservation(
 			if event.Sequence != uint64(index+1) ||
 				!validTerminalEventKind(event.Kind) {
 				sanitized.Events = nil
-				sanitized.Diagnostic = Diagnostic{Code: "adapter_failed"}
 				break
 			}
 			sanitized.Events = append(sanitized.Events, event)
 		}
 	}
 	return sanitized
+}
+
+// diagnosticCodePattern bounds a preserved non-admitted diagnostic code to
+// the closed identifier shape the admitted vocabulary itself uses: lowercase
+// ASCII letters, digits, underscore, and hyphen, starting with a letter. It
+// is a tighter, closed-vocabulary bound than validateText's general
+// secret-safe text bound (maxProviderErrorDetailBytes): a field named
+// original_code carries no provider prose, only a short adapter-chosen
+// identifier, and no known secret is reachable at this boundary (Invocation
+// carries no credential material).
+var diagnosticCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+// preservedDiagnosticCode re-validates a non-admitted diagnostic code at the
+// sanitization boundary before it may ride as bounded evidence. This is
+// re-validation, never trust: a code that fails the bound is an honest drop,
+// never substituted or truncated into something that looks admitted.
+func preservedDiagnosticCode(code string) (string, bool) {
+	if !diagnosticCodePattern.MatchString(code) {
+		return "", false
+	}
+	return code, true
 }
 
 // preservesUsageDiagnostic reports whether an adapter failure's diagnostic
