@@ -1894,6 +1894,16 @@ func platformRunNative(
 		return Observation{}, err
 	}
 	defer closeNativeFiles(closure)
+	// A2: the executed binary's digest is verified byte-exact the moment
+	// openNativeClosure succeeds (openPinnedExecutable only returns success
+	// when the live file's streamDigest equals config.CLI.Digest), in both
+	// exact and minor pin mode. Every return from here on - success or
+	// post-closure failure - carries it, so minor-mode admission never
+	// weakens attestation; returns before this point stay honest absence.
+	executedDigest := config.CLI.Digest
+	defer func() {
+		observation.Usage.ExecutedDigest = &executedDigest
+	}()
 	configFiles, err := nativeConfigFiles(
 		config,
 		invocation,

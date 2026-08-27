@@ -748,3 +748,49 @@ func TestUsageReceiptZeroPreservesFreshRehydrateSemantics(t *testing.T) {
 func textPointerForTest(value string) *string { return &value }
 
 func int64Pointer(value int64) *int64 { return &value }
+
+// A2's usage-preservation gate: the executed-binary digest survives
+// sanitizeFailedObservation independent of preservesUsageDiagnostic, so a
+// post-closure native failure never loses attestation of what actually ran
+// even for a diagnostic code the failure-usage gate does not otherwise
+// preserve.
+func TestSanitizeFailedObservationPreservesExecutedDigestForAnyDiagnosticCode(t *testing.T) {
+	t.Parallel()
+	digest := "sha256:" + string(bytesRepeatForTest("d", 64))
+	raw := Observation{
+		Diagnostic: Diagnostic{Code: "process_failed"},
+		Usage:      UsageReceipt{ExecutedDigest: &digest},
+	}
+	sanitized := sanitizeFailedObservation(raw, "sworn.test")
+	if sanitized.Usage.ExecutedDigest == nil ||
+		*sanitized.Usage.ExecutedDigest != digest {
+		t.Fatalf(
+			"sanitized executed digest = %#v, want %s",
+			sanitized.Usage.ExecutedDigest, digest,
+		)
+	}
+	if sanitized.Usage.Surface != "sworn.test" ||
+		sanitized.Usage.TokenStatus != UsageUnavailable {
+		t.Fatalf("sanitized usage shape unexpectedly changed: %#v", sanitized.Usage)
+	}
+
+	malformed := "not-a-digest"
+	rawMalformed := Observation{
+		Diagnostic: Diagnostic{Code: "process_failed"},
+		Usage:      UsageReceipt{ExecutedDigest: &malformed},
+	}
+	if sanitized := sanitizeFailedObservation(rawMalformed, "sworn.test"); sanitized.Usage.ExecutedDigest != nil {
+		t.Fatalf(
+			"a malformed executed digest was preserved: %#v",
+			sanitized.Usage.ExecutedDigest,
+		)
+	}
+}
+
+func bytesRepeatForTest(pattern string, count int) []byte {
+	body := make([]byte, 0, count)
+	for len(body) < count {
+		body = append(body, pattern...)
+	}
+	return body[:count]
+}

@@ -1199,6 +1199,33 @@ func (s *Service) prepareDriverDispatch(
 	if err := engine.configured.validateSelected(selected); err != nil {
 		return preparedDriverDispatch{}, err
 	}
+	// A3: a bounded, side-effect-free admission probe runs before anything is
+	// journaled. It is a complete no-op for every non-native adapter (nil
+	// event body, nil error). When applicable, its result is journaled once
+	// per dispatch admission regardless of outcome, and a locally-provable
+	// dead pin refuses here - before any attempt is written - so the retry
+	// loop's absent-attempt journal read returns immediately instead of
+	// advancing to another try.
+	probeEventBody, probeErr := driver.ProbeNativeAdmission(
+		ctx, selected, engine.manifest.value.RunID,
+	)
+	if probeEventBody != nil {
+		probeReplayKey := "native-admission-probe/" +
+			dispatchInvocationID(engine.manifest.value.RunID, coordinates)
+		if journalErr := s.journal.AppendEventOnce(ctx, journal.Command{
+			RunID:     engine.manifest.value.RunID,
+			ReplayKey: probeReplayKey,
+			Kind:      "native-admission-probe",
+			Payload:   probeEventBody,
+			CreatedAt: s.now().UTC(),
+		}, "native_admission_probe", probeEventBody, s.now().UTC()); journalErr != nil {
+			return preparedDriverDispatch{},
+				runtimeFail("JOURNAL_WRITE_FAILED", journalErr)
+		}
+	}
+	if probeErr != nil {
+		return preparedDriverDispatch{}, runtimeFail("NATIVE_PIN_DEAD", probeErr)
+	}
 	access := driver.ReadOnly
 	containment := driver.ContainmentReadOnly
 	if workspace.Access() == gitx.WorkspaceReadWrite {

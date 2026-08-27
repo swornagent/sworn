@@ -84,6 +84,12 @@ type UsageReceipt struct {
 	DurationMillis *int64  `json:"duration_ms,omitempty"`
 	Profile        *string `json:"profile,omitempty"`
 	Model          *string `json:"model,omitempty"`
+	// ExecutedDigest is the digest of the binary that actually ran a native
+	// dispatch, stamped once the pinned executable's closure opens
+	// successfully and preserved through post-closure failures independent
+	// of the diagnostic code, so pin-admission policy never weakens
+	// attestation. Absence stays honest where no binary ever ran.
+	ExecutedDigest *string `json:"executed_digest,omitempty"`
 }
 
 // Zero reports whether the receipt carries no fact at all, field by field.
@@ -101,7 +107,8 @@ func (receipt UsageReceipt) Zero() bool {
 		receipt.Surface == "" && receipt.UnavailableReason == "" &&
 		receipt.Turns == nil && receipt.ToolCalls == nil &&
 		receipt.ToolCallsByName == nil && receipt.DurationMillis == nil &&
-		receipt.Profile == nil && receipt.Model == nil
+		receipt.Profile == nil && receipt.Model == nil &&
+		receipt.ExecutedDigest == nil
 }
 
 // carriesV2Facts reports whether the receipt carries any v2 field. Receipts
@@ -112,7 +119,7 @@ func (receipt UsageReceipt) carriesV2Facts() bool {
 		receipt.UnavailableReason != "" || receipt.Turns != nil ||
 		receipt.ToolCalls != nil || receipt.ToolCallsByName != nil ||
 		receipt.DurationMillis != nil || receipt.Profile != nil ||
-		receipt.Model != nil
+		receipt.Model != nil || receipt.ExecutedDigest != nil
 }
 
 func validUnavailableReason(value string) bool {
@@ -488,6 +495,10 @@ func validateV2UsageReceipt(receipt UsageReceipt) error {
 	}
 	if receipt.Model != nil &&
 		validateText(*receipt.Model, 500, false) != nil {
+		return fail("INVALID_USAGE")
+	}
+	if receipt.ExecutedDigest != nil &&
+		!digestPattern.MatchString(*receipt.ExecutedDigest) {
 		return fail("INVALID_USAGE")
 	}
 	return nil

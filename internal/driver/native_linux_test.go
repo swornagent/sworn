@@ -26,7 +26,7 @@ import (
 
 const (
 	exactCodexBinary  = "/home/brad/.nvm/versions/node/v24.14.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
-	exactClaudeBinary = "/home/brad/snap/code/253/.local/share/claude/versions/2.1.208"
+	exactClaudeBinary = "/home/brad/snap/code/253/.local/share/claude/versions/2.1.241"
 )
 
 var (

@@ -405,6 +405,15 @@ func sanitizeFailedObservation(
 			sanitized.Usage = observation.Usage
 		}
 	}
+	// A2's usage-preservation gate: the executed-binary digest survives
+	// sanitization independent of the diagnostic code, so a post-closure
+	// native failure never loses attestation of what actually ran even when
+	// the rest of the receipt flattens to the unavailable default above.
+	if observation.Usage.ExecutedDigest != nil &&
+		digestPattern.MatchString(*observation.Usage.ExecutedDigest) {
+		digest := *observation.Usage.ExecutedDigest
+		sanitized.Usage.ExecutedDigest = &digest
+	}
 	if len(observation.Events) <= 1_024 {
 		sanitized.Events = make([]TerminalEvent, 0, len(observation.Events))
 		for index, event := range observation.Events {
