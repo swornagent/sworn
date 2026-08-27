@@ -95,6 +95,26 @@ func BuildProjectCatalog(
 	}
 }
 
+// pinnedWorkNeedsYouReason renders every pinned work's lane, cause, code,
+// and detail into one needs-you reason, in plan order, replacing the single
+// generic "review the failed item" string with the actual affected-work
+// evidence (A2).
+func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
+	reasons := make([]string, 0, len(pinned))
+	for _, work := range pinned {
+		reason := work.Lane + ": " + work.Cause
+		if work.Code != "" {
+			reason += " (" + work.Code + ")"
+		}
+		if work.Detail != "" {
+			reason += " - " + work.Detail
+		}
+		reasons = append(reasons, reason)
+	}
+	return "Review the pinned work, then retry it using the latest action. " +
+		strings.Join(reasons, "; ")
+}
+
 // ProjectNeedsYou extracts human-action-required items across runs with precedence:
 // 1. Open attentions ("answer_attention")
 // 2. Reconciled uncertainty (the one verb the control gate admits)
@@ -140,26 +160,21 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			continue
 		}
 
-		// Precedence 3: Parked run. A park with real failed work keeps the
-		// retry row with its work id; a park with no failed work is never
-		// presented as a retry. A degradation park names its cause, count,
-		// budget, and the manifest knob that unblocks it.
+		// Precedence 3: Parked run. A park with pinned work keeps the retry
+		// row naming the first pinned work (in plan order) and a reason
+		// built from every pinned work's cause, code, and detail; a park
+		// with no pinned work is never presented as a retry. A degradation
+		// park names its cause, count, budget, and the manifest knob that
+		// unblocks it.
 		if run.Status.State == "parked" {
-			workID := ""
-			for _, effect := range run.Status.Effects {
-				if work, _, ok := exhaustedAttempt(effect); ok {
-					workID = work
-					break
-				}
-			}
-			if workID != "" {
+			if len(run.Status.PinnedWork) != 0 {
 				items = append(items, NeedsYouItem{
 					RunID:   run.Binding.ID,
 					Release: run.Binding.Release,
 					State:   "parked",
 					Action:  "retry",
-					Reason:  "Review the failed item, then retry it using the latest action.",
-					WorkID:  workID,
+					Reason:  pinnedWorkNeedsYouReason(run.Status.PinnedWork),
+					WorkID:  run.Status.PinnedWork[0].WorkID,
 				})
 				continue
 			}

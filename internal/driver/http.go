@@ -70,6 +70,28 @@ type HTTPProfileConfig struct {
 	// field. Omission changes nothing: no thinkingConfig is emitted unless a
 	// thinking knob is set.
 	IncludeThoughts bool `json:"include_thoughts,omitempty"`
+	// BalanceProbe is the additive, operator-configured admission-time
+	// balance/quota probe surface (S5-preflight-probes A3(b)). It carries
+	// no in-tree consumer today: no shipped adapter configuration sets it,
+	// and ProbeProviderBalance no-ops whenever it is nil, so its presence
+	// changes nothing for today's fleet's canonical bytes or behavior.
+	BalanceProbe *BalanceProbeConfig `json:"balance_probe,omitempty"`
+}
+
+// BalanceProbeConfig names the cheap balance/quota endpoint an
+// operator-declared HTTP profile may probe at dispatch admission, distinct
+// from the profile's own model endpoint. Endpoint is validated on the same
+// grounds as the profile endpoint; ExhaustedField is the top-level JSON
+// object field name a strict decode of the response reads as the positive
+// hard-exhaustion boolean; CredentialHeader/CredentialPrefix, when set,
+// carry the profile's bound credential onto the probe request under this
+// probe's own header shape (which may differ from the transport's own auth
+// header).
+type BalanceProbeConfig struct {
+	Endpoint         string `json:"endpoint"`
+	CredentialHeader string `json:"credential_header,omitempty"`
+	CredentialPrefix string `json:"credential_prefix,omitempty"`
+	ExhaustedField   string `json:"exhausted_field"`
 }
 
 type httpTransport struct {
@@ -109,6 +131,15 @@ func newHTTPTransport(
 		}
 	default:
 		return nil, fail("INVALID_ADAPTER")
+	}
+	if config.BalanceProbe != nil {
+		probe := config.BalanceProbe
+		if validateEndpoint(probe.Endpoint) != nil ||
+			probe.ExhaustedField == "" || len(probe.ExhaustedField) > 128 ||
+			(probe.CredentialHeader != "" && !httpToken(probe.CredentialHeader)) ||
+			len(probe.CredentialPrefix) > 64 {
+			return nil, fail("INVALID_ADAPTER")
+		}
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
 	for _, ref := range config.CredentialRefs {

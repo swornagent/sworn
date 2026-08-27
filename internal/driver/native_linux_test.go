@@ -26,7 +26,7 @@ import (
 
 const (
 	exactCodexBinary  = "/home/brad/.nvm/versions/node/v24.14.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
-	exactClaudeBinary = "/home/brad/snap/code/253/.local/share/claude/versions/2.1.208"
+	exactClaudeBinary = "/home/brad/snap/code/253/.local/share/claude/versions/2.1.241"
 )
 
 var (
@@ -328,7 +328,13 @@ func randomSuffix() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
-func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
+// TestExactNativeProfilesCertifyReportsCredentialPreflightHonestly pins A2:
+// certify no longer claims native_preflight_not_required for a credential it
+// never evaluated. The fixture resolver points at a nonexistent path (as it
+// always has - the resolver return value was never used by readiness before
+// this slice), so the bounded read cannot open it and certify reports
+// unevaluated, honestly, rather than a silent pass.
+func TestExactNativeProfilesCertifyReportsCredentialPreflightHonestly(t *testing.T) {
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
@@ -369,7 +375,8 @@ func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 				checkCertify,
 				profile,
 				"exact-native-model",
-			); state != ReadinessPass || code != "native_preflight_not_required" {
+			); state != ReadinessNotCertified ||
+				code != "native_credential_preflight_unevaluated" {
 				t.Fatalf("certify = %s %s", state, code)
 			}
 			registry, err := NewSelectionRegistry(
@@ -393,6 +400,105 @@ func TestExactNativeProfilesDoNotRequirePreflightCertification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// certifyLivenessAdapterFixture builds a nativeAdapter with a scripted, live
+// CLI (so checkProfile's version gate passes without a real host CLI) and a
+// resolver bound to credentialPath, for exercising checkCertify's
+// credential-liveness reporting (A2) directly.
+func certifyLivenessAdapterFixture(
+	t *testing.T,
+	credentialPath string,
+) (*nativeAdapter, ProfileConfig) {
+	t.Helper()
+	executable := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(
+		executable,
+		[]byte("#!/usr/bin/sh\necho certify-fixture-version\nexit 0\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := executableDigest(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []string{
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/resolv.conf",
+		"/etc/hosts",
+		"/etc/nsswitch.conf",
+	}
+	files := make([]PinnedRuntimeFile, len(targets))
+	required := make([]string, len(targets))
+	for index, target := range targets {
+		sourcePath := filepath.Join(t.TempDir(), filepath.Base(target))
+		if err := os.WriteFile(sourcePath, []byte(target+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sourceDigest, err := executableDigest(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index] = PinnedRuntimeFile{Path: sourcePath, Target: target, Digest: sourceDigest}
+		required[index] = target
+	}
+	config := NativeAdapterConfig{
+		Key: "claude-certify-fixture", ID: "sworn.claude", Version: "1.0.0",
+		Family:                 ProfileClaude,
+		CLI:                    ExecutableIdentity{Path: executable, Digest: digest},
+		CLIVersion:             "2.1.999",
+		VersionOutput:          "certify-fixture-version",
+		RuntimeFiles:           files,
+		RequiredRuntimeTargets: required,
+		CredentialTarget:       ClaudeCredentialTarget,
+		CredentialRefs:         []string{"claude-certify-credential"},
+		MaxCredentialBytes:     1_048_576,
+	}
+	body, err := canonicalJSON(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := AdapterIdentity{
+		Key: config.Key, ID: config.ID, Version: config.Version,
+		ConfigurationDigest: Digest(body),
+	}
+	adapter := &nativeAdapter{
+		identity: identity,
+		config:   config,
+		resolve: func(context.Context, string) (string, error) {
+			return credentialPath, nil
+		},
+		refs: map[string]struct{}{"claude-certify-credential": {}},
+	}
+	ref := "claude-certify-credential"
+	profile := ProfileConfig{
+		Key: "claude-certify-profile", Adapter: identity.Key,
+		Network: NetworkRequired, CredentialRef: &ref,
+	}
+	return adapter, profile
+}
+
+// TestNativeCertifyRefusesPositivelyStaleCredential pins A2's other half:
+// certify fails a positively-expired credential with CREDENTIAL_STALE,
+// rather than the pre-slice silent pass.
+func TestNativeCertifyRefusesPositivelyStaleCredential(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := time.Now().UnixMilli() - 60_000
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(expired, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adapter, profile := certifyLivenessAdapterFixture(t, credential)
+	state, code := adapter.checkProfile(
+		context.Background(), checkCertify, profile, "certify-model",
+	)
+	if state != ReadinessFail || code != "CREDENTIAL_STALE" {
+		t.Fatalf("certify = %s %s, want FAIL CREDENTIAL_STALE", state, code)
 	}
 }
 
@@ -811,7 +917,7 @@ func TestCodexFirstProviderRequestRejectsToolSurfaceMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer clearBytes(body)
-		_, err = validateNativeProviderRequest(
+		_, _, err = validateNativeProviderRequest(
 			body,
 			ProfileCodex,
 			model,
@@ -932,6 +1038,98 @@ func codexFirstProviderRequestFixture(
 		"tools":               tools,
 		"tool_choice":         "auto",
 		"parallel_tool_calls": false,
+	}
+}
+
+func TestClaudeFirstProviderRequestRejectsToolSurfaceMutation(t *testing.T) {
+	const model = "sworn-capture-model"
+	validate := func(t *testing.T, request map[string]any) error {
+		t.Helper()
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer clearBytes(body)
+		_, _, err = validateNativeProviderRequest(
+			body,
+			ProfileClaude,
+			model,
+			toolDefinitions(ReadWrite),
+		)
+		return err
+	}
+	if err := validate(
+		t,
+		claudeFirstProviderRequestFixture(t, model, ReadWrite),
+	); err != nil {
+		t.Fatalf("exact surface = %v", err)
+	}
+	t.Run("additional tool", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		request["tools"] = append(request["tools"].([]any), map[string]any{
+			"name":        "mcp__sworn__shell",
+			"description": "ambient shell",
+			"input_schema": map[string]any{
+				"type": "object", "properties": map[string]any{},
+			},
+		})
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("additional tool error = %v", err)
+		}
+	})
+	t.Run("changed description", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		tools[0].(map[string]any)["description"] = "changed"
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("changed description error = %v", err)
+		}
+	})
+	t.Run("missing tool", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		request["tools"] = tools[:len(tools)-1]
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("missing tool error = %v", err)
+		}
+	})
+	t.Run("unexpected field", func(t *testing.T) {
+		request := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+		tools := request["tools"].([]any)
+		tools[0].(map[string]any)["cache_control"] = map[string]any{
+			"type": "ephemeral",
+		}
+		if err := validate(t, request); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+			t.Fatalf("unexpected field error = %v", err)
+		}
+	})
+}
+
+func claudeFirstProviderRequestFixture(
+	t *testing.T,
+	model string,
+	access WorkspaceAccess,
+) map[string]any {
+	t.Helper()
+	definitions := toolDefinitions(access)
+	tools := make([]any, 0, len(definitions))
+	for _, definition := range definitions {
+		schema, err := decodeStrict(
+			definition.InputSchema,
+			MaxToolArgumentBytes,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tools = append(tools, map[string]any{
+			"name":         "mcp__sworn__" + definition.Name,
+			"description":  definition.Description,
+			"input_schema": schema,
+		})
+	}
+	return map[string]any{
+		"model": model,
+		"tools": tools,
 	}
 }
 
@@ -2480,5 +2678,64 @@ func TestNativeEventStateCapturesFullWireSplitAndTurns(t *testing.T) {
 		*codex.usage.CacheWriteTokens != 9 ||
 		codex.turns != 1 {
 		t.Fatalf("codex capture = %#v", codex.usage)
+	}
+}
+
+// A2: scanNativeEvents' cumulative-total branch fails
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED and stamps the crossing byte total onto
+// state, never touching state.accept - nothing in the pre-slice suite pins
+// this cumulative behavior.
+func TestScanNativeEventsCumulativeByteBudgetCrossing(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	line := []byte(`{"type":"result","usage":{"input_tokens":1,"output_tokens":1}}`)
+	reader := bytes.NewReader(append(append([]byte(nil), line...), '\n'))
+	capability := []byte("capability-not-present")
+	err := scanNativeEvents(reader, capability, state, int64(len(line))-1)
+	if !IsCode(err, "ECONOMY_OUTPUT_BUDGET_EXCEEDED") {
+		t.Fatalf("error = %v, want ECONOMY_OUTPUT_BUDGET_EXCEEDED", err)
+	}
+	state.mu.Lock()
+	spent := state.streamBytes
+	state.mu.Unlock()
+	if spent != int64(len(line)) {
+		t.Fatalf("streamBytes = %d, want %d", spent, len(line))
+	}
+	if state.turns != 0 {
+		t.Fatalf("turns = %d, want 0: the crossing must trip before accept runs", state.turns)
+	}
+}
+
+// A2: a stream whose cumulative total stays under the budget keeps running
+// every line through state.accept exactly as before.
+func TestScanNativeEventsUnderBudgetContinues(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	line := []byte(`{"type":"result","usage":{"input_tokens":1,"output_tokens":1}}` + "\n")
+	var buf bytes.Buffer
+	for i := 0; i < 5; i++ {
+		buf.Write(line)
+	}
+	total := int64(buf.Len())
+	capability := []byte("capability-not-present")
+	if err := scanNativeEvents(&buf, capability, state, total+1); err != nil {
+		t.Fatalf("error = %v, want nil", err)
+	}
+	if state.turns != 5 {
+		t.Fatalf("turns = %d, want 5", state.turns)
+	}
+}
+
+// A2: a line that both crosses the cumulative budget and carries the
+// capability secret still classifies as surface, not economy - the secret
+// check runs first.
+func TestScanNativeEventsSecretTripOutranksByteBudget(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude, model: "m"}
+	capability := []byte("capability-secret-token")
+	line := []byte(`{"type":"result","note":"` + string(capability) + `"}`)
+	reader := bytes.NewReader(append(append([]byte(nil), line...), '\n'))
+	if err := scanNativeEvents(reader, capability, state, 1); !IsCode(err, "NATIVE_SURFACE_INVALID") {
+		t.Fatalf("error = %v, want NATIVE_SURFACE_INVALID", err)
 	}
 }

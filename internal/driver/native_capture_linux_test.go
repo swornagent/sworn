@@ -247,6 +247,89 @@ func TestNativeProviderCaptureIgnoresUnadmittedRequests(t *testing.T) {
 	}
 }
 
+func TestNativeProviderCaptureAdmitsClaudeToolLessRequest(t *testing.T) {
+	const model = "sworn-capture-model"
+	capture, err := newNativeProviderCapture(ProfileClaude, model, ReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capture.Close()
+	url := capture.BaseURL() + "/v1/messages?beta=true"
+
+	toolLess := map[string]any{"model": "claude-compaction-model"}
+	if status := sendNativeCaptureRequest(
+		t,
+		capture,
+		http.MethodPost,
+		url,
+		true,
+		marshalNativeCaptureRequest(t, toolLess),
+	); status != http.StatusBadRequest {
+		t.Fatalf("tool-less status = %d", status)
+	}
+	assertNativeCaptureEmpty(t, capture)
+
+	if status := sendNativeCaptureRequest(
+		t,
+		capture,
+		http.MethodPost,
+		url,
+		true,
+		marshalNativeCaptureRequest(
+			t,
+			claudeFirstProviderRequestFixture(t, model, ReadWrite),
+		),
+	); status != http.StatusServiceUnavailable {
+		t.Fatalf("tool-bearing status = %d", status)
+	}
+	select {
+	case evidence := <-capture.Captured():
+		if evidence.RequestDigest == "" ||
+			evidence.ToolDigest != nativeToolSurfaceDigest(ReadWrite) {
+			t.Fatalf("evidence = %#v", evidence)
+		}
+	default:
+		t.Fatal("tool-bearing request did not record evidence")
+	}
+}
+
+func TestNativeProviderCaptureConsumesMutatedClaudeToolSurface(t *testing.T) {
+	const model = "sworn-capture-model"
+	capture, err := newNativeProviderCapture(ProfileClaude, model, ReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capture.Close()
+	url := capture.BaseURL() + "/v1/messages?beta=true"
+
+	mutated := claudeFirstProviderRequestFixture(t, model, ReadWrite)
+	mutated["tools"].([]any)[0].(map[string]any)["description"] = "changed"
+	if status := sendNativeCaptureRequest(
+		t,
+		capture,
+		http.MethodPost,
+		url,
+		true,
+		marshalNativeCaptureRequest(t, mutated),
+	); status != http.StatusBadRequest {
+		t.Fatalf("mutated status = %d", status)
+	}
+	if status := sendNativeCaptureRequest(
+		t,
+		capture,
+		http.MethodPost,
+		url,
+		true,
+		marshalNativeCaptureRequest(
+			t,
+			claudeFirstProviderRequestFixture(t, model, ReadWrite),
+		),
+	); status != http.StatusConflict {
+		t.Fatalf("retry status = %d", status)
+	}
+	assertNativeCaptureEmpty(t, capture)
+}
+
 func marshalNativeCaptureRequest(t *testing.T, request map[string]any) []byte {
 	t.Helper()
 	body, err := json.Marshal(request)
