@@ -1,0 +1,65 @@
+{
+ "outcome": "An operator's answer reaches a worker as an attested fact rather than an anonymous string, so a worker can act on operator-supplied values without being asked to trust text it cannot distinguish from injection - closing sworn#247 by wiring the attestation channel this codebase already defines and has never once used: FactOperatorAnswer exists and is admitted as a byte-for-byte fact, and no site in the tree constructs it.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "a cryptographic signing scheme or an operator identity system (the engine's authority model binds exact bytes through the journal and the approved authority digest, not signatures; introducing key management here would be a new trust substrate, not this defect's fix)",
+   "an operator channel for supplying arbitrary files into a worker sandbox (a real gap the same episode exposed, but a distinct mechanism with its own containment questions; this slice attests the answer path that already exists)",
+   "the attention question and answer verbs themselves (sworn answer's operator ergonomics are unchanged; what changes is how the answered text is carried to a worker)",
+   "internal/journal beyond reading what the attention projection already stores"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/runtime and internal/driver by import only; no cmd test pins how an answer is carried into a worker envelope"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/runtime by import only; no cockpit test pins recovery envelope facts"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/runtime via internal/cockpit by import only; no observe test pins recovery envelope facts"
+   },
+   {
+    "package": "internal/baton",
+    "reason": "its tests do not reach the recovery envelope; answer carriage is a runtime and driver concern"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/runtime via internal/cockpit by import only; no tui test pins recovery envelope facts"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The operator answer travels as the fact the engine already defines for it. FactOperatorAnswer (internal/driver/automation.go:52) is admitted as an eligible byte-for-byte fact by RecoveryAnswerForInvocation (automation.go:219-226, :466-470), and no production site anywhere constructs one: a recovery invocation's facts are hardcoded to worker_terminal, worker_message and current_status at internal/runtime/turn_recovery.go:916-930, so the operator's answer bypasses the attestation path entirely and arrives instead as the two-field anonymous struct at internal/driver/provider.go:1077-1080, giving the worker {kind, content} and nothing verifiable. After this slice an operator answer reaches the worker through the fact channel, carrying the provenance that channel exists to provide. Pinned by a test asserting an answered attention produces an operator-answer fact on the worker's envelope."
+  },
+  {
+   "id": "A2",
+   "text": "A worker can tell an operator answer from arbitrary recovery text. The envelope distinguishes what the operator said from what the engine or a prior turn supplied, so the native-lane-honesty refusal becomes unnecessary rather than merely overruled: an implementer there was given a real pin digest through sworn answer, correctly declined to insert an unverifiable value into a pin gating EXECUTABLE_IDENTITY_MISMATCH, and parked a second time - the right call against an unattested string, and a full run generation lost to it. The bytes remain exactly the operator's; what is added is the ability to know whose they are. Pinned by a test comparing an operator-answered recovery envelope against an engine-supplied one and finding them distinguishable."
+  },
+  {
+   "id": "A3",
+   "text": "Attestation is carriage, not laundering. The answer's route from sworn answer through the journal to the worker keeps its exact bytes - AnswerAttentionCommand (internal/runtime/service.go:1272-1277) to the attention record's Message (internal/journal/attention.go:637-654) to projection.Answer (:394-396) to RecoverableTurnInput.Answer (internal/driver/recoverable.go:45-56) - and the fact asserts only what the engine actually knows: that this text was admitted through the operator answer path for this attention on this run. It never asserts that the content is true, correct, or safe to act on, and a worker refusing an attested answer on its own judgement remains a legitimate outcome. Pinned by a test asserting byte-exact carriage and by the fact's content being checkable against the journal record."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime ./internal/driver",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "Attestation must never become coercion. A worker that refuses an attested operator answer for its own stated reason is behaving correctly and must still be able to park; this slice removes an unnecessary refusal, it does not remove the ability to refuse.",
+  "The operator's bytes are carried exactly and are not reinterpreted, normalized, or summarized on the way to the worker; an answer that reaches a worker altered would be a worse defect than the one being fixed.",
+  "No new trust substrate: the fact asserts provenance the engine can already prove from its own durable record, and nothing in this slice introduces keys, identities, or an external verifier.",
+  "The existing recovery-input path stays intact for the kinds that are not operator answers, and no fact already carried on a recovery invocation is displaced by this one."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
