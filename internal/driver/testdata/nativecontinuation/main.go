@@ -118,14 +118,21 @@ func main() {
 			}
 			os.Exit(29)
 		case "crash":
-			// SIGUSR1 is fatal by default disposition and is not one of
-			// Go's runtime-intercepted synchronous fault signals (SIGSEGV,
-			// SIGBUS, SIGFPE, SIGILL), so self-delivering it deterministically
-			// terminates this process via that signal - bwrap then surfaces
-			// the wait status as a normal exit with code 128+SIGUSR1 (138).
-			_ = syscall.Kill(os.Getpid(), syscall.SIGUSR1)
-			time.Sleep(2 * time.Second)
-			os.Exit(29)
+			// SIGHUP carries _SigKill disposition in the Go runtime's signal
+			// table, so an unwatched SIGHUP terminates this process via that
+			// signal and bwrap surfaces the wait status as exit 128+SIGHUP
+			// (129). SIGUSR1 cannot be used here: it is _SigNotify only, so
+			// the runtime ignores it when nobody is watching and the process
+			// survives. SIGTERM and SIGKILL cannot be used either - the
+			// classifier reads 143 and 137 as engine kills, not as a
+			// self-signalled crash.
+			_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+			// Only reachable if the signal failed to terminate; exit on a
+			// distinct code rather than sleeping into the invocation budget,
+			// so that failure reads as "signal did not terminate" instead of
+			// an opaque INVOCATION_TIMEOUT.
+			time.Sleep(200 * time.Millisecond)
+			os.Exit(97)
 		case "rotation":
 			if os.WriteFile(
 				credentialFixturePath(family),

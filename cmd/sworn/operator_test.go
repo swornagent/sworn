@@ -1763,7 +1763,11 @@ func TestProjectServeEndToEndMultiJournalDiscoveryAndLiveFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = needsResp.Body.Close()
-	if len(needs) != 1 || needs[0].RunID != "run-parked" || needs[0].Action != "retry" {
+	// A park now carries its own cause, code, and named paths, so the
+	// operator's next action is to review the park rather than to retry
+	// blind (2026-08-26-native-lane-honesty S7-park-lane-scoping).
+	if len(needs) != 1 || needs[0].RunID != "run-parked" ||
+		needs[0].Action != "review_park" {
 		cancelServe()
 		t.Fatalf("needs = %#v", needs)
 	}
