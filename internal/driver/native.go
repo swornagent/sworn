@@ -403,18 +403,25 @@ func (adapter *nativeAdapter) checkProfile(
 		if kind == checkCertify {
 			// A2: certify must not pass what it never evaluated. It runs
 			// the same bounded, read-only credential liveness check the
-			// dispatch-time gate uses and reports honestly: a positively
-			// stale credential fails certification, and anything else -
-			// an unresolvable credential reference or a read that cannot
-			// positively prove expiry - is reported as unevaluated, never
-			// a silent pass. There is no third, positively-live outcome:
-			// nativeCredentialStale only ever proves staleness.
+			// dispatch-time gate uses and reports exactly what it did: a
+			// positively stale credential fails certification; a credential
+			// the check actually read and did not find expired passes on
+			// that evaluation alone; and a reference it could not resolve
+			// or read is reported as unevaluated, never as a silent pass.
+			// Reporting "unevaluated" for a credential that was in fact
+			// evaluated would be the same false claim this check replaced,
+			// so the evaluated signal the liveness check already returns
+			// decides between the last two.
 			pathValue, resolveErr := adapter.resolve(ctx, *profile.CredentialRef)
 			if resolveErr == nil {
-				if stale, _ := nativeCredentialLivenessCheck(
+				stale, evaluated := nativeCredentialLivenessCheck(
 					adapter.config.Family, pathValue, adapter.config.MaxCredentialBytes,
-				); stale {
+				)
+				if stale {
 					return ReadinessFail, "CREDENTIAL_STALE"
+				}
+				if evaluated {
+					return ReadinessPass, "native_credential_preflight_passed"
 				}
 			}
 			return ReadinessNotCertified, "native_credential_preflight_unevaluated"

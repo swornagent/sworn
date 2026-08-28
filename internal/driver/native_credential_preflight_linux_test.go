@@ -648,3 +648,77 @@ func TestNativeBenignRotationKeepsCompletedDispatch(t *testing.T) {
 func strconvI64(value int64) string {
 	return strconv.FormatInt(value, 10)
 }
+
+// TestNativeCertifyReportsWhatThePreflightActuallyDid pins all three
+// certify outcomes for a native adapter. The regression this guards
+// against shipped because nothing asserted that a native can pass at
+// all: reporting "unevaluated" for a credential the check did read and
+// did not find expired is the same false claim the honest preflight
+// replaced, and it left sworn driver certify unable to certify any
+// claude or codex lane (sworn#248).
+func TestNativeCertifyReportsWhatThePreflightActuallyDid(t *testing.T) {
+	fresh := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+		strconvI64(8_000_000_000_000_000) + `}}`
+	expired := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+		strconvI64(time.Now().UnixMilli()-60_000) + `}}`
+
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		pathValue := filepath.Join(t.TempDir(), "credential")
+		if err := os.WriteFile(pathValue, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return pathValue
+	}
+	probe := buildNativeContinuation(t)
+	digest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The in-repo probe, not a vendor binary: exactNativeConfigFixture
+	// keys off a CLI that exists on one operator host, so a certify test
+	// built on it would skip everywhere else - including CI, which is
+	// exactly how an unguarded path ships (sworn#249).
+	certify := func(t *testing.T, credentialPath string) (ReadinessState, string) {
+		t.Helper()
+		adapter, identity, ref, _, _ := nativeCredentialFixtureAdapter(
+			t, ProfileClaude, probe, digest, []byte(`{}`),
+		)
+		adapter.resolve = func(context.Context, string) (string, error) {
+			return credentialPath, nil
+		}
+		profile := ProfileConfig{
+			Key: "certify-profile", Adapter: identity.Key,
+			Network: NetworkRequired, CredentialRef: &ref,
+		}
+		return adapter.checkProfile(
+			context.Background(),
+			checkCertify,
+			profile,
+			"native-continuation-model",
+		)
+	}
+
+	t.Run("evaluated and live passes on that evaluation", func(t *testing.T) {
+		state, code := certify(t, write(t, fresh))
+		if state != ReadinessPass ||
+			code != "native_credential_preflight_passed" {
+			t.Fatalf("certify = %s %s, want PASS native_credential_preflight_passed",
+				state, code)
+		}
+	})
+	t.Run("positively stale fails", func(t *testing.T) {
+		state, code := certify(t, write(t, expired))
+		if state != ReadinessFail || code != "CREDENTIAL_STALE" {
+			t.Fatalf("certify = %s %s, want FAIL CREDENTIAL_STALE", state, code)
+		}
+	})
+	t.Run("unreadable reference stays unevaluated", func(t *testing.T) {
+		state, code := certify(t, "/not-used-by-readiness")
+		if state != ReadinessNotCertified ||
+			code != "native_credential_preflight_unevaluated" {
+			t.Fatalf("certify = %s %s, want NOT_CERTIFIED unevaluated",
+				state, code)
+		}
+	})
+}

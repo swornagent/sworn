@@ -30,7 +30,19 @@ type promptEnvelope struct {
 	} `json:"recovery"`
 }
 
+// fixtureVersion is the version this probe reports to --version. It must
+// equal the VersionOutput its adapter config declares.
+const fixtureVersion = "1.0.0"
+
 func main() {
+	// The readiness gate identifies a pinned CLI by running it with
+	// --version before anything else, so answering that here is what
+	// lets certify-path tests use this probe instead of a real vendor
+	// binary that only exists on one operator host.
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println(fixtureVersion)
+		return
+	}
 	time.Sleep(100 * time.Millisecond)
 	body, err := io.ReadAll(os.Stdin)
 	if err != nil {
