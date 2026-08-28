@@ -1188,7 +1188,14 @@ func productionInvocationFixture(
 		Workspace{Path: GuestWorkspacePath, Access: access},
 		nil,
 		true,
-		Limits{TimeoutMillis: 5_000, OutputBytes: 65_536},
+		// The turn budget, not the clock, is what these fixtures exist to
+		// pin: a work that runs DefaultMaxTurnsPerWork in-process round
+		// trips fits comfortably in 5s unloaded, but -race instrumentation
+		// on a loaded CI runner does not (200 turns reached only 190 before
+		// the 5s budget expired). Match the generous budget the economy
+		// fixture already uses for the same reason, so a wall clock never
+		// races the behaviour under test.
+		Limits{TimeoutMillis: 180_000, OutputBytes: 65_536},
 	)
 	if err != nil {
 		t.Fatal(err)
