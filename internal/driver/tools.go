@@ -126,16 +126,12 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	if tempErr != nil {
 		return nil, tempErr
 	}
-	session.scratch, err = os.MkdirTemp(temp, "sworn-invocation-scratch-")
+	session.scratch, err = createInvocationScratchRoot(temp)
 	if err != nil {
-		return nil, fail("PROCESS_START_FAILED")
+		return nil, err
 	}
-	for _, surface := range []string{"home", "tmp"} {
-		if err := os.Mkdir(
-			filepath.Join(session.scratch, surface), 0o700,
-		); err != nil {
-			return nil, fail("PROCESS_START_FAILED")
-		}
+	if err := createInvocationScratchSurfaces(session.scratch); err != nil {
+		return nil, err
 	}
 	if invocation.Request.Workspace.Access == ReadOnly {
 		session.before, err = captureWorkspaceManifest(invocation.HostWorkspace)
@@ -149,6 +145,35 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 	}
 	ok = true
 	return session, nil
+}
+
+// createInvocationScratchRoot creates the per-invocation scratch directory
+// under an already-resolved temp root. It is factored out of newToolSession
+// so the invocation-scratch raise site (A1's :131) is independently testable
+// against a caller-chosen temp root, distinct from StageInputProjection's
+// own MkdirTemp call under the same root moments earlier.
+func createInvocationScratchRoot(temp string) (string, error) {
+	scratch, err := os.MkdirTemp(temp, "sworn-invocation-scratch-")
+	if err != nil {
+		return "", failSandboxStart("sandbox_start.invocation_scratch_create", err)
+	}
+	return scratch, nil
+}
+
+// createInvocationScratchSurfaces creates the per-invocation home and tmp
+// directories inside an already-created scratch root. It is factored out of
+// newToolSession so the home/tmp raise site (A1's :137) is independently
+// testable against a caller-chosen scratch directory, without needing to
+// race or predict os.MkdirTemp's own random name.
+func createInvocationScratchSurfaces(scratch string) error {
+	for _, surface := range []string{"home", "tmp"} {
+		if err := os.Mkdir(
+			filepath.Join(scratch, surface), 0o700,
+		); err != nil {
+			return failSandboxStart("sandbox_start.home_tmp_surface_create", err)
+		}
+	}
+	return nil
 }
 
 // EnvironmentFacts states, for one invocation's actual Bash/Read tool
@@ -270,7 +295,7 @@ func (session *toolSession) execute(
 		err = fail("TOOL_NOT_ALLOWED")
 	}
 	if err != nil {
-		result.Content = []byte("error:" + contractCode(err))
+		result.Content = toolErrorContent(err)
 		result.Failed = true
 		return result
 	}
@@ -280,6 +305,22 @@ func (session *toolSession) execute(
 	}
 	result.Content = body
 	return result
+}
+
+// toolErrorContent renders a failed tool call's content for the model: the
+// stable code, plus the failing call's own bounded Detail envelope when its
+// raise site set one (today: PROCESS_START_FAILED's six Bash-tool sandbox
+// start sites), in the same "key=value" suffix idiom bashFailureResult uses
+// for exit_code. Every other tool error keeps the bare code unchanged,
+// since nothing else reaching this path constructs a ContractError with a
+// non-empty Detail.
+func toolErrorContent(err error) []byte {
+	code := contractCode(err)
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) && contractErr.Detail != "" {
+		return []byte("error:" + code + " detail=" + contractErr.Detail)
+	}
+	return []byte("error:" + code)
 }
 
 // bashFailureResult carries a completed-but-failing command's exit code and

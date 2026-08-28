@@ -87,16 +87,20 @@ var (
 // the provider's own words for exactly the closed provider status family:
 // the status envelope's error.message, normalized to single-line,
 // control-free valid UTF-8 and bounded to maxProviderErrorDetailBytes at
-// extraction, then re-validated at the dispatcher boundary. Request,
-// credential, header, and sibling-envelope bytes structurally cannot enter
-// it; every other code keeps Detail empty.
+// extraction, then re-validated at the dispatcher boundary. NATIVE_SURFACE_INVALID
+// and PROCESS_START_FAILED carry their own distinct closed-vocabulary
+// structured envelopes instead (native_surface_check.go, sandbox_start_detail.go).
+// Request, credential, header, and sibling-envelope bytes structurally
+// cannot enter any of these; every other code keeps Detail empty.
 type ContractError struct {
 	Code string
-	// Detail is bounded provider status-envelope text. It is populated only
-	// beside the provider status codes (PROVIDER_LIMITED,
+	// Detail is populated beside the provider status codes (PROVIDER_LIMITED,
 	// PROVIDER_AUTHORIZATION_FAILED, PROVIDER_REQUEST_REJECTED,
-	// PROVIDER_UNAVAILABLE, PROVIDER_ERROR) and only after normalizeAdapterError
-	// re-validates it against validateText at maxProviderErrorDetailBytes.
+	// PROVIDER_UNAVAILABLE, PROVIDER_ERROR, PROVIDER_TRANSPORT_FAILED) as
+	// bounded provider/native-stderr text, and beside NATIVE_SURFACE_INVALID
+	// and PROCESS_START_FAILED as their own structured envelopes - in every
+	// case only after normalizeAdapterError re-validates it at the
+	// dispatcher boundary.
 	Detail string
 	// RetryAfter is the provider-advised pacing for a retryable rejection
 	// (429 RetryInfo body or Retry-After header). Zero when no usable delay

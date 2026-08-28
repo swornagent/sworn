@@ -548,6 +548,10 @@ func normalizeAdapterError(err error) error {
 				if detail, ok := revalidateNativeSurfaceDetail(contractErr.Detail); ok {
 					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
 				}
+			} else if contractErr.Code == "PROCESS_START_FAILED" {
+				if detail, ok := revalidateSandboxStartDetail(contractErr.Detail); ok {
+					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
+				}
 			} else if plainDetailCode(contractErr.Code) &&
 				validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
 				// Bounded, re-validated provider or native-stderr words ride
