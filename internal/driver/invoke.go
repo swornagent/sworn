@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"errors"
+	"regexp"
 	"sync"
 	"time"
 
@@ -141,6 +142,18 @@ type Diagnostic struct {
 	Code        string `json:"code"`
 	StderrBytes int64  `json:"stderr_bytes"`
 	Truncated   bool   `json:"truncated"`
+	// Sanitized, OriginalCode, and OriginalCodeDropped are sanitizer-owned:
+	// only sanitizeFailedObservation sets them, never copied wholesale from
+	// an adapter. Sanitized marks that this Diagnostic passed through
+	// failure sanitization at all, distinguishing it from the unsanitized
+	// non-none codes the success and submission-absent paths persist
+	// directly. OriginalCode is the bounded, re-validated non-admitted code
+	// the adapter actually reported; OriginalCodeDropped marks that a
+	// non-empty code was reported but failed re-validation, distinguishing
+	// a recorded drop from honest absence (no code reported at all).
+	Sanitized           bool   `json:"sanitized,omitempty"`
+	OriginalCode        string `json:"original_code,omitempty"`
+	OriginalCodeDropped bool   `json:"original_code_dropped,omitempty"`
 }
 type SealedHandoff struct {
 	SubmissionBytes  []byte `json:"submission_bytes"`
@@ -274,6 +287,7 @@ func validDiagnosticCode(code string) bool {
 		"provider_truncated",
 		"economy_turn_budget",
 		"economy_output_budget",
+		"economy_output_budget_bytes",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -309,6 +323,7 @@ func validFatalDiagnosticCode(code string) bool {
 		"provider_truncated",
 		"economy_turn_budget",
 		"economy_output_budget",
+		"economy_output_budget_bytes",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -385,6 +400,7 @@ func sanitizeFailedObservation(
 	surface string,
 ) Observation {
 	sanitized := failureObservation("adapter_failed", surface)
+	sanitized.Diagnostic.Sanitized = true
 	if observation.DurationMillis >= 0 &&
 		observation.DurationMillis <= MaxSafeInteger {
 		sanitized.DurationMillis = observation.DurationMillis
@@ -392,7 +408,13 @@ func sanitizeFailedObservation(
 	if validFatalDiagnosticCode(observation.Diagnostic.Code) &&
 		observation.Diagnostic.StderrBytes >= 0 &&
 		observation.Diagnostic.StderrBytes <= MaxSafeInteger {
-		sanitized.Diagnostic = observation.Diagnostic
+		sanitized.Diagnostic.Code = observation.Diagnostic.Code
+		sanitized.Diagnostic.StderrBytes = observation.Diagnostic.StderrBytes
+		sanitized.Diagnostic.Truncated = observation.Diagnostic.Truncated
+	} else if code, ok := preservedDiagnosticCode(observation.Diagnostic.Code); ok {
+		sanitized.Diagnostic.OriginalCode = code
+	} else if observation.Diagnostic.Code != "" {
+		sanitized.Diagnostic.OriginalCodeDropped = true
 	}
 	// Provider-reported truncation and the economy-budget crossings are the
 	// adapter failures that carry measured facts: the accumulated receipt
@@ -405,13 +427,21 @@ func sanitizeFailedObservation(
 			sanitized.Usage = observation.Usage
 		}
 	}
+	// A2's usage-preservation gate: the executed-binary digest survives
+	// sanitization independent of the diagnostic code, so a post-closure
+	// native failure never loses attestation of what actually ran even when
+	// the rest of the receipt flattens to the unavailable default above.
+	if observation.Usage.ExecutedDigest != nil &&
+		digestPattern.MatchString(*observation.Usage.ExecutedDigest) {
+		digest := *observation.Usage.ExecutedDigest
+		sanitized.Usage.ExecutedDigest = &digest
+	}
 	if len(observation.Events) <= 1_024 {
 		sanitized.Events = make([]TerminalEvent, 0, len(observation.Events))
 		for index, event := range observation.Events {
 			if event.Sequence != uint64(index+1) ||
 				!validTerminalEventKind(event.Kind) {
 				sanitized.Events = nil
-				sanitized.Diagnostic = Diagnostic{Code: "adapter_failed"}
 				break
 			}
 			sanitized.Events = append(sanitized.Events, event)
@@ -420,29 +450,89 @@ func sanitizeFailedObservation(
 	return sanitized
 }
 
+// diagnosticCodePattern bounds a preserved non-admitted diagnostic code to
+// the closed identifier shape the admitted vocabulary itself uses: lowercase
+// ASCII letters, digits, underscore, and hyphen, starting with a letter. It
+// is a tighter, closed-vocabulary bound than validateText's general
+// secret-safe text bound (maxProviderErrorDetailBytes): a field named
+// original_code carries no provider prose, only a short adapter-chosen
+// identifier, and no known secret is reachable at this boundary (Invocation
+// carries no credential material).
+var diagnosticCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+// preservedDiagnosticCode re-validates a non-admitted diagnostic code at the
+// sanitization boundary before it may ride as bounded evidence. This is
+// re-validation, never trust: a code that fails the bound is an honest drop,
+// never substituted or truncated into something that looks admitted.
+func preservedDiagnosticCode(code string) (string, bool) {
+	if !diagnosticCodePattern.MatchString(code) {
+		return "", false
+	}
+	return code, true
+}
+
 // preservesUsageDiagnostic reports whether an adapter failure's diagnostic
 // entitles its accumulated usage receipt to survive the failure-sanitization
 // seam. It is the closed family of measured-failure diagnostics, never
 // inferred from the error: truncation (provider ceiling) and the economy
-// budget crossings (turn and output-token), whose spent-vs-budget evidence
-// the runtime park gate depends on.
+// budget crossings (turn, output-token, and native output-stream byte),
+// whose spent-vs-budget evidence the runtime park gate depends on.
 func preservesUsageDiagnostic(code string) bool {
 	switch code {
-	case "provider_truncated", "economy_turn_budget", "economy_output_budget":
+	case "provider_truncated", "economy_turn_budget", "economy_output_budget",
+		"economy_output_budget_bytes":
 		return true
 	default:
 		return false
 	}
 }
 
+// classifyKind maps an admitted code (plus the HardLimit flag, which
+// distinguishes PROVIDER_LIMITED's two Kinds) to its RefusalKind. It is the
+// single source of truth pacing's hardLimited also reads, so the two can
+// never diverge. A code outside every named bucket classifies to "" —
+// unclassified — which satisfies the contract's "at minimum" floor without
+// requiring all ~150 admitted codes to be individually placed.
+func classifyKind(code string, hardLimit bool) RefusalKind {
+	switch code {
+	case "PROVIDER_AUTHORIZATION_FAILED",
+		"CREDENTIAL_STALE",
+		"CREDENTIAL_UNAVAILABLE",
+		"CREDENTIAL_NOT_CERTIFIED",
+		"CREDENTIAL_IDENTITY_CHANGED":
+		return KindAuthorization
+	case "PROVIDER_LIMITED":
+		if hardLimit {
+			return KindHardExhaustion
+		}
+		return KindSoftRateLimit
+	case "PROVIDER_TRANSPORT_FAILED",
+		"PROVIDER_UNAVAILABLE",
+		"ENDPOINT_UNAVAILABLE",
+		"PROCESS_START_FAILED",
+		"ISOLATION_UNAVAILABLE",
+		"TRANSPORT_FAILURE":
+		return KindTransport
+	case "NATIVE_SURFACE_INVALID":
+		return KindSurfaceIntegrity
+	case "ECONOMY_TURN_BUDGET_EXCEEDED", "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
+		return KindEconomy
+	default:
+		return ""
+	}
+}
+
 // normalizeAdapterError maps adapter errors to the stable dispatcher
-// vocabulary. Adapter-provided wrapping text cannot escape, with one bounded
-// exception recorded by the S5-provider-limit-evidence ruling: the five
-// provider status codes carry the status envelope's error.message as Detail
-// after it passes validateText at maxProviderErrorDetailBytes, so a provider
-// limit is diagnosable from the durable failure record and the live stream.
-// Every other code, and any non-conforming detail, is dropped exactly as
-// before.
+// vocabulary, setting Kind on every branch it returns. Adapter-provided
+// wrapping text cannot escape, with two bounded exceptions: the plain
+// exception recorded by the S5-provider-limit-evidence ruling and widened by
+// S4-refusal-taxonomy A4 (the five provider status codes plus
+// PROVIDER_TRANSPORT_FAILED carry bounded, single-line, control-free text as
+// Detail after it passes validateText at maxProviderErrorDetailBytes), and
+// the structured exception A3 adds (NATIVE_SURFACE_INVALID carries a
+// {"check":...,"head":...} envelope, structurally re-validated by
+// revalidateNativeSurfaceDetail rather than validateText). Every other code,
+// and any non-conforming detail, is dropped exactly as before.
 func normalizeAdapterError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -452,19 +542,28 @@ func normalizeAdapterError(err error) error {
 	}
 	var contractErr *ContractError
 	if errors.As(err, &contractErr) && validAdapterErrorCode(contractErr.Code) {
-		if providerStatusCode(contractErr.Code) &&
-			validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
-			// Bounded, re-validated provider words ride the stable code.
-			return &ContractError{
-				Code:      contractErr.Code,
-				Detail:    contractErr.Detail,
-				HardLimit: contractErr.HardLimit,
+		kind := classifyKind(contractErr.Code, contractErr.HardLimit)
+		if detailPreservingCode(contractErr.Code) {
+			if contractErr.Code == "NATIVE_SURFACE_INVALID" {
+				if detail, ok := revalidateNativeSurfaceDetail(contractErr.Detail); ok {
+					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
+				}
+			} else if plainDetailCode(contractErr.Code) &&
+				validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
+				// Bounded, re-validated provider or native-stderr words ride
+				// the stable code.
+				return &ContractError{
+					Code:      contractErr.Code,
+					Detail:    contractErr.Detail,
+					HardLimit: contractErr.HardLimit,
+					Kind:      kind,
+				}
 			}
 		}
 		// Recreate the error so adapter-provided wrapping text cannot escape.
-		return fail(contractErr.Code)
+		return &ContractError{Code: contractErr.Code, Kind: kind}
 	}
-	return fail("ADAPTER_FAILURE")
+	return &ContractError{Code: "ADAPTER_FAILURE", Kind: classifyKind("ADAPTER_FAILURE", false)}
 }
 
 func validAdapterErrorCode(code string) bool {
@@ -709,6 +808,15 @@ func (buffer *boundedBuffer) snapshot() ([]byte, int64, bool) {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return append([]byte(nil), buffer.body...), buffer.total, buffer.overflow
+}
+
+// clear zeroes the retained body in place, so a caller done with a snapshot
+// can drop the buffer's own retained copy on every return path.
+func (buffer *boundedBuffer) clear() {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	clearBytes(buffer.body)
+	buffer.body = nil
 }
 func invocationContext(parent context.Context, timeoutMillis int64) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(parent, time.Duration(timeoutMillis)*time.Millisecond)

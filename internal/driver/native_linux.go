@@ -200,7 +200,12 @@ type nativeEventState struct {
 	usage            Usage
 	hasUsage         bool
 	turns            int64
-	err              error
+	// streamBytes is the cumulative decoded event-stream byte total at an
+	// ECONOMY_OUTPUT_BUDGET_EXCEEDED crossing (S3-output-stream-economy
+	// A3): stamped by scanNativeEvents immediately before it returns that
+	// error, so the crossing carries its own spent-bytes fact.
+	streamBytes int64
+	err         error
 }
 
 type nativeCaptureRun struct {
@@ -562,7 +567,7 @@ func (state *nativeContinuationState) claim(
 		filepath.Join(state.root, "home"),
 	)
 	if err != nil {
-		return nil, fail("NATIVE_SURFACE_INVALID")
+		return nil, failNativeSurface("continuation.claim_size_unreadable")
 	}
 	if size+int64(len(state.sessionID)) > maxContinuationStateBytes {
 		return nil, failContinuation("continuation.native.claim_size_overflow")
@@ -630,7 +635,7 @@ func (state *nativeContinuationState) validateRetainedHome(
 	credentialTarget := filepath.Join(home, relativeCredential)
 	info, err := os.Lstat(credentialTarget)
 	if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("continuation.credential_target_not_placeholder")
 	}
 	return nil
 }
@@ -705,7 +710,7 @@ func (state *nativeContinuationState) containsAny(
 			}
 			clearBytes(body)
 			if found {
-				return fail("NATIVE_SURFACE_INVALID")
+				return failNativeSurface("continuation.retained_home_secret_leak")
 			}
 			return nil
 		},
@@ -1894,6 +1899,16 @@ func platformRunNative(
 		return Observation{}, err
 	}
 	defer closeNativeFiles(closure)
+	// A2: the executed binary's digest is verified byte-exact the moment
+	// openNativeClosure succeeds (openPinnedExecutable only returns success
+	// when the live file's streamDigest equals config.CLI.Digest), in both
+	// exact and minor pin mode. Every return from here on - success or
+	// post-closure failure - carries it, so minor-mode admission never
+	// weakens attestation; returns before this point stay honest absence.
+	executedDigest := config.CLI.Digest
+	defer func() {
+		observation.Usage.ExecutedDigest = &executedDigest
+	}()
 	configFiles, err := nativeConfigFiles(
 		config,
 		invocation,
@@ -1959,13 +1974,20 @@ func platformRunNative(
 	}
 	stderr := newSecretGuard(capability, MaxStderrBytes)
 	var captureStderr *secretGuard
-	stderrWriter := io.Writer(stderr)
+	// stderrTail retains a bounded tail of the CLI's own stderr alongside
+	// the leak-only secretGuard(s), which never retain text (A4). It is
+	// cleared on every return path via the deferred clear below; its
+	// contents are only ever read (and redacted) at the terminal
+	// classification site, and only when neither guard ever leaked.
+	stderrTail := &boundedBuffer{maximum: MaxStderrBytes, retain: MaxStderrRetain}
+	defer stderrTail.clear()
+	stderrWriter := io.Writer(io.MultiWriter(stderr, stderrTail))
 	var captureToken []byte
 	if captureRun != nil {
 		captureToken = captureRun.provider.bearer()
 		defer clearBytes(captureToken)
 		captureStderr = newSecretGuard(captureToken, MaxStderrBytes)
-		stderrWriter = io.MultiWriter(stderr, captureStderr)
+		stderrWriter = io.MultiWriter(stderr, captureStderr, stderrTail)
 	}
 	stderrFinalized := false
 	defer func() {
@@ -2012,7 +2034,7 @@ func platformRunNative(
 	if statusErr != nil {
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
-		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		return Observation{}, failNativeSurface("dispatch.sandbox_process_group_unreadable")
 	}
 	strictRuntime := captureRun != nil || certificate != nil ||
 		automationRun != nil && automationRun.certificate.InvocationStage != 0
@@ -2033,7 +2055,9 @@ func platformRunNative(
 			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 			_ = command.Wait()
 			_ = waitProcessGroup(processGroup)
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			// certifyNativeRuntime's own checks are already named; propagate
+			// rather than mint a fresh generic refusal.
+			return Observation{}, runtimeErr
 		}
 	}
 	scanDone := make(chan error, 1)
@@ -2042,6 +2066,7 @@ func platformRunNative(
 			stdout,
 			capability,
 			state,
+			invocation.Request.Limits.EffectiveMaxNativeOutputStreamBytes(),
 			captureToken,
 		)
 	}()
@@ -2140,14 +2165,16 @@ func platformRunNative(
 	credentialRotated := credential.benignRotation()
 	if launch != nil {
 		if launch.state == nil ||
-			launch.state.validateRetainedHome(config) != nil ||
-			launch.state.containsAny(
-				capability,
-				captureToken,
-				credentialBefore,
-				credentialAfter,
-			) {
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			launch.state.validateRetainedHome(config) != nil {
+			return Observation{}, failNativeSurface("continuation.retained_home_invalid")
+		}
+		if launch.state.containsAny(
+			capability,
+			captureToken,
+			credentialBefore,
+			credentialAfter,
+		) {
+			return Observation{}, failNativeSurface("continuation.retained_home_secret_present")
 		}
 	}
 	if ctx.Err() != nil {
@@ -2158,8 +2185,36 @@ func platformRunNative(
 		stderrLeak = captureStderr.leaked() || stderrLeak
 	}
 	stderrFinalized = true
-	if scanErr != nil || stderrLeak {
-		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+	if scanErr != nil && !stderrLeak && IsCode(scanErr, "ECONOMY_OUTPUT_BUDGET_EXCEEDED") {
+		state.mu.Lock()
+		crossingUsage := state.usage
+		crossingHasUsage := state.hasUsage
+		crossingTurns := state.turns
+		crossingBytes := state.streamBytes
+		state.mu.Unlock()
+		return nativeStreamBudgetFailure(
+			started,
+			invocation.Selected.Adapter.ID,
+			crossingUsage,
+			crossingHasUsage,
+			crossingTurns,
+			broker.toolCallTotal(),
+			broker.toolCallsByName(),
+			crossingBytes,
+		), fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
+	}
+	if stderrLeak {
+		return Observation{}, failNativeSurface("dispatch.stderr_secret_leak")
+	}
+	if scanErr != nil {
+		// A named accept()/secret-scan refusal already carries its own
+		// check; scanner.Err()'s PROVIDER_TRANSPORT_FAILED is the one class
+		// this seam still re-codes to surface integrity, since A4's
+		// transport carrier is exclusively nativeSpontaneousExitFailure.
+		if IsCode(scanErr, "NATIVE_SURFACE_INVALID") {
+			return Observation{}, scanErr
+		}
+		return Observation{}, failNativeSurface("dispatch.event_stream_scan_failed")
 	}
 	state.mu.Lock()
 	eventErr := state.err
@@ -2172,21 +2227,22 @@ func platformRunNative(
 		launch.accepted = identityAccepted
 	}
 	if eventErr != nil || !nativeSeen || !broker.Ready() {
-		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		return Observation{}, failNativeSurface("dispatch.session_identity_not_established")
 	}
 	if captureRun != nil {
 		if !captureReceived ||
 			providerEvidence.ToolDigest !=
 				nativeToolDefinitionsDigest(definitions) {
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			return Observation{}, failNativeSurface("capture.provider_evidence_invalid")
 		}
 		handshake, err := broker.HandshakeEvidence()
 		if err != nil {
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			return Observation{}, failNativeSurface("capture.handshake_evidence_unavailable")
 		}
 		configDigest, err := nativeConfigSurfaceDigest(configFiles)
 		if err != nil {
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			// nativeConfigSurfaceDigest's own checks are already named.
+			return Observation{}, err
 		}
 		brokerIdentity := append([]byte(broker.URL()), 0)
 		brokerIdentity = append(brokerIdentity, capability...)
@@ -2203,7 +2259,7 @@ func platformRunNative(
 		})
 		if err != nil {
 			clearBytes(brokerIdentity)
-			return Observation{}, fail("NATIVE_SURFACE_INVALID")
+			return Observation{}, failNativeSurface("capture.evidence_encoding_failed")
 		}
 		if automationRun == nil {
 			captureRun.certificate = nativeSurfaceStageCertificate{
@@ -2258,10 +2314,30 @@ func platformRunNative(
 	}
 	if !terminated {
 		if waitErr != nil {
+			// The retained stderr tail rides the transport refusal only
+			// when neither leak guard ever fired (fail-closed): a detected
+			// leak means the bytes are never trusted enough to surface at
+			// all, matching the guard's existing posture. It is further
+			// redacted against the credential fragments the leak guards
+			// deliberately never scan (they watch only for the narrow
+			// capability/capture tokens, not the provider credential's own
+			// value).
+			var transportTail []byte
+			if !stderrLeak {
+				tail, _, _ := stderrTail.snapshot()
+				secrets := append(
+					redactionSecretSet(capability, captureToken),
+					nativeSecretFragments(credentialBefore)...,
+				)
+				secrets = append(secrets, nativeSecretFragments(credentialAfter)...)
+				transportTail, _ = redactToolResultSpan(tail, secrets)
+				clearBytes(tail)
+			}
 			return Observation{}, nativeSpontaneousExitFailure(
 				staleCredential,
 				config.Family,
 				waitErr,
+				transportTail,
 			)
 		}
 		if automationRun != nil {
@@ -2304,7 +2380,7 @@ func platformRunNative(
 		return Observation{}, nil
 	}
 	if batonSession == nil {
-		return Observation{}, fail("NATIVE_SURFACE_INVALID")
+		return Observation{}, failNativeSurface("dispatch.tool_session_missing")
 	}
 	if yielded := batonSession.yielded(); yielded != nil {
 		return withCredentialRotationEvent(
@@ -2324,16 +2400,37 @@ func platformRunNative(
 
 // nativeSpontaneousExitFailure classifies the terminal-site case the
 // contract names: the CLI exited on its own before the session terminated.
+// waitErr is the wait status of bubblewrap, the sandbox parent
+// platformRunNative actually waits on - not the wrapped CLI directly - so a
+// signalled sandboxed child never surfaces here as exec.ExitError.ExitCode()
+// equal to -1 (Go's Signaled sentinel); bwrap translates it to a normal
+// Exited status carrying exit code 128+signal (process_linux.go's own
+// engine-exit calculation already relies on this fact).
+//
 // A positively-expired credential outranks everything - it is the engine's
 // own verified fact, not weather. Otherwise a clean exit whose code is the
 // family's pinned auth exit vocabulary is positively an auth-class failure.
-// Everything else stays PROVIDER_TRANSPORT_FAILED exactly as before. The
-// exit code is the only observable process fact consulted: stderr remains a
-// pure leak check and unparsable stdout remains NATIVE_SURFACE_INVALID.
+// Next, an exit code above 128 that is not one of the two values an
+// engine-initiated group kill can itself produce (128+SIGTERM, 128+SIGKILL -
+// every group kill this file issues before this site is reached targets the
+// sandboxed child's process group with one of those two signals) is a
+// genuine, engine-uninvolved signalled crash of the native surface: no other
+// signal-translated exit code carries any engine-stop meaning anywhere in
+// this codebase, so classifying it as NATIVE_SURFACE_INVALID is a
+// deterministic structural fact, not a probabilistic inference. Everything
+// else stays PROVIDER_TRANSPORT_FAILED, now carrying the CLI's own bounded,
+// redacted stderr tail as Detail when the caller supplies one
+// (S4-refusal-taxonomy A4): the caller already gated it on no leak ever
+// firing and redacted it against every known secret, so this site only
+// bounds and normalizes it through the shared provider-detail discipline.
+// The exit code is the only observable process fact consulted: stderr
+// remains a leak check first and unparsable stdout remains
+// NATIVE_SURFACE_INVALID.
 func nativeSpontaneousExitFailure(
 	staleCredential bool,
 	family ProfileFamily,
 	waitErr error,
+	stderrTail []byte,
 ) error {
 	if staleCredential {
 		return fail("CREDENTIAL_STALE")
@@ -2344,8 +2441,15 @@ func nativeSpontaneousExitFailure(
 			code != 1 && exitErr.ExitCode() == code {
 			return fail("PROVIDER_AUTHORIZATION_FAILED")
 		}
+		engineKillExit := 128 + int(syscall.SIGTERM)
+		engineKillExitHard := 128 + int(syscall.SIGKILL)
+		if code := exitErr.ExitCode(); code > 128 &&
+			code != engineKillExit && code != engineKillExitHard {
+			return failNativeSurface("dispatch.process_signaled")
+		}
 	}
-	return fail("PROVIDER_TRANSPORT_FAILED")
+	detail := normalizeProviderErrorDetail(string(stderrTail))
+	return &ContractError{Code: "PROVIDER_TRANSPORT_FAILED", Detail: detail}
 }
 
 // withCredentialRotationEvent appends the admitted credential_rotated
@@ -2392,24 +2496,24 @@ func waitNativeCaptureGate(
 
 func nativeConfigSurfaceDigest(files []*os.File) (string, error) {
 	if len(files) != 2 {
-		return "", fail("NATIVE_SURFACE_INVALID")
+		return "", failNativeSurface("config_surface.file_count_mismatch")
 	}
 	var surface []byte
 	defer clearBytes(surface)
 	for _, file := range files {
 		if _, err := file.Seek(0, 0); err != nil {
-			return "", fail("NATIVE_SURFACE_INVALID")
+			return "", failNativeSurface("config_surface.seek_failed")
 		}
 		body, err := io.ReadAll(io.LimitReader(file, 65_537))
 		if err != nil || len(body) > 65_536 {
 			clearBytes(body)
-			return "", fail("NATIVE_SURFACE_INVALID")
+			return "", failNativeSurface("config_surface.read_failed")
 		}
 		surface = append(surface, body...)
 		surface = append(surface, 0)
 		clearBytes(body)
 		if _, err := file.Seek(0, 0); err != nil {
-			return "", fail("NATIVE_SURFACE_INVALID")
+			return "", failNativeSurface("config_surface.seek_reset_failed")
 		}
 	}
 	return Digest(surface), nil
@@ -2458,7 +2562,7 @@ func certifyNativeRuntime(
 	if pid <= 0 || credential == nil || credential.File() == nil ||
 		len(closure) != len(config.RuntimeFiles)+1 ||
 		len(capability) == 0 {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.preconditions_invalid")
 	}
 	var captureToken []byte
 	if captureRun != nil {
@@ -2472,7 +2576,7 @@ func certifyNativeRuntime(
 	childMount, childMountErr := os.Readlink(procRoot + "/ns/mnt")
 	if hostErr != nil || childErr != nil || hostNetwork != childNetwork ||
 		hostMountErr != nil || childMountErr != nil || hostMount == childMount {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.namespace_not_isolated")
 	}
 	cmdline, err := readBoundedProcFile(procRoot+"/cmdline", 262_144)
 	if err != nil || bytes.Contains(cmdline, capability) ||
@@ -2480,7 +2584,7 @@ func certifyNativeRuntime(
 		bytes.Contains(cmdline, []byte(invocation.HostWorkspace)) ||
 		bytes.Contains(cmdline, []byte(projectionRoot)) {
 		clearBytes(cmdline)
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.cmdline_leak_or_unreadable")
 	}
 	expectedArguments, err := nativeAgentArgumentsFor(
 		config,
@@ -2491,7 +2595,7 @@ func certifyNativeRuntime(
 	)
 	if err != nil {
 		clearBytes(cmdline)
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.expected_arguments_unavailable")
 	}
 	expectedCommand := []byte("/sworn/bin/agent")
 	for _, argument := range expectedArguments {
@@ -2506,7 +2610,7 @@ func certifyNativeRuntime(
 		commandIndex+1+len(expectedCommand) != len(cmdline) {
 		clearBytes(cmdline)
 		clearBytes(expectedCommand)
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.cmdline_command_mismatch")
 	}
 	clearBytes(cmdline)
 	clearBytes(expectedCommand)
@@ -2521,7 +2625,7 @@ func certifyNativeRuntime(
 		bytes.Contains(environment, []byte(invocation.HostWorkspace)) ||
 		bytes.Contains(environment, []byte(projectionRoot)) {
 		clearBytes(environment)
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.environment_leak_or_unreadable")
 	}
 	clearBytes(environment)
 	mountInfo, err := readBoundedProcFile(procRoot+"/mountinfo", 1_048_576)
@@ -2529,27 +2633,27 @@ func certifyNativeRuntime(
 		bytes.Contains(mountInfo, []byte(invocation.HostWorkspace)) ||
 		bytes.Contains(mountInfo, []byte(projectionRoot)) {
 		clearBytes(mountInfo)
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.mountinfo_leak_or_unreadable")
 	}
 	clearBytes(mountInfo)
 	root := procRoot + "/root"
 	workspaceEntries, err := os.ReadDir(root + GuestWorkspacePath)
 	if err != nil || len(workspaceEntries) != 0 {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.workspace_not_empty")
 	}
 	if nativeAutomationDefinitions(definitions) &&
 		!nativeWorkspaceReadOnly(root+GuestWorkspacePath) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.automation_workspace_not_read_only")
 	}
 	if _, err := os.Stat(root + GuestInputPath); !os.IsNotExist(err) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.input_path_present")
 	}
 	// Native sessions must be shell-free: the resolved host shell (which
 	// follows SWORN_SH and otherwise canonicalizes to /usr/bin/sh) must never
 	// be present inside the guest root.
 	if shell, shellErr := gitx.ResolveShellExecutable(); shellErr == nil {
 		if _, err := os.Stat(root + shell); !os.IsNotExist(err) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.shell_present")
 		}
 	}
 	var configBodies [][]byte
@@ -2567,7 +2671,7 @@ func certifyNativeRuntime(
 		if statErr != nil || readErr != nil || !info.Mode().IsRegular() ||
 			info.Mode().Perm() != 0o600 {
 			clearBytes(body)
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.config_file_invalid")
 		}
 		configBodies = append(configBodies, body)
 	}
@@ -2578,34 +2682,34 @@ func certifyNativeRuntime(
 		if bytes.Count(configSurface, capability) != 1 ||
 			(captureRun != nil &&
 				bytes.Count(configSurface, captureToken) != 1) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.codex_config_capability_count")
 		}
 	case ProfileClaude:
 		if bytes.Count(configSurface, capability) != 1 ||
 			containsCapability(configSurface, captureToken) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.claude_config_capability_leak")
 		}
 	default:
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.unsupported_family")
 	}
 	if !sameOpenFile(root+"/sworn/bin/agent", closure[0]) ||
 		!sameOpenFile(root+config.CredentialTarget, credential.File()) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.agent_or_credential_identity_mismatch")
 	}
 	if launch != nil {
 		if launch.state == nil ||
 			!sameOpenFile(root+"/home/sworn", launch.state.homeFile()) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.continuation_home_identity_mismatch")
 		}
 	}
 	for index, runtimeFile := range config.RuntimeFiles {
 		if !sameOpenFile(root+runtimeFile.Target, closure[index+1]) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.runtime_file_identity_mismatch")
 		}
 	}
 	descriptors, err := os.ReadDir(procRoot + "/fd")
 	if err != nil || len(descriptors) > 256 {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.fd_table_unreadable")
 	}
 	for _, descriptor := range descriptors {
 		target, linkErr := os.Readlink(procRoot + "/fd/" + descriptor.Name())
@@ -2615,7 +2719,7 @@ func certifyNativeRuntime(
 		if strings.Contains(target, invocation.HostWorkspace) ||
 			strings.Contains(target, projectionRoot) ||
 			bytes.Contains([]byte(target), capability) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.fd_leak_detected")
 		}
 	}
 	return nil
@@ -2645,7 +2749,7 @@ func readBoundedProcFile(name string, maximum int64) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil || int64(len(body)) > maximum {
 		clearBytes(body)
-		return nil, fail("NATIVE_SURFACE_INVALID")
+		return nil, failNativeSurface("runtime.proc_file_unreadable")
 	}
 	return body, nil
 }
@@ -2678,34 +2782,34 @@ func validateNativeProcessEnvironment(
 			)
 		}
 		if bytes.Contains(body, capability) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.environment_claude_capability_leak")
 		}
 	case ProfileCodex:
 		expected["CODEX_HOME"] = []byte("/home/sworn/.codex")
 		expected["CODEX_EXEC_SERVER_URL"] = []byte("none")
 		if bytes.Contains(body, capability) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.environment_codex_capability_leak")
 		}
 	default:
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.environment_unsupported_family")
 	}
 	entries := bytes.Split(bytes.TrimSuffix(body, []byte{0}), []byte{0})
 	if len(entries) != len(expected) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurface("runtime.environment_entry_count_mismatch")
 	}
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		separator := bytes.IndexByte(entry, '=')
 		if separator < 1 {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.environment_entry_malformed")
 		}
 		key := string(entry[:separator])
 		value, present := expected[key]
 		if !present || !bytes.Equal(entry[separator+1:], value) {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.environment_entry_unexpected")
 		}
 		if _, duplicate := seen[key]; duplicate {
-			return fail("NATIVE_SURFACE_INVALID")
+			return failNativeSurface("runtime.environment_entry_duplicate")
 		}
 		seen[key] = struct{}{}
 	}
@@ -3237,25 +3341,78 @@ func codexModelCatalog(model string) ([]byte, error) {
 	return body, nil
 }
 
+// nativeStreamBudgetFailure builds the receipt-bearing failure Observation
+// for a native cumulative output-stream byte crossing
+// (S3-output-stream-economy A3), mirroring economyBudgetFailure's shape:
+// RunnerError transport, accumulated usage with the engine-counted turn
+// economics, and the crossing's spent-bytes fact riding the additive
+// NativeStreamBytes field so the runtime park gate can read it back.
+func nativeStreamBudgetFailure(
+	started time.Time,
+	adapterID string,
+	usageValue Usage,
+	hasUsage bool,
+	turns, toolCalls int64,
+	toolCallsByName map[string]int64,
+	spentBytes int64,
+) Observation {
+	usage, err := NormalizeUsage(nil, nil, adapterID)
+	if hasUsage {
+		usage, err = NormalizeUsage(&usageValue, nil, adapterID)
+	}
+	if err != nil {
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	if spentBytes >= 0 && spentBytes <= MaxSafeInteger {
+		usage.NativeStreamBytes = &spentBytes
+	}
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: "economy_output_budget_bytes"},
+	}
+}
+
+// scanNativeEvents reads the native event stream line by line. Two bounds
+// stay surface integrity, unchanged: the per-line scanner buffer bound
+// above (MaxProviderResponseBytes) and the secret-leak scan below. The
+// cumulative total, by contrast, is manifest-governed economy
+// (S3-output-stream-economy A2): a crossing of cumulativeBudget fails
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED with the crossing byte total stamped onto
+// state for the caller to carry into a receipt-bearing failure observation.
+// A line that is both oversize and carries a secret still classifies as
+// surface: the secret check runs first.
 func scanNativeEvents(
 	reader io.Reader,
 	capability []byte,
 	state *nativeEventState,
+	cumulativeBudget int64,
 	additionalSecrets ...[]byte,
 ) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), MaxProviderResponseBytes)
-	total := 0
+	var total int64
 	for scanner.Scan() {
 		line := append([]byte(nil), scanner.Bytes()...)
-		total += len(line)
+		total += int64(len(line))
 		secretFound := containsCapability(line, capability)
 		for _, secret := range additionalSecrets {
 			secretFound = secretFound || containsCapability(line, secret)
 		}
-		if total > MaxProviderResponseBytes || secretFound {
+		if secretFound {
 			clearBytes(line)
-			return fail("NATIVE_SURFACE_INVALID")
+			// No head: the offending bytes are exactly the secret this
+			// check exists to keep off the durable record.
+			return failNativeSurface("stream.secret_leak_detected")
+		}
+		if total > cumulativeBudget {
+			clearBytes(line)
+			state.mu.Lock()
+			state.streamBytes = total
+			state.mu.Unlock()
+			return fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
 		}
 		err := state.accept(line)
 		clearBytes(line)
@@ -3271,13 +3428,19 @@ func scanNativeEvents(
 }
 
 func (state *nativeEventState) accept(body []byte) error {
+	// The event line already passed scanNativeEvents's secret-leak scan
+	// (capability plus every additionalSecrets fragment) before accept was
+	// called, so a bounded head of it is safe to persist unredacted here.
+	refuse := func(check string) error {
+		return failNativeSurfaceHead(check, body)
+	}
 	value, err := decodeStrict(body, MaxProviderResponseBytes)
 	if err != nil {
-		return fail("NATIVE_SURFACE_INVALID")
+		return refuse("event.malformed_json")
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return fail("NATIVE_SURFACE_INVALID")
+		return refuse("event.not_object")
 	}
 	eventType, _ := root["type"].(string)
 	state.mu.Lock()
@@ -3301,7 +3464,7 @@ func (state *nativeEventState) accept(body []byte) error {
 					"messaging_socket_path",
 				},
 			); err != nil {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.claude_init_shape_invalid")
 			}
 			if state.nativeSeen || root["model"] != state.model ||
 				root["permissionMode"] != "dontAsk" ||
@@ -3313,12 +3476,12 @@ func (state *nativeEventState) accept(body []byte) error {
 				!exactClaudeCapabilities(root["capabilities"]) ||
 				root["analytics_disabled"] != true ||
 				root["product_feedback_disabled"] != true {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.claude_init_field_mismatch")
 			}
 			if state.launch != nil {
 				sessionID, ok := root["session_id"].(string)
 				if !ok || state.acceptSessionID([]byte(sessionID)) != nil {
-					return fail("NATIVE_SURFACE_INVALID")
+					return refuse("event.claude_session_id_invalid")
 				}
 			}
 			if err := state.broker.Arm(); err != nil {
@@ -3344,11 +3507,11 @@ func (state *nativeEventState) accept(body []byte) error {
 			if threadErr != nil || !threadIDOK ||
 				validateText(threadID, 256, false) != nil ||
 				state.nativeSeen {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.codex_thread_started_invalid")
 			}
 			if state.launch != nil &&
 				state.acceptSessionID([]byte(threadID)) != nil {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.codex_session_id_invalid")
 			}
 			if err := state.broker.Arm(); err != nil {
 				return err
@@ -3364,13 +3527,13 @@ func (state *nativeEventState) accept(body []byte) error {
 				[]string{"type", "item"},
 				nil,
 			); err != nil {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.codex_item_shape_invalid")
 			}
 			if item, itemOK := root["item"].(map[string]any); itemOK {
 				switch item["type"] {
 				case "command_execution", "file_change", "web_search",
 					"image_generation", "collab_agent_tool_call":
-					return fail("NATIVE_SURFACE_INVALID")
+					return refuse("event.codex_item_type_disallowed")
 				}
 			}
 		}
@@ -3380,13 +3543,13 @@ func (state *nativeEventState) accept(body []byte) error {
 				[]string{"type", "usage"},
 				nil,
 			); err != nil {
-				return fail("NATIVE_SURFACE_INVALID")
+				return refuse("event.codex_turn_completed_invalid")
 			}
 			state.turns++
 			state.captureUsage(root["usage"])
 		}
 	default:
-		return fail("NATIVE_SURFACE_INVALID")
+		return refuse("event.unsupported_family")
 	}
 	return nil
 }
@@ -3394,11 +3557,11 @@ func (state *nativeEventState) accept(body []byte) error {
 func (state *nativeEventState) acceptSessionID(body []byte) error {
 	if state == nil || state.launch == nil ||
 		!validNativeSessionID(body) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurfaceHead("session.identity_invalid", body)
 	}
 	if state.launch.resume &&
 		!bytes.Equal(body, state.launch.expectedID) {
-		return fail("NATIVE_SURFACE_INVALID")
+		return failNativeSurfaceHead("session.identity_mismatch", body)
 	}
 	clearBytes(state.launch.capturedID)
 	state.launch.capturedID = append([]byte(nil), body...)

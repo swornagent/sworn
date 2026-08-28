@@ -1175,6 +1175,42 @@ func uncertainHandoffPreparation(err error) error {
 	return &uncertainHandoffPreparationError{err: err}
 }
 
+// driverPreflightProbe names one admission-time probe registered at the
+// prepareDriverDispatch seam: name is the journal replay-key prefix and
+// command kind, eventKind is the informational event kind the probe's
+// result is recorded under, defaultCode is the admission-refusal code used
+// only if run's error does not carry a driver.ContractError (it always
+// does, for every probe below), and run is the bounded, side-effect-free
+// probe itself.
+type driverPreflightProbe struct {
+	name        string
+	eventKind   string
+	defaultCode string
+	run         func(context.Context, driver.SelectedProfile, string) ([]byte, error)
+}
+
+// driverPreflightRegistry is the ordered admission-probe registry S5 adds
+// atop S1's single hardcoded pin-liveness probe. Order matters only in that
+// the loop stops at the first refusal; every probe here is independently a
+// no-op for adapters it does not apply to, so their relative order changes
+// nothing else observable.
+func driverPreflightRegistry() []driverPreflightProbe {
+	return []driverPreflightProbe{
+		{
+			name:        "native-admission-probe",
+			eventKind:   "native_admission_probe",
+			defaultCode: "NATIVE_PIN_DEAD",
+			run:         driver.ProbeNativeAdmission,
+		},
+		{
+			name:        "native-credential-liveness-probe",
+			eventKind:   "native_credential_liveness_probe",
+			defaultCode: "CREDENTIAL_STALE",
+			run:         driver.ProbeNativeCredentialLiveness,
+		},
+	}
+}
+
 func (s *Service) prepareDriverDispatch(
 	ctx context.Context,
 	engine *engine,
@@ -1198,6 +1234,42 @@ func (s *Service) prepareDriverDispatch(
 	}
 	if err := engine.configured.validateSelected(selected); err != nil {
 		return preparedDriverDispatch{}, err
+	}
+	// S5: an ordered registry of bounded, side-effect-free admission probes
+	// runs before anything is journaled. Each probe is a complete no-op for
+	// an adapter it does not apply to (nil event body, nil error). When a
+	// probe applies, its result is journaled once per dispatch admission
+	// regardless of outcome, and the loop stops at the first refusal - a
+	// later probe's cost is never paid once an earlier one refused - so a
+	// locally-provable inadmissible dispatch refuses here, before any
+	// attempt is written, and the retry loop's absent-attempt journal read
+	// returns immediately instead of advancing to another try.
+	for _, probe := range driverPreflightRegistry() {
+		probeEventBody, probeErr := probe.run(
+			ctx, selected, engine.manifest.value.RunID,
+		)
+		if probeEventBody != nil {
+			probeReplayKey := probe.name + "/" +
+				dispatchInvocationID(engine.manifest.value.RunID, coordinates)
+			if journalErr := s.journal.AppendEventOnce(ctx, journal.Command{
+				RunID:     engine.manifest.value.RunID,
+				ReplayKey: probeReplayKey,
+				Kind:      probe.name,
+				Payload:   probeEventBody,
+				CreatedAt: s.now().UTC(),
+			}, probe.eventKind, probeEventBody, s.now().UTC()); journalErr != nil {
+				return preparedDriverDispatch{},
+					runtimeFail("JOURNAL_WRITE_FAILED", journalErr)
+			}
+		}
+		if probeErr != nil {
+			code := probe.defaultCode
+			var contractErr *driver.ContractError
+			if errors.As(probeErr, &contractErr) {
+				code = contractErr.Code
+			}
+			return preparedDriverDispatch{}, runtimeFail(code, probeErr)
+		}
 	}
 	access := driver.ReadOnly
 	containment := driver.ContainmentReadOnly

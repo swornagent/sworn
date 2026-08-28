@@ -63,6 +63,16 @@ const (
 	// multi-day releases the knob serves and far from any int64
 	// nanoseconds overflow of the stamped expiry.
 	MaxContinuationLifetimeMillisLimit int64 = 2_592_000_000
+	// DefaultMaxNativeOutputStreamBytes is the cumulative native
+	// event-stream byte budget a manifest gets when
+	// limits.max_native_output_stream_bytes is absent: 16MB, the operator
+	// patch's precedented 16x over the per-line MaxProviderResponseBytes
+	// floor.
+	DefaultMaxNativeOutputStreamBytes int64 = 16_777_216
+	// MaxNativeOutputStreamBytesLimit caps
+	// limits.max_native_output_stream_bytes: 256MB, the same 16x step
+	// above the default that the default is above the per-line floor.
+	MaxNativeOutputStreamBytesLimit int64 = 268_435_456
 )
 
 var (
@@ -99,7 +109,42 @@ type ContractError struct {
 	// windowed 429 keeps today's paced path. The flag rides Detail through
 	// the dispatcher boundary for exactly the provider status codes.
 	HardLimit bool
+	// Kind classifies why the refusal happened, distinct from Code (what
+	// refused). It is computed once, centrally, by classifyKind at the
+	// normalizeAdapterError funnel (invoke.go) and never set at an
+	// individual raise site, so every admitted code carries it without
+	// per-site churn. A code this slice does not place classifies to the
+	// empty RefusalKind ("").
+	Kind RefusalKind
 }
+
+// RefusalKind distinguishes the cause of a driver-boundary refusal from its
+// stable Code. It is evidence for pacing and future routing decisions, not
+// itself a routing decision: this slice only classifies and records.
+type RefusalKind string
+
+const (
+	// KindAuthorization covers credential-identity refusals: stale, missing,
+	// uncertified, or rotated-away-from credentials, and provider-reported
+	// authorization failures.
+	KindAuthorization RefusalKind = "authorization"
+	// KindHardExhaustion marks a provider refusal that must never be paced:
+	// a 429 naming no retry window, or one whose body matches the closed
+	// hard-cap exhaustion vocabulary even under a named window.
+	KindHardExhaustion RefusalKind = "hard_exhaustion"
+	// KindSoftRateLimit marks a provider 429 that names a retry window and
+	// carries no hard-cap phrase: today's paced-retry path, unchanged.
+	KindSoftRateLimit RefusalKind = "soft_rate_limit"
+	// KindTransport covers process, network, and endpoint failures below the
+	// provider's own status envelope.
+	KindTransport RefusalKind = "transport"
+	// KindSurfaceIntegrity covers a containment or protocol invariant the
+	// native surface itself enforces (NATIVE_SURFACE_INVALID).
+	KindSurfaceIntegrity RefusalKind = "surface_integrity"
+	// KindEconomy covers a manifest-governed budget crossing: turn or
+	// output-token economy, and the native output-stream byte economy.
+	KindEconomy RefusalKind = "economy"
+)
 
 func (e *ContractError) Error() string {
 	if e.Detail != "" {
@@ -183,6 +228,13 @@ type Limits struct {
 	// (A1): a suspend stamps expiresNano from this governed value. Absent
 	// or zero means DefaultContinuationLifetimeMillis (24h).
 	MaxContinuationLifetimeMillis int64 `json:"max_continuation_lifetime_ms,omitempty"`
+	// MaxNativeOutputStreamBytes is the cumulative native event-stream byte
+	// budget (S3-output-stream-economy A1): a native dispatch whose
+	// cumulative decoded event bytes cross it fails
+	// ECONOMY_OUTPUT_BUDGET_EXCEEDED instead of NATIVE_SURFACE_INVALID.
+	// Absent or zero means DefaultMaxNativeOutputStreamBytes; a declared
+	// value must be at least MaxProviderResponseBytes, the per-line floor.
+	MaxNativeOutputStreamBytes int64 `json:"max_native_output_stream_bytes,omitempty"`
 }
 
 func (l Limits) EffectiveDegradationBudget() int64 {
@@ -219,6 +271,13 @@ func (l Limits) EffectiveContinuationLifetime() time.Duration {
 		millis = DefaultContinuationLifetimeMillis
 	}
 	return time.Duration(millis) * time.Millisecond
+}
+
+func (l Limits) EffectiveMaxNativeOutputStreamBytes() int64 {
+	if l.MaxNativeOutputStreamBytes > 0 {
+		return l.MaxNativeOutputStreamBytes
+	}
+	return DefaultMaxNativeOutputStreamBytes
 }
 
 type Request struct {
@@ -546,6 +605,12 @@ func validateRequest(request Request, reserved []string) error {
 	}
 	if request.Limits.MaxContinuationLifetimeMillis < 0 ||
 		request.Limits.MaxContinuationLifetimeMillis > MaxContinuationLifetimeMillisLimit {
+		return fail("INVALID_LIMIT")
+	}
+	if request.Limits.MaxNativeOutputStreamBytes < 0 ||
+		(request.Limits.MaxNativeOutputStreamBytes > 0 &&
+			request.Limits.MaxNativeOutputStreamBytes < MaxProviderResponseBytes) ||
+		request.Limits.MaxNativeOutputStreamBytes > MaxNativeOutputStreamBytesLimit {
 		return fail("INVALID_LIMIT")
 	}
 	body, err := json.Marshal(request)

@@ -1,0 +1,71 @@
+{
+ "outcome": "Driver-boundary refusals stop being one opaque mush: every refusal carries a typed Kind distinguishing cause, hard provider exhaustion is never paced-retried into a rate window, a NATIVE_SURFACE_INVALID names which of its checks refused and persists a bounded secret-free head of the offending request, and the provider's own words reach the durable record once per dispatch instead of being cleared - the training signal the in-engine-learning spec's phase 3 graph requires, landed as phase 2.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the runtime retry loop's try counting (the bare three-try loops in internal/runtime are untouched; Kind consumption in this slice is driver-side pacing and classification - runtime park-policy consumption of Kinds is future work on the S7/#227 line)",
+   "sanitizeFailedObservation's preservation behavior (S6's seam - this slice supplies the vocabulary, S6 stops the scrubbing)",
+   "the capture proxy's admission semantics (S2's seam; this slice only makes its refusals observable)",
+   "probe classes and admission refusals (S5 consumes this vocabulary at the preflight seam)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins refusal kinds or pacing classification"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins refusal kinds"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins refusal kinds"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; runtime consumes refusal codes through the existing stableErrorCode and refusal-binding surfaces, which are unchanged in shape"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins refusal kinds"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Refusals carry a typed Kind: ContractError (internal/driver/contract.go:83-102) grows a Kind distinguishing at minimum authorization, hard provider exhaustion, soft rate limiting, transport, surface integrity, and economy - the three causes the overnight flattened into PROVIDER_TRANSPORT_FAILED (stale OAuth, dead CLI pin, adapter hang) become distinguishable at the boundary that raises them. The normalization funnel preserves it: normalizeAdapterError (invoke.go:446-468) re-creates admitted errors without dropping Kind, and any new code this slice mints joins validAdapterErrorCode (invoke.go:470-593) - a code outside that set flattens to the deliberate ADAPTER_FAILURE fallback at :467, which is exactly the fate a typed refusal must not meet. Pinned by unit tests over the funnel for each Kind."
+  },
+  {
+   "id": "A2",
+   "text": "Pacing consumes the Kind - hard exhaustion never retries into a window: hardLimited (pacing.go:233-237) classifies a 429 as hard only when it names no retry window, while the exhaustion-phrase classification is computed and discarded at pacing.go:208 ('_ = hardLimitExhausted(...)') - the hardLimitPhrases table (pacing.go:171-195) whose own comment says it is recorded vocabulary waiting for the provider-error taxonomy this slice opens. After this slice a provider refusal whose body matches the exhaustion vocabulary ('Insufficient Balance', monthly-cap phrasing) classifies as hard exhaustion and pacedRoundTrip (pacing.go:264-290) fails it immediately instead of burning the pacing schedule against a dead account. Soft rate limiting keeps today's paced behavior byte-for-byte. Pinned by extending the existing pacing tests (TestProviderLimitHardClassifies, TestPacedRoundTripHardLimitFailsImmediately at provider_limit_evidence_test.go:231, :289)."
+  },
+  {
+   "id": "A3",
+   "text": "NATIVE_SURFACE_INVALID names its check and keeps bounded evidence: the code has 39 raise sites in native_linux.go and its ContractError carries no detail by design (contract.go:83-102 documents Detail as provider-status-only), so the r10 diagnosis required patching fail() and reading validator source backwards. After this slice each refusal on the native surface boundary names the specific check that refused and persists a bounded, secret-free head of the offending request or event where one exists - in the proven bounded-evidence shapes (head-slice plus redaction against known secrets, tool_result_observation.go:28-31 and :100-108; explicit bound-and-mark persistence, journal write.go:624-658) - so the next such failure is a query, not an archaeology. The r10 operator instrumentation (site + branch + non-secret head facts) is the proof this can be done safely. Pinned by tests asserting a named check and a bounded head on at least the validator refusals (native_capture_linux.go:244-277) and the dispatch-terminal refusals (native_linux.go:2150, :2162, :2177-2182)."
+  },
+  {
+   "id": "A4",
+   "text": "The provider's words survive once per dispatch: providerErrorDetail (pacing.go:85-96) already extracts a bounded 512-byte message, but normalizeAdapterError preserves Detail only for the five provider-status codes (invoke.go:454-466 rebuilds every other code via bare fail(), and PROVIDER_TRANSPORT_FAILED is excluded from providerStatusCode at pacing.go:216-227) - so the class the native lane actually uses is structurally mute. After this slice a bounded, re-validated provider message survives normalization for transport-class refusals too and reaches the journaled effect result through the existing refusal-binding path (production_dispatch.go:1067-1090, pinned today for PROVIDER_LIMITED by internal/runtime/provider_limit_refusal_test.go:20) - at least once per dispatch, never more than bounded. Pinned by a driver test that a transport-class refusal carries its bounded detail through the funnel."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "The vocabulary grows additively: no existing code string is renamed or removed, and every existing consumer of ErrorCode (stableErrorCode, park guards, refusal bindings) keeps working unmodified.",
+  "Every detail and head is bounded and re-validated at the boundary before persistence (the validateText discipline at invoke.go:455-462); secrets are redacted against the known-secret set, and when validation fails the evidence is dropped, never truncated silently into validity claims.",
+  "Retry behavior changes in exactly one direction: refusals classified hard stop being retried; nothing that retries today becomes more aggressive.",
+  "Kind is evidence, not policy: this slice classifies and records; it makes no routing or roster decision (the learning spec's phase 3-4 boundary).",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

@@ -168,6 +168,10 @@ func (m Manifest) EffectiveContinuationLifetime() time.Duration {
 	return m.Limits.EffectiveContinuationLifetime()
 }
 
+func (m Manifest) EffectiveMaxNativeOutputStreamBytes() int64 {
+	return m.Limits.EffectiveMaxNativeOutputStreamBytes()
+}
+
 func (m Manifest) recoverySelection() (driver.ModelSelection, bool) {
 	if m.SchemaVersion != ManifestVersion || m.Automation == nil {
 		return driver.ModelSelection{}, false
@@ -358,7 +362,11 @@ func validateManifest(manifest Manifest) error {
 		manifest.Limits.IdenticalFailureParkAfter < 0 ||
 		manifest.Limits.IdenticalFailureParkAfter > driver.MaxIdenticalFailureParkAfter ||
 		manifest.Limits.MaxContinuationLifetimeMillis < 0 ||
-		manifest.Limits.MaxContinuationLifetimeMillis > driver.MaxContinuationLifetimeMillisLimit {
+		manifest.Limits.MaxContinuationLifetimeMillis > driver.MaxContinuationLifetimeMillisLimit ||
+		manifest.Limits.MaxNativeOutputStreamBytes < 0 ||
+		(manifest.Limits.MaxNativeOutputStreamBytes > 0 &&
+			manifest.Limits.MaxNativeOutputStreamBytes < driver.MaxProviderResponseBytes) ||
+		manifest.Limits.MaxNativeOutputStreamBytes > driver.MaxNativeOutputStreamBytesLimit {
 		return runtimeFail("INVALID_LIMITS", nil)
 	}
 	switch {

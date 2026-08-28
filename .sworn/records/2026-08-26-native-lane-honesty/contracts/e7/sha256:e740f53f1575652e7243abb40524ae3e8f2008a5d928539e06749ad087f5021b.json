@@ -1,0 +1,65 @@
+{
+ "outcome": "A park becomes evidence about one work item instead of a run verdict: a work-scoped park crossing pins the affected work immediately with cause, code, and named paths stamped at crossing time, every other lane keeps dispatching, the run reports parked only when no admissible non-parked work remains, and a consecutive-failure streak breaks on any later success in the same slice-stage lineage - Brad's sworn#239 ruling delivered, killing both the CI-observed parked-with-admissible-work shape and the production instance where contract-identity r1 parked a healthy run on a recovered slice's stale facts.",
+ "scope": {
+  "include": [
+   "internal/runtime",
+   "internal/cockpit",
+   "test/e2e"
+  ],
+  "exclude": [
+   "exactly-once machinery, byte for byte: attempt admission and the any-succeeded-in-epoch guard (journal control.go:654-768, WORK_ALREADY_SUCCEEDED at :752-754), dispatch authority fencing (dispatchAuthorityCurrent scheduler.go:1310-1335 and every STALE_DISPATCH site), owner-lease claim fencing (dispatch.go:2065-2074 and the claim-token completions), attempt-id canonicality (control.go:61, attemptCoordinates), and the R4-S9 scope-refusal carve-out (scheduler.go:2396-2410) which stays exactly as narrow",
+   "the degradation-budget park's run-wide semantics: degradationFallbacks (degradation.go:109) is an aggregate oversight signal with no single affected work item - it is not work-scoped by this slice and keeps parking the run (its calibration is the open sworn#227 line)",
+   "attention-driven parking - already lane-scoped through Recovery.LaneID (projector.go:573-580) and untouched",
+   "park-guard thresholds and knobs (identical_failure_park_after, degradation_budget, the economy budgets) - semantics of when a crossing exists are unchanged; this slice changes what a crossing does"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; the run-status and needs-you shapes it renders grow additively"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins park scoping"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; parked-state rendering it consumes grows additively"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Lane-scoped drain: today the three run-level park gates in driveLoop (internal/runtime/scheduler.go:5540-5565 degradation, :5570-5601 economy, :5604-5625 identical-failure) return before baton.ReadState at :5626 - the loop parks the whole run before it has even computed which lanes hold admissible work, which is the exact mechanism behind sworn#239's CI evidence. After this slice a work-scoped park crossing (economy, identical-failure, exhaustion causes) pins the affected work - no further tries for it - while the ready computation (:5639-5648) and the lane fan-out (:5650-5676, which already swallows per-lane EFFECT_PARKED at :5666-5673) keep driving every other lane, and the run's state reads parked only when no admissible non-parked work remains. The applicability question is answered the way exhaustedWorkApplies already answers it (status.go:717-832 derives currently-applicable work identities from live Baton state and intersects) - that precedent generalizes rather than being reinvented. The Status reducer's single parked boolean (status.go:228-229, :337-339, :421-423) reflects the same rule on every surface."
+  },
+  {
+   "id": "A2",
+   "text": "Park facts are stamped on the affected work at crossing time: the guards already compute the work identity and then drop it - identicalFailureFacts carries work (economy_guards.go:214-220) and economyGuardCrossing carries work, epoch, try, and effect id (:77-83), but ParkStatus (service.go:144-154) has no work, slice, or paths field and the needs-you row recovers a work id only by rescanning effects for a failed t3 (catalog.go:149-154). After this slice the parked-work facts - work identity, cause, code, and named paths where the refusal carries them (the R4-S9-delivered shapes: productionRefusalBinding{Code, Detail, Paths} at production_dispatch.go:184-189, scopeExhaustionDetail at status.go:856-879) - reach ParkStatus and the board's parked-work row additively (the sworn.run-status/v4 comment at service.go:141-143 blesses additive growth), beside the still-running lanes. Pinned by status and catalog tests asserting the stamped fields."
+  },
+  {
+   "id": "A3",
+   "text": "Lineage-keyed freshness: the identical-failure streak is keyed on the dispatch work id alone (identicalFailureParkCrossing buckets byWork at economy_guards.go:239-263), and work identity folds stage, next role, attempt, and current receipt into the before fingerprint (sliceFingerprintAtAuthority scheduler.go:1900-1916 via driverWorkIdentity :1305-1308) - so any later success in the same slice-stage lineage mints a different work id the streak scan never consults, and a stale failing suffix parks a run that has already recovered (the contract-identity r1 production instance: S1 recovered to verified PASS under fresh work identity, the run then parked on t1/t2's dead facts). After this slice park-guard facts derive from current truth: a consecutive-failure streak breaks on any later success in the same slice-stage lineage, not just the same work id - the lineage key is coarser than the work id and stable across before changes. Pinned by net-new tests over two works in one lineage (every identical-failure test today uses the single testWork fixture, economy_guards_test.go:108-113): a failure streak followed by a lineage success must not park, and a genuine unbroken streak still must."
+  },
+  {
+   "id": "A4",
+   "text": "The conformance surface tells the new truth: the parked-lane e2e scenario (test/e2e/topology_recovery_linux_test.go:818-860) encodes sworn#239 as an accepted workaround - asserting run-state parked on the first drive (:830-833), then re-driving up to five times (:834-847, with the parking-isolation comment) until the independent track's pass lands. After this slice a single drive completes the independent track's admissible work before the run reports parked, the workaround loop is deleted, and the scenario asserts the parked-work row (cause, code, named paths) beside the completed independent work - the scope_failure scenario's assertions (:1080-1085: Park.Cause, FailureCode CANDIDATE_SCOPE_FAILED, FailureDetail naming SLICE_OUTSIDE_SCOPE) are the shape to extend. The retry verb still recovers the parked work exactly as today (:851-859)."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Park is evidence about one work item, never a run verdict, and the pinned work is genuinely pinned: no further tries dispatch for parked work until the operator retry verb clears it - lane-scoping widens what keeps running, never what retries.",
+  "Projection and admission semantics only: no journal write schema changes beyond additive typed-event fields, and the cause-scoped park-event replay key (economy_guards.go:362-365, appendParkEventOnce :371-386) is extended for work scope, never replaced - re-drives of an existing journal stay idempotent.",
+  "Every run-level parked assertion elsewhere in the suite (surface_parity, turn_recovery, kernel_cumulative, production_journey and the rest) must end green with its scenario's semantics intact - where a scenario's park is genuinely the only remaining work, nothing about its observable behavior changes.",
+  "The degradation-budget park stays run-scoped by design in this slice; do not partially rescope it in passing.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

@@ -30,6 +30,9 @@ const (
 	// EconomyOutputTokensUnblockKnob is the manifest knob that unblocks an
 	// economy output-token-budget park.
 	EconomyOutputTokensUnblockKnob = "limits.max_output_tokens_per_work"
+	// EconomyOutputBytesUnblockKnob is the manifest knob that unblocks an
+	// economy native output-stream byte-budget park.
+	EconomyOutputBytesUnblockKnob = "limits.max_native_output_stream_bytes"
 	// IdenticalFailureUnblockKnob is the manifest knob that unblocks an
 	// identical-failure park.
 	IdenticalFailureUnblockKnob = "limits.identical_failure_park_after"
@@ -59,6 +62,9 @@ const (
 	// ParkCauseEconomyOutputTokens is the park cause for a work whose
 	// dispatch crossed its per-work output-token budget.
 	ParkCauseEconomyOutputTokens = "economy_output_tokens"
+	// ParkCauseEconomyOutputBytes is the park cause for a work whose
+	// native dispatch crossed its cumulative output-stream byte budget.
+	ParkCauseEconomyOutputBytes = "economy_output_bytes"
 	// ParkCauseIdenticalFailure is the park cause for a work with N
 	// consecutive identical operational failures.
 	ParkCauseIdenticalFailure = "identical_failure"
@@ -97,6 +103,13 @@ type DegradationParkEvent struct {
 	Threshold     int64  `json:"threshold,omitempty"`
 	FailureCode   string `json:"failure_code,omitempty"`
 	FailureDetail string `json:"failure_detail,omitempty"`
+	// Work names the affected work identity a work-scoped park cause
+	// (economy_turns, economy_output_tokens, economy_output_bytes,
+	// identical_failure) pins. It is part of the canonical body, so the
+	// cause-scoped replay key (parkEventReplayKey) becomes work-scoped for
+	// these causes with no change to that function. Empty for the run-scoped
+	// causes (degradation, attention, human_authority).
+	Work string `json:"work,omitempty"`
 }
 
 // degradationFallbacks returns the degradation-gated fallback list. Counting
@@ -166,7 +179,7 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			int64(len(event.Fallbacks)) != event.Count ||
 			event.Spent != 0 || event.Consecutive != 0 ||
 			event.Threshold != 0 || event.FailureCode != "" ||
-			event.FailureDetail != "" {
+			event.FailureDetail != "" || event.Work != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 		for _, fallback := range event.Fallbacks {
@@ -176,10 +189,16 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 		}
 	case event.SchemaVersion == ParkEventVersion &&
 		(event.Cause == ParkCauseEconomyTurns ||
-			event.Cause == ParkCauseEconomyOutputTokens):
-		knob := EconomyTurnsUnblockKnob
-		if event.Cause == ParkCauseEconomyOutputTokens {
+			event.Cause == ParkCauseEconomyOutputTokens ||
+			event.Cause == ParkCauseEconomyOutputBytes):
+		var knob string
+		switch event.Cause {
+		case ParkCauseEconomyTurns:
+			knob = EconomyTurnsUnblockKnob
+		case ParkCauseEconomyOutputTokens:
 			knob = EconomyOutputTokensUnblockKnob
+		case ParkCauseEconomyOutputBytes:
+			knob = EconomyOutputBytesUnblockKnob
 		}
 		// A crossing means the engine-counted spend reached the effective
 		// budget at the loop-top boundary; an event must name both facts.
@@ -188,7 +207,8 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			event.UnblockKnob != knob ||
 			event.Count != 0 || len(event.Fallbacks) != 0 ||
 			event.Consecutive != 0 || event.Threshold != 0 ||
-			event.FailureCode != "" || event.FailureDetail != "" {
+			event.FailureCode != "" || event.FailureDetail != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 	case event.SchemaVersion == ParkEventVersion &&
@@ -196,6 +216,7 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 		if event.Consecutive < 1 || event.Threshold < 1 ||
 			event.Consecutive < event.Threshold ||
 			event.UnblockKnob != IdenticalFailureUnblockKnob ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
 			event.FailureCode == "" ||
 			!runtimeIdentityPattern.MatchString(event.FailureCode) ||
 			!validParkDetail(event.FailureDetail) ||

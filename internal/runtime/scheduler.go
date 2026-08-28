@@ -1426,10 +1426,13 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 		// Economy/identical-failure guards (A1/A2) admit the next try: a
 		// durably failed try that crossed a guard parks before the next
 		// try burns. EFFECT_PARKED is the drive loop's benign park signal.
+		// Scoped to workID (A1): a crossing on a different work never
+		// blocks this one's next try.
 		parked, parkErr := s.economyGuardsParked(
 			ctx,
 			engine.manifest,
 			engine.manifest.value.RunID,
+			workID,
 		)
 		if parkErr != nil {
 			return driver.Submission{}, parkErr
@@ -2580,10 +2583,13 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		// Economy/identical-failure guards (A1/A2) admit the next try: a
 		// durably failed try that crossed a guard parks before the next
 		// try burns. EFFECT_PARKED is the drive loop's benign park signal.
+		// Scoped to workID (A1): a crossing on a different work never
+		// blocks this one's next try.
 		parked, parkErr := s.economyGuardsParked(
 			ctx,
 			engine.manifest,
 			owner.RunID,
+			workID,
 		)
 		if parkErr != nil {
 			return parkErr
@@ -5542,8 +5548,11 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			// Cause-aware idempotence: a park event of any other cause
 			// sharing the journal kind must neither suppress this
 			// degradation park nor be suppressed by it, and the replay key
-			// makes exactly-one-per-cause race-free.
-			if !hasParkEventForCause(snapshot, ParkCauseDegradation) {
+			// makes exactly-one-per-cause race-free. Degradation stays
+			// run-scoped by contract exclusion: it is an aggregate
+			// oversight signal with no single affected work item, so it
+			// keeps parking the whole run rather than one lane.
+			if !hasParkEventForCause(snapshot, ParkCauseDegradation, "") {
 				body, err := degradationParkEvent(
 					owner.RunID,
 					engine.manifest.value.EffectiveDegradationBudget(),
@@ -5563,66 +5572,6 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			}
 			return nil
 		}
-		// Economy guards (A1): a current-epoch dispatch that crossed its
-		// per-work turn or output-token budget parks the run before any new
-		// work starts, with spent-versus-budget read from the exact attempt
-		// that crossed.
-		if crossing := economyParkCrossing(
-			snapshot,
-			projection,
-		); crossing != nil {
-			spentTurns, spentTokens, spentErr := s.economySpent(
-				ctx,
-				owner.RunID,
-				*crossing,
-			)
-			if spentErr != nil {
-				return spentErr
-			}
-			facts := economyParkFactsFor(
-				*crossing,
-				engine.manifest.value.Limits,
-				spentTurns,
-				spentTokens,
-			)
-			body, err := economyParkEventBody(owner.RunID, facts)
-			if err != nil {
-				return err
-			}
-			if err := s.appendParkEventOnce(
-				ctx,
-				owner.RunID,
-				facts.cause,
-				body,
-			); err != nil {
-				return err
-			}
-			return nil
-		}
-		// Identical-failure guard (A2): N consecutive identical operational
-		// failures on one work park before the try budget burns.
-		if identical := identicalFailureParkCrossing(
-			snapshot,
-			projection,
-			engine.manifest.value.EffectiveIdenticalFailureParkAfter(),
-		); identical != nil {
-			body, err := identicalFailureParkEventBody(
-				owner.RunID,
-				*identical,
-			)
-			if err != nil {
-				return err
-			}
-			if err := s.appendParkEventOnce(
-				ctx,
-				owner.RunID,
-				ParkCauseIdenticalFailure,
-				body,
-			); err != nil {
-				return err
-			}
-			return nil
-		}
 		state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
 			return runtimeFail("BATON_UNAVAILABLE", err)
@@ -5636,8 +5585,26 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		}
 		plannerNeeded = plannerNeeded ||
 			state.Assembly.NextRole == "planner"
+		// Lane-scoped drain (A1): an economy or identical-failure crossing
+		// pins only the candidate lane it belongs to - no further tries for
+		// that lane's ready slice this round - instead of parking the whole
+		// run before the ready computation even runs. A crossing that maps
+		// to no candidate lane (a stale crossing left by work the current
+		// state no longer applies to) pins nothing, exactly as a
+		// non-applicable exhaustion is ignored today.
+		lanes := readyLaneCandidates(engine.manifest, nil, true, state, snapshot)
+		pinnedLanes, err := s.pinCrossingLanes(
+			ctx, engine, owner.RunID, snapshot, projection, lanes,
+		)
+		if err != nil {
+			return err
+		}
+		_, releasePinned := pinnedLanes["release"]
 		ready := make([]string, 0, len(state.Tracks))
 		for _, track := range state.Tracks {
+			if _, pinned := pinnedLanes[track.ID]; pinned {
+				continue
+			}
 			for _, slice := range track.Slices {
 				if slice.Status == "ready" && slice.NextRole != "none" &&
 					slice.NextRole != "merge" && slice.NextRole != "planner" {
@@ -5687,7 +5654,7 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			if laneErr != nil {
 				return laneErr
 			}
-			if plannerNeeded {
+			if plannerNeeded && !releasePinned {
 				if proposalPending {
 					return nil
 				}
@@ -5696,10 +5663,16 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return nil
 		}
 		if plannerNeeded {
+			if releasePinned {
+				return nil
+			}
 			if proposalPending {
 				return nil
 			}
 			return s.proposeRevision(ctx, engine, owner, state)
+		}
+		if releasePinned {
+			return nil
 		}
 		switch {
 		case state.Assembly.Outcome == "merged":
@@ -5720,6 +5693,79 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return nil
 		}
 	}
+}
+
+// pinCrossingLanes journals the typed park event for every current-epoch
+// economy or identical-failure crossing, exactly once per (cause, work) -
+// appendParkEventOnce's replay key already makes this idempotent across
+// re-drives - and returns the set of lane names pinned: the candidate lane
+// (if any) whose works contain the crossing's owning work
+// (ownerWorkForDispatch, mapping a nested implementer dispatch to its
+// enclosing git.seal work). A crossing that maps to no candidate lane still
+// gets its event journaled (the fact of the crossing is recorded
+// regardless), but pins nothing and excludes no lane's ready slice from
+// this round's dispatch: it is a stale crossing left by work the current
+// state no longer applies to, exactly as a non-applicable exhaustion is
+// ignored today.
+func (s *Service) pinCrossingLanes(
+	ctx context.Context,
+	engine *engine,
+	runID string,
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	lanes []laneCandidates,
+) (map[string]struct{}, error) {
+	pinned := make(map[string]struct{})
+	laneFor := func(work string) (string, bool) {
+		for _, lane := range lanes {
+			if _, ok := lane.works[work]; ok {
+				return lane.lane, true
+			}
+		}
+		return "", false
+	}
+	for _, crossing := range economyParkCrossings(snapshot, control) {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		spentTurns, spentTokens, spentBytes, diagnosticCode, spentErr := s.economySpent(
+			ctx, runID, crossing,
+		)
+		if spentErr != nil {
+			return nil, spentErr
+		}
+		facts := economyParkFactsFor(
+			crossing, engine.manifest.value.Limits,
+			spentTurns, spentTokens, spentBytes, diagnosticCode,
+		)
+		body, err := economyParkEventBody(runID, owner, facts)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.appendParkEventOnce(ctx, runID, facts.cause, body); err != nil {
+			return nil, err
+		}
+		if lane, ok := laneFor(owner); ok {
+			pinned[lane] = struct{}{}
+		}
+	}
+	for _, crossing := range identicalFailureParkCrossings(
+		engine.manifest, snapshot, control,
+		engine.manifest.value.EffectiveIdenticalFailureParkAfter(),
+	) {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		body, err := identicalFailureParkEventBody(runID, owner, crossing)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.appendParkEventOnce(
+			ctx, runID, ParkCauseIdenticalFailure, body,
+		); err != nil {
+			return nil, err
+		}
+		if lane, ok := laneFor(owner); ok {
+			pinned[lane] = struct{}{}
+		}
+	}
+	return pinned, nil
 }
 
 func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,

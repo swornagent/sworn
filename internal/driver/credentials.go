@@ -78,27 +78,45 @@ func nativeCredentialStale(family ProfileFamily, body []byte, nowMillis int64) b
 // a bounded read-only advisory probe run at dispatch preparation: any open,
 // read, or parse failure passes unchanged (fail-open on ignorance), and the
 // exclusive lease keeps enforcing the full security posture (0600, owner,
-// single link, O_NOFOLLOW) before any byte reaches the CLI. The bounded body
-// is cleared before return; no credential byte enters an error, detail, or
-// log.
+// single link, O_NOFOLLOW) before any byte reaches the CLI.
 func nativeCredentialPreflight(family ProfileFamily, pathValue string, maximum int64) error {
+	if stale, _ := nativeCredentialLivenessCheck(family, pathValue, maximum); stale {
+		return fail("CREDENTIAL_STALE")
+	}
+	return nil
+}
+
+// nativeCredentialLivenessCheck is the shared bounded, read-only
+// open-then-read-then-nativeCredentialStale logic behind every credential
+// liveness caller: the dispatch-time fail-open gate (nativeCredentialPreflight),
+// certify (checkCertify's honest reporting), and the admission-time probe
+// (ProbeNativeCredentialLiveness). evaluated reports whether the credential
+// was opened and read within maximum; when it is false, stale is always
+// false and callers must not read it as a liveness claim - it is simply "not
+// evaluated". When evaluated is true, stale is nativeCredentialStale's own
+// verdict, which only ever positively proves expiry (evaluated-and-not-stale
+// is "not positively stale", never a claim of confirmed liveness). The
+// bounded body is cleared before return; no credential byte enters an error,
+// detail, or log.
+func nativeCredentialLivenessCheck(
+	family ProfileFamily,
+	pathValue string,
+	maximum int64,
+) (stale bool, evaluated bool) {
 	if maximum < 1 || maximum > 1_048_576 {
-		return nil
+		return false, false
 	}
 	file, err := openCredentialPreflight(pathValue)
 	if err != nil {
-		return nil
+		return false, false
 	}
 	defer file.Close()
 	body, readErr := io.ReadAll(io.LimitReader(file, maximum+1))
 	if readErr != nil || int64(len(body)) > maximum {
 		clearBytes(body)
-		return nil
+		return false, false
 	}
-	stale := nativeCredentialStale(family, body, time.Now().UnixMilli())
+	stale = nativeCredentialStale(family, body, time.Now().UnixMilli())
 	clearBytes(body)
-	if stale {
-		return fail("CREDENTIAL_STALE")
-	}
-	return nil
+	return stale, true
 }

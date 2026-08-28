@@ -121,6 +121,15 @@ func TestProjectNeedsYouSurfacesParkedAndAttentionRuns(t *testing.T) {
 						State: string(journal.OperationalFailed),
 					},
 				},
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseExhaustion,
+						Code:   "CANDIDATE_SCOPE_FAILED",
+						Detail: "SLICE_OUTSIDE_SCOPE: one.txt",
+					},
+				},
 			},
 		},
 		{

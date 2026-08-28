@@ -177,13 +177,10 @@ var hardLimitPhrases = []string{
 }
 
 // hardLimitExhausted matches the closed hard-cap phrase table over a
-// normalized provider message. It is consulted only behind the no-window
-// branch of providerLimitHard, so a matched phrase can never override a
-// provider-named retry window; and today's classifier fires hard on every
-// windowless 429 regardless of the phrase, so the table is
-// classification-inert by ruling (Captain C2). It stays as the recorded
-// exhaustion-shape vocabulary the provider-error taxonomy this slice opens
-// will read, and it is unit-pinned here rather than dropped.
+// normalized provider message. Per the S4-refusal-taxonomy A2 ruling
+// (superseding the prior Captain C2 inert-table reading), a matched phrase
+// classifies hard even under a provider-named retry window: the exhaustion
+// vocabulary is live, not classification-inert.
 func hardLimitExhausted(message string) bool {
 	lower := strings.ToLower(message)
 	for _, phrase := range hardLimitPhrases {
@@ -195,45 +192,60 @@ func hardLimitExhausted(message string) bool {
 }
 
 // providerLimitHard classifies a 429 as a hard wall that must fail the
-// dispatch immediately instead of burning the paced-retry budget. It fires
-// only on affirmative evidence: the provider named no retry window (no
-// RetryInfo retryDelay, no Retry-After header). A named window always takes
-// today's paced path, whatever its value parses to. The hard-cap phrase
-// table is evaluated behind the no-window branch so a matched phrase can
-// never override a named window; see hardLimitExhausted.
+// dispatch immediately instead of burning the paced-retry budget. A
+// windowless 429 is always hard, whatever its body says. A windowed 429
+// stays paced unless its body matches the closed hard-cap phrase table
+// (hardLimitExhausted), in which case the matched phrase overrides the
+// named window: an account that is provably out of money must never be
+// paced into a dead wall just because the provider also named a retry
+// delay.
 func providerLimitHard(retryAfterHeader string, body []byte) bool {
-	if providerNamesRetryWindow(retryAfterHeader, body) {
-		return false
+	if !providerNamesRetryWindow(retryAfterHeader, body) {
+		return true
 	}
-	_ = hardLimitExhausted(providerErrorDetail(body))
-	return true
+	return hardLimitExhausted(providerErrorDetail(body))
 }
 
-// providerStatusCode reports whether code belongs to the closed provider
-// status family whose bounded envelope message may ride ContractError.Detail
-// past the dispatcher boundary (S5-provider-limit-evidence). Every other
-// code keeps dropping adapter text exactly as before.
-func providerStatusCode(code string) bool {
+// detailPreservingCode reports whether code belongs to the family whose
+// bounded Detail may ride past the dispatcher boundary
+// (S5-provider-limit-evidence, widened by S4-refusal-taxonomy A3/A4): the
+// five provider status codes carry the status envelope's plain
+// error.message; PROVIDER_TRANSPORT_FAILED carries a bounded native-stderr
+// tail in the same plain shape; NATIVE_SURFACE_INVALID carries a distinct
+// structured {"check":...,"head":...} envelope, re-validated by its own
+// structural check rather than validateText. Every other code keeps
+// dropping adapter text exactly as before.
+func detailPreservingCode(code string) bool {
 	switch code {
 	case "PROVIDER_LIMITED",
 		"PROVIDER_AUTHORIZATION_FAILED",
 		"PROVIDER_REQUEST_REJECTED",
 		"PROVIDER_UNAVAILABLE",
-		"PROVIDER_ERROR":
+		"PROVIDER_ERROR",
+		"PROVIDER_TRANSPORT_FAILED",
+		"NATIVE_SURFACE_INVALID":
 		return true
 	default:
 		return false
 	}
 }
 
-// hardLimited reports whether an error is a classified hard wall: exactly
-// PROVIDER_LIMITED carrying HardLimit. Such an error fails the dispatch
+// plainDetailCode reports whether code's Detail is the plain, single-line,
+// control-free provider/native-stderr text validateText already governs
+// (as opposed to NATIVE_SURFACE_INVALID's structured envelope).
+func plainDetailCode(code string) bool {
+	return detailPreservingCode(code) && code != "NATIVE_SURFACE_INVALID"
+}
+
+// hardLimited reports whether an error classifies as hard provider
+// exhaustion: the single source of truth is classifyKind, so pacing and the
+// funnel's Kind field can never diverge. Such an error fails the dispatch
 // after the one transport attempt that produced it — zero sleeps, zero
 // budget drain, and no notify — instead of default-pacing into a wall.
 func hardLimited(err error) bool {
 	var contractErr *ContractError
 	return errors.As(err, &contractErr) &&
-		contractErr.Code == "PROVIDER_LIMITED" && contractErr.HardLimit
+		classifyKind(contractErr.Code, contractErr.HardLimit) == KindHardExhaustion
 }
 
 // pacedRetryDelay renders the wait for one 429: the provider's advisory

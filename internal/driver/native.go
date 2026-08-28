@@ -5,15 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 const (
 	CodexCLIVersion        = "0.146.0"
 	CodexCLIDigest         = "sha256:2e863156ed35ecc5253b1e2f907a9143077b9f7cb51942070c61996471ff6e04"
-	ClaudeCLIVersion       = "2.1.234"
-	ClaudeCLIDigest        = "sha256:3473601ea695d5bf769c5b202844d4cb4fbf723ae995450fcb6973204775c84a"
+	ClaudeCLIVersion       = "2.1.241"
+	ClaudeCLIDigest        = "sha256:0771bd866cff82b76581fc0499f6529e1a36845078f144f8c81dccb3bc7037b8"
 	CodexCredentialTarget  = "/home/sworn/.codex/auth.json"
 	ClaudeCredentialTarget = "/home/sworn/.claude/.credentials.json"
+)
+
+// Pin admission modes. Absent (empty string) and "exact" are synonyms for
+// today's byte-for-byte closure; "minor" admits a CLI whose self-reported
+// version shares the pinned major.minor with any patch.
+const (
+	NativePinModeExact = "exact"
+	NativePinModeMinor = "minor"
 )
 
 type PinnedRuntimeFile struct {
@@ -56,6 +66,13 @@ type NativeAdapterConfig struct {
 	CredentialTarget       string              `json:"credential_target"`
 	CredentialRefs         []string            `json:"credential_refs"`
 	MaxCredentialBytes     int64               `json:"max_credential_bytes"`
+	// PinMode is admission policy, additive and omitempty so every existing
+	// document without it keeps today's canonical bytes and
+	// ConfigurationDigest exactly. Absent or "exact" preserves the four
+	// byte-for-byte comparisons below; "minor" admits a CLI whose
+	// self-reported version shares the pinned major.minor. The credential
+	// target stays an exact comparison in both modes.
+	PinMode string `json:"pin_mode,omitempty"`
 }
 
 // NativeSmokeInvocations supplies the separately authorized invocations used
@@ -200,18 +217,41 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 		config.VersionOutput == "" || len(config.VersionOutput) > 256 {
 		return fail("NATIVE_NOT_CERTIFIED")
 	}
+	var minor bool
+	switch config.PinMode {
+	case "", NativePinModeExact:
+		minor = false
+	case NativePinModeMinor:
+		minor = true
+	default:
+		return fail("NATIVE_NOT_CERTIFIED")
+	}
 	switch config.Family {
 	case ProfileCodex:
-		if config.CLIVersion != CodexCLIVersion ||
+		if config.CredentialTarget != CodexCredentialTarget {
+			return fail("NATIVE_NOT_CERTIFIED")
+		}
+		if minor {
+			if !nativeVersionSatisfiesMinor(config.CLIVersion, CodexCLIVersion) ||
+				config.VersionOutput != "codex-cli "+config.CLIVersion {
+				return fail("NATIVE_NOT_CERTIFIED")
+			}
+		} else if config.CLIVersion != CodexCLIVersion ||
 			config.CLI.Digest != CodexCLIDigest ||
-			config.CredentialTarget != CodexCredentialTarget ||
 			config.VersionOutput != "codex-cli "+CodexCLIVersion {
 			return fail("NATIVE_NOT_CERTIFIED")
 		}
 	case ProfileClaude:
-		if config.CLIVersion != ClaudeCLIVersion ||
+		if config.CredentialTarget != ClaudeCredentialTarget {
+			return fail("NATIVE_NOT_CERTIFIED")
+		}
+		if minor {
+			if !nativeVersionSatisfiesMinor(config.CLIVersion, ClaudeCLIVersion) ||
+				config.VersionOutput != config.CLIVersion+" (Claude Code)" {
+				return fail("NATIVE_NOT_CERTIFIED")
+			}
+		} else if config.CLIVersion != ClaudeCLIVersion ||
 			config.CLI.Digest != ClaudeCLIDigest ||
-			config.CredentialTarget != ClaudeCredentialTarget ||
 			config.VersionOutput != ClaudeCLIVersion+" (Claude Code)" {
 			return fail("NATIVE_NOT_CERTIFIED")
 		}
@@ -237,6 +277,35 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 		}
 	}
 	return nil
+}
+
+// nativeVersionSatisfiesMinor reports whether declared shares its major and
+// minor version components with pinned, admitting any patch. Both strings
+// must already match versionPattern (major.minor.patch, optional prerelease
+// suffix on the patch component only), so splitting on "." is safe.
+func nativeVersionSatisfiesMinor(declared, pinned string) bool {
+	if !versionPattern.MatchString(declared) || !versionPattern.MatchString(pinned) {
+		return false
+	}
+	declaredMajor, declaredMinor, ok := nativeMajorMinor(declared)
+	if !ok {
+		return false
+	}
+	pinnedMajor, pinnedMinor, ok := nativeMajorMinor(pinned)
+	return ok && declaredMajor == pinnedMajor && declaredMinor == pinnedMinor
+}
+
+func nativeMajorMinor(version string) (int, int, bool) {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	major, majorErr := strconv.Atoi(parts[0])
+	minor, minorErr := strconv.Atoi(parts[1])
+	if majorErr != nil || minorErr != nil || major < 0 || minor < 0 {
+		return 0, 0, false
+	}
+	return major, minor, true
 }
 
 func validatePinnedRuntimeFiles(
@@ -332,7 +401,30 @@ func (adapter *nativeAdapter) checkProfile(
 			return ReadinessNotCertified, "native_version_changed"
 		}
 		if kind == checkCertify {
-			return ReadinessPass, "native_preflight_not_required"
+			// A2: certify must not pass what it never evaluated. It runs
+			// the same bounded, read-only credential liveness check the
+			// dispatch-time gate uses and reports exactly what it did: a
+			// positively stale credential fails certification; a credential
+			// the check actually read and did not find expired passes on
+			// that evaluation alone; and a reference it could not resolve
+			// or read is reported as unevaluated, never as a silent pass.
+			// Reporting "unevaluated" for a credential that was in fact
+			// evaluated would be the same false claim this check replaced,
+			// so the evaluated signal the liveness check already returns
+			// decides between the last two.
+			pathValue, resolveErr := adapter.resolve(ctx, *profile.CredentialRef)
+			if resolveErr == nil {
+				stale, evaluated := nativeCredentialLivenessCheck(
+					adapter.config.Family, pathValue, adapter.config.MaxCredentialBytes,
+				)
+				if stale {
+					return ReadinessFail, "CREDENTIAL_STALE"
+				}
+				if evaluated {
+					return ReadinessPass, "native_credential_preflight_passed"
+				}
+			}
+			return ReadinessNotCertified, "native_credential_preflight_unevaluated"
 		}
 		return ReadinessPass, "native_binary_ready"
 	default:

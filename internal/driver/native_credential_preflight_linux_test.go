@@ -5,10 +5,14 @@ package driver
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -370,6 +374,7 @@ func TestNativeSpontaneousExitClassification(t *testing.T) {
 	unauthorized := []byte(`{"offline_provider":"unauthorized"}`)
 	exitone := []byte(`{"offline_provider":"exitone"}`)
 	expire := []byte(`{"offline_provider":"expire"}`)
+	crash := []byte(`{"offline_provider":"crash"}`)
 
 	t.Run("auth exit without vocabulary stays transport", func(t *testing.T) {
 		for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
@@ -385,6 +390,38 @@ func TestNativeSpontaneousExitClassification(t *testing.T) {
 				)
 				if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
 					t.Fatalf("auth-exit error = %v, want PROVIDER_TRANSPORT_FAILED", err)
+				}
+				var contractErr *ContractError
+				if !errors.As(err, &contractErr) || contractErr.Kind != KindTransport {
+					t.Fatalf("auth-exit Kind = %#v, want KindTransport", err)
+				}
+			})
+		}
+	})
+
+	// A4: a self-signalled crash of the wrapped CLI - never the engine
+	// stopping it - surfaces as NATIVE_SURFACE_INVALID naming
+	// dispatch.process_signaled, classifying to KindSurfaceIntegrity.
+	t.Run("signalled child surfaces as surface invalid", func(t *testing.T) {
+		for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+			family := family
+			t.Run(string(family), func(t *testing.T) {
+				err := credentialFixtureInvoke(
+					t,
+					family,
+					probe,
+					digest,
+					crash,
+					2_000,
+				)
+				detail := decodeNativeSurfaceDetail(t, err)
+				if detail.Check != "dispatch.process_signaled" {
+					t.Fatalf("crash detail = %#v, want dispatch.process_signaled", detail)
+				}
+				var contractErr *ContractError
+				if !errors.As(err, &contractErr) ||
+					contractErr.Kind != KindSurfaceIntegrity {
+					t.Fatalf("crash Kind = %#v, want KindSurfaceIntegrity", err)
 				}
 			})
 		}
@@ -447,6 +484,71 @@ func TestNativeSpontaneousExitClassification(t *testing.T) {
 			t.Fatalf("codex expired-at-close error = %v, want PROVIDER_TRANSPORT_FAILED", err)
 		}
 	})
+}
+
+// TestNativeSpontaneousExitFailureClassifiesSignalledExitCodes pins A4's
+// discriminator directly against real exec.ExitError values, independent of
+// the sandboxed nativecontinuation fixture (which needs host runtime files
+// this environment may lack): 138 (128+SIGUSR1, this file's own crash-mode
+// idiom, exercised end to end by "signalled child surfaces as surface
+// invalid" above wherever the sandbox is available) and other
+// signal-translated codes classify as a signalled surface, while the two
+// values an engine-initiated group kill can itself produce (128+SIGTERM,
+// 128+SIGKILL) stay excluded, preserving the pre-existing engine-stop
+// reading unchanged. /usr/bin/sh's own "exit N" builtin produces the exact
+// same exec.ExitError.ExitCode() shape bwrap's signal translation does, so
+// this needs no sandbox, no bwrap, and no fixture binary.
+func TestNativeSpontaneousExitFailureClassifiesSignalledExitCodes(t *testing.T) {
+	exitWith := func(t *testing.T, code int) error {
+		t.Helper()
+		cmd := exec.Command("/usr/bin/sh", "-c", fmt.Sprintf("exit %d", code))
+		err := cmd.Run()
+		if err == nil {
+			t.Fatalf("exit %d unexpectedly succeeded", code)
+		}
+		return err
+	}
+
+	cases := []struct {
+		name          string
+		code          int
+		wantSignalled bool
+	}{
+		{"128+SIGUSR1 (this file's crash idiom) classifies as signalled", 138, true},
+		{"128+SIGSEGV classifies as signalled", 139, true},
+		{"128+SIGABRT classifies as signalled", 134, true},
+		{"128+SIGTERM stays the engine-stop exclusion", 128 + int(syscall.SIGTERM), false},
+		{"128+SIGKILL stays the engine-stop exclusion", 128 + int(syscall.SIGKILL), false},
+		{"ordinary nonzero exit stays transport", 2, false},
+	}
+	for _, test := range cases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			waitErr := exitWith(t, test.code)
+			err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil)
+			if test.wantSignalled {
+				detail := decodeNativeSurfaceDetail(t, err)
+				if detail.Check != "dispatch.process_signaled" {
+					t.Fatalf(
+						"code %d detail = %#v, want dispatch.process_signaled",
+						test.code, detail,
+					)
+				}
+				var contractErr *ContractError
+				if !errors.As(err, &contractErr) {
+					t.Fatal("expected a *ContractError")
+				}
+				if classifyKind(contractErr.Code, contractErr.HardLimit) != KindSurfaceIntegrity {
+					t.Fatalf("code %d Kind = %v, want KindSurfaceIntegrity", test.code,
+						classifyKind(contractErr.Code, contractErr.HardLimit))
+				}
+				return
+			}
+			if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+				t.Fatalf("code %d error = %v, want PROVIDER_TRANSPORT_FAILED", test.code, err)
+			}
+		})
+	}
 }
 
 // TestNativeBenignRotationKeepsCompletedDispatch pins A3 end to end: the
@@ -545,4 +647,78 @@ func TestNativeBenignRotationKeepsCompletedDispatch(t *testing.T) {
 
 func strconvI64(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+// TestNativeCertifyReportsWhatThePreflightActuallyDid pins all three
+// certify outcomes for a native adapter. The regression this guards
+// against shipped because nothing asserted that a native can pass at
+// all: reporting "unevaluated" for a credential the check did read and
+// did not find expired is the same false claim the honest preflight
+// replaced, and it left sworn driver certify unable to certify any
+// claude or codex lane (sworn#248).
+func TestNativeCertifyReportsWhatThePreflightActuallyDid(t *testing.T) {
+	fresh := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+		strconvI64(8_000_000_000_000_000) + `}}`
+	expired := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+		strconvI64(time.Now().UnixMilli()-60_000) + `}}`
+
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		pathValue := filepath.Join(t.TempDir(), "credential")
+		if err := os.WriteFile(pathValue, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return pathValue
+	}
+	probe := buildNativeContinuation(t)
+	digest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The in-repo probe, not a vendor binary: exactNativeConfigFixture
+	// keys off a CLI that exists on one operator host, so a certify test
+	// built on it would skip everywhere else - including CI, which is
+	// exactly how an unguarded path ships (sworn#249).
+	certify := func(t *testing.T, credentialPath string) (ReadinessState, string) {
+		t.Helper()
+		adapter, identity, ref, _, _ := nativeCredentialFixtureAdapter(
+			t, ProfileClaude, probe, digest, []byte(`{}`),
+		)
+		adapter.resolve = func(context.Context, string) (string, error) {
+			return credentialPath, nil
+		}
+		profile := ProfileConfig{
+			Key: "certify-profile", Adapter: identity.Key,
+			Network: NetworkRequired, CredentialRef: &ref,
+		}
+		return adapter.checkProfile(
+			context.Background(),
+			checkCertify,
+			profile,
+			"native-continuation-model",
+		)
+	}
+
+	t.Run("evaluated and live passes on that evaluation", func(t *testing.T) {
+		state, code := certify(t, write(t, fresh))
+		if state != ReadinessPass ||
+			code != "native_credential_preflight_passed" {
+			t.Fatalf("certify = %s %s, want PASS native_credential_preflight_passed",
+				state, code)
+		}
+	})
+	t.Run("positively stale fails", func(t *testing.T) {
+		state, code := certify(t, write(t, expired))
+		if state != ReadinessFail || code != "CREDENTIAL_STALE" {
+			t.Fatalf("certify = %s %s, want FAIL CREDENTIAL_STALE", state, code)
+		}
+	})
+	t.Run("unreadable reference stays unevaluated", func(t *testing.T) {
+		state, code := certify(t, "/not-used-by-readiness")
+		if state != ReadinessNotCertified ||
+			code != "native_credential_preflight_unevaluated" {
+			t.Fatalf("certify = %s %s, want NOT_CERTIFIED unevaluated",
+				state, code)
+		}
+	})
 }

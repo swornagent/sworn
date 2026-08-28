@@ -1,0 +1,70 @@
+{
+ "outcome": "A dispatch stops burning tries on failures a cheap probe could have named: a preflight registry runs side-effect-free, bounded, journaled probes at dispatch admission and refuses with named codes before anything is spent; sworn driver certify stops claiming native_preflight_not_required for credentials it never evaluated; and an instant native death becomes auth-vs-transport-vs-surface distinguishable on a durable surface - closing sworn#243's two broken promises (six burned tries under a PASS certificate, and a classification that could not tell a dead credential from a dead pin from a dead stream).",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the toolchain-capability probe (sworn#238 - wants the closure-mount decision first) and the context-window admission split (sworn#236) - both stay on the learning-spec phase 1 ladder, not in this slice",
+   "the pin-liveness probe (S1 lands it at the same seam; this slice's registry must admit it, not re-deliver it)",
+   "the full-cost certification live probe (factory.go:181-240 performs a real billed dispatch and stays certification-time machinery; admission probes are the cheap class)",
+   "routing and roster decisions - a probe refuses inadmissible assignments, it never ranks admissible ones (the learning spec's phase 4 boundary)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach the touched packages by import only; the certify surface change is pinned by driver tests, not cmd tests"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach the touched packages by import only; no cockpit test pins preflight admission"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach the touched packages directly and via internal/cockpit by import only; no observe test pins preflight admission"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach the touched packages via internal/cockpit by import only; no tui test pins preflight admission"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "The registry seam exists where nothing has burned yet: probes hook dispatch preparation (prepareDriverDispatch at internal/runtime/dispatch.go:1178-1201 resolves profile, adapter, and model, and validateSelected at production_driver.go:108-118 is today a pure map-membership check) and a probe refusal surfaces as a named admission code with zero dispatch burn - before EnsureAttempt (dispatch.go:1913), before any claim, before invokePreparedDriver (dispatch.go:2117-2128). Probes are side-effect-free, run under a bounded timeout, and their results - pass, refuse, or honestly-unevaluable - are journaled as typed events (the open event vocabulary via AppendEventOnce, journal write.go:900-916, with the cause-scoped idempotence shape of appendParkEventOnce as the precedent). Pinned by a fixture assigning a probe-refusable role x adapter and asserting the named refusal with no attempt row."
+  },
+  {
+   "id": "A2",
+   "text": "Certify stops passing what it never evaluated: the native checkProfile (internal/driver/native.go:305-341) runs nativeVersion and then returns ReadinessPass with native_preflight_not_required for certify (:334-336) without ever touching nativeCredentialPreflight (credentials.go:84-104) - the exact shape behind the r4-r6 episode where certification said PASS while six tries burned. After this slice certify for a native profile runs the credential preflight and reports honestly: a positively-expired credential fails certification with CREDENTIAL_STALE; a credential the preflight cannot evaluate is reported as unevaluated (a distinct readiness detail), never as a silent pass. The current claim is pinned at native_linux_test.go:372 - that test inverts. Zero-burn stays: certification never dispatches for this check."
+  },
+  {
+   "id": "A3",
+   "text": "Two probe classes land with an honesty floor: (a) credential liveness for CLI-native adapters - the class where a statically-valid credential is dead in practice (the stale-OAuth r7 precedent) - refusing with a named code where liveness can be cheaply established; (b) provider balance/quota for adapters whose provider exposes a cheap balance or quota surface (the deepseek negative-balance class, probed by hand as raw curls during unattended-operability), refusing hard exhaustion (S4's Kind) before dispatch. The honesty floor is the load-bearing rule: where no cheap probe exists, the probe records honestly-unevaluable - silent passes are the defect this slice exists to kill, and a probe that cannot see must say so. Probe mechanisms are design freedom; the pinned facts are named refusals, bounded cost, journaled results, and no silent pass."
+  },
+  {
+   "id": "A4",
+   "text": "Instant native exits classify honestly: nativeSpontaneousExitFailure (internal/driver/native_linux.go:2333-2349) has a production-dead auth branch - nativeAuthExitCodes is an empty map (native.go:38), so every spontaneous exit that is not a positively-expired credential file lands PROVIDER_TRANSPORT_FAILED, and the durable record (duration_ms 0, adapter_failed, stderr 0) carries no discriminator. After this slice an instant native death is distinguishable auth-vs-transport-vs-surface on a durable surface, consuming S4's Kind vocabulary, and TestNativeSpontaneousExitClassification (native_credential_preflight_linux_test.go:364-450) - whose first subtest today pins 'auth exit without vocabulary stays transport' - is re-pinned to the honest classification."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools ./test",
+  "git diff --check",
+  "GOOS=darwin GOARCH=arm64 go build ./..."
+ ],
+ "constraints": [
+  "Structural facts hard-gate, stochastic facts never do: a probe refuses only what it can deterministically establish; anything probabilistic is out of scope for admission (the ratified capability-selection split, applied at the preflight seam).",
+  "Probes are side-effect-free and bounded: no probe mutates provider state, exceeds its timeout budget, or performs a billed model dispatch; a probe timeout is itself an honestly-unevaluable result, never a refusal.",
+  "A probe failure degrades, never detonates: probe-infrastructure errors (network down to a balance endpoint) must not turn an otherwise-admissible dispatch into a hard refusal - refusal requires positive evidence of inadmissibility.",
+  "The dispatch path's existing preflight (nativeCredentialPreflight at native.go:482 and :511) keeps its fail-open discipline for what it cannot parse; this slice adds named visibility, not new brittleness.",
+  "Check evidence belongs in the submission's checks field, never in files added to the repository."
+ ],
+ "depends_on": [
+  "S4-refusal-taxonomy"
+ ],
+ "consumes": []
+}

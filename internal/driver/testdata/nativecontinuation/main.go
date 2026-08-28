@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -29,7 +30,19 @@ type promptEnvelope struct {
 	} `json:"recovery"`
 }
 
+// fixtureVersion is the version this probe reports to --version. It must
+// equal the VersionOutput its adapter config declares.
+const fixtureVersion = "1.0.0"
+
 func main() {
+	// The readiness gate identifies a pinned CLI by running it with
+	// --version before anything else, so answering that here is what
+	// lets certify-path tests use this probe instead of a real vendor
+	// binary that only exists on one operator host.
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println(fixtureVersion)
+		return
+	}
 	time.Sleep(100 * time.Millisecond)
 	body, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -116,6 +129,22 @@ func main() {
 				os.Exit(24)
 			}
 			os.Exit(29)
+		case "crash":
+			// SIGHUP carries _SigKill disposition in the Go runtime's signal
+			// table, so an unwatched SIGHUP terminates this process via that
+			// signal and bwrap surfaces the wait status as exit 128+SIGHUP
+			// (129). SIGUSR1 cannot be used here: it is _SigNotify only, so
+			// the runtime ignores it when nobody is watching and the process
+			// survives. SIGTERM and SIGKILL cannot be used either - the
+			// classifier reads 143 and 137 as engine kills, not as a
+			// self-signalled crash.
+			_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+			// Only reachable if the signal failed to terminate; exit on a
+			// distinct code rather than sleeping into the invocation budget,
+			// so that failure reads as "signal did not terminate" instead of
+			// an opaque INVOCATION_TIMEOUT.
+			time.Sleep(200 * time.Millisecond)
+			os.Exit(97)
 		case "rotation":
 			if os.WriteFile(
 				credentialFixturePath(family),
@@ -229,7 +258,7 @@ func credentialFixtureMode(family string) string {
 	}
 	mode, _ := envelope["offline_provider"].(string)
 	switch mode {
-	case "unreachable", "unauthorized", "exitone", "expire", "rotation":
+	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash":
 		return mode
 	default:
 		return ""
