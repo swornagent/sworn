@@ -55,10 +55,10 @@ binary needs hand-patching for the claude lane any more.
   with a zeroed observation, the exact black hole S6 fixes — and
   dispatched successfully on the new one.
 
-## Defects found (filing with this report)
+## Defects found (filed 2026-08-28)
 
 1. **The correction loop seals debugging probes as authoritative
-   work.** A worker whose submission is rejected bisects the schema
+   work** (#245)**.** A worker whose submission is rejected bisects the schema
    with a minimal payload; the loop accepts the first schema-valid
    result as the final answer. Six placeholder seals across four runs,
    one of them a **captain PROCEED** whose entire content was
@@ -68,19 +68,19 @@ binary needs hand-patching for the claude lane any more.
    next probe simply padded past the floor. The real fix is naming the
    refused field or bound back to the worker (S4 territory), not
    flooring the payload.
-2. **No engine verb for "the code is right, re-seal the receipt."** A
+2. **No engine verb for "the code is right, re-seal the receipt"** (#246)**.** A
    verifier FAIL on receipt quality creates an unfixable remediation
    loop when the implementation is already correct: the implementer
    has nothing to edit, every try dies `EMPTY_CANDIDATE`, and the run
    parks. This cost a track reset and ~734 lines of verified-good work.
-3. **Operator answers reach workers as unattested recovery text.** A
+3. **Operator answers reach workers as unattested recovery text** (#247)**.** A
    worker cannot distinguish an operator answer from injected data, so
    a well-designed one correctly refuses security-relevant values
    supplied that way. There is no operator channel for supplying a
    file to a sandbox. Values a worker must transcribe belong in
    contract bytes — truncated provenance prefixes are unusable
    downstream.
-4. **`sworn driver certify` can no longer pass any native adapter.**
+4. **`sworn driver certify` can no longer pass any native adapter** (#248)**.**
    S5 satisfied "stop claiming what you never evaluated" by removing
    the pass path entirely: `nativeCredentialLivenessCheck` already
    returns an `evaluated` flag and the call site discards it
@@ -89,13 +89,13 @@ binary needs hand-patching for the claude lane any more.
    contract set out to remove. Not a runtime blocker (the runtime
    never consults certification) but it breaks the documented
    pre-launch ritual and the fired-dogfood gate.
-5. **A new test fixture asserted nothing.** S4's signalled-child
+5. **A new test fixture asserted nothing** (#249)**.** S4's signalled-child
    acceptance (A4) was pinned by a fixture that self-sends SIGUSR1
    believing it fatal. In Go's signal table SIGUSR1 is notify-only, so
    an unwatched one is ignored: the fixture survived, slept into the
    test's own budget, and surfaced as `INVOCATION_TIMEOUT`. The
    acceptance criterion was never exercised.
-6. **`AUTOMATION_BINDING_MISMATCH` on a recovery decision** whose
+6. **`AUTOMATION_BINDING_MISMATCH` on a recovery decision** (#250) whose
    binding the worker reports copying verbatim from the request.
 
 ## Convergence
@@ -115,7 +115,7 @@ loaded runner.
 — product tests, end-to-end, race, vet, darwin build, official binary.
 
 One class is **not** this release's and is left un-hardened
-deliberately: `PROCESS_START_FAILED` in the Bash tool sandbox hit 3 of
+deliberately: `PROCESS_START_FAILED` in the Bash tool sandbox (#251) hit 3 of
 5 CI attempts on a *different* test each time
 (`TestBashAcceptsCommandAliasExactlyOnce` twice, then
 `TestToolBashNonZeroExitReturnsOutputAndExitCode`), never reproducible
