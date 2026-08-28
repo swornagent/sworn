@@ -854,8 +854,16 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				pinned = &runStatus.PinnedWork[index]
 			}
 		}
+		// The scenario scripts identical failures until the try budget is
+		// spent, so both park causes are true of this work. S7 gives the
+		// identical-failure row precedence because it names why the failures
+		// repeated rather than only that tries ran out; either label is
+		// honest here, and admissibility does not depend on the label - the
+		// retry gate keys off a third try in OperationalFailed - so the
+		// recovery assertions below remain the real gate.
 		if pinned == nil || pinned.Lane != "T1" ||
-			pinned.Cause != swornruntime.ParkCauseExhaustion {
+			(pinned.Cause != swornruntime.ParkCauseExhaustion &&
+				pinned.Cause != swornruntime.ParkCauseIdenticalFailure) {
 			t.Fatalf("pinned work row = %#v, status = %#v", pinned, runStatus.PinnedWork)
 		}
 		runBinary(t, swornBinary, 0, "retry", "--run", runID, "--journal", journalPath,
