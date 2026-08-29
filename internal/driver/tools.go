@@ -90,6 +90,15 @@ type toolSession struct {
 	// cleared with the session.
 	observer  *toolResultObserver
 	redaction [][]byte
+	// checkEvidence accumulates one baton.CheckResultEntry per Bash call
+	// this session runs (S5-A3), bounded by checkEvidenceEntryLimit entries
+	// and checkEvidenceByteBudget bytes with oldest-first eviction: the
+	// declared checks a verifier runs are conventionally its last calls, so
+	// eviction never drops the tail. It is consumed only for a
+	// WorkVerification submit; every other responsibility accumulates it
+	// harmlessly and never reads it.
+	checkEvidence      []baton.CheckResultEntry
+	checkEvidenceBytes int
 }
 
 func newToolSession(invocation Invocation) (*toolSession, error) {
@@ -632,13 +641,15 @@ func (session *toolSession) bash(ctx context.Context, arguments []byte) ([]byte,
 		!utf8.ValidString(script) {
 		return nil, 0, fail("INVALID_TOOL_ARGUMENT")
 	}
-	return runToolBash(
+	output, code, runErr := runToolBash(
 		ctx,
 		session.invocation,
 		session.projection.Root(),
 		session.scratch,
 		script,
 	)
+	session.recordCheckEvidence(script, output, code, runErr)
+	return output, code, runErr
 }
 
 func (session *toolSession) submit(
@@ -659,6 +670,11 @@ func (session *toolSession) submit(
 	submission, err := decodeToolSubmission(root["submission"])
 	if err != nil {
 		return nil, session.rejectSubmission(ctx, err)
+	}
+	if submission.Responsibility == WorkVerification {
+		if err := session.applyCheckEvidence(&submission); err != nil {
+			return nil, session.rejectSubmission(ctx, err)
+		}
 	}
 	if submission.Responsibility == PlannerProposal && submission.Plan != nil {
 		planBody, _ := base64.StdEncoding.Strict().DecodeString(submission.Plan.Bytes)

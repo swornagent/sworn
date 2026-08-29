@@ -335,25 +335,23 @@ func randomSuffix() string {
 // this slice), so the bounded read cannot open it and certify reports
 // unevaluated, honestly, rather than a silent pass.
 func TestExactNativeProfilesCertifyReportsCredentialPreflightHonestly(t *testing.T) {
+	probe := buildNativeContinuation(t)
+	probeDigest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
 		family := family
 		t.Run(string(family), func(t *testing.T) {
-			config := exactNativeConfigFixture(t, family)
-			ref := string(family) + "-credential"
-			adapterValue, err := NewNativeAdapter(
-				config,
-				func(context.Context, string) (string, error) {
-					return "/not-used-by-readiness", nil
-				},
+			withCriterionGuard(t, "S5-A2-native-readiness-"+string(family))
+			adapter, _, ref, selected, _ := nativeCredentialFixtureAdapter(
+				t, family, probe, probeDigest, []byte(`{}`),
 			)
-			if err != nil {
-				t.Fatal(err)
+			adapter.resolve = func(context.Context, string) (string, error) {
+				return "/not-used-by-readiness", nil
 			}
-			adapter := adapterValue.(*nativeAdapter)
-			profile := ProfileConfig{
-				Key: string(family) + "-profile", Adapter: config.Key,
-				Network: NetworkRequired, CredentialRef: &ref,
-			}
+			config := adapter.config
+			profile := selected.Profile
 			if state, code := adapter.checkProfile(
 				context.Background(),
 				checkInspect,
@@ -2411,6 +2409,61 @@ func TestExactNativeConfigFixtureSkipsOnHostBinaryDrift(t *testing.T) {
 	}
 }
 
+// criterionGuard names the acceptance criterion the current test is the
+// designated pin for; empty means environment-optional (today's unconditional
+// skip, unchanged). withCriterionGuard sets it for one test's duration.
+var criterionGuard string
+
+// withCriterionGuard marks t as the designated pin for criterionID: any
+// requireOrSkip precondition failure reached during t fails loudly instead of
+// skipping, naming criterionID.
+func withCriterionGuard(t *testing.T, criterionID string) {
+	t.Helper()
+	previous := criterionGuard
+	criterionGuard = criterionID
+	t.Cleanup(func() { criterionGuard = previous })
+}
+
+// criterionGuardOutcome decides whether a missing precondition is a named
+// criterion failure or an environment-optional skip, and the message for
+// either path. It is pure and *testing.T-free, exactly like
+// hostBinaryDriftReason above, so its own proof asserts on return values
+// instead of running t.Fatal/t.Skip against a subtest whose failure would
+// propagate to its parent unconditionally.
+func criterionGuardOutcome(guard, reason string) (message string, fail bool) {
+	if guard != "" {
+		return fmt.Sprintf("%s: %s", guard, reason), true
+	}
+	return reason, false
+}
+
+// requireOrSkip replaces a bare t.Skip/t.Skipf(reason) at a criterion-guarding
+// fixture's precondition: environment-optional by default (skip, unchanged),
+// or a named criterion failure when withCriterionGuard is active for t.
+func requireOrSkip(t *testing.T, reason string) {
+	t.Helper()
+	message, fail := criterionGuardOutcome(criterionGuard, reason)
+	if fail {
+		t.Fatal(message)
+	}
+	t.Skip(message)
+}
+
+// TestCriterionGuardFailsLoudRatherThanSkipping pins A1: a criterion-guarding
+// fixture reports a failure, not a skip, when its precondition is absent and
+// a criterion names it. The proof is over criterionGuardOutcome's own return
+// values, never over a t.Run subtest whose t.Fatal/t.Skip would otherwise
+// fail this test's parent regardless of what the subtest returns.
+func TestCriterionGuardFailsLoudRatherThanSkipping(t *testing.T) {
+	reason := "throwaway precondition failure"
+	if message, fail := criterionGuardOutcome("S5-A1-example", reason); !fail || message != "S5-A1-example: "+reason {
+		t.Fatalf("guarded outcome = (%q, %v), want a fail with a criterion-prefixed message", message, fail)
+	}
+	if message, fail := criterionGuardOutcome("", reason); fail || message != reason {
+		t.Fatalf("unguarded outcome = (%q, %v), want a skip with the bare reason", message, fail)
+	}
+}
+
 func exactNativeConfigFixture(
 	t *testing.T,
 	family ProfileFamily,
@@ -2430,10 +2483,10 @@ func exactNativeConfigFixture(
 		t.Fatalf("unknown native family %s", family)
 	}
 	if _, err := os.Stat(pathValue); err != nil {
-		t.Skipf("exact %s fixture unavailable: %v", family, err)
+		requireOrSkip(t, fmt.Sprintf("exact %s fixture unavailable: %v", family, err))
 	}
 	if reason, drifted := hostBinaryDriftReason(pathValue, digest); drifted {
-		t.Skip(reason)
+		requireOrSkip(t, reason)
 	}
 	runtimeFiles := systemRuntimeFiles(t)
 	if family == ProfileClaude {
@@ -2477,7 +2530,7 @@ func nativeContinuationConfigFixture(
 	if family == ProfileClaude {
 		target = ClaudeCredentialTarget
 	}
-	runtimeFiles := systemRuntimeFiles(t)
+	runtimeFiles := inRepoRuntimeFilesFixture(t)
 	required := make([]string, len(runtimeFiles))
 	for index := range runtimeFiles {
 		required[index] = runtimeFiles[index].Target
@@ -2533,13 +2586,38 @@ func pinnedRuntimeFile(
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
-		t.Skipf("host runtime file %s unavailable: %v", source, err)
+		requireOrSkip(t, fmt.Sprintf("host runtime file %s unavailable: %v", source, err))
 	}
 	digest, err := executableDigest(resolved)
 	if err != nil {
-		t.Skipf("host runtime file %s unavailable: %v", source, err)
+		requireOrSkip(t, fmt.Sprintf("host runtime file %s unavailable: %v", source, err))
 	}
 	return PinnedRuntimeFile{Path: resolved, Target: target, Digest: digest}
+}
+
+// inRepoRuntimeFilesFixture builds the four RuntimeFiles a native
+// continuation config needs, authored under t.TempDir() rather than read
+// from the host: openPinnedRuntimeFile only ever opens and digests Path, and
+// Target is a label matched against RequiredRuntimeTargets, so a file this
+// test writes itself satisfies the same contract a real host file does, on
+// any host, and still exercises pinnedRuntimeFile's own guarded skip sites
+// (A1) rather than bypassing them.
+func inRepoRuntimeFilesFixture(t *testing.T) []PinnedRuntimeFile {
+	t.Helper()
+	targets := []string{
+		"/etc/ssl/certs/ca-certificates.crt", "/etc/resolv.conf",
+		"/etc/hosts", "/etc/nsswitch.conf",
+	}
+	files := make([]PinnedRuntimeFile, 0, len(targets))
+	for index, target := range targets {
+		source := filepath.Join(t.TempDir(), fmt.Sprintf("runtime-file-%d", index))
+		body := []byte("in-repo readiness runtime file: " + target)
+		if err := os.WriteFile(source, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, pinnedRuntimeFile(t, source, target))
+	}
+	return files
 }
 
 func readOpenFile(t *testing.T, file *os.File) []byte {

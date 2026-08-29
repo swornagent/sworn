@@ -182,6 +182,34 @@ func submitYieldFirstRequiredError() error {
 	}
 }
 
+// submitCheckEvidenceIncompleteError builds the
+// submit.check_evidence_incomplete refusal (S5-A3, finding 2): Bound names
+// the matching rule that refused it (check_command_covers, the engine
+// constant CheckCommandCovers implements) and Paths carries exactly the one
+// declared check with no recorded pass covering it, so a verifier can re-run
+// it and resubmit inside the same turn instead of losing the dispatch to a
+// post-turn CHECK_EVIDENCE_INCOMPLETE it can never see or act on.
+func submitCheckEvidenceIncompleteError(check string) error {
+	return &ContractError{
+		Code: "CHECK_EVIDENCE_INCOMPLETE",
+		Detail: submissionRefusalDetailBytes(
+			"submit.check_evidence_incomplete", "checks", "check_command_covers", []string{check},
+		),
+	}
+}
+
+// submitCheckEvidenceEncodeError builds the submit.check_evidence_encode
+// refusal for the unreachable-in-practice case where the driver's own
+// bounded accumulator still fails to encode as a sworn.check-results/v1
+// manifest, so that failure never becomes an opaque internal error the
+// worker cannot act on.
+func submitCheckEvidenceEncodeError(err error) error {
+	return &ContractError{
+		Code:   "CHECK_EVIDENCE_UNENCODABLE",
+		Detail: submissionRefusalDetailBytes("submit.check_evidence_encode", "checks", "", nil),
+	}
+}
+
 // decodeSubmissionObject wraps one decodeToolSubmission closedObject call
 // (submit.decode): on MISSING_FIELD it re-derives Field by scanning value's
 // own decoded map for the first absent key in required's own order - an
