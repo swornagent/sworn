@@ -60,6 +60,7 @@ type AppendReceiptInput struct {
 	Base         string
 	Candidate    string
 	CheckResults []byte
+	FailScope    string `json:"FailScope,omitempty"`
 }
 
 type PrepareAssemblyInput struct {
@@ -919,6 +920,10 @@ func (a *Actions) appendReceipt(
 			common.Role, common.Result, common.Attempt, common.Binds = role, resultName, &attempt, binds
 			common.Candidate, common.ProductTree, common.Inputs, common.Checks =
 				&candidate, &productTree, cloneInputs(evidence.Inputs), &checksDigest
+			if resultName == "fail" && input.FailScope != "" {
+				failScope := input.FailScope
+				common.FailScope = &failScope
+			}
 			receipt, parent = common, ownerHead
 			if ownerHead != current.OID {
 				return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its candidate receipt")

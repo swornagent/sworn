@@ -105,6 +105,82 @@ func candidateHeadRefresh(
 		track.AuthorityHead == slice.CurrentReceipt.OID
 }
 
+// evidenceOnlyReseal reports whether a verifier failed the slice's evidence
+// alone while affirming its code, durably (FailScope on the bound receipt,
+// never the submitting turn's own say-so), and nothing has moved since. It
+// is mutually exclusive with candidateHeadRefresh: that gate requires
+// slice.CurrentReceipt.OID == slice.Candidate.OID, which never holds for a
+// verifier/fail state (CurrentReceipt is the fail receipt; Candidate is the
+// implementer/candidate receipt it bound).
+func evidenceOnlyReseal(state baton.State, slice *baton.SliceState) bool {
+	if slice == nil ||
+		slice.Stage != "implement" ||
+		slice.Status != "ready" ||
+		slice.NextRole != "implementer" ||
+		slice.Outcome != "fail" ||
+		slice.Retained ||
+		slice.Attempt != slice.History.MaximumAttempt+1 ||
+		slice.CurrentReceipt == nil ||
+		slice.CurrentReceipt.Receipt.Role != "verifier" ||
+		slice.CurrentReceipt.Receipt.FailScope == nil ||
+		*slice.CurrentReceipt.Receipt.FailScope != "evidence" ||
+		slice.Candidate == nil {
+		return false
+	}
+	track, ok := state.Track(slice.Location.Track.ID)
+	return ok && track.Head == slice.CurrentReceipt.OID
+}
+
+// evidenceResealBase derives the pre-change base an evidence-only reseal
+// diffs against: the parent of the most recent commit that actually changed
+// content, walking back over any chain of prior evidence-only reseals (each
+// of which left receipt.Candidate == receipt.Binds, contributing no new
+// content commit of its own) to find it. Both the writer (implementSlice)
+// and the checker (implementationRefreshBase) call this same helper so the
+// derivation can never diverge between what was sealed and what is verified.
+func evidenceResealBase(engine *engine, slice *baton.SliceState) (gitx.OID, error) {
+	if engine == nil || engine.repository == nil || slice == nil || slice.Candidate == nil {
+		return gitx.OID{}, runtimeFail("STALE_DISPATCH", nil)
+	}
+	byOID := make(map[string]baton.ReceiptEntry, len(slice.History.Entries))
+	for _, entry := range slice.History.Entries {
+		byOID[entry.OID] = entry
+	}
+	format := engine.repository.ObjectFormat()
+	cursor := *slice.Candidate
+	for steps := 0; steps <= len(slice.History.Entries); steps++ {
+		if cursor.Receipt.Role != "implementer" ||
+			cursor.Receipt.Result != "candidate" ||
+			cursor.Receipt.Candidate == nil {
+			return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if *cursor.Receipt.Candidate != cursor.Receipt.Binds {
+			content, err := gitx.ParseOID(format, *cursor.Receipt.Candidate)
+			if err != nil {
+				return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", err)
+			}
+			parents, err := engine.repository.Parents(content)
+			if err != nil {
+				return gitx.OID{}, err
+			}
+			if len(parents) != 1 {
+				return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			return parents[0], nil
+		}
+		verifierFail, ok := byOID[cursor.Receipt.Binds]
+		if !ok || verifierFail.Receipt.Role != "verifier" || verifierFail.Receipt.Result != "fail" {
+			return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		prior, ok := byOID[verifierFail.Receipt.Binds]
+		if !ok {
+			return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		cursor = prior
+	}
+	return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+}
+
 func trackBaseRequestFromWire(
 	engine *engine,
 	identity gitx.Identity,
@@ -798,7 +874,7 @@ func (s *Service) prepareTrackBaseForSlice(
 		(slice.Stage != "design" && slice.Stage != "implement") {
 		return baton.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
 	}
-	if candidateHeadRefresh(state, slice) {
+	if candidateHeadRefresh(state, slice) || evidenceOnlyReseal(state, slice) {
 		return state, slice, nil
 	}
 	command, request, err := trackBaseRequestForSlice(engine, state, slice)

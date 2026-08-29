@@ -70,8 +70,23 @@ const (
 	DecisionBlocked  DecisionOutcome = "blocked"
 )
 
+// DecisionFailScope qualifies a WorkVerification fail. It is additive: it
+// never introduces a new terminal state alongside DecisionOutcome's six
+// values, and every existing outcome-branching consumer is unaffected.
+type DecisionFailScope string
+
+const (
+	FailScopeUnspecified DecisionFailScope = ""
+	FailScopeEvidence    DecisionFailScope = "evidence"
+)
+
+func (scope DecisionFailScope) valid() bool {
+	return scope == FailScopeUnspecified || scope == FailScopeEvidence
+}
+
 type Decision struct {
-	Outcome DecisionOutcome `json:"outcome"`
+	Outcome DecisionOutcome   `json:"outcome"`
+	Scope   DecisionFailScope `json:"scope,omitempty"`
 }
 
 func NewDecision(outcome DecisionOutcome) (*Decision, error) {
@@ -171,7 +186,7 @@ func DecodeSubmission(body []byte) (Submission, error) {
 		}
 	}
 	if root["decision"] != nil {
-		if _, err := closedObject(root["decision"], []string{"outcome"}, nil); err != nil {
+		if _, err := closedObject(root["decision"], []string{"outcome"}, []string{"scope"}); err != nil {
 			return Submission{}, err
 		}
 	}
@@ -220,7 +235,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionValidateWrap(err, "checks")
 		}
 	}
-	if submission.Decision != nil && !submission.Decision.Outcome.valid() {
+	if submission.Decision != nil &&
+		(!submission.Decision.Outcome.valid() || !submission.Decision.Scope.valid()) {
 		return submissionValidateError("INVALID_DECISION", "decision")
 	}
 	for path, contract := range submission.Contracts {
@@ -274,6 +290,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("decision")
 		case !submission.Decision.Outcome.captain():
 			return submissionShapeMismatch("decision")
+		case submission.Decision.Scope != FailScopeUnspecified:
+			return submissionShapeMismatch("decision")
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")
 		}
@@ -286,6 +304,10 @@ func ValidateSubmission(submission Submission) error {
 		case submission.Decision == nil:
 			return submissionShapeMismatch("decision")
 		case !submission.Decision.Outcome.verifier():
+			return submissionShapeMismatch("decision")
+		case submission.Decision.Scope != FailScopeUnspecified &&
+			(submission.Responsibility != WorkVerification ||
+				submission.Decision.Outcome != DecisionFail):
 			return submissionShapeMismatch("decision")
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")

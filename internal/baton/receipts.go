@@ -45,6 +45,7 @@ type Receipt struct {
 	Inputs       map[string]string
 	Checks       *string
 	ResultCommit *string
+	FailScope    *string
 }
 
 func (r Receipt) Clone() Receipt {
@@ -53,7 +54,7 @@ func (r Receipt) Clone() Receipt {
 		r.Slice: &result.Slice, r.Contract: &result.Contract, r.Target: &result.Target,
 		r.Base: &result.Base, r.Candidate: &result.Candidate,
 		r.ProductTree: &result.ProductTree, r.Checks: &result.Checks,
-		r.ResultCommit: &result.ResultCommit,
+		r.ResultCommit: &result.ResultCommit, r.FailScope: &result.FailScope,
 	} {
 		if source != nil {
 			value := *source
@@ -121,7 +122,7 @@ func validateReceiptMap(value map[string]any) (Receipt, error) {
 	required := []string{"version", "release", "role", "result", "plan", "binds", "detail", "summary"}
 	optional := []string{
 		"slice", "attempt", "contract", "target", "base", "candidate",
-		"product_tree", "inputs", "checks", "result_commit",
+		"product_tree", "inputs", "checks", "result_commit", "fail_scope",
 	}
 	if err := exactKeys(value, required, optional, "receipt"); err != nil {
 		return Receipt{}, err
@@ -225,6 +226,16 @@ func validateReceiptMap(value map[string]any) (Receipt, error) {
 		}
 		receipt.Inputs = inputs
 	}
+	if raw, ok := value["fail_scope"]; ok {
+		failScope, err := requiredString(raw, "receipt.fail_scope", 1, 16)
+		if err != nil {
+			return Receipt{}, err
+		}
+		if failScope != "evidence" {
+			return Receipt{}, recordFail("INVALID_FIELD", "receipt.fail_scope must be evidence")
+		}
+		receipt.FailScope = &failScope
+	}
 	if err := receipt.assertRoleFields(); err != nil {
 		return Receipt{}, err
 	}
@@ -272,6 +283,8 @@ func (r Receipt) assertRoleFields() error {
 			return r.Checks != nil
 		case "result_commit":
 			return r.ResultCommit != nil
+		case "fail_scope":
+			return r.FailScope != nil
 		default:
 			return false
 		}
@@ -313,7 +326,7 @@ func (r Receipt) assertRoleFields() error {
 		} else if err := require("slice"); err != nil {
 			return err
 		}
-		return forbid("base", "candidate", "product_tree", "inputs", "checks", "result_commit")
+		return forbid("base", "candidate", "product_tree", "inputs", "checks", "result_commit", "fail_scope")
 	case "implementer":
 		if r.Result == "designed" {
 			if err := require("slice"); err != nil {
@@ -325,12 +338,12 @@ func (r Receipt) assertRoleFields() error {
 					"implementer/designed receipt requires base and inputs together",
 				)
 			}
-			return forbid("target", "candidate", "product_tree", "checks", "result_commit")
+			return forbid("target", "candidate", "product_tree", "checks", "result_commit", "fail_scope")
 		}
 		if err := require(candidateEvidence...); err != nil {
 			return err
 		}
-		if err := forbid("result_commit"); err != nil {
+		if err := forbid("result_commit", "fail_scope"); err != nil {
 			return err
 		}
 		if r.Slice == nil {
@@ -341,12 +354,18 @@ func (r Receipt) assertRoleFields() error {
 		if err := require("slice"); err != nil {
 			return err
 		}
-		return forbid("target", "base", "candidate", "product_tree", "inputs", "checks", "result_commit")
+		return forbid("target", "base", "candidate", "product_tree", "inputs", "checks", "result_commit", "fail_scope")
 	case "verifier":
 		if err := require(candidateEvidence...); err != nil {
 			return err
 		}
-		return forbid("base", "result_commit")
+		if err := forbid("base", "result_commit"); err != nil {
+			return err
+		}
+		if r.Result != "fail" {
+			return forbid("fail_scope")
+		}
+		return nil
 	case "merge":
 		if r.Slice != nil {
 			return recordFail("INVALID_FIELD", "merge receipt is release-scoped")
@@ -354,7 +373,7 @@ func (r Receipt) assertRoleFields() error {
 		if err := require("target", "candidate", "product_tree", "result_commit"); err != nil {
 			return err
 		}
-		return forbid("base", "checks")
+		return forbid("base", "checks", "fail_scope")
 	default:
 		return recordFail("INVALID_FIELD", "receipt role is invalid")
 	}
@@ -375,6 +394,7 @@ func (r Receipt) toMap() map[string]any {
 	}{
 		{"target", r.Target}, {"base", r.Base}, {"candidate", r.Candidate},
 		{"product_tree", r.ProductTree}, {"checks", r.Checks}, {"result_commit", r.ResultCommit},
+		{"fail_scope", r.FailScope},
 	} {
 		if item.value != nil {
 			result[item.name] = *item.value
