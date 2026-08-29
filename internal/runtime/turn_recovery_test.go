@@ -34,6 +34,7 @@ type turnRecoveryFixtureDriver struct {
 	onAnswer              func(driver.Invocation) error
 	automationCalls       int
 	answerCalls           int
+	answerFactCalls       int
 }
 
 func completedTurnRecoveryObservation() driver.Observation {
@@ -276,6 +277,11 @@ func (fixture *turnRecoveryFixtureDriver) InvokeRecoverableTurn(
 	}
 	fixture.mu.Lock()
 	fixture.answerCalls++
+	if input.Fact != nil &&
+		input.Fact.Name == driver.FactOperatorAnswer &&
+		input.Fact.Value == expectedAnswer {
+		fixture.answerFactCalls++
+	}
 	failAnswer := fixture.failAnswer
 	successor := fixture.successor
 	if successor != "" {
@@ -657,6 +663,12 @@ func TestHumanOnlyTurnParksBeforeAutomationAndResumesThroughSharedAnswer(
 					"answer calls=%d automation calls=%d",
 					fixtureDriver.answerCalls,
 					fixtureDriver.automationCalls,
+				)
+			}
+			if fixtureDriver.answerFactCalls != 1 {
+				t.Fatalf(
+					"answer fact calls=%d, want 1 (operator answer must reach the worker as an attested fact)",
+					fixtureDriver.answerFactCalls,
 				)
 			}
 		})
@@ -1422,9 +1434,16 @@ func TestAnswerBetweenDriveDecisionAndOwnerReleaseIsConsumed(t *testing.T) {
 	}
 	fixtureDriver.mu.Lock()
 	answerCalls := fixtureDriver.answerCalls
+	answerFactCalls := fixtureDriver.answerFactCalls
 	fixtureDriver.mu.Unlock()
 	if answerCalls != 1 {
 		t.Fatalf("answer dispatch calls = %d, want 1", answerCalls)
+	}
+	if answerFactCalls != 1 {
+		t.Fatalf(
+			"answer fact calls=%d, want 1 (answer-park resume must attest the operator answer)",
+			answerFactCalls,
+		)
 	}
 	if owner, present, err := fixture.store.CurrentOwner(
 		fixture.ctx,
