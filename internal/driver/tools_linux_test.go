@@ -66,8 +66,8 @@ func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
 		"schema_version": SubmissionSchemaVersion,
 		"invocation_id":  "sparse-design",
 		"responsibility": ImplementerDesign,
-		"summary":        "Design complete.",
-		"detail":         "",
+		"summary":        "Design complete summary padded so the sparse decode test clears the submission content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises.",
+		"detail":         "Bounded detail padded so the sparse decode test clears the detail content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises in turn, well past the two-hundred-byte bound.\n",
 	}
 	submission, err := decodeToolSubmission(sparse)
 	if err != nil || submission.Plan != nil ||
@@ -667,8 +667,8 @@ func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
 			"schema_version": SubmissionSchemaVersion,
 			"invocation_id":  invocation.Request.InvocationID,
 			"responsibility": string(PlannerProposal),
-			"summary":        "Compact responsibility summary.",
-			"detail":         "",
+			"summary":        "Compact responsibility summary padded so the scratch-path exact-bytes submission test clears the submission content floor for its path-materialization coverage.",
+			"detail":         "Bounded detail padded so the scratch-path exact-bytes submission test clears the detail content floor for its path-materialization coverage across this fixture, well past the two-hundred-byte length bound.\n",
 			"plan": map[string]any{
 				"byte_count": len(plan),
 				"digest":     Digest(plan),
@@ -709,8 +709,8 @@ func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
 			"schema_version": SubmissionSchemaVersion,
 			"invocation_id":  invocation.Request.InvocationID,
 			"responsibility": string(PlannerProposal),
-			"summary":        "Compact responsibility summary.",
-			"detail":         "",
+			"summary":        "Compact responsibility summary padded so the scratch-path exact-bytes submission test clears the submission content floor for its path-materialization coverage.",
+			"detail":         "Bounded detail padded so the scratch-path exact-bytes submission test clears the detail content floor for its path-materialization coverage across this fixture, well past the two-hundred-byte length bound.\n",
 			"plan": map[string]any{
 				"byte_count": len(plan),
 				"digest":     Digest(plan),

@@ -126,8 +126,8 @@ func submissionFixture(
 		SchemaVersion:  SubmissionSchemaVersion,
 		InvocationID:   invocationID,
 		Responsibility: responsibility,
-		Summary:        "Compact responsibility summary.",
-		Detail:         "Bounded LF-only detail.\n",
+		Summary:        "Compact responsibility summary padded so every floored responsibility this shared fixture drives clears the submission content floor for permission and correction-accounting coverage.",
+		Detail:         "Bounded LF-only detail padded so every floored responsibility this shared fixture drives clears the detail content floor while exercising submission-permission acceptance and rejection coverage across these tests.\n",
 	}
 	var err error
 	switch responsibility {

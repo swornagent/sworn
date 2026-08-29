@@ -366,8 +366,8 @@ func (provider *recoveryE2EProvider) submissionArguments(
 		SchemaVersion:  driver.SubmissionSchemaVersion,
 		InvocationID:   prompt.InvocationID,
 		Responsibility: prompt.Responsibility,
-		Summary:        "Deterministic turn recovery fixture.",
-		Detail:         "Bound to the admitted production responsibility.",
+		Summary:        "Deterministic turn recovery fixture padded so every scripted responsibility this recovery journey drives clears the submission content floor for its coverage.",
+		Detail:         "Bound to the admitted production responsibility, padded so every scripted responsibility this recovery journey drives clears the submission detail content floor for its coverage, well past the two-hundred-byte bound.\n",
 	}
 	var err error
 	switch prompt.Responsibility {

@@ -309,11 +309,10 @@ func (session *toolSession) execute(
 
 // toolErrorContent renders a failed tool call's content for the model: the
 // stable code, plus the failing call's own bounded Detail envelope when its
-// raise site set one (today: PROCESS_START_FAILED's six Bash-tool sandbox
-// start sites), in the same "key=value" suffix idiom bashFailureResult uses
-// for exit_code. Every other tool error keeps the bare code unchanged,
-// since nothing else reaching this path constructs a ContractError with a
-// non-empty Detail.
+// raise site set one (PROCESS_START_FAILED's six Bash-tool sandbox start
+// sites, and every submit-path refusal in the submission-refusal-detail
+// family), in the same "key=value" suffix idiom bashFailureResult uses for
+// exit_code. Every other tool error keeps the bare code unchanged.
 func toolErrorContent(err error) []byte {
 	code := contractCode(err)
 	var contractErr *ContractError
@@ -648,11 +647,11 @@ func (session *toolSession) submit(
 ) ([]byte, error) {
 	value, err := decodeStrict(arguments, MaxToolArgumentBytes)
 	if err != nil {
-		return nil, session.rejectSubmission(ctx, err)
+		return nil, session.rejectSubmission(ctx, submitArgumentsDecodeDetail(err))
 	}
 	root, err := closedObject(value, []string{"submission"}, nil)
 	if err != nil {
-		return nil, session.rejectSubmission(ctx, err)
+		return nil, session.rejectSubmission(ctx, submitRootObjectDetail(err))
 	}
 	if err := session.materializeExactBytesPaths(root["submission"]); err != nil {
 		return nil, session.rejectSubmission(ctx, err)
@@ -669,13 +668,13 @@ func (session *toolSession) submit(
 				if code == "" {
 					code = "UNDER_DERIVED_SCOPE"
 				}
-				return nil, session.rejectSubmission(ctx, fail(code))
+				return nil, session.rejectSubmission(ctx, submitPlanScopeLintError(code, lintErr))
 			}
 		}
 	}
 	body, err := EncodeSubmission(submission)
 	if err != nil {
-		return nil, session.rejectSubmission(ctx, err)
+		return nil, session.rejectSubmission(ctx, submitEncodeDetail(err))
 	}
 	if err := session.invocation.Permission.validate(submission); err != nil {
 		return nil, session.rejectSubmission(ctx, err)
@@ -687,7 +686,7 @@ func (session *toolSession) submit(
 	if submission.Responsibility == PlannerProposal && submission.Plan != nil &&
 		(session.invocation.recoverableInput == nil ||
 			session.invocation.recoverableInput.Kind != RecoverableInputAnswer) {
-		return nil, session.rejectSubmission(ctx, fail("YIELD_FIRST_REQUIRED"))
+		return nil, session.rejectSubmission(ctx, submitYieldFirstRequiredError())
 	}
 	seal, sealBytes, submitErr := session.server.Submit(body)
 	if submitErr != nil || !seal.Accepted {
@@ -805,7 +804,7 @@ func (session *toolSession) materializeExactBytesPaths(value any) error {
 		if !ok {
 			continue
 		}
-		if err := session.materializeExactBytesMember(member); err != nil {
+		if err := session.materializeExactBytesMember(member, name); err != nil {
 			return err
 		}
 	}
@@ -813,9 +812,9 @@ func (session *toolSession) materializeExactBytesPaths(value any) error {
 		for _, entry := range contracts {
 			member, ok := entry.(map[string]any)
 			if !ok {
-				return fail("INVALID_EXACT_BYTES")
+				return submitExactBytesPathError("INVALID_EXACT_BYTES", "contracts entry")
 			}
-			if err := session.materializeExactBytesMember(member); err != nil {
+			if err := session.materializeExactBytesMember(member, "contracts entry"); err != nil {
 				return err
 			}
 		}
@@ -825,17 +824,19 @@ func (session *toolSession) materializeExactBytesPaths(value any) error {
 
 // materializeExactBytesMember resolves one {byte_count, digest, path} member
 // in place to {byte_count, digest, bytes}, shared by the submission's plan,
-// checks, and every contracts entry.
-func (session *toolSession) materializeExactBytesMember(member map[string]any) error {
+// checks, and every contracts entry. field names the member for
+// submit.exact_bytes_path's Detail ("plan", "checks", or "contracts entry"),
+// never the guest path text itself.
+func (session *toolSession) materializeExactBytesMember(member map[string]any, field string) error {
 	pathValue, present := member["path"]
 	if !present {
 		return nil
 	}
 	guest, ok := pathValue.(string)
 	if _, inline := member["bytes"]; !ok || inline {
-		return fail("INVALID_EXACT_BYTES")
+		return submitExactBytesPathError("INVALID_EXACT_BYTES", field)
 	}
-	body, err := session.readExactBytesFile(guest)
+	body, err := session.readExactBytesFile(guest, field)
 	if err != nil {
 		return err
 	}
@@ -845,10 +846,10 @@ func (session *toolSession) materializeExactBytesMember(member map[string]any) e
 	return nil
 }
 
-func (session *toolSession) readExactBytesFile(guest string) ([]byte, error) {
+func (session *toolSession) readExactBytesFile(guest string, field string) ([]byte, error) {
 	if validateToolText(guest) != nil || !path.IsAbs(guest) ||
 		path.Clean(guest) != guest {
-		return nil, fail("TOOL_PATH_INVALID")
+		return nil, submitExactBytesPathError("TOOL_PATH_INVALID", field)
 	}
 	var host, root string
 	switch {
@@ -861,44 +862,45 @@ func (session *toolSession) readExactBytesFile(guest string) ([]byte, error) {
 	default:
 		target, resolvedRoot, _, err := session.resolve(guest, false, false)
 		if err != nil {
-			return nil, err
+			return nil, submitExactBytesPathError("TOOL_PATH_INVALID", field)
 		}
 		host, root = target, resolvedRoot
 	}
 	if root == "" || !pathBeneath(root, host) {
-		return nil, fail("TOOL_PATH_INVALID")
+		return nil, submitExactBytesPathError("TOOL_PATH_INVALID", field)
 	}
 	// The scratch surfaces are worker-writable, so a symlink there could
 	// point the engine at host content the worker itself cannot read.
 	// Resolve and re-check containment before trusting the path.
 	resolved, err := filepath.EvalSymlinks(host)
 	if err != nil {
-		return nil, fail("TOOL_PATH_INVALID")
+		return nil, submitExactBytesPathError("TOOL_PATH_INVALID", field)
 	}
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil || !pathBeneath(resolvedRoot, resolved) {
-		return nil, fail("TOOL_PATH_INVALID")
+		return nil, submitExactBytesPathError("TOOL_PATH_INVALID", field)
 	}
 	info, err := os.Lstat(resolved)
 	if err != nil || !info.Mode().IsRegular() ||
 		info.Size() < 1 || info.Size() > MaxPlanBytes {
-		return nil, fail("INVALID_EXACT_BYTES")
+		return nil, submitExactBytesPathError("INVALID_EXACT_BYTES", field)
 	}
 	body, err := os.ReadFile(resolved)
 	if err != nil || int64(len(body)) != info.Size() {
-		return nil, fail("INVALID_EXACT_BYTES")
+		return nil, submitExactBytesPathError("INVALID_EXACT_BYTES", field)
 	}
 	return body, nil
 }
 
 func decodeToolSubmission(value any) (Submission, error) {
-	root, err := closedObject(
+	root, err := decodeSubmissionObject(
 		value,
 		[]string{
 			"schema_version", "invocation_id", "responsibility", "summary",
 			"detail",
 		},
 		[]string{"plan", "checks", "decision", "contracts"},
+		"submission",
 	)
 	if err != nil {
 		return Submission{}, err
@@ -907,10 +909,11 @@ func decodeToolSubmission(value any) (Submission, error) {
 		if root[name] == nil {
 			continue
 		}
-		if _, err := closedObject(
+		if _, err := decodeSubmissionObject(
 			root[name],
 			[]string{"byte_count", "digest", "bytes"},
 			nil,
+			name,
 		); err != nil {
 			return Submission{}, err
 		}
@@ -918,35 +921,37 @@ func decodeToolSubmission(value any) (Submission, error) {
 	if root["contracts"] != nil {
 		contracts, ok := root["contracts"].(map[string]any)
 		if !ok {
-			return Submission{}, fail("INVALID_FIELD")
+			return Submission{}, submitDecodeError("INVALID_FIELD", "contracts")
 		}
 		for _, member := range contracts {
-			if _, err := closedObject(
+			if _, err := decodeSubmissionObject(
 				member,
 				[]string{"byte_count", "digest", "bytes"},
 				nil,
+				"contracts entry",
 			); err != nil {
 				return Submission{}, err
 			}
 		}
 	}
 	if root["decision"] != nil {
-		if _, err := closedObject(
+		if _, err := decodeSubmissionObject(
 			root["decision"],
 			[]string{"outcome"},
 			nil,
+			"decision",
 		); err != nil {
 			return Submission{}, err
 		}
 	}
 	body, err := canonicalJSON(root)
 	if err != nil {
-		return Submission{}, err
+		return Submission{}, submitDecodeError("INVALID_JSON", "")
 	}
 	defer clearBytes(body)
 	var submission Submission
 	if json.Unmarshal(body, &submission) != nil {
-		return Submission{}, fail("INVALID_SUBMISSION")
+		return Submission{}, submitDecodeError("INVALID_SUBMISSION", "")
 	}
 	// Structurally valid fields outside this responsibility carry no authority.
 	// Drop that model noise before the strict, permission-bound validation.
@@ -965,6 +970,15 @@ func decodeToolSubmission(value any) (Submission, error) {
 	case WorkVerification, AssemblyVerification:
 		submission.Plan = nil
 		submission.Contracts = nil
+	}
+	if declared, bound := submissionDeclaresProbe(submission.Summary); declared {
+		return Submission{}, submissionProbeError("summary", bound)
+	}
+	if declared, bound := submissionDeclaresProbe(submission.Detail); declared {
+		return Submission{}, submissionProbeError("detail", bound)
+	}
+	if err := submissionFloorCheck(submission); err != nil {
+		return Submission{}, err
 	}
 	if err := ValidateSubmission(submission); err != nil {
 		return Submission{}, err
